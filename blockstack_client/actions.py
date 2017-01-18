@@ -121,7 +121,7 @@ from .proxy import *
 from .client import analytics_event
 from .scripts import UTXOException, is_name_valid
 from .user import add_user_zonefile_url, remove_user_zonefile_url, user_zonefile_urls, \
-        user_zonefile_data_pubkey, user_load, user_store, user_delete, users_list, user_init, \
+        user_zonefile_data_pubkey, users_list, user_init, \
         user_get_privkey
 
 from .resolve import *
@@ -136,7 +136,7 @@ from .app import app_publish, app_make_resource_data_id, app_get_config, app_get
 
 from .data import datastore_mkdir, datastore_rmdir, make_datastore, get_datastore, put_datastore, delete_datastore, \
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir, datastore_stat, datastore_list, \
-        datastore_rmtree
+        datastore_rmtree, get_user, put_user, delete_user, next_privkey_index, put_user_list, data_setup
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN
 
@@ -428,13 +428,28 @@ def wallet_ensure_exists(config_dir=CONFIG_DIR, password=None, wallet_path=None)
     Return {'error': ...} on error
     """
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    config_path = os.path.join(config_dir, CONFIG_FILENAME)
+    privkey_progress_path = os.path.join(config_dir, '.no_privkey_index')
 
+    res = {'status': True}
     if not wallet_exists(config_dir=config_dir):
+
+        try:
+            with open(privkey_progress_path, 'w') as f:
+                pass
+
+        except Exception as e:
+            log.exception(e)
+            return {'error': 'Failed to mark the absence of a private key index'}
+
         res = initialize_wallet(wallet_path=wallet_path, password=password)
         if 'error' in res:
             return res
+        
+        password = res['wallet_password']
 
-    return {'status': True}
+    res = data_setup(password, config_path=config_path)
+    return res
 
 
 def load_zonefile(fqu, zonefile_data, check_current=True):
@@ -519,10 +534,10 @@ def cli_balance(args, config_path=CONFIG_PATH):
 
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    if not wallet_exists(config_dir=config_dir):
-        res = initialize_wallet(wallet_path=wallet_path)
-        if 'error' in res:
-            return res
+
+    res = wallet_ensure_exists(config_dir=config_dir, wallet_path=wallet_path) 
+    if 'error' in res:
+        return res
 
     result = {}
     addresses = []
@@ -634,10 +649,10 @@ def cli_deposit(args, config_path=CONFIG_PATH):
 
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    if not os.path.exists(wallet_path):
-        res = initialize_wallet(wallet_path=wallet_path)
-        if 'error' in res:
-            return res
+    
+    res = wallet_ensure_exists(config_dir=config_dir, wallet_path=wallet_path) 
+    if 'error' in res:
+        return res
 
     result = {}
     result['message'] = 'Send bitcoins to the address specified.'
@@ -656,10 +671,10 @@ def cli_import(args, config_path=CONFIG_PATH):
 
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    if not os.path.exists(wallet_path):
-        res = initialize_wallet(wallet_path=wallet_path)
-        if 'error' in res:
-            return res
+    
+    res = wallet_ensure_exists(config_dir=config_dir, wallet_path=wallet_path) 
+    if 'error' in res:
+        return res
 
     result = {}
     result['message'] = (
@@ -682,10 +697,10 @@ def cli_names(args, config_path=CONFIG_DIR):
 
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    if not os.path.exists(wallet_path):
-        res = initialize_wallet(wallet_path=wallet_path)
-        if 'error' in res:
-            return res
+    
+    res = wallet_ensure_exists(config_dir=config_dir, wallet_path=wallet_path) 
+    if 'error' in res:
+        return res
 
     result['names_owned'] = get_all_names_owned(wallet_path)
     result['addresses'] = get_owner_addresses_and_names(wallet_path)
@@ -1013,10 +1028,10 @@ def get_wallet_keys(config_path, password):
 
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    if not os.path.exists(wallet_path):
-        res = initialize_wallet(wallet_path=wallet_path)
-        if 'error' in res:
-            return res
+    
+    res = wallet_ensure_exists(config_dir=config_dir, wallet_path=wallet_path) 
+    if 'error' in res:
+        return res
 
     if not is_wallet_unlocked(config_dir=config_dir):
         log.debug('unlocking wallet ({})'.format(config_dir))
@@ -1696,6 +1711,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
         legacy = False
         nonstandard = False
 
+        # TODO: handle zone files that do not have data keys.
         # try to parse
         try:
             user_zonefile = blockstack_zones.parse_zone_file(user_zonefile_txt)
@@ -1712,8 +1728,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
                 msg = (
                     ''
                     'WARNING!  Non-standard zonefile detected.'
-                    'If you proceed, your zonefile will be reset'
-                    'and you will have to re-build your profile.'
+                    'If you proceed, your zonefile will be reset.'
                     ''
                     'Proceed? (y/N): '
                 )
@@ -1795,7 +1810,7 @@ def cli_migrate_wallet(args, config_path=CONFIG_PATH, password=None):
     if local_rpc_status(config_dir=config_dir):
         local_rpc_stop(config_dir=config_dir)
 
-    return {'status': True, 'message': 'Backed up old wallet to "{}"'.format(old_path), 'backup_wallet': old_path}
+    return {'status': True, 'backup_wallet': old_path}
 
 
 def cli_set_advanced_mode(args, config_path=CONFIG_PATH):
@@ -2232,13 +2247,10 @@ def cli_wallet(args, config_path=CONFIG_PATH, password=None):
     if 'error' in res:
         return res
 
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    if os.path.exists(wallet_path):
-        result = get_wallet_with_backoff(config_path)
+    result = get_wallet_keys(config_path, password)
+    if 'error' in result:
         return result
-
-    result = initialize_wallet(wallet_path=wallet_path)
-
+    
     payment_privkey = result.get('payment_privkey', None)
     owner_privkey = result.get('owner_privkey', None)
     data_privkey = result.get('data_privkey', None)
@@ -2447,8 +2459,8 @@ def cli_namespace_ready(args, config_path=CONFIG_PATH):
 def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     """
     command: put_mutable advanced
-    help: Put mutable data into a profile
-    arg: name (str) 'The name to receive the data'
+    help: Put signed, versioned data into your storage providers.
+    arg: name (str) 'The name that points to the key to use'
     arg: data_id (str) 'The name of the data'
     arg: data (str) 'The JSON-serializable data to store'
     """
@@ -2473,24 +2485,26 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
         wallet_keys=wallet_keys, proxy=proxy
     )
 
+    if 'error' in result:
+        return result
+
+    version = result['version']
+    url = blockstack_mutable_data_url( fqu, str(args.data_id), version )
+    result['url'] = url
+
     return result
 
 
-def cli_put_immutable(args, config_path=CONFIG_PATH,
-                               password=None, proxy=None):
+def cli_put_immutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     """
     command: put_immutable advanced
-    help: Put immutable data into a zonefile
-    arg: name (str) 'The name to receive the data'
+    help: Put signed, blockchain-hashed data into your storage providers.
+    arg: name (str) 'The name that points to the zone file to use'
     arg: data_id (str) 'The name of the data'
     arg: data (str) 'The JSON-formatted data to store'
     """
 
     config_dir = os.path.dirname(config_path)
-    res = wallet_ensure_exists(config_dir, password=password)
-    if 'error' in res:
-        return res
-
     res = start_rpc_endpoint(config_dir)
     if 'error' in res:
         return res
@@ -2525,14 +2539,22 @@ def cli_put_immutable(args, config_path=CONFIG_PATH,
         fqu, str(args.data_id), data,
         wallet_keys=wallet_keys, proxy=proxy
     )
+
+    if 'error' in result:
+        return result
+    
+    data_hash = result['immutable_data_hash']
+    url = blockstack_immutable_data_url( fqu, str(args.data_id), data_hash )
+    result['url'] = url
+
     return result
 
 
 def cli_get_mutable(args, config_path=CONFIG_PATH, proxy=None):
     """
     command: get_mutable advanced
-    help: Get mutable data from a profile
-    arg: name (str) 'The name that has the data'
+    help: Get signed, versioned data from storage providers.
+    arg: name (str) 'The name that points to the key to use to verify it'
     arg: data_id (str) 'The name of the data'
     """
     conf = config.get_config(config_path)
@@ -2545,8 +2567,8 @@ def cli_get_mutable(args, config_path=CONFIG_PATH, proxy=None):
 def cli_get_immutable(args, config_path=CONFIG_PATH, proxy=None):
     """
     command: get_immutable advanced
-    help: Get immutable data from a zonefile
-    arg: name (str) 'The name that has the data'
+    help: Get signed, blockchain-hashed data from storage providers.
+    arg: name (str) 'The name that points to the zone file with the data hash'
     arg: data_id_or_hash (str) 'Either the name or the SHA256 of the data to obtain'
     """
     proxy = get_default_proxy() if proxy is None else proxy
@@ -2560,6 +2582,19 @@ def cli_get_immutable(args, config_path=CONFIG_PATH, proxy=None):
     # maybe this hash-like string is the name of something?
     result = get_immutable_by_name(str(args.name), str(args.data_id_or_hash), proxy=proxy)
     return result
+
+
+def cli_get_data(args, config_path=CONFIG_PATH, proxy=None):
+    """
+    command: get_data advanced
+    help: Fetch Blockstack data using a blockstack:// URL.
+    arg: url (str) 'The Blockstack URL'
+    """
+    proxy = get_default_proxy() if proxy is None else proxy
+    
+    url = str(args.url)
+    res = blockstack_url_fetch( url, proxy=proxy, config_path=config_path)
+    return res
 
 
 def cli_list_update_history(args, config_path=CONFIG_PATH):
@@ -2602,10 +2637,6 @@ def cli_delete_immutable(args, config_path=CONFIG_PATH, proxy=None, password=Non
     """
 
     config_dir = os.path.dirname(config_path)
-    res = wallet_ensure_exists(config_dir, password=password)
-    if 'error' in res:
-        return res
-
     res = start_rpc_endpoint(config_dir)
     if 'error' in res:
         return res
@@ -2830,10 +2861,6 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     assert conf
 
     config_dir = os.path.dirname(config_path)
-    res = wallet_ensure_exists(config_dir, password=password)
-    if 'error' in res:
-        return res
-
     res = start_rpc_endpoint(config_dir, password=password)
     if 'error' in res:
         return res
@@ -3329,7 +3356,7 @@ def cli_app_get_account( args, config_path=CONFIG_PATH, proxy=None ):
 def cli_app_list_accounts( args, config_path=CONFIG_PATH, proxy=None ):
     """
     command: app_list_accounts advanced
-    help: List all local application user accounts.  Does not include datastores.
+    help: List all application accounts on this computer.
     opt: user_id (str) 'Only list accounts owned by this user.  Pass * for all.'
     opt: app_blockchain_id (str) 'Only list accounts for apps owned by this blockchain ID.  Pass * for all.'
     opt: app_name (str) 'Only list accounts for apps for this particular application.  Pass * for all.'
@@ -3397,10 +3424,14 @@ def cli_app_put_account( args, config_path=CONFIG_PATH, interactive=False, proxy
     master_data_privkey = wallet_keys['data_privkey']
     master_data_pubkey = get_pubkey_hex(master_data_privkey)
     
-    # load user 
-    res = user_load( user_id, master_data_pubkey, config_path=config_path )
+    # load user
+    res = get_user(user_id, master_data_pubkey, config_path=config_path)
     if 'error' in res:
         return res
+    
+    if not res['owned']:
+        # we don't own this user, so this is nonsensical 
+        return {'error': 'This user is not owned by this wallet'}
 
     user = res['user']
     user_privkey_hex = user_get_privkey( master_data_privkey, user )
@@ -3502,7 +3533,7 @@ def cli_app_delete_account( args, config_path=CONFIG_PATH, proxy=None, password=
 def cli_get_user(args, proxy=None, config_path=CONFIG_PATH):
     """
     command: get_user advanced
-    help: Get a persona associated with your identity
+    help: Get a named public key, given its identifier.
     arg: user_id (str) 'The ID of the user to look up'
     """
     config_dir = os.path.dirname(config_path)
@@ -3514,12 +3545,14 @@ def cli_get_user(args, proxy=None, config_path=CONFIG_PATH):
 
     user_id = str(args.user_id)
 
-    res = user_load(user_id, data_pubkey, config_path=config_path)
+    res = get_user(user_id, data_pubkey, config_path=config_path)
     if 'error' in res:
         return res
 
     user = res['user']
-    return user
+    owned = res['owned']
+    
+    return {'user': user, 'owned': owned}
 
 
 def cli_create_user(args, proxy=None, password=None, config_path=CONFIG_PATH):
@@ -3551,7 +3584,7 @@ def cli_create_user(args, proxy=None, password=None, config_path=CONFIG_PATH):
     user = res['user']
     tok = res['user_token']
 
-    res = user_store(tok, config_path=config_path)
+    res = put_user(user, master_data_privkey, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -3583,9 +3616,12 @@ def cli_delete_user(args, proxy=None, password=None, wallet_keys=None, config_pa
     master_data_privkey = wallet_keys['data_privkey']
     master_data_pubkey = get_pubkey_hex(master_data_privkey)
 
-    res = user_load(user_id, master_data_pubkey, config_path=config_path)
+    res = get_user(user_id, master_data_pubkey, config_path=config_path)
     if 'error' in res:
         return res
+
+    if not res['owned']:
+        return {'error': 'This wallet does not own this user'}
 
     user = res['user']
     user_privkey_hex = user_get_privkey(master_data_privkey, user)
@@ -3623,7 +3659,7 @@ def cli_delete_user(args, proxy=None, password=None, wallet_keys=None, config_pa
             return res
 
     # delete the user itself
-    res = user_delete( user_id, config_path=config_path )
+    res = delete_user(user_id, master_data_privkey, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -3633,7 +3669,7 @@ def cli_delete_user(args, proxy=None, password=None, wallet_keys=None, config_pa
 def cli_list_users( args, proxy=None, password=None, config_path=CONFIG_PATH ):
     """
     command: list_users advanced
-    help: List all identity personas available on this computer.
+    help: List all local identity personas on this computer.
     """
     config_dir = os.path.dirname(config_path)
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
@@ -3662,7 +3698,7 @@ def cli_get_user_profile(args, proxy=None, config_path=CONFIG_PATH):
 
     user_id = str(args.user_id)
 
-    res = user_load(user_id, data_pubkey, config_path=config_path)
+    res = get_user(user_id, data_pubkey, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -3718,10 +3754,13 @@ def cli_put_user_profile(args, proxy=None, password=None, config_path=CONFIG_PAT
     master_data_pubkey = get_pubkey_hex(master_data_privkey)
 
     user = None
-    res = user_load(user_id, master_data_pubkey, config_path=config_path)
+    res = get_user(user_id, master_data_pubkey, config_path=config_path)
     if 'error' in res:
         return res
-                
+    
+    if not res['owned']:
+        return {'error': 'This wallet does not own this user'}
+
     user = res['user']
     user_privkey_hex = user_get_privkey(master_data_privkey, user)
     if user_privkey_hex is None:
@@ -3757,9 +3796,12 @@ def cli_delete_user_profile(args, proxy=None, config_path=CONFIG_PATH, password=
     master_data_privkey = wallet_keys['data_privkey']
     master_data_pubkey = get_pubkey_hex(master_data_privkey)
 
-    res = user_load(user_id, master_data_pubkey, config_path=config_path)
+    res = get_user(user_id, master_data_pubkey, config_path=config_path)
     if 'error' in res:
         return res
+
+    if not res['owned']:
+        return {'error': 'This wallet does not own this user'}
 
     user = res['user']
     user_privkey_hex = user_get_privkey(master_data_privkey, user)
@@ -3800,10 +3842,6 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
         privkey = str(args.privkey)
 
     else:
-        res = wallet_ensure_exists(config_dir, password=password)
-        if 'error' in res:
-            return res
-
         res = start_rpc_endpoint(config_dir, password=password)
         if 'error' in res:
             return res
@@ -3966,9 +4004,12 @@ def create_datastore_by_type( datastore_type, user_id, datastore_id, proxy=None,
     master_data_privkey = wallet_keys['data_privkey']
     master_data_pubkey = get_pubkey_hex(master_data_privkey)
 
-    res = user_load(user_id, master_data_pubkey, config_path=config_path)
+    res = get_user(user_id, master_data_pubkey, config_path=config_path)
     if 'error' in res:
         return res
+
+    if not res['owned']:
+        return {'error': 'This wallet does not own this user'}
 
     user = res['user']
     user_pubkey = user['public_key']
@@ -4051,9 +4092,12 @@ def delete_datastore_by_type( datastore_type, user_id, datastore_id, force=False
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = user_load(user_id, master_data_pubkey, config_path=config_path)
+    res = get_user(user_id, master_data_pubkey, config_path=config_path)
     if 'error' in res:
         return res
+
+    if 'error' in res:
+        return {'error': 'This wallet does not own this user'}
 
     user = res['user']
     user_pubkey = user['public_key']
@@ -4140,6 +4184,12 @@ def datastore_file_put(datastore_type, user_id, datastore_id, path, data, create
     datastore_privkey_hex = datastore_info['datastore_privkey']
 
     res = datastore_putfile( datastore, path, data, datastore_privkey_hex, create=create, config_path=config_path, proxy=proxy )
+    if 'error' in res:
+        return res
+
+    # make url 
+    url = blockstack_datastore_url( user_id, datastore_id, path )
+    res['url'] = url
     return res
 
 
@@ -4310,6 +4360,15 @@ def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy
     datastore_privkey_hex = datastore_info['datastore_privkey']
 
     res = datastore_mkdir(datastore, path, datastore_privkey_hex, config_path=config_path, proxy=proxy)
+    if 'error' in res:
+        return res
+
+    # make url 
+    if not path.endswith('/'):
+        path += '/'
+
+    url = blockstack_datastore_url( user_id, datastore_id, path )
+    res['url'] = url
     return res
 
     
