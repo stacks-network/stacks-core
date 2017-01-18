@@ -52,7 +52,10 @@ OP_NAMESPACE_HASH_PATTERN = r'^([0-9a-fA-F]{16})$'
 OP_BASE64_PATTERN_SECTION = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
 OP_BASE64_PATTERN = r'^({})$'.format(OP_BASE64_PATTERN_SECTION)
 OP_URLENCODED_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'
-OP_USER_ID_PATTERN = r'^([a-zA-Z0-9\-_.%]+)$'
+OP_USER_ID_CLASS = r'[a-zA-Z0-9\-_.%]'
+OP_DATASTORE_ID_CLASS = r'[a-zA-Z0-9\-_.~%]'
+OP_USER_ID_PATTERN = r'^({}+)$'.format(OP_USER_ID_CLASS)
+OP_DATASTORE_ID_PATTERN = r'^({}+)$'.format(OP_DATASTORE_ID_CLASS)
 OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/]+)$'
 OP_MUTABLE_DATA_MD_PATTERN = r'^(mutable:{}:[0-9]+)$'.format(OP_BASE64_PATTERN_SECTION)
 
@@ -579,6 +582,10 @@ MUTABLE_DATUM_SCHEMA = {
 DATASTORE_SCHEMA = {
     'type': 'object',
     'properties': {
+        'type': {
+            'type': 'string',
+            'pattern': r'([a-zA-Z0-9_]+)$',
+        },
         'datastore_name': {
             'type': 'string',
             'pattern': OP_URLENCODED_PATTERN
@@ -604,6 +611,7 @@ DATASTORE_SCHEMA = {
     },
     'additionalProperties': False,
     'required': [
+        'type',
         'owner_pubkey',
         'root_uuid',
         'drivers',
@@ -755,27 +763,6 @@ APP_CONFIG_SCHEMA = {
         'api_methods',
     ],
 }
-
-# for a profile's mutable data
-# TODO: deprecate and replace with filesystem
-PROFILE_MUTABLE_DATA_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'data': {
-            'type': 'object',
-            'patternProperties': {
-                OP_MUTABLE_DATA_MD_PATTERN: {
-                    'type': 'array',
-                    'items': URI_RECORD_SCHEMA
-                },
-            },
-        },
-    },
-    'required': [
-        'data'
-    ],
-}
-
 
 OP_HISTORY_SCHEMA = {
     'type': 'object',

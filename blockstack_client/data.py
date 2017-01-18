@@ -47,6 +47,7 @@ from .zonefile import get_name_zonefile, load_name_zonefile, url_to_uri_record, 
 
 from .config import get_logger
 from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
+from .schemas import *
 
 log = get_logger()
 
@@ -1054,6 +1055,8 @@ def _make_datastore_name( user_id, datastore_name ):
     """
     Make a datastore name
     """
+    assert re.match(OP_USER_ID_PATTERN, user_id)
+    assert re.match(OP_DATASTORE_ID_PATTERN, datastore_name)
     return "{}@{}".format(user_id, datastore_name)
 
 
@@ -1207,7 +1210,7 @@ def datastore_get_user_id( datastore ):
     return datastore['user_id']
 
 
-def _make_datastore_info( user_id, datastore_name, datastore_privkey_hex, driver_names, config_path=CONFIG_PATH ):
+def _make_datastore_info( datastore_type, user_id, datastore_name, datastore_privkey_hex, driver_names, config_path=CONFIG_PATH ):
     """
     Make the private part of a datastore record.
     Returns {'datastore': ..., 'root': ...} on success
@@ -1220,7 +1223,10 @@ def _make_datastore_info( user_id, datastore_name, datastore_privkey_hex, driver
     datastore_root = _mutable_data_make_dir( datastore_address, root_uuid, {} )
     datastore_root['idata'] = {}
 
+    assert datastore_type in ['datastore', 'collection'], datastore_type
+
     datastore_info = {
+        'type': datastore_type,
         'datastore_name': datastore_name, 
         'user_id': user_id,
         'owner_pubkey': datastore_pubkey,
@@ -1272,7 +1278,7 @@ def get_datastore(user_id, datastore_name, datastore_pubkey, config_path=CONFIG_
     return {'status': True, 'datastore': datastore}
 
 
-def make_datastore(user_id, datastore_name, datastore_privkey_hex, driver_names=None, config_path=CONFIG_PATH ):
+def make_datastore(user_id, datastore_name, datastore_privkey_hex, driver_names=None, config_path=CONFIG_PATH, datastore_type='datastore' ):
     """
     Create a new datastore record with the given name, using the given account_info structure
     Return {'datastore': public datastore information, 'datastore_token': datastore JWT, 'root': root inode}
@@ -1282,7 +1288,7 @@ def make_datastore(user_id, datastore_name, datastore_privkey_hex, driver_names=
         driver_handlers = storage.get_storage_handlers()
         driver_names = [h.__name__ for h in driver_handlers]
 
-    datastore_info = _make_datastore_info( user_id, datastore_name, datastore_privkey_hex, driver_names, config_path=config_path)
+    datastore_info = _make_datastore_info( datastore_type, user_id, datastore_name, datastore_privkey_hex, driver_names, config_path=config_path)
     return {'datastore': datastore_info['datastore'],  'datastore_token': datastore_info['datastore_token'], 'root': datastore_info['root']}
 
 
@@ -1305,6 +1311,8 @@ def put_datastore(user_id, datastore_name, datastore_info, datastore_privkey, pr
     drivers = datastore['drivers']
 
     assert datastore_name == datastore['datastore_name']
+    assert re.match(OP_USER_ID_PATTERN, user_id), user_id
+    assert re.match(OP_DATASTORE_ID_PATTERN, datastore_name), datastore_name
 
     # replicate root inode
     res = _put_inode(user_id, root, datastore_privkey, drivers, config_path=CONFIG_PATH, proxy=proxy, create=True )
