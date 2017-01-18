@@ -111,11 +111,16 @@ def get_account_datastore_info( master_data_pubkey, master_data_privkey, user_id
     Return {'error': ...} on failure
     """
    
-    res = user_db.user_load(user_id, master_data_pubkey, config_path=config_path)
-    if 'error' in res:
-        return res
+    # get user info
+    user_info = data.get_user(user_id, master_data_pubkey, config_path=config_path)
+    if 'error' in user_info:
+        return user_info
 
-    user = res['user']
+    if not user_info['owned']:
+        # we have to own this user, since this is an account-specific datastore
+        return {'error': 'This wallet does not own this user'}
+
+    user = user_info['user']
     user_privkey_hex = None
 
     if master_data_privkey is not None:
@@ -170,7 +175,7 @@ def get_user_datastore_info( master_data_pubkey, master_data_privkey, user_id, d
     Return {'error': ...} on failure
     """
     
-    res = user_db.user_load(user_id, master_data_pubkey, config_path=config_path)
+    res = data.get_user(user_id, master_data_pubkey, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -227,17 +232,19 @@ def get_datastore_name_info( user_id, datastore_id ):
         # this is a generic datastore
         datastore_name = datastore_id
 
-    return {'app_fqu': app_fqu, 'appname': appname, 'datastore_name': datastore_name}
+    return {'app_fqu': app_fqu, 'appname': appname, 'datastore_name': datastore_name}    
 
 
 def get_datastore_info( user_id, datastore_id, include_private=False, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
     """
-    Get datastore information
+    Get datastore information.  If the datastore information is not locally hosted, then user_id must be a blockchain ID that points to the
+    zone file with the master public key.
+
     Returns {
         'datastore': datastore record,
-        'datastore_privkey': datastore private key (if include_private is True).  Hex-encoded
-        'app_fqu': name that points to application that owns the datastore (if defined)
-        'appname': name of application that owns the datastore (if defined)
+        'datastore_privkey': datastore private key (if include_private is True and we have the ciphertext locally).  Hex-encoded
+        'app_fqu': name that points to owner of the application for which this datastore holds the user's data (if defined)
+        'appname': name of application for which this datastore holds the user's data the datastore (if defined)
         'datastore_name': name of datastore
         'master_data_pubkey': master data public key
         'master_data_privkey': master data private key (only given if include_private is True)
@@ -267,6 +274,7 @@ def get_datastore_info( user_id, datastore_id, include_private=False, config_pat
     appname = name_info['appname']
     datastore_name = name_info['datastore_name']
 
+    # try local public key (may have to later on look it up)
     _, _, master_data_pubkey = wallet.get_addresses_from_file(config_dir=config_dir)
     if not master_data_pubkey:
         return {'error': 'No wallet'}
@@ -343,24 +351,16 @@ def blockstack_immutable_data_url(blockchain_id, data_id, data_hash):
     )
 
 
-def blockstack_datastore_url( blockchain_id, user_id, datastore_id, path, version ):
+def blockstack_datastore_url( user_id, datastore_id, path ):
     """
     Make a blockstack:// URL for a datastore record
     """
-    assert is_name_valid(blockchain_id)    
     assert re.match(schemas.OP_URLENCODED_PATTERN, user_id)
     assert re.match(schemas.OP_URLENCODED_PATTERN, datastore_id)
 
     path = '/'.join( [urllib.quote(p) for p in posixpath.normpath(path).split('/')] )
 
-    if version is not None:
-        if type(version) not in [int, long]:
-            raise ValueError("Version must be an int or a long")
-
-        return 'blockstack://{}.{}@{}/{}#{}'.format(urllib.quote(datastore_id), urllib.quote(user_id), urllib.quote(blockchain_id), path, str(version))
-    
-    else:
-        return 'blockstack://{}.{}@{}/{}'.format(urllib.quote(datastore_id), urllib.quote(user_id), urllib.quote(blockchain_id), path)
+    return 'blockstack://{}@{}/{}'.format(urllib.quote(datastore_id), urllib.quote(user_id), path)
 
 
 def blockstack_mutable_data_url_parse(url):
@@ -373,7 +373,7 @@ def blockstack_mutable_data_url_parse(url):
 
     url = str(url)
     mutable_url_data_regex = r'^blockstack://({}+)[/]+({}+)[/]*(#[0-9]+)?$'.format(B40_CLASS, URLENCODED_CLASS)
-    datastore_url_data_regex = r"^blockstack://({}+)\.({}+)@({}+)[/]+({}+)$".format(schemas.OP_DATASTORE_ID_CLASS, schemas.OP_USER_ID_CLASS, B40_CLASS, URLENCODED_PATH_CLASS)
+    datastore_url_data_regex = r"^blockstack://({}+)@({}+)[/]+({}+)$".format(schemas.OP_DATASTORE_ID_CLASS, schemas.OP_USER_ID_CLASS, URLENCODED_PATH_CLASS)
 
     blockchain_id, data_id, version, user_id, datastore_id = None, None, None, None, None
     is_dir = False
@@ -397,7 +397,7 @@ def blockstack_mutable_data_url_parse(url):
     m = re.match(datastore_url_data_regex, url)
     if m:
 
-        datastore_id, user_id, blockchain_id, path = m.groups()
+        datastore_id, user_id, path = m.groups()
         if path.endswith('/'):
             is_dir = True
         
@@ -406,7 +406,7 @@ def blockstack_mutable_data_url_parse(url):
         if is_dir:
             path += '/'
 
-        return urllib.unquote(blockchain_id), urllib.unquote(path), version, user_id, datastore_id
+        return None, urllib.unquote(path), version, user_id, datastore_id
 
     return None, None, None, None, None
 
@@ -491,20 +491,22 @@ def blockstack_data_url_parse(url):
                 blockstack_mutable_data_url_parse(url)
             )
 
-            assert blockchain_id is not None
-
             url_type = 'mutable'
-            fields.update({'version': version})
+            assert (blockchain_id is None and user_id is not None and datastore_id is not None) or (blockchain_id is not None and user_id is None and datastore_id is None)
 
-            assert (datastore_id is None and user_id is None) or (datastore_id is not None and user_id is not None)
+            if blockchain_id is not None:
+                fields['version'] = version
 
-            if datastore_id is not None and user_id is not None:
+            else:
                 fields['datastore_id'] = datastore_id
                 fields['user_id'] = user_id
 
             log.debug("Mutable data URL: {}".format(url))
 
         except (ValueError, AssertionError) as e2:
+            if BLOCKSTACK_TEST:
+                log.exception(e2)
+
             log.debug('Unparseable URL "{}"'.format(url))
             return None
 
@@ -539,7 +541,7 @@ def blockstack_data_url(field_dict):
 
     if field_dict['fields'].has_key('user_id') and field_dict['fields'].has_key('datastore_id'):
         return blockstack_datastore_url(
-            field_dict['blockchain_id'], field_dict['fields']['user_id'], field_dict['fields']['datastore_id'], field_dict['data_id'], field_dict['fields']['version']
+            field_dict['fields']['user_id'], field_dict['fields']['datastore_id'], field_dict['data_id']
         )
 
     return blockstack_mutable_data_url(
@@ -583,27 +585,6 @@ def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH):
         data_hash = fields.get('data_hash')
         immutable = True
 
-    """
-    try:
-        blockchain_id, data_id, version, user_id, datastore_id = blockstack_mutable_data_url_parse( url )
-        assert blockchain_id is not None
-        assert data_id is not None
-
-        mutable = True
-        log.debug("{} is mutable".format(url))
-
-    except (AssertionError, ValueError) as ve:
-        if BLOCKSTACK_DEBUG:
-            log.exception(ve)
-
-        blockchain_id, data_id, data_hash = blockstack_immutable_data_url_parse( url )
-        if blockchain_id is None:
-            return {'error': 'Unparseable URL'}
-
-        immutable = True
-        log.debug("{} is immutable".format(url))
-    """
-
     if mutable:
         if user_id is not None and datastore_id is not None:
             # get from datastore     
@@ -620,13 +601,16 @@ def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH):
             else:
                 return data.datastore_getfile( datastore, data_id, config_path=config_path, proxy=proxy )
 
-        else:
+        elif blockchain_id is not None:
             # get single data
             if version is not None:
                 return data.get_mutable( blockchain_id, data_id, proxy=proxy, ver_min=version, ver_max=version+1 )
             else:
                 return data.get_mutable( blockchain_id, data_id, proxy=proxy )
-        
+       
+        else:
+            return {'error': 'Invalid URL'}
+
     else:
         if data_id is not None:
             # get single data
