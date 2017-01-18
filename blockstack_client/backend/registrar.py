@@ -39,6 +39,7 @@ import socket
 import threading
 import time
 import tempfile
+import keylib
 from keylib import ECPrivateKey
 
 import blockstack_profiles
@@ -776,9 +777,10 @@ class RegistrarState(object):
     payment_address = None
     owner_address = None
 
-    encrypted_payment_privkey_info = None
-    encrypted_owner_privkey_info = None
-    encrypted_data_privkey_info = None
+    payment_privkey_info = None
+    owner_privkey_info = None
+    data_privkey_info = None
+    data_pubkey = None
 
     server_started_at = None
     registrar_worker = None
@@ -862,6 +864,10 @@ def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, p
 
     state.payment_address = payment_keypair[0]
     state.owner_address = owner_keypair[0]
+    state.data_pubkey = ECPrivateKey(data_keypair[1]).public_key().to_hex()
+
+    if keylib.key_formatting.get_pubkey_format(state.data_pubkey) == 'hex_compressed':
+        state.data_pubkey = keylib.key_formatting.decompress(state.data_pubkey)
 
     enc_payment_info = encrypt_private_key_info(payment_keypair[1], rpc_token )
     enc_owner_info = encrypt_private_key_info(owner_keypair[1], rpc_token )
@@ -879,6 +885,10 @@ def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, p
     state.encrypted_payment_privkey_info = enc_payment_info['encrypted_private_key_info']['private_key_info']
     state.encrypted_owner_privkey_info = enc_owner_info['encrypted_private_key_info']['private_key_info']
     state.encrypted_data_privkey_info = enc_data_info['encrypted_private_key_info']['private_key_info']
+
+    state.payment_privkey_info = payment_keypair[1]
+    state.owner_privkey_info = owner_keypair[1]
+    state.data_privkey_info = data_keypair[1]
 
     data = {}
     data['success'] = True
@@ -902,15 +912,10 @@ def get_wallet_payment_privkey_info(rpc_token, config_path=None, proxy=None):
     Return None if not set
     """
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
-    if state.encrypted_payment_privkey_info is None:
+    if state.payment_privkey_info is None:
         return None
 
-    privkey_info = decrypt_private_key_info( state.encrypted_payment_privkey_info, rpc_token )
-    if 'error' in privkey_info:
-        log.error("Failed to decrypt payment key: %s" % privkey_info['error'])
-        return None
-
-    return privkey_info['private_key_info']
+    return state.payment_privkey_info
 
 
 def get_wallet_owner_privkey_info(rpc_token, config_path=None, proxy=None):
@@ -919,15 +924,10 @@ def get_wallet_owner_privkey_info(rpc_token, config_path=None, proxy=None):
     Return None if not set
     """
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
-    if state.encrypted_owner_privkey_info is None:
+    if state.owner_privkey_info is None:
         return None
 
-    privkey_info = decrypt_private_key_info(state.encrypted_owner_privkey_info, rpc_token)
-    if 'error' in privkey_info:
-        log.error("Failed to decrypt owner key: %s" % privkey_info['error'])
-        return None
-
-    return privkey_info['private_key_info']
+    return state.owner_privkey_info
 
 
 def get_wallet_data_privkey_info(rpc_token, config_path=None, proxy=None):
@@ -936,15 +936,10 @@ def get_wallet_data_privkey_info(rpc_token, config_path=None, proxy=None):
     Return None if not set
     """
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
-    if state.encrypted_data_privkey_info is None:
+    if state.data_privkey_info is None:
         return None 
 
-    privkey_info = decrypt_private_key_info(state.encrypted_data_privkey_info, rpc_token)
-    if 'error' in privkey_info:
-        log.error("Failed to decrypt data key: %s" % privkey_info['error'])
-        return None
-
-    return privkey_info['private_key_info']
+    return state.data_privkey_info
 
 
 # RPC method: backend_get_wallet
@@ -966,16 +961,11 @@ def get_wallet(rpc_token=None, config_path=None, proxy=None):
         data['error'] = "Incorrect RPC token"
         return data
 
-    data_privkey_info = get_wallet_data_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
-
     data['payment_address'] = state.payment_address
     data['owner_address'] = state.owner_address
+    data['data_pubkey'] = state.data_pubkey
 
-    if data_privkey_info is not None:
-        data['data_pubkey'] = ECPrivateKey( data_privkey_info ).public_key().to_hex()
-    else:
-        data['data_pubkey'] = None
-
+    log.debug("begin key decrypt")
     data['payment_privkey'] = get_wallet_payment_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
     data['owner_privkey'] = get_wallet_owner_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
     data['data_privkey'] = get_wallet_data_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
