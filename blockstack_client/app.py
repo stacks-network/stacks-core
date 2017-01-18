@@ -227,40 +227,6 @@ def app_find_accounts( user_id=None, app_fqu=None, appname=None, user_pubkey_hex
     return infos
 
 
-def _get_next_app_account_privkey_index( config_path=CONFIG_PATH ):
-    """
-    Get the next index for making a new private key
-    """
-    dirp = app_accounts_dir(config_path=config_path)
-    if not os.path.exists(dirp):
-        os.makedirs(dirp)
-
-    nonce_path = os.path.join(dirp, ".privkey_index")
-    nonce = 1
-
-    if os.path.exists(nonce_path):
-        try:
-            with open(nonce_path, "r") as f:
-                nonce = int(f.read().strip())
-
-        except:
-            log.warning("Failed to read app account private key index from {}".format(nonce_path))
-
-    nonce = max(1, nonce + 1)
-
-    try:
-        with open(nonce_path, "w") as f:
-            f.write("{}".format(nonce))
-            f.flush()
-            os.fsync(f.fileno())
-    
-    except:
-        log.error("Failed to store app account private key index to {}".format(nonce_path))
-        return None
-
-    return nonce
-
-
 def app_account_get_privkey( user_data_privkey_hex, app_account ):
     """
     Given the owning user's private key and an app account structure, calculate the private key
@@ -278,7 +244,12 @@ def app_make_account( user_info, user_privkey_hex, app_fqu, appname, api_methods
     Return {'error': ...} on error
     """
 
-    next_privkey_index = _get_next_app_account_privkey_index( config_path=config_path )
+    next_privkey_index_info = data.next_privkey_index(user_privkey_hex, config_path=config_path)
+    if 'error' in next_privkey_index_info:
+        return next_privkey_index_info
+
+    next_privkey_index = next_privkey_index_info['index']
+
     hdwallet = HDWallet( hex_privkey=user_privkey_hex )
     app_account_privkey = hdwallet.get_child_privkey( index=next_privkey_index )
 
