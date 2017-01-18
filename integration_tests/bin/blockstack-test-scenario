@@ -58,7 +58,7 @@ regtest = True
 spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
 
 [blockstack]
-server_version = 0.14.0
+server_version = 0.14.1
 rpc_port = %s
 backup_frequency = 3
 backup_max_age = 30
@@ -85,6 +85,7 @@ server = localhost
 port = %s
 metadata = @CLIENT_METADATA@
 storage_drivers = @CLIENT_STORAGE_DRIVERS@
+storage_drivers_local = 
 storage_drivers_required_write = disk,blockstack-server
 advanced_mode = true
 api_endpoint_port = %s
