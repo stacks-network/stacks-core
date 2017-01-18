@@ -45,7 +45,7 @@ from .proxy import *
 from .storage import hash_zonefile
 from .zonefile import get_name_zonefile, load_name_zonefile, url_to_uri_record, store_name_zonefile
 
-from .config import get_logger
+from .config import get_logger, get_config
 from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 from .schemas import *
 
@@ -283,6 +283,7 @@ def get_immutable(name, data_hash, data_id=None, config_path=CONFIG_PATH, proxy=
                 return {'error': 'Data ID/hash mismatch'}
         else:
             data_hash = h
+
     elif not user_db.has_immutable_data(user_zonefile, data_hash):
         return {'error': 'No such immutable datum'}
 
@@ -441,6 +442,8 @@ def list_immutable_data_history(name, data_id, current_block=None, proxy=None):
 def load_user_data_pubkey_addr( name, storage_drivers=None, proxy=None ):
     """
     Get a user's default data public key and/or address.
+    If use_legacy_zonefile is set, then we will fall back to the owner public key hash if need be.
+
     Returns {'pubkey': ..., 'address': ...} on success
     Return {'error': ...} on error
     """
@@ -482,14 +485,19 @@ def get_mutable(name, data_id, data_pubkey=None, data_address=None, storage_driv
     
     If data_pubkey or data_address is given, then name can be arbitrary
 
-    Return {'data': the data, 'version': the version} on success
+    Return {'data': the data, 'version': the version, 'timestamp': ..., 'data_pubkey': ..., 'owner_pubkey_hash': ...} on success
     Return {'error': ...} on error
     """
 
     proxy = get_default_proxy(config_path) if proxy is None else proxy
     conf = config.get_config(path=config_path)
 
-    fq_data_id = storage.make_fq_data_id(name, data_id)
+    fq_data_id = None
+    if data_id is not None and len(data_id) > 0:
+        fq_data_id = storage.make_fq_data_id(name, data_id)
+    else:
+        fq_data_id = name
+
     if data_address is None and data_pubkey is None:
         # need to find pubkey to use
         pubkey_info = load_user_data_pubkey_addr( name, storage_drivers=storage_drivers, proxy=proxy )
@@ -530,7 +538,16 @@ def get_mutable(name, data_id, data_pubkey=None, data_address=None, storage_driv
     if not rc:
         return {'error': 'Failed to store consistency information'}
 
-    return {'data': mutable_data['data'], 'version': version, 'timestamp': mutable_data['timestamp']}
+    ret = {
+        'data': mutable_data['data'],
+        'version': version,
+        'timestamp': mutable_data['timestamp'],
+        'data_pubkey': data_pubkey,
+        'owner_pubkey_hash': data_address
+    }
+
+    return ret
+
 
 
 def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH):
@@ -901,6 +918,8 @@ def delete_mutable(name, data_id, data_privkey=None, proxy=None, storage_drivers
     """
 
     proxy = get_default_proxy(config_path) if proxy is None else proxy
+    conf = get_config(config_path)
+    assert conf
 
     fq_data_id = storage.make_fq_data_id(name, data_id)
     
@@ -1243,7 +1262,10 @@ def _make_datastore_info( datastore_type, user_id, datastore_name, datastore_pri
 
 def get_datastore(user_id, datastore_name, datastore_pubkey, config_path=CONFIG_PATH, proxy=None):
     """
-    Get a datastore's information. 
+    Get a datastore's information.
+    @user_id can be a pet name if the datastore is only owned locally.
+    However, @user_id must be a blockchain ID if the datastore is accessible
+    across hosts.
 
     Returns {'status': True, 'datastore': public datastore info}
     Returns {'error': ...} on failure
@@ -1257,8 +1279,10 @@ def get_datastore(user_id, datastore_name, datastore_pubkey, config_path=CONFIG_
     if 'error' not in datastore_info:
         return {'status': True, 'datastore': datastore_info['datastore']}
 
-    # fall back to mutable storage
-    datastore_info = get_mutable(user_id, datastore_name, datastore_pubkey, proxy=proxy, config_path=config_path)
+    nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
+
+    # fall back to mutable storage.
+    datastore_info = get_mutable(user_id, datastore_name, datastore_pubkey, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
     if 'error' in datastore_info:
         log.error("Failed to load public datastore information: {}".format(datastore_info['error']))
         return {'error': 'Failed to load public datastore record'}
@@ -1414,7 +1438,7 @@ def _is_cacheable(inode_info):
 
 def _get_inode(user_id, inode_uuid, inode_type, data_pubkey_hex, drivers, config_path=CONFIG_PATH, proxy=None, cache=None ):
     """
-    Get an inode from mutable storage.  Verify that it has an
+    Get an inode from non-local mutable storage.  Verify that it has an
     equal or later version number than the one we have locally.
 
     If cache is not None, and if the inode is a directory, then check
@@ -1435,10 +1459,7 @@ def _get_inode(user_id, inode_uuid, inode_type, data_pubkey_hex, drivers, config
             log.debug("Cache HIT on {}".format(inode_uuid))
             return {'status': True, 'inode': inode_data}
 
-    conf = get_config(config_path)
-    assert conf
-
-    res = get_mutable(user_id, inode_uuid, data_pubkey=data_pubkey_hex, storage_drivers=drivers, proxy=proxy, config_path=config_path )
+    res = get_mutable(user_id, inode_uuid, data_pubkey=data_pubkey_hex, storage_drivers=drivers, proxy=proxy, config_path=config_path)
     if 'error' in res:
         log.error("Failed to get inode {}: {}".format(inode_uuid, res['error']))
         return {'error': 'Failed to get inode'}
@@ -1500,11 +1521,8 @@ def _get_inode_header(user_id, inode_uuid, data_pubkey_hex, drivers, config_path
             log.debug("Cache HIT on {}".format(inode_uuid))
             return {'status': True, 'inode': inode_hdr}
 
-    conf = get_config(config_path)
-    assert conf
-
     header_id = '{}.hdr'.format(inode_uuid)
-    res = get_mutable(user_id, header_id, data_pubkey=data_pubkey_hex, storage_drivers=drivers, proxy=proxy, config_path=config_path )
+    res = get_mutable(user_id, header_id, data_pubkey=data_pubkey_hex, storage_drivers=drivers, proxy=proxy, config_path=config_path)
     if 'error' in res:
         log.error("Failed to get inode data {}: {}".format(inode_uuid, res['error']))
         return {'error': 'Failed to get inode data'}
@@ -2358,3 +2376,399 @@ def datastore_rmtree(datastore, data_path, data_privkey_hex, config_path=CONFIG_
         return res
 
     return {'status': True}
+
+
+def get_nonlocal_storage_drivers(config_path, key='storage_drivers'):
+    """
+    Get the list of non-local storage drivers.
+    That is, the ones which write to a globally-visible read-write medium.
+    """
+
+    conf = config.get_config(config_path)
+    assert conf
+
+    storage_drivers = conf.get(key, '').split(',')
+    local_storage_drivers = conf.get('storage_drivers_local', '').split(',')
+
+    for drvr in local_storage_drivers:
+        if drvr in storage_drivers:
+            storage_drivers.remvoe(drvr)
+
+    return storage_drivers
+
+
+def get_user(user_id, local_master_data_pubkey, config_path=CONFIG_PATH, proxy=None):
+    """
+    Get a user's information.
+
+    A user is simply a named public key.  The name for the user (the user_id)
+    may be a blockchain ID (i.e. globally-unique, written to Blockstack's blockchain),
+    or it may be a local pet name for a public key.
+
+    Either way, the user's public key is derived from the owner's master data public key.
+
+    State for a user is stored locally on the owner's computer, and backed up to the owner's
+    storage providers as mutable data under the *same data ID as the user ID*.
+    In order to look up the user, the requester either
+    needs to be the owner (so as to get to the local state), or the user ID must be a
+    blockchain ID (so as to find and resolve the publicly-replicated state).
+
+    This method tries to fetch the user data locally and authenticate it with the given master
+    public key.  Failing that, this method tries to fetch the user data from mutable storage.
+
+    Return {'status': True, 'user': user state, 'master_data_pubkey': ..., 'owned': ....} on success,
+    where 'master_data_pubkey' is the public key that signed off on the user (i.e. the user's owner's
+    data public key)
+
+    Return {'error': ...} on failure
+    """
+     
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    # does this user exist locally?  i.e. was it signed by the requester's
+    # local master data key?
+    user_info = user_db.user_load(user_id, local_master_data_pubkey, config_path=config_path)
+    if 'error' not in user_info:
+        user = user_info['user']
+        return {'status': True, 'user': user, 'master_data_pubkey': local_master_data_pubkey, 'owned': True}
+
+    nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
+
+    # nope.  We don't own this user.
+    # try treating user_id as a blockchain ID.
+    # be sure to check non-local storage only; don't want to hit stale disk data
+    user_data = get_mutable(user_id, user_id, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
+    if 'error' in user_data:
+        log.error("Failed to fetch user data from storage")
+        return user_data
+
+    user_jwt = user_data['data']
+    user_pubkey = user_data['data_pubkey']
+    
+    if user_pubkey is None:
+        log.error("No user public key available")
+        return {'error': 'No user public key available'}
+                
+    # validate 
+    user = user_db.user_validate(user_jwt)
+    if 'error' in user:
+        log.error("Failed to validate user data")
+        return user
+
+    owned = user_db.user_verify(user_jwt, local_master_data_pubkey)
+    
+    # success!
+    return {'status': True, 'user': user, 'master_data_pubkey': user_pubkey, 'owned': owned}
+
+
+def get_user_list(master_data_pubkey, proxy=None, config_path=CONFIG_PATH):
+    """
+    Get our replicated list of users
+    Return {'status': True, 'user_ids': [list of user IDs]}
+    Return {'error': ...} on failure
+    """
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
+
+    addr = keylib.public_key_to_address(master_data_pubkey)
+    listing_info = get_mutable(addr, 'user_ids', data_pubkey=master_data_pubkey, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
+    if 'error' in listing_info:
+        log.error("Failed to get user list")
+        return listing_info
+
+    user_listing = listing_info['data']
+    try:
+        jsonschema.validate(user_listing, {'type': 'array', 'items': {'type': 'string', 'pattern': OP_USER_ID_PATTERN}})
+    except ValidationError:
+        return {'error': 'Invalid user listing'}
+
+    return {'status': True, 'user_ids': user_listing}
+
+
+def put_user_list(master_data_privkey, user_listing, proxy=None, config_path=CONFIG_PATH):
+    """
+    Put our replicated list of users
+    Return {'status': True} on success
+    Return {'error': ...} on failure
+    """
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+    
+    try:
+        jsonschema.validate(user_listing, {'type': 'array', 'items': {'type': 'string', 'pattern': OP_USER_ID_PATTERN}})
+    except ValidationError:
+        return {'error': 'Invalid user listing'}
+
+    master_data_pubkey = get_pubkey_hex(master_data_privkey)
+    addr = keylib.public_key_to_address(master_data_pubkey)
+    res = put_mutable(addr, 'user_ids', user_listing, data_privkey=master_data_privkey, proxy=proxy, config_path=config_path)
+    if 'error' in res:
+        return res
+
+    return {'status': True}
+
+
+def put_user(user_info, master_data_privkey, config_path=CONFIG_PATH, proxy=None):
+    """
+    Store a user to local storage and our data storage providers.
+    The user info will be signed off by the given master private key
+
+    Return {'status': True} on success
+    Return {'error': ...} on failure
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    # sign and serialize
+    res = user_db.user_serialize(user_info, master_data_privkey)
+    if 'error' in res:
+        return res
+
+    user_token = res['token']
+    master_data_pubkey = get_pubkey_hex(master_data_privkey)
+
+    # get the list of users so we can insert this user into it.
+    user_list_info = get_user_list(master_data_pubkey, proxy=proxy, config_path=config_path)
+    if 'error' in user_list_info:
+        log.error("Failed to get user list")
+        return {'error': 'Failed to get user list'}
+
+    user_list = user_list_info['user_ids']
+    if user_info['user_id'] in user_list:
+        log.error("User {} already exists".format(user_info['user_id']))
+        return {'error': 'User already exists'}
+
+    # store locally
+    res = user_db.user_store( user_token, config_path=config_path )
+    if 'error' in res:
+        log.error("Failed to store user state locally")
+        return res
+
+    # set a private key index for this user's accounts 
+    user_addr = keylib.public_key_to_address(user_info['public_key'])
+    user_privkey = user_db.user_get_privkey(master_data_privkey, user_info)
+    res = set_privkey_index( user_privkey, 1, config_path=config_path, proxy=proxy )
+    if 'error' in res:
+        log.error("Failed to give user {} a private key index".format(user_info['user_id']))
+        return res
+
+    # replicate, signing with the master private key 
+    res = put_mutable(user_info['user_id'], user_info['user_id'], user_info, data_privkey=master_data_privkey, proxy=proxy, config_path=config_path)
+    if 'error' in res:
+        log.error("Failed to replicate user")
+        return {'error': 'Failed to replicate user'}
+   
+    # update user list 
+    user_list.append(user_info['user_id'])
+    res = put_user_list(master_data_privkey, user_list, proxy=proxy, config_path=config_path)
+    if 'error' in res:
+        # undo
+        delres = delete_mutable(user_info['user_id'], user_info['user_id'], data_privkey=master_data_privkey, proxy=proxy, config_path=config_path)
+        user_delete(user_info['user_id'], config_path=config_path)
+        if 'error' in delres:
+            log.error("Failed to delete user {}: {}".format(user_info['user_id'], delres['error']))
+        
+        return res
+
+    return {'status': True}
+
+
+def delete_user(user_id, master_data_privkey, config_path=None, proxy=None):
+    """
+    Delete a user.  Remove its local state, and delete it from our storage providers.
+
+    Return {'status': True} on success
+    Return {'error': ...} on failure
+    """
+
+    if not user_db.user_is_local(user_id):
+        return {'error': 'User is not locally owned'}
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    # get the list of users so we can insert this user into it.
+    master_data_pubkey = get_pubkey_hex(master_data_privkey)
+    user_list_info = get_user_list(master_data_pubkey, proxy=proxy, config_path=config_path)
+    if 'error' in user_list_info:
+        log.error("Failed to get user list")
+        return {'error': 'Failed to get user list'}
+
+    user_list = user_list_info['user_ids']
+
+    # clear out from list
+    if user_id in user_list:
+        user_list.remove(user_id)
+        res = put_user_list(master_data_privkey, user_list, config_path=config_path, proxy=proxy)
+        if 'error' in res:
+            log.error("Failed to update user listing")
+            return res
+
+    # delete from storage providers 
+    res = delete_mutable(user_id, user_id, data_privkey=master_data_privkey, proxy=proxy, config_path=config_path, delete_version=False)
+    if 'error' in res:
+        log.error("Failed to delete from storage providers")
+        return {'error': 'Failed to delete from storage providers'}
+
+    # delete locally, but it's okay if this fails due to our not having it
+    user_db.user_delete(user_id, config_path=config_path)
+    return {'status': True}
+
+
+def next_privkey_index( data_privkey, config_path=None, proxy=None, create=False):
+    """
+    Get the next private key index.  Update the replica on our storage providers.
+
+    Return {'status': True, 'index': ...} on success
+    Return {'error': ...} on error
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    data_pubkey = get_pubkey_hex(data_privkey)
+    addr = keylib.public_key_to_address(data_pubkey)
+
+    nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
+
+    privkey_index_info = get_mutable(addr, 'privkey_index', data_pubkey=data_pubkey, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
+    if 'error' in privkey_index_info:
+        if create:
+            # try to create
+            res = set_privkey_index( data_privkey, 0, config_path=config_path, proxy=proxy )
+            if 'error' in res:
+                return res
+
+            privkey_index_info = {'data': 0}
+
+        else:
+            log.error("Failed to get current private key index")
+            return privkey_index_info
+
+    privkey_index = privkey_index_info['data']
+
+    try:
+        privkey_index = int(privkey_index)
+    except:
+        log.error("Invalid private key index")
+        return {'error': 'Invalid private key index'}
+
+    ret = privkey_index
+    privkey_index += 1
+    res = set_privkey_index(data_privkey, privkey_index, config_path=config_path, proxy=proxy)
+    if 'error' in res:
+        return res
+
+    return {'status': True, 'index': ret}
+   
+
+def set_privkey_index( data_privkey, value, config_path=None, proxy=None ):
+    """
+    Set the current private key index
+    Return {'status': True} on success
+    return {'error': ...} on error
+    """
+    
+    data_pubkey = get_pubkey_hex(data_privkey)
+    addr = keylib.public_key_to_address(data_pubkey)
+
+    try:
+        value = int(value)
+    except:
+        return {'error': 'Invalid value'}
+
+    res = put_mutable(addr, 'privkey_index', value, data_privkey=data_privkey, proxy=proxy, config_path=config_path)
+    if 'error' in res:
+        log.error("Failed to put new private key index")
+        return {'error': 'Failed to put new private key index'}
+
+    return {'status': True}
+
+
+def have_seen( user_id, data_id, config_path=CONFIG_PATH ):
+    """
+    Have we ever seen this datum before?
+    """
+
+    conf = get_config(config_path)
+    assert conf
+
+    fq_data_id = storage.make_fq_data_id(user_id, data_id)
+    expected_version = load_mutable_data_version(conf, fq_data_id)
+
+    return (expected_version is not None)
+
+
+def data_setup( password, config_path=CONFIG_PATH, proxy=None, force=False ):
+    """
+    Do the one-time setup necessary for using the data functions.
+    Idempotent; call until it succeeds.
+
+    Return {'status': True} on success
+    Return {'error': ...} on error
+    """
+
+    from .wallet import load_wallet
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    config_dir = os.path.dirname(config_path)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    privkey_progress_path = os.path.join(config_dir, '.no_privkey_index')
+    conf = get_config(config_path)
+
+    if not os.path.exists(wallet_path):
+        return {'error': 'Wallet does not exist'}
+
+    if os.path.exists(privkey_progress_path) or force:
+
+        # put a new private key index?
+        wallet_info = load_wallet(password, config_dir=config_dir, wallet_path=wallet_path, include_private=True)
+        if 'error' in wallet_info:
+            return wallet_info
+
+        wallet_keys = wallet_info['wallet']
+
+        # make sure we also have a private key index 
+        master_data_privkey = wallet_keys['data_privkey']
+        master_data_pubkey = get_pubkey_hex(master_data_privkey)
+        addr = keylib.public_key_to_address(master_data_pubkey)
+
+        res = next_privkey_index( master_data_privkey, config_path=config_path )
+        if 'error' in res:
+
+            if have_seen('privkey_index', 'privkey_index', config_path=config_path ):
+                # some other error
+                return res
+
+            # try creating
+            res = next_privkey_index( master_data_privkey, config_path=config_path, create=True )
+            if 'error' in res:
+                return res
+
+        # put an empty user list, if we don't have one
+        res = get_user_list(master_data_pubkey, config_path=config_path)
+        if 'error' in res:
+
+            if have_seen(addr, 'user_ids'):
+                # some other error
+                return res
+
+            # try putting one
+            res = put_user_list(master_data_privkey, [], proxy=proxy, config_path=config_path)
+            if 'error' in res:
+                return res
+
+        # success!
+        try:
+            os.unlink(privkey_progress_path)
+        except:
+            pass
+
+    return {'status': True}
+
