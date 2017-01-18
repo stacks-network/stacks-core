@@ -32,6 +32,8 @@ import posixpath
 import data
 import app
 import user as user_db
+import wallet
+import schemas
 
 from config import get_logger
 from constants import CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
@@ -55,11 +57,11 @@ def _get_account_datastore_name(account_info):
     app_fqu = account_info['name']
     appname = account_info['appname']
 
-    datastore_name = app.app_account_datastore_name( app_account_name(user_id, app_fqu, appname) )
+    datastore_name = app.app_account_datastore_name( app.app_account_name(user_id, app_fqu, appname) )
     return datastore_name
 
 
-def _get_account_datastore_creds( account_info, user_privkey_hex ):
+def get_account_datastore_creds( account_info, user_privkey_hex ):
     """
     Get an account datastore's name and private key
     """
@@ -81,7 +83,7 @@ def get_account_datastore(account_info, proxy=None, config_path=CONFIG_PATH ):
     datastore_name = _get_account_datastore_name(account_info)
     datastore_pubkey = str(account_info['public_key'])
     log.debug("Get account datastore {}".format(datastore_name))
-    return get_datastore(user_id, datastore_name, datastore_pubkey, config_path=config_path, proxy=proxy ) 
+    return data.get_datastore(user_id, datastore_name, datastore_pubkey, config_path=config_path, proxy=proxy ) 
 
 
 def get_user_datastore(user_info, datastore_name, proxy=None, config_path=CONFIG_PATH ):
@@ -94,7 +96,7 @@ def get_user_datastore(user_info, datastore_name, proxy=None, config_path=CONFIG
     user_id = user_info['user_id']
     datastore_pubkey = str(user_info['public_key'])
     log.debug("Get user datastore {}".format(datastore_name))
-    return get_datastore(user_id, datastore_name, datastore_pubkey, config_path=config_path, proxy=proxy ) 
+    return data.get_datastore(user_id, datastore_name, datastore_pubkey, config_path=config_path, proxy=proxy ) 
 
 
 def get_account_datastore_info( master_data_pubkey, master_data_privkey, user_id, app_fqu, app_name, config_path=CONFIG_PATH, proxy=None ):
@@ -121,7 +123,7 @@ def get_account_datastore_info( master_data_pubkey, master_data_privkey, user_id
         if user_privkey_hex is None:
             return {'error': 'Failed to load user private key'}
     
-    res = app.pp_load_account(user_id, app_fqu, app_name, user['public_key'], config_path=config_path)
+    res = app.app_load_account(user_id, app_fqu, app_name, user['public_key'], config_path=config_path)
     if 'error' in res:
         return res
 
@@ -265,7 +267,7 @@ def get_datastore_info( user_id, datastore_id, include_private=False, config_pat
     appname = name_info['appname']
     datastore_name = name_info['datastore_name']
 
-    _, _, master_data_pubkey = get_addresses_from_file(config_dir=config_dir)
+    _, _, master_data_pubkey = wallet.get_addresses_from_file(config_dir=config_dir)
     if not master_data_pubkey:
         return {'error': 'No wallet'}
 
@@ -278,9 +280,11 @@ def get_datastore_info( user_id, datastore_id, include_private=False, config_pat
     datastore = None
 
     if app_fqu is not None and appname is not None:
+        log.debug("Datastore {} is an account datastore".format(datastore_id))
         datastore_info = get_account_datastore_info( str(master_data_pubkey), master_data_privkey, user_id, app_fqu, appname, config_path=config_path, proxy=proxy )
 
     else:
+        log.debug("Datastore {} is a user datastore".format(datastore_id))
         datastore_info = get_user_datastore_info( str(master_data_pubkey), master_data_privkey, user_id, datastore_name, config_path=config_path, proxy=proxy )
 
     if 'error' in datastore_info:
@@ -368,8 +372,8 @@ def blockstack_mutable_data_url_parse(url):
     """
 
     url = str(url)
-    mutable_url_data_regex = r'^blockstack://({}+)[/]+({}+)[/]*([/]+#[0-9]+)?$'.format(B40_CLASS, URLENCODED_CLASS)
-    datastore_url_data_regex = r"^blockstack://({}+)\.({}+)@({}+)[/]+({}+)(#[0-9]+)?$".format(URLENCODED_CLASS, URLENCODED_CLASS, B40_CLASS, URLENCODED_PATH_CLASS)
+    mutable_url_data_regex = r'^blockstack://({}+)[/]+({}+)[/]*(#[0-9]+)?$'.format(B40_CLASS, URLENCODED_CLASS)
+    datastore_url_data_regex = r"^blockstack://({}+)\.({}+)@({}+)[/]+({}+)$".format(schemas.OP_DATASTORE_ID_CLASS, schemas.OP_USER_ID_CLASS, B40_CLASS, URLENCODED_PATH_CLASS)
 
     blockchain_id, data_id, version, user_id, datastore_id = None, None, None, None, None
     is_dir = False
@@ -393,7 +397,7 @@ def blockstack_mutable_data_url_parse(url):
     m = re.match(datastore_url_data_regex, url)
     if m:
 
-        datastore_id, user_id, blockchain_id, path, version = m.groups()
+        datastore_id, user_id, blockchain_id, path = m.groups()
         if path.endswith('/'):
             is_dir = True
         
@@ -443,8 +447,8 @@ def blockstack_immutable_data_url_parse(url):
         # maybe a listing?
         m = re.match(immutable_listing_regex, url)
         if not m:
-            log.debug('Invalid URL "{}"'.format(url))
-            raise ValueError('Invalid URL')
+            log.debug('Invalid immutable URL "{}"'.format(url))
+            raise ValueError('Invalid immutable URL')
 
         blockchain_id = m.groups()[0]
         return urllib.unquote(blockchain_id), None, None
@@ -457,7 +461,6 @@ def blockstack_data_url_parse(url):
     Parse a blockstack:// URL
     Return {
         'type': immutable|mutable
-        'app': True|False
         'blockchain_id': blockchain ID
         'data_id': data_id
         'fields': { fields }
@@ -470,18 +473,18 @@ def blockstack_data_url_parse(url):
 
     blockchain_id, data_id, url_type = None, None, None
     fields = {}
-    app = False
 
     try:
         blockchain_id, data_id, data_hash = blockstack_immutable_data_url_parse(url)
-        assert blcokchain_id is not None
+        assert blockchain_id is not None
 
         url_type = 'immutable'
         fields.update({'data_hash': data_hash})
 
-    except Exception as e1:
-        if BLOCKSTACK_DEBUG:
-            log.exception(e1)
+        log.debug("Immutable data URL: {}".format(url))
+
+    except (ValueError, AssertionError) as e1:
+        log.debug("Not an immutable data URL: {}".format(url))
 
         try:
             blockchain_id, data_id, version, user_id, datastore_id = (
@@ -499,16 +502,14 @@ def blockstack_data_url_parse(url):
                 fields['datastore_id'] = datastore_id
                 fields['user_id'] = user_id
 
-        except Exception as e2:
-            if BLOCKSTACK_DEBUG:
-                log.exception(e2)
+            log.debug("Mutable data URL: {}".format(url))
 
+        except (ValueError, AssertionError) as e2:
             log.debug('Unparseable URL "{}"'.format(url))
             return None
 
     ret = {
         'type': url_type,
-        'app': app,
         'blockchain_id': blockchain_id,
         'data_id': data_id,
         'fields': fields
@@ -562,7 +563,27 @@ def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH):
     data_hash = None
     user_id = None
     datastore_id = None
+    
+    url_info = blockstack_data_url_parse(url)
+    if url_info is None:
+        return {'error': 'Failed to parse {}'.format(url)}
 
+    data_id = url_info['data_id']
+    blockchain_id = url_info['blockchain_id']
+    url_type = url_info['type']
+    fields = url_info['fields']
+
+    if url_type == 'mutable':
+        version = fields.get('version')
+        user_id = fields.get('user_id')
+        datastore_id = fields.get('datastore_id')
+        mutable = True
+
+    else:
+        data_hash = fields.get('data_hash')
+        immutable = True
+
+    """
     try:
         blockchain_id, data_id, version, user_id, datastore_id = blockstack_mutable_data_url_parse( url )
         assert blockchain_id is not None
@@ -581,6 +602,7 @@ def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH):
 
         immutable = True
         log.debug("{} is immutable".format(url))
+    """
 
     if mutable:
         if user_id is not None and datastore_id is not None:
