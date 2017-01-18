@@ -24,12 +24,9 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=0.14.1',
-        'blockstack-core>=0.14.1',
-        'blockstack-profiles>=0.14.1',
+        'blockstack>=0.14.1',
         'blockstack-file>=0.14.0',
         'blockstack-gpg>=0.14.1',
-        'blockstack-zones>=0.14.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',
