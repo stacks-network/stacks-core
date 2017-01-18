@@ -612,6 +612,7 @@ def read_config_file(path=CONFIG_PATH):
         parser.set('blockstack-client', 'port', str(BLOCKSTACKD_PORT))
         parser.set('blockstack-client', 'metadata', BLOCKSTACK_METADATA_DIR)
         parser.set('blockstack-client', 'storage_drivers', BLOCKSTACK_DEFAULT_STORAGE_DRIVERS)
+        parser.set('blockstack-client', 'storage_drivers_local', 'disk')
         parser.set('blockstack-client', 'storage_drivers_required_write', BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE)
         parser.set('blockstack-client', 'blockchain_headers', SPV_HEADERS_PATH)
         parser.set('blockstack-client', 'advanced_mode', 'false')
@@ -729,44 +730,6 @@ def get_config(path=CONFIG_PATH):
         blockstack_opts['anonymous_statistics'] = True
 
     return blockstack_opts
-
-
-def get_app_config(app_name, path=CONFIG_PATH):
-    """
-    Get app-specific configuration
-    Return a dict on success (empty if there are no fields)
-    Return None if the app isn't defined in the config path
-    Raise if the file doesn't exist
-    """
-    parser = SafeConfigParser()
-    parser.read(config_path)
-
-    if not parser.has_section(app_name):
-        return None
-
-    ret = {}
-    for field_name in parser.options(app_name):
-        ret[field_name] = parser.get(app_name, field_name)
-
-    return ret
-
-
-def update_config(section, option, value, config_path=CONFIG_PATH):
-    parser = SafeConfigParser()
-
-    try:
-        parser.read(config_path)
-    except Exception as e:
-        log.exception(e)
-        return None
-
-    if not parser.has_option(section, option):
-        return
-
-    parser.set(section, option, value)
-
-    with open(config_path, 'wb') as configfile:
-        parser.write(configfile)
 
 
 def get_version_parts(whole, func):
