@@ -71,49 +71,20 @@ def user_path(user_id, config_path=CONFIG_PATH):
     return os.path.join(dirp, user_name(user_id))
 
 
-def _get_next_user_privkey_index( config_path=CONFIG_PATH ):
-    """
-    Get the next index for making a new private key for a user
-    """
-    dirp = user_dir(config_path=config_path)
-    if not os.path.exists(dirp):
-        os.makedirs(dirp)
-
-    nonce_path = os.path.join(dirp, ".privkey_index")
-    nonce = 1
-
-    if os.path.exists(nonce_path):
-        try:
-            with open(nonce_path, "r") as f:
-                nonce = int(f.read().strip())
-
-        except:
-            log.warning("Failed to read user private key index from {}".format(nonce_path))
-
-    nonce = max(1, nonce + 1)
-
-    try:
-        with open(nonce_path, "w") as f:
-            f.write("{}".format(nonce))
-            f.flush()
-            os.fsync(f.fileno())
-    
-    except:
-        log.error("Failed to store user private key index to {}".format(nonce_path))
-        return None
-
-    return nonce
-
-
 def user_init( user_id, master_data_privkey_hex, config_path=CONFIG_PATH ):
     """
-    Generate a new user with the given user ID
+    Generate a new local user with the given user ID
     Returns {'user': ..., 'user_token': ...} on success
     Returns {'error': ... on error}
     raises on fatal error
     """
-    next_privkey_index = _get_next_user_privkey_index(config_path=config_path)
-    assert next_privkey_index
+    
+    from .data import next_privkey_index
+    next_privkey_index_info = next_privkey_index(master_data_privkey_hex, config_path=config_path)
+    if 'error' in next_privkey_index_info:
+        return next_privkey_index_info
+
+    next_privkey_index = next_privkey_index_info['index']
     
     hdwallet = HDWallet( hex_privkey=master_data_privkey_hex)
     user_privkey = hdwallet.get_child_privkey( index=next_privkey_index )
@@ -124,18 +95,36 @@ def user_init( user_id, master_data_privkey_hex, config_path=CONFIG_PATH ):
         'privkey_index': next_privkey_index
     }
 
-    # sign
-    signer = jsontokens.TokenSigner()
-    token = signer.sign( info, master_data_privkey_hex)
+    res = user_serialize(info, master_data_privkey_hex)
+    if 'error' in res:
+        return res
+
+    token = res['token']
 
     # log.debug("\ncreate user with {}:\n{}\n".format(master_data_privkey, json.dumps(info, indent=4, sort_keys=True)))
 
     return {'user': info, 'user_token': token}
 
 
+def user_serialize( user_info, data_privkey_hex ):
+    """
+    Sign and serialize a user into a JWT
+    Return {'status': True, 'token': ...} on success
+    Return {'error': ...} on failure
+    """
+    try:
+        jsonschema.validate(user_info, USER_SCHEMA)
+    except ValidationError:
+        return {'error': 'Not a valid user'}
+
+    signer = jsontokens.TokenSigner()
+    token = signer.sign(user_info, data_privkey_hex)
+    return {'status': True, 'token': token}
+
+
 def user_store( token, config_path=CONFIG_PATH ):
     """
-    Store a user to storage.
+    Store the user data locally.
     @token must be a JWT encoded user data token
     Verify it conforms to USER_SCHEMA
     Returns {'status': True} on success
@@ -149,6 +138,7 @@ def user_store( token, config_path=CONFIG_PATH ):
     payload = jwt['payload']
     jsonschema.validate(payload, USER_SCHEMA)
 
+    # store locally
     user_id = payload['user_id']
     path = user_path( user_id, config_path=config_path)
     try:
@@ -195,7 +185,40 @@ def user_delete( user_id, config_path=CONFIG_PATH ):
         del USER_CACHE[name]
 
     return {'status': True}
-    
+   
+
+def user_verify(user_jwt, data_pubkey_hex):
+    """
+    Verify a user token with the given public key
+    Return True if valid
+    Return False if not
+    """
+    verifier = jsontokens.TokenVerifier()
+    valid = verifier.verify( user_jwt, str(data_pubkey_hex) )
+    return valid
+
+
+def user_parse(user_jwt):
+    """
+    Parse and validate a user token
+    Return {'status': True, 'user': ...} on success
+    Return {'error': ...} on failure
+    """
+    try:
+        data = jsontokens.decode_token(user_jwt)
+        jsonschema.validate(data['payload'], USER_SCHEMA)
+        return {'status': True, 'user': data['payload']}
+    except (ValueError, ValidationError) as ve:
+        return {'error': 'Failed to parse and validate'}
+
+
+def user_is_local(user_id, config_path=CONFIG_PATH):
+    """
+    Is a user owned by the local host?
+    """
+    path = user_path( user_id, config_path=config_path)
+    return os.path.exists(path)
+
 
 def _user_load_path(path, data_pubkey_hex, config_path=CONFIG_PATH):
     """
@@ -215,8 +238,7 @@ def _user_load_path(path, data_pubkey_hex, config_path=CONFIG_PATH):
 
     # verify
     if data_pubkey_hex is not None:
-        verifier = jsontokens.TokenVerifier()
-        valid = verifier.verify( jwt, str(data_pubkey_hex) )
+        valid = user_verify(jwt, data_pubkey_hex)
         if not valid:
             return {'error': 'Failed to verify user JWT data'}
 
@@ -271,13 +293,13 @@ def users_list(data_pubkey, config_path=CONFIG_PATH):
     return ret
 
 
-def user_get_privkey( user_data_privkey_hex, user_info ):
+def user_get_privkey( master_privkey_hex, user_info ):
     """
     Given the master data private key and a user structure, calculate the private key
     for the user.
     Return the private key
     """
-    user_privkey = HDWallet.get_privkey(user_data_privkey_hex, user_info['privkey_index'])
+    user_privkey = HDWallet.get_privkey(master_privkey_hex, user_info['privkey_index'])
     return user_privkey
 
 
