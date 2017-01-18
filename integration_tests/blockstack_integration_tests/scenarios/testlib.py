@@ -432,6 +432,10 @@ def blockstack_client_initialize_wallet( password, payment_privkey, owner_privke
 
     else:
         blockstack_client.wallet.write_wallet( wallet, path=wallet_path )
+       
+        res = blockstack_client.data.data_setup( password, config_path=config_path, force=True)
+        if 'error' in res:
+            return res
 
     return wallet
 
@@ -940,6 +944,19 @@ def blockstack_cli_get_immutable( name, data_id_or_hash ):
     args.data_id_or_hash = data_id_or_hash
 
     return cli_get_immutable( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_get_data( url ):
+    """
+    get data by url
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+    
+    args.url = url
+
+    return cli_get_data( args, config_path=test_proxy.config_path )
 
 
 def blockstack_cli_list_update_history( name, config_path=CONFIG_PATH ):
