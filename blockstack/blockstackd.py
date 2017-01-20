@@ -1517,7 +1517,7 @@ class BlockstackStoragePusher( threading.Thread ):
                 return False
 
             log.debug("Queue {}-byte profile for {}".format(len(profile_data), name))
-            res = queue_append( self.profile_queue_id, name, "00" * 32, block_height=0, profile=profile_data )
+            res = queue_append( self.profile_queue_id, name, "00" * 32, block_height=0, profile=profile_data, path=self.queue_path )
             assert res
             return True
         except Exception as e:
