@@ -277,7 +277,7 @@ def store_profile_data_to_storage( name, profile_txt, required=None ):
     successes = 0
     for handler in blockstack_client.get_storage_handlers():
         try:
-            rc = handler.put_mutable_handler( name, profile_txt, required=profile_storage_drivers )
+            rc = handler.put_mutable_handler( name, profile_txt, required=required )
         except Exception, e:
             log.exception(e)
             log.error("Failed to store profile with '%s'" % handler.__name__)
