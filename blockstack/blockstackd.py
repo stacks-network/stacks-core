@@ -131,6 +131,7 @@ def put_pidfile( pidfile_path, pid ):
     """
     with open( pidfile_path, "w" ) as f:
         f.write("%s" % pid)
+        os.fsync(f.fileno())
 
     return 
 
@@ -1223,8 +1224,11 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         """
         Store a profile for a particular name
         @profile_txt must be a serialized JWT signed by the key in the user's zonefile.
-        @prev_profile_hash must be the hex string representation of the hash of the previous profile
-        @sig must cover prev_profile_hash+profile_txt
+        @prev_profile_hash_or_ignored, if given, must be the hex string representation of the hash of the previous profile
+           (this argument is obsolete in 0.14.1)
+        @sigb64_or_ignored, if given, must cover prev_profile_hash+profile_txt
+           (this argument is obsolete in 0.14.1)
+
         """
 
         if type(name) not in [str, unicode]:
@@ -1311,7 +1315,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if 'error' in res:
             log.debug("Failed to verify with profile timestamp.")
 
-            # TODO: deprecated
+            # TODO: deprecated as of 0.14.1
             res = self.verify_profile_hash( name, name_rec, zonefile_dict, profile_txt, prev_profile_hash_or_ignored, sigb64_or_ignored, user_data_pubkey )
             if 'error' in res:
                 log.debug("Failed to verify profile by owner hash")
@@ -1457,8 +1461,18 @@ class BlockstackStoragePusher( threading.Thread ):
         """
         Enqueue a zonefile for replication
         """
-        assert type(zonefile_data) in [str, unicode]
+        if type(zonefile_data) not in [str, unicode]:
+            log.debug("Invalid zonefile data type")
+            return False
         
+        if type(txid) not in [str, unicode]:
+            log.debug("Invalid txid type")
+            return False
+
+        if type(zonefile_hash) not in [str, unicode]:
+            log.debug("Invalid zonefile hash type")
+            return False
+
         txid = str(txid)
         zonefile_hash = str(zonefile_hash)
         zonefile_data = str(zonefile_data)
@@ -1485,8 +1499,15 @@ class BlockstackStoragePusher( threading.Thread ):
         """
         Enqueue a profile for replication
         """
+        if type(name) not in [str, unicode]:
+            log.debug("Invalid name type")
+            return False
+
+        if type(profile_data) not in [str, unicode]:
+            log.debug("Invalid profile data type")
+            return False
+
         name = str(name)
-        assert type(profile_data) in [str, unicode]
         profile_data = str(profile_data)
 
         try:
@@ -1496,7 +1517,7 @@ class BlockstackStoragePusher( threading.Thread ):
                 return False
 
             log.debug("Queue {}-byte profile for {}".format(len(profile_data), name))
-            res = queue_append( self.profile_queue_id, name, None, block_height=0, profile=profile_data )
+            res = queue_append( self.profile_queue_id, name, "00" * 32, block_height=0, profile=profile_data )
             assert res
             return True
         except Exception as e:
@@ -1728,23 +1749,28 @@ def stop_server( clean=False, kill=False ):
             pid_data = fin.read().strip()
             fin.close()
 
-            pid = int(pid_data)
-
             try:
-               os.kill(pid, signal.SIGTERM)
-            except OSError, oe:
-               if oe.errno == errno.ESRCH:
-                  # already dead 
-                  log.info("Process %s is not running" % pid)
-                  try:
-                      os.unlink(pid_file)
-                  except:
-                      pass
+                pid = int(pid_data)
 
-                  return
+                try:
+                   os.kill(pid, signal.SIGTERM)
+                except OSError, oe:
+                   if oe.errno == errno.ESRCH:
+                      # already dead 
+                      log.info("Process %s is not running" % pid)
+                      try:
+                          os.unlink(pid_file)
+                      except:
+                          pass
 
-            except Exception, e:
-                log.exception(e)
+                      return
+
+                except Exception, e:
+                    log.exception(e)
+                    os.abort()
+            
+            except:
+                log.info("Corrupt PID file.  Please make sure all instances of this program have stopped and remove {}".format(pid_file))
                 os.abort()
 
             # is it actually dead?
