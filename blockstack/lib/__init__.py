@@ -30,9 +30,11 @@ from .hashing import *
 from .nameset import *
 from .operations import *
 from .consensus import *
+from .fast_sync import *
 
 import atlas
 import operations
 import nameset
 import storage
 import config
+import fast_sync
