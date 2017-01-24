@@ -45,7 +45,7 @@ import logging
 logging.disable(logging.CRITICAL)
 
 from blockstack_client import config
-from blockstack_client.client import session
+from blockstack_client.client import session, system_setup
 from blockstack_client.config import CONFIG_PATH, VERSION, semver_match
 from blockstack_client.method_parser import parse_methods, build_method_subparsers
 
@@ -128,6 +128,40 @@ def prompt_args(arginfolist, prompt_func):
     return parsed_args
 
 
+def find_arg(argv, has_arg, short_opt, long_opt):
+    """
+    Find an option in an argument vector.
+    If @has_arg is True, then the argument will be removed as well.
+    Otherwise, the argument is assumed to be True
+
+    Return (new argv, argument) on success.  The option and its argument will be removed.
+    Return (None, None) if the option is present, but no argument is given and has_arg is True.
+    If the option is not found, then argv will be unchanged, and None will be returned
+    """
+    arg = False
+    if short_opt in argv or long_opt in argv:
+        i = 1
+        while i < len(argv):
+            if argv[i] == short_opt or argv[i] == long_opt:
+                if has_arg:
+                    if i + 1 >= len(argv) or argv[i+1].startswith('-'):
+                        print('{}: missing argument'.format(argv[i], file=sys.stderr))
+                        return (None, None)
+
+                    arg = argv[i + 1]
+                    argv.pop(i)
+                    argv.pop(i)
+
+                else:
+                    argv.pop(i)
+                    arg = True
+
+            else:
+                i += 1
+
+    return (argv, arg)
+
+
 def run_cli(argv=None, config_path=CONFIG_PATH):
     """
     Run a CLI command from arguments (defaults to sys.argv)
@@ -138,27 +172,44 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     if argv is None:
         argv = sys.argv
 
+    cli_argv = False
+    cli_default_yes = False
+
     if '-v' in argv or '--version' in argv:
         print(VERSION)
         sys.exit(0)
 
     # alternative config path?
-    if '-c' in argv or '--config' in argv:
-        i = 1
-        while i < len(argv):
-            if argv[i] == '-c' or argv[i] == '--config':
-                if i + 1 >= len(argv):
-                    print('{}: missing path'.format(argv[i]), file=sys.stderr)
-                    sys.exit(1)
+    new_argv, config_path = find_arg(argv, True, '-c', '--config')
+    if new_argv is None:
+        # invalid
+        sys.exit(1)
+    
+    argv = new_argv
+    if config_path is not None:
+        cli_argv = True
+        log.debug('Use config file {}'.format(config_path))
 
-                config_path = argv[i + 1]
-                argv.pop(i)
-                argv.pop(i)
+    # CLI-given password?
+    new_argv, password = find_arg(argv, True, '-p', '--password')
+    if new_argv is None:
+        # invalid
+        sys.exit(1)
 
-            else:
-                i += 1
+    argv = new_argv
+    if password is not None:
+        log.debug("Use CLI password")
+        os.setenv("BLOCKSTACK_CLIENT_WALLET_PASSWORD", password)
 
-    log.debug('Use config file {}'.format(config_path))
+    # assume YES to all prompts?
+    new_argv, cli_default_yes = find_arg(argv, False, '-y', '--yes')
+    if new_argv is None:
+        # invalid
+        sys.exit(1)
+
+    if cli_default_yes:
+        log.debug("Assume YES to all interactive prompts")
+        os.setenv("BLOCKSTACK_CLIENT_INTERACTIVE_YES", "1")
 
     conf = config.get_config(path=config_path)
     if conf is None:
@@ -166,14 +217,20 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
     conf_version = conf.get('client_version', '')
     if not semver_match(conf_version, VERSION):
-        message = (
-            'Your configuration file ({}) is out of date. Please move it and ',
-            'try again in order to automatically generate a new config file.'
-        )
-        exit_with_error(
-            'Invalid configuration file: {} != {}'.format(conf_version, VERSION),
-            message.format(config_path)
-        )
+        # back up the config file 
+        if not cli_argv:
+            # default config file
+            backup_path = config.backup_config_file(config_path=config_path)
+            if not backup_path:
+                exit_with_error("Failed to back up legacy configuration file {}".format(config_path))
+
+            else:
+                exit_with_error("Backed up legacy configuration file from {} to {} and re-generated a new, default configuration.  Please restart.".format(config_path, backup_path))
+
+
+    res = system_setup(config_path=config_path)
+    if 'error' in res:
+        exit_with_error("Failed to to do one-time setup: {}".format(res['error']))
 
     advanced_mode = conf.get('advanced_mode', False)
 
