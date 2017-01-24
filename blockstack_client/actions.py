@@ -432,7 +432,7 @@ def wallet_ensure_exists(config_dir=CONFIG_DIR, password=None, wallet_path=None)
     privkey_progress_path = os.path.join(config_dir, '.no_privkey_index')
 
     res = {'status': True}
-    if not wallet_exists(config_dir=config_dir):
+    if not wallet_exists(config_path=config_path):
 
         try:
             with open(privkey_progress_path, 'w') as f:
@@ -452,7 +452,7 @@ def wallet_ensure_exists(config_dir=CONFIG_DIR, password=None, wallet_path=None)
     return res
 
 
-def load_zonefile(fqu, zonefile_data, check_current=True):
+def load_zonefile_from_string(fqu, zonefile_data, check_current=True):
     """
     Load a zonefile from a string, which can be
     either JSON or text.  Verify that it is
@@ -511,6 +511,13 @@ def load_zonefile(fqu, zonefile_data, check_current=True):
         return {'error': msg, 'identical': True, 'zonefile': user_zonefile}
 
     return {'status': True, 'zonefile': user_zonefile}
+
+
+def get_default_password(password):
+    """
+    Get the default password
+    """
+    return password if password is not None else os.environ.get("BLOCKSTACK_CLIENT_WALLET_PASSWORD", None)
 
 
 def cli_configure(args, config_path=CONFIG_PATH):
@@ -576,6 +583,7 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
+    password = get_default_password(password)
 
     fqu = str(args.name)
     error = check_valid_name(fqu)
@@ -1040,7 +1048,7 @@ def get_wallet_keys(config_path, password):
             log.error('unlock_wallet: {}'.format(res['error']))
             return res
 
-        if res['migrated']:
+        if res.has_key('legacy') and res['legacy']:
             log.error("Wallet is in legacy format.  Please migrate it to the latest version with `migrate_wallet`.")
             return {'error': 'Wallet is in legacy format.  Please migrate it to the latest version with `migrate_wallet.`'}
 
@@ -1052,6 +1060,9 @@ def prompt_invalid_zonefile():
     Prompt the user whether or not to replicate
     an invalid zonefile
     """
+    if os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) == "1":
+        return True
+
     warning_str = (
         '\nWARNING!  This zone file data does not look like a zone file.\n'
         'If you proceed to use this data, no one will be able to look\n'
@@ -1064,9 +1075,12 @@ def prompt_invalid_zonefile():
 
 def prompt_transfer( new_owner_address ):
     """
-    Prompt the user whether or not to replicate
-    an invalid zonefile
+    Prompt whether or not to proceed with a transfer
     """
+
+    if os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) == "1":
+        return True
+
     warning_str = (
         '\nWARNING!  This will transfer your name to a different owner.\n'
         'The recipient\'s address will be: {}\n.'
@@ -1097,6 +1111,7 @@ def cli_register(args, config_path=CONFIG_PATH,
     """
 
     proxy = get_default_proxy(config_path) if proxy is None else proxy
+    password = get_default_password(password)
 
     conf = config.get_config(config_path)
     assert conf 
@@ -1137,7 +1152,7 @@ def cli_register(args, config_path=CONFIG_PATH,
     if 'error' in fees:
         return fees
 
-    if interactive:
+    if interactive and os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
         try:
             cost = fees['total_estimated_cost']
             input_prompt = (
@@ -1155,6 +1170,7 @@ def cli_register(args, config_path=CONFIG_PATH,
             if user_input.lower() != 'y':
                 print('Not registering.')
                 exit(0)
+
         except KeyboardInterrupt:
             print('\nExiting.')
             exit(0)
@@ -1223,6 +1239,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         return {'error': 'Zone file data required in non-interactive mode'}
 
     proxy = get_default_proxy() if proxy is None else proxy
+    password = get_default_password(password)
 
     if hasattr(args, 'nonstandard') and not nonstandard:
         if args.nonstandard is not None and args.nonstandard.lower() in ['yes', '1', 'true']:
@@ -1266,7 +1283,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     # fetch remotely?
     if zonefile_data is None:
         zonefile_data_res = get_name_zonefile(
-            fqu, proxy=proxy, wallet_keys=wallet_keys, raw_zonefile=True
+            fqu, proxy=proxy, raw_zonefile=True
         )
 
         if zonefile_data_res is None:
@@ -1280,7 +1297,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     # load zonefile, if given
     user_data_txt, user_data_hash, user_zonefile_dict = None, None, {}
 
-    user_data_res = load_zonefile(fqu, zonefile_data)
+    user_data_res = load_zonefile_from_string(fqu, zonefile_data)
     if 'error' not in user_data_res:
         user_data_txt = user_data_res['zonefile']
         user_data_hash = storage.get_zonefile_data_hash(user_data_res['zonefile'])
@@ -1367,6 +1384,7 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     arg: address (str) 'The address to receive the name'
     """
 
+    password = get_default_password(password)
     conf = config.get_config(config_path)
     assert conf
 
@@ -1444,6 +1462,8 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    password = get_default_password(password)
+
     conf = config.get_config(config_path)
     assert conf
 
@@ -1504,7 +1524,7 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
 
     cost = name_price + renewal_tx_fee
 
-    if interactive:
+    if interactive and os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
         try:
             cost = name_price + renewal_tx_fee
             msg = (
@@ -1577,6 +1597,8 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
+    
+    password = get_default_password(password)
 
     conf = config.get_config(config_path)
     assert conf
@@ -1613,7 +1635,7 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
     if 'error' in res:
         return res
 
-    if interactive:
+    if interactive and os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
         try:
             input_prompt = (
                 'WARNING: This will render your name unusable and\n'
@@ -1664,6 +1686,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     arg: name (str) 'The name to migrate'
     """
 
+    password = get_default_password(password)
     conf = config.get_config(config_path)
     assert conf
 
@@ -1725,18 +1748,20 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
         if nonstandard and not legacy:
             # maybe we're trying to reset the profile?
             if interactive and not force:
-                msg = (
-                    ''
-                    'WARNING!  Non-standard zonefile detected.'
-                    'If you proceed, your zonefile will be reset.'
-                    ''
-                    'Proceed? (y/N): '
-                )
+                if os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
+                    # prompt
+                    msg = (
+                        ''
+                        'WARNING!  Non-standard zonefile detected.'
+                        'If you proceed, your zonefile will be reset.'
+                        ''
+                        'Proceed? (y/N): '
+                    )
 
-                proceed_str = raw_input(msg)
-                proceed = proceed_str.lower() in ['y']
-                if not proceed:
-                    return {'error': 'Non-standard zonefile'}
+                    proceed_str = raw_input(msg)
+                    proceed = proceed_str.lower() in ['y']
+                    if not proceed:
+                        return {'error': 'Non-standard zonefile'}
 
             elif not force:
                 return {'error': 'Non-standard zonefile'}
@@ -1781,36 +1806,23 @@ def cli_migrate_wallet(args, config_path=CONFIG_PATH, password=None):
     help: Migrate your wallet to the latest supported format.
     """
 
+    password = get_default_password(password)
     config_dir = os.path.dirname(config_path)
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    res = migrate_wallet(password=password, config_path=config_path)
+    if 'error' in res:
+        return res
 
-    wallet_info = load_wallet(password=password, config_dir=config_dir, include_private=True)
-    if 'error' in wallet_info:
-        return wallet_info
+    if not res.has_key('backup_wallet'):
+        # already migrated 
+        return {'status': True, 'message': 'Wallet is already in the latest format'}
 
-    if not wallet_info['migrated']:
-        return {'status': True, 'message': "Wallet is already in the latest format"}
-
-    wallet = wallet_info['wallet']
-    encrypted_wallet = encrypt_wallet(wallet, password)
-    if 'error' in encrypted_wallet:
-        return encrypted_wallet
-
-    # back up 
-    old_path = backup_wallet(wallet_path)
-
-    # store
-    res = write_wallet(encrypted_wallet, config_dir=config_dir)
-    if not res:
-        # try to restore
-        shutil.copy(old_path, wallet_path)
-        return {'error': 'Failed to store migrated wallet.'}
-
+    backup_path = res['backup_wallet']
+    # TODO: call data_setup() in here, somehow
     # stop RPC daemon  
     if local_rpc_status(config_dir=config_dir):
         local_rpc_stop(config_dir=config_dir)
 
-    return {'status': True, 'backup_wallet': old_path}
+    return {'status': True, 'backup_wallet': backup_path}
 
 
 def cli_set_advanced_mode(args, config_path=CONFIG_PATH):
@@ -1960,6 +1972,7 @@ def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, w
     arg: content_url (str) 'The URL that points to external contact data.'
     opt: extra_data (str) 'A comma-separated list of "name1=value1,name2=value2,name3=value3..." with any extra account information you need in the account.'
     """
+    password = get_default_password(password)
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
     config_dir = os.path.dirname(config_path)
 
@@ -2047,6 +2060,7 @@ def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None
     arg: service (str) 'The service the account is for.'
     arg: identifier (str) 'The identifier of the account to delete.'
     """
+    password = get_default_password(password)
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
 
     config_dir = os.path.dirname(config_path)
@@ -2111,6 +2125,7 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
 
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    password = get_default_password(password)
 
     if force and os.path.exists(wallet_path):
         # back up
@@ -2236,6 +2251,8 @@ def cli_wallet(args, config_path=CONFIG_PATH, password=None):
     command: wallet advanced
     help: Query wallet information
     """
+
+    password = get_default_password(password)
 
     result = {}
     config_dir = os.path.dirname(config_path)
@@ -2464,6 +2481,9 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     arg: data_id (str) 'The name of the data'
     arg: data (str) 'The JSON-serializable data to store'
     """
+    
+    password = get_default_password(password)
+    
     fqu = str(args.name)
     error = check_valid_name(fqu)
     if error:
@@ -2503,6 +2523,8 @@ def cli_put_immutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     arg: data_id (str) 'The name of the data'
     arg: data (str) 'The JSON-formatted data to store'
     """
+
+    password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
     res = start_rpc_endpoint(config_dir)
@@ -2635,6 +2657,8 @@ def cli_delete_immutable(args, config_path=CONFIG_PATH, proxy=None, password=Non
     arg: name (str) 'The name that owns the data'
     arg: hash (str) 'The SHA256 of the data to remove'
     """
+
+    password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
     res = start_rpc_endpoint(config_dir)
@@ -2857,6 +2881,8 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     arg: name (str) 'The name to update'
     arg: zonefile_hash (str) 'The RIPEMD160(SHA256(zonefile)) hash'
     """
+    password = get_default_password(password)
+
     conf = config.get_config(config_path)
     assert conf
 
@@ -2913,7 +2939,7 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     return result
 
 
-def cli_unqueue(args, config_path=CONFIG_PATH, password=None):
+def cli_unqueue(args, config_path=CONFIG_PATH):
     """
     command: unqueue advanced
     help: Remove a stuck transaction from the queue.
@@ -2943,6 +2969,8 @@ def cli_put_name_profile(args, config_path=CONFIG_PATH, password=None, proxy=Non
     arg: name (str) 'The name of the user to set the profile for'
     arg: data (str) 'The profile as a JSON string, or a path to the profile.'
     """
+
+    password = get_default_password(password)
 
     conf = config.get_config(config_path)
     name = str(args.name)
@@ -3029,7 +3057,7 @@ def cli_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, interactive=Tru
         user_data = args.zonefile
         valid = False
         try:
-            user_data_res = load_zonefile(name, user_data)
+            user_data_res = load_zonefile_from_string(name, user_data)
             if 'error' in user_data_res and 'identical' not in user_data_res:
                 log.warning('Failed to parse zonefile (reason: {})'.format(user_data_res['error']))
             else:
@@ -3184,6 +3212,8 @@ def cli_app_publish( args, config_path=CONFIG_PATH, interactive=False, password=
     opt: drivers (str) 'A comma-separated list of storage drivers for clients to use'
     """
    
+    password = get_default_password(password)
+
     config_dir = os.path.dirname(config_path)
     if proxy is None:
         proxy = get_default_proxy(config_path)
@@ -3400,6 +3430,8 @@ def cli_app_put_account( args, config_path=CONFIG_PATH, interactive=False, proxy
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    password = get_default_password(password)
+
     user_id = str(args.user_id)
     app_fqu = str(args.app_blockchain_id)
     app_name = str(args.app_name)
@@ -3511,6 +3543,8 @@ def cli_app_delete_account( args, config_path=CONFIG_PATH, proxy=None, password=
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    password = get_default_password(password)
+
     user_id = str(args.user_id)
     app_fqu = str(args.app_blockchain_id)
     appname = str(args.app_name)
@@ -3565,6 +3599,8 @@ def cli_create_user(args, proxy=None, password=None, config_path=CONFIG_PATH):
     config_dir = os.path.dirname(config_path)
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
 
+    password = get_default_password(password)
+
     user_id = str(args.user_id)
 
     # RPC daemon must be running 
@@ -3600,6 +3636,8 @@ def cli_delete_user(args, proxy=None, password=None, wallet_keys=None, config_pa
     
     config_dir = os.path.dirname(config_path)
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
+
+    password = get_default_password(password)
 
     user_id = str(args.user_id)
 
@@ -3666,7 +3704,7 @@ def cli_delete_user(args, proxy=None, password=None, wallet_keys=None, config_pa
     return {'status': True}
 
 
-def cli_list_users( args, proxy=None, password=None, config_path=CONFIG_PATH ):
+def cli_list_users( args, proxy=None, config_path=CONFIG_PATH ):
     """
     command: list_users advanced
     help: List all local identity personas on this computer.
@@ -3721,6 +3759,8 @@ def cli_put_user_profile(args, proxy=None, password=None, config_path=CONFIG_PAT
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
+    password = get_default_password(password)
+
     config_dir = os.path.dirname(config_path)
 
     user_id = str(args.user_id)
@@ -3779,6 +3819,8 @@ def cli_delete_user_profile(args, proxy=None, config_path=CONFIG_PATH, password=
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    password = get_default_password(password)
+
     config_dir = os.path.dirname(config_path)
 
     user_id = str(args.user_id)
@@ -3823,6 +3865,8 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
     
+    password = get_default_password(password)
+
     config_dir = os.path.dirname(config_path)
     path = str(args.path)
     data_json = None
@@ -4256,6 +4300,8 @@ def cli_get_datastore( args, config_path=CONFIG_PATH, proxy=None, password=None,
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    password = get_default_password(password)
+
     user_id = str(args.user_id)
     datastore_id = str(args.datastore_id)
     include_private = str(args.include_private)
@@ -4276,6 +4322,8 @@ def cli_list_datastores( args, config_path=CONFIG_PATH, proxy=None, password=Non
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    password = get_default_password(password)
+
     user_id = str(args.user_id)
     res = datastore_list( config_path=config_path )
 
@@ -4295,6 +4343,8 @@ def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None, password=No
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
+    password = get_default_password(password)
+
     user_id = str(args.user_id)
     datastore_id = str(args.datastore_id)
     
@@ -4311,6 +4361,8 @@ def cli_delete_datastore( args, config_path=CONFIG_PATH, proxy=None, password=No
     """
     if proxy is None:
         proxy = get_default_proxy(config_path)
+
+    password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
     user_id = str(args.user_id)
@@ -4331,6 +4383,8 @@ def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
+
+    password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
     user_id = str(args.user_id)
@@ -4383,6 +4437,8 @@ def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False, proxy
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    password = get_default_password(password)
+
     config_dir = os.path.dirname(config_path)
     user_id = str(args.user_id)
     datastore_id = str(args.datastore_id)
@@ -4422,6 +4478,8 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False, pro
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    password = get_default_password(password)
+
     config_dir = os.path.dirname(config_path)
     user_id = str(args.user_id)
     datastore_id = str(args.datastore_id)
@@ -4442,6 +4500,8 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False, prox
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    password = get_default_password(password)
+
     config_dir = os.path.dirname(config_path)
     user_id = str(args.user_id)
     datastore_id = str(args.datastore_id)
@@ -4461,6 +4521,8 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False, proxy=N
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
+
+    password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
     user_id = str(args.user_id)
@@ -4484,6 +4546,8 @@ def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, prox
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    password = get_default_password(password)
+
     config_dir = os.path.dirname(config_path)
     user_id = str(args.user_id)
     datastore_id = str(args.datastore_id)
@@ -4505,6 +4569,8 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False, p
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
+
+    password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
     user_id = str(args.user_id)
@@ -4544,6 +4610,8 @@ def cli_get_collection( args, config_path=CONFIG_PATH, proxy=None, password=None
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    password = get_default_password(password)
+
     user_id = str(args.user_id)
     collection_id = str(args.collection_id)
     include_private = str(args.include_private)
@@ -4564,6 +4632,8 @@ def cli_list_collections( args, config_path=CONFIG_PATH, proxy=None, password=No
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    password = get_default_password(password)
+
     user_id = str(args.user_id)
     res = datastore_list( config_path=config_path )
 
@@ -4583,6 +4653,8 @@ def cli_create_collection( args, config_path=CONFIG_PATH, proxy=None, password=N
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
+    password = get_default_password(password)
+
     user_id = str(args.user_id)
     collection_id = str(args.collection_id)
 
@@ -4598,6 +4670,8 @@ def cli_delete_collection( args, config_path=CONFIG_PATH, proxy=None, password=N
     """
     if proxy is None:
         proxy = get_default_proxy(config_path)
+
+    password = get_default_password(password)
 
     user_id = str(args.user_id)
     collection_id = str(args.collection_id)
@@ -4666,6 +4740,8 @@ def cli_collection_putitem(args, config_path=CONFIG_PATH, interactive=False, pro
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
+
+    password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
     user_id = str(args.user_id)
