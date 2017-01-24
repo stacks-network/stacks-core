@@ -43,6 +43,9 @@ import atexit
 import threading
 import errno
 import blockstack_zones
+import keylib
+import base64
+import urllib2
 
 from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 
@@ -65,6 +68,7 @@ from lib.config import REINDEX_FREQUENCY
 from lib import *
 from lib.storage import *
 from lib.atlas import *
+from lib.fast_sync import *
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
@@ -2421,6 +2425,29 @@ def run_blockstackd():
       'version',
       help='Print version and exit')
 
+   parser = subparsers.add_parser(
+      'fast_sync',
+      help='fetch and verify a recent known-good name database')
+   parser.add_argument(
+      'url',
+      help='the URL to the name database snapshot')
+   parser.add_argument(
+      'public_key', nargs='?',
+      help='the public key to use to verify the snapshot')
+
+   parser = subparsers.add_parser(
+      'fast_sync_snapshot',
+      help='make a fast-sync snapshot')
+   parser.add_argument(
+      'private_key',
+      help='the private key to use to generate the snapshot')
+   parser.add_argument(
+      'path',
+      help='the path to the resulting snapshot')
+   parser.add_argument(
+      'block_id', nargs='?',
+      help='the block ID of the backup to use to make a fast-sync snapshot')
+
    args, _ = argparser.parse_known_args()
 
    if args.action == 'version':
@@ -2524,8 +2551,7 @@ def run_blockstackd():
 
    elif args.action == 'importdb':
       # re-target working dir so we move the database state to the correct location
-      old_working_dir = blockstack_state_engine.working_dir
-      blockstack_state_engine.working_dir = None
+      old_working_dir = virtualchain.get_working_dir()
       virtualchain.setup_virtualchain( blockstack_state_engine )
 
       db_path = virtualchain.get_db_filename()
@@ -2544,6 +2570,32 @@ def run_blockstackd():
 
       print "Importing lastblock from %s to %s" % (old_lastblock_path, virtualchain.get_lastblock_filename() )
       shutil.copy( old_lastblock_path, virtualchain.get_lastblock_filename() )
+
+   elif args.action == 'fast_sync_snapshot':
+      # create a fast-sync snapshot 
+      dest_path = str(args.path)
+      private_key = keylib.ECPrivateKey(str(args.private_key)).to_hex()
+      block_id = None
+      if args.block_id is not None:
+          block_id = int(args.block_id)
+
+      rc = fast_sync_export( dest_path, private_key, working_dir, block_id )
+      if not rc:
+          print "fast_sync_snapshot failed"
+          sys.exit(1)
+
+   elif args.action == 'fast_sync':
+      # fetch the snapshot and verify it 
+      url = str(args.url)
+      public_key = config.FAST_SYNC_PUBLIC_KEY
+      if args.public_key is not None:
+          args.public_key = keylib.ECPublicKey(str(args.public_key)).to_hex()
+
+      rc = fast_sync_import(working_dir, url, public_key=public_key)
+      if not rc:
+          print 'fast_sync failed'
+          sys.exit(1)
+
 
 if __name__ == '__main__':
 
