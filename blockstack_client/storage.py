@@ -26,6 +26,7 @@
 import pybitcoin
 import keylib
 import re
+import os
 import json
 import hashlib
 import urllib
@@ -38,6 +39,12 @@ import fastecdsa
 import fastecdsa.curve
 import fastecdsa.keys
 import fastecdsa.ecdsa
+
+from fastecdsa import _ecdsa
+from fastecdsa.util import RFC6979
+from binascii import hexlify
+import hmac
+from struct import pack
 
 from keylib import ECPrivateKey, ECPublicKey
 
@@ -61,6 +68,53 @@ class UnhandledURLException(Exception):
     def __init__(self, url):
         super(UnhandledURLException, self).__init__()
         self.unhandled_url = url
+
+
+class RFC6979_file(RFC6979):
+    """
+    Generate RFC6979 nonces from a file
+    """
+    def __init__(self, x, q, hashfunc):
+        RFC6979.__init__(self, '', x, q, hashfunc)
+
+
+    def gen_nonce_from_file(self, fd):
+        ''' http://tools.ietf.org/html/rfc6979#section-3.2 '''
+        # based on gen_nonce()
+        
+        h1 = self.hashfunc()
+        while True:
+            buf = fd.read(65536)
+            if len(buf) == 0:
+                break
+
+            h1.update(buf)
+
+        hash_size = h1.digest_size
+        h1 = h1.digest()
+        key_and_msg = self._int2octets(self.x) + self._bits2octets(h1)
+
+        v = b''.join([b'\x01' for _ in range(hash_size)])
+        k = b''.join([b'\x00' for _ in range(hash_size)])
+
+        k = hmac.new(k, v + b'\x00' + key_and_msg, self.hashfunc).digest()
+        v = hmac.new(k, v, self.hashfunc).digest()
+        k = hmac.new(k, v + b'\x01' + key_and_msg, self.hashfunc).digest()
+        v = hmac.new(k, v, self.hashfunc).digest()
+
+        while True:
+            t = b''
+
+            while len(t) * 8 < self.qlen:
+                v = hmac.new(k, v, self.hashfunc).digest()
+                t = t + v
+
+            nonce = self._bits2int(t)
+            if nonce >= 1 and nonce < self.q:
+                return nonce
+
+            k = hmac.new(k, v + b'\x00', self.hashfunc).digest()
+            v = hmac.new(k, v, self.hashfunc).digest()
 
 
 def get_data_hash(data_txt):
@@ -476,22 +530,39 @@ def get_immutable_data(data_hash, data_url=None, hash_func=get_data_hash, fqu=No
     return None
 
 
-
-def sign_raw_data(raw_data, privatekey_hex):
+def decode_privkey_hex(privkey_hex):
     """
-    Sign a string of data.
-    Returns signature as a base64 string
+    Decode a private key for ecdsa signature
     """
-
     # force uncompressed
-    priv = str(privatekey_hex)
+    priv = str(privkey_hex)
     if len(priv) > 64:
         assert priv[-2:] == '01'
         priv = priv[:64]
 
     pk_i = int(priv, 16)
-    sig_r, sig_s = fastecdsa.ecdsa.sign(raw_data, pk_i, curve=fastecdsa.curve.secp256k1)
+    return pk_i
 
+
+def decode_pubkey_hex(pubkey_hex):
+    """
+    Decode a public key for ecdsa verification
+    """
+    pubk = str(pubkey_hex)
+    if keylib.key_formatting.get_pubkey_format(pubk) == 'hex_compressed':
+        pubk = keylib.key_formatting.decompress(pubk)
+
+    assert len(pubk) == 130
+
+    pubk_raw = pubk[2:]
+    pubk_i = (int(pubk_raw[:64], 16), int(pubk_raw[64:], 16))
+    return pubk_i
+
+
+def encode_signature(sig_r, sig_s):
+    """
+    Encode an ECDSA signature, with low-s
+    """
     # enforce low-s 
     if sig_s * 2 >= fastecdsa.curve.secp256k1.q:
         log.debug("High-S to low-S")
@@ -504,6 +575,30 @@ def sign_raw_data(raw_data, privatekey_hex):
     return sig_b64
 
 
+def decode_signature(sigb64):
+    """
+    Decode a signature into r, s
+    """
+    sig_bin = base64.b64decode(sigb64)
+    assert len(sig_bin) == 64
+
+    sig_hex = sig_bin.encode('hex')
+    sig_r = int(sig_hex[:64], 16)
+    sig_s = int(sig_hex[64:], 16)
+    return sig_r, sig_s
+
+
+def sign_raw_data(raw_data, privatekey_hex):
+    """
+    Sign a string of data.
+    Returns signature as a base64 string
+    """
+    pk_i = decode_privkey_hex(privatekey_hex)
+    sig_r, sig_s = fastecdsa.ecdsa.sign(raw_data, pk_i, curve=fastecdsa.curve.secp256k1)
+    sig_b64 = encode_signature(sig_r, sig_s)
+    return sig_b64
+
+
 def verify_raw_data(raw_data, pubkey_hex, sigb64):
     """
     Verify the signature over a string, given the public key
@@ -511,27 +606,74 @@ def verify_raw_data(raw_data, pubkey_hex, sigb64):
     Return True on success.
     Return False on error.
     """
-
-    pubk = str(pubkey_hex)
-    if keylib.key_formatting.get_pubkey_format(pubk) == 'hex_compressed':
-        pubk = keylib.key_formatting.decompress(pubk)
-
-    assert len(pubk) == 130
-
-    data_hash = get_data_hash(raw_data)
-
-    sig_bin = base64.b64decode(sigb64)
-    assert len(sig_bin) == 64
-
-    sig_hex = sig_bin.encode('hex')
-    sig_r = int(sig_hex[:64], 16)
-    sig_s = int(sig_hex[64:], 16)
-
-    pubk_raw = pubk[2:]
-    pubk_i = (int(pubk_raw[:64], 16), int(pubk_raw[64:], 16))
-
+    sig_r, sig_s = decode_signature(sigb64)
+    pubk_i = decode_pubkey_hex(pubkey_hex)
     res = fastecdsa.ecdsa.verify((sig_r, sig_s), raw_data, pubk_i, curve=fastecdsa.curve.secp256k1)
     return res
+
+
+def sign_file_data(fd, privkey_hex, curve=fastecdsa.curve.secp256k1, hashfunc=hashlib.sha256):
+    """
+    Sign data from a file-like object.
+    Based on fastecdsa.ecdsa.sign()
+    """
+
+    pk_i = decode_privkey_hex(privkey_hex)
+
+    # generate a deterministic nonce per RFC6979
+    rfc6979 = RFC6979_file(pk_i, curve.q, hashfunc)
+    k = rfc6979.gen_nonce_from_file(fd)
+
+    h = hashfunc()
+    fd.seek(0, os.SEEK_SET)
+
+    while True:
+        buf = fd.read(65536)
+        if len(buf) == 0:
+            break
+
+        h.update(buf)
+
+    hashed = h.hexdigest()
+    r, s = _ecdsa.sign(hashed, str(pk_i), str(k), curve.name)
+    return encode_signature(int(r), int(s))
+
+
+def verify_file_data(fd, pubkey_hex, sigb64, fd_len=None, curve=fastecdsa.curve.secp256k1, hashfunc=hashlib.sha256):
+    """
+    Verify data from a file-like object.
+    Based on fastecdsa.ecdsa.verify()
+    """
+    
+    Q = decode_pubkey_hex(pubkey_hex)
+    r, s = decode_signature(sigb64)
+
+    # validate Q, r, s
+    if not curve.is_point_on_curve(Q):
+        raise fastecdsa.ecdsa.EcdsaError('Invalid public key, point is not on curve {}'.format(curve.name))
+    elif r > curve.q or r < 1:
+        raise fastecdsa.ecdsa.EcdsaError('Invalid Signature: r is not a positive integer smaller than the curve order')
+    elif s > curve.q or s < 1:
+        raise fastecdsa.ecdsa.EcdsaError('Invalid Signature: s is not a positive integer smaller than the curve order')
+
+    qx, qy = Q
+
+    h = hashfunc()
+    count = 0
+    while fd_len is None or count < fd_len:
+        buf = fd.read(65536)
+        if len(buf) == 0:
+            break
+
+        if fd_len is not None:
+            if count + len(buf) > fd_len:
+                buf = buf[:fd_len - count]
+
+        h.update(buf)
+        count += len(buf)
+
+    hashed = h.hexdigest()
+    return _ecdsa.verify(str(r), str(s), hashed, str(qx), str(qy), curve.name)
 
 
 def get_drivers_for_url(url):
@@ -605,10 +747,10 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None,
 
         # which URLs to attempt?
         try_urls = []
-        msg = 'Storage handler {} does not support `{}`'
         if urls is None:
             # make one on-the-fly
             if not getattr(storage_handler, 'make_mutable_url', None):
+                msg = 'Storage handler {} does not support `{}`'
                 log.warning(msg.format(storage_handler.__name__, 'make_mutable_url'))
                 continue
 
@@ -620,11 +762,17 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None,
                 log.exception(e)
                 continue
 
+            if new_url is None:
+                log.debug("Cannot use {} to generate a URL for {}".format(storage_handler.__name__, fq_data_id))
+                continue
+
             try_urls = [new_url]
+
         else:
             # find the set that this handler can manage
             for url in urls:
                 if not getattr(storage_handler, 'handles_url', None):
+                    msg = 'Storage handler {} does not support `{}`'
                     log.warning(msg.format(storage_handler.__name__, 'handles_url'))
                     continue
 
