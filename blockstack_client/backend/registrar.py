@@ -1187,6 +1187,11 @@ def migrate( rpc_token, fqu, config_path=None, proxy=None ):
         data['error'] = "Already in queue."
         return data
 
+    if state.data_pubkey is None or state.data_privkey_info is None:
+        data['success'] = False
+        data['error'] = "No data key set"
+        return data
+
     rpc_token = get_rpc_token(config_path)
     wallet_keys = get_wallet(rpc_token=rpc_token, config_path=config_path, proxy=proxy )
     if 'error' in wallet_keys:
@@ -1194,7 +1199,12 @@ def migrate( rpc_token, fqu, config_path=None, proxy=None ):
         data['success'] = False
         data['error'] = 'Failed to load wallet'
         return data
-   
+ 
+    # we need data keys
+    if not wallet_keys.has_key('data_pubkey') or not wallet_keys.has_key('data_privkey') or wallet_keys['data_pubkey'] is None or wallet_keys['data_privkey'] is None:
+        log.error("No data key set in the wallet")
+        return {'success': False, 'error': 'No data keys in wallet.  Please run migrate_wallet first.'}
+
     user_profile, user_zonefile, legacy = get_and_migrate_profile( fqu, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys )
     if 'error' in user_profile:
         log.debug("Unable to load user zonefile for '%s': %s" % (fqu, user_profile['error']))
