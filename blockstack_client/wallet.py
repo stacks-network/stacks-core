@@ -473,7 +473,7 @@ def initialize_wallet(password='', wallet_path=None, interactive=True, config_di
     Initialize a wallet, interatively if need be.
     Save it to @wallet_path, if successfully generated.
 
-    Return {'wallet_password': ...} on success.
+    Return {'status': True, 'wallet': ..., 'wallet_password': ...} on success.
     Return {'error': ...} on error
     """
 
@@ -510,7 +510,10 @@ def initialize_wallet(password='', wallet_path=None, interactive=True, config_di
             log.exception(e)
             return {'error': 'Failed to write wallet'}
 
+        result['status'] = True
+        result['wallet'] = wallet
         result['wallet_password'] = password
+
         if not interactive:
             return result
 
@@ -535,37 +538,50 @@ def initialize_wallet(password='', wallet_path=None, interactive=True, config_di
     return result
 
 
-def wallet_exists(config_dir=CONFIG_DIR, wallet_path=None):
+def wallet_exists(config_path=CONFIG_PATH, wallet_path=None):
     """
     Does a wallet exist?
     Return True if so
     Return False if not
     """
+    config_dir = os.path.dirname(config_path)
     if wallet_path is None:
         wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
     return os.path.exists(wallet_path)
 
 
-def load_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None, include_private=False):
+def prompt_wallet_password():
+    """
+    Get the wallet password from the user
+    """
+    password = getpass("Enter wallet password: ")
+    return password
+
+
+def load_wallet(password=None, config_path=CONFIG_PATH, wallet_path=None, include_private=False):
     """
     Get a wallet from disk, and unlock it.
-    Return {'status': True, 'wallet': ...} on success
+    Return {'status': True, 'migrated': ..., 'wallet': ..., 'password': ...} on success
     Return {'error': ...} on error
     """
+    config_dir = os.path.dirname(config_path)
     if wallet_path is None:
         wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
-    config_path = os.path.join(config_dir, CONFIG_FILENAME)
-
     if password is None:
-        password = getpass('Enter wallet password: ')
+        password = prompt_wallet_password()
 
     with open(wallet_path, 'r') as f:
         data = f.read()
         data = json.loads(data)
 
-    return decrypt_wallet(data, password, config_path=config_path)
+    res = decrypt_wallet(data, password, config_path=config_path)
+    if 'error' in res:
+        return res
+
+    res['password'] = password
+    return res
 
 
 def backup_wallet(wallet_path):
@@ -586,16 +602,53 @@ def backup_wallet(wallet_path):
     return legacy_path
 
 
+def migrate_wallet(password=None, config_path=CONFIG_PATH):
+    """
+    Migrate the wallet to the latest format.
+    Back up the old wallet.
+    Return {'status': True, 'backup_wallet': ..., 'wallet': ..., 'wallet_password': ..., 'migrated': True} on success
+    Return {'status': True, 'wallet': ..., 'wallet_password': ..., 'migrated': False} if no migration was necessary.
+    Return {'error': ...} on error
+    """
+    config_dir = os.path.dirname(config_path)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+
+    wallet_info = load_wallet(password=password, wallet_path=wallet_path, config_path=config_path, include_private=True)
+    if 'error' in wallet_info:
+        return wallet_info
+
+
+    wallet = wallet_info['wallet']
+    password = wallet_info['password']
+
+    if not wallet_info['migrated']:
+        return {'status': True, 'migrated': False, 'wallet': wallet, 'wallet_password': password}
+
+    encrypted_wallet = encrypt_wallet(wallet, password)
+    if 'error' in encrypted_wallet:
+        return encrypted_wallet
+
+    # back up 
+    old_path = backup_wallet(wallet_path)
+
+    # store
+    res = write_wallet(encrypted_wallet, path=wallet_path)
+    if not res:
+        # try to restore
+        shutil.copy(old_path, wallet_path)
+        return {'error': 'Failed to store migrated wallet.'}
+
+    return {'status': True, 'migrated': True, 'backup_wallet': old_path, 'wallet': wallet, 'wallet_password': password}
+
+
 def unlock_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None):
     """
-    Unlock the wallet, and migrate it to the current schema.
-    Save the wallet to the RPC daemon on success.
-
-    If this wallet is in legacy format, then it will
-    be migrated to the latest format and the legacy
-    copy backed up.
-
-    Return {'status': True, 'addresses': ...} on success
+    Unlock the wallet, and store it to the running RPC daemon.
+    
+    This will only work if the wallet is in the latest supported state.
+    Otherwise, the caller may need to migrate the wallet first.
+    
+    Return {'status': True} on success
     return {'error': ...} on error
     """
     config_path = os.path.join(config_dir, CONFIG_FILENAME)
@@ -606,7 +659,7 @@ def unlock_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None):
 
     try:
         if password is None:
-            password = getpass('Enter wallet password: ')
+            password = prompt_wallet_password()
 
         with open(wallet_path, "r") as f:
             data = f.read()
@@ -621,7 +674,7 @@ def unlock_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None):
         wallet = wallet_info['wallet']
         if wallet_info['migrated']:
             # need to have the user migrate the wallet first
-            return {'error': 'Wallet is in legacy format.  Please migrate it with the `migrate_wallet` command.'}
+            return {'error': 'Wallet is in legacy format.  Please migrate it with the `migrate_wallet` command.', 'legacy': True}
 
         # save to RPC daemon
         try:
@@ -877,6 +930,11 @@ def get_owner_addresses_and_names(wallet_path=WALLET_PATH):
 
 
 def get_all_names_owned(wallet_path=WALLET_PATH):
+    """
+    Get back the list of all names owned by the given wallet.
+    Return [names] on success
+    Return [{'error': ...}] on failure
+    """
     owner_addresses = get_owner_addresses_and_names(wallet_path)
     names_owned = []
 
@@ -915,29 +973,54 @@ def get_total_balance(config_path=CONFIG_PATH, wallet_path=WALLET_PATH):
     return total_balance, payment_addresses
 
 
-def dump_wallet(config_path=CONFIG_PATH, wallet_path=None, password=None):
+def wallet_setup(config_path=CONFIG_PATH, wallet_path=None, password=None):
     """
-    Load the wallet private keys from the background daemon.
-    Return {'status': True, 'wallet': wallet} on success
-    Return {'error': ...} on error
-    """
-    config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir)
+    Do one-time wallet setup.
+    * make sure the wallet exists (creating it if need be)
+    * migrate the wallet if it is in legacy format
 
+    Return {'status': True, 'created': False, 'migrated': False, 'password': ..., 'wallet'; ... } on success
+    Return {'status': True, 'created'; True, 'migrated': False, 'password': ..., 'wallet': ...} if we had to create the wallet
+    Return {'status': True, 'created': False, 'migrated': True, 'password': ..., 'wallet': ...} if we had to migrate the wallet
+    """
+    
     if wallet_path is None:
+        config_dir = os.path.dirname(config_path)
         wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-        if not os.path.exists(wallet_path):
-            res = initialize_wallet(wallet_path=wallet_path, password=password)
-            if 'error' in res:
-                return res
 
-    if not is_wallet_unlocked(config_dir=config_dir):
-        res = unlock_wallet(config_dir=config_dir, password=password)
+    wallet = None
+    created = False
+    migrated = False
+
+    if not wallet_exists(wallet_path=wallet_path):
+        # create
+        res = initialize_wallet(wallet_path=wallet_path, password=password)
+        if 'error' in res:
+            return res
+        
+        created = True
+        password = res['wallet_password']
+        wallet = res['wallet']
+
+    else:
+        # try to migrate
+        res = migrate_wallet(password=password, config_path=config_path)
         if 'error' in res:
             return res
 
-    wallet = get_wallet(config_path=config_path)
-    if wallet is None:
-        return {'error': 'Failed to load wallet'}
+        if res['migrated']:
+            migrated = True
 
-    return {'status': True, 'wallet': wallet}
+        password = res['wallet_password']
+        wallet = res['wallet']
+    
+    res = {
+        'status': True,
+        'migrated': migrated,
+        'created': created,
+        'wallet': wallet,
+        'password': password,
+    }
+
+    return res
+
