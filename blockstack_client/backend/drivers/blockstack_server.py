@@ -76,7 +76,7 @@ def get_data( data_id, zonefile=False ):
 
     url = "http://%s:%s/RPC2" % (SERVER_NAME, SERVER_PORT)
     ses = xmlrpclib.ServerProxy( url, allow_none=True )
-    
+   
     if zonefile:
         log.debug("Get zonefile for %s" % data_id)
 
@@ -103,6 +103,11 @@ def get_data( data_id, zonefile=False ):
                 return None
 
     else:
+        import blockstack_client
+        if not blockstack_client.is_name_valid(data_id):
+            log.debug("Not a valid name: {}".format(data_id))
+            return None
+
         log.debug("Get profile for %s" % data_id)
         res = ses.get_profile( data_id )
         try:
@@ -170,24 +175,20 @@ def put_data( data_id, data_txt, zonefile=False, fqu=None ):
     elif data_id == fqu:
         log.debug("Replicate profile for %s" % data_id)
 
-        # get current profile
-        cur_profile_txt = get_data( data_id, zonefile=False )
-        if cur_profile_txt is None:
-            log.warning("Could not get profile for %s" % data_id)
-            cur_profile_txt = ""
-
         # get the data private key (or owner private key if not given)
         wallet_info = blockstack_client.get_wallet()
         data_privkey = wallet_info.get('data_privkey', None)
         if data_privkey is None:
-            data_privkey = wallet_info.get('owner_privkey', None)
-
-        # sign this request
-        cur_profile_hash = pybitcoin.hex_hash160( cur_profile_txt )
-        sigb64 = blockstack_client.storage.sign_raw_data( "%s%s" % (cur_profile_hash, data_txt), data_privkey )
-
-        # include signature
-        res = ses.put_profile( data_id, data_txt, cur_profile_hash, sigb64 )
+            log.error("No data private key given")
+            return False
+       
+        # data_txt must be a sufficiently small JSON blob
+        if len(data_txt) >= 1024 * 1024:
+            log.error("Data is too big")
+            return False
+       
+        # NOTE: last two arguments are legacy compat
+        res = ses.put_profile( data_id, data_txt, '', '')
         if 'error' in res:
             log.error("Failed to put %s: %s" % (data_id, res))
             return False
