@@ -343,6 +343,8 @@ def has_mutable_data_section(d):
 def user_zonefile_data_pubkey(user_zonefile, key_prefix='pubkey:data:'):
     """
     Get a user's data public key from their zonefile.
+    There can be only one.
+
     Return None if not defined
     Raise if there are multiple ones.
     """
@@ -363,6 +365,10 @@ def user_zonefile_data_pubkey(user_zonefile, key_prefix='pubkey:data:'):
             raise ValueError('{} starting with "{}"'.format(msg, key_prefix))
 
         data_pubkey = txtrec['txt'][len(key_prefix):]
+
+        # must be DER-encoded EC public key--either uncompressed or compressed
+        if not re.match(r'^[0-9a-fA-F]{66}$', data_pubkey) and not re.match(r'[0-9a-fA-F]{130}$', data_pubkey):
+            data_pubkey = None
 
     return data_pubkey
 
@@ -474,10 +480,10 @@ def put_immutable_data_zonefile(user_zonefile, data_id, data_hash, data_url=None
     data_hash = str(data_hash)
     assert scripts.is_valid_hash(data_hash)
 
-    k = get_immutable_data_hash(user_zonefile, data_id)
+    k = get_immutable_data_hashes(user_zonefile, data_id)
     if k is not None:
         # exists or name collision
-        return k == data_hash
+        return k[0] == data_hash
 
     txtrec = '#{}'.format(data_hash)
     if data_url is not None:
@@ -610,12 +616,11 @@ def has_immutable_data_id(user_zonefile, data_id):
     return False
 
 
-def get_immutable_data_hash(user_zonefile, data_id):
+def get_immutable_data_hashes(user_zonefile, data_id):
     """
     Get the hash of an immutable datum by name.
     Return None if there is no match.
-    Return the hash if there is one match.
-    Return the list of hashes if there are multiple matches.
+    Return the list of hashes otherwise
     """
     assert is_user_zonefile(user_zonefile)
 
@@ -644,13 +649,10 @@ def get_immutable_data_hash(user_zonefile, data_id):
             continue
 
         if ret is None:
-            ret = h
-        elif not isinstance(ret, list):
-            ret = [ret, h]
+            ret = [h]
         else:
             ret.append(h)
 
-    # NOTE: ret can be one of these types: None, str or list
     return ret
 
 
