@@ -511,16 +511,16 @@ def get_data_privkey(user_zonefile, wallet_keys=None, config_path=CONFIG_PATH):
         data_pubkey = user_zonefile_data_pubkey(user_zonefile)
     except ValueError:
         log.error('Multiple pubkeys defined')
-        return
+        return None
 
     if data_pubkey is None:
         log.error('No data public key defined')
-        return
+        return None
 
     wallet_keys = {} if wallet_keys is None else wallet_keys
     if wallet_keys.get('data_privkey', None) is None:
         log.error('No data private key set')
-        return
+        return None
 
     wallet = get_wallet(config_path=CONFIG_PATH) if wallet_keys is None else wallet_keys
     assert wallet, 'Failed to get wallet'
@@ -531,54 +531,10 @@ def get_data_privkey(user_zonefile, wallet_keys=None, config_path=CONFIG_PATH):
     if data_privkey is None or not is_matching_keys:
         # data private key doesn't match zonefile
         log.error('Data private key does not match zonefile')
-        return
+        return None
 
     # zonefile matches data privkey
     return ECPrivateKey(data_privkey).to_hex()
-
-
-def get_data_or_owner_privkey(user_zonefile, owner_address, wallet_keys=None, config_path=CONFIG_PATH):
-    """
-    Get the data private key if it is set in the zonefile, or if not, fall back to the
-    owner private key.
-
-    Useful for signing mutable data when no explicit data key is set.
-    Returns {'status': True, 'privatekey': ...} on success
-    Returns {'error': ...} on error
-    Raise on invalid data
-    """
-
-    # generate the mutable zonefile
-    data_privkey = get_data_privkey(user_zonefile, wallet_keys=wallet_keys, config_path=config_path)
-
-    if data_privkey is not None:
-        return {'status': True, 'privatekey': data_privkey}
-
-    # This is legacy code here.  The only time this should happen is
-    # when the user has a single owner key, and does not have a
-    # separate data key.
-    log.warn('No data private key set.  Falling back to owner keypair.')
-    owner_privkey_info = get_owner_privkey_info(wallet_keys=wallet_keys, config_path=config_path)
-    if owner_privkey_info is None:
-        raise Exception('No owner private key info')
-
-    # sanity check: must be a single private key.
-    # if it isn't, then use the *first* private key in the multisig bundle.
-    if not is_singlesig(owner_privkey_info):
-        if is_multisig(owner_privkey_info):
-            owner_privkey_info = owner_privkey_info['private_keys'][0]
-
-        else:
-            raise Exception('Invalid owner private key info')
-
-    # sanity check: must match profile address
-    owner_pubkey = virtualchain.BitcoinPrivateKey(owner_privkey_info).public_key().to_hex()
-    compressed_addr, uncompressed_addr = get_pubkey_addresses(owner_pubkey)
-    if owner_address not in [compressed_addr, uncompressed_addr]:
-        raise Exception('{} not in [{},{}]'.format(owner_address, compressed_addr, uncompressed_addr))
-
-    data_privkey = virtualchain.BitcoinPrivateKey(owner_privkey_info).to_hex()
-    return {'status': True, 'privatekey': data_privkey}
 
 
 def get_data_privkey_info(user_zonefile, wallet_keys=None, config_path=CONFIG_PATH):
