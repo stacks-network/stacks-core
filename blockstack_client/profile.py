@@ -31,7 +31,6 @@ import httplib
 import virtualchain
 
 from .proxy import *
-from .keys import get_data_or_owner_privkey
 from blockstack_client import storage
 from blockstack_client import user as user_db
 
@@ -98,30 +97,6 @@ def load_legacy_user_profile(name, expected_hash):
     assert blockstack_profiles.is_profile_in_legacy_format(data_json)
     new_profile = blockstack_profiles.get_person_from_legacy_format(data_json)
     return new_profile
-
-
-def deduce_profile_privkey( user_zonefile=None, owner_address=None, wallet_keys=None, proxy=None, config_path=CONFIG_PATH ):
-    """
-    Deduce the private key for a profile, given profile information
-    """
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    # deduce private key
-    if user_zonefile is None or owner_address is None or wallet_keys is None:
-        raise Exception("Could not deduce private key")
-
-    data_privkey_res = get_data_or_owner_privkey(
-        user_zonefile, owner_address,
-        wallet_keys=wallet_keys, config_path=proxy.conf['path']
-    )
-
-    if 'error' in data_privkey_res:
-        return {'error': data_privkey_res['error']}
-
-    data_privkey = data_privkey_res['privatekey']
-    assert data_privkey is not None
-    return data_privkey
 
 
 def get_user_profile(user_id, user_data_pubkey=None, user_zonefile=None, data_address=None, owner_address=None,
@@ -208,7 +183,9 @@ def put_profile(name, new_profile, user_data_privkey=None, user_zonefile=None, o
 
     # deduce private key
     if user_data_privkey is None:
-        user_data_privkey = deduce_profile_privkey( user_zonefile=user_zonefile, owner_address=owner_address, wallet_keys=wallet_keys, proxy=proxy )
+        user_data_privkey = get_data_privkey_info(user_zonefile, wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+        if user_data_privkey is None:
+            return {'error': 'No data key defined'}
 
     profile_payload = copy.deepcopy(new_profile)
     profile_payload = set_profile_timestamp(profile_payload)
@@ -231,7 +208,7 @@ def put_profile(name, new_profile, user_data_privkey=None, user_zonefile=None, o
     return ret
 
 
-def delete_profile(name, user_data_privkey=None, user_zonefile=None, owner_address=None,
+def delete_profile(name, user_data_privkey=None, user_zonefile=None,
                    proxy=None, wallet_keys=None):
     """
     Delete profile data.  CLIENTS SHOULD NOT CALL THIS DIRECTLY
@@ -246,7 +223,9 @@ def delete_profile(name, user_data_privkey=None, user_zonefile=None, owner_addre
     
     # deduce private key
     if user_data_privkey is None:
-        user_data_privkey = deduce_profile_privkey( user_zonefile=user_zonefile, owner_address=owner_address, wallet_keys=wallet_keys, proxy=proxy )
+        user_data_privkey = get_data_privkey_info(user_zonefile, wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+        if user_data_privkey is None:
+            return {'error': 'No data key defined'}
 
     rc = storage.delete_mutable_data(name, user_data_privkey)
     if rc:
@@ -270,10 +249,12 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
     It *will not work* for arbitrary user_ids.  Use get_user_profile for that.
 
     Notes on backwards compatibility (activated if use_legacy=True and use_legacy_zonefile):
-    * (use_legacy=True) If the user's zonefile is really a legacy profile, then
-    the profile returned will be the converted legacy profile.  The
-    returned zonefile will still be a legacy profile, however.
+    
+    * (use_legacy=True) If the user's zonefile is really a legacy profile from Onename, then
+    the profile returned will be the converted legacy profile.  The returned zonefile will still
+    be a legacy profile, however.
     The caller can check this and perform the conversion automatically.
+
     * (use_legacy_zonefile=True) If the name points to a current zonefile that does not have a 
     data public key, then the owner address of the name will be used to verify
     the profile's authenticity.
@@ -290,7 +271,8 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
             name, create_if_absent=create_if_absent, proxy=proxy,
             name_record=name_record, include_name_record=True,
             storage_drivers=zonefile_storage_drivers,
-            include_raw_zonefile=include_raw_zonefile
+            include_raw_zonefile=include_raw_zonefile,
+            allow_legacy=True
         )
 
         if user_zonefile is None:
@@ -324,24 +306,23 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
 
     else:
         # get user's data public key
-        user_address, old_address = None, None
+        data_address, owner_address = None, None
 
         try:
             user_data_pubkey = user_db.user_zonefile_data_pubkey(user_zonefile)
             if user_data_pubkey is not None:
                 user_data_pubkey = str(user_data_pubkey)
-                user_address = virtualchain.BitcoinPublicKey(user_data_pubkey).address()
+                data_address = virtualchain.BitcoinPublicKey(user_data_pubkey).address()
 
         except ValueError:
-            # user decided to put multiple keys under the same name into the zonefile.
-            # so don't use them.
+            # multiple keys defined; we don't know which one to use
             user_data_pubkey = None
 
         if not use_legacy_zonefile and user_data_pubkey is None:
             # legacy zonefile without a data public key 
             return (None, {'error': 'Name zonefile is missing a public key'})
 
-        # convert to address
+        # find owner address
         if name_record is None:
             name_record = get_name_blockchain_record(name, proxy=proxy)
             if name_record is None or 'error' in name_record:
@@ -349,19 +330,16 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
                 return None, {'error': 'Failed to look up name record'}
 
         assert 'address' in name_record.keys(), json.dumps(name_record, indent=4, sort_keys=True)
-        old_address = name_record['address']
-
-        # cut to the chase
-        user_address = old_address if user_address is None else user_address
+        owner_address = name_record['address']
 
         user_profile = get_user_profile(
-            name, user_zonefile=user_zonefile, data_address=user_address, owner_address=old_address,
+            name, user_zonefile=user_zonefile, data_address=data_address, owner_address=owner_address,
             use_zonefile_urls=use_zonefile_urls,
             storage_drivers=profile_storage_drivers,
             decode=decode_profile
         )
 
-        if user_profile is None or (not isinstance(user_profile, (str, unicode)) and 'error' in user_profile):
+        if user_profile is None or json_is_error(user_profile):
             if user_profile is None:
                 log.debug('WARN: no user profile for {}'.format(name))
             else:
@@ -414,7 +392,8 @@ def get_and_migrate_profile(name, zonefile_storage_drivers=None, profile_storage
     name_record = None
     user_zonefile = get_name_zonefile(
         name, storage_drivers=zonefile_storage_drivers, proxy=proxy,
-        wallet_keys=wallet_keys, include_name_record=True
+        wallet_keys=wallet_keys, include_name_record=True,
+        allow_legacy=True
     )
 
     if user_zonefile is not None and 'error' not in user_zonefile:
@@ -433,7 +412,8 @@ def get_and_migrate_profile(name, zonefile_storage_drivers=None, profile_storage
         )
 
         if data_pubkey is None:
-            log.warn('No data keypair set; will fall back to owner private key for data signing')
+            log.error("No data public key in wallet keys")
+            return {'error': 'No data public key in wallet'}, None, False
 
         user_profile = user_db.make_empty_user_profile()
         user_zonefile = make_empty_zonefile(name, data_pubkey)
@@ -456,7 +436,8 @@ def get_and_migrate_profile(name, zonefile_storage_drivers=None, profile_storage
         )
 
         if data_pubkey is None:
-            log.warn('No data keypair set; will fall back to owner private key for data signing')
+            log.error("No data public key in wallet keys")
+            return {'error': 'No data public key in wallet'}, None, False
 
         user_profile = {}
         if blockstack_profiles.is_profile_in_legacy_format(user_zonefile):
@@ -469,6 +450,7 @@ def get_and_migrate_profile(name, zonefile_storage_drivers=None, profile_storage
         user_zonefile = make_empty_zonefile(name, data_pubkey)
 
         created_new_zonefile, created_new_profile = True, True
+
     else:
         if not created_new_profile:
             user_profile, error_msg = get_name_profile(
