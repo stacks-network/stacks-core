@@ -66,8 +66,9 @@ from resolve import BlockstackURLHandle, BlockstackHandler
 from storage import get_data_hash, get_blockchain_compat_hash, get_zonefile_data_hash
 from storage import get_storage_handlers, hash_zonefile
 from storage import parse_mutable_data as parse_signed_data
+from storage import sign_raw_data, verify_raw_data, sign_file_data, verify_file_data
 
-from wallet import get_payment_addresses_and_balances, get_owner_addresses_and_names, dump_wallet, load_wallet, get_wallet
+from wallet import get_payment_addresses_and_balances, get_owner_addresses_and_names, load_wallet, get_wallet
 
 from user import is_user_zonefile, user_zonefile_data_pubkey
 
@@ -76,7 +77,7 @@ from zonefile import get_name_zonefile, decode_name_zonefile, zonefile_data_repl
 from operations import *
 from backend.nameops import *
 
-from scripts import UTXOException 
+from scripts import UTXOException, is_name_valid 
 
 # legacy compatibility
 from virtualchain import SPVClient
