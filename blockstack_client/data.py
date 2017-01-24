@@ -165,9 +165,16 @@ def store_mutable_data_version(conf, fq_data_id, ver):
     assert metadata_dir, 'Missing metadata directory'
 
     if not os.path.isdir(metadata_dir):
-        msg = 'No metadata directory found; cannot store version of "{}"'
-        log.warning(msg.format(fq_data_id))
-        return False
+        try:
+            log.debug("Make metadata directory {}".format(metadata_dir))
+            os.makedirs(metadata_dir)
+        except Exception, e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            msg = 'No metadata directory created; cannot store version of "{}"'
+            log.warning(msg.format(fq_data_id))
+            return False
 
     serialized_data_id = serialize_mutable_data_id(fq_data_id)
     version_file_path = os.path.join(
@@ -259,16 +266,16 @@ def get_immutable(name, data_hash, data_id=None, config_path=CONFIG_PATH, proxy=
 
     if is_obsolete_zonefile(user_zonefile):
         # zonefile is really a legacy profile
-        msg = 'Profile is in a legacy format that does not support immutable data.'
+        msg = 'Zone file is in a legacy format that does not support immutable data.'
         return {'error': msg}
 
     if data_id is not None:
         # look up hash by name
-        h = user_db.get_immutable_data_hash(user_zonefile, data_id)
-        if h is None:
+        hs = user_db.get_immutable_data_hashes(user_zonefile, data_id)
+        if hs is None:
             return {'error': 'No such immutable datum'}
 
-        if isinstance(h, list):
+        if len(hs) > 1:
             # this tool doesn't allow this to happen (one ID matches
             # one hash), but that doesn't preclude the user from doing
             # this with other tools.
@@ -278,6 +285,7 @@ def get_immutable(name, data_hash, data_id=None, config_path=CONFIG_PATH, proxy=
                 msg = 'Multiple matches for "{}": {}'
                 return {'error': msg.format(data_id, ','.join(h))}
 
+        h = hs[0]
         if data_hash is not None:
             if h != data_hash:
                 return {'error': 'Data ID/hash mismatch'}
@@ -429,9 +437,9 @@ def list_immutable_data_history(name, data_id, current_block=None, proxy=None):
             hashes.append('missing zonefile')
             continue
 
-        data_hash_or_hashes = user_db.get_immutable_data_hash(zf, data_id)
-        if data_hash_or_hashes is not None:
-            hashes.append(data_hash_or_hashes)
+        data_hashes = user_db.get_immutable_data_hashes(zf, data_id)
+        if data_hashes is not None:
+            hashes += data_hashes
             continue
 
         hashes.append('data not defined')
@@ -441,8 +449,7 @@ def list_immutable_data_history(name, data_id, current_block=None, proxy=None):
 
 def load_user_data_pubkey_addr( name, storage_drivers=None, proxy=None ):
     """
-    Get a user's default data public key and/or address.
-    If use_legacy_zonefile is set, then we will fall back to the owner public key hash if need be.
+    Get a user's default data public key and/or owner address.
 
     Returns {'pubkey': ..., 'address': ...} on success
     Return {'error': ...} on error
@@ -511,28 +518,54 @@ def get_mutable(name, data_id, data_pubkey=None, data_address=None, storage_driv
             log.error("No data public key or address available")
             return {'error': 'No data public key or address available'}
 
-    # get the mutable data itself
-    mutable_data = storage.get_mutable_data(fq_data_id, data_pubkey, urls=urls, data_address=data_address)
-    if mutable_data is None:
-        log.error("Failed to get mutable datum {}".format(fq_data_id))
-        return {'error': 'Failed to look up mutable datum'}
-
-    jsonschema.validate(mutable_data, DATA_BLOB_SCHEMA)
-
     expected_version = load_mutable_data_version(conf, fq_data_id)
     expected_version = 1 if expected_version is None else expected_version
 
-    # check consistency
-    version = mutable_data['version']
-    if ver_min is not None and ver_min > version:
-        return {'error': 'Mutable data is stale'}
+    if storage_drivers is None:
+        storage_drivers = get_read_storage_drivers(config_path)
 
-    elif ver_max is not None and ver_max <= version:
-        return {'error': 'Mutable data is in the future'}
+    mutable_data = None
 
-    elif expected_version > version:
-        msg = 'Mutable data is stale; a later version was previously fetched'
-        return {'error': msg}
+    # which storage drivers and/or URLs will we use?
+    for driver in storage_drivers: 
+
+        mutable_data = None 
+
+        # get the mutable data itsef
+        mutable_data = storage.get_mutable_data(fq_data_id, data_pubkey, urls=urls, drivers=[driver], data_address=data_address)
+        if mutable_data is None:
+            log.error("Failed to get mutable datum {}".format(fq_data_id))
+            return {'error': 'Failed to look up mutable datum'}
+
+        try:
+            jsonschema.validate(mutable_data, DATA_BLOB_SCHEMA)
+        except ValidationError as ve:
+            if BLOCKSTACK_DEBUG:
+                log.exception(ve)
+
+            log.warn("Invalid mutable data from {} for {}".format(driver, fq_data_id))
+            continue
+
+        # check consistency
+        version = mutable_data['version']
+        if ver_min is not None and ver_min > version:
+            log.warn("Invalid (stale) data version from {} for {}: ver_min = {}, version = {}".format(driver, fq_data_id, ver_min, version))
+            continue
+
+        elif ver_max is not None and ver_max <= version:
+            log.warn("Invalid (future) data version from {} for {}: ver_max = {}, version = {}".format(driver, fq_data_id, ver_max, version))
+            continue
+
+        elif expected_version > version:
+            log.warn("Invalid (stale) data version from {} for {}: expected = {}, version = {}".format(driver, fq_data_id, expected_version, version))
+            continue
+
+        # success!
+        break
+
+    if mutable_data is None:
+        log.error("Failed to fetch mutable data for {}".format(fq_data_id))
+        return {'errror': 'Failed to fetch mutable data'}
 
     rc = store_mutable_data_version(conf, fq_data_id, version)
     if not rc:
@@ -579,29 +612,15 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
     if not isinstance(data_json, dict):
         raise ValueError('Immutable data must be a dict')
 
-    legacy = False
     proxy = get_default_proxy(config_path) if proxy is None else proxy
 
-    user_profile, user_zonefile, legacy = get_and_migrate_profile(
-        name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys
-    )
-
-    if 'error' in user_profile:
-        log.debug('Unable to load user zonefile for "{}"'.format(name))
-        return user_profile
-
-    if legacy:
-        log.debug('User zonefile is in legacy or non-standard')
-        msg = (
-            'User zonefile is in legacy or non-standard format, and '
-            'does not support this operation.  You must first migrate '
-            'it with the "migrate" command.'
-        )
-
-        return {'error': msg}
+    # NOTE: only accept non-legacy zone files
+    user_zonefile = get_name_zonefile(name, proxy=proxy)
+    if user_zonefile is None:
+        log.debug("Unable to load zone file for '{}'".format(name))
+        return {'error': 'Unparseable zone file'}
 
     user_zonefile = user_zonefile['zonefile']
-    user_profile = user_profile['profile']
 
     data_text = storage.serialize_immutable_data(data_json)
     data_hash = storage.get_data_hash(data_text)
@@ -609,15 +628,12 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
     # insert into user zonefile, overwriting if need be
     if user_db.has_immutable_data_id(user_zonefile, data_id):
         log.debug('WARN: overwriting old "{}"'.format(data_id))
-        old_hash = user_db.get_immutable_data_hash(user_zonefile, data_id)
+        old_hashes = user_db.get_immutable_data_hashes(user_zonefile, data_id)
 
         # NOTE: can be a list, if the name matches multiple hashes.
         # this tool doesn't do this, but it's still possible for the
         # user to use other tools to do this.
-        if not isinstance(old_hash, list):
-            old_hash = [old_hash]
-
-        for oh in old_hash:
+        for oh in old_hashes:
             rc = user_db.remove_immutable_data_zonefile(user_zonefile, oh)
             if not rc:
                 return {'error': 'Failed to overwrite old immutable data'}
@@ -683,12 +699,14 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
 
 def load_user_data_privkey( name, storage_drivers=None, proxy=None, config_path=CONFIG_PATH, wallet_keys=None ):
     """
-    Get the user's data private key from his/her wallet
+    Get the user's data private key from his/her wallet.
+    Verify it matches the zone file for this name.
+
     Return {'privkey': ...} on success
     Return {'error': ...} on error
     """
     conf = get_config(path=CONFIG_PATH)
-    user_zonefile = get_name_zonefile( name, storage_drivers=storage_drivers, proxy=proxy, include_name_record=True)
+    user_zonefile = get_name_zonefile( name, storage_drivers=storage_drivers, proxy=proxy)
     if user_zonefile is None:
         log.error("No zonefile for {}".format(name))
         return {'error': 'No zonefile'}
@@ -698,14 +716,14 @@ def load_user_data_privkey( name, storage_drivers=None, proxy=None, config_path=
         return {'error': 'Failed to load zonefile'}
 
     # recover name record and zonefile
-    name_record = user_zonefile.pop('name_record')
     user_zonefile = user_zonefile['zonefile']
 
-    # get the appropriate key
-    data_privkey = get_data_or_owner_privkey(user_zonefile, name_record['address'], wallet_keys=wallet_keys, config_path=config_path)
+    # get the data key
+    data_privkey = get_data_privkey_info(user_zonefile, wallet_keys=wallet_keys, config_path=config_path)
     if 'error' in data_privkey:
         # error text
         return {'error': data_privkey['error']}
+
     else:
         data_privkey = data_privkey['privatekey']
         assert data_privkey is not None
@@ -735,7 +753,7 @@ def put_mutable(name, data_id, data_payload, data_privkey=None, proxy=None, stor
 
     Notes on usage:
     * wallet_keys is only needed if data_privkey is None
-    * if storage_drivers is None, each storage driver will be attempted.
+    * if storage_drivers is None, each storage driver under `storage_drivers_required_write=` will be attempted.
     * if storage_drivers is not None, then each storage driver in storage_drivers *must* succeed
 
     Returns a dict with {'status': True, 'version': version, ...} on success
@@ -745,6 +763,9 @@ def put_mutable(name, data_id, data_payload, data_privkey=None, proxy=None, stor
     proxy = get_default_proxy(config_path) if proxy is None else proxy
     fq_data_id = storage.make_fq_data_id(name, data_id)
     conf = config.get_config(path=config_path)
+
+    if storage_drivers is None:
+        storage_drivers = get_write_storage_drivers(config_path)
 
     if data_privkey is None:
         data_privkey_info = load_user_data_privkey( name, storage_drivers=zonefile_storage_drivers, proxy=proxy, config_path=config_path, wallet_keys=wallet_keys )
@@ -769,6 +790,8 @@ def put_mutable(name, data_id, data_payload, data_privkey=None, proxy=None, stor
         'version': version,
         'timestamp': int(time.time())
     }
+    
+    result = {}
 
     rc = storage.put_mutable_data(fq_data_id, data_json, data_privkey, required=storage_drivers)
     if not rc:
@@ -781,7 +804,6 @@ def put_mutable(name, data_id, data_payload, data_privkey=None, proxy=None, stor
         result['error'] = 'Failed to store mutable data version'
         return result
 
-    result = {}
     result['status'] = True
     result['version'] = version
 
@@ -828,8 +850,8 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
         # look up the key (or list of keys) shouldn't be a
         # list--this tool prevents that--but deal with it
         # nevertheless
-        data_key = user_db.get_immutable_data_hash(user_zonefile, data_id)
-        if isinstance(data_key, list):
+        data_keys = user_db.get_immutable_data_hashes(user_zonefile, data_id)
+        if data_keys is not None and len(data_keys) > 1:
             msg = 'Multiple hashes for "{}": {}'
             return {'error': msg.format(data_id, ','.join(data_key))}
 
@@ -882,11 +904,7 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
         return result
 
     # delete immutable data
-    data_privkey = get_data_or_owner_privkey(
-        user_zonefile, name_record['address'],
-        wallet_keys=wallet_keys, config_path=proxy.conf['path']
-    )
-
+    data_privkey = get_data_privkey_info(user_zonefile, wallet_keys=wallet_keys, config_path=config_path)
     if 'error' in data_privkey:
         return {'error': data_privkey['error']}
     else:
@@ -989,25 +1007,13 @@ def set_data_pubkey(name, data_pubkey, proxy=None, wallet_keys=None, txid=None, 
     legacy = False
     proxy = get_default_proxy(config_path) if proxy is None else proxy
 
-    user_profile, user_zonefile, legacy = get_and_migrate_profile(
-        name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys
-    )
-
-    if 'error' in user_profile:
-        log.debug('Unable to load user zonefile for "{}"'.format(name))
-        return user_profile
-
-    if legacy:
-        log.debug('User zonefile is non-standard or legacy')
-        msg = (
-            'User zonefile is in legacy or non-standard format, and does not support '
-            'this operation.  You must first migrate it with the "migrate" command.'
-        )
-
-        return {'error': msg}
+    # NOTE: only accept non-legacy zone files
+    user_zonefile = get_name_zonefile(name, proxy=proxy)
+    if user_zonefile is None:
+        log.debug("Unable to load zone file for '{}'".format(name))
+        return {'error': 'Unparseable zone file'}
 
     user_zonefile = user_zonefile['zonefile']
-    user_profile = user_profile['profile']
 
     user_db.user_zonefile_set_data_pubkey(user_zonefile, data_pubkey)
     zonefile_hash = hash_zonefile(user_zonefile)
@@ -2392,9 +2398,49 @@ def get_nonlocal_storage_drivers(config_path, key='storage_drivers'):
 
     for drvr in local_storage_drivers:
         if drvr in storage_drivers:
-            storage_drivers.remvoe(drvr)
+            storage_drivers.remove(drvr)
 
     return storage_drivers
+
+
+def get_write_storage_drivers(config_path):
+    """
+    Get the list of storage drivers to write with.
+    Returns a list of driver names.
+    """
+    conf = config.get_config(config_path)
+    assert conf
+
+    storage_drivers = conf.get("storage_drivers_required_write", "").split(',')
+    if len(storage_drivers) > 0:
+        return storage_drivers
+
+    # fall back to storage drivers 
+    storage_drivers = conf.get("storage_drivers", "").split(",")
+    if len(storage_drivers) > 0:
+        return storage_drivers
+
+    storage_handlers = storage.get_storage_handlers()
+    storage_drivers = [sh.__name__ for sh in storage_handlers]
+    return storage_drivers
+
+
+def get_read_storage_drivers(config_path):
+    """
+    Get the list of storage drivers to read with.
+    Returns a list of driver names.
+    """
+    conf = config.get_config(config_path)
+    assert conf
+
+    storage_drivers = conf.get("storage_drivers", "").split(",")
+    if len(storage_drivers) > 0:
+        return storage_drivers
+
+    storage_handlers = storage.get_storage_handlers()
+    storage_drivers = [sh.__name__ for sh in storage_handlers]
+    return storage_drivers
+
 
 
 def get_user(user_id, local_master_data_pubkey, config_path=CONFIG_PATH, proxy=None):
@@ -2703,10 +2749,10 @@ def have_seen( user_id, data_id, config_path=CONFIG_PATH ):
     return (expected_version is not None)
 
 
-def data_setup( password, config_path=CONFIG_PATH, proxy=None, force=False ):
+def data_setup( password, wallet_keys=None, config_path=CONFIG_PATH, proxy=None):
     """
     Do the one-time setup necessary for using the data functions.
-    Idempotent; call until it succeeds.
+    The wallet must be set up first.
 
     Return {'status': True} on success
     Return {'error': ...} on error
@@ -2719,56 +2765,48 @@ def data_setup( password, config_path=CONFIG_PATH, proxy=None, force=False ):
 
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    privkey_progress_path = os.path.join(config_dir, '.no_privkey_index')
     conf = get_config(config_path)
 
     if not os.path.exists(wallet_path):
         return {'error': 'Wallet does not exist'}
 
-    if os.path.exists(privkey_progress_path) or force:
-
-        # put a new private key index?
-        wallet_info = load_wallet(password, config_dir=config_dir, wallet_path=wallet_path, include_private=True)
+    # put a new private key index?
+    if wallet_keys is None:
+        wallet_info = load_wallet(password, config_path=config_path, wallet_path=wallet_path, include_private=True)
         if 'error' in wallet_info:
             return wallet_info
 
         wallet_keys = wallet_info['wallet']
 
-        # make sure we also have a private key index 
-        master_data_privkey = wallet_keys['data_privkey']
-        master_data_pubkey = get_pubkey_hex(master_data_privkey)
-        addr = keylib.public_key_to_address(master_data_pubkey)
+    # make sure we also have a private key index 
+    master_data_privkey = wallet_keys['data_privkey']
+    master_data_pubkey = get_pubkey_hex(master_data_privkey)
+    addr = keylib.public_key_to_address(master_data_pubkey)
 
-        res = next_privkey_index( master_data_privkey, config_path=config_path )
+    res = next_privkey_index( master_data_privkey, config_path=config_path )
+    if 'error' in res:
+
+        if have_seen('privkey_index', 'privkey_index', config_path=config_path ):
+            # some other error
+            return res
+
+        # try creating
+        res = next_privkey_index( master_data_privkey, config_path=config_path, create=True )
         if 'error' in res:
+            return res
 
-            if have_seen('privkey_index', 'privkey_index', config_path=config_path ):
-                # some other error
-                return res
+    # put an empty user list, if we don't have one
+    res = get_user_list(master_data_pubkey, config_path=config_path)
+    if 'error' in res:
 
-            # try creating
-            res = next_privkey_index( master_data_privkey, config_path=config_path, create=True )
-            if 'error' in res:
-                return res
+        if have_seen(addr, 'user_ids'):
+            # some other error
+            return res
 
-        # put an empty user list, if we don't have one
-        res = get_user_list(master_data_pubkey, config_path=config_path)
+        # try putting one
+        res = put_user_list(master_data_privkey, [], proxy=proxy, config_path=config_path)
         if 'error' in res:
-
-            if have_seen(addr, 'user_ids'):
-                # some other error
-                return res
-
-            # try putting one
-            res = put_user_list(master_data_privkey, [], proxy=proxy, config_path=config_path)
-            if 'error' in res:
-                return res
-
-        # success!
-        try:
-            os.unlink(privkey_progress_path)
-        except:
-            pass
+            return res
 
     return {'status': True}
 
