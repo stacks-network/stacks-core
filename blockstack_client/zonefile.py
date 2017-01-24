@@ -34,7 +34,6 @@ import jsonschema
 from jsonschema import ValidationError
 
 from .proxy import *
-from .keys import get_data_or_owner_privkey
 import storage
 import user as user_db
 
@@ -125,11 +124,13 @@ def make_empty_zonefile(username, data_pubkey, urls=None):
     return user
 
 
-def decode_name_zonefile(name, zonefile_txt):
+def decode_name_zonefile(name, zonefile_txt, allow_legacy=False):
     """
-    Decode a serialized zonefile into a JSON dict
-    If the zonefile does not have $ORIGIN, or if $ORIGIN does not match the name,
-    then this fails.
+    Decode a serialized zonefile into a JSON dict.
+    If allow_legacy is True, then support legacy zone file formats (including Onename profiles)
+    Otherwise, the data must actually be a Blockstack zone file.
+        * If the zonefile does not have $ORIGIN, or if $ORIGIN does not match the name,
+          then this fails.
     Return None on error
     """
 
@@ -143,6 +144,9 @@ def decode_name_zonefile(name, zonefile_txt):
         user_zonefile = dict(user_zonefile_defaultdict)
 
     except (IndexError, ValueError, blockstack_zones.InvalidLineException):
+        if not allow_legacy:
+            return {'error': 'Legacy zone file'}
+
         # might be legacy profile
         log.debug('WARN: failed to parse user zonefile; trying to import as legacy')
         try:
@@ -165,18 +169,20 @@ def decode_name_zonefile(name, zonefile_txt):
     if user_zonefile is None:
         return None 
 
-    if not user_zonefile.has_key('$origin'):
-        log.debug("Zonefile has no $ORIGIN")
-        return None
+    if not allow_legacy:
+        # additional checks
+        if not user_zonefile.has_key('$origin'):
+            log.debug("Zonefile has no $ORIGIN")
+            return None
 
-    if user_zonefile['$origin'] != name:
-        log.debug("Name/zonefile mismatch: $ORIGIN = {}, name = {}".format(user_zonefile['$origin'], name))
-        return None
+        if user_zonefile['$origin'] != name:
+            log.debug("Name/zonefile mismatch: $ORIGIN = {}, name = {}".format(user_zonefile['$origin'], name))
+            return None
 
     return user_zonefile
 
 
-def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_zonefile=False, proxy=None ):
+def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_zonefile=False, allow_legacy=False, proxy=None ):
     """
     Fetch and load a user zonefile from the storage implementation with the given hex string hash,
     The user zonefile hash should have been loaded from the blockchain, and thereby be the
@@ -233,7 +239,7 @@ def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_z
 
         return zonefile_txt
 
-    parsed_zonefile = decode_name_zonefile(name, zonefile_txt)
+    parsed_zonefile = decode_name_zonefile(name, zonefile_txt, allow_legacy=allow_legacy)
     return parsed_zonefile
 
 
@@ -256,7 +262,7 @@ def load_data_pubkey_for_new_zonefile(wallet_keys={}, config_path=CONFIG_PATH):
 
 def get_name_zonefile(name, storage_drivers=None, create_if_absent=False, proxy=None,
                       wallet_keys=None, name_record=None, include_name_record=False,
-                      raw_zonefile=False, include_raw_zonefile=False):
+                      raw_zonefile=False, include_raw_zonefile=False, allow_legacy=False):
     """
     Given a name, go fetch its zonefile.
     Verifies that the hash on the blockchain matches the zonefile.
@@ -270,6 +276,9 @@ def get_name_zonefile(name, storage_drivers=None, create_if_absent=False, proxy=
 
     If 'raw_zonefile' is true, no attempt to parse the zonefile will be made.
     The raw zonefile will be returned in 'zonefile'.
+    
+    If 'allow_legacy' is true, then support returning older supported versions of the zone file
+    (including old Onename profiles).  Otherwise, this method fails.
 
     @wallet_keys does not need to be given, unles you're creating a new zonefile (with create_if_absent).
     Even then, only the *public* data key needs to be set.
@@ -303,6 +312,9 @@ def get_name_zonefile(name, storage_drivers=None, create_if_absent=False, proxy=
             wallet_keys=wallet_keys, config_path=proxy.conf['path']
         )
 
+        if public_key is None:
+            return {'error': 'No data keys are present in the wallet'}
+
         user_resp = make_empty_zonefile(name, public_key)
 
         if include_name_record:
@@ -317,7 +329,7 @@ def get_name_zonefile(name, storage_drivers=None, create_if_absent=False, proxy=
     if raw_zonefile or include_raw_zonefile:
         raw_zonefile_data = load_name_zonefile(
             name, user_zonefile_hash, storage_drivers=storage_drivers,
-            raw_zonefile=True, proxy=proxy
+            raw_zonefile=True, proxy=proxy, allow_legacy=allow_legacy
         )
 
         if raw_zonefile_data is None:
@@ -325,15 +337,16 @@ def get_name_zonefile(name, storage_drivers=None, create_if_absent=False, proxy=
 
         if raw_zonefile:
             user_zonefile_data = raw_zonefile_data
+
         else:
             # further decode
-            user_zonefile_data = decode_name_zonefile(name, raw_zonefile_data)
+            user_zonefile_data = decode_name_zonefile(name, raw_zonefile_data, allow_legacy=allow_legacy)
             if user_zonefile_data is None:
                 return {'error': 'Failed to decode name zonefile'}
 
     else:
         user_zonefile_data = load_name_zonefile(
-            name, user_zonefile_hash, storage_drivers=storage_drivers, proxy=proxy
+            name, user_zonefile_hash, storage_drivers=storage_drivers, proxy=proxy, allow_legacy=allow_legacy
         )
         if user_zonefile_data is None:
             return {'error': 'Failed to load or decode name zonefile'}
