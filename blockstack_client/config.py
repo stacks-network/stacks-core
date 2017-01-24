@@ -778,6 +778,24 @@ def semver_newer(v1, v2):
     return True
 
 
+def backup_config_file(config_path=CONFIG_PATH):
+    """
+    Back up the given config file
+    Return the backup file
+    """
+    if not os.path.exists(config_path):
+        return None
+
+    legacy_path = config_path + ".legacy.{}".format(int(time.time()))
+    while os.path.exists(legacy_path):
+        time.sleep(1.0)
+        legacy_path = config_path + ".legacy.{}".format(int(time.time()))
+
+    log.warning('Back up old config file from {} to {}'.format(config_path, legacy_path))
+    shutil.move(config_path, legacy_path)
+    return legacy_path
+
+
 def configure_zonefile(name, zonefile, data_pubkey=None):
     """
     Given a name and zonefile, help the user configure the
