@@ -3208,7 +3208,7 @@ def local_rpc_start(portnum, config_dir=blockstack_config.CONFIG_DIR, foreground
     atexit.register(local_rpc_atexit)
 
     wallet = load_wallet(
-        password=password, config_dir=config_dir,
+        password=password, config_path=config_path,
         include_private=True, wallet_path=wallet_path
     )
 
