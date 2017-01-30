@@ -723,6 +723,7 @@ def app_publish( name, appname, app_method_list, app_index_uris, app_index_file,
     can be retried on failure.
 
     data_privkey should be the publisher's private key (i.e. their data key)
+    name should be the blockchain ID that points to data_pubkey
    
     Return {'status': True, 'fq_data_id': index file's fully-qualified data ID} on success
     Return {'error': ...} on error
@@ -740,7 +741,8 @@ def app_publish( name, appname, app_method_list, app_index_uris, app_index_file,
     jsonschema.validate(app_cfg, APP_CONFIG_SCHEMA)
 
     config_data_id = '{}/.blockstack'.format(appname)
-    res = data.put_mutable(name, config_data_id, app_cfg, data_privkey=data_privkey, wallet_keys=wallet_keys, config_path=config_path )
+    data_id = storage.make_fq_data_id(name, config_data_id)
+    res = data.put_mutable(data_id, app_cfg, blockchain_id=name, data_privkey=data_privkey, wallet_keys=wallet_keys, config_path=config_path, fully_qualified_data_id=True)
     if 'error' in res:
         log.error('Failed to replicate application configuration {}: {}'.format(config_data_id, res['error']))
         return {'error': 'Failed to replicate application config'}
@@ -758,7 +760,8 @@ def app_publish( name, appname, app_method_list, app_index_uris, app_index_file,
     
     # replicate app index file (at least one must succeed)
     # NOTE: the publisher is free to use alternative URIs that are not supported; they'll just be ignored.
-    res = data.put_mutable( name, index_data_id, app_index_file, data_privkey=data_privkey, storage_drivers=driver_names, wallet_keys=wallet_keys, config_path=config_path )
+    data_id = storage.make_fq_data_id(name, index_data_id)
+    res = data.put_mutable( data_id, app_index_file, blockchain_id=name, data_privkey=data_privkey, storage_drivers=driver_names, wallet_keys=wallet_keys, config_path=config_path, fully_qualified_data_id=True)
     if 'error' in res:
         log.error("Failed to replicate application index file to {}: {}".format(",".join(urls), res['error']))
         return {'error': 'Failed to replicate index file'}
@@ -780,7 +783,8 @@ def app_get_config( name, appname, data_pubkey=None, proxy=None, config_path=CON
 
     # go get config 
     config_data_id = '{}/.blockstack'.format(appname)
-    res = data.get_mutable( name, config_data_id, data_pubkey=data_pubkey, proxy=proxy, config_path=config_path )
+    data_id = storage.make_fq_data_id(name, config_data_id)
+    res = data.get_mutable( data_id, data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, blockchain_id=name, fully_qualified_data_id=True )
     if 'error' in res:
         log.error("Failed to get application config file {}: {}".format(config_data_id, res['error']))
         return res
@@ -827,7 +831,8 @@ def app_get_index_file( name, appname, app_config=None, data_pubkey=None, proxy=
         app_config = app_config['config']
 
     urls = user_db.urls_from_uris( app_config['index_uris'] )
-    res = data.get_mutable( name, res_data_id, data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, urls=urls )
+    data_id = storage.make_fq_data_id(name, res_data_id)
+    res = data.get_mutable( data_id, data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, urls=urls, blockchain_id=name, fully_qualified_data_id=True )
     if 'error' in res:
         log.error("Failed to get index file: {}".format(res['error']))
         return {'error': 'Failed to load index'}
@@ -858,7 +863,8 @@ def app_get_resource( name, appname, res_name, app_config=None, data_pubkey=None
         driver_hints = app_config['driver_hints']
         urls = storage.get_driver_urls( fq_res_data_id, storage.get_storage_handlers() )
 
-    res = data.get_mutable( name, res_data_id, data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, urls=urls )
+    data_id = storage.make_fq_data_id(name, res_data_id)
+    res = data.get_mutable( data_id, data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, urls=urls, blockchain_id=name, fully_qualified_data_id=True )
     if 'error' in res:
         log.error("Failed to get resource {}: {}".format(fq_res_data_id, res['error']))
         return {'error': 'Failed to load resource'}
@@ -871,6 +877,7 @@ def app_put_resource( name, appname, res_name, res_data, app_config=None, data_p
     Store data to a named application resource in mutable storage.
 
     data_privkey should be the publisher's private key
+    name should be a blockchain ID that points to the public key
 
     if app_config is not None, then the driver hints will be honored.
 
@@ -888,7 +895,8 @@ def app_put_resource( name, appname, res_name, res_data, app_config=None, data_p
         # use driver hints
         driver_hints = app_config['driver_hints']
 
-    res = data.put_mutable(name, res_data_id, res_data, data_privkey=data_privkey, proxy=proxy, storage_drivers=driver_hints, wallet_keys=wallet_keys, config_path=CONFIG_PATH)
+    data_id = storage.make_fq_data_id(name, res_data_id)
+    res = data.put_mutable(data_id, res_data, blockchain_id=name, data_privkey=data_privkey, proxy=proxy, storage_drivers=driver_hints, wallet_keys=wallet_keys, config_path=CONFIG_PATH, fully_qualified_data_id=True)
     if 'error' in res:
         log.error("Failed to store resource {}: {}".format(fq_res_data_id, res['error']))
         return {'error': 'Failed to store resource'}
@@ -945,15 +953,17 @@ def app_unpublish( name, appname, force=False, data_privkey=None, app_config=Non
     
     ret = {}
 
-    # delete the index 
-    res = data.delete_mutable( name, index_data_id, data_privkey=data_privkey, proxy=proxy, wallet_keys=wallet_keys, delete_version=False, storage_drivers=storage_drivers )
+    # delete the index
+    data_id = '{}.{}'.format(name, index_data_id)
+    res = data.delete_mutable( data_id, data_privkey=data_privkey, proxy=proxy, wallet_keys=wallet_keys, delete_version=False, storage_drivers=storage_drivers )
     if 'error' in res:
         log.warning("Failed to delete index file {}".format(index_data_id))
         ret['app_config'] = app_config
         ret['retry'] = True
 
     # delete the config 
-    res = data.delete_mutable( name, config_data_id, data_privkey=data_privkey, proxy=proxy, wallet_keys=wallet_keys, delete_version=False )
+    data_id = '{}.{}'.format(name, config_data_id)
+    res = data.delete_mutable( data_id, data_privkey=data_privkey, proxy=proxy, wallet_keys=wallet_keys, delete_version=False )
     if 'error' in res:
         log.warning("Failed to delete config file {}".format(config_data_id))
         if not ret.has_key('app_config'):
