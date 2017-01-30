@@ -95,7 +95,7 @@ def get_zonefile_data_from_storage( name, zonefile_hash, drivers=None ):
     Return the zonefile dict on success.
     Raise on error
     """
-    zonefile_txt = blockstack_client.storage.get_immutable_data( zonefile_hash, hash_func=blockstack_client.get_blockchain_compat_hash, fqu=name, zonefile=True, deserialize=False, drivers=drivers )
+    zonefile_txt = blockstack_client.storage.get_immutable_data( zonefile_hash, hash_func=blockstack_client.get_blockchain_compat_hash, fqu=name, zonefile=True, drivers=drivers )
     if zonefile_txt is None:
         raise Exception("Failed to get valid zonefile data")
 
@@ -224,7 +224,7 @@ def remove_cached_zonefile_data( zonefile_hash, zonefile_dir=None ):
     return True
 
 
-def store_zonefile_data_to_storage( zonefile_text, txid, required=[], cache=False, zonefile_dir=None, tx_required=True ):
+def store_zonefile_data_to_storage( zonefile_text, txid, required=None, skip=None, cache=False, zonefile_dir=None, tx_required=True ):
     """
     Upload a zonefile to our storage providers.
     Return True if at least one provider got it.
@@ -242,7 +242,7 @@ def store_zonefile_data_to_storage( zonefile_text, txid, required=[], cache=Fals
             log.debug("Failed to cache zonefile %s" % zonefile_hash)
 
     # NOTE: this can fail if one of the required drivers needs a non-null txid
-    res = blockstack_client.storage.put_immutable_data( None, txid, data_hash=zonefile_hash, data_text=zonefile_text, required=required )
+    res = blockstack_client.storage.put_immutable_data( None, txid, data_hash=zonefile_hash, data_text=zonefile_text, required=required, skip=skip )
     if res is None:
         log.error("Failed to store zonefile '%s' for '%s'" % (zonefile_hash, txid))
         return False
@@ -250,7 +250,7 @@ def store_zonefile_data_to_storage( zonefile_text, txid, required=[], cache=Fals
     return True
 
 
-def store_zonefile_to_storage( zonefile_dict, required=[], cache=False, zonefile_dir=None ):
+def store_zonefile_to_storage( zonefile_dict, required=None, skip=None, cache=False, zonefile_dir=None ):
     """
     Upload a zonefile to our storage providers.
     Return True if at least one provider got it.
@@ -265,32 +265,25 @@ def store_zonefile_to_storage( zonefile_dict, required=[], cache=False, zonefile
         return False
 
     name = zonefile_dict.get('$origin')
-    return store_zonefile_data_to_storage( zonefile_data, required=required, cache=cache, zonefile_dir=zonefile_dir, name=name )
+    return store_zonefile_data_to_storage( zonefile_data, required=required, skip=skip, cache=cache, zonefile_dir=zonefile_dir, name=name )
 
 
-def store_profile_data_to_storage( name, profile_txt, required=None ):
+def store_mutable_data_to_storage( blockchain_id, data_id, data_txt, required=None, skip=None ):
     """
-    Store the given profile to storage providers.
-    Return the number of replicas created.
+    Store the given mutable datum to storage providers.
+    Return True on successful replication to all required drivers
+    Return False on error
+    """
+    
+    res = blockstack_client.storage.put_mutable_data(data_id, None, None, data_text=data_txt, required=required, skip=skip, blockchain_id=blockchain_id)
+    return res
+
+
+def load_mutable_data_from_storage( blockchain_id, data_id, drivers=None ):
+    """
+    Load mutable data from storage
     """
 
-    successes = 0
-    for handler in blockstack_client.get_storage_handlers():
-        try:
-            rc = handler.put_mutable_handler( name, profile_txt, required=required )
-        except Exception, e:
-            log.exception(e)
-            log.error("Failed to store profile with '%s'" % handler.__name__)
-            continue
-
-        if not rc:
-            log.error("Failed to use handler '%s' to store profile for '%s'" % (handler.__name__, name))
-            continue
-        else:
-            log.debug("Stored profile for '%s' with '%s'" % (name, handler.__name__))
-
-        successes += 1
-
-    return successes
-
-
+    res = blockstack_client.storage.get_mutable_data(data_id, None, blockchain_id=blockchain_id, drivers=drivers, decode=False)
+    return res
+   
