@@ -320,34 +320,40 @@ def get_datastore_info( user_id, datastore_id, include_private=False, config_pat
 def blockstack_mutable_data_url(blockchain_id, data_id, version):
     """
     Make a blockstack:// URL for mutable data
+    data_id must be url-quoted
     """
+    assert re.match(schemas.OP_URLENCODED_PATTERN, data_id)
+
     if version is None:
         return 'blockstack://{}/{}'.format(
-            urllib.quote(blockchain_id), urllib.quote(data_id)
+            urllib.quote(blockchain_id), data_id
         )
 
     if not isinstance(version, (int, long)):
         raise ValueError('Verison must be an int or long')
 
     return 'blockstack://{}/{}#{}'.format(
-        urllib.quote(blockchain_id), urllib.quote(data_id), str(version)
+        urllib.quote(blockchain_id), data_id, str(version)
     )
 
 
 def blockstack_immutable_data_url(blockchain_id, data_id, data_hash):
     """
     Make a blockstack:// URL for immutable data
+    data_id must be url-quoted
     """
+    assert re.match(schemas.OP_URLENCODED_PATTERN, data_id)
+
     if data_hash is not None and not is_valid_hash(data_hash):
         raise ValueError('Invalid hash: {}'.format(data_hash))
 
     if data_hash is not None:
         return 'blockstack://{}.{}/#{}'.format(
-            urllib.quote(data_id), urllib.quote(blockchain_id), data_hash
+            data_id, urllib.quote(blockchain_id), data_hash
         )
 
     return 'blockstack://{}.{}'.format(
-        urllib.quote(data_id), urllib.quote(blockchain_id)
+        data_id, urllib.quote(blockchain_id)
     )
 
 
@@ -391,7 +397,7 @@ def blockstack_mutable_data_url_parse(url):
             version = version.strip('#/')
             version = int(version)
 
-        return urllib.unquote(blockchain_id), urllib.unquote(data_id), version, None, None
+        return urllib.unquote(blockchain_id), data_id, version, None, None
 
     # datastore?
     m = re.match(datastore_url_data_regex, url)
@@ -442,7 +448,7 @@ def blockstack_immutable_data_url_parse(url):
                 log.debug('Invalid data hash "{}"'.format(data_hash))
                 raise ValueError('Invalid data hash')
 
-        return urllib.unquote(blockchain_id), urllib.unquote(data_id), data_hash
+        return urllib.unquote(blockchain_id), data_id, data_hash
     else:
         # maybe a listing?
         m = re.match(immutable_listing_regex, url)
@@ -604,9 +610,9 @@ def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH):
         elif blockchain_id is not None:
             # get single data
             if version is not None:
-                return data.get_mutable( blockchain_id, data_id, proxy=proxy, ver_min=version, ver_max=version+1 )
+                return data.get_mutable( data_id, proxy=proxy, ver_min=version, ver_max=version+1, blockchain_id=blockchain_id, fully_qualified_data_id=True )
             else:
-                return data.get_mutable( blockchain_id, data_id, proxy=proxy )
+                return data.get_mutable( data_id, proxy=proxy, blockchain_id=blockchain_id, fully_qualified_data_id=True )
        
         else:
             return {'error': 'Invalid URL'}
