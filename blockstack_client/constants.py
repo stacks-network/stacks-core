@@ -27,7 +27,7 @@ from __future__ import print_function
 import os
 import sys
 import virtualchain
-from .version import __version__
+from .version import __version__, __version_major__, __version_minor__, __version_patch__
 
 BLOCKSTACK_TEST = os.environ.get('BLOCKSTACK_TEST', None)
 BLOCKSTACK_TEST_NODEBUG = os.environ.get('BLOCKSTACK_TEST_NODEBUG', None)
@@ -50,6 +50,7 @@ if os.environ.get("BLOCKSTACK_TEST", None) is not None:
     TX_MIN_CONFIRMATIONS = 0
 
 VERSION = __version__
+SERIES_VERSION = "{}.{}.{}".format(__version_major__, __version_minor__, __version_patch__)
 
 DEFAULT_BLOCKSTACKD_PORT = 6264  # blockstackd port
 DEFAULT_BLOCKSTACKD_SERVER = 'node.blockstack.org'
@@ -63,7 +64,6 @@ WALLET_PASSWORD_LENGTH = 8
 WALLET_DECRYPT_MAX_TRIES = 5
 WALLET_DECRYPT_BACKOFF_RESET = 3600
 
-BLOCKSTACK_METADATA_DIR = os.path.expanduser('~/.blockstack/metadata')
 BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = 'disk,blockstack_resolver,blockstack_server,http,dht'
 
 # storage drivers that must successfully acknowledge each write
@@ -288,6 +288,7 @@ else:
     CONFIG_DIR = os.path.dirname(CONFIG_PATH)
     print('TEST ACTIVE: CONFIG_PATH = {}'.format(CONFIG_PATH))
 
+BLOCKSTACK_METADATA_DIR = os.path.join( os.path.dirname(CONFIG_PATH), "metadata" )
 
 WALLET_PATH = os.path.join(CONFIG_DIR, 'wallet.json')
 SPV_HEADERS_PATH = os.path.join(CONFIG_DIR, 'blockchain-headers.dat')
