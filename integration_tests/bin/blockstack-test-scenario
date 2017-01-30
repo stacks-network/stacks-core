@@ -62,13 +62,16 @@ server_version = 0.14.1
 rpc_port = %s
 backup_frequency = 3
 backup_max_age = 30
-blockchain_proxy = True
 serve_zonefiles = True
 serve_profiles = True
+serve_data = @SERVE_DATA@
+redirect_data = @REDIRECT_DATA@
+data_servers = @DATA_SERVERS@
 zonefiles = @ZONEFILES@
 analytics_key = abcdef0123456789
 zonefile_storage_drivers = disk
 profile_storage_drivers = disk
+data_storage_drivers = disk
 atlas = True
 atlas_seeds = 
 atlas_blacklist =
@@ -86,7 +89,7 @@ port = %s
 metadata = @CLIENT_METADATA@
 storage_drivers = @CLIENT_STORAGE_DRIVERS@
 storage_drivers_local = 
-storage_drivers_required_write = disk,blockstack-server
+storage_drivers_required_write = @CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE@
 advanced_mode = true
 api_endpoint_port = %s
 rpc_token = a653b93e696a998f85f8fd2b241ff4dfcb5dd978fe1da26c413a4c2abf90321b
@@ -268,6 +271,11 @@ def generate_config_file( scenario, path, template, extra_fields):
     datastores_path = extra_fields.get("CLIENT_DATASTORES_PATH", "")
     zonefiles_dir = extra_fields.get("ZONEFILES", None)
     storage_drivers = extra_fields.get("CLIENT_STORAGE_DRIVERS", BLOCKSTACK_STORAGE_DRIVERS)
+    storage_drivers_required_write = extra_fields.get("CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE", BLOCKSTACK_STORAGE_DRIVERS)
+    serve_data = extra_fields.get("SERVE_DATA", "True")
+    redirect_data = extra_fields.get("REDIRECT_DATA", "False")
+    data_servers = extra_fields.get("DATA_SERVERS", "True")
+
     if zonefiles_dir is None:
         zonefiles_dir = "/tmp/blockstack-test-zonefiles"
 
@@ -288,7 +296,11 @@ def generate_config_file( scenario, path, template, extra_fields):
     config_txt = config_txt.replace( "@CLIENT_QUEUE_PATH@", queue_path )
     config_txt = config_txt.replace( "@ZONEFILES@", zonefiles_dir )
     config_txt = config_txt.replace( "@CLIENT_STORAGE_DRIVERS@", storage_drivers )
-    
+    config_txt = config_txt.replace( "@CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE@", storage_drivers_required_write )
+    config_txt = config_txt.replace( "@SERVE_DATA@", serve_data )
+    config_txt = config_txt.replace( "@REDIRECT_DATA@", redirect_data )
+    config_txt = config_txt.replace( "@DATA_SERVERS@", data_servers )
+
     with open( path, "w" ) as f:
         f.write( config_txt )
         f.flush()
@@ -564,6 +576,8 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
     testlib.set_state_engine(db)
 
+    log.info("\n\nTest finished; doing checks\n\n")
+
     # run the checks on the database
     try:
         rc = scenario.check( db )
@@ -604,7 +618,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     # stop atlas support 
     atlas_stop( atlas_state )
 
-    log.info("Scenario checks passed; verifying history")
+    log.info("\n\nScenario checks passed; verifying history\n\n")
 
     # run database integrity check at each block 
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RO)
@@ -655,6 +669,18 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
             return rc
 
         log.info("Atlas zonefile checks pass!")
+
+    # verify data URLs 
+    rc = testlib.check_data_urls()
+    if not rc:
+        log.error("Data URL check fails")
+        network_stop()
+        storage_stop()
+        bitcoin_stop()
+        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+        return rc
+
+    log.info("Data URL check pass!")
 
     network_stop()
     storage_stop()
@@ -995,10 +1021,23 @@ if __name__ == "__main__":
     bitcoin_regtest_fill_wallets( scenario.wallets, default_payment_wallet=default_payment_wallet )
     testlib.set_default_payment_wallet( default_payment_wallet )
 
-    # did the scenario change this variable?
+    # did the scenario change the storage drivers?
     storage_drivers = BLOCKSTACK_STORAGE_DRIVERS
     if os.environ.get("CLIENT_STORAGE_DRIVERS", None) is not None:
         storage_drivers = os.environ.get("CLIENT_STORAGE_DRIVERS")
+
+    storage_drivers_required_write = BLOCKSTACK_STORAGE_DRIVERS
+    if os.environ.get('CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE', None) is not None:
+        storage_drivers_required_write = os.environ.get('CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE')
+
+    # did the scenario want to start up its own data servers?
+    serve_data = "True"
+    redirect_data = "False"
+    data_servers = ""
+    if os.environ.get("DATA_SERVERS", None) is not None:
+        redirect_data = "True"
+        serve_data = "False"
+        data_servers = os.environ.get("DATA_SERVERS")
 
     # generate config file
     rc = generate_config_file( scenario, config_file, DEFAULT_SERVER_INI_TEMPLATE, \
@@ -1012,9 +1051,13 @@ if __name__ == "__main__":
                             {"CLIENT_METADATA": client_metadata, \
                              "CLIENT_QUEUE_PATH": client_queue_path, \
                              "CLIENT_STORAGE_DRIVERS": storage_drivers, \
+                             'CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE': storage_drivers_required_write, \
                              "CLIENT_ACCOUNTS_PATH": client_accounts_path, \
                              "CLIENT_USERS_PATH": client_users_path, \
-                             "CLIENT_DATASTORES_PATH": client_datastores_path})
+                             "CLIENT_DATASTORES_PATH": client_datastores_path, \
+                             "SERVE_DATA": serve_data, \
+                             "REDIRECT_DATA": redirect_data, \
+                             "DATA_SERVERS": data_servers })
 
     if rc != 0:
         log.error("failed to write config file: exit %s" % rc)
