@@ -64,19 +64,20 @@ def is_zonefile_hash( data_id ):
     return (re.match("^[0-9a-fA-F]{40}$", data_id) is not None)
 
 
-def get_data( data_id, zonefile=False ):
+def get_data( data_id, zonefile=False, fqu=None ):
     """
     Get data or a zonefile from the server.
     """
 
     if os.environ.get("BLOCKSTACK_RPC_PID", None) == str(os.getpid()):
         # don't talk to ourselves 
-        log.debug("Do not get_data from ourselves")
-        return None
+        log.warn("Calling get_data to ourselves in the same process")
 
     url = "http://%s:%s/RPC2" % (SERVER_NAME, SERVER_PORT)
     ses = xmlrpclib.ServerProxy( url, allow_none=True )
    
+    import blockstack_client
+
     if zonefile:
         log.debug("Get zonefile for %s" % data_id)
 
@@ -102,12 +103,7 @@ def get_data( data_id, zonefile=False ):
                 log.error("Failed to parse zonefile")
                 return None
 
-    else:
-        import blockstack_client
-        if not blockstack_client.is_name_valid(data_id):
-            log.debug("Not a valid name: {}".format(data_id))
-            return None
-
+    elif blockstack_client.is_name_valid(data_id):
         log.debug("Get profile for %s" % data_id)
         res = ses.get_profile( data_id )
         try:
@@ -129,6 +125,38 @@ def get_data( data_id, zonefile=False ):
         except:
             log.error("Failed to parse profile")
             return None
+    
+    elif fqu is not None:
+        log.debug("Get mutable data for %s (%s)" % (data_id, fqu))
+        res = ses.get_mutable_data( fqu, data_id )
+
+        try:
+            res = json.loads(res)
+        except: 
+            log.error("Failed to parse data for %s" % data_id)
+            return None
+
+        if blockstack_client.proxy.json_is_error(res):
+            log.error("Failed to get mutable data: {}".format(res['error']))
+            return None
+
+        if not isinstance(res, dict):
+            log.error("Response is not a dict")
+            return None
+
+        if not res.has_key('data'):
+            log.error("Response has not data")
+            return None
+
+        if type(res['data']) not in [str, unicode]:
+            log.error("Response is not data string")
+            return None
+
+        return res['data']
+
+    else:
+        log.error("No blockchain ID given; cannot load data")
+        return None
 
 
 def put_data( data_id, data_txt, zonefile=False, fqu=None ):
@@ -137,11 +165,11 @@ def put_data( data_id, data_txt, zonefile=False, fqu=None ):
     """
     
     import blockstack_client
+    import blockstack
 
     if os.environ.get("BLOCKSTACK_RPC_PID", None) == str(os.getpid()):
         # don't talk to ourselves 
-        log.debug("Do not put_data to ourselves")
-        return False
+        log.warn("Calling put_data to ourselves in the same process")
 
     url = "http://%s:%s/RPC2" % (SERVER_NAME, SERVER_PORT)
     ses = xmlrpclib.ServerProxy( url, allow_none=True )
@@ -172,18 +200,11 @@ def put_data( data_id, data_txt, zonefile=False, fqu=None ):
         else:
             return True
 
-    elif data_id == fqu:
+    elif fqu is not None and data_id == fqu:
         log.debug("Replicate profile for %s" % data_id)
 
-        # get the data private key (or owner private key if not given)
-        wallet_info = blockstack_client.get_wallet()
-        data_privkey = wallet_info.get('data_privkey', None)
-        if data_privkey is None:
-            log.error("No data private key given")
-            return False
-       
         # data_txt must be a sufficiently small JSON blob
-        if len(data_txt) >= 1024 * 1024:
+        if len(data_txt) >= blockstack.RPC_MAX_PROFILE_LEN:
             log.error("Data is too big")
             return False
        
@@ -195,13 +216,24 @@ def put_data( data_id, data_txt, zonefile=False, fqu=None ):
         else:
             return True
 
-    else:
-        # neither profile nor zonefile
-        if os.environ.get("BLOCKSTACK_TEST", None) is not None:
-            # for testing
-            raise Exception("Failed to replicate profile or zonefile")
-        else:
+    elif fqu is not None:
+        log.debug("Replicate mutable datum {}".format(data_id))
+
+        # data_txt must be a sufficiently small JSON blob
+        if len(data_txt) >= blockstack.RPC_MAX_DATA_LEN:
+            log.error("Data is too big")
             return False
+       
+        res = ses.put_mutable_data( fqu, data_txt )
+        if 'error' in res:
+            log.error("Failed to put %s: %s" % (data_id, res))
+            return False
+        else:
+            return True
+
+    else:
+        log.debug("No name given; cannot store data")
+        return False
 
 
 def storage_init(conf):
@@ -267,8 +299,9 @@ def get_mutable_handler( url, **kw ):
         log.error("Invalid url '%s'" % url)
         return None
 
+    fqu = kw.get('fqu', None)
     data_id = parts[1]
-    return get_data( data_id, zonefile=False )
+    return get_data( data_id, zonefile=False, fqu=fqu )
 
 
 def put_immutable_handler( key, data, txid, **kw ):
