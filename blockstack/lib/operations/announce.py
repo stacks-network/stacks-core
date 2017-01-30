@@ -49,7 +49,7 @@ def process_announcement( op ):
     announcer_id = op['announcer_id']
 
     # go get the text...
-    announcement_text = get_announcement( announce_hash )
+    announcement_text = blockstack_client.storage.get_announcement( announce_hash )
     if announcement_text is None:
         log.critical( "\n\n(INTERNAL ERROR): Failed to fetch announcement with hash %s from '%s'\n\n" % (announce_hash, announcer_id))
 
