@@ -46,6 +46,8 @@ import blockstack_zones
 import keylib
 import base64
 import urllib2
+import jsonschema
+from jsonschema import ValidationError
 
 from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 
@@ -78,6 +80,7 @@ from lib.consensus import *
 bitcoind = None
 rpc_server = None
 storage_pusher = None
+has_indexer = True
 
 def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
    """
@@ -197,6 +200,14 @@ def get_index_range():
 
         else:
             return first_block, last_block - NUM_CONFIRMATIONS
+
+
+def is_indexer():
+    """
+    Is this node indexing?
+    """
+    global has_indexer
+    return has_indexer
 
 
 def rpc_traceback():
@@ -377,6 +388,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'error': ...} on error
         """
 
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         if type(name) not in [str, unicode]:
             return {'error': 'invalid name'}
 
@@ -421,6 +435,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': True, 'history_blocks': [...]} on success
         Return {'error': ...} on error
         """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         if type(name) not in [str, unicode]:
             return {'error': 'invalid name'}
 
@@ -438,6 +455,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Get all the states the name was in at a particular block height.
         Return {'status': true, 'record': ...}
         """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         if type(name) not in [str, unicode]:
             return {'error': 'invalid name'}
 
@@ -457,6 +477,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         and returning up to count items.
         Operations are returned in newer to older order.
         """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         db = get_db_state()
         last_nameops = db.get_last_nameops( offset, count )
         db.close()
@@ -469,6 +492,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': True, 'history_rows': [history rows]} on success
         Return {'error': ...} on error
         """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         if offset < 0 or count < 0:
             return {'error': 'Invalid offset, count'}
 
@@ -488,6 +514,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': True, 'count': count} on success
         Return {'error': ...} on error
         """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         db = get_db_state()
         num_history_rows = db.get_num_op_history_rows( history_id )
         db.close()
@@ -510,6 +539,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         Used by SNV clients.
         """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
 
         if offset < 0 or count < 0:
             return {'error': 'invalid page offset/length'}
@@ -531,6 +562,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Returns {'status': True, 'count': ...} on success
         Returns {'error': ...} on error
         """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         db = get_db_state()
         count = db.get_num_ops_at( block_id )
         db.close()
@@ -547,6 +581,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Returns {'status': True, 'ops_hash': ops_hash} on success
         Returns {'error': ...} on error
         """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         db = get_db_state()
         ops_hash = db.get_block_ops_hash( block_id )
         db.close()
@@ -564,6 +601,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         * server_alive: True
         * [optional] zonefile_count: the number of zonefiles known
         """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         bitcoind_opts = blockstack_client.default_bitcoind_opts( virtualchain.get_config_filename(), prefix=True )
         bitcoind = get_bitcoind( new_bitcoind_opts=bitcoind_opts, new=True )
         
@@ -598,6 +638,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': True, 'names': ...} on success
         Return {'error': ...} on error
         """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         if type(address) not in [str, unicode]:
             return {'error': 'invalid address'}
 
@@ -616,6 +659,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return the cost of a given name, including fees
         Return value is in satoshis (as 'satoshis')
         """
+
+        if not is_indexer():
+            return {'error': 'Method not supported'}
 
         if type(name) not in [str, unicode]:
             return {'error': 'invalid name'}
@@ -638,6 +684,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return the cost of a given namespace, including fees.
         Return value is in satoshis
         """
+
+        if not is_indexer():
+            return {'error': 'Method not supported'}
 
         if type(namespace_id) not in [str, unicode]:
             return {'error': 'invalid namespace ID'}
@@ -665,6 +714,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': True, 'record': ...} on success
         Return {'error': ...} on error
         """
+
+        if not is_indexer():
+            return {'error': 'Method not supported'}
 
         if type(namespace_id) not in [str, unicode]:
             return {'error': 'invalid namespace ID'}
@@ -698,6 +750,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'error': ...} on error
         """
         
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         db = get_db_state()
         self.analytics("get_num_names", {})
         num_names = db.get_num_names()
@@ -712,6 +767,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': true, 'names': [...]} on success
         Return {'error': ...} on error
         """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         if type(offset) not in [int, long]:
             return {'error': 'invalid offset'}
 
@@ -740,6 +798,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'error': ...} on error
         """
         
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         db = get_db_state()
         self.analytics("get_all_namespaces", {})
         all_namespaces = db.get_all_namespace_ids()
@@ -755,6 +816,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'error': ...} on error
         """
         
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         db = get_db_state()
         self.analytics('get_num_names_in_namespace', {})
         num_names = db.get_num_names_in_namespace( namespace_id )
@@ -769,6 +833,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': true, 'names': [...]} on success
         Return {'error': ...} on error
         """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         if type(namespace_id) not in [str, unicode]:
             return {'error': 'invalid namespace ID'}
     
@@ -799,6 +866,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': True, 'consensus': ...} on success
         Return {'error': ...} on error
         """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         if type(block_id) not in [int, long]:
             return {'error': 'Invalid block ID'}
 
@@ -817,6 +887,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Returns {'status': True, 'consensus_hashes': dict} on success
         Returns {'error': ...} on success
         """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         if type(block_id_list) != list:
             return {'error': 'Invalid block IDs'}
 
@@ -834,22 +907,30 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return self.success_response( {'consensus_hashes': ret} )
 
 
-    def rpc_get_mutable_data( self, blockchain_id, data_name, **con_info ):
+    def rpc_get_mutable_data( self, blockchain_id, fq_data_id, **con_info ):
         """
         Get a mutable data record written by a given user.
-        TODO: disable by default, unless we're set up to serve data.
         """
-        if type(blockchain_id) not in [str, unicode]:
+        if type(fq_data_id) not in [str, unicode]:
+            return {'error': 'Invalid data ID'}
+
+        if not type(blockchain_id) in [str, unicode] or not blockstack_client.is_name_valid(blockchain_id):
             return {'error': 'Invalid blockchain ID'}
 
-        if not is_name_valid(blockchain_id):
-            return {'error': 'Invalid blockchain ID'}
+        conf = get_blockstack_opts()
+        if not conf['serve_data']:
+            return {'error': 'No data'}
+      
+        drivers = conf.get('data_storage_drivers', None)
+        if drivers is not None:
+            drivers = drivers.split(',')
 
-        if type(data_name) not in [str, unicode]:
-            return {'error': 'Invalid data name'}
+        res = load_mutable_data_from_storage( blockchain_id, fq_data_id, drivers=drivers )
+        if res is None:
+            log.debug("Failed to get {}".format(fq_data_id))
+            return {'error': 'Failed to get data'}
 
-        client = get_blockstack_client_session()
-        return client.get_mutable( str(blockchain_id), str(data_name) )
+        return self.success_response({'data': res})
 
 
     def rpc_get_immutable_data( self, blockchain_id, data_hash, **con_info ):
@@ -866,6 +947,10 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if type(data_hash) not in [str, unicode]:
             return {'error': 'Invalid data hash'}
 
+        conf = get_blockstack_opts()
+        if not conf['serve_data']:
+            return {'error': 'No data'}
+
         client = get_blockstack_client_session()
         return client.get_immutable( str(blockchain_id), str(data_hash) )
 
@@ -874,6 +959,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         """
         Given the consensus hash, find the block number (or None)
         """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         if type(consensus_hash) not in [str, unicode]:
             return {'error': 'Not a valid consensus hash'}
 
@@ -906,15 +994,20 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return None
        
 
-    def get_zonefile_data_by_name( self, conf, name, zonefile_storage_drivers ):
+    def get_zonefile_data_by_name( self, conf, name, zonefile_storage_drivers, name_rec=None ):
         """
         Get a zonefile by name
         Return the serialized zonefile on success
         Return None one error
         """
-        db = get_db_state()
-        name_rec = db.get_name( name )
-        db.close()
+
+        if name_rec is None:
+            if not is_indexer():
+                return None
+
+            db = get_db_state()
+            name_rec = db.get_name( name )
+            db.close()
 
         if name_rec is None:
             return None
@@ -1025,6 +1118,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Takes at most 100 zonefiles
         """
 
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
         conf = get_blockstack_opts()
 
         if not conf['serve_zonefiles']:
@@ -1096,9 +1192,37 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return self.success_response( {'saved': saved} )
 
 
+    def get_name_rec(self, name):
+        """
+        Get a name record, even if we're not an indexer node.
+        Return the name rec on success
+        Return {'error': ...} on failure
+        """
+        name_rec = None
+
+        if is_indexer():
+            # fetch from db directly 
+            db = get_db_state()
+            name_rec = db.get_name(name)
+            db.close()
+
+            if name_rec is None:
+                return {'error': 'No such name'}
+
+        else:
+            # fetch from upstream 
+            name_rec = blockstack_client.proxy.get_name_blockchain_record(name)
+            if 'error' in name_rec:
+                return name_rec
+
+        return name_rec
+
+    
     def rpc_get_profile(self, name, **con_info):
         """
         Get a profile for a particular name
+        Return {'profile': profile text} on success
+        Return {'error': ...} on error
         """
         if type(name) not in [str, unicode]:
             return {'error': 'Invalid name'}
@@ -1113,16 +1237,12 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
         profile_storage_drivers = conf['profile_storage_drivers'].split(",")
 
-        # find the name record 
-        db = get_db_state()
-        name_rec = db.get_name(name)
-        db.close()
-
-        if name_rec is None:
-            return {'error': 'No such name'}
+        name_rec = self.get_name_rec(name)
+        if 'error' in name_rec:
+            return name_rec
 
         # find zonefile 
-        zonefile_data = self.get_zonefile_data_by_name( conf, name, zonefile_storage_drivers )
+        zonefile_data = self.get_zonefile_data_by_name( conf, name, zonefile_storage_drivers, name_rec=name_rec )
         if zonefile_data is None:
             return {'error': 'No zonefile'}
 
@@ -1151,33 +1271,33 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return self.success_response( {'profile': profile} )
 
 
-    def verify_profile_timestamp( self, user_profile ):
+    def verify_data_timestamp( self, datum ):
         """
-        Verify that the profile timestamp is fresh,
-        and that the profile has a valid timestamp.
+        Verify that the mutable timestamp is fresh,
+        and that the datum has a valid timestamp.
         Return {'status': True} on success
         Return {'error': ...} on error
         """
         
         # needs a timestamp 
-        if 'timestamp' not in user_profile.keys():
-            log.debug("Profile has no timestamp")
-            return {'error': 'Profile has no timestamp'}
+        if 'timestamp' not in datum.keys():
+            log.debug("Datum has no timestamp")
+            return {'error': 'Datum has no timestamp'}
 
-        if type(user_profile['timestamp']) not in [int, long, float]:
-            log.debug("Profile has invalid timestamp type")
+        if type(datum['timestamp']) not in [int, long, float]:
+            log.debug("Datum has invalid timestamp type")
             return {'error': 'Invalid timestamp type'}
 
-        user_profile_timestamp = user_profile['timestamp']
+        timestamp = datum['timestamp']
 
         # timestamp needs to be fresh 
         now = time.time()
-        if abs(now - user_profile_timestamp) > 30:
-            log.debug("Out-of-sync timestamp: |%s - %s| == %s" % (now, user_profile_timestamp, abs(now, user_profile_timestamp)))
+        if abs(now - timestamp) > 30:
+            log.debug("Out-of-sync timestamp: |%s - %s| == %s" % (now, timestamp, abs(now, timestamp)))
             return {'error': 'Invalid timestamp'}
 
         else:
-            log.debug("Client and server differ by %s seconds" % abs(now - user_profile_timestamp))
+            log.debug("Client and server differ by %s seconds" % abs(now - timestamp))
             return {'status': True}
 
 
@@ -1224,15 +1344,11 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return {'status': True}
 
 
-    def rpc_put_profile(self, name, profile_txt, prev_profile_hash_or_ignored, sigb64_or_ignored, **con_info ):
+    def load_mutable_data( self, name, data_txt, max_len=RPC_MAX_PROFILE_LEN, storage_drivers=None ):
         """
-        Store a profile for a particular name
-        @profile_txt must be a serialized JWT signed by the key in the user's zonefile.
-        @prev_profile_hash_or_ignored, if given, must be the hex string representation of the hash of the previous profile
-           (this argument is obsolete in 0.14.1)
-        @sigb64_or_ignored, if given, must cover prev_profile_hash+profile_txt
-           (this argument is obsolete in 0.14.1)
-
+        Parse and authenticate user-given data
+        Return {'status': True, 'data': data dict, 'data_pubkey': public key, 'owner': True|False} on success
+        Return {'error': ...} on failure
         """
 
         if type(name) not in [str, unicode]:
@@ -1241,30 +1357,32 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_name_valid(name):
             return {'error': 'Invalid name'}
 
-        if type(profile_txt) not in [str, unicode]:
-            return {'error': 'Profile must be a serialized JWT'}
+        if type(data_txt) not in [str, unicode]:
+            return {'error': 'Data must be a serialized JWT'}
 
-        if len(profile_txt) > RPC_MAX_PROFILE_LEN:
-            return {'error': 'Serialized profile is too big'}
+        if len(data_txt) > RPC_MAX_PROFILE_LEN:
+            return {'error': 'Serialized data is too big'}
 
         conf = get_blockstack_opts()
-        if not conf['serve_profiles']:
-            return {'error': 'No data'}
+        if conf['redirect_data']:
+            # redirect!
+            servers = filter(lambda x: len(x) > 0, conf['data_servers'].split(','))
+            return {'error': 'redirect', 'servers': servers}
 
-        profile_storage_drivers = conf['profile_storage_drivers'].split(",")
         zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
+        zonefile_dict = None
 
         # find name record 
-        db = get_db_state()
-        name_rec = db.get_name(name)
-        db.close()
+        name_rec = self.get_name_rec(name)
+        if 'error' in name_rec:
+            return name_rec
 
         if name_rec is None:
             log.debug("No name for '%s'" % name)
             return {'error': 'No such name'}
 
         # find zonefile 
-        zonefile_data = self.get_zonefile_data_by_name( conf, name, zonefile_storage_drivers )
+        zonefile_data = self.get_zonefile_data_by_name( conf, name, zonefile_storage_drivers, name_rec=name_rec )
         if zonefile_data is None:
             log.debug("No zonefile for '%s'" % name)
             return {'error': 'No zonefile'}
@@ -1278,17 +1396,16 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         # first, try to verify with zonefile public key (if one is given)
         user_data_pubkey = blockstack_client.user_zonefile_data_pubkey( zonefile_dict )
-        user_profile = None
-        user_profile_timestamp = None
+        user_data = None
 
         if user_data_pubkey is not None:
             try:
-                user_profile = blockstack_client.parse_signed_data( profile_txt, user_data_pubkey )
-                assert type(user_profile) in [dict], "Failed to parse profile"
+                user_data = blockstack_client.parse_signed_data( data_txt, user_data_pubkey )
+                assert type(user_data) in [dict], "Failed to parse data"
             except Exception, e:
                 log.exception(e)
-                log.debug("Failed to authenticate profile")
-                return {'error': 'Failed to authenticate profile'}
+                log.debug("Failed to authenticate data")
+                return {'error': 'Failed to authenticate data'}
         
         else:
             log.warn("Falling back to verifying with owner address")
@@ -1298,33 +1415,60 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 return {'error': 'No owner address'}
 
             try:
-                user_profile = blockstack_client.parse_signed_data( profile_txt, None, public_key_hash=owner_addr )
-                assert type(user_profile) in [dict], "Failed to parse profile"
+                user_data = blockstack_client.parse_signed_data( data_txt, None, public_key_hash=owner_addr )
+                assert type(user_data) in [dict], "Failed to parse data"
 
                 # seems to have worked
-                profile_jwt = json.loads(profile_txt)
-                if type(profile_jwt) == list:
-                    profile_jwt = profile_jwt[0]
+                data_jwt = json.loads(data_txt)
+                if type(data_jwt) == list:
+                    data_jwt = data_jwt[0]
 
-                user_data_pubkey = profile_jwt['parentPublicKey']
+                user_data_pubkey = data_jwt['parentPublicKey']
 
             except Exception, e:
                 log.exception(e)
-                log.debug("Failed to authenticate profile")
-                return {'error': 'Failed to authenticate profile'}
-
+                log.debug("Failed to authenticate data")
+                return {'error': 'Failed to authenticate data'}
 
         # authentic!  try to verify via timestamp
-        res = self.verify_profile_timestamp( user_profile )
+        res = self.verify_data_timestamp( user_data )
         if 'error' in res:
-            log.debug("Failed to verify with profile timestamp.")
+            log.debug("Failed to verify with timestamp.")
+            return {'error': 'Invalid timestamp', 'reason': 'timestamp', 'data_pubkey': user_data_pubkey, 'zonefile': zonefile_dict}
 
-            # TODO: deprecated as of 0.14.1
-            res = self.verify_profile_hash( name, name_rec, zonefile_dict, profile_txt, prev_profile_hash_or_ignored, sigb64_or_ignored, user_data_pubkey )
-            if 'error' in res:
-                log.debug("Failed to verify profile by owner hash")
-                return {'error': 'Failed to validate profile: invalid or missing timestamp and/or previous hash'}
+        return {'status': True, 'data': user_data, 'data_pubkey': user_data_pubkey}
 
+
+    def rpc_put_profile(self, name, profile_txt, prev_profile_hash_or_ignored, sigb64_or_ignored, **con_info ):
+        """
+        Store a profile for a particular name
+        @profile_txt must be a serialized JWT signed by the key in the user's zonefile.
+        @prev_profile_hash_or_ignored, if given, must be the hex string representation of the hash of the previous profile
+           (this argument is obsolete in 0.14.1)
+        @sigb64_or_ignored, if given, must cover prev_profile_hash+profile_txt
+           (this argument is obsolete in 0.14.1)
+        """
+
+        conf = get_blockstack_opts()
+        if not conf['serve_profiles']:
+            return {'error': 'No data'}
+
+        data_info = self.load_mutable_data(name, profile_txt, max_len=RPC_MAX_PROFILE_LEN)
+        if 'error' in data_info:
+            if data_info.has_key('reason') and data_info['reason'] == 'timestamp' and data_info.has_key('data_pubkey') and data_info.has_key('zonefile'):
+
+                user_data_pubkey = data_info['data_pubkey']
+                zonefile_dict = data_info['zonefile']
+
+                # try hash-based verification (deprecated)
+                res = self.verify_profile_hash( name, name_rec, zonefile_dict, profile_txt, prev_profile_hash_or_ignored, sigb64_or_ignored, user_data_pubkey )
+                if 'error' in res:
+                    log.debug("Failed to verify profile by owner hash")
+                    return {'error': 'Failed to validate profile: invalid or missing timestamp and/or previous hash'}
+
+            else:
+                return data_info
+       
         res = storage_enqueue_profile( name, str(profile_txt) )
         if not res:
             log.error('Failed to queue {}-byte profile for {}'.format(len(profile_txt), name))
@@ -1332,6 +1476,67 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         
         log.debug("Queued {}-byte profile for {}".format(len(profile_txt), name))
         return self.success_response( {'num_replicas': 1, 'num_failures': 0} )
+
+
+    def rpc_put_mutable_data(self, blockchain_id, data_txt, **con_info ):
+        """
+        Store mutable data
+        @data_txt is the data to store
+
+        Only works if the mutable data payload has an associated blockchain ID that matches @blockchain_id
+
+        This method does NOT need access to the database.
+        However, it only works if the caller has a registered name.
+        """
+        if type(data_txt) not in [str, unicode]:
+            return {'error': 'Data must be a serialized JWT'}
+
+        # must be v2 or later 
+        if not data_txt.startswith('bsk2.'):
+            return {'error': 'Obsolete data format'}
+
+        data_info = self.load_mutable_data(blockchain_id, data_txt, max_len=RPC_MAX_DATA_LEN)
+        if 'error' in data_info:
+            log.debug("Failed to parse mutable data: {}".format(data_info['error']))
+            return data_info
+
+        user_data = data_info['data']
+
+        # must be mutable data 
+        try:
+            jsonschema.validate(user_data, blockstack_client.schemas.DATA_BLOB_SCHEMA)
+        except ValidationError as ve:
+            log.debug("User data is not a mutable data blob")
+            return {'error': 'Not a mutable data blob'}
+
+        # must match name 
+        if not user_data.has_key('blockchain_id') or blockchain_id != user_data['blockchain_id']:
+            log.debug("Data has no blockchain_id, or does not match {} (got {})".format(blockchain_id, user_data.get('blockchain_id', "None")))
+            return {'error': 'Failed to validate data: invalid or missing blockchain ID'}
+
+        fq_data_id = user_data['fq_data_id']
+
+        res = storage_enqueue_data( blockchain_id, fq_data_id, str(data_txt) )
+        if not res:
+            log.error('Failed to queue {}-byte datum for {}'.format(len(data_txt), blockchain_id))
+            return {'error': 'Failed to queue datum'}
+        
+        log.debug("Queued {}-byte datum from {}".format(len(data_txt), blockchain_id))
+        return self.success_response( {'num_replicas': 1, 'num_failures': 0} )
+
+
+    def rpc_get_data_servers( self, **con_info ):
+        """
+        Get the list of data servers
+        Return {'status': True, 'servers': ...} on success
+        Return {'error': ...} on error
+        """
+        conf = get_blockstack_opts()
+        if not conf.get('redirect_data', False):
+            return {'error': 'No data servers'}
+
+        servers = filter(lambda x: len(x) > 0, conf['data_servers'].split(','))
+        return {'status': True, 'servers': servers}
 
 
     def rpc_get_atlas_peers( self, **con_info ):
@@ -1455,10 +1660,25 @@ class BlockstackStoragePusher( threading.Thread ):
         self.zonefile_dir = conf.get('zonefile_dir', None)
         self.zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
         self.profile_storage_drivers = conf['profile_storage_drivers'].split(",")
+        self.data_storage_drivers = conf['data_storage_drivers'].split(',')
         self.atlasdb_path = conf.get('atlasdb_path', None)
 
         self.zonefile_queue_id = "push-zonefile"
         self.profile_queue_id = "push-profile"
+        self.data_queue_id = "push-data"
+
+        # do not store data to ourselves
+        if 'blockstack_server' in self.zonefile_storage_drivers:
+            log.warn("Removing 'blockstack_server' from zone file storage drivers")
+            self.zonefile_storage_drivers.remove('blockstack_server')
+
+        if 'blockstack_server' in self.profile_storage_drivers:
+            log.warn("Removing 'blockstack_server' from profile storage drivers")
+            self.profile_storage_drivers.remove('blockstack_server')
+
+        if 'blockstack_server' in self.data_storage_drivers:
+            log.warn("Removing 'blockstack_server' from data storage drivers")
+            self.data_storage_drivers.remove('blockstack_server')
 
 
     def enqueue_zonefile( self, txid, zonefile_hash, zonefile_data ):
@@ -1499,34 +1719,53 @@ class BlockstackStoragePusher( threading.Thread ):
             return False
 
 
-    def enqueue_profile( self, name, profile_data ):
+    def enqueue_profile_or_data( self, blockchain_id, queue_id, data ):
         """
-        Enqueue a profile for replication
+        Enqueue a profile or mutable data for replication
         """
-        if type(name) not in [str, unicode]:
+        if type(blockchain_id) not in [str, unicode]:
             log.debug("Invalid name type")
             return False
 
-        if type(profile_data) not in [str, unicode]:
-            log.debug("Invalid profile data type")
+        if type(data) not in [str, unicode]:
+            log.debug("Invalid profile or data type")
             return False
 
-        name = str(name)
-        profile_data = str(profile_data)
+        blockchain_id = str(blockchain_id)
+        data = str(data)
 
         try:
-            existing = queue_findone( self.profile_queue_id, name, path=self.queue_path )
+            existing = queue_findone( queue_id, blockchain_id, path=self.queue_path )
             if len(existing) > 0:
-                log.error("Already queued {}.{}".format(name, zonefile_hash))
+                log.error("Already queued something for {}".format(blockchain_id))
                 return False
 
-            log.debug("Queue {}-byte profile for {}".format(len(profile_data), name))
-            res = queue_append( self.profile_queue_id, name, "00" * 32, block_height=0, profile=profile_data, path=self.queue_path )
+            log.debug("Queue {}-byte datum for {}".format(len(data), blockchain_id))
+            res = queue_append( queue_id, blockchain_id, "00" * 32, block_height=0, profile=data, path=self.queue_path )
             assert res
             return True
         except Exception as e:
             log.exception(e)
             return False
+
+
+    def enqueue_profile( self, blockchain_id, profile_data ):
+        """
+        Enqueue a profile for replication
+        """
+        return self.enqueue_profile_or_data(blockchain_id, self.profile_queue_id, profile_data)
+
+
+    def enqueue_data( self, blockchain_id, fq_data_id, data_txt ):
+        """
+        Enqueue a mutable datum for replication
+        """
+        data_payload = {
+            'data_txt': data_txt,
+            'fq_data_id': fq_data_id
+        }
+
+        return self.enqueue_profile_or_data(blockchain_id, self.data_queue_id, json.dumps(data_payload))
 
 
     def store_one_zonefile(self):
@@ -1540,7 +1779,7 @@ class BlockstackStoragePusher( threading.Thread ):
             return False
 
         entry = entries[0]
-        res = store_zonefile_data_to_storage( str(entry['zonefile']), entry['tx_hash'], required=self.zonefile_storage_drivers, cache=False, zonefile_dir=self.zonefile_dir, tx_required=False )
+        res = store_zonefile_data_to_storage( str(entry['zonefile']), entry['tx_hash'], required=self.zonefile_storage_drivers, skip=['blockstack_server'], cache=False, zonefile_dir=self.zonefile_dir, tx_required=False )
         if not res:
             log.error("Failed to store zonefile {} ({} bytes)".format(entry['zonefile_hash'], len(entry['zonefile'])))
             return False
@@ -1555,25 +1794,69 @@ class BlockstackStoragePusher( threading.Thread ):
         return res
 
 
-    def store_one_profile(self):
+    def store_one_profile_or_datum(self, queue_id, storage_drivers):
         """
-        Find and store one profile
+        Find and store one profile or datum
         """
-        entries = queue_findall( self.profile_queue_id, limit=1, path=self.queue_path )
+        entries = queue_findall( queue_id, limit=1, path=self.queue_path )
         if entries is None or len(entries) == 0:
             # empty 
             return False
 
         entry = entries[0]
+        
+        blockchain_id = str(entry['fqu'])
+        fq_data_id = None
+        data_txt = None
+        try:
+            # mutable data?
+            payload = json.loads(entry['profile'])
+            
+            assert isinstance(payload, dict)
+            assert payload.has_key('fq_data_id')
+            assert payload.has_key('data_txt')
 
-        num_successes = store_profile_data_to_storage( entry['fqu'], str(entry['profile']), required=self.profile_storage_drivers )
-        if num_successes == 0:
-            log.error("Failed to store profile for {} ({} bytes)".format(entry['fqu'], len(entry['profile'])))
+            fq_data_id = str(payload['fq_data_id'])
+            data_txt = str(payload['data_txt'])
+
+            log.debug("mutable datum: {}".format(entry['profile']))
+            log.debug("mutable datum txt: {}".format(data_txt))
+        except AssertionError:
+            
+            # profile 
+            fq_data_id = blockchain_id
+            data_txt = str(entry['profile'])
+
+        except Exception as e:
+            log.exception(e)
+            log.debug("entry = {}".format(entry))
+            log.debug("Abandoning data from {}".format(blockchain_id))
+            queue_removeall( entries, path=self.queue_path )
+            return False
+        
+        success = store_mutable_data_to_storage( blockchain_id, fq_data_id, data_txt, required=storage_drivers, skip=['blockstack_server'])
+        if not success:
+            log.error("Failed to store data for {} ({} bytes)".format(blockchain_id, len(data_txt)))
+            queue_removeall( entries, path=self.queue_path )
             return False
 
-        log.debug("Replicated profile for {} ({} bytes)".format(entry['fqu'], len(entry['profile'])))
+        log.debug("Replicated data for {} ({} bytes)".format(blockchain_id, len(data_txt)))
         queue_removeall( entries, path=self.queue_path )
         return True
+
+
+    def store_one_profile(self):
+        """
+        Find and store one profile
+        """
+        return self.store_one_profile_or_datum(self.profile_queue_id, self.profile_storage_drivers)
+
+
+    def store_one_datum(self):
+        """
+        Find and store one mutable datum
+        """
+        return self.store_one_profile_or_datum(self.data_queue_id, self.data_storage_drivers)
 
 
     def run(self):
@@ -1585,8 +1868,9 @@ class BlockstackStoragePusher( threading.Thread ):
           
             res_zonefile = self.store_one_zonefile()
             res_profile = self.store_one_profile()
+            res_data = self.store_one_datum()
 
-            if not res_zonefile and not res_profile:
+            if not res_zonefile and not res_profile and not res_data:
                 time.sleep(1.0)
                 continue
 
@@ -1604,17 +1888,7 @@ class BlockstackStoragePusher( threading.Thread ):
         Stop taking requests and wait for the queue to drain
         """
         self.accepting = False
-        while True:
-            zonefile_entries = queue_findall( self.zonefile_queue_id, limit=1, path=self.queue_path )
-            profile_entries = queue_findall( self.profile_queue_id, limit=1, path=self.queue_path )
-
-            if len(zonefile_entries) > 0 or len(profile_entries) > 0:
-                log.debug("Still have data remaining")
-                time.sleep(1.0)
-                continue
-
-            else:
-                break
+        return
 
 
 def rpc_start( port ):
@@ -1696,6 +1970,14 @@ def storage_enqueue_profile( name, profile_data ):
     """
     global storage_pusher
     return storage_pusher.enqueue_profile( name, profile_data )
+
+
+def storage_enqueue_data( blockchain_id, fq_data_id, datum ):
+    """
+    Queue mutable data for replication
+    """
+    global storage_pusher
+    return storage_pusher.enqueue_data( blockchain_id, fq_data_id, datum )
 
 
 def atlas_start( blockstack_opts, db, port ):
@@ -1845,6 +2127,10 @@ def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
     Return False if not
     Aborts on error
     """
+    
+    if not is_indexer():
+        # nothing to do
+        return True
 
     bt_opts = get_bitcoin_opts() 
     start_block, current_block = get_index_range()
@@ -2188,38 +2474,6 @@ def clean( confirm=True ):
     sys.exit(exit_status)
 
 
-def restore( working_dir, block_number ):
-    """
-    Restore the database from a backup in the backups/ directory.
-    If block_number is None, then use the latest backup.
-    Raise an exception if no such backup exists
-    """
-
-    if block_number is None:
-        all_blocks = BlockstackDB.get_backup_blocks( virtualchain_hooks )
-        if len(all_blocks) == 0:
-            log.error("No backups available")
-            return False
-
-        block_number = max(all_blocks)
-
-    found = True
-    backup_paths = BlockstackDB.get_backup_paths( block_number, virtualchain_hooks )
-    for p in backup_paths:
-        if not os.path.exists(p):
-            log.error("Missing backup file: '%s'" % p)
-            found = False
-
-    if not found:
-        return False 
-
-    rc = BlockstackDB.backup_restore( block_number, virtualchain_hooks )
-    if not rc:
-        log.error("Failed to restore backup")
-
-    return rc
-
-
 def check_and_set_envars( argv ):
     """
     Go through argv and find any special command-line flags
@@ -2352,13 +2606,16 @@ def run_blockstackd():
       help='start the blockstackd server')
    parser.add_argument(
       '--foreground', action='store_true',
-      help='start the blockstackd server in foreground')
+      help='start the blockstack server in foreground')
    parser.add_argument(
       '--expected-snapshots', action='store',
       help='path to a .snapshots file with the expected consensus hashes')
    parser.add_argument(
       '--port', action='store',
       help='port to bind on')
+   parser.add_argument(
+      '--no-indexer', action='store_true',
+      help='do not index the blockchain')
 
    parser = subparsers.add_parser(
       'stop',
@@ -2455,39 +2712,42 @@ def run_blockstackd():
       sys.exit(0)
 
    if args.action == 'start':
+      global has_indexer
+      has_indexer = (not args.no_indexer)
 
-      # was indexing earlier?
-      if config.is_indexing():
-          # The server didn't shut down properly.
-          # restore from back-up before running
-          log.warning("Server did not shut down properly.  Restoring state from last known-good backup.")
-
-          # move any existing db information out of the way so we can start fresh.
-          state_paths = BlockstackDB.get_state_paths()
-          need_backup = reduce( lambda x, y: x or y, map(lambda sp: os.path.exists(sp), state_paths), False )
-          if need_backup:
-
-              # have old state.  keep it around for later inspection
-              target_dir = os.path.join( working_dir, 'crash.{}'.format(time.time()))
-              os.makedirs(target_dir)
-              for sp in state_paths:
-                  if os.path.exists(sp):
-                     target = os.path.join( target_dir, os.path.basename(sp) )
-                     shutil.move( sp, target )
-          
-              log.warning("State from crash stored to '{}'".format(target_dir))
-
-          restore( working_dir, None )
-          config.set_indexing(False)
-
-          log.warning("State reverted")
-
-      # use snapshots?
       expected_snapshots = {}
-      if args.expected_snapshots is not None:
-          expected_snapshots = load_expected_snapshots( args.expected_snapshots )
-          if expected_snapshots is None:
-              sys.exit(1)
+
+      if is_indexer():
+          if config.is_indexing():
+              # The server didn't shut down properly.
+              # restore from back-up before running
+              log.warning("Server did not shut down properly.  Restoring state from last known-good backup.")
+
+              # move any existing db information out of the way so we can start fresh.
+              state_paths = BlockstackDB.get_state_paths()
+              need_backup = reduce( lambda x, y: x or y, map(lambda sp: os.path.exists(sp), state_paths), False )
+              if need_backup:
+
+                  # have old state.  keep it around for later inspection
+                  target_dir = os.path.join( working_dir, 'crash.{}'.format(time.time()))
+                  os.makedirs(target_dir)
+                  for sp in state_paths:
+                      if os.path.exists(sp):
+                         target = os.path.join( target_dir, os.path.basename(sp) )
+                         shutil.move( sp, target )
+              
+                  log.warning("State from crash stored to '{}'".format(target_dir))
+
+              blockstack_backup_restore( working_dir, None )
+              config.set_indexing(False)
+
+              log.warning("State reverted")
+
+          # use snapshots?
+          if args.expected_snapshots is not None:
+              expected_snapshots = load_expected_snapshots( args.expected_snapshots )
+              if expected_snapshots is None:
+                  sys.exit(1)
 
       if os.path.exists( get_pidfile_path() ):
           log.error("Blockstackd appears to be running already.  If not, please run '%s stop'" % (sys.argv[0]))
@@ -2514,7 +2774,11 @@ def run_blockstackd():
       reconfigure()
 
    elif args.action == 'restore':
-      restore( working_dir, args.block_number )
+      block_number = args.block_number
+      if block_number is not None:
+         block_number = int(block_number)
+
+      blockstack_backup_restore( working_dir, args.block_number )
 
    elif args.action == 'clean':
       clean( confirm=(not args.force) )
@@ -2572,14 +2836,14 @@ def run_blockstackd():
       shutil.copy( old_lastblock_path, virtualchain.get_lastblock_filename() )
 
    elif args.action == 'fast_sync_snapshot':
-      # create a fast-sync snapshot 
+      # create a fast-sync snapshot from the last backup 
       dest_path = str(args.path)
       private_key = keylib.ECPrivateKey(str(args.private_key)).to_hex()
       block_id = None
       if args.block_id is not None:
           block_id = int(args.block_id)
 
-      rc = fast_sync_export( dest_path, private_key, working_dir, block_id )
+      rc = fast_sync_snapshot( dest_path, private_key, working_dir, block_id )
       if not rc:
           print "fast_sync_snapshot failed"
           sys.exit(1)
