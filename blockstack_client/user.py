@@ -30,6 +30,8 @@ import posixpath
 import jsontokens
 import jsonschema
 from jsonschema.exceptions import ValidationError
+import re
+import keylib
 
 from .schemas import *
 from .constants import BLOCKSTACK_TEST, CONFIG_PATH, BLOCKSTACK_DEBUG, USER_DIRNAME
@@ -71,7 +73,7 @@ def user_path(user_id, config_path=CONFIG_PATH):
     return os.path.join(dirp, user_name(user_id))
 
 
-def user_init( user_id, master_data_privkey_hex, config_path=CONFIG_PATH ):
+def user_init( user_id, master_data_privkey_hex, blockchain_id=None, config_path=CONFIG_PATH ):
     """
     Generate a new local user with the given user ID
     Returns {'user': ..., 'user_token': ...} on success
@@ -94,6 +96,8 @@ def user_init( user_id, master_data_privkey_hex, config_path=CONFIG_PATH ):
         'public_key': get_pubkey_hex(user_privkey),
         'privkey_index': next_privkey_index
     }
+    if blockchain_id is not None:
+        info['blockchain_id'] = blockchain_id
 
     res = user_serialize(info, master_data_privkey_hex)
     if 'error' in res:
@@ -345,6 +349,7 @@ def user_zonefile_data_pubkey(user_zonefile, key_prefix='pubkey:data:'):
     Get a user's data public key from their zonefile.
     There can be only one.
 
+    Return the uncompressed data public key on success
     Return None if not defined
     Raise if there are multiple ones.
     """
@@ -360,8 +365,7 @@ def user_zonefile_data_pubkey(user_zonefile, key_prefix='pubkey:data:'):
             continue
 
         if data_pubkey is not None:
-            msg = 'Multiple data pubkeys'
-            log.error('BUG: {}'.format(msg))
+            log.error('Invalid zone file: multiple data keys')
             raise ValueError('{} starting with "{}"'.format(msg, key_prefix))
 
         data_pubkey = txtrec['txt'][len(key_prefix):]
@@ -369,6 +373,13 @@ def user_zonefile_data_pubkey(user_zonefile, key_prefix='pubkey:data:'):
         # must be DER-encoded EC public key--either uncompressed or compressed
         if not re.match(r'^[0-9a-fA-F]{66}$', data_pubkey) and not re.match(r'[0-9a-fA-F]{130}$', data_pubkey):
             data_pubkey = None
+
+    if data_pubkey is None:
+        return None
+
+    # uncompressed!
+    if keylib.key_formatting.get_pubkey_format(data_pubkey) == 'hex_compressed':
+        data_pubkey = keylib.key_formatting.decompress(data_pubkey)
 
     return data_pubkey
 
@@ -388,13 +399,31 @@ def user_zonefile_set_data_pubkey(user_zonefile, pubkey_hex, key_prefix='pubkey:
         if txtrec['txt'].startswith(key_prefix):
             # overwrite
             txtrec['txt'] = txt
-            return True
+            return user_zonefile
 
     # not present.  add.
     name_txt = {'name': 'pubkey', 'txt': txt}
     user_zonefile['txt'].append(name_txt)
 
-    return True
+    return user_zonefile
+
+
+def user_zonefile_remove_data_pubkey(user_zonefile, key_prefix='pubkey:data:'):
+    """
+    Remove the data public key in the zonefile.
+    NOTE: you will need to re-sign all your data!
+    """
+    assert is_user_zonefile(user_zonefile)
+
+    user_zonefile.setdefault('txt', [])
+
+    new_txts = []
+    for txtrec in user_zonefile['txt']:
+        if not txtrec['txt'].startswith(key_prefix):
+            new_txts.append(txtrec)
+
+    user_zonefile['txt'] = new_txts
+    return user_zonefile
 
 
 def user_zonefile_urls(user_zonefile):
@@ -547,10 +576,13 @@ def remove_immutable_data_zonefile(user_zonefile, data_hash):
         h = None
         try:
             h = get_immutable_hash_from_txt(txtrec['txt'])
+            if h is None:
+                continue
+
             assert scripts.is_valid_hash(h)
 
         except AssertionError as ae:
-            log.error("Invalid immutable data hash")
+            log.debug("Invalid immutable data hash")
             continue
 
         if data_hash == h:
@@ -578,6 +610,9 @@ def has_immutable_data(user_zonefile, data_hash):
         h = None
         try:
             h = get_immutable_hash_from_txt(txtrec['txt'])
+            if h is None:
+                continue
+
             assert scripts.is_valid_hash(h)
 
         except AssertionError as ae:
@@ -606,6 +641,9 @@ def has_immutable_data_id(user_zonefile, data_id):
         try:
             d_id = txtrec['name']
             h = get_immutable_hash_from_txt(txtrec['txt'])
+            if h is None:
+                continue
+
             assert scripts.is_valid_hash(h)
         except AssertionError:
             continue
@@ -638,7 +676,7 @@ def get_immutable_data_hashes(user_zonefile, data_id):
 
             h = get_immutable_hash_from_txt(txtrec['txt'])
             if h is None:
-                log.error('Missing or invalid data hash for "{}"'.format(d_id))
+                continue
 
             msg = 'Invalid data hash for "{}" (got "{}" from {})'
             assert scripts.is_valid_hash(h), msg.format(d_id, h, txtrec['txt'])
@@ -672,6 +710,9 @@ def get_immutable_data_url(user_zonefile, data_hash):
         h = None
         try:
             h = get_immutable_hash_from_txt(txtrec['txt'])
+            if h is None:
+                continue
+
             assert scripts.is_valid_hash(h)
 
             if data_hash != h:
@@ -679,7 +720,7 @@ def get_immutable_data_url(user_zonefile, data_hash):
 
             url = get_immutable_url_from_txt(txtrec['txt'])
         except AssertionError as ae:
-            log.error("Invalid immutable data hash")
+            log.debug("Invalid immutable data hash {}".format(h))
             continue
 
         return url
