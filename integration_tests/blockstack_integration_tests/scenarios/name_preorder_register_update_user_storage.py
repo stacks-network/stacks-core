@@ -24,6 +24,7 @@
 import os
 import sys
 os.environ["CLIENT_STORAGE_DRIVERS"] = "blockstack_server,disk"
+os.environ["CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE"] = "blockstack_server"
 
 import testlib
 import pybitcoin
@@ -59,6 +60,11 @@ def scenario( wallets, **kw ):
 
     global put_result, wallet_keys, datasets, zonefile_hash, dataset_change
 
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
+    test_proxy = testlib.TestAPIProxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
+
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
@@ -68,7 +74,6 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
     resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef" )
     if 'error' in resp:
         print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
@@ -107,39 +112,49 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting for the backend to replicate zonefile and profile"
     time.sleep(10)
 
-    test_proxy = testlib.TestAPIProxy()
-    blockstack_client.set_default_proxy( test_proxy )
-    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
 
     # make a few accounts
-    res = blockstack_client.put_account("foo.test", "serviceFoo", "serviceFooID", "foo://bar.com", proxy=test_proxy, wallet_keys=wallet_keys, foofield="foo!", required_drivers=['disk'] )
+    res = testlib.blockstack_cli_put_account("foo.test", "serviceFoo", "serviceFooID", "foo://bar.com", "0123456789abcdef", extra_data='foofield=foo!', wallet_keys=wallet_keys)
     if 'error' in res:
         res['test'] = 'Failed to create foo.test serviceFoo account'
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
         return 
 
-    res = blockstack_client.put_account("foo.test", "serviceBar", "serviceBarID", "bar://baz.com", proxy=test_proxy, wallet_keys=wallet_keys, barfield="bar!", required_drivers=['disk'] ) 
+    time.sleep(2)
+
+    res = testlib.blockstack_cli_put_account("foo.test", "serviceBar", "serviceBarID", "bar://baz.com", "0123456789abcdef", extra_data='barfield=bar!', wallet_keys=wallet_keys)
     if 'error' in res:
         res['test'] = 'Failed to create foo.test serviceBar account'
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
         return 
 
+    time.sleep(2)
+
     # put some data
-    put_result = blockstack_client.put_mutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_1", json.dumps(datasets[0]), password="0123456789abcdef")
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
 
     testlib.next_block( **kw )
 
-    put_result = blockstack_client.put_mutable( "foo.test", "hello_world_2", datasets[1], proxy=test_proxy, wallet_keys=wallet_keys )
-    if 'error' in put_result:
-        print json.dumps(put_result, indent=4, sort_keys=True)
+    time.sleep(1)
 
-    put_result = blockstack_client.put_mutable( "foo.test", "hello_world_3", datasets[2], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_2", json.dumps(datasets[1]), password="0123456789abcdef")
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
+
+    time.sleep(2)
+
+    put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_3", json.dumps(datasets[2]), password="0123456789abcdef")
+    if 'error' in put_result:
+        print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
+
+    time.sleep(2)
 
     # increment data version too
     datasets[0]['buf'] = []
@@ -147,9 +162,12 @@ def scenario( wallets, **kw ):
         datasets[0]["dataset_change"] = dataset_change
         datasets[0]['buf'].append(i)
 
-        put_result = blockstack_client.put_mutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
+        put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_1", json.dumps(datasets[0]), password="0123456789abcdef")
         if 'error' in put_result:
             print json.dumps(put_result, indent=4, sort_keys=True )
+            return False
+
+        time.sleep(2)
 
     testlib.next_block( **kw )
 
@@ -232,8 +250,6 @@ def check( state_engine ):
         raw_profile = profile_resp['profile']
         profile = blockstack_client.storage.parse_mutable_data( raw_profile, user_pubkey )
 
-        assert 'data' in profile, "missing data:\n%s" % json.dumps(profile, indent=4, sort_keys=True)
-        assert len(profile['data']) == 3
     except Exception, e:
         traceback.print_exc()
         print "Invalid profile"
@@ -245,7 +261,7 @@ def check( state_engine ):
 
     for i in xrange(0, len(datasets)):
         print "get hello_world_%s" % (i+1)
-        dat = blockstack_client.get_mutable( "foo.test", "hello_world_%s" % (i+1) )
+        dat = blockstack_client.get_mutable( "hello_world_%s" % (i+1), blockchain_id="foo.test" )
         if dat is None:
             print "No data '%s'" % ("hello_world_%s" % (i+1))
             return False
@@ -254,26 +270,49 @@ def check( state_engine ):
             print json.dumps(dat, indent=4, sort_keys=True)
             return False
 
-        if dat['data'] != datasets[i]:
-            print "Mismatch %s: %s != %s" % (i, dat, datasets[i])
+        if json.loads(dat['data']) != datasets[i]:
+            print "Mismatch %s: %s %s != %s %s" % (i, dat['data'], type(dat['data']), datasets[i], type(datasets[i]))
             return False
-    
-    dat = blockstack_client.get_mutable( "foo.test", "hello_world_1" )
-    if dat is None:
-        print "No hello_world_1"
+   
+    profile, zonefile = blockstack_client.get_name_profile('foo.test')
+    if profile is None:
+        print 'No profile'
+        return False
+
+    if 'error' in zonefile:
+        print json.dumps(zonefile, indent=4, sort_keys=True)
         return False 
 
-    if 'error' in dat:
-        print json.dumps(dat, indent=4, sort_keys=True)
-        return False 
+    # accounts should all be there 
+    if not profile.has_key('account'):
+        print 'profile:\n{}'.format(json.dumps(profile, indent=4, sort_keys=True))
+        return False
 
-    if dat['version'] <= 1:
-        print "version did not change (%s)" % (dat['version'])
-        return False 
+    expected_account_info = [
+        {
+            "contentUrl": "foo://bar.com", 
+            "foofield": "foo!", 
+            "identifier": "serviceFooID", 
+            "service": "serviceFoo"
+        }, 
+        {
+            "barfield": "bar!", 
+            "contentUrl": "bar://baz.com", 
+            "identifier": "serviceBarID", 
+            "service": "serviceBar"
+        }
+    ]
 
-    if dat['version'] != 6:
-        print "version is %s (expected 6)" % dat['version']
-        return False 
+    for account_info in expected_account_info:
+        found = False
+        for profile_account_info in profile['account']:
+            if profile_account_info == account_info:
+                found = True
+                break
+
+        if not found:
+            print "missing\n{}\nin\n{}".format(json.dumps(account_info, indent=4, sort_keys=True), json.dumps(profile, indent=4, sort_keys=True))
+            return False
 
     # there should be no failures in the API log
     api_log_path = os.path.join(os.path.dirname(test_proxy.conf['path']), "api_endpoint.log")

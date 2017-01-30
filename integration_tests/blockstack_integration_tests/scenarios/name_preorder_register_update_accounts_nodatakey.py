@@ -52,7 +52,6 @@ key_names = {
     'bar.test': []  # to be filled in 
 }
 
-# TODO: this test is deprecated in 0.14.1, since data operations without a data key will be forbidden
 def scenario( wallets, **kw ):
 
     global wallet_keys, wallet_keys_2, key_names, error

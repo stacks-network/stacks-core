@@ -54,6 +54,11 @@ def scenario( wallets, **kw ):
 
     global datasets, immutable_data_hashes, put_result, last_hash
 
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[3].privkey, wallets[5].privkey, wallets[4].privkey )
+    test_proxy = testlib.TestAPIProxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    wallet_keys = wallet
+
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
@@ -69,10 +74,6 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
-    test_proxy = testlib.TestAPIProxy()
-    blockstack_client.set_default_proxy( test_proxy )
-    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey, payment_privkey=wallets[5].privkey )
-    
     # migrate profile
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
@@ -88,7 +89,8 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
 
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_immutable( "foo.test", "hello_world_1", json.dumps(datasets[0], sort_keys=True), data_url="http://www.example.unroutable", password="0123456789abcdef" )
+    # put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
@@ -105,7 +107,8 @@ def scenario( wallets, **kw ):
     print "waiting for confirmation"
     time.sleep(10)
 
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_2", datasets[1], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
+    # put_result = blockstack_client.put_immutable( "foo.test", "hello_world_2", datasets[1], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_immutable( "foo.test", "hello_world_2", json.dumps(datasets[1], sort_keys=True), data_url="http://www.example.unroutable", password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
@@ -122,7 +125,8 @@ def scenario( wallets, **kw ):
     print "waiting for confirmation"
     time.sleep(10)
 
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3", datasets[2], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
+    # put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3", datasets[2], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_immutable( "foo.test", "hello_world_3", json.dumps(datasets[2], sort_keys=True), data_url="http://www.example.unroutable", password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
@@ -142,7 +146,8 @@ def scenario( wallets, **kw ):
 
     # should succeed (name collision)
     datasets[0][u'newdata'] = u"asdf"
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
+    # put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_immutable( "foo.test", "hello_world_1", json.dumps(datasets[0], sort_keys=True), data_url="http://www.example.unroutable", password='0123456789abcdef')
     if 'error' not in put_result:
         immutable_data_hashes[0] = put_result['immutable_data_hash']
     else:
@@ -208,7 +213,8 @@ def check( state_engine ):
     blockstack_client.set_default_proxy( test_proxy )
 
     for i in xrange(0, len(datasets)):
-        immutable_data = blockstack_client.get_immutable( "foo.test", immutable_data_hashes[i] )
+        # immutable_data = blockstack_client.get_immutable( "foo.test", immutable_data_hashes[i] )
+        immutable_data = testlib.blockstack_cli_get_immutable( "foo.test", immutable_data_hashes[i] )
         if immutable_data is None:
             print "No data received for dataset %s" % i
             return False 
@@ -221,12 +227,13 @@ def check( state_engine ):
             print "Missing data\n%s" % json.dumps(immutable_data, indent=4, sort_keys=True)
             return False 
 
-        data_json = immutable_data['data']
-        if data_json != datasets[i]:
-            print "did not get dataset %s\ngot %s\nexpected %s" % (i, data_json, datasets[i])
+        data_txt = immutable_data['data']
+        if json.loads(data_txt) != datasets[i]:
+            print "did not get dataset %s\ngot %s\nexpected %s" % (i, data_txt, datasets[i])
             return False 
 
-        immutable_data_by_name = blockstack_client.get_immutable_by_name( "foo.test", "hello_world_%s" % (i+1) )
+        # immutable_data_by_name = blockstack_client.get_immutable_by_name( "foo.test", "hello_world_%s" % (i+1) )
+        immutable_data_by_name = testlib.blockstack_cli_get_immutable("foo.test", "hello_world_%s" % (i+1))
         if immutable_data_by_name is None:
             print "No data received by name for dataset %s" % i
             return False 
@@ -239,9 +246,9 @@ def check( state_engine ):
             print "Misisng data\n%s" % json.dumps(immutable_data_by_name, indent=4, sort_keys=True)
             return False 
 
-        data_json = immutable_data_by_name['data']
-        if data_json != datasets[i]:
-            print "did not get dataset hello_world_%s\ngot %s\nexpected %s" % (i+1, data_json, datasets[i])
+        data_txt = immutable_data_by_name['data']
+        if json.loads(data_txt) != datasets[i]:
+            print "did not get dataset hello_world_%s\ngot %s\nexpected %s" % (i+1, data_txt, datasets[i])
             return False 
 
     return True

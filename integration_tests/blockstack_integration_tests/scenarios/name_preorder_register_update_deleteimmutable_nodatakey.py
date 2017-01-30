@@ -50,7 +50,6 @@ put_result = None
 last_hash = None
 zonefile_hashes = []
 
-# TODO: this test is deprecated in 0.14.1, since data operations without a data key will be forbidden
 def scenario( wallets, **kw ):
 
     global datasets, zonefile_hashes, put_result, last_hash

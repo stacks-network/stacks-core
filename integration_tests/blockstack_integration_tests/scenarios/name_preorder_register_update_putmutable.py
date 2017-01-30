@@ -54,6 +54,11 @@ def scenario( wallets, **kw ):
 
     global put_result, wallet_keys, datasets, zonefile_hash, dataset_change
 
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
+    test_proxy = testlib.TestAPIProxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    wallet_keys = wallet
+
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
@@ -68,10 +73,6 @@ def scenario( wallets, **kw ):
     
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
-
-    test_proxy = testlib.TestAPIProxy()
-    blockstack_client.set_default_proxy( test_proxy )
-    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey, payment_privkey=wallets[5].privkey )
 
     # migrate profile
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
@@ -89,17 +90,17 @@ def scenario( wallets, **kw ):
     
     testlib.next_block( **kw )
 
-    put_result = blockstack_client.put_mutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_1", json.dumps(datasets[0]), password='0123456789abcdef' )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
     testlib.next_block( **kw )
 
-    put_result = blockstack_client.put_mutable( "foo.test", "hello_world_2", datasets[1], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_2", json.dumps(datasets[1]), password='0123456789abcdef' )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
-    put_result = blockstack_client.put_mutable( "foo.test", "hello_world_3", datasets[2], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_3", json.dumps(datasets[2]), password='0123456789abcdef' )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
@@ -109,7 +110,7 @@ def scenario( wallets, **kw ):
         datasets[0]["dataset_change"] = dataset_change
         datasets[0]['buf'].append(i)
 
-        put_result = blockstack_client.put_mutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
+        put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_1", json.dumps(datasets[0]), password='0123456789abcdef' )
         if 'error' in put_result:
             print json.dumps(put_result, indent=4, sort_keys=True )
 
@@ -163,7 +164,7 @@ def check( state_engine ):
 
     for i in xrange(0, len(datasets)):
         print "get hello_world_%s" % (i+1)
-        dat = blockstack_client.get_mutable( "foo.test", "hello_world_%s" % (i+1) )
+        dat = testlib.blockstack_cli_get_mutable( "foo.test", "hello_world_{}".format(i+1) )
         if dat is None:
             print "No data '%s'" % ("hello_world_%s" % (i+1))
             return False
@@ -172,25 +173,16 @@ def check( state_engine ):
             print json.dumps(dat, indent=4, sort_keys=True)
             return False
 
-        if dat['data'] != datasets[i]:
+        if json.loads(dat['data']) != datasets[i]:
             print "Mismatch %s: %s != %s" % (i, dat, datasets[i])
             return False
-    
-    dat = blockstack_client.get_mutable( "foo.test", "hello_world_1" )
-    if dat is None:
-        print "No hello_world_1"
-        return False 
 
-    if 'error' in dat:
-        print json.dumps(dat, indent=4, sort_keys=True)
-        return False 
+    res = testlib.blockstack_cli_lookup("foo.test")
+    if 'error' in res:
+        print 'error looking up profile: {}'.format(res)
+        return False
 
-    if dat['version'] <= 1:
-        print "version did not change"
-        return False 
-
-    if dat['version'] != 6:
-        print "version is %s (expected 6)" % dat['version']
-        return False 
+    assert 'profile' in res
+    assert 'zonefile' in res
 
     return True

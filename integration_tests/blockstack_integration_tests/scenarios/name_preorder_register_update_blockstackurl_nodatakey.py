@@ -27,6 +27,7 @@ import urllib2
 import json
 import blockstack_client
 import blockstack_profiles
+import virtualchain
 import time
 import sys
 
@@ -91,12 +92,19 @@ dataset_change = "This is the mutated dataset"
 zonefile_hash = None
 zonefile_hash_2 = None
 immutable_hash = None
+datastore_name = None
 
-# TODO: this test is deprecated in 0.14.1, since data operations without a data key will be forbidden
+log = virtualchain.get_logger("name_preorder_register_update_blockstackurl_nodatakey")
+
 def scenario( wallets, **kw ):
 
-    global put_result, wallet_keys, legacy_profile, zonefile_hash, zonefile_hash_2, immutable_hash
+    global put_result, wallet_keys, legacy_profile, zonefile_hash, zonefile_hash_2, immutable_hash, datastore_name
 
+    wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[8].privkey, wallets[3].privkey, None )
+    wallet_keys_2 = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[9].privkey, wallets[6].privkey, None  )
+
+    test_proxy = testlib.TestAPIProxy()
+    blockstack_client.set_default_proxy( test_proxy )
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -115,11 +123,6 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "bar.test", wallets[5].privkey, wallets[6].addr )
     testlib.next_block( **kw )
 
-    test_proxy = testlib.TestAPIProxy()
-    blockstack_client.set_default_proxy( test_proxy )
-    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, payment_privkey=wallets[8].privkey )
-    wallet_keys_2 = blockstack_client.make_wallet_keys( owner_privkey=wallets[6].privkey, payment_privkey=wallets[9].privkey )
-
     # set up legacy profile hash
     legacy_txt = json.dumps(legacy_profile,sort_keys=True)
     legacy_hash = pybitcoin.hex_hash160( legacy_txt )
@@ -136,7 +139,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    # migrate profiles
+    # migrate 
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
         res['test'] = 'Failed to initialize foo.test profile'
@@ -162,57 +165,55 @@ def scenario( wallets, **kw ):
     
     testlib.next_block( **kw )
 
-    # start up RPC for foo.test
-    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None)
+    # start up RPC for 'foo.test'
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None )
 
     # put immutable
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_immutable", {"hello": "world"}, proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_immutable( "foo.test", "hello_world_immutable", json.dumps({'hello': 'world'}), password='0123456789abcdef')
+    log.debug("put immutable for foo.test")
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True )
         error = True
         return
 
-    # tell serialization-checker that value_hash can be ignored here
-    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
-    sys.stdout.flush()
-    
     immutable_hash = put_result['immutable_data_hash']
     testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
 
-    # wait for confirmation 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
+    # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
-        
+
     print "waiting for confirmation"
-    time.sleep(15)
+    time.sleep(10)
 
     # start up RPC for 'bar.test'
-    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], None) 
-    put_result = blockstack_client.put_mutable( "bar.test", "hello_world_mutable", {"hello": "world"}, proxy=test_proxy, wallet_keys=wallet_keys_2 )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], None )
+    log.debug("put mutable for bar.test")
+    put_result = testlib.blockstack_cli_put_mutable( 'bar.test', 'hello_world_mutable', json.dumps({'hello': 'world'}), password='0123456789abcdef' )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True )
-        error = True
-        return
+        return False
     
     testlib.next_block( **kw )
 
-    # put mutable data with the URL 
-    res = blockstack_client.put_mutable( "foo.test", "foo_data2", {'hello2': 'world2'}, proxy=test_proxy, wallet_keys=wallet_keys)
-    #res = blockstack_client.data_put( "blockstack://foo.test/foo_data2", {"hello2": "world2"}, proxy=test_proxy, wallet_keys=wallet_keys )
+    # put mutable data again
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None )
+    res = testlib.blockstack_cli_put_mutable( 'foo.test', 'foo_data2', json.dumps({'hello2': 'world2'}), password='0123456789abcdef')
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
-        error = True
-        return
+        return False
 
     # put immutable data with the URL
     # start up RPC for 'foo.test'
-    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None) 
-    res = blockstack_client.put_immutable( "foo.test", "foo_immutable", {'hello3': 'world3'}, proxy=test_proxy, wallet_keys=wallet_keys )
-    #res = blockstack_client.data_put( "blockstack://foo_immutable.foo.test", {'hello3': 'world3'}, proxy=test_proxy, wallet_keys=wallet_keys )
+    log.debug("put immutable for foo.test (2)")
+    res = testlib.blockstack_cli_put_immutable('foo.test', 'foo_immutable', json.dumps({'hello3': 'world3'}), password='0123456789abcdef')
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
-        error = True
-        return
+        return False
     
     # tell serialization-checker that value_hash can be ignored here
     print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
@@ -220,34 +221,73 @@ def scenario( wallets, **kw ):
     
     testlib.next_block( **kw )
 
-    '''
-    # app data
-    data_pk = wallets[-1].privkey
-    data_pub = wallets[-1].pubkey_hex
+    # make an index file 
+    index_file_path = "/tmp/name_preorder_register_update_blockstackurl_nodatakey.foo.test.index.html"
+    index_file_data = "<html><head></head><body>foo.test hello world</body></html>"
+    with open(index_file_path, "w") as f:
+        f.write(index_file_data)
 
-    res = blockstack_client.create_app_account("foo.test", "serviceFoo", "serviceFooID", "foo://foo.com", ["disk"], data_pub, proxy=test_proxy, wallet_keys=wallet_keys )
+    # make an application
+    log.debug("app publish")
+    res = testlib.blockstack_cli_app_publish("foo.test", "get_mutable,put_mutable,delete_mutable", index_file_path, appname="bar", drivers="disk", password="0123456789abcdef" )
     if 'error' in res:
-        res['test'] = 'Failed to create foo.test account'
+        print "failed to create foo.test/bar"
         print json.dumps(res, indent=4, sort_keys=True)
-        error = True
-        return
+        return False
 
-    # put some data into the account
-    res = blockstack_client.put_app_data( "foo.test", "serviceFoo", "serviceFooID", "foo_app_data", "foo_app_payload", data_pk, proxy=test_proxy )
+    # bootstrap storage for this wallet
+    log.debug("bootstrap storage")
+    res = testlib.blockstack_cli_upgrade_storage("foo.test", password="0123456789abcdef")
     if 'error' in res:
-        res['test'] = 'Failed to put app data'
+        print 'failed to bootstrap storage for foo.test'
         print json.dumps(res, indent=4, sort_keys=True)
-        error = True
-        return
+        return False
 
-    # put some app data, using the blockstack URL
-    res = blockstack_client.data_put( "blockstack://serviceFooID.serviceFoo@foo.test/foo_app_data2#3", "foo_app_payload2", data_privkey=data_pk, proxy=test_proxy )
+    if not blockstack_client.check_storage_setup():
+        print "storage is not set up"
+        return False
+
+    # make a user 
+    log.debug("create user")
+    res = testlib.blockstack_cli_create_user( "foo_id", password="0123456789abcdef" )
     if 'error' in res:
-        res['test'] = 'Failed to put app data'
+        print 'failed to create user foo_id'
         print json.dumps(res, indent=4, sort_keys=True)
-        error = True
-        return
-    '''
+        return False
+
+    # make an app user account 
+    log.debug("put account")
+    res = testlib.blockstack_cli_app_put_account( "foo_id", "foo.test", "bar", "get_mutable", session_lifetime=3600 )
+    if 'error' in res:
+        print "failed to create account for foo_id in foo.test/bar"
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False
+
+    datastore_name = res['datastore']['datastore_name']
+    
+    # put a file into the datastore
+    data = 'hello datastore'
+    log.debug("putfile")
+    res = testlib.blockstack_cli_datastore_putfile( 'foo_id', "foo.test", "bar", '/hello_datastore', data )
+    if 'error' in res:
+        print 'failed to putfile /hello_datastore: {}'.format(res['error'])
+        return False
+
+    # make a directory 
+    log.debug("mkdir")
+    res = testlib.blockstack_cli_datastore_mkdir( 'foo_id', "foo.test", "bar", '/hello_dir' )
+    if 'error' in res:
+        print 'failed to mkdir /hello_dir: {}'.format(res['error'])
+        return False
+
+    # put a file into the directory
+    data = 'hello dir datastore'
+    log.debug("putfile in dir")
+    res = testlib.blockstack_cli_datastore_putfile( 'foo_id', "foo.test", "bar", '/hello_dir/hello_dir_datastore', data )
+    if 'error' in res:
+        print 'failed to putfile /hello_dir/hello_dir_datastore: {}'.format(res['error'])
+        return False
+
     testlib.next_block( **kw )
      
 
@@ -258,12 +298,23 @@ def get_data( url ):
     handler = blockstack_client.BlockstackHandler(full_response=True)
     opener = urllib2.build_opener( handler )
     dat = opener.open( url )
-    return json.loads( dat.read() )
+    res1 = json.loads( dat.read() )
+
+    res2 = testlib.blockstack_cli_get_data(url)
+    if 'error' in res2:
+        return res2
+
+    if res1 != res2:
+        print json.dumps(res1, indent=4, sort_keys=True)
+        print json.dumps(res2, indent=4, sort_keys=True)
+        return {'error': 'mismatched data'}
+
+    return res2
 
 
 def check( state_engine ):
 
-    global wallet_keys, wallet_keys_2, datasets, zonefile_hash, zonefile_hash_2
+    global wallet_keys, wallet_keys_2, datasets, zonefile_hash, zonefile_hash_2, datastore_name
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )
@@ -289,7 +340,6 @@ def check( state_engine ):
         name = names[i]
         wallet_payer = 3 * (i+1) - 1
         wallet_owner = 3 * (i+1)
-        wallet_data_pubkey = 3 * (i+1) 
         wallet_keys = wallet_keys_list[i]
         zonefile_hash = zonefile_hashes[i]
 
@@ -321,9 +371,9 @@ def check( state_engine ):
             return False
 
         # still have all the right info 
-        user_profile = blockstack_client.get_name_profile(name, user_zonefile=user_zonefile, use_legacy_zonefile=True)
+        user_profile = blockstack_client.get_name_profile(name, user_zonefile=user_zonefile)
         if user_profile is None:
-            print "Unable to load user profile for %s (%s)" % (name, wallets[wallet_data_pubkey].pubkey_hex)
+            print "Unable to load user profile for %s" % name
             return False
 
         if 'error' in user_profile:
@@ -337,7 +387,7 @@ def check( state_engine ):
         print json.dumps(immutable_data, indent=4, sort_keys=True)
         return False 
 
-    if immutable_data['data'] != {'hello': 'world'}:
+    if json.loads(immutable_data['data']) != {'hello': 'world'}:
         print "immutable fetch-latest mismatch:\n%s (%s)\n%s" % (immutable_data['data'], type(immutable_data['data']), {'hello': 'world'})
         return False 
 
@@ -351,7 +401,7 @@ def check( state_engine ):
         print json.dumps(immutable_data, indent=4, sort_keys=True)
         return False 
 
-    if immutable_data['data'] != {'hello': 'world'}:
+    if json.loads(immutable_data['data']) != {'hello': 'world'}:
         print "immutable fetch-by-hash mismatch:\n%s (%s)\n%s" % (immutable_data['data'], type(immutable_data['data']), {'hello': 'world'})
         return False 
 
@@ -385,13 +435,16 @@ def check( state_engine ):
         print json.dumps(immutable_data_list, indent=4, sort_keys=True )
         return False 
 
+    device_id = blockstack_client.config.get_local_device_id()
+    data_id = blockstack_client.storage.make_fq_data_id( device_id, 'hello_world_mutable' )
+
     # can fetch latest mutable by name
-    mutable_data = get_data( "blockstack://bar.test/hello_world_mutable")
+    mutable_data = get_data( "blockstack://bar.test/{}".format(data_id))
     if 'error' in mutable_data:
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False 
 
-    if mutable_data['data'] != {'hello': 'world'}:
+    if json.loads(mutable_data['data']) != {'hello': 'world'}:
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False
 
@@ -400,49 +453,33 @@ def check( state_engine ):
         return False 
 
     # can fetch by version
-    mutable_data = get_data( "blockstack://bar.test/hello_world_mutable#1")
+    mutable_data = get_data( "blockstack://bar.test/{}#1".format(data_id))
     if 'error' in mutable_data:
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False 
 
-    if mutable_data['data'] != {'hello': 'world'}:
+    if json.loads(mutable_data['data']) != {'hello': 'world'}:
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False 
 
     # will fail to fetch if we give the wrong version 
     try:
-        mutable_data = get_data("blockstack://bar.test/hello_world_mutable#2")
+        mutable_data = get_data("blockstack://bar.test/{}#2".format(data_id))
         print "mutable fetch by wrong version worked"
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False
     except urllib2.URLError:
         pass
 
-    '''
-    # can list mutable data
-    mutable_data_list = get_data( "blockstack://bar.test/#mutable" )
-    if 'error' in mutable_data_list:
-        print json.dumps(mutable_data_list, indent=4, sort_keys=True )
-        return False 
-
-    if len(mutable_data_list) != 1:
-        print "multiple mutable data"
-        print json.dumps(mutable_data_list, indent=4, sort_keys=True )
-        return False 
-
-    if mutable_data_list['data'][0]['data_id'] != 'hello_world_mutable' or mutable_data_list['data'][0]['version'] != 1:
-        print "wrong data id and/or version"
-        print json.dumps(mutable_data_list, indent=4, sort_keys=True)
-        return False
-    '''
     # can fetch mutable data put by URL
-    mutable_data = get_data( "blockstack://foo.test/foo_data2" )
+    data_id = blockstack_client.storage.make_fq_data_id(device_id, 'foo_data2')
+    mutable_data = get_data( "blockstack://foo.test/{}".format(data_id) )
     if 'error' in mutable_data or 'data' not in mutable_data or 'version' not in mutable_data:
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False
     
-    if mutable_data['data'] != {'hello2': 'world2'}:
-        print "Invalid mutable data fetched from blockstack://foo.test/foo_data2"
+    if json.loads(mutable_data['data']) != {'hello2': 'world2'}:
+        print "Invalid mutable data fetched from blockstack://foo.test/{}".format(data_id)
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False
 
@@ -452,42 +489,28 @@ def check( state_engine ):
         print json.dumps(immutable_data, indent=4, sort_keys=True)
         return False
 
-    if immutable_data['data'] != {'hello3': 'world3'}:
+    if json.loads(immutable_data['data']) != {'hello3': 'world3'}:
         print "Invalid immutable data fetched from blockstack://foo_immutable.foo.test" 
         print json.dumps(immutable_data, indent=4, sort_keys=True)
         return False
 
-    '''
-    # can fetch app data put by URL 
-    mutable_data = get_data( "blockstack://serviceFooID.serviceFoo@foo.test/foo_app_data" )
-    if 'error' in mutable_data or 'data' not in mutable_data or 'version' not in mutable_data:
-        print "Failed to get blockstack://serviceFooID.serviceFoo@foo.test/foo_app_data"
+    # can fetch files and directories
+    mutable_data = get_data( "blockstack://{}@foo_id/hello_datastore".format(datastore_name) )
+    if 'error' in mutable_data or 'file' not in mutable_data or mutable_data['file']['idata'] != 'hello datastore':
+        print 'Failed to get blockstack://{}@foo_id/hello_datastore'.format(datastore_name)
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False
 
-    if mutable_data['data'] != "foo_app_payload":
-        print "Invalid data for blockstack://serviceFooID.serviceFoo@foo.test/foo_app_data"
+    mutable_data = get_data( "blockstack://{}@foo_id/hello_dir/".format(datastore_name) )
+    if 'error' in mutable_data or 'dir' not in mutable_data or 'hello_dir_datastore' not in mutable_data['dir']['idata'].keys():
+        print 'Failed to get blockstack://{}@foo_id/hello_dir/'.format(datastore_name)
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False
 
-    mutable_data = get_data( "blockstack://serviceFooID.serviceFoo@foo.test/foo_app_data2#3" )
-    if 'error' in mutable_data or 'data' not in mutable_data or 'version' not in mutable_data:
-        print "Failed to get blockstack://serviceFooID.serviceFoo@foo.test/foo_app_data2#3"
+    mutable_data = get_data( "blockstack://{}@foo_id/hello_dir/hello_dir_datastore".format(datastore_name) )
+    if 'error' in mutable_data or 'file' not in mutable_data or mutable_data['file']['idata'] != 'hello dir datastore':
+        print 'Failed to get blockstack://{}@foo_id/hello_dir/hello_dir_datastore'.format(datastore_name)
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False
-
-    if mutable_data['data'] != "foo_app_payload2":
-        print "Failed to get blockstack://serviceFooID.serviceFoo@foo.test/foo_app_data2#3"
-        print json.dumps(mutable_data, indent=4, sort_keys=True)
-        return False
-
-    # fetch by wrong version will fail
-    try:
-        mutable_data = get_data( "blockstack://serviceFooID.serviceFoo@foo.test/foo_app_data2#4" )
-        print "got stale data with no error"
-        print json.dumps(mutable_data, indent=4, sort_keys=True)
-        return False
-    except urllib2.URLError:
-        pass
-    '''
+      
     return True

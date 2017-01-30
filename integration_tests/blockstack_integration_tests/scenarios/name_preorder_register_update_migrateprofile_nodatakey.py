@@ -94,7 +94,12 @@ def scenario( wallets, **kw ):
 
     global put_result, wallet_keys, legacy_profile, zonefile_hash, zonefile_hash_2
 
+    wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[8].privkey, wallets[3].privkey, None )
+    wallet_keys_2 = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[9].privkey, wallets[6].privkey, None )
 
+    test_proxy = testlib.TestAPIProxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
@@ -111,11 +116,6 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.blockstack_name_register( "bar.test", wallets[5].privkey, wallets[6].addr )
     testlib.next_block( **kw )
-
-    test_proxy = testlib.TestAPIProxy()
-    blockstack_client.set_default_proxy( test_proxy )
-    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, payment_privkey=wallets[8].privkey )
-    wallet_keys_2 = blockstack_client.make_wallet_keys( owner_privkey=wallets[6].privkey, payment_privkey=wallets[9].privkey )
 
     # set up legacy profile hash
     legacy_txt = json.dumps(legacy_profile,sort_keys=True)
@@ -161,7 +161,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] )
 
     # see that put_immutable works
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_immutable", {"hello": "world"}, proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_immutable( 'foo.test', 'hello_world_immutable', json.dumps({'hello': 'world_immutable'}, sort_keys=True), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True )
 
@@ -180,7 +180,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], wallet_keys_2['data_privkey'] )
 
     # see that put_mutable works
-    put_result = blockstack_client.put_mutable( "bar.test", "hello_world_mutable", {"hello": "world"}, proxy=test_proxy, wallet_keys=wallet_keys_2 )
+    put_result = testlib.blockstack_cli_put_mutable( "bar.test", "hello_world_mutable", json.dumps({'hello': 'world'}, sort_keys=True), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True )
     
@@ -237,7 +237,7 @@ def check( state_engine ):
             return False 
 
         # zonefile is NOT legacy 
-        user_zonefile = blockstack_client.profile.load_name_zonefile( name, zonefile_hash )
+        user_zonefile = blockstack_client.zonefile.load_name_zonefile( name, zonefile_hash )
         if 'error' in user_zonefile:
             print json.dumps(user_zonefile, indent=4, sort_keys=True)
             return False 
@@ -248,7 +248,7 @@ def check( state_engine ):
             return False
 
         # still have all the right info 
-        user_profile = blockstack_client.profile.load_name_profile( name, user_zonefile, wallets[wallet_data_pubkey].addr, wallets[wallet_owner].addr )
+        user_profile = blockstack_client.profile.get_name_profile( name, user_zonefile=user_zonefile )
         if user_profile is None or 'error' in user_profile:
             if user_profile is not None:
                 print json.dumps(user_profile, indent=4, sort_keys=True)
@@ -256,5 +256,40 @@ def check( state_engine ):
                 print "\n\nprofile is None\n\n"
 
             return False
+
+    # can get mutable data 
+    res = testlib.blockstack_cli_get_mutable( "bar.test", "hello_world_mutable" )
+    print 'mutable: {}'.format(res)
+
+    if 'error' in res:
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False
+    
+    if json.loads(res['data']) != {'hello': 'world'}:
+        print 'invalid data: {}'.format(res['data'])
+        return False
+
+    # can get immutable data by name
+    res = testlib.blockstack_cli_get_immutable( 'foo.test', 'hello_world_immutable' )
+    print 'immutable by name: {}'.format(res)
+
+    if 'error' in res:
+        return res
+
+    if json.loads(res['data']) != {'hello': 'world_immutable'}:
+        print 'invalid immutable data: {}'.format(res['data'])
+        return False
+
+    # can get immutable data by hash
+    hsh = res['hash']
+    res = testlib.blockstack_cli_get_immutable( 'foo.test', hsh )
+    print 'immutable: {}'.format(res)
+
+    if 'error' in res:
+        return res
+
+    if json.loads(res['data']) != {'hello': 'world_immutable'}:
+        print 'invalid immutable data by hash: {}'.format(res['data'])
+        return False
 
     return True

@@ -57,6 +57,12 @@ def scenario( wallets, **kw ):
 
     global wallet_keys, wallet_keys_2, error, index_file_data, resource_data
 
+    wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
+    wallet_keys_2 = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[9].privkey, wallets[7].privkey, wallets[8].privkey )
+
+    test_proxy = testlib.TestAPIProxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
@@ -74,14 +80,6 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "bar.test", wallets[6].privkey, wallets[7].addr )
     testlib.next_block( **kw )
 
-    test_proxy = testlib.TestAPIProxy()
-    blockstack_client.set_default_proxy( test_proxy )
-
-    wallet_keys = blockstack_client.make_wallet_keys( payment_privkey=wallets[5].privkey, owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
-    wallet_keys_2 = blockstack_client.make_wallet_keys( payment_privkey=wallets[9].privkey, owner_privkey=wallets[7].privkey, data_privkey=wallets[8].privkey )
-
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
-    
     # migrate profiles 
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
@@ -113,6 +111,8 @@ def scenario( wallets, **kw ):
     with open(index_file_path, "w") as f:
         f.write(index_file_data)
 
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
+
     # register an application under foo.test
     res = testlib.blockstack_cli_app_publish("foo.test", "ping", index_file_path, appname="bar", drivers="disk", password="0123456789abcdef" )
     if 'error' in res:
@@ -122,10 +122,21 @@ def scenario( wallets, **kw ):
         return 
 
     # activate bar.test
-    wallet = testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[9].privkey, wallets[7].privkey, wallets[8].privkey )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[9].privkey, wallets[7].privkey, wallets[8].privkey )
+
+    # bootstrap storage for this wallet
+    res = testlib.blockstack_cli_upgrade_storage("bar.test", password="0123456789abcdef")
+    if 'error' in res:
+        print 'failed to bootstrap storage for foo.test'
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False
+
+    if not blockstack_client.check_storage_setup():
+        print "storage is not set up"
+        return False
 
     # make a user for bar.test 
-    res = testlib.blockstack_cli_create_user( "bar_user_id", password="0123456789abcdef" )
+    res = testlib.blockstack_cli_create_user( "bar_user_id", blockchain_id='bar.test', password="0123456789abcdef" )
     if 'error' in res:
         res['test'] = 'Failed to create user'
         print json.dumps(res)

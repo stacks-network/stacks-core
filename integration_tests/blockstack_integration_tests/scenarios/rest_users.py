@@ -59,6 +59,10 @@ def scenario( wallets, **kw ):
 
     global wallet_keys, wallet_keys_2, error, index_file_data, resource_data
 
+    wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
+    test_proxy = testlib.TestAPIProxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
@@ -74,14 +78,8 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
-    test_proxy = testlib.TestAPIProxy()
-    blockstack_client.set_default_proxy( test_proxy )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
 
-    wallet_keys = blockstack_client.make_wallet_keys( payment_privkey=wallets[5].privkey, owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
-    wallet_keys_2 = blockstack_client.make_wallet_keys( payment_privkey=wallets[9].privkey, owner_privkey=wallets[7].privkey, data_privkey=wallets[8].privkey )
-
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
-    
     # migrate profiles 
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
@@ -89,6 +87,17 @@ def scenario( wallets, **kw ):
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
         return 
+
+    # bootstrap storage for this wallet
+    res = testlib.blockstack_cli_upgrade_storage("foo.test", password="0123456789abcdef")
+    if 'error' in res:
+        print 'failed to bootstrap storage for foo.test'
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False
+
+    if not blockstack_client.check_storage_setup():
+        print "storage is not set up"
+        return False
 
     # tell serialization-checker that value_hash can be ignored here
     print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"

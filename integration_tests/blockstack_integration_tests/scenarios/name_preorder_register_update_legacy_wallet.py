@@ -56,7 +56,7 @@ def scenario( wallets, **kw ):
     legacy_wallet = testlib.make_legacy_wallet( wallets[2].privkey, "0123456789abcdef" )
     testlib.store_wallet( legacy_wallet )
 
-    res = testlib.blockstack_cli_migrate_wallet("0123456789abcdef")
+    res = testlib.blockstack_cli_upgrade_wallet("0123456789abcdef")
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         return False

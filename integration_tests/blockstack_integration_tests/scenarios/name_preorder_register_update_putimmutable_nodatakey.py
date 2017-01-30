@@ -50,7 +50,6 @@ put_result = None
 last_hash = None
 immutable_data_hashes = []
 
-# TODO: this test is deprecated in 0.14.1, since data operations without a data key will be forbidden
 def scenario( wallets, **kw ):
 
     global datasets, immutable_data_hashes, put_result, last_hash
