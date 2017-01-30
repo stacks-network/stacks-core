@@ -62,17 +62,17 @@ def parse_methods(method_list):
 
     ret = []
 
-    command_pattern = re.compile('^command:[ \t]+([^ \t]+)[ ]*(.*)[ ]*$')
-    help_pattern = re.compile('^help:[ \t]+(.+)$')
+    command_pattern = re.compile(r'^command:[ \t]+([^ \t]+)[ ]*(.*)[ ]*$')
+    help_pattern = re.compile(r'^help:[ \t]+(.+)$')
 
     # NOTE: pattern must be defined using double-quotes
-    arg_opt_pattern = "^{}[ \t]+([^ \t]+)[ \t]+\((.+)\)[ \t]+'([^']+)'$"
+    arg_opt_pattern = r"^{}[ \t]+([^ \t]+)[ \t]+\((.+)\)[ \t]+'([^']+)'$"
     arg_pattern = re.compile(arg_opt_pattern.format('arg:'))
     opt_pattern = re.compile(arg_opt_pattern.format('opt:'))
 
     error_msg = 'Method {}: {} string "{}"'
 
-    supported_pragmas = ['', 'rpc', 'advanced']
+    supported_pragmas = ['', 'rpc', 'advanced', 'check_storage']
 
     for method in method_list:
         method_name = method.__name__
@@ -99,12 +99,12 @@ def parse_methods(method_list):
         try:
             command_parts = re.findall(command_pattern, command_line)[0]
             command = command_parts[0]
-            command_pragmas = command_parts[1].split(' \t')
+            command_pragmas = command_parts[1].split(' ')
 
             unsupported_pragmas = list(set(command_pragmas) - set(supported_pragmas))
             if unsupported_pragmas:
-                log.exception('Unsupported pragmas: {}'.format(unsupported_pragmas))
-                raise ValueError
+                log.error('Unsupported pragmas: {}'.format(unsupported_pragmas))
+                raise ValueError("Unsupported pragmas: {}".format(unsupported_pragmas))
 
             command_help = re.findall(help_pattern, help_line)[0]
         except Exception as e:
