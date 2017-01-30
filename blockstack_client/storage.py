@@ -344,7 +344,7 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None):
     # newer version?
     if mutable_data_json_txt.startswith("bsk2."):
         mutable_data_json_txt = mutable_data_json_txt[len("bsk2."):]
-        return parse_mutable_data_v2(mutable_data_json_txt, public_key, public_key_hash=None)
+        return parse_mutable_data_v2(mutable_data_json_txt, public_key, public_key_hash=public_key_hash)
         
     # legacy parser
     assert public_key is not None or public_key_hash is not None, 'Need a public key or public key hash'
@@ -431,7 +431,7 @@ def register_storage(storage_impl):
 
 
 def get_immutable_data(data_hash, data_url=None, hash_func=get_data_hash, fqu=None,
-                       data_id=None, zonefile=False, deserialize=True, drivers=None):
+                       data_id=None, zonefile=False, drivers=None):
     """
     Given the hash of the data, go through the list of
     immutable data handlers and look it up.
@@ -514,18 +514,8 @@ def get_immutable_data(data_hash, data_url=None, hash_func=get_data_hash, fqu=No
 
             continue
 
-        if not deserialize:
-            data_dict = data
-        else:
-            # deserialize
-            try:
-                data_dict = json.loads(data)
-            except ValueError:
-                log.error('Invalid JSON for {}'.format(data_hash))
-                continue
-
         log.debug('loaded {} with {}'.format(data_hash, handler.__name__))
-        return data_dict
+        return data
 
     return None
 
@@ -709,15 +699,13 @@ def get_driver_urls( fq_data_id, storage_drivers ):
 
 
 def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None,
-                     owner_address=None, drivers=None, decode=True):
+                     owner_address=None, blockchain_id=None, drivers=None, decode=True):
     """
     Low-level call to get mutable data, given a fully-qualified data name.
+    
+    if decode is False, then data_pubkey, data_address, and owner_addres are not needed and raw bytes will be returned.
 
-    @fq_data_id is either a username, or username:mutable_data_name
-
-    The mutable_data_name field is an opaque name.
-
-    Return a mutable data dict on success
+    Return a mutable data dict on success (or raw bytes if decode=False)
     Return None on error
     """
 
@@ -725,10 +713,8 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None,
 
     # fully-qualified username hint
     fqu = None
-    if is_fq_data_id(fq_data_id):
-        fqu = fq_data_id.split(':')[0]
-    elif is_name_valid(fq_data_id):
-        fqu = fq_data_id
+    if blockchain_id is not None:
+        fqu = blockchain_id
 
     handlers_to_use = []
     if drivers is None:
@@ -740,7 +726,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None,
                 h for h in storage_handlers if h.__name__ == d
             )
 
-    log.debug('get_mutable {}'.format(fq_data_id))
+    log.debug('get_mutable_data {} fqu={}'.format(fq_data_id, fqu))
     for storage_handler in handlers_to_use:
         if not getattr(storage_handler, 'get_mutable_handler', None):
             continue
@@ -780,11 +766,11 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None,
                     try_urls.append(url)
 
         for url in try_urls:
-            data_json, data = None, None
+            data_txt, data = None, None
 
             log.debug('Try {} ({})'.format(storage_handler.__name__, url))
             try:
-                data_json = storage_handler.get_mutable_handler(url, fqu=fqu)
+                data_txt = storage_handler.get_mutable_handler(url, fqu=fqu)
             except UnhandledURLException as uue:
                 # handler doesn't handle this URL
                 msg = 'Storage handler {} does not handle URLs like {}'
@@ -794,7 +780,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None,
                 log.exception(e)
                 continue
 
-            if data_json is None:
+            if data_txt is None:
                 # no data
                 msg = 'No data from {} ({})'
                 log.debug(msg.format(storage_handler.__name__, url))
@@ -802,26 +788,30 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None,
 
             # parse it, if desired
             if decode:
-                data = parse_mutable_data(
-                    data_json, data_pubkey, public_key_hash=data_address
-                )
+                data = None
+                if data_pubkey is not None or data_address is not None:
+                    data = parse_mutable_data(
+                        data_txt, data_pubkey, public_key_hash=data_address
+                    )
+
+                if data is None and owner_address is not None:
+                    data = parse_mutable_data(
+                        data_txt, data_pubkey, public_key_hash=owner_address
+                    )
 
                 if data is None:
-                    # maybe try owner address?
-                    if owner_address is not None:
-                        data = parse_mutable_data(
-                            data_json, data_pubkey, public_key_hash=owner_address
-                        )
-
-                    if data is None:
-                        msg = 'Unparseable data from "{}"'
-                        log.error(msg.format(url))
-                        continue
+                    msg = 'Unparseable data from "{}"'
+                    log.error(msg.format(url))
+                    continue
 
                 msg = 'Loaded "{}" with {}'
                 log.debug(msg.format(url, storage_handler.__name__))
+
+                if BLOCKSTACK_TEST:
+                    log.debug("loaded data: {}".format(data))
+
             else:
-                data = data_json
+                data = data_txt
                 msg = 'Fetched (but did not decode) "{}" with "{}"'
                 log.debug(msg.format(url, storage_handler.__name__))
 
@@ -839,7 +829,7 @@ def serialize_immutable_data(data_json):
     return json.dumps(data_json, sort_keys=True)
 
 
-def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required=None):
+def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required=None, skip=None):
     """
     Given a string of data (which can either be data or a zonefile), store it into our immutable data stores.
     Do so in a best-effort manner--this method only fails if *all* storage providers fail.
@@ -851,6 +841,7 @@ def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required
     global storage_handlers
 
     required = [] if required is None else required
+    skip = [] if skip is None else skip
 
     data_checks = (
         (data_hash is None and data_text is None and data_json is not None) or
@@ -868,17 +859,20 @@ def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required
         data_hash = str(data_hash)
 
     successes = 0
-    msg = 'put_immutable_data({}), required={}'
-    log.debug(msg.format(data_hash, ','.join(required)))
+    msg = 'put_immutable_data({}), required={}, skip={}'
+    log.debug(msg.format(data_hash, ','.join(required), ','.join(skip)))
 
     for handler in storage_handlers:
+        if handler.__name__ in skip:
+            log.debug("Skipping {}".format(handler.__name__))
+            continue
+
         if not getattr(handler, 'put_immutable_handler', None):
             if handler.__name__ not in required:
                 continue
 
             # this one failed. fatal
-            msg = 'Failed to replicate to required storage provider "{}"'
-            log.debug(msg.format(handler.__name__))
+            log.debug("Storage provider {} is required but does not allow immutable storage".format(handler.__name__))
             return None
 
         rc = False
@@ -892,12 +886,17 @@ def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required
                 continue
 
             # fatal
-            msg = 'Failed to replicate to required storage provider "{}"'
-            log.debug(msg.format(handler.__name__))
+            log.debug("Failed to replicate to required storage provider {}".format(handler.__name__))
             return None
 
         if not rc:
             log.debug('Failed to replicate with "{}"'.format(handler.__name__))
+            if handler.__name__ not in required:
+                continue
+
+            # fatal
+            return None
+
         else:
             log.debug('Replication succeeded with "{}"'.format(handler.__name__))
             successes += 1
@@ -906,16 +905,13 @@ def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required
     return None if successes == 0 else data_hash
 
 
-def put_mutable_data(fq_data_id, data_json, privatekey_hex, profile=False, required=None, use_only=None):
+def put_mutable_data(fq_data_id, data_json, privatekey_hex, data_text=None, profile=False, blockchain_id=None, required=None, skip=None):
     """
     Given the unserialized data, store it into our mutable data stores.
-    Do so in a best-effort way.  This method only fails if all storage providers fail.
+    Do so in a best-effort way.  This method fails if all storage providers fail,
+    or if a storage provider in required fails.
 
-    @fq_data_id is the fully-qualified data id.  It must be prefixed with the username,
-    to avoid collisions in shared mutable storage.
-    i.e. the format is either `username` or `username:mutable_data_name`
-
-    The mutable_data_name field is an opaque string.
+    If data_text is given, then privatekey_hex and data_json are not needed 
 
     Return True on success
     Return False on error
@@ -924,39 +920,44 @@ def put_mutable_data(fq_data_id, data_json, privatekey_hex, profile=False, requi
     global storage_handlers
 
     required = [] if required is None else required
-    use_only = [] if use_only is None else use_only
-
-    # sanity check: only support single-sig private keys
-    if not keys.is_singlesig(privatekey_hex):
-        log.error('Only single-signature data private keys are supported')
-        return False
-
-    assert privatekey_hex is not None
-    pubkey_hex = keys.get_pubkey_hex( privatekey_hex )
+    skip = [] if skip is None else skip
 
     # fully-qualified username hint
     fqu = None
-    if is_fq_data_id(fq_data_id) or is_name_valid(fq_data_id):    
-        fqu = fq_data_id.split(':')[0] if is_fq_data_id(fq_data_id) else fq_data_id
+    if blockchain_id is not None:
+        fqu = blockchain_id
 
-    serialized_data = serialize_mutable_data(data_json, privatekey_hex, pubkey_hex, profile=profile)
+    serialized_data = data_text
+    if serialized_data is None:
+
+        # sanity check: only support single-sig private keys
+        if not keys.is_singlesig(privatekey_hex):
+            log.error('Only single-signature data private keys are supported')
+            return False
+
+        assert privatekey_hex is not None
+        pubkey_hex = keys.get_pubkey_hex( privatekey_hex )
+        serialized_data = serialize_mutable_data(data_json, privatekey_hex, pubkey_hex, profile=profile)
+    
     successes = 0
 
-    log.debug('put_mutable_data({}), required={}'.format(fq_data_id, ','.join(required)))
+    log.debug('put_mutable_data({}), required={}, skip={}'.format(fq_data_id, ','.join(required), ','.join(skip)))
+    if BLOCKSTACK_TEST:
+        log.debug("data: {}".format(serialized_data))
 
     fail_msg = 'Failed to replicate with required storage provider "{}"'
 
     for handler in storage_handlers:
+        if handler.__name__ in skip:
+            log.debug("Skipping {}".format(handler.__name__))
+            continue
+
         if not getattr(handler, 'put_mutable_handler', None):
             if handler.__name__ not in required:
                 continue
 
-            log.error(fail_msg.format(handler.__name__))
+            log.debug("Storage provider {} does not implement mutable storage".format(handler.__name__))
             return None
-
-        if len(use_only) > 0 and handler.__name__ not in use_only:
-            log.debug('Skipping storage driver "{}"'.format(handler.__name__))
-            continue
 
         rc = False
 
@@ -1018,7 +1019,7 @@ def delete_immutable_data(data_hash, txid, privkey):
     return True
 
 
-def delete_mutable_data(fq_data_id, privatekey, only_use=None):
+def delete_mutable_data(fq_data_id, privatekey, skip=None, blockchain_id=None, profile=False):
     """
     Given the data ID and private key of a user,
     go and delete the associated mutable data.
@@ -1028,7 +1029,12 @@ def delete_mutable_data(fq_data_id, privatekey, only_use=None):
 
     global storage_handlers
 
-    only_use = [] if only_use is None else only_use
+    skip = [] if skip is None else skip
+
+    # fully-qualified username hint
+    fqu = None
+    if blockchain_id is not None:
+        fqu = blockchain_id
 
     # sanity check
     if not keys.is_singlesig(privatekey):
@@ -1040,15 +1046,15 @@ def delete_mutable_data(fq_data_id, privatekey, only_use=None):
 
     # remove data
     for handler in storage_handlers:
+        if handler.__name__ in skip:
+            log.debug("Skipping {}".format(handler.__name__))
+            continue
+
         if not getattr(handler, 'delete_mutable_handler', None):
             continue
 
-        if len(only_use) > 0 and handler.__name__ not in only_use:
-            log.debug('Skip storage driver {}'.format(handler.__name__))
-            continue
-
         try:
-            handler.delete_mutable_handler(fq_data_id, sigb64)
+            handler.delete_mutable_handler(fq_data_id, sigb64, fqu=fqu, profile=profile)
         except Exception as e:
             log.exception(e)
             return False
@@ -1067,7 +1073,7 @@ def get_announcement(announcement_hash):
     """
 
     data = get_immutable_data(
-        announcement_hash, hash_func=get_blockchain_compat_hash, deserialize=False
+        announcement_hash, hash_func=get_blockchain_compat_hash
     )
 
     if data is None:
@@ -1099,23 +1105,20 @@ def put_announcement(announcement_text, txid):
     return data_hash
 
 
-def make_fq_data_id(name, data_id):
+def make_fq_data_id(device_id, data_id):
     """
-    Make a fully-qualified data ID, prefixed by the name.
+    Make a fully-qualified data ID, prefixed by the device ID
     """
-    return str('{}:{}'.format(name, data_id))
+    return urllib.quote(str('{}:{}'.format(device_id, data_id).replace('/', '\\x2f')))
 
 
-def is_fq_data_id(fq_data_id):
+def parse_fq_data_id(fq_data_id):
     """
-    Is a data ID is fully qualified?
+    Parse a fully-qualified data ID
     """
-    if len(fq_data_id.split(':')) < 2:
-        return False
+    fq_data_id = urllib.unquote(fq_data_id).replace('\\x2f', '/')
+    parts = fq_data_id.split(":", 1)
+    if len(parts) != 2:
+        return None, None
 
-    # name must be valid
-    name = fq_data_id.split(':')[0]
-
-    return is_name_valid(name)
-
-
+    return parts[0], parts[1]
