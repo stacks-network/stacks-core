@@ -51,13 +51,12 @@ OP_NAMESPACE_PATTERN = r'^([a-z0-9\-_+]{{{},{}}})$'.format(1, LENGTH_MAX_NAMESPA
 OP_NAMESPACE_HASH_PATTERN = r'^([0-9a-fA-F]{16})$'
 OP_BASE64_PATTERN_SECTION = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
 OP_BASE64_PATTERN = r'^({})$'.format(OP_BASE64_PATTERN_SECTION)
-OP_URLENCODED_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'
+OP_URLENCODED_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'       # intentionally left out /
 OP_USER_ID_CLASS = r'[a-zA-Z0-9\-_.%]'
 OP_DATASTORE_ID_CLASS = r'[a-zA-Z0-9\-_.~%]'
 OP_USER_ID_PATTERN = r'^({}+)$'.format(OP_USER_ID_CLASS)
 OP_DATASTORE_ID_PATTERN = r'^({}+)$'.format(OP_DATASTORE_ID_CLASS)
 OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/]+)$'
-OP_MUTABLE_DATA_MD_PATTERN = r'^(mutable:{}:[0-9]+)$'.format(OP_BASE64_PATTERN_SECTION)
 
 OP_ANY_TYPE_SCHEMA = [
     {
@@ -314,6 +313,9 @@ ENCRYPTED_WALLET_SCHEMA_PROPERTIES = {
             'maxItems': 1
         },
     },
+    'version': {
+        'type': 'string'
+    },
 }
 
 ENCRYPTED_WALLET_SCHEMA_CURRENT = {
@@ -327,6 +329,7 @@ ENCRYPTED_WALLET_SCHEMA_CURRENT = {
         'encrypted_payment_privkey',
         'owner_addresses',
         'payment_addresses',
+        'version'
     ],
 }
 
@@ -335,6 +338,16 @@ ENCRYPTED_WALLET_SCHEMA_LEGACY = {
     'properties': ENCRYPTED_WALLET_SCHEMA_PROPERTIES,
     'required': [
         'encrypted_master_private_key'
+    ],
+}
+
+# some 0.13 wallets have this format
+ENCRYPTED_WALLET_SCHEMA_LEGACY_013 = {
+    'type': 'object',
+    'properties': ENCRYPTED_WALLET_SCHEMA_PROPERTIES,
+    'required': [
+        'encrypted_owner_privkey',
+        'encrypted_payment_privkey',
     ],
 }
 
@@ -377,6 +390,9 @@ WALLET_SCHEMA_PROPERTIES = {
             'maxItems': 1,
         },
     },
+    'version': {
+        'type': 'string'
+    },
 }
 
 WALLET_SCHEMA_CURRENT = {
@@ -389,7 +405,8 @@ WALLET_SCHEMA_CURRENT = {
         'owner_privkey',
         'payment_privkey',
         'owner_addresses',
-        'payment_addresses'
+        'payment_addresses',
+        'version'
     ],
 }
 
@@ -536,7 +553,6 @@ MUTABLE_DATUM_DIR_IDATA_SCHEMA = {
     'additionalProperties': False,
 }
 
-# DEPRECATED
 MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.update({
     'idata': {
         # raw data
@@ -544,7 +560,6 @@ MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.update({
     },
 })
 
-# DEPRECATED
 MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.update({
     'idata': MUTABLE_DATUM_DIR_IDATA_SCHEMA
 })
@@ -568,14 +583,6 @@ MUTABLE_DATUM_DIR_SCHEMA = {
     'properties': MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES,
     'additionalProperties': False,
     'required': MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.keys()
-}
-
-# DEPRECATED
-MUTABLE_DATUM_SCHEMA = {
-    'anyOf': [
-        MUTABLE_DATUM_FILE_SCHEMA,
-        MUTABLE_DATUM_DIR_SCHEMA
-    ],
 }
 
 # replicated datastore
@@ -604,6 +611,12 @@ DATASTORE_SCHEMA = {
                 'type': 'string',
             },
         },
+        'device_ids': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+            },
+        },
         'root_uuid': {
             'type': 'string',
             'pattern': OP_UUID_PATTERN,
@@ -616,6 +629,7 @@ DATASTORE_SCHEMA = {
         'root_uuid',
         'drivers',
         'datastore_name',
+        'device_ids',
         'user_id'
     ]
 }
@@ -624,6 +638,10 @@ DATASTORE_SCHEMA = {
 DATA_BLOB_SCHEMA = {
     'type': 'object',
     'properties': {
+        'fq_data_id': {
+            'type': 'string',
+            'pattern': OP_URLENCODED_PATTERN
+        },
         'version': {
             'type': 'integer'
         },
@@ -633,11 +651,18 @@ DATA_BLOB_SCHEMA = {
         'data': {
             'anyOf': OP_ANY_TYPE_SCHEMA,
         },
+
+        # optional
+        'blockchain_id': {
+            'type': 'string',
+            'pattern': OP_NAME_PATTERN,
+        },
     },
     'required': [
         'version',
         'timestamp',
-        'data'
+        'data',
+        'fq_data_id'
     ],
     'additionalProperties': False,
 }
@@ -658,11 +683,17 @@ USER_SCHEMA = {
         'user_id': {
             'type': 'string'
         },
+
+        # optional
+        'blockchain_id': {
+            'type': 'string',
+            'pattern': OP_NAME_PATTERN,
+        },
     },
     'required': [
         'public_key',
         'privkey_index',
-        'user_id'
+        'user_id',
     ],
     'additionalProperties': False,
 }
