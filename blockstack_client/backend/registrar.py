@@ -52,7 +52,7 @@ from .nameops import async_preorder, async_register, async_update, async_transfe
 from .blockchain import get_block_height
 
 from ..keys import get_data_privkey_info, is_singlesig, is_multisig, get_privkey_info_address, get_privkey_info_params, encrypt_private_key_info, decrypt_private_key_info
-from ..proxy import is_name_registered, is_zonefile_hash_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost, get_atlas_peers
+from ..proxy import is_name_registered, is_zonefile_hash_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost, get_atlas_peers, json_is_error
 from ..profile import get_and_migrate_profile
 from ..zonefile import zonefile_data_replicate, make_empty_zonefile
 from ..user import is_user_zonefile
@@ -371,7 +371,7 @@ class RegistrarWorker(threading.Thread):
 
     
     @classmethod 
-    def replicate_profile_data( cls, name_data, atlas_servers, wallet_data, storage_drivers, config_path, proxy=None ):
+    def replicate_profile_data( cls, name_data, atlas_servers, wallet_data, storage_drivers, config_path, proxy=None, replicated_zonefiles=[] ):
         """
         Given an update queue entry,
         replicate the zonefile to as many
@@ -392,23 +392,27 @@ class RegistrarWorker(threading.Thread):
         if zonefile_hash is None:
             zonefile_hash = get_zonefile_data_hash( zonefile_data )
 
-        name_rec = get_name_blockchain_record( name_data['fqu'], proxy=proxy )
-        if 'error' in name_rec:
-            return name_rec
+        if zonefile_hash not in replicated_zonefiles:
+            # NOTE: replicated_zonefiles is static but scoped to this method
+            # use it to remember what we've replicated, so we don't needlessly retry
+            name_rec = get_name_blockchain_record( name_data['fqu'], proxy=proxy )
+            if 'error' in name_rec:
+                return name_rec
 
-        if BLOCKSTACK_TEST:
-            log.debug("Replicate zonefile %s (blockchain: %s)\ndata:\n%s" % (zonefile_hash, name_rec['value_hash'], base64.b64encode(zonefile_data)))
+            if BLOCKSTACK_TEST:
+                log.debug("Replicate zonefile %s (blockchain: %s)\ndata:\n%s" % (zonefile_hash, name_rec['value_hash'], base64.b64encode(zonefile_data)))
 
-        if str(name_rec['value_hash']) != zonefile_hash:
-            log.error("Zonefile %s has not been confirmed yet (still on %s)" % (zonefile_hash, name_rec['value_hash']))
-            return {'error': 'Zonefile hash not yet replicated'}
+            if str(name_rec['value_hash']) != zonefile_hash:
+                log.error("Zonefile %s has not been confirmed yet (still on %s)" % (zonefile_hash, name_rec['value_hash']))
+                return {'error': 'Zonefile hash not yet replicated'}
 
-        res = zonefile_data_replicate( name_data['fqu'], zonefile_data, name_data['tx_hash'], atlas_servers, config_path=config_path, storage_drivers=storage_drivers )
-        if 'error' in res:
-            log.error("Failed to replicate zonefile %s for %s: %s" % (zonefile_hash, name_data['fqu'], res['error']))
-            return res
+            res = zonefile_data_replicate( name_data['fqu'], zonefile_data, name_data['tx_hash'], atlas_servers, config_path=config_path, storage_drivers=storage_drivers )
+            if 'error' in res:
+                log.error("Failed to replicate zonefile %s for %s: %s" % (zonefile_hash, name_data['fqu'], res['error']))
+                return res
 
-        log.info("Replicated zonefile data for %s to %s server(s)" % (name_data['fqu'], len(res['servers'])))
+            log.info("Replicated zonefile data for %s to %s server(s)" % (name_data['fqu'], len(res['servers'])))
+            replicated_zonefiles.append(zonefile_hash)
 
         # replicate profile to storage, if given
         # use the data keypair
@@ -427,15 +431,14 @@ class RegistrarWorker(threading.Thread):
                 return {'status': True}
 
             data_privkey = get_data_privkey_info( zonefile, wallet_keys=wallet_data, config_path=config_path )
-            assert data_privkey is not None, "No data private key"
+            assert data_privkey is not None and not json_is_error(data_privkey), "No data private key"
 
             log.info("Replicate profile data for %s to %s" % (name_data['fqu'], ",".join(storage_drivers)))
             
             profile_payload = copy.deepcopy(name_data['profile'])
             profile_payload = set_profile_timestamp(profile_payload)
 
-            # TODO: this is onename-specific; change when we make onename client-side
-            rc = put_mutable_data( name_data['fqu'], profile_payload, data_privkey, required=storage_drivers, profile=True )
+            rc = put_mutable_data( name_data['fqu'], profile_payload, data_privkey, required=storage_drivers, profile=True, blockchain_id=name_data['fqu'] )
             if not rc:
                 log.info("Failed to replicate profile for %s" % (name_data['fqu']))
                 return {'error': 'Failed to store profile'}
@@ -1203,7 +1206,7 @@ def migrate( rpc_token, fqu, config_path=None, proxy=None ):
     # we need data keys
     if not wallet_keys.has_key('data_pubkey') or not wallet_keys.has_key('data_privkey') or wallet_keys['data_pubkey'] is None or wallet_keys['data_privkey'] is None:
         log.error("No data key set in the wallet")
-        return {'success': False, 'error': 'No data keys in wallet.  Please run migrate_wallet first.'}
+        return {'success': False, 'error': 'No data keys in wallet.  Please run `upgrade_wallet` first.'}
 
     user_profile, user_zonefile, legacy = get_and_migrate_profile( fqu, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys )
     if 'error' in user_profile:
@@ -1339,7 +1342,7 @@ def revoke( rpc_token, fqu, config_path=None, proxy=None ):
     if 'error' not in resp:
 
         data['success'] = True
-        data['message'] = "The name has been queued up for renewal and"
+        data['message'] = "The name has been queued up for revocation and"
         data['message'] += " will take ~1 hour to process. You can"
         data['message'] += " check on the status at any time by running"
         data['message'] += " 'blockstack info'."
