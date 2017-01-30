@@ -118,10 +118,10 @@ from .backend.queue import extract_entry as queue_extract_entry
 from .wallet import *
 from .keys import *
 from .proxy import *
-from .client import analytics_event
+from .client import analytics_event, check_storage_setup, storage_setup
 from .scripts import UTXOException, is_name_valid
 from .user import add_user_zonefile_url, remove_user_zonefile_url, user_zonefile_urls, \
-        user_zonefile_data_pubkey, users_list, user_init, \
+        users_list, user_init, \
         user_get_privkey
 
 from .resolve import *
@@ -448,7 +448,6 @@ def wallet_ensure_exists(config_dir=CONFIG_DIR, password=None, wallet_path=None)
         
         password = res['wallet_password']
 
-    res = data_setup(password, config_path=config_path)
     return res
 
 
@@ -1049,8 +1048,8 @@ def get_wallet_keys(config_path, password):
             return res
 
         if res.has_key('legacy') and res['legacy']:
-            log.error("Wallet is in legacy format.  Please migrate it to the latest version with `migrate_wallet`.")
-            return {'error': 'Wallet is in legacy format.  Please migrate it to the latest version with `migrate_wallet.`'}
+            log.error("Wallet is in legacy format.  Please migrate it to the latest version with `upgrade_wallet`.")
+            return {'error': 'Wallet is in legacy format.  Please migrate it to the latest version with `upgrade_wallet.`'}
 
     return get_wallet_with_backoff(config_path)
 
@@ -1201,7 +1200,8 @@ def cli_register(args, config_path=CONFIG_PATH,
 
     try:
         resp = rpc.backend_preorder(conf['rpc_token'], fqu)
-    except:
+    except Exception as e:
+        log.exception(e)
         return {'error': 'Error talking to server, try again.'}
 
     total_estimated_cost = {'total_estimated_cost': fees['total_estimated_cost']}
@@ -1285,10 +1285,6 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         zonefile_data_res = get_name_zonefile(
             fqu, proxy=proxy, raw_zonefile=True
         )
-
-        if zonefile_data_res is None:
-            zonefile_data_res = {'error': 'No zonefile'}
-
         if 'error' not in zonefile_data_res:
             zonefile_data = zonefile_data_res['zonefile']
         else:
@@ -1566,7 +1562,8 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
 
     try:
         resp = rpc.backend_renew(conf['rpc_token'], fqu, name_price)
-    except:
+    except Exception as e:
+        log.exception(e)
         return {'error': 'Error talking to server, try again.'}
 
     total_estimated_cost = {'total_estimated_cost': cost}
@@ -1658,7 +1655,8 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
 
     try:
         resp = rpc.backend_revoke(conf['rpc_token'], fqu)
-    except:
+    except Exception as e:
+        log.exception(e)
         return {'error': 'Error talking to server, try again.'}
 
     if 'success' in resp and resp['success']:
@@ -1726,7 +1724,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
         raw_zonefile=True, include_name_record=True
     )
 
-    if user_zonefile is not None and 'error' not in user_zonefile:
+    if 'error' not in user_zonefile:
         name_rec = user_zonefile['name_record']
         user_zonefile_txt = user_zonefile['zonefile']
         user_zonefile_hash = storage.get_zonefile_data_hash(user_zonefile_txt)
@@ -1800,10 +1798,10 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     return result
 
 
-def cli_migrate_wallet(args, config_path=CONFIG_PATH, password=None):
+def cli_upgrade_wallet(args, config_path=CONFIG_PATH, password=None):
     """
-    command: migrate_wallet
-    help: Migrate your wallet to the latest supported format.
+    command: upgrade_wallet 
+    help: Upgrade your wallet to the latest supported format.
     """
 
     password = get_default_password(password)
@@ -1817,13 +1815,35 @@ def cli_migrate_wallet(args, config_path=CONFIG_PATH, password=None):
         return {'status': True, 'message': 'Wallet is already in the latest format'}
 
     backup_path = res['backup_wallet']
-    # TODO: call data_setup() in here, somehow
+    wallet_data = res['wallet']
+    wallet_password = res['wallet_password']
+
     # stop RPC daemon  
     if local_rpc_status(config_dir=config_dir):
         local_rpc_stop(config_dir=config_dir)
 
     return {'status': True, 'backup_wallet': backup_path}
 
+
+def cli_upgrade_storage(args, config_path=CONFIG_PATH, password=None, wallet_keys=None, interactive=True):
+    """
+    command: upgrade_storage
+    help: Enable a name to use data stores for applications
+    arg: name (str) 'The blockchain ID to start using'
+    """
+    
+    res = check_storage_setup(config_path=config_path)
+    if 'error' not in res:
+        return res
+
+    name = str(args.name)
+    
+    res = storage_setup(name, config_path=config_path, password=password, wallet_data=wallet_keys, interactive=interactive)
+    if 'error' in res:
+        return res
+
+    return {'status': True}
+    
 
 def cli_set_advanced_mode(args, config_path=CONFIG_PATH):
     """
@@ -1866,7 +1886,7 @@ def _get_person_profile(name, proxy=None):
     return {'profile': profile, 'zonefile': zonefile, 'person': person}
 
 
-def _save_person_profile(name, zonefile, profile, wallet_keys, proxy=None, config_path=CONFIG_PATH):
+def _save_person_profile(name, zonefile, profile, wallet_keys, blockchain_id=None, proxy=None, config_path=CONFIG_PATH):
     """
     Save a person's profile, given information fetched with _get_person_profile
     Return {'status': True} on success
@@ -1881,9 +1901,8 @@ def _save_person_profile(name, zonefile, profile, wallet_keys, proxy=None, confi
     )
     required_storage_drivers = required_storage_drivers.split()
 
-    owner_address = get_privkey_info_address(wallet_keys['owner_privkey'])
-    res = put_profile(name, profile, user_zonefile=zonefile, owner_address=owner_address,
-                       wallet_keys=wallet_keys, proxy=proxy, required_drivers=required_storage_drivers )
+    res = put_profile(name, profile, user_zonefile=zonefile,
+                       wallet_keys=wallet_keys, proxy=proxy, required_drivers=required_storage_drivers, blockchain_id=name )
 
     return res
 
@@ -2047,7 +2066,7 @@ def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, w
         profile['account'].append(new_account)
 
     # save
-    result = _save_person_profile(name, zonefile, profile, wallet_keys, proxy=proxy, config_path=config_path)
+    result = _save_person_profile(name, zonefile, profile, wallet_keys, blockchain_id=name, proxy=proxy, config_path=config_path)
     return result
 
 
@@ -2107,7 +2126,7 @@ def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None
     if not found:
         return {'error': 'No such account'}
 
-    result = _save_person_profile(name, zonefile, profile, wallet_keys, proxy=proxy, config_path=config_path)
+    result = _save_person_profile(name, zonefile, profile, wallet_keys, blockchain_id=name, proxy=proxy, config_path=config_path)
     return result
 
 
@@ -2501,7 +2520,7 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
 
     result = put_mutable(
-        fqu, str(args.data_id), str(args.data),
+        str(args.data_id), str(args.data), blockchain_id=fqu,
         wallet_keys=wallet_keys, proxy=proxy
     )
 
@@ -2509,7 +2528,9 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
         return result
 
     version = result['version']
-    url = blockstack_mutable_data_url( fqu, str(args.data_id), version )
+    fq_data_id = result['fq_data_id']
+
+    url = blockstack_mutable_data_url( fqu, fq_data_id, version )
     result['url'] = url
 
     return result
@@ -2566,9 +2587,10 @@ def cli_put_immutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
         return result
     
     data_hash = result['immutable_data_hash']
-    url = blockstack_immutable_data_url( fqu, str(args.data_id), data_hash )
-    result['url'] = url
+    url = blockstack_immutable_data_url( fqu, urllib.quote(str(args.data_id)), data_hash )
 
+    result['url'] = url
+    result['hash'] = data_hash
     return result
 
 
@@ -2576,14 +2598,16 @@ def cli_get_mutable(args, config_path=CONFIG_PATH, proxy=None):
     """
     command: get_mutable advanced
     help: Get signed, versioned data from storage providers.
-    arg: name (str) 'The name that points to the key to use to verify it'
+    arg: name (str) 'The blockchain ID that owns the data'
     arg: data_id (str) 'The name of the data'
     """
-    conf = config.get_config(config_path)
     proxy = get_default_proxy() if proxy is None else proxy
 
-    result = get_mutable(str(args.name), str(args.data_id), proxy=proxy, conf=conf)
-    return result
+    result = get_mutable(str(args.data_id), proxy=proxy, config_path=config_path, blockchain_id=str(args.name))
+    if 'error' in result:
+        return result
+
+    return {'status': True, 'data': result['data']}
 
 
 def cli_get_immutable(args, config_path=CONFIG_PATH, proxy=None):
@@ -2603,7 +2627,13 @@ def cli_get_immutable(args, config_path=CONFIG_PATH, proxy=None):
     # either not a valid hash, or no such data with this hash.
     # maybe this hash-like string is the name of something?
     result = get_immutable_by_name(str(args.name), str(args.data_id_or_hash), proxy=proxy)
-    return result
+    if 'error' in result:
+        return result
+
+    return {
+        'data': result['data'],
+        'hash': result['hash']
+    }
 
 
 def cli_get_data(args, config_path=CONFIG_PATH, proxy=None):
@@ -2696,14 +2726,32 @@ def cli_delete_immutable(args, config_path=CONFIG_PATH, proxy=None, password=Non
     return result
 
 
-def cli_delete_mutable(args, config_path=CONFIG_PATH):
+def cli_delete_mutable(args, config_path=CONFIG_PATH, password=None):
     """
     command: delete_mutable advanced
     help: Delete a mutable datum from a profile.
     arg: name (str) 'The name that owns the data'
     arg: data_id (str) 'The ID of the data to remove'
-    """
-    result = delete_mutable(str(args.name), str(args.data_id))
+    """ 
+    password = get_default_password(password)
+    
+    fqu = str(args.name)
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+
+    config_dir = os.path.dirname(config_path)
+    res = start_rpc_endpoint(config_dir)
+    if 'error' in res:
+        return res
+
+    wallet_keys = get_wallet_keys(config_path, password)
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
+
+    result = delete_mutable(str(args.data_id), blockchain_id=str(args.name), proxy=proxy, wallet_keys=wallet_keys)
     return result
 
 
@@ -2782,9 +2830,6 @@ def cli_get_name_zonefile(args, config_path=CONFIG_PATH):
     parse_json = parse_json is not None and parse_json.lower() in ['true', '1']
 
     result = get_name_zonefile(str(args.name), raw_zonefile=True)
-    if result is None:
-        return {'error': 'Failed to get zonefile'}
-
     if 'error' in result:
         log.error("get_name_zonefile failed: %s" % result['error'])
         return result
@@ -3003,7 +3048,6 @@ def cli_put_name_profile(args, config_path=CONFIG_PATH, password=None, proxy=Non
     )
     required_storage_drivers = required_storage_drivers.split()
 
-    owner_address = get_privkey_info_address(wallet_keys['owner_privkey'])
     user_zonefile = get_name_zonefile(name, proxy=proxy, wallet_keys=wallet_keys)
     if 'error' in user_zonefile:
         return user_zonefile
@@ -3013,8 +3057,8 @@ def cli_put_name_profile(args, config_path=CONFIG_PATH, password=None, proxy=Non
         msg = 'Profile in legacy format.  Please migrate it with the "migrate" command first.'
         return {'error': msg}
 
-    res = put_profile(name, profile, user_zonefile=user_zonefile, owner_address=owner_address,
-                       wallet_keys=wallet_keys, proxy=proxy, required_drivers=required_storage_drivers )
+    res = put_profile(name, profile, user_zonefile=user_zonefile,
+                       wallet_keys=wallet_keys, proxy=proxy, required_drivers=required_storage_drivers, blockchain_id=name )
 
     if 'error' in res:
         return res
@@ -3098,9 +3142,6 @@ def cli_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, interactive=Tru
             # not in queue.  Maybe it's available from one of the storage drivers?
             log.debug('no pending updates for "{}"; try storage'.format(name))
             user_data = get_name_zonefile( name, raw_zonefile=True )
-            if user_data is None:
-                user_data = {'error': 'No data loaded'}
-
             if 'error' in user_data:
                 msg = 'Failed to get zonefile: {}'
                 log.error(msg.format(user_data['error']))
@@ -3211,7 +3252,7 @@ def cli_app_publish( args, config_path=CONFIG_PATH, interactive=False, password=
     opt: urls (str) 'A comma-separated list of URLs to publish the index file to'
     opt: drivers (str) 'A comma-separated list of storage drivers for clients to use'
     """
-   
+  
     password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
@@ -3321,7 +3362,7 @@ def cli_app_get_resource( args, config_path=CONFIG_PATH, interactive=False, prox
     return res
 
 
-def cli_app_put_resource( args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
+def cli_app_put_resource( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None ):
     """
     command: app_put_resource advanced
     help: Get an application resource from mutable storage.
@@ -3334,6 +3375,8 @@ def cli_app_put_resource( args, config_path=CONFIG_PATH, interactive=False, prox
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    password = get_default_password(password)
+
     name = args.name
     appname = get_app_name( getattr(args, 'appname', None) )
     resname = args.resname
@@ -3345,7 +3388,17 @@ def cli_app_put_resource( args, config_path=CONFIG_PATH, interactive=False, prox
     with open(args.res_file, "r") as f:
         resdata = f.read()
 
-    res = app_put_resource( name, appname, resname, resdata, proxy=proxy, config_path=config_path )
+    # RPC daemon must be running
+    config_dir = os.path.dirname(config_path)
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
+
+    wallet_keys = get_wallet_keys(config_path, password)
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    res = app_put_resource( name, appname, resname, resdata, proxy=proxy, wallet_keys=wallet_keys, config_path=config_path )
     return res
 
 
@@ -3418,7 +3471,7 @@ def cli_app_list_accounts( args, config_path=CONFIG_PATH, proxy=None ):
 
 def cli_app_put_account( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None ):
     """
-    command: app_put_account advanced
+    command: app_put_account advanced check_storage
     help: Create a local user account and datastore for an application.
     arg: user_id (str) 'The user ID that owns the account'
     arg: app_blockchain_id (str) 'The blockchain ID that owns the application'
@@ -3426,6 +3479,10 @@ def cli_app_put_account( args, config_path=CONFIG_PATH, interactive=False, proxy
     arg: api_methods (str) 'A CSV of API methods this application may call'
     opt: session_lifetime (int) 'How long an application session will last (in seconds).'
     """
+
+    res = check_storage_setup(config_path=config_path)
+    if 'error' in res:
+        return res
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
@@ -3534,12 +3591,16 @@ def _delete_account_info( user_id, app_fqu, appname, wallet_keys, config_path=CO
 
 def cli_app_delete_account( args, config_path=CONFIG_PATH, proxy=None, password=None ):
     """
-    command: app_delete_account advanced
+    command: app_delete_account advanced check_storage
     help: Delete a local user account and datastore for an application.
     arg: user_id (str) 'The user ID that owns the account'
     arg: app_blockchain_id (str) 'The blockchain ID that owns the application'
     arg: app_name (str) 'The name of the application'
     """
+    res = check_storage_setup(config_path=config_path)
+    if 'error' in res:
+        return res
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
@@ -3591,10 +3652,15 @@ def cli_get_user(args, proxy=None, config_path=CONFIG_PATH):
 
 def cli_create_user(args, proxy=None, password=None, config_path=CONFIG_PATH):
     """
-    command: create_user advanced
+    command: create_user advanced check_storage
     help: Create a persona associated with your identity.
     arg: user_id (str) 'A pet name for the persona'
+    opt: name (str) 'The blockchain ID that should point to this user'
     """
+
+    res = check_storage_setup(config_path=config_path)
+    if 'error' in res:
+        return res
 
     config_dir = os.path.dirname(config_path)
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
@@ -3602,6 +3668,7 @@ def cli_create_user(args, proxy=None, password=None, config_path=CONFIG_PATH):
     password = get_default_password(password)
 
     user_id = str(args.user_id)
+    blockchain_id = getattr(args, 'name', None)
 
     # RPC daemon must be running 
     res = start_rpc_endpoint(config_dir, password=password)
@@ -3613,14 +3680,14 @@ def cli_create_user(args, proxy=None, password=None, config_path=CONFIG_PATH):
         return wallet_keys
 
     master_data_privkey = str(wallet_keys['data_privkey'])
-    res = user_init(user_id, master_data_privkey, config_path=config_path)
+    res = user_init(user_id, master_data_privkey, blockchain_id=blockchain_id, config_path=config_path)
     if 'error' in res:
         return res
 
     user = res['user']
     tok = res['user_token']
 
-    res = put_user(user, master_data_privkey, config_path=config_path)
+    res = put_user(user, master_data_privkey, blockchain_id=blockchain_id, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -3629,17 +3696,23 @@ def cli_create_user(args, proxy=None, password=None, config_path=CONFIG_PATH):
 
 def cli_delete_user(args, proxy=None, password=None, wallet_keys=None, config_path=CONFIG_PATH):
     """
-    command: delete_user advanced
+    command: delete_user advanced check_storage
     help: Delete a persona associated with your identity.  All assocated accounts and data stores will also be deleted.
     arg: user_id (str) 'The ID of the user to delete'
+    opt: name (str) 'The blockchain ID that points to the key for this user'
     """
     
+    res = check_storage_setup(config_path=config_path)
+    if 'error' in res:
+        return res
+
     config_dir = os.path.dirname(config_path)
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
 
     password = get_default_password(password)
 
     user_id = str(args.user_id)
+    blockchain_id = getattr(args, 'name', None)
 
     if wallet_keys is None:
         # RPC daemon must be running 
@@ -3697,7 +3770,7 @@ def cli_delete_user(args, proxy=None, password=None, wallet_keys=None, config_pa
             return res
 
     # delete the user itself
-    res = delete_user(user_id, master_data_privkey, config_path=config_path)
+    res = delete_user(user_id, master_data_privkey, blockchain_id=blockchain_id, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -3751,11 +3824,15 @@ def cli_get_user_profile(args, proxy=None, config_path=CONFIG_PATH):
 
 def cli_put_user_profile(args, proxy=None, password=None, config_path=CONFIG_PATH):
     """
-    command: put_user_profile advanced
+    command: put_user_profile advanced check_storage
     help: Set a profile for a user persona.
     arg: user_id (str) 'The ID of the user to to receive the profile'
     arg: data (str) 'A JSON-formatted profile data string, or a path to a file with such data'
     """
+    res = check_storage_setup(config_path=config_path)
+    if 'error' in res:
+        return res
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
@@ -3806,16 +3883,21 @@ def cli_put_user_profile(args, proxy=None, password=None, config_path=CONFIG_PAT
     if user_privkey_hex is None:
         return {'error': 'Failed to get user private key'}
 
+    # NOTE: no blockchain ID here
     res = put_profile(user_id, profile, user_data_privkey=user_privkey_hex, proxy=proxy)
     return res
 
 
 def cli_delete_user_profile(args, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None):
     """
-    command: delete_user_profile advanced
+    command: delete_user_profile advanced check_storage
     help: Delete a profile for a persona.
     arg: user_id (str) 'The ID of the user whose profile will be deleted.'
     """
+    res = check_storage_setup(config_path=config_path)
+    if 'error' in res:
+        return res
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
@@ -3856,7 +3938,7 @@ def cli_delete_user_profile(args, proxy=None, config_path=CONFIG_PATH, password=
 
 def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, interactive=False ):
     """
-    command: sign_profile
+    command: sign_profile advanced
     help: Sign a JSON file to be used as a profile.
     arg: path (str) 'The path to the profile data on disk.'
     opt: privkey (str) 'The optional private key to sign it with (defaults to the master data private key in your wallet)'
@@ -3912,7 +3994,7 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
     return json.loads(res) 
 
 
-def make_account_datastore(account_info, user_privkey_hex, driver_names=None, config_path=CONFIG_PATH ):
+def make_account_datastore(account_info, user_privkey_hex, driver_names=None, device_ids=None, config_path=CONFIG_PATH ):
     """
     Create a datastore for a particular application account.
 
@@ -3923,7 +4005,7 @@ def make_account_datastore(account_info, user_privkey_hex, driver_names=None, co
     datastore_name = ds_info['datastore_name']
     datastore_privkey_hex = ds_info['datastore_privkey']
 
-    return make_datastore( user_id, datastore_name, datastore_privkey_hex, driver_names=driver_names, config_path=config_path )
+    return make_datastore( user_id, datastore_name, datastore_privkey_hex, driver_names=driver_names, device_ids=device_ids, config_path=config_path )
 
 
 def put_account_datastore(account_info, datastore_info, user_privkey_hex, proxy=None, config_path=CONFIG_PATH ):
@@ -4335,11 +4417,15 @@ def cli_list_datastores( args, config_path=CONFIG_PATH, proxy=None, password=Non
 
 def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
     """
-    command: create_datastore advanced
+    command: create_datastore advanced check_storage
     help: Make a new datastore for a given user.
     arg: user_id (str) 'The user ID'
     arg: datastore_id (str) 'The ID of the datastore'
     """
+    res = check_storage_setup(config_path=config_path)
+    if 'error' in res:
+        return res
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
@@ -4353,12 +4439,16 @@ def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None, password=No
 
 def cli_delete_datastore( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
     """
-    command: delete_datastore advanced
+    command: delete_datastore advanced check_storage
     help: Delete a datastore owned by a given user, and all of the data it contains.
     arg: user_id (str) 'The ID of the user that owns the datastore'
     arg: datastore_id (str) 'The ID of the datastore'
     opt: force (str) 'If True, then delete the datastore even if it cannot be emptied'
     """
+    res = check_storage_setup(config_path=config_path)
+    if 'error' in res:
+        return res
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
@@ -4374,12 +4464,16 @@ def cli_delete_datastore( args, config_path=CONFIG_PATH, proxy=None, password=No
 
 def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, wallet_keys=None ):
     """
-    command: datastore_mkdir advanced
+    command: datastore_mkdir advanced check_storage
     help: Make a directory in a datastore.
     arg: user_id (str) 'The user ID that owns the datastore'
     arg: datastore_id (str) 'The ID of the datatore'
     arg: path (str) 'The path to the directory to remove'
     """
+
+    res = check_storage_setup(config_path=config_path)
+    if 'error' in res:
+        return res
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
@@ -4428,12 +4522,16 @@ def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy
     
 def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, wallet_keys=None ):
     """
-    command: datastore_rmdir advanced
+    command: datastore_rmdir advanced check_storage
     help: Remove a directory in a datastore.
     arg: user_id (str) 'The user ID that owns the datastore'
     arg: datastore_id (str) 'The ID of the datastore'
     arg: path (str) 'The path to the directory to remove'
     """
+    res = check_storage_setup(config_path=config_path)
+    if 'error' in res:
+        return res
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
@@ -4478,8 +4576,6 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False, pro
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    password = get_default_password(password)
-
     config_dir = os.path.dirname(config_path)
     user_id = str(args.user_id)
     datastore_id = str(args.datastore_id)
@@ -4499,8 +4595,6 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False, prox
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
-
-    password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
     user_id = str(args.user_id)
@@ -4522,8 +4616,6 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False, proxy=N
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    password = get_default_password(password)
-
     config_dir = os.path.dirname(config_path)
     user_id = str(args.user_id)
     datastore_id = str(args.datastore_id)
@@ -4534,7 +4626,7 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False, proxy=N
 
 def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, force_data=False, wallet_keys=None ):
     """
-    command: datastore_putfile advanced
+    command: datastore_putfile advanced check_storage
     help: Put a file into the datastore at the given path.
     arg: user_id (str) 'The user ID that owns the datastore'
     arg: datastore_id (str) 'The ID of the datastore'
@@ -4542,6 +4634,10 @@ def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, prox
     arg: data (str) 'The data to store, or a path to a file with the data'
     opt: create (str) 'If True, then only succeed if the file does not exist already'
     """
+
+    res = check_storage_setup(config_path=config_path)
+    if 'error' in res:
+        return res
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
@@ -4560,12 +4656,16 @@ def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, prox
 
 def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, wallet_keys=None ):
     """
-    command: datastore_deletefile advanced
+    command: datastore_deletefile advanced check_storage
     help: Delete a file from the datastore.
     arg: user_id (str) 'The user ID that owns the datastore'
     arg: datastore_id (str) 'The blockchain ID that owns the application'
     arg: path (str) 'The path to the file to delete'
     """
+
+    res = check_storage_setup(config_path=config_path)
+    if 'error' in res:
+        return res
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
@@ -4645,11 +4745,15 @@ def cli_list_collections( args, config_path=CONFIG_PATH, proxy=None, password=No
 
 def cli_create_collection( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
     """
-    command: create_collection advanced
+    command: create_collection advanced check_storage
     help: Make a new collection for a given user.
     arg: user_id (str) 'The user ID'
     arg: collection_id (str) 'The ID of the collection'
     """
+    res = check_storage_setup(config_path=config_path)
+    if 'error' in res:
+        return res
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
@@ -4663,11 +4767,15 @@ def cli_create_collection( args, config_path=CONFIG_PATH, proxy=None, password=N
 
 def cli_delete_collection( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
     """
-    command: delete_collection advanced
+    command: delete_collection advanced check_storage
     help: Delete a collection owned by a given user, and all of the data it contains.
     arg: user_id (str) 'The ID of the user that owns the collection'
     arg: collection_id (str) 'The ID of the collection'
     """
+    res = check_storage_setup(config_path=config_path)
+    if 'error' in res:
+        return res
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
@@ -4730,13 +4838,17 @@ def cli_collection_statitem(args, config_path=CONFIG_PATH, interactive=False, pr
 
 def cli_collection_putitem(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, force_data=False, wallet_keys=None ):
     """
-    command: collection_putitem advanced
+    command: collection_putitem advanced check_storage
     help: Put an item into a collection.  Overwrites are forbidden.
     arg: user_id (str) 'The user ID that owns the collection'
     arg: collection_id (str) 'The ID of the collection'
     arg: item_id (str) 'The item name'
     arg: data (str) 'The data to store, or a path to a file with the data'
     """
+
+    res = check_storage_setup(config_path=config_path)
+    if 'error' in res:
+        return res
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
