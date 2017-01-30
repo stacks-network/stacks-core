@@ -635,6 +635,8 @@ def atlas_network_build( peer_ports, seed_relations, blacklist_relations, networ
     Return a dict of network state, which can be fed into atlas_network_start.
     """
 
+    import scenarios.testlib as testlib
+
     if os.path.exists(network_dir):
         shutil.rmtree( network_dir )
 
@@ -643,64 +645,11 @@ def atlas_network_build( peer_ports, seed_relations, blacklist_relations, networ
         peer_port = peer_ports[i]
         hostport = "localhost:%s" % peer_port
         dirp = os.path.join( network_dir, hostport )
-        os.makedirs( dirp )
 
-        client_dirp = os.path.join( dirp, 'client')
-        os.makedirs( client_dirp )
-
-        # generate server config
-        blockstack_conf = blockstack.default_blockstack_opts()
-        virtualchain_bitcoin_conf = virtualchain.get_bitcoind_config()
-
-        virtualchain_bitcoin_conf['bitcoind_port'] = 18332
-        virtualchain_bitcoin_conf['bitcoind_p2p_port'] = 18444 
-        virtualchain_bitcoin_conf['bitcoind_server'] = 'localhost'
-        virtualchain_bitcoin_conf['bitcoind_regtest'] = True
-        virtualchain_bitcoin_conf['bitcoind_spv_path'] = os.path.join( dirp, "spv_headers.dat" )
-
-        blockstack_conf['rpc_port'] = peer_port
-        blockstack_conf['server_version'] = '0.14.0'
-        blockstack_conf['zonefiles'] = os.path.join( dirp, 'zonefiles' )
-        blockstack_conf['atlas_seeds'] = ",".join( ["localhost:%s" % p for p in seed_relations.get(peer_port, []) ] )
-        blockstack_conf['atlas_blacklist'] = ",".join( ["localhost:%s" % p for p in blacklist_relations.get(peer_port, [])] )
-        blockstack_conf['atlasdb_path'] = os.path.join( dirp, 'atlas.db' )
-        blockstack_conf['atlas_hostname'] = 'localhost'
-
-        bitcoin_conf = {}
-        for key in virtualchain_bitcoin_conf.keys():
-            if key.startswith("bitcoind_"):
-                newkey = key[len('bitcoind_'):]
-                bitcoin_conf[newkey] = virtualchain_bitcoin_conf[key]
-
-        conf = {
-            'bitcoind': bitcoin_conf,
-            'blockstack': blockstack_conf
-        }
-
-        conf_path = os.path.join( dirp, 'blockstack-server.ini' )
-        log.debug("Save server config for localhost:%s to %s" % (peer_port, conf_path))
-        blockstack_client.config.write_config_file( conf, conf_path )
-
-        # copy over client config
-        client_config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
-        client_conf = blockstack_client.config.configure( config_file=client_config_path, force=False, interactive=False )
-
-        # update...
-        client_conf['blockstack-client']['queue_path'] = os.path.join(client_dirp, 'queues.db')
-        client_conf['blockstack-client']['metadata'] = os.path.join(client_dirp, 'metadata')
-        client_conf['blockstack-client']['blockchain_headers'] = virtualchain_bitcoin_conf['bitcoind_spv_path']
-        client_conf['blockstack-client']['api_endpoint_port'] = max(peer_ports) + i + 1
-        client_conf['blockstack-client']['port'] = peer_port
-
-        new_conf = {
-            'blockstack-client': client_conf['blockstack-client'],
-            'bitcoind': client_conf['bitcoind'],
-            'blockchain-reader': client_conf['blockchain-reader'],
-            'blockchain-writer': client_conf['blockchain-writer']
-        }
-
-        log.debug("Save client for localhost:%s's to %s" % (peer_port, os.path.join(client_dirp, 'client.ini')))
-        blockstack_client.config.write_config_file( new_conf, os.path.join(client_dirp, "client.ini") )
+        res = testlib.peer_make_config(peer_port, dirp)
+        if not res:
+            print("Failed to make config in {}".format(dirp))
+            return None
 
     return {
         'peer_ports': peer_ports,
@@ -785,44 +734,16 @@ def atlas_peer_start( host, port, srv, working_dir ):
     to communicate on the given network server.
     Return a dict with the peer information.
     """
-    net = srv.network
-    args = ['blockstack-server', 'start', '--foreground', '--port', str(port)]
-    output = os.path.join(working_dir, "blockstack-server.out")
-
-    env = {}
-
-    # preserve test environment variables
-    for envar in os.environ.keys():
-        if envar.startswith("BLOCKSTACK_") and envar not in ['BLOCKSTACK_CLIENT_CONFIG', 'BLOCKSTACK_SERVER_CONFIG']:
-            log.debug("Env: '%s' = '%s'" % (envar, os.environ[envar]))
-            env[envar] = os.environ[envar]
-
-    env['VIRTUALCHAIN_WORKING_DIR'] = working_dir
-    env['BLOCKSTACK_ATLAS_NETWORK_SIMULATION'] = "1"
-    env['BLOCKSTACK_ATLAS_NETWORK_SIMULATION_PEER'] = "1"
-    env['BLOCKSTACK_SERVER_CONFIG'] = os.path.join(working_dir, 'blockstack-server.ini')
-    env['BLOCKSTACK_CLIENT_CONFIG'] = os.path.join(working_dir, 'client/client.ini')
-
-    env['PATH'] = os.environ['PATH']
-
-    fd = open(output, "w")
-
-    proc = subprocess.Popen( args, stdout=fd, stderr=fd, shell=False, env=env )
-
-    peer_info = {
-        'proc': proc,
-        'port': port
-    }
-
-    return peer_info
+    import scenarios.testlib as testlib
+    return testlib.peer_start( host, working_dir, port=port )
 
 
 def atlas_peer_rpc( peer_info ):
     """
     Get an RPC client to the running peer
     """
-    rpc = blockstack_client.BlockstackRPCClient( 'localhost', peer_info['port'], timeout=5 )
-    return rpc
+    import scenarios.testlib as testlib
+    return testlib.peer_rpc( peer_info )
 
 
 def atlas_peer_is_synchronized( peer_info, lastblock, num_zonefiles ):
@@ -832,62 +753,16 @@ def atlas_peer_is_synchronized( peer_info, lastblock, num_zonefiles ):
     Return False if not
     Return None on error
     """
-
-    # see how far we've gotten 
-    rpc = atlas_peer_rpc( peer_info )
-    info = None
-    peer_inv = None
-
-    try:
-        info = rpc.getinfo()
-    except Exception, e:
-        log.exception(e)
-        log.error("Peer localhost:%s is down" % (peer_info['port']))
-        return False
-
-    if info['last_block_processed'] < lastblock:
-        log.debug("Peer localhost:%s is at %s (but we're at %s)" % (peer_info['port'], info['last_block_processed'], lastblock))
-        return False
-
-    try:
-        peer_inv_info = rpc.get_zonefile_inventory( 0, num_zonefiles )
-        peer_inv = atlas_inventory_to_string( base64.b64decode(peer_inv_info['inv']) )
-    except Exception, e:
-        log.exception(e)
-        log.error("Peer localhost:%s is down" % (peer_info['port']))
-        return False
-
-    log.debug("inv for localhost:%s is %s.  Require %s zonefiles" % (peer_info['port'], peer_inv, num_zonefiles))
-    zonefile_count = 0
-
-    for i in xrange(0, min(len(peer_inv), num_zonefiles)):
-        if peer_inv[i] == '1':
-            zonefile_count += 1
-
-    if zonefile_count < num_zonefiles:
-        return False
-
-    return True
+    import scenarios.testlib as testlib
+    return testlib.peer_has_zonefiles(peer_info, lastblock, num_zonefiles)
 
 
 def atlas_peer_join( peer_info ):
     """
     Stop an atlas peer
     """
-    proc = peer_info['proc']
-    proc.send_signal( signal.SIGTERM )
-
-    time.sleep(0.5)
-
-    rc = proc.returncode
-    if rc is None:
-        # still running
-        time.sleep(1.0)
-        if proc.returncode is None:
-            try:
-                proc.send_signal( signal.SIGKILL )
-            except:
-                pass
+    import scenarios.testlib as testlib
+    return testlib.peer_join(peer_info)
  
 
 def atlas_local_peer_info():
