@@ -122,7 +122,7 @@ def sqlite3_backup( src_path, dest_path ):
     return True
 
 
-def fast_sync_export( export_path, private_key, working_dir, block_number ):
+def fast_sync_snapshot( export_path, private_key, working_dir, block_number ):
     """
     Export all the local state for fast-sync.
     If block_number is given, then the name database
@@ -198,25 +198,24 @@ def fast_sync_export( export_path, private_key, working_dir, block_number ):
             log.error("'{}' command not found".format(tool))
             return False
 
+    if working_dir is None:
+        working_dir = virtualchain.get_working_dir() 
+
     if not os.path.exists(working_dir):
         log.error("No such directory {}".format(working_dir))
         return False
 
     if block_number is None:
-        # use the current database 
-        namedb_path = os.path.join( working_dir, os.path.basename( virtualchain.get_db_filename() ) )
-        snapshots_path = os.path.join( working_dir, os.path.basename( virtualchain.get_snapshots_filename() ) )
-        lastblock_path = os.path.join( working_dir, os.path.basename( virtualchain.get_lastblock_filename() ) )
+        # last backup
+        all_blocks = BlockstackDB.get_backup_blocks( virtualchain_hooks )
+        if len(all_blocks) == 0:
+            log.error("No backups available")
+            return False
 
-        db_paths = [
-            namedb_path,
-            snapshots_path,
-            lastblock_path
-        ]
+        block_number = max(all_blocks)
 
-    else:
-        # use a backup database 
-        db_paths = BlockstackDB.get_backup_paths( block_number, virtualchain_hooks )
+    # use a backup database 
+    db_paths = BlockstackDB.get_backup_paths( block_number, virtualchain_hooks )
 
     for p in db_paths:
         if not os.path.exists(p):
@@ -232,40 +231,20 @@ def fast_sync_export( export_path, private_key, working_dir, block_number ):
         log.exception(e)
         return False
 
-    # copy over namedb
-    if block_number is None:
-        # current db; have to be careful
-        namedb_name = os.path.basename(namedb_path)
-        dest_path = os.path.join(tmpdir, namedb_name)
-        
-        _log_backup(namedb_path)
-        rc = sqlite3_backup(namedb_path, dest_path)
-        if not rc:
-            log.error("Failed to back up {} to {}".format(namedb_path, dest_path))
-            _cleanup(tmpdir)
-            return rc
-        
-        db_paths.remove(namedb_path)
-        rc = _copy_paths(db_paths, tmpdir)
-        if not rc:
-            _cleanup(tmpdir)
-            return False
+    # copying from backups 
+    backups_path = os.path.join(tmpdir, "backups")
+    try:
+        os.makedirs(backups_path)
+    except Exception, e:
+        log.exception(e)
+        log.error("Failed to make directory {}".format(backups_path))
+        _cleanup(tmpdir)
+        return False
 
-    else:
-        # copying from backups 
-        backups_path = os.path.join(tmpdir, "backups")
-        try:
-            os.makedirs(backups_path)
-        except Exception, e:
-            log.exception(e)
-            log.error("Failed to make directory {}".format(backups_path))
-            _cleanup(tmpdir)
-            return False
-
-        rc = _copy_paths(db_paths, backups_path)
-        if not rc:
-            _cleanup(tmpdir)
-            return False
+    rc = _copy_paths(db_paths, backups_path)
+    if not rc:
+        _cleanup(tmpdir)
+        return False
 
     # copy over atlasdb
     atlasdb_path = os.path.join(working_dir, "atlas.db")
@@ -346,6 +325,9 @@ def fast_sync_import( working_dir, import_url, public_key=config.FAST_SYNC_PUBLI
             log.error("'{}' command not found".format(tool))
             return False
 
+    if working_dir is None:
+        working_dir = virtualchain.get_working_dir()
+
     if not os.path.exists(working_dir):
         log.error("No such directory {}".format(working_dir))
         return False
@@ -400,7 +382,7 @@ def fast_sync_import( working_dir, import_url, public_key=config.FAST_SYNC_PUBLI
             log.error("Unverifiable fast-sync data ({} bytes checked)".format(file_size - 8 - sigb64_len))
             return False
 
-    # success! decompress
+    # decompress
     import_path = os.path.abspath(import_path)
     cmd = "cd '{}' && tar xf '{}'".format(working_dir, import_path)
     log.debug(cmd)
@@ -409,6 +391,46 @@ def fast_sync_import( working_dir, import_url, public_key=config.FAST_SYNC_PUBLI
         log.error("Failed to decompress. Exit code {}. Command: {}".format(rc, cmd))
         return False
 
+    # restore from backup
+    rc = blockstack_backup_restore(working_dir, None)
+    if not rc:
+        log.error("Failed to instantiate blockstack name database")
+        return False
+
     # success!
+    return True
+
+
+def blockstack_backup_restore( working_dir, block_number ):
+    """
+    Restore the database from a backup in the backups/ directory.
+    If block_number is None, then use the latest backup.
+    Return True on success
+    Return False on failure
+    """
+
+    if block_number is None:
+        all_blocks = BlockstackDB.get_backup_blocks( virtualchain_hooks )
+        if len(all_blocks) == 0:
+            log.error("No backups available")
+            return False
+
+        block_number = max(all_blocks)
+
+    found = True
+    backup_paths = BlockstackDB.get_backup_paths( block_number, virtualchain_hooks )
+    for p in backup_paths:
+        if not os.path.exists(p):
+            log.error("Missing backup file: '%s'" % p)
+            found = False
+
+    if not found:
+        return False 
+
+    rc = BlockstackDB.backup_restore( block_number, virtualchain_hooks )
+    if not rc:
+        log.error("Failed to restore backup")
+        return False
+
     return True
 
