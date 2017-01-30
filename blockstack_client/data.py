@@ -45,7 +45,7 @@ from .proxy import *
 from .storage import hash_zonefile
 from .zonefile import get_name_zonefile, load_name_zonefile, url_to_uri_record, store_name_zonefile
 
-from .config import get_logger, get_config
+from .config import get_logger, get_config, get_local_device_id, get_all_device_ids
 from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 from .schemas import *
 
@@ -102,16 +102,16 @@ def serialize_mutable_data_id(data_id):
     """
     Turn a data ID into a suitable filesystem name
     """
-    return urllib.quote(data_id.replace('\0', '\\0')).replace('/', r'\x2f')
+    return urllib.quote(urllib.unquote(data_id).replace('\0', '\\0')).replace('/', r'\x2f')
 
 
-def load_mutable_data_version(conf, fq_data_id):
+def load_mutable_data_version(conf, fq_data_id, config_path=CONFIG_PATH):
     """
     Get the version field of a piece of mutable data from local cache.
     """
 
     # try to get the current, locally-cached version
-    conf = config.get_config() if conf is None else conf
+    conf = get_config(path=config_path) if conf is None else conf
 
     if conf is None:
         msg = 'No config found; cannot load version for "{}"'
@@ -143,7 +143,7 @@ def load_mutable_data_version(conf, fq_data_id):
     return None
 
 
-def store_mutable_data_version(conf, fq_data_id, ver):
+def store_mutable_data_version(conf, fq_data_id, ver, config_path=CONFIG_PATH):
     """
     Locally store the version of a piece of mutable data,
     so we can ensure that its version is incremented on
@@ -153,7 +153,7 @@ def store_mutable_data_version(conf, fq_data_id, ver):
     Return False if not
     """
 
-    conf = config.get_config() if conf is None else conf
+    conf = get_config(path=config_path) if conf is None else conf
 
     if conf is None:
         msg = 'No config found; cannot store version for "{}"'
@@ -205,7 +205,7 @@ def delete_mutable_data_version(conf, data_id):
     Return False if not
     """
 
-    conf = config.get_config() if conf is None else conf
+    conf = get_config() if conf is None else conf
 
     if conf is None:
         msg = 'No config found; cannot store version for "{}"'
@@ -256,10 +256,8 @@ def get_immutable(name, data_hash, data_id=None, config_path=CONFIG_PATH, proxy=
     proxy = get_default_proxy(config_path) if proxy is None else proxy
 
     user_zonefile = get_name_zonefile(name, proxy=proxy)
-    if user_zonefile is None:
-        return {'error': 'No user zonefile defined'}
-
     if 'error' in user_zonefile:
+        log.debug("Unable to load zone file for '{}': {}".format(name, user_zonefile['error']))
         return user_zonefile
 
     user_zonefile = user_zonefile['zonefile']
@@ -447,21 +445,17 @@ def list_immutable_data_history(name, data_id, current_block=None, proxy=None):
     return hashes
 
 
-def load_user_data_pubkey_addr( name, storage_drivers=None, proxy=None ):
+def load_user_data_pubkey_addr( name, storage_drivers=None, proxy=None, config_path=CONFIG_PATH ):
     """
-    Get a user's default data public key and/or owner address.
+    Get a user's default data public key and/or owner address by getting it's zone file.
 
     Returns {'pubkey': ..., 'address': ...} on success
     Return {'error': ...} on error
     """
     # need to find pubkey to use
     user_zonefile = get_name_zonefile( name, storage_drivers=storage_drivers, proxy=proxy, include_name_record=True)
-    if user_zonefile is None:
-        log.error("No zonefile for {}".format(name))
-        return {'error': 'No zonefile'}
-
     if 'error' in user_zonefile:
-        log.error("Failed to load zonefile for {}: {}".format(name, user_zonefile['error']))
+        log.debug("Unable to load zone file for '{}': {}".format(name, user_zonefile['error']))
         return {'error': 'Failed to load zonefile'}
 
     # recover name record
@@ -469,19 +463,34 @@ def load_user_data_pubkey_addr( name, storage_drivers=None, proxy=None ):
     user_zonefile = user_zonefile['zonefile']
 
     # get user's data public key and owner address
-    data_pubkey = user_db.user_zonefile_data_pubkey(user_zonefile)
+    data_pubkey = None
     data_address = name_record['address']
-    if data_pubkey is None:
-        log.warn('Falling back to owner address for authentication')
+    
+    assert data_address is not None
+    data_address = str(data_address)
 
-    if data_address is None:
+    # data address cannot be a p2sh address
+    if data_address is not None and virtualchain.is_p2sh_address(data_address):
+        log.warning("Address {} cannot be a data address".format(data_address))
+        data_address = None
+
+    try:
+        data_pubkey = user_db.user_zonefile_data_pubkey(user_zonefile)
+        if data_pubkey is not None:
+            log.debug("Zone file data public key for {} is {}".format(name, data_pubkey))
+
+    except ValueError:
+        # multiple keys
+        data_pubkey = None
+
+    if data_pubkey is None and data_address is None:
         log.error("No public key or address usable")
         return {'error': 'No usable data public key or address'}
 
     return {'pubkey': data_pubkey, 'address': data_address}
 
 
-def get_mutable(name, data_id, data_pubkey=None, data_address=None, storage_drivers=None, proxy=None, ver_min=None, ver_max=None, urls=None, config_path=CONFIG_PATH):
+def get_mutable(data_id, blockchain_id=None, data_pubkey=None, data_address=None, storage_drivers=None, proxy=None, ver_min=None, ver_max=None, urls=None, device_ids=None, fully_qualified_data_id=False, config_path=CONFIG_PATH):
     """
     get_mutable 
 
@@ -490,24 +499,36 @@ def get_mutable(name, data_id, data_pubkey=None, data_address=None, storage_driv
     If @ver_min is given, ensure the data's version is greater or equal to it.
     If @ver_max is given, ensure the data's version is less than it.
     
-    If data_pubkey or data_address is given, then name can be arbitrary
+    If data_pubkey or data_address is given, then blockchain_id can be arbitrary (it will be passed as a hint to the drivers)
 
-    Return {'data': the data, 'version': the version, 'timestamp': ..., 'data_pubkey': ..., 'owner_pubkey_hash': ...} on success
+    Return {'data': the data, 'version': the version, 'timestamp': ..., 'data_pubkey': ..., 'owner_pubkey_hash': ..., 'driver': driver name} on success
     Return {'error': ...} on error
     """
 
     proxy = get_default_proxy(config_path) if proxy is None else proxy
-    conf = config.get_config(path=config_path)
+    conf = get_config(path=config_path)
+    
+    fq_data_ids = []
 
-    fq_data_id = None
-    if data_id is not None and len(data_id) > 0:
-        fq_data_id = storage.make_fq_data_id(name, data_id)
+    if not fully_qualified_data_id:
+        # v2 mutable data
+        if device_ids is None:
+            device_ids = get_all_device_ids(config_path=config_path)
+
+        for device_id in device_ids:
+            fq_data_ids.append( storage.make_fq_data_id(device_id, data_id) )
+
     else:
-        fq_data_id = name
+        # already fully-qualified
+        fq_data_ids = [data_id]
 
+    lookup = False
     if data_address is None and data_pubkey is None:
+        if blockchain_id is None:
+            raise ValueError("No data public key, data address, or blockchain ID given")
+
         # need to find pubkey to use
-        pubkey_info = load_user_data_pubkey_addr( name, storage_drivers=storage_drivers, proxy=proxy )
+        pubkey_info = load_user_data_pubkey_addr( blockchain_id, storage_drivers=storage_drivers, proxy=proxy, config_path=config_path )
         if 'error' in pubkey_info:
             return pubkey_info
 
@@ -518,76 +539,98 @@ def get_mutable(name, data_id, data_pubkey=None, data_address=None, storage_driv
             log.error("No data public key or address available")
             return {'error': 'No data public key or address available'}
 
-    expected_version = load_mutable_data_version(conf, fq_data_id)
-    expected_version = 1 if expected_version is None else expected_version
+        lookup = True
 
     if storage_drivers is None:
         storage_drivers = get_read_storage_drivers(config_path)
 
+    expected_version = None
+    for fq_data_id in fq_data_ids:
+        version = load_mutable_data_version(conf, fq_data_id, config_path=config_path)
+        expected_version = expected_version if version is None else max(version, expected_version)
+
+    log.debug("get_mutable({}, blockchain_id={}, pubkey={} ({}), addr={}, expected_version={}, storage_drivers={})".format(fq_data_id, blockchain_id, data_pubkey, lookup, data_address, expected_version, ','.join(storage_drivers)))
+
     mutable_data = None
+    mutable_driver = None
 
-    # which storage drivers and/or URLs will we use?
-    for driver in storage_drivers: 
+    for fq_data_id in fq_data_ids:
 
-        mutable_data = None 
+        # which storage drivers and/or URLs will we use?
+        for driver in storage_drivers: 
 
-        # get the mutable data itsef
-        mutable_data = storage.get_mutable_data(fq_data_id, data_pubkey, urls=urls, drivers=[driver], data_address=data_address)
-        if mutable_data is None:
-            log.error("Failed to get mutable datum {}".format(fq_data_id))
-            return {'error': 'Failed to look up mutable datum'}
+            # get the mutable data itsef
+            data = storage.get_mutable_data(fq_data_id, data_pubkey, urls=urls, drivers=[driver], data_address=data_address, blockchain_id=blockchain_id)
+            if data is None:
+                log.error("Failed to get mutable datum {}".format(fq_data_id))
+                return {'error': 'Failed to look up mutable datum'}
 
-        try:
-            jsonschema.validate(mutable_data, DATA_BLOB_SCHEMA)
-        except ValidationError as ve:
-            if BLOCKSTACK_DEBUG:
-                log.exception(ve)
+            try:
+                jsonschema.validate(data, DATA_BLOB_SCHEMA)
+            except ValidationError as ve:
+                if BLOCKSTACK_DEBUG:
+                    log.exception(ve)
 
-            log.warn("Invalid mutable data from {} for {}".format(driver, fq_data_id))
-            continue
+                log.warn("Invalid mutable data from {} for {}".format(driver, fq_data_id))
+                continue
 
-        # check consistency
-        version = mutable_data['version']
-        if ver_min is not None and ver_min > version:
-            log.warn("Invalid (stale) data version from {} for {}: ver_min = {}, version = {}".format(driver, fq_data_id, ver_min, version))
-            continue
+            if data['fq_data_id'] != fq_data_id:
+                log.warn("Got back an unexpected fq_data_id")
+                continue
 
-        elif ver_max is not None and ver_max <= version:
-            log.warn("Invalid (future) data version from {} for {}: ver_max = {}, version = {}".format(driver, fq_data_id, ver_max, version))
-            continue
+            # check consistency
+            version = data['version']
+            if ver_min is not None and ver_min > version:
+                log.warn("Invalid (stale) data version from {} for {}: ver_min = {}, version = {}".format(driver, fq_data_id, ver_min, version))
+                continue
 
-        elif expected_version > version:
-            log.warn("Invalid (stale) data version from {} for {}: expected = {}, version = {}".format(driver, fq_data_id, expected_version, version))
-            continue
+            elif ver_max is not None and ver_max <= version:
+                log.warn("Invalid (future) data version from {} for {}: ver_max = {}, version = {}".format(driver, fq_data_id, ver_max, version))
+                continue
 
-        # success!
-        break
+            elif expected_version > version:
+                log.warn("Invalid (stale) data version from {} for {}: expected = {}, version = {}".format(driver, fq_data_id, expected_version, version))
+                continue
+
+            # success!
+            mutable_data = data
+            mutable_driver = driver
+            break
+
+        if mutable_data is not None:
+            # success!
+            break
 
     if mutable_data is None:
         log.error("Failed to fetch mutable data for {}".format(fq_data_id))
-        return {'errror': 'Failed to fetch mutable data'}
+        return {'error': 'Failed to fetch mutable data'}
 
-    rc = store_mutable_data_version(conf, fq_data_id, version)
-    if not rc:
-        return {'error': 'Failed to store consistency information'}
+    for fq_data_id in fq_data_ids:
+        # update consistency information
+        rc = store_mutable_data_version(conf, fq_data_id, version, config_path=config_path)
+        if not rc:
+            return {'error': 'Failed to store consistency information'}
 
     ret = {
         'data': mutable_data['data'],
         'version': version,
         'timestamp': mutable_data['timestamp'],
+        'fq_data_id': mutable_data['fq_data_id'],
+
         'data_pubkey': data_pubkey,
-        'owner_pubkey_hash': data_address
+        'owner_pubkey_hash': data_address,
+        'driver': mutable_driver
     }
 
     return ret
 
 
 
-def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH):
+def put_immutable(blockchain_id, data_id, data_json, data_url=None, txid=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH):
     """
     put_immutable
 
-    Given a user's name, the data ID, and a JSON-ified chunk of data,
+    Given a blockchain ID, the data ID, and a JSON-ified chunk of data,
     put it into the user's zonefile.
 
     If the user's zonefile corresponds to a legacy profile, then automatically
@@ -609,16 +652,13 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
 
     from backend.nameops import async_update
 
-    if not isinstance(data_json, dict):
-        raise ValueError('Immutable data must be a dict')
-
     proxy = get_default_proxy(config_path) if proxy is None else proxy
 
     # NOTE: only accept non-legacy zone files
-    user_zonefile = get_name_zonefile(name, proxy=proxy)
-    if user_zonefile is None:
-        log.debug("Unable to load zone file for '{}'".format(name))
-        return {'error': 'Unparseable zone file'}
+    user_zonefile = get_name_zonefile(blockchain_id, proxy=proxy)
+    if 'error' in user_zonefile:
+        log.debug("Unable to load zone file for '{}': {}".format(blockchain_id, user_zonefile['error']))
+        return user_zonefile
 
     user_zonefile = user_zonefile['zonefile']
 
@@ -660,7 +700,7 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
         user_zonefile_txt = blockstack_zones.make_zone_file(user_zonefile)
 
         update_result = async_update(
-            name, user_zonefile_txt, None, owner_privkey_info,
+            blockchain_id, user_zonefile_txt, None, owner_privkey_info,
             payment_privkey_info, config_path=proxy.conf['path'],
             proxy=proxy, queue_path=proxy.conf['queue_path']
         )
@@ -685,7 +725,7 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
         result['error'] = 'Failed to store immutable data'
         return result
 
-    rc = store_name_zonefile(name, user_zonefile, txid)
+    rc = store_name_zonefile(blockchain_id, user_zonefile, txid)
     if not rc:
         result['error'] = 'Failed to store zonefile'
         return result
@@ -697,22 +737,18 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
     return result
 
 
-def load_user_data_privkey( name, storage_drivers=None, proxy=None, config_path=CONFIG_PATH, wallet_keys=None ):
+def load_user_data_privkey( blockchain_id, storage_drivers=None, proxy=None, config_path=CONFIG_PATH, wallet_keys=None ):
     """
     Get the user's data private key from his/her wallet.
-    Verify it matches the zone file for this name.
+    Verify it matches the zone file for this blockchain ID
 
     Return {'privkey': ...} on success
     Return {'error': ...} on error
     """
     conf = get_config(path=CONFIG_PATH)
-    user_zonefile = get_name_zonefile( name, storage_drivers=storage_drivers, proxy=proxy)
-    if user_zonefile is None:
-        log.error("No zonefile for {}".format(name))
-        return {'error': 'No zonefile'}
-
+    user_zonefile = get_name_zonefile( blockchain_id, storage_drivers=storage_drivers, proxy=proxy)
     if 'error' in user_zonefile:
-        log.error("Failed to load zonefile for {}: {}".format(name, user_zonefile['error']))
+        log.debug("Unable to load zone file for '{}': {}".format(blockchain_id, user_zonefile['error']))
         return {'error': 'Failed to load zonefile'}
 
     # recover name record and zonefile
@@ -720,25 +756,26 @@ def load_user_data_privkey( name, storage_drivers=None, proxy=None, config_path=
 
     # get the data key
     data_privkey = get_data_privkey_info(user_zonefile, wallet_keys=wallet_keys, config_path=config_path)
-    if 'error' in data_privkey:
+    if json_is_error(data_privkey):
         # error text
         return {'error': data_privkey['error']}
 
     else:
-        data_privkey = data_privkey['privatekey']
         assert data_privkey is not None
 
     return {'privkey': data_privkey}
 
 
-def put_mutable(name, data_id, data_payload, data_privkey=None, proxy=None, storage_drivers=None, zonefile_storage_drivers=None, version=None, wallet_keys=None, config_path=CONFIG_PATH, create=False):
+def put_mutable(data_id, data_payload, blockchain_id=None, data_privkey=None, proxy=None, fully_qualified_data_id=False,
+                                       storage_drivers=None, zonefile_storage_drivers=None, version=None, wallet_keys=None,
+                                       config_path=CONFIG_PATH, create=False):
     """
     put_mutable.
 
-    Given a name, an ID for the data, and the data itself, sign and upload the data to the
+    Given an arbitrary name, an ID for the data, and the data itself, sign and upload the data to the
     configured storage providers.
 
-    If data_privkey is given, then name can be arbitrary
+    If data_privkey is not given, then use blockchain_id to look it up.
 
     ** Consistency **
 
@@ -756,28 +793,48 @@ def put_mutable(name, data_id, data_payload, data_privkey=None, proxy=None, stor
     * if storage_drivers is None, each storage driver under `storage_drivers_required_write=` will be attempted.
     * if storage_drivers is not None, then each storage driver in storage_drivers *must* succeed
 
-    Returns a dict with {'status': True, 'version': version, ...} on success
+    Returns a dict with {'status': True, 'version': version, ..., 'fq_data_id': ...} on success
     Returns a dict with 'error' set on failure
     """
 
+    assert type(data_payload) in [str, unicode, dict, list, int, long, float]
+
     proxy = get_default_proxy(config_path) if proxy is None else proxy
-    fq_data_id = storage.make_fq_data_id(name, data_id)
-    conf = config.get_config(path=config_path)
+    conf = get_config(path=config_path)
+   
+    fq_data_id = None
+    
+    if not fully_qualified_data_id:
+        # v2 mutable data
+        device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
+        if device_id is None:
+            raise Exception("Failed to get device ID")
+
+        fq_data_id = storage.make_fq_data_id(device_id, data_id)
+    
+    else:
+        # (no device ID)
+        fq_data_id = data_id
 
     if storage_drivers is None:
         storage_drivers = get_write_storage_drivers(config_path)
 
+    lookup = False
     if data_privkey is None:
-        data_privkey_info = load_user_data_privkey( name, storage_drivers=zonefile_storage_drivers, proxy=proxy, config_path=config_path, wallet_keys=wallet_keys )
+        if blockchain_id is None:
+            raise ValueError("Missing data_privkey and blockchain_id")
+
+        data_privkey_info = load_user_data_privkey( blockchain_id, storage_drivers=zonefile_storage_drivers, proxy=proxy, config_path=config_path, wallet_keys=wallet_keys )
         if 'error' in data_privkey_info:
             log.error("Failed to load data private key")
             return {'error': 'Failed to load data private key'}
 
         data_privkey = data_privkey_info['privkey']
+        lookup = True
 
     # get the version to use
     if version is None:
-        version = load_mutable_data_version(conf, fq_data_id)
+        version = load_mutable_data_version(conf, fq_data_id, config_path=config_path)
         if version is not None and create:
             log.error("Already exists: {}".format(fq_data_id))
             return {'error': 'Data exists'}
@@ -786,39 +843,45 @@ def put_mutable(name, data_id, data_payload, data_privkey=None, proxy=None, stor
 
     # put the mutable data record itself
     data_json = {
+        'fq_data_id': fq_data_id,
         'data': data_payload,
         'version': version,
         'timestamp': int(time.time())
     }
+
+    if blockchain_id is not None:
+        data_json['blockchain_id'] = blockchain_id
     
     result = {}
 
-    rc = storage.put_mutable_data(fq_data_id, data_json, data_privkey, required=storage_drivers)
+    log.debug("put_mutable({}, blockchain_id={}, lookup_privkey={}, version={}, storage_drivers={})".format(fq_data_id, blockchain_id, lookup, version, ','.join(storage_drivers)))
+    rc = storage.put_mutable_data(fq_data_id, data_json, data_privkey, blockchain_id=blockchain_id, required=storage_drivers)
     if not rc:
         result['error'] = 'Failed to store mutable data'
         return result
 
     # remember which version this was
-    rc = store_mutable_data_version(conf, fq_data_id, version)
+    rc = store_mutable_data_version(conf, fq_data_id, version, config_path=config_path)
     if not rc:
         result['error'] = 'Failed to store mutable data version'
         return result
 
     result['status'] = True
     result['version'] = version
+    result['fq_data_id'] = fq_data_id
 
     if BLOCKSTACK_TEST is not None:
         msg = 'Put "{}" to {} mutable data (version {})'
-        log.debug(msg.format(data_id, name, version))
+        log.debug(msg.format(data_id, blockchain_id, version))
 
     return result
 
 
-def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet_keys=None, config_path=CONFIG_PATH):
+def delete_immutable(blockchain_id, data_key, data_id=None, proxy=None, txid=None, wallet_keys=None, config_path=CONFIG_PATH):
     """
     delete_immutable
 
-    Remove an immutable datum from a name's zonefile, given by @data_key.
+    Remove an immutable datum from a blockchain ID's zonefile, given by @data_key.
     Return a dict with {'status': True, 'zonefile_hash': ..., 'zonefile': ...} on success
     Return a dict with {'error': ...} on failure
     """
@@ -827,12 +890,10 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
 
     proxy = get_default_proxy(config_path) if proxy is None else proxy
 
-    user_zonefile = get_name_zonefile(name, proxy=proxy, include_name_record=True)
-    if user_zonefile is None:
-        if 'error' in user_zonefile:
-            return user_zonefile
-
-        return {'error': 'No user zonefile'}
+    user_zonefile = get_name_zonefile(blockchain_id, proxy=proxy, include_name_record=True)
+    if 'error' in user_zonefile:
+        log.debug("Unable to load zone file for '{}': {}".format(blockchain_id, user_zonefile['error']))
+        return user_zonefile
 
     name_record = user_zonefile['name_record']
     del user_zonefile['name_record']
@@ -880,7 +941,7 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
         user_zonefile_txt = blockstack_zones.make_zone_file(user_zonefile)
 
         update_result = async_update(
-            name, user_zonefile_txt, None, owner_privkey_info,
+            blockchain_id, user_zonefile_txt, None, owner_privkey_info,
             payment_privkey_info, config_path=proxy.conf['path'],
             proxy=proxy, queue_path=proxy.conf['queue_path']
         )
@@ -898,14 +959,14 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
     }
 
     # put new zonefile
-    rc = store_name_zonefile(name, user_zonefile, txid)
+    rc = store_name_zonefile(blockchain_id, user_zonefile, txid)
     if not rc:
         result['error'] = 'Failed to put new zonefile'
         return result
 
     # delete immutable data
     data_privkey = get_data_privkey_info(user_zonefile, wallet_keys=wallet_keys, config_path=config_path)
-    if 'error' in data_privkey:
+    if json_is_error(data_privkey):
         return {'error': data_privkey['error']}
     else:
         data_privkey = data_privkey['privatekey']
@@ -920,7 +981,7 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
     return result
 
 
-def delete_mutable(name, data_id, data_privkey=None, proxy=None, storage_drivers=None, wallet_keys=None, delete_version=True, config_path=CONFIG_PATH):
+def delete_mutable(data_id, data_privkey=None, proxy=None, storage_drivers=None, device_ids=None, wallet_keys=None, delete_version=True, fully_qualified_data_id=False, blockchain_id=None, config_path=CONFIG_PATH):
     """
     delete_mutable
 
@@ -929,7 +990,7 @@ def delete_mutable(name, data_id, data_privkey=None, proxy=None, storage_drivers
 
     Optionally (by default) delete cached version information
 
-    If data_privkey is given, then name can be arbitrary
+    If data_privkey is given, then blockchain_id can be arbitrary
 
     Returns a dict with {'status': True} on success
     Returns a dict with {'error': ...} on failure
@@ -939,28 +1000,46 @@ def delete_mutable(name, data_id, data_privkey=None, proxy=None, storage_drivers
     conf = get_config(config_path)
     assert conf
 
-    fq_data_id = storage.make_fq_data_id(name, data_id)
+    if device_ids is None:
+        device_ids = get_all_device_ids(config_path=config_path)
+
+    fq_data_ids = []
+    if not fully_qualified_data_id:
+        for device_id in device_ids:
+            fq_data_id = storage.make_fq_data_id(device_id, data_id)
+            fq_data_ids.append(fq_data_id)
     
+    else:
+        fq_data_ids = [data_id]
+
     if data_privkey is None:
-        data_privkey_info = load_user_data_privkey( name, storage_drivers=storage_drivers, proxy=proxy, config_path=config_path, wallet_keys=wallet_keys )
+        data_privkey_info = load_user_data_privkey( blockchain_id, storage_drivers=storage_drivers, proxy=proxy, config_path=config_path, wallet_keys=wallet_keys )
         if 'error' in data_privkey_info:
             log.error("Failed to load data private key")
             return {'error': 'Failed to load data private key'}
 
         data_privkey = data_privkey_info['privkey']
 
-    # remove the data itself
-    rc = storage.delete_mutable_data(fq_data_id, data_privkey, only_use=storage_drivers)
-    if not rc:
-        return {'error': 'Failed to delete mutable data from storage providers'}
+    worst_rc = True
 
-    if delete_version:
-        delete_mutable_data_version(conf, fq_data_id)
+    # remove the data itself
+    for fq_data_id in fq_data_ids:
+        rc = storage.delete_mutable_data(fq_data_id, data_privkey, blockchain_id=blockchain_id)
+        if not rc:
+            log.error("Failed to delete {} from storage providers".format(fq_data_id))
+            worst_rc = False
+            continue
+
+        if delete_version:
+            delete_mutable_data_version(conf, fq_data_id)
+
+    if not worst_rc:
+        return {'error': 'Failed to delete from all storage providers'}
 
     return {'status': True}
 
 
-def list_immutable_data(name, proxy=None, config_path=CONFIG_PATH):
+def list_immutable_data(blockchain_id, proxy=None, config_path=CONFIG_PATH):
     """
     List the names and hashes of all immutable data in a user's zonefile.
     Returns {'data': [{'data_id': data_id, 'hash': hash}]} on success
@@ -968,11 +1047,9 @@ def list_immutable_data(name, proxy=None, config_path=CONFIG_PATH):
     """
     proxy = get_default_proxy(config_path) if proxy is None else proxy
 
-    user_zonefile = get_name_zonefile(name, proxy=proxy)
-    if user_zonefile is None:
-        return {'error': 'No user zonefile defined'}
-
+    user_zonefile = get_name_zonefile(blockchain_id, proxy=proxy)
     if 'error' in user_zonefile:
+        log.debug("Unable to load zone file for '{}': {}".format(blockchain_id, user_zonefile['error']))
         return user_zonefile
 
     user_zonefile = user_zonefile['zonefile']
@@ -987,9 +1064,9 @@ def list_immutable_data(name, proxy=None, config_path=CONFIG_PATH):
     return {'data': listing}
 
 
-def set_data_pubkey(name, data_pubkey, proxy=None, wallet_keys=None, txid=None, config_path=CONFIG_PATH):
+def set_data_pubkey(blockchain_id, data_pubkey, proxy=None, wallet_keys=None, txid=None, config_path=CONFIG_PATH):
     """
-    Set the data public key for a name.
+    Set the data public key for a blockchain ID
     Overwrites the public key that is present (if given at all).
 
     # TODO: back up old public key to wallet and mutable storage
@@ -1008,14 +1085,14 @@ def set_data_pubkey(name, data_pubkey, proxy=None, wallet_keys=None, txid=None, 
     proxy = get_default_proxy(config_path) if proxy is None else proxy
 
     # NOTE: only accept non-legacy zone files
-    user_zonefile = get_name_zonefile(name, proxy=proxy)
-    if user_zonefile is None:
-        log.debug("Unable to load zone file for '{}'".format(name))
-        return {'error': 'Unparseable zone file'}
+    user_zonefile = get_name_zonefile(blockchain_id, proxy=proxy)
+    if 'error' in user_zonefile:
+        log.debug("Unable to load zone file for '{}': {}".format(blockchain_id, user_zonefile['error']))
+        return user_zonefile
 
     user_zonefile = user_zonefile['zonefile']
 
-    user_db.user_zonefile_set_data_pubkey(user_zonefile, data_pubkey)
+    user_zonefile = user_db.user_zonefile_set_data_pubkey(user_zonefile, data_pubkey)
     zonefile_hash = hash_zonefile(user_zonefile)
 
     # update zonefile, if we haven't already
@@ -1031,7 +1108,7 @@ def set_data_pubkey(name, data_pubkey, proxy=None, wallet_keys=None, txid=None, 
         user_zonefile_txt = blockstack_zones.make_zone_file(user_zonefile)
 
         update_result = async_update(
-            name, user_zonefile_txt, None, owner_privkey_info,
+            blockchain_id, user_zonefile_txt, None, owner_privkey_info,
             payment_privkey_info, config_path=proxy.conf['path'],
             proxy=proxy, queue_path=proxy.conf['queue_path']
         )
@@ -1051,7 +1128,7 @@ def set_data_pubkey(name, data_pubkey, proxy=None, wallet_keys=None, txid=None, 
     }
 
     # replicate zonefile
-    rc = store_name_zonefile(name, user_zonefile, txid)
+    rc = store_name_zonefile(blockchain_id, user_zonefile, txid)
     if not rc:
         result['error'] = 'Failed to store zonefile'
         return result
@@ -1235,7 +1312,7 @@ def datastore_get_user_id( datastore ):
     return datastore['user_id']
 
 
-def _make_datastore_info( datastore_type, user_id, datastore_name, datastore_privkey_hex, driver_names, config_path=CONFIG_PATH ):
+def _make_datastore_info( datastore_type, user_id, datastore_name, datastore_privkey_hex, driver_names, device_ids, config_path=CONFIG_PATH ):
     """
     Make the private part of a datastore record.
     Returns {'datastore': ..., 'root': ...} on success
@@ -1256,6 +1333,7 @@ def _make_datastore_info( datastore_type, user_id, datastore_name, datastore_pri
         'user_id': user_id,
         'owner_pubkey': datastore_pubkey,
         'drivers': driver_names,
+        'device_ids': device_ids,
         'root_uuid': root_uuid
     }
 
@@ -1288,7 +1366,8 @@ def get_datastore(user_id, datastore_name, datastore_pubkey, config_path=CONFIG_
     nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
 
     # fall back to mutable storage.
-    datastore_info = get_mutable(user_id, datastore_name, datastore_pubkey, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
+    data_id = '{}.{}'.format(user_id, datastore_name)
+    datastore_info = get_mutable(data_id, data_pubkey=datastore_pubkey, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
     if 'error' in datastore_info:
         log.error("Failed to load public datastore information: {}".format(datastore_info['error']))
         return {'error': 'Failed to load public datastore record'}
@@ -1308,7 +1387,7 @@ def get_datastore(user_id, datastore_name, datastore_pubkey, config_path=CONFIG_
     return {'status': True, 'datastore': datastore}
 
 
-def make_datastore(user_id, datastore_name, datastore_privkey_hex, driver_names=None, config_path=CONFIG_PATH, datastore_type='datastore' ):
+def make_datastore(user_id, datastore_name, datastore_privkey_hex, driver_names=None, device_ids=None, config_path=CONFIG_PATH, datastore_type='datastore' ):
     """
     Create a new datastore record with the given name, using the given account_info structure
     Return {'datastore': public datastore information, 'datastore_token': datastore JWT, 'root': root inode}
@@ -1318,7 +1397,10 @@ def make_datastore(user_id, datastore_name, datastore_privkey_hex, driver_names=
         driver_handlers = storage.get_storage_handlers()
         driver_names = [h.__name__ for h in driver_handlers]
 
-    datastore_info = _make_datastore_info( datastore_type, user_id, datastore_name, datastore_privkey_hex, driver_names, config_path=config_path)
+    if device_ids is None:
+        device_ids = get_all_device_ids(config_path=config_path)
+
+    datastore_info = _make_datastore_info( datastore_type, user_id, datastore_name, datastore_privkey_hex, driver_names, device_ids, config_path=config_path)
     return {'datastore': datastore_info['datastore'],  'datastore_token': datastore_info['datastore_token'], 'root': datastore_info['root']}
 
 
@@ -1339,24 +1421,26 @@ def put_datastore(user_id, datastore_name, datastore_info, datastore_privkey, pr
     user_id = datastore['user_id']
     root = datastore_info['root']
     drivers = datastore['drivers']
+    device_ids = datastore['device_ids']
 
     assert datastore_name == datastore['datastore_name']
     assert re.match(OP_USER_ID_PATTERN, user_id), user_id
     assert re.match(OP_DATASTORE_ID_PATTERN, datastore_name), datastore_name
 
     # replicate root inode
-    res = _put_inode(user_id, root, datastore_privkey, drivers, config_path=CONFIG_PATH, proxy=proxy, create=True )
+    res = _put_inode(user_id, root, datastore_privkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=proxy, create=True )
     if 'error' in res:
         log.error("Failed to put root inode for datastore {}".format(datastore_name))
         return {'error': 'Failed to replicate datastore metadata'}
 
-    # replicate public datastore record 
-    res = put_mutable( user_id, datastore_name, datastore, data_privkey=datastore_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy )
+    # replicate public datastore record
+    data_id = '{}.{}'.format(user_id, datastore_name)
+    res = put_mutable( data_id, datastore, data_privkey=datastore_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy )
     if 'error' in res:
         log.error("Failed to put datastore metadata for {}".format(datastore_fq_id))
 
         # try to clean up...
-        res = _delete_inode(user_id, root['uuid'], datastore_privkey, drivers, proxy=proxy, config_path=config_path)
+        res = _delete_inode(user_id, root['uuid'], datastore_privkey, drivers, device_ids, proxy=proxy, config_path=config_path)
         if 'error' in res:
             log.error("Failed to clean up root inode {}".format(root['uuid']))
 
@@ -1411,14 +1495,15 @@ def delete_datastore(user_id, datastore_name, datastore_privkey, force=False, co
         log.error("Datastore not empty\n{}\n".format(json.dumps(res['dir']['idata'], indent=4, sort_keys=True)))
         return {'error': 'Datastore not empty'}
 
-    res = _delete_inode(user_id, datastore['root_uuid'], datastore_privkey, datastore['drivers'], proxy=proxy, config_path=config_path, cache=DIR_CACHE) 
+    res = _delete_inode(user_id, datastore['root_uuid'], datastore_privkey, datastore['drivers'], datastore['device_ids'], proxy=proxy, config_path=config_path, cache=DIR_CACHE) 
     if 'error' in res:
         log.error("Failed to delete root inode {}".format(datastore['root_uuid']))
         return {'error': res['error']}
 
     # remove public datastore record
     datastore_name = datastore['datastore_name']
-    res = delete_mutable(user_id, datastore_name, data_privkey=datastore_privkey, proxy=proxy, config_path=config_path, delete_version=False )
+    data_id = '{}.{}'.format(user_id, datastore_name)
+    res = delete_mutable(data_id, data_privkey=datastore_privkey, proxy=proxy, config_path=config_path, delete_version=False )
     if 'error' in res:
         log.error("Failed to delete public datastore record: {}".format(res['error']))
         return {'error': 'Failed to delete public datastore record'}
@@ -1442,7 +1527,7 @@ def _is_cacheable(inode_info):
         return False
 
 
-def _get_inode(user_id, inode_uuid, inode_type, data_pubkey_hex, drivers, config_path=CONFIG_PATH, proxy=None, cache=None ):
+def _get_inode(user_id, inode_uuid, inode_type, data_pubkey_hex, drivers, device_ids, config_path=CONFIG_PATH, proxy=None, cache=None ):
     """
     Get an inode from non-local mutable storage.  Verify that it has an
     equal or later version number than the one we have locally.
@@ -1457,20 +1542,63 @@ def _get_inode(user_id, inode_uuid, inode_type, data_pubkey_hex, drivers, config
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    conf = get_config(config_path)
+    assert conf
+
+    '''
     # cached?
     if cache is not None and inode_type == MUTABLE_DATUM_DIR_TYPE:
         inode_data = cache.get(inode_uuid)
         if inode_data is not None:
             # already-fetched
             log.debug("Cache HIT on {}".format(inode_uuid))
+            inode_version = max(inode_data[
             return {'status': True, 'inode': inode_data}
+    '''
 
-    res = get_mutable(user_id, inode_uuid, data_pubkey=data_pubkey_hex, storage_drivers=drivers, proxy=proxy, config_path=config_path)
-    if 'error' in res:
-        log.error("Failed to get inode {}: {}".format(inode_uuid, res['error']))
-        return {'error': 'Failed to get inode'}
+    header_version = 0
+    inode_header = None
+    successful_driver = None
+    inode_info = None
+    inode_version = None
 
-    inode_info = res['data']
+    drivers_to_try = drivers[:]
+
+    while len(drivers_to_try) > 0:
+        # get latest header from all drivers we haven't tried yet
+        res = _get_inode_header(user_id, inode_uuid, data_pubkey_hex, drivers_to_try, device_ids, config_path=config_path, proxy=proxy, cache=cache)
+        if 'error' in res:
+            log.error("Failed to get inode header for {}: {}".format(inode_uuid, res['error']))
+            return res
+
+        if header_version <= res['version']:
+            header_version = res['version']
+            inode_header = res['inode']
+
+            successful_driver = res['driver']
+            drivers_to_try.remove(successful_driver)
+
+        else:
+            # stale header; try again
+            log.error("Stale header for {} from {}".format(inode_uuid, successful_driver))
+            continue
+
+        # get the inode from the storage driver that served us the header
+        data_id = '{}.{}'.format(user_id, inode_uuid)
+        res = get_mutable(data_id, ver_min=header_version, data_pubkey=data_pubkey_hex, storage_drivers=[successful_driver], proxy=proxy, config_path=config_path)
+        if 'error' in res:
+            log.error("Failed to get inode {} from {}: {}".format(inode_uuid, successful_driver, res['error']))
+            continue
+
+        # success!
+        inode_info = res['data']
+        inode_version = res['version']
+        break
+
+    if inode_info is None:
+        # failed to find a fresh inode across all devices
+        log.error("Failed to find fresh inode {} across all devices".format(inode_uuid))
+        return {'error': 'Failed to find fresh inode'}
 
     # must be an inode 
     inode_schema = None
@@ -1495,26 +1623,130 @@ def _get_inode(user_id, inode_uuid, inode_type, data_pubkey_hex, drivers, config
         log.error("Inode {} not owned by {} (but by {})".format(inode_info['uuid'], data_address, inode_info['owner']))
         return {'error': 'Invalid owner'}
 
+    '''
     # yup!
     # cache small directories
     if cache is not None and _is_cacheable(inode_info):
         log.debug("Cache PUT {}".format(inode_uuid))
         cache.put( inode_uuid, inode_info )
+    '''
 
-    return {'status': True, 'inode': inode_info}
+    res = _put_inode_consistency_info(user_id, inode_uuid, max(inode_version, header_version), device_ids, config_path=config_path)
+    if 'error' in res:
+        return res
+
+    return {'status': True, 'inode': inode_info, 'version': max(inode_version, header_version)}
 
 
-def _get_inode_header(user_id, inode_uuid, data_pubkey_hex, drivers, config_path=CONFIG_PATH, proxy=None, cache=None):
+def _get_mutable_data_versions( data_id, device_ids, config_path=CONFIG_PATH ):
+    """
+    Get the mutable data version for a datum spread across multiple devices
+    Return {'status': True, 'version': version} on success
+    Return {'error': ...} on error
+    """
+    new_version = 0
+    conf = get_config(config_path)
+    assert conf
+
+    for device_id in device_ids:
+        fq_data_id = storage.make_fq_data_id(device_id, data_id)
+        cur_ver = load_mutable_data_version(conf, fq_data_id, config_path=config_path)
+        if cur_ver is not None:
+            new_version = max(new_version, cur_ver)
+
+    return {'status': True, 'version': new_version}
+
+
+def _put_mutable_data_versions( data_id, new_version, device_ids, config_path=CONFIG_PATH ):
+    """
+    Advance all versions of a mutable datum to at least new_version
+    Return {'status': True, 'version': new version} on success
+    Return {'error': ...} on error
+    """
+
+    # advance header version and inode version
+    conf = get_config(config_path)
+    assert conf
+
+    res = _get_mutable_data_versions(data_id, device_ids, config_path=CONFIG_PATH)
+    if 'error' in res:
+        return res
+
+    new_version = max(res['version'], new_version)
+
+    for device_id in device_ids:
+        fq_data_id = storage.make_fq_data_id(device_id, data_id)
+        rc = store_mutable_data_version(conf, fq_data_id, new_version, config_path=config_path)
+        if not rc:
+            return {'error': 'Failed to advance mutable data version {} to {}'.format(data_id, new_version)}
+
+    return {'status': True, 'version': new_version}
+
+
+def _put_inode_consistency_info(user_id, inode_uuid, new_version, device_ids, config_path=CONFIG_PATH):
+    """
+    Advance all versions of an inode locally
+    Return {'status': True} on success
+    Return {'error': ...} on error
+    """
+
+    # advance header version and inode version
+    inode_data_id = '{}.{}'.format(user_id, inode_uuid)
+    hdr_data_id = '{}.{}.hdr'.format(user_id, inode_uuid)
+
+    res = _put_mutable_data_versions(inode_data_id, new_version, device_ids, config_path=CONFIG_PATH)
+    if 'error' in res:
+        return res
+
+    hdr_ver = res['version']
+    res = _put_mutable_data_versions(hdr_data_id, hdr_ver, device_ids, config_path=CONFIG_PATH)
+    if 'error' in res:
+        return res
+
+    if res['version'] > hdr_ver:
+        # headers had later version 
+        inode_ver = res['version']
+        res = _put_mutable_data_versions(inode_data_id, inode_ver, device_ids, config_path=CONFIG_PATH)
+        if 'error' in res:
+            return res
+
+    return {'status': True}
+
+
+def _get_inode_header(user_id, inode_uuid, data_pubkey_hex, drivers, device_ids, config_path=CONFIG_PATH, proxy=None, cache=None):
     """
     Get an inode's header data.  Verify it matches the inode info.
 
-    Return {'status': True, 'inode': inode_full_info} on success.
+    Return {'status': True, 'inode': inode_full_info, 'version': version, 'driver': driver that was used} on success.
     Return {'error': ...} on error.
     """
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    conf = get_config(config_path)
+    assert conf
+
+    # get latest inode and inode header version
+    inode_id = '{}.{}'.format(user_id, inode_uuid)
+    inode_hdr_id = '{}.{}.hdr'.format(user_id, inode_uuid)
+
+    inode_version = 0
+    inode_hdr_version = 0
+
+    res = _get_mutable_data_versions( inode_id, device_ids, config_path=CONFIG_PATH )
+    if 'error' in res:
+        return res
+
+    inode_version = res['version']
+
+    res = _get_mutable_data_versions( inode_hdr_id, device_ids, config_path=CONFIG_PATH )
+    if 'error' in res:
+        return res
+
+    inode_hdr_version = res['version']
+        
+    '''
     if cache is not None:
         inode_data = cache.get(inode_uuid)
         if inode_data is not None:
@@ -1526,18 +1758,27 @@ def _get_inode_header(user_id, inode_uuid, data_pubkey_hex, drivers, config_path
 
             log.debug("Cache HIT on {}".format(inode_uuid))
             return {'status': True, 'inode': inode_hdr}
+    '''
 
-    header_id = '{}.hdr'.format(inode_uuid)
-    res = get_mutable(user_id, header_id, data_pubkey=data_pubkey_hex, storage_drivers=drivers, proxy=proxy, config_path=config_path)
+    data_id = '{}.{}.hdr'.format(user_id, inode_uuid)
+    res = get_mutable(data_id, ver_min=inode_version, data_pubkey=data_pubkey_hex, storage_drivers=drivers, device_ids=device_ids, proxy=proxy, config_path=config_path)
     if 'error' in res:
         log.error("Failed to get inode data {}: {}".format(inode_uuid, res['error']))
         return {'error': 'Failed to get inode data'}
 
     inode_hdr = res['data']
-    return {'status': True, 'inode': inode_hdr}
+    inode_hdr_version = res['version']
+    inode_driver = res['driver']
+
+    # advance header version and inode version
+    res = _put_inode_consistency_info(user_id, inode_uuid, max(inode_hdr_version, inode_version), device_ids, config_path=config_path)
+    if 'error' in res:
+        return res
+
+    return {'status': True, 'inode': inode_hdr, 'version': max(inode_hdr_version, inode_version), 'driver': inode_driver}
 
 
-def _put_inode(user_id, _inode, data_privkey, drivers, config_path=CONFIG_PATH, proxy=None, create=False, cache=None ):
+def _put_inode(user_id, _inode, data_privkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=None, create=False, cache=None ):
     """
     Store an inode and its associated idata
     If cache is given, invalidate the cache.
@@ -1550,34 +1791,43 @@ def _put_inode(user_id, _inode, data_privkey, drivers, config_path=CONFIG_PATH, 
 
     # separate data from metadata.
     # put metadata as a separate record.
-    res = put_mutable(user_id, _inode['uuid'], _inode, data_privkey=data_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy, create=create )
+    data_id = '{}.{}'.format(user_id, _inode['uuid'])
+    res = put_mutable(data_id, _inode, data_privkey=data_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy, create=create )
     if 'error' in res:
         log.error("Failed to replicate inode {}: {}".format(_inode['uuid'], res['error']))
         return {'error': 'Failed to replicate inode'}
 
-    inode_hdr = None
-    if _inode.has_key('idata'):
-        # store a metadata copy separately, for stat(2)
-        inode_hdr = {}
-        for k in _inode.keys():
-            if k != 'idata':
-                inode_hdr[k] = copy.deepcopy(_inode[k])
+    inode_version = res['version']
 
-        inode_hdr_id = '{}.hdr'.format(_inode['uuid'])
-        res = put_mutable(user_id, inode_hdr_id, inode_hdr, data_privkey=data_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy, create=create )
-        if 'error' in res:
-            log.error("Failed to replicate inode header for {}: {}".format(inode['uuid'], res['error']))
-            return {'error': 'Failed to replicate inode header'}
+    # store a metadata copy separately, for stat(2)
+    inode_hdr = {}
+    for k in _inode.keys():
+        if k != 'idata':
+            inode_hdr[k] = copy.deepcopy(_inode[k])
 
+    data_hdr_id = '{}.{}.hdr'.format(user_id, _inode['uuid'])
+    res = put_mutable(data_hdr_id, inode_hdr, data_privkey=data_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy, create=create )
+    if 'error' in res:
+        log.error("Failed to replicate inode header for {}: {}".format(inode['uuid'], res['error']))
+        return {'error': 'Failed to replicate inode header'}
+
+    inode_hdr_version = res['version']
+
+    res = _put_inode_consistency_info(user_id, _inode['uuid'], max(inode_version, inode_hdr_version), device_ids, config_path=config_path)
+    if 'error' in res:
+        return res
+
+    '''
     # coherently cache
     if cache is not None and _is_cacheable(_inode):
         log.debug("Cache PUT {}".format(_inode['uuid']))
         cache.put(_inode['uuid'], _inode)
+    '''
 
     return {'status': True}
 
 
-def _delete_inode(user_id, inode_uuid, data_privkey, drivers, config_path=CONFIG_PATH, proxy=None, cache=None ):
+def _delete_inode(user_id, inode_uuid, data_privkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=None, cache=None ):
     """
     Delete an inode and its associated data.
     Return {'status': True} on success
@@ -1589,13 +1839,15 @@ def _delete_inode(user_id, inode_uuid, data_privkey, drivers, config_path=CONFIG
 
     # delete inode header
     idata_id = '{}.hdr'.format(inode_uuid)
-    res = delete_mutable(user_id, idata_id, data_privkey=data_privkey, proxy=proxy, storage_drivers=drivers, delete_version=False, config_path=config_path)
+    hdata_id = '{}.{}'.format(user_id, idata_id)
+    res = delete_mutable(hdata_id, data_privkey=data_privkey, proxy=proxy, storage_drivers=drivers, device_ids=device_ids, delete_version=False, config_path=config_path)
     if 'error' in res:
         log.error("Faled to delete idata for {}: {}".format(inode_uuid, res['error']))
         return res
 
     # delete inode 
-    res = delete_mutable(user_id, inode_uuid, data_privkey=data_privkey, proxy=proxy, storage_drivers=drivers, delete_version=False, config_path=config_path )
+    data_id = '{}.{}'.format(user_id, inode_uuid)
+    res = delete_mutable(idata_id, data_privkey=data_privkey, proxy=proxy, storage_drivers=drivers, device_ids=device_ids, delete_version=False, config_path=config_path )
     if 'error' in res:
         log.error("Failed to delete inode {}: {}".format(inode_uuid, res['error']))
         return res
@@ -1653,10 +1905,11 @@ def _resolve_path( datastore, path, data_pubkey, get_idata=True, config_path=CON
     prefix = '/'
 
     drivers = datastore['drivers']
+    device_ids = datastore['device_ids']
     root_uuid = datastore['root_uuid']
    
     # getting only the root?
-    root_inode = _get_inode(user_id, root_uuid, MUTABLE_DATUM_DIR_TYPE, data_pubkey, drivers, config_path=CONFIG_PATH, proxy=proxy, cache=DIR_CACHE)
+    root_inode = _get_inode(user_id, root_uuid, MUTABLE_DATUM_DIR_TYPE, data_pubkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=proxy, cache=DIR_CACHE)
     if 'error' in root_inode:
         log.error("Failed to get root inode: {}".format(root_inode['error']))
         return {'error': root_inode['error'], 'errno': errno.EIO}
@@ -1695,7 +1948,7 @@ def _resolve_path( datastore, path, data_pubkey, get_idata=True, config_path=CON
             break
         
         # get child
-        child_entry = _get_inode(user_id, child_uuid, child_type, data_pubkey, drivers, config_path=CONFIG_PATH, proxy=proxy, cache=DIR_CACHE)
+        child_entry = _get_inode(user_id, child_uuid, child_type, data_pubkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=proxy, cache=DIR_CACHE)
         if 'error' in child_entry:
             log.error("Failed to get inode {} at {}: {}".format(child_uuid, prefix + name, child_entry['error']))
             return {'error': child_entry['error'], 'errno': errno.EIO}
@@ -1722,7 +1975,7 @@ def _resolve_path( datastore, path, data_pubkey, get_idata=True, config_path=CON
     if child_type == MUTABLE_DATUM_DIR_TYPE or (get_idata and child_type == MUTABLE_DATUM_FILE_TYPE):
         # get file data too 
         assert ret.has_key(prefix + name), "BUG: missing {}".format(prefix + name) 
-        child_entry = _get_inode(user_id, child_uuid, child_type, data_pubkey, drivers, config_path=CONFIG_PATH, proxy=proxy )
+        child_entry = _get_inode(user_id, child_uuid, child_type, data_pubkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=proxy )
 
     else:
         # get only inode header.
@@ -1732,7 +1985,7 @@ def _resolve_path( datastore, path, data_pubkey, get_idata=True, config_path=CON
         path_ent = _make_path_entry(name, child_uuid, child_entry, prefix)
         ret[prefix + name] = path_ent
 
-        child_entry = _get_inode_header(user_id, child_uuid, data_pubkey, drivers, config_path=config_path, proxy=proxy, cache=DIR_CACHE)
+        child_entry = _get_inode_header(user_id, child_uuid, data_pubkey, drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE)
 
     if 'error' in child_entry:
         log.error("Failed to get file data for {} at {}: {}".format(child_uuid, prefix + name, child_entry['error']))
@@ -1922,6 +2175,7 @@ def datastore_mkdir(datastore, data_path, data_privkey_hex, config_path=CONFIG_P
     name = path_info['iname']
 
     drivers = datastore['drivers']
+    device_ids = datastore['device_ids']
     data_pubkey = get_pubkey_hex(str(data_privkey_hex))
     data_address = keylib.public_key_to_address(data_pubkey)
 
@@ -1952,13 +2206,13 @@ def datastore_mkdir(datastore, data_path, data_privkey_hex, config_path=CONFIG_P
     parent_dir, child_dirent = _mutable_data_dir_link( parent_dir, MUTABLE_DATUM_DIR_TYPE, name, child_uuid, child_dir_links )
 
     # replicate the new child
-    res = _put_inode(user_id, child_dir_inode, str(data_privkey_hex), drivers, config_path=config_path, proxy=proxy, create=True, cache=DIR_CACHE )
+    res = _put_inode(user_id, child_dir_inode, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, create=True, cache=DIR_CACHE )
     if 'error' in res:
         log.error("Failed to create directory {}: {}".format(data_path, res['error']))
         return {'error': 'Failed to store child directory', 'errno': errno.EIO}
 
     # replicate the new parent 
-    res = _put_inode(user_id, parent_dir, str(data_privkey_hex), drivers, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
+    res = _put_inode(user_id, parent_dir, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
     if 'error' in res:
         log.error("Failed to update directory {}: {}".format(parent_path, res['error']))
         return {'error': 'Failed to store parent directory', 'stored_child': True, 'errno': errno.EIO}
@@ -1991,6 +2245,7 @@ def datastore_rmdir(datastore, data_path, data_privkey_hex, config_path=CONFIG_P
         return {'error': 'Tried to delete root', 'errno': errno.EINVAL}
 
     drivers = datastore['drivers']
+    device_ids = datastore['device_ids']
     data_pubkey = get_pubkey_hex(str(data_privkey_hex))
 
     log.debug("rmdir {}:{}".format(datastore['datastore_name'], data_path))
@@ -2022,13 +2277,13 @@ def datastore_rmdir(datastore, data_path, data_privkey_hex, config_path=CONFIG_P
 
     # good to do.  Update parent 
     parent_dir_inode = _mutable_data_dir_unlink( parent_dir_inode, name )
-    res = _put_inode(user_id, parent_dir_inode, str(data_privkey_hex), drivers, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
+    res = _put_inode(user_id, parent_dir_inode, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
     if 'error' in res:
         log.error("Failed to update directory {}: {}".format(parent_path, res['error']))
         return {'error': 'Failed to update directory', 'errno': errno.EIO}
 
     # delete the child
-    res = _delete_inode(user_id, dir_inode_uuid, str(data_privkey_hex), drivers, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
+    res = _delete_inode(user_id, dir_inode_uuid, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
     if 'error' in res:
         log.error("Failed to delete directory {}: {}".format(data_path, res['error']))
         return {'error': 'Failed to delete directory', 'errno': errno.EIO}
@@ -2117,6 +2372,8 @@ def datastore_putfile(datastore, data_path, file_data, data_privkey_hex, create=
     parent_dirpath = path_info['parent_path']
 
     drivers = datastore['drivers']
+    device_ids = datastore['device_ids']
+
     data_pubkey = get_pubkey_hex(str(data_privkey_hex))
     data_address = keylib.public_key_to_address(data_pubkey)
 
@@ -2146,13 +2403,13 @@ def datastore_putfile(datastore, data_path, file_data, data_privkey_hex, create=
     parent_dir_inode, child_dirent = _mutable_data_dir_link( parent_dir_inode, MUTABLE_DATUM_FILE_TYPE, name, child_uuid, child_file_links )
     
     # replicate the new child (but don't cache files)
-    res = _put_inode(user_id, child_file_inode, str(data_privkey_hex), drivers, config_path=config_path, proxy=proxy, create=True )
+    res = _put_inode(user_id, child_file_inode, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, create=create )
     if 'error' in res:
         log.error("Failed to replicate file {}: {}".format(data_path, res['error']))
         return {'error': 'Failed to store file', 'errno': errno.EIO}
 
     # replicate the new parent
-    res = _put_inode(user_id, parent_dir_inode, str(data_privkey_hex), drivers, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
+    res = _put_inode(user_id, parent_dir_inode, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
     if 'error' in res:
         log.error("Failed to update directory {}: {}".format(parent_dirpath, res['error']))
         return {'error': 'Failed to update directory', 'errno': errno.EIO}
@@ -2182,6 +2439,8 @@ def datastore_deletefile(datastore, data_path, data_privkey_hex, config_path=CON
     parent_dirpath = path_info['parent_path']
 
     drivers = datastore['drivers']
+    device_ids = datastore['device_ids']
+
     data_pubkey = get_pubkey_hex(str(data_privkey_hex))
 
     log.debug("deletefile {}:{}".format(datastore['datastore_name'], data_path))
@@ -2207,13 +2466,13 @@ def datastore_deletefile(datastore, data_path, data_privkey_hex, config_path=CON
 
     # Update parent 
     parent_dir_inode = _mutable_data_dir_unlink( parent_dir_inode, name )
-    res = _put_inode(user_id, parent_dir_inode, str(data_privkey_hex), drivers, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
+    res = _put_inode(user_id, parent_dir_inode, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
     if 'error' in res:
         log.error("Failed to update directory {}: {}".format(dir_path, res['error']))
         return {'error': 'Failed to update directory', 'errno': errno.EIO}
 
     # delete child 
-    res = _delete_inode(user_id, file_uuid, str(data_privkey_hex), drivers, config_path=config_path, proxy=proxy )
+    res = _delete_inode(user_id, file_uuid, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy )
     if 'error' in res:
         log.error("Failed to delete file {}: {}".format(data_path, res['error']))
         return {'error': 'Failed to delete file', 'errno': errno.EIO}
@@ -2268,6 +2527,7 @@ def datastore_rmtree(datastore, data_path, data_privkey_hex, config_path=CONFIG_
     data_address = keylib.public_key_to_address(data_pubkey_hex)
 
     drivers = datastore['drivers']
+    device_ids = datastore['device_ids']
 
     inode_stack = []        # stack of {'type': ..., 'inode': ...}
 
@@ -2323,7 +2583,7 @@ def datastore_rmtree(datastore, data_path, data_privkey_hex, config_path=CONFIG_
         """
         log.debug("Search {}".format(dir_inode_uuid))
 
-        res = _get_inode(user_id, dir_inode_uuid, MUTABLE_DATUM_DIR_TYPE, str(data_pubkey_hex), drivers, config_path=config_path, proxy=proxy, cache=DIR_CACHE)
+        res = _get_inode(user_id, dir_inode_uuid, MUTABLE_DATUM_DIR_TYPE, str(data_pubkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE)
         if 'error' in res:
             return res
         
@@ -2347,7 +2607,7 @@ def datastore_rmtree(datastore, data_path, data_privkey_hex, config_path=CONFIG_
         if inode_info['type'] == MUTABLE_DATUM_FILE_TYPE:
             # files can be deleted immediately 
             log.debug("Delete file {}".format(inode_info['uuid']))
-            res = _delete_inode(user_id, inode_info['uuid'], str(data_privkey_hex), drivers, config_path=config_path, proxy=proxy )
+            res = _delete_inode(user_id, inode_info['uuid'], str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy )
             if 'error' in res:
                 return res
 
@@ -2359,7 +2619,7 @@ def datastore_rmtree(datastore, data_path, data_privkey_hex, config_path=CONFIG_
             if inode_info['searched']:
                 # already explored this directory.  Can remove now
                 log.debug("Delete directory {}".format(inode_info['uuid']))
-                res = _delete_inode(user_id, inode_info['uuid'], str(data_privkey_hex), drivers, config_path=config_path, proxy=proxy, cache=DIR_CACHE)
+                res = _delete_inode(user_id, inode_info['uuid'], str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE)
                 if 'error' in res:
                     return res
 
@@ -2377,7 +2637,7 @@ def datastore_rmtree(datastore, data_path, data_privkey_hex, config_path=CONFIG_
 
     # clear this inode's children
     dir_inode_info = _mutable_data_make_dir( data_address, dir_uuid, {} )
-    res = _put_inode(user_id, dir_inode_info, str(data_privkey_hex), drivers, config_path=config_path, proxy=proxy, create=False, cache=DIR_CACHE )
+    res = _put_inode(user_id, dir_inode_info, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, create=False, cache=DIR_CACHE )
     if 'error' in res:
         return res
 
@@ -2390,7 +2650,7 @@ def get_nonlocal_storage_drivers(config_path, key='storage_drivers'):
     That is, the ones which write to a globally-visible read-write medium.
     """
 
-    conf = config.get_config(config_path)
+    conf = get_config(config_path)
     assert conf
 
     storage_drivers = conf.get(key, '').split(',')
@@ -2408,7 +2668,7 @@ def get_write_storage_drivers(config_path):
     Get the list of storage drivers to write with.
     Returns a list of driver names.
     """
-    conf = config.get_config(config_path)
+    conf = get_config(config_path)
     assert conf
 
     storage_drivers = conf.get("storage_drivers_required_write", "").split(',')
@@ -2430,7 +2690,7 @@ def get_read_storage_drivers(config_path):
     Get the list of storage drivers to read with.
     Returns a list of driver names.
     """
-    conf = config.get_config(config_path)
+    conf = get_config(config_path)
     assert conf
 
     storage_drivers = conf.get("storage_drivers", "").split(",")
@@ -2484,7 +2744,7 @@ def get_user(user_id, local_master_data_pubkey, config_path=CONFIG_PATH, proxy=N
     # nope.  We don't own this user.
     # try treating user_id as a blockchain ID.
     # be sure to check non-local storage only; don't want to hit stale disk data
-    user_data = get_mutable(user_id, user_id, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
+    user_data = get_mutable(user_id, blockchain_id=user_id, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
     if 'error' in user_data:
         log.error("Failed to fetch user data from storage")
         return user_data
@@ -2520,23 +2780,42 @@ def get_user_list(master_data_pubkey, proxy=None, config_path=CONFIG_PATH):
     nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
 
     addr = keylib.public_key_to_address(master_data_pubkey)
-    listing_info = get_mutable(addr, 'user_ids', data_pubkey=master_data_pubkey, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
+    data_id = '{}.{}'.format(addr, 'user_ids')
+
+    device_ids = get_all_device_ids(config_path=config_path)
+
+    # get expected version across all devices 
+    res = _get_mutable_data_versions(data_id, device_ids, config_path=CONFIG_PATH)
+    if 'error' in res:
+        return res
+    
+    expected_version = res['version']
+
+    listing_info = get_mutable(data_id, data_pubkey=master_data_pubkey, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers, ver_min=expected_version)
     if 'error' in listing_info:
         log.error("Failed to get user list")
         return listing_info
 
     user_listing = listing_info['data']
+    user_list_version = listing_info['version']
+
     try:
         jsonschema.validate(user_listing, {'type': 'array', 'items': {'type': 'string', 'pattern': OP_USER_ID_PATTERN}})
     except ValidationError:
         return {'error': 'Invalid user listing'}
 
+    # advance for all devices!
+    res = _put_mutable_data_versions(data_id, user_list_version, device_ids, config_path=config_path)
+    if 'error' in res:
+        return res
+
     return {'status': True, 'user_ids': user_listing}
 
 
-def put_user_list(master_data_privkey, user_listing, proxy=None, config_path=CONFIG_PATH):
+def put_user_list(master_data_privkey, user_listing, blockchain_id=None, proxy=None, config_path=CONFIG_PATH):
     """
-    Put our replicated list of users
+    Put our replicated list of users.
+    blockchain_id is a hint to the drivers; it can be ignored
     Return {'status': True} on success
     Return {'error': ...} on failure
     """
@@ -2550,24 +2829,62 @@ def put_user_list(master_data_privkey, user_listing, proxy=None, config_path=CON
 
     master_data_pubkey = get_pubkey_hex(master_data_privkey)
     addr = keylib.public_key_to_address(master_data_pubkey)
-    res = put_mutable(addr, 'user_ids', user_listing, data_privkey=master_data_privkey, proxy=proxy, config_path=config_path)
+    data_id = '{}.{}'.format(addr, 'user_ids')
+
+    device_ids = get_all_device_ids(config_path=config_path)
+
+    # get expected version across all devices 
+    res = _get_mutable_data_versions(data_id, device_ids, config_path=CONFIG_PATH)
+    if 'error' in res:
+        return res
+    
+    min_version = res['version']
+    
+    res = put_mutable(data_id, user_listing, blockchain_id=blockchain_id, data_privkey=master_data_privkey, proxy=proxy, config_path=config_path, version=min_version)
+    if 'error' in res:
+        return res
+
+    user_list_version = res['version']
+
+    # advance for all devices!
+    res = _put_mutable_data_versions(data_id, user_list_version, device_ids, config_path=config_path)
     if 'error' in res:
         return res
 
     return {'status': True}
 
 
-def put_user(user_info, master_data_privkey, config_path=CONFIG_PATH, proxy=None):
+def put_user(user_info, master_data_privkey, blockchain_id=None, config_path=CONFIG_PATH, proxy=None):
     """
     Store a user to local storage and our data storage providers.
     The user info will be signed off by the given master private key
+
+    blockchain_id is a hint to the drivers; it can be ignored.
 
     Return {'status': True} on success
     Return {'error': ...} on failure
     """
 
+    from .wallet import get_addresses_from_file
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
+
+    device_ids = get_all_device_ids(config_path=config_path)
+
+    # we have to own this blockchain ID, if given
+    if blockchain_id is not None:
+        # we have to own it
+        name_rec = get_name_blockchain_record(blockchain_id)
+        if json_is_error(name_rec):
+            return name_rec
+
+        config_dir = os.path.dirname(config_path)
+        _, owner_address, _ = get_addresses_from_file(config_dir=config_dir)
+        assert owner_address
+        
+        if name_rec['address'] != owner_address:
+            return {'error': 'Name "{}" is not owned by this wallet'.format(blockchain_id)}
 
     # sign and serialize
     res = user_db.user_serialize(user_info, master_data_privkey)
@@ -2588,6 +2905,8 @@ def put_user(user_info, master_data_privkey, config_path=CONFIG_PATH, proxy=None
         log.error("User {} already exists".format(user_info['user_id']))
         return {'error': 'User already exists'}
 
+    log.debug("Put user {} for {}".format(user_info, blockchain_id))
+
     # store locally
     res = user_db.user_store( user_token, config_path=config_path )
     if 'error' in res:
@@ -2602,28 +2921,44 @@ def put_user(user_info, master_data_privkey, config_path=CONFIG_PATH, proxy=None
         log.error("Failed to give user {} a private key index".format(user_info['user_id']))
         return res
 
-    # replicate, signing with the master private key 
-    res = put_mutable(user_info['user_id'], user_info['user_id'], user_info, data_privkey=master_data_privkey, proxy=proxy, config_path=config_path)
+    # get expected version across all devices 
+    res = _get_mutable_data_versions(user_info['user_id'], device_ids, config_path=CONFIG_PATH)
+    if 'error' in res:
+        return res
+    
+    min_version = res['version']
+
+    # replicate, signing with the master private key
+    res = put_mutable(user_info['user_id'], user_info, blockchain_id=blockchain_id, data_privkey=master_data_privkey, proxy=proxy, config_path=config_path, version=min_version)
     if 'error' in res:
         log.error("Failed to replicate user")
         return {'error': 'Failed to replicate user'}
    
+    user_version = res['version']
+
     # update user list 
     user_list.append(user_info['user_id'])
-    res = put_user_list(master_data_privkey, user_list, proxy=proxy, config_path=config_path)
+
+    res = put_user_list(master_data_privkey, user_list, blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
     if 'error' in res:
         # undo
-        delres = delete_mutable(user_info['user_id'], user_info['user_id'], data_privkey=master_data_privkey, proxy=proxy, config_path=config_path)
+        delres = delete_mutable(user_info['user_id'], data_privkey=master_data_privkey, proxy=proxy, config_path=config_path)
         user_delete(user_info['user_id'], config_path=config_path)
         if 'error' in delres:
             log.error("Failed to delete user {}: {}".format(user_info['user_id'], delres['error']))
         
         return res
 
+    # advance for all devices!
+    device_ids = get_all_device_ids(config_path=config_path)
+    res = _put_mutable_data_versions(user_info['user_id'], user_version, device_ids, config_path=config_path)
+    if 'error' in res:
+        return res
+
     return {'status': True}
 
 
-def delete_user(user_id, master_data_privkey, config_path=None, proxy=None):
+def delete_user(user_id, master_data_privkey, blockchain_id=None, config_path=None, proxy=None):
     """
     Delete a user.  Remove its local state, and delete it from our storage providers.
 
@@ -2649,13 +2984,13 @@ def delete_user(user_id, master_data_privkey, config_path=None, proxy=None):
     # clear out from list
     if user_id in user_list:
         user_list.remove(user_id)
-        res = put_user_list(master_data_privkey, user_list, config_path=config_path, proxy=proxy)
+        res = put_user_list(master_data_privkey, user_list, blockchain_id=blockchain_id, config_path=config_path, proxy=proxy)
         if 'error' in res:
             log.error("Failed to update user listing")
             return res
 
     # delete from storage providers 
-    res = delete_mutable(user_id, user_id, data_privkey=master_data_privkey, proxy=proxy, config_path=config_path, delete_version=False)
+    res = delete_mutable(user_id, data_privkey=master_data_privkey, proxy=proxy, blockchain_id=blockchain_id, config_path=config_path, delete_version=False)
     if 'error' in res:
         log.error("Failed to delete from storage providers")
         return {'error': 'Failed to delete from storage providers'}
@@ -2665,7 +3000,7 @@ def delete_user(user_id, master_data_privkey, config_path=None, proxy=None):
     return {'status': True}
 
 
-def next_privkey_index( data_privkey, config_path=None, proxy=None, create=False):
+def next_privkey_index( data_privkey, blockchain_id=None, config_path=CONFIG_PATH, proxy=None, create=False):
     """
     Get the next private key index.  Update the replica on our storage providers.
 
@@ -2679,13 +3014,23 @@ def next_privkey_index( data_privkey, config_path=None, proxy=None, create=False
     data_pubkey = get_pubkey_hex(data_privkey)
     addr = keylib.public_key_to_address(data_pubkey)
 
+    data_id = '{}.{}'.format(addr, 'privkey_index')
+    device_ids = get_all_device_ids(config_path=config_path)
+
+    # get expected version across all devices 
+    res = _get_mutable_data_versions(data_id, device_ids, config_path=CONFIG_PATH)
+    if 'error' in res:
+        return res
+    
+    expected_version = res['version']
+
     nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
 
-    privkey_index_info = get_mutable(addr, 'privkey_index', data_pubkey=data_pubkey, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
+    privkey_index_info = get_mutable(data_id, blockchain_id=blockchain_id, data_pubkey=data_pubkey, config_path=config_path, storage_drivers=nonlocal_storage_drivers, ver_min=expected_version)
     if 'error' in privkey_index_info:
         if create:
             # try to create
-            res = set_privkey_index( data_privkey, 0, config_path=config_path, proxy=proxy )
+            res = set_privkey_index( data_privkey, 0, config_path=config_path, blockchain_id=blockchain_id, proxy=proxy )
             if 'error' in res:
                 return res
 
@@ -2705,37 +3050,46 @@ def next_privkey_index( data_privkey, config_path=None, proxy=None, create=False
 
     ret = privkey_index
     privkey_index += 1
-    res = set_privkey_index(data_privkey, privkey_index, config_path=config_path, proxy=proxy)
+    res = set_privkey_index(data_privkey, privkey_index, blockchain_id=blockchain_id, config_path=config_path, proxy=proxy)
     if 'error' in res:
         return res
 
     return {'status': True, 'index': ret}
    
 
-def set_privkey_index( data_privkey, value, config_path=None, proxy=None ):
+def set_privkey_index( master_data_privkey, value, blockchain_id=None, config_path=CONFIG_PATH, proxy=None ):
     """
     Set the current private key index
     Return {'status': True} on success
     return {'error': ...} on error
     """
     
-    data_pubkey = get_pubkey_hex(data_privkey)
-    addr = keylib.public_key_to_address(data_pubkey)
+    master_data_pubkey = get_pubkey_hex(master_data_privkey)
+    addr = keylib.public_key_to_address(master_data_pubkey)
+    
 
     try:
         value = int(value)
     except:
         return {'error': 'Invalid value'}
 
-    res = put_mutable(addr, 'privkey_index', value, data_privkey=data_privkey, proxy=proxy, config_path=config_path)
+    data_id = '{}.{}'.format(addr, 'privkey_index')
+    device_ids = get_all_device_ids(config_path=config_path)
+
+    res = put_mutable(data_id, value, blockchain_id=blockchain_id, data_privkey=master_data_privkey, proxy=proxy, config_path=config_path)
     if 'error' in res:
         log.error("Failed to put new private key index")
         return {'error': 'Failed to put new private key index'}
 
+    # advance for all devices!
+    res = _put_mutable_data_versions(data_id, res['version'], device_ids, config_path=config_path)
+    if 'error' in res:
+        return res
+
     return {'status': True}
 
 
-def have_seen( user_id, data_id, config_path=CONFIG_PATH ):
+def have_seen( data_id, config_path=CONFIG_PATH ):
     """
     Have we ever seen this datum before?
     """
@@ -2743,15 +3097,16 @@ def have_seen( user_id, data_id, config_path=CONFIG_PATH ):
     conf = get_config(config_path)
     assert conf
 
-    fq_data_id = storage.make_fq_data_id(user_id, data_id)
-    expected_version = load_mutable_data_version(conf, fq_data_id)
+    device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
+    fq_data_id = storage.make_fq_data_id(device_id, data_id)
+    expected_version = load_mutable_data_version(conf, fq_data_id, config_path=config_path)
 
     return (expected_version is not None)
 
 
-def data_setup( password, wallet_keys=None, config_path=CONFIG_PATH, proxy=None):
+def data_setup( blockchain_id, password, wallet_keys=None, config_path=CONFIG_PATH, proxy=None):
     """
-    Do the one-time setup necessary for using the data functions.
+    Do the one-time setup necessary for using the data functions with this name's key bundle.
     The wallet must be set up first.
 
     Return {'status': True} on success
@@ -2770,28 +3125,40 @@ def data_setup( password, wallet_keys=None, config_path=CONFIG_PATH, proxy=None)
     if not os.path.exists(wallet_path):
         return {'error': 'Wallet does not exist'}
 
-    # put a new private key index?
     if wallet_keys is None:
         wallet_info = load_wallet(password, config_path=config_path, wallet_path=wallet_path, include_private=True)
         if 'error' in wallet_info:
             return wallet_info
 
+        if 'migrated' in wallet_info:
+            return {'error': 'Wallet must be updated to the latest format with the `upgrade_wallet` command'}
+
         wallet_keys = wallet_info['wallet']
 
-    # make sure we also have a private key index 
+    # wallet data pubkey (which can be an owner pubkey) must match the zone file pubkey, if the zonefile has a pubkey
+    zonefile_data_pubkey = None
+    res = load_user_data_pubkey_addr(blockchain_id, proxy=proxy, config_path=config_path)
+    if 'error' not in res:
+        zonefile_data_pubkey = res['pubkey']
+
     master_data_privkey = wallet_keys['data_privkey']
     master_data_pubkey = get_pubkey_hex(master_data_privkey)
     addr = keylib.public_key_to_address(master_data_pubkey)
 
-    res = next_privkey_index( master_data_privkey, config_path=config_path )
+    if zonefile_data_pubkey is not None and master_data_pubkey != zonefile_data_pubkey:
+        log.debug("Zone file public key '{}' does not match wallet public key '{}'".format(zonefile_data_pubkey, master_data_pubkey))
+        return {'error': 'Zone file public key does not match wallet public key.'}
+       
+    # safe to put a private key index and user list--we have a key to sign with.
+    res = next_privkey_index( master_data_privkey, blockchain_id=blockchain_id, config_path=config_path )
     if 'error' in res:
 
-        if have_seen('privkey_index', 'privkey_index', config_path=config_path ):
+        if have_seen('privkey_index', config_path=config_path ):
             # some other error
             return res
 
         # try creating
-        res = next_privkey_index( master_data_privkey, config_path=config_path, create=True )
+        res = next_privkey_index( master_data_privkey, blockchain_id=blockchain_id, config_path=config_path, create=True )
         if 'error' in res:
             return res
 
@@ -2799,12 +3166,13 @@ def data_setup( password, wallet_keys=None, config_path=CONFIG_PATH, proxy=None)
     res = get_user_list(master_data_pubkey, config_path=config_path)
     if 'error' in res:
 
-        if have_seen(addr, 'user_ids'):
+        data_id = '{}.{}'.format(addr, 'user_ids')
+        if have_seen(data_id, config_path=config_path):
             # some other error
             return res
 
         # try putting one
-        res = put_user_list(master_data_privkey, [], proxy=proxy, config_path=config_path)
+        res = put_user_list(master_data_privkey, [], blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
         if 'error' in res:
             return res
 
