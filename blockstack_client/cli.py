@@ -45,7 +45,7 @@ import logging
 logging.disable(logging.CRITICAL)
 
 from blockstack_client import config
-from blockstack_client.client import session, system_setup
+from blockstack_client.client import session, check_storage_setup 
 from blockstack_client.config import CONFIG_PATH, VERSION, semver_match
 from blockstack_client.method_parser import parse_methods, build_method_subparsers
 
@@ -180,14 +180,15 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         sys.exit(0)
 
     # alternative config path?
-    new_argv, config_path = find_arg(argv, True, '-c', '--config')
+    new_argv, cli_config_path = find_arg(argv, True, '-c', '--config')
     if new_argv is None:
         # invalid
         sys.exit(1)
     
     argv = new_argv
-    if config_path is not None:
+    if cli_config_path:
         cli_argv = True
+        config_path = cli_config_path
         log.debug('Use config file {}'.format(config_path))
 
     # CLI-given password?
@@ -197,9 +198,9 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         sys.exit(1)
 
     argv = new_argv
-    if password is not None:
+    if password:
         log.debug("Use CLI password")
-        os.setenv("BLOCKSTACK_CLIENT_WALLET_PASSWORD", password)
+        os.environ["BLOCKSTACK_CLIENT_WALLET_PASSWORD"] = password
 
     # assume YES to all prompts?
     new_argv, cli_default_yes = find_arg(argv, False, '-y', '--yes')
@@ -227,10 +228,6 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             else:
                 exit_with_error("Backed up legacy configuration file from {} to {} and re-generated a new, default configuration.  Please restart.".format(config_path, backup_path))
 
-
-    res = system_setup(config_path=config_path)
-    if 'error' in res:
-        exit_with_error("Failed to to do one-time setup: {}".format(res['error']))
 
     advanced_mode = conf.get('advanced_mode', False)
 
@@ -306,6 +303,13 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             continue
 
         method = method_info['method']
+        pragmas = method_info['pragmas']
+
+        if 'check_storage' in pragmas:
+            # verify that we have set up storage
+            res = check_storage_setup(config_path=config_path)
+            if 'error' in res:
+                return {'error': 'Please run the `upgrade_storage` command first'}
 
         # interactive?
         if interactive:
