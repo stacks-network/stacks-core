@@ -483,13 +483,9 @@ def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
 
         # don't dequeue until we're sure the zonefile has replicated
         zf = get_name_zonefile( entry['fqu'], raw_zonefile=True )
-        if zf is None or 'error' in zf:
-            if 'error' in zf:
-                log.debug("Failed to query zonefile for %s: %s" % (entry['fqu'], zf['error']))
-                continue
-            else:
-                log.debug("Failed to query zonefile for %s: no data" % (entry['fqu']))
-                continue
+        if 'error' in zf:
+            log.debug("Failed to query zonefile for %s: %s" % (entry['fqu'], zf['error']))
+            continue
 
         zf = zf['zonefile']
 
