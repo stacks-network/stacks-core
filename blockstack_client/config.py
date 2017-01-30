@@ -233,6 +233,14 @@ def client_uuid_path(config_dir=CONFIG_DIR):
     return uuid_path
 
 
+def device_id_path(config_dir=CONFIG_DIR):
+    """
+    get device ID path
+    """
+    id_path = os.path.join(config_dir, 'client.device_id')
+    return id_path
+
+
 def get_or_set_uuid(config_dir=CONFIG_DIR):
     """
     Get or set the UUID for this installation.
@@ -261,6 +269,40 @@ def get_or_set_uuid(config_dir=CONFIG_DIR):
             return None
 
     return u
+
+
+def get_local_device_id(config_dir=CONFIG_DIR):
+    """
+    Get the local device ID
+    """
+    id_path = device_id_path(config_dir=config_dir)
+    did = None
+    if os.path.exists(id_path):
+        try:
+            with open(id_path, 'r') as f:
+                did = f.read()
+
+            return did
+        except Exception as e:
+            log.exception(e)
+    
+    return get_or_set_uuid(config_dir=config_dir)
+
+
+def get_all_device_ids(config_path=CONFIG_PATH):
+    """
+    Get the list of all device IDs that use this wallet
+    """
+    local_device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
+    device_ids = [local_device_id]
+    
+    conf = get_config(config_path)
+    assert conf
+
+    if conf.has_key('default_devices'):
+        device_ids += filter(lambda x: len(x) > 0, conf['default_devices'].split(','))
+
+    return device_ids
 
 
 def configure(config_file=CONFIG_PATH, force=False, interactive=True):
@@ -604,6 +646,10 @@ def read_config_file(path=CONFIG_PATH):
         if not os.path.isdir(dirname):
             raise Exception('Not a directory: {}'.format(path))
 
+    client_uuid = get_or_set_uuid(config_dir=os.path.dirname(path))
+    if client_uuid is None:
+        raise Exception("Failed to get client device ID")
+
     if path is None or not os.path.exists(path):
 
         parser = SafeConfigParser()
@@ -627,6 +673,7 @@ def read_config_file(path=CONFIG_PATH):
         parser.set('blockstack-client', 'accounts', APP_ACCOUNT_DIRNAME)
         parser.set('blockstack-client', 'users', USER_DIRNAME)
         parser.set('blockstack-client', 'datastores', DATASTORE_DIRNAME)
+        parser.set('blockstack-client', 'default_devices', '')
 
         rpc_token = os.urandom(32)
         parser.set('blockstack-client', 'rpc_token', hexlify(rpc_token))
@@ -820,7 +867,13 @@ def configure_zonefile(name, zonefile, data_pubkey=None):
     old_zonefile.update( zonefile )
 
     while running:
-        public_key = user_zonefile_data_pubkey(zonefile) 
+        public_key = None
+        try:
+            public_key = user_zonefile_data_pubkey(zonefile) 
+        except ValueError:
+            # multiple keys
+            public_key = None
+
         urls = user_zonefile_urls(zonefile) 
         if urls is None:
             urls = []
