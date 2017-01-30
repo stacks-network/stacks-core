@@ -214,7 +214,7 @@ def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_z
         # fall back to storage drivers if atlas node didn't have it
         zonefile_txt = storage.get_immutable_data(
                 expected_zonefile_hash, hash_func=storage.get_zonefile_data_hash, 
-                fqu=name, zonefile=True, deserialize=False, drivers=storage_drivers
+                fqu=name, zonefile=True, drivers=storage_drivers
         )
 
         if zonefile_txt is None:
@@ -260,8 +260,8 @@ def load_data_pubkey_for_new_zonefile(wallet_keys={}, config_path=CONFIG_PATH):
     return data_pubkey
 
 
-def get_name_zonefile(name, storage_drivers=None, create_if_absent=False, proxy=None,
-                      wallet_keys=None, name_record=None, include_name_record=False,
+def get_name_zonefile(name, storage_drivers=None, proxy=None,
+                      name_record=None, include_name_record=False,
                       raw_zonefile=False, include_raw_zonefile=False, allow_legacy=False):
     """
     Given a name, go fetch its zonefile.
@@ -279,9 +279,6 @@ def get_name_zonefile(name, storage_drivers=None, create_if_absent=False, proxy=
     
     If 'allow_legacy' is true, then support returning older supported versions of the zone file
     (including old Onename profiles).  Otherwise, this method fails.
-
-    @wallet_keys does not need to be given, unles you're creating a new zonefile (with create_if_absent).
-    Even then, only the *public* data key needs to be set.
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
@@ -302,25 +299,8 @@ def get_name_zonefile(name, storage_drivers=None, create_if_absent=False, proxy=
 
     # is there a user record loaded?
     if value_hash in [None, 'null', '']:
-        # no user data
-        if not create_if_absent:
-            return None
-
-        # make an empty zonefile and return that
-        # get user's data public key
-        public_key = load_data_pubkey_for_new_zonefile(
-            wallet_keys=wallet_keys, config_path=proxy.conf['path']
-        )
-
-        if public_key is None:
-            return {'error': 'No data keys are present in the wallet'}
-
-        user_resp = make_empty_zonefile(name, public_key)
-
-        if include_name_record:
-            user_resp['name_record'] = name_record
-
-        return user_resp
+        log.error("Failed to load zone file: no value hash")
+        return {'error': 'No zone file hash for name'}
 
     user_zonefile_hash = value_hash
     raw_zonefile_data = None
