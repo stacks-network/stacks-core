@@ -80,6 +80,7 @@ else:
 
 RPC_MAX_ZONEFILE_LEN = 4096     # 4KB
 RPC_MAX_PROFILE_LEN = 1024000   # 1MB
+RPC_MAX_DATA_LEN = 10240000     # 10MB
 
 """ block indexing configs
 """
@@ -566,19 +567,6 @@ def op_get_opcode_name( op_string ):
     Get the name of an opcode, given the operation's 'op' byte sequence.
     """
     return blockstack_client.config.op_get_opcode_name( op_string )
-    '''
-    global OPCODE_NAMES
-
-    # special case...
-    if op_string == "%s:" % NAME_REGISTRATION:
-        return "NAME_RENEWAL"
-
-    op = op_string[0]
-    if op not in OPCODE_NAMES.keys():
-        raise Exception("No such operation '%s'" % op)
-
-    return OPCODE_NAMES[op]
-    '''
 
 
 def get_default_virtualchain_impl():
@@ -856,45 +844,6 @@ def store_announcement( announcement_hash, announcement_text, working_dir=None, 
    log.debug("Stored announcement to %s" % (announcement_text_path))
 
 
-def get_announcement( announcement_hash ):
-    """
-    Go get an announcement's text, given its hash.
-    Use the blockstack client library, so we can get at
-    the storage drivers for the storage systems the sender used
-    to host it.
-
-    Return the data on success
-    """
-
-    session = get_blockstack_client_session()   # has the side-effect of initializing all storage drivers, if they're not already.
-    data = blockstack_client.storage.get_immutable_data( announcement_hash, hash_func=blockstack_client.get_blockchain_compat_hash, deserialize=False )
-    if data is None:
-        log.error("Failed to get announcement '%s'" % (announcement_hash))
-        return None
-
-    return data
-
-
-def put_announcement( announcement_text, txid ):
-    """
-    Go put an announcement into back-end storage.
-    Use the blockstack client library, so we can get at
-    the storage drivers for the storage systems this host
-    is configured to use.
-
-    Return the data's hash
-    """
-
-    session = get_blockstack_client_session()   # has the side-effect of initializing all storage drivers, if they're not already
-    data_hash = blockstack_client.get_blockchain_compat_hash(announcement_text)
-    res = blockstack_client.storage.put_immutable_data( None, txid, data_hash=data_hash, data_text=announcement_text )
-    if res is None:
-        log.error("Failed to put announcement '%s'" % (pybitcoin.hex_hash160(announcement_text)))
-        return None
-
-    return data_hash
-
-
 def default_blockstack_opts( config_file=None, virtualchain_impl=None ):
    """
    Get our default blockstack opts from a config file
@@ -916,13 +865,16 @@ def default_blockstack_opts( config_file=None, virtualchain_impl=None ):
    backup_frequency = 1008  # once a week; 10 minute block time
    backup_max_age = 12096   # 12 weeks
    rpc_port = RPC_SERVER_PORT 
-   blockchain_proxy = False
    serve_zonefiles = True
    serve_profiles = False
+   serve_data = False
    zonefile_dir = os.path.join( os.path.dirname(config_file), "zonefiles")
    analytics_key = None
    zonefile_storage_drivers = "disk,dht"
    profile_storage_drivers = "disk"
+   data_storage_drivers = "disk"
+   redirect_data = False
+   data_servers = None
    server_version = None
    atlas_enabled = True
    atlas_seed_peers = "node.blockstack.org:%s" % RPC_SERVER_PORT
@@ -944,13 +896,6 @@ def default_blockstack_opts( config_file=None, virtualchain_impl=None ):
       if parser.has_option('blockstack', 'rpc_port'):
          rpc_port = int(parser.get('blockstack', 'rpc_port'))
 
-      if parser.has_option('blockstack', 'blockchain_proxy'):
-         blockchain_proxy = parser.get('blockstack', 'blockchain_proxy')
-         if blockchain_proxy.lower() in ['1', 'yes', 'true', 'on']:
-             blockchain_proxy = True
-         else:
-             blockchain_proxy = False
-
       if parser.has_option('blockstack', 'serve_zonefiles'):
           serve_zonefiles = parser.get('blockstack', 'serve_zonefiles')
           if serve_zonefiles.lower() in ['1', 'yes', 'true', 'on']:
@@ -965,6 +910,13 @@ def default_blockstack_opts( config_file=None, virtualchain_impl=None ):
           else:
               serve_profiles = False
 
+      if parser.has_option('blockstack', 'serve_data'):
+          serve_data = parser.get('blockstack', 'serve_data')
+          if serve_data.lower() in ['1', 'yes', 'true', 'on']:
+              serve_data = True
+          else:
+              serve_data = False
+
       if parser.has_option("blockstack", "zonefile_storage_drivers"):
           zonefile_storage_drivers = parser.get("blockstack", "zonefile_storage_drivers")
 
@@ -973,6 +925,23 @@ def default_blockstack_opts( config_file=None, virtualchain_impl=None ):
 
       if parser.has_option("blockstack", "zonefiles"):
           zonefile_dir = parser.get("blockstack", "zonefiles")
+    
+      if parser.has_option('blockstack', 'redirect_data'):
+          redirect_data = parser.get('blockstack', 'redirect_data')
+          if redirect_data.lower() in ['1', 'yes', 'true', 'on']:
+              redirect_data = True
+          else:
+              redirect_data = False
+
+      if parser.has_option('blockstack', 'data_servers'):
+          data_servers = parser.get('blockstack', 'data_servers')
+
+          # must be a CSV of host:port
+          hostports = filter( lambda x: len(x) > 0, data_servers.split(",") )
+          for hp in hostports:
+              host, port = url_to_host_port( hp )
+              assert host is not None and port is not None
+
 
       if parser.has_option('blockstack', 'announcers'):
          # must be a CSV of blockchain IDs
@@ -1057,19 +1026,22 @@ def default_blockstack_opts( config_file=None, virtualchain_impl=None ):
        'announcements': announcements,
        'backup_frequency': backup_frequency,
        'backup_max_age': backup_max_age,
-       'blockchain_proxy': blockchain_proxy,
        'serve_zonefiles': serve_zonefiles,
-       'serve_profiles': serve_profiles,
        'zonefile_storage_drivers': zonefile_storage_drivers,
+       'serve_profiles': serve_profiles,
        'profile_storage_drivers': profile_storage_drivers,
-       'zonefiles': zonefile_dir,
+       'serve_data': serve_data,
+       'data_storage_drivers': data_storage_drivers,
+       'redirect_data': redirect_data,
+       'data_servers': data_servers,
        'analytics_key': analytics_key,
        'server_version': server_version,
        'atlas': atlas_enabled,
        'atlas_seeds': atlas_seed_peers,
        'atlasdb_path': atlasdb_path,
        'atlas_blacklist': atlas_blacklist,
-       'atlas_hostname': atlas_hostname
+       'atlas_hostname': atlas_hostname,
+       'zonefiles': zonefile_dir,
    }
 
    # strip Nones
