@@ -38,6 +38,7 @@ from .config import get_logger, get_config
 from .constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 
 from .zonefile import load_data_pubkey_for_new_zonefile, get_name_zonefile, make_empty_zonefile
+from .keys import get_data_privkey_info 
 
 log = get_logger()
 
@@ -100,7 +101,7 @@ def load_legacy_user_profile(name, expected_hash):
 
 
 def get_user_profile(user_id, user_data_pubkey=None, user_zonefile=None, data_address=None, owner_address=None,
-                      use_zonefile_urls=True, storage_drivers=None, decode=True):
+                      use_zonefile_urls=True, storage_drivers=None, decode=True, blockchain_id=None):
     """
     Fetch and load a user profile, given a zonefile.
     Try to verify using the public key in the zonefile (if one
@@ -150,13 +151,14 @@ def get_user_profile(user_id, user_data_pubkey=None, user_zonefile=None, data_ad
     user_profile = storage.get_mutable_data(
         user_id, user_data_pubkey,
         data_address=data_address, owner_address=owner_address,
-        urls=urls, drivers=storage_drivers, decode=decode
+        urls=urls, drivers=storage_drivers, decode=decode,
+        blockchain_id=blockchain_id
     )
 
     return user_profile
 
 
-def put_profile(name, new_profile, user_data_privkey=None, user_zonefile=None, owner_address=None,
+def put_profile(name, new_profile, blockchain_id=None, user_data_privkey=None, user_zonefile=None,
                    proxy=None, wallet_keys=None, required_drivers=None):
     """
     Set the new profile data.  CLIENTS SHOULD NOT CALL THIS METHOD DIRECTLY.
@@ -184,7 +186,8 @@ def put_profile(name, new_profile, user_data_privkey=None, user_zonefile=None, o
     # deduce private key
     if user_data_privkey is None:
         user_data_privkey = get_data_privkey_info(user_zonefile, wallet_keys=wallet_keys, config_path=proxy.conf['path'])
-        if user_data_privkey is None:
+        if json_is_error(user_data_privkey):
+            log.error("Failed to get data private key: {}".format(user_data_privkey['error']))
             return {'error': 'No data key defined'}
 
     profile_payload = copy.deepcopy(new_profile)
@@ -197,7 +200,7 @@ def put_profile(name, new_profile, user_data_privkey=None, user_zonefile=None, o
     rc = storage.put_mutable_data(
         name, profile_payload, user_data_privkey,
         required=required_storage_drivers,
-        profile=True
+        profile=True, blockchain_id=blockchain_id
     )
 
     if rc:
@@ -209,7 +212,7 @@ def put_profile(name, new_profile, user_data_privkey=None, user_zonefile=None, o
 
 
 def delete_profile(name, user_data_privkey=None, user_zonefile=None,
-                   proxy=None, wallet_keys=None):
+                   proxy=None, wallet_keys=None, blockchain_id=None):
     """
     Delete profile data.  CLIENTS SHOULD NOT CALL THIS DIRECTLY
     Return {'status: True} on success
@@ -224,10 +227,11 @@ def delete_profile(name, user_data_privkey=None, user_zonefile=None,
     # deduce private key
     if user_data_privkey is None:
         user_data_privkey = get_data_privkey_info(user_zonefile, wallet_keys=wallet_keys, config_path=proxy.conf['path'])
-        if user_data_privkey is None:
+        if json_is_error(user_data_privkey):
+            log.error("Failed to get data private key: {}".format(user_data_privkey['error']))
             return {'error': 'No data key defined'}
 
-    rc = storage.delete_mutable_data(name, user_data_privkey)
+    rc = storage.delete_mutable_data(name, user_data_privkey, blockchain_id=blockchain_id)
     if rc:
         ret['status'] = True
     else:
@@ -237,7 +241,7 @@ def delete_profile(name, user_data_privkey=None, user_zonefile=None,
 
 
 def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=None,
-                     create_if_absent=False, proxy=None, user_zonefile=None, name_record=None,
+                     proxy=None, user_zonefile=None, name_record=None,
                      include_name_record=False, include_raw_zonefile=False, use_zonefile_urls=True,
                      use_legacy=False, use_legacy_zonefile=True, decode_profile=True):
     """
@@ -248,7 +252,7 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
     This only works for *names on the blockchain*, where the profile's user ID is the name itself.
     It *will not work* for arbitrary user_ids.  Use get_user_profile for that.
 
-    Notes on backwards compatibility (activated if use_legacy=True and use_legacy_zonefile):
+    Notes on backwards compatibility (activated if use_legacy=True and use_legacy_zonefile=True):
     
     * (use_legacy=True) If the user's zonefile is really a legacy profile from Onename, then
     the profile returned will be the converted legacy profile.  The returned zonefile will still
@@ -268,15 +272,12 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
     raw_zonefile = None
     if user_zonefile is None:
         user_zonefile = get_name_zonefile(
-            name, create_if_absent=create_if_absent, proxy=proxy,
+            name, proxy=proxy,
             name_record=name_record, include_name_record=True,
             storage_drivers=zonefile_storage_drivers,
             include_raw_zonefile=include_raw_zonefile,
             allow_legacy=True
         )
-
-        if user_zonefile is None:
-            return None, {'error': 'No user zonefile'}
 
         if 'error' in user_zonefile:
             return None, user_zonefile
@@ -336,7 +337,7 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
             name, user_zonefile=user_zonefile, data_address=data_address, owner_address=owner_address,
             use_zonefile_urls=use_zonefile_urls,
             storage_drivers=profile_storage_drivers,
-            decode=decode_profile
+            decode=decode_profile, blockchain_id=name
         )
 
         if user_profile is None or json_is_error(user_profile):
@@ -345,10 +346,7 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
             else:
                 log.debug('WARN: failed to load profile for {}: {}'.format(name, user_profile['error']))
 
-            if create_if_absent:
-                user_profile = user_db.make_empty_user_profile()
-            else:
-                return None, {'error': 'Failed to load user profile'}
+            return None, {'error': 'Failed to load user profile'}
 
     # finally, if the caller asked for the name record, and we didn't get a chance to look it up,
     # then go get it.
@@ -392,11 +390,10 @@ def get_and_migrate_profile(name, zonefile_storage_drivers=None, profile_storage
     name_record = None
     user_zonefile = get_name_zonefile(
         name, storage_drivers=zonefile_storage_drivers, proxy=proxy,
-        wallet_keys=wallet_keys, include_name_record=True,
-        allow_legacy=True
+        include_name_record=True, allow_legacy=True
     )
 
-    if user_zonefile is not None and 'error' not in user_zonefile:
+    if 'error' not in user_zonefile:
         name_record = user_zonefile.pop('name_record')
         user_zonefile = user_zonefile['zonefile']
 
