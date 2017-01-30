@@ -497,44 +497,61 @@ def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None
 
 def get_data_privkey(user_zonefile, wallet_keys=None, config_path=CONFIG_PATH):
     """
-    Get the user's data private key.
-    Use the private key that corresponds to the data public key in their zonefile.
-    (If the have a designated data public key, use the data private key.  If they don't,
-    use the owner private key).
+    Get the data private key that matches this zonefile.
+    * If the zonefile has a public key that this wallet does not have, then there is no data key.
+    * If the zonefile does not have a public key, then:
+      * if the data private key in the wallet matches the owner private key, then the wallet data key is the data key to use.
+      (this is for legacy compatibility with onename.com, which does not create data keys for users)
+      * otherwise, there is no data key
 
-    Return None if not set
+    Return the private key on success
+    Return {'error': ...} if we could not find the key
     """
     from .wallet import get_wallet
     from .user import user_zonefile_data_pubkey
 
-    try:
-        data_pubkey = user_zonefile_data_pubkey(user_zonefile)
-    except ValueError:
-        log.error('Multiple pubkeys defined')
-        return None
+    zonefile_data_pubkey = None
 
-    if data_pubkey is None:
-        log.error('No data public key defined')
-        return None
+    try:
+        # NOTE: uncompressed...
+        zonefile_data_pubkey = user_zonefile_data_pubkey(user_zonefile)
+    except ValueError:
+        log.error('Multiple pubkeys defined in zone file')
+        return {'error': 'Multiple data public keys in zonefile'}
 
     wallet_keys = {} if wallet_keys is None else wallet_keys
     if wallet_keys.get('data_privkey', None) is None:
         log.error('No data private key set')
-        return None
+        return {'error': 'No data private key in wallet keys'}
 
     wallet = get_wallet(config_path=CONFIG_PATH) if wallet_keys is None else wallet_keys
     assert wallet, 'Failed to get wallet'
 
-    data_privkey = wallet.get('data_privkey', None)
-    is_matching_keys = ECPrivateKey(data_privkey).public_key().to_hex() == data_pubkey
+    if not wallet.has_key('data_privkey'):
+        log.error("No data private key in wallet")
+        return {'error': 'No data private key in wallet'}
 
-    if data_privkey is None or not is_matching_keys:
-        # data private key doesn't match zonefile
-        log.error('Data private key does not match zonefile')
-        return None
+    data_privkey = wallet['data_privkey']
 
-    # zonefile matches data privkey
-    return ECPrivateKey(data_privkey).to_hex()
+    # NOTE: uncompresssed
+    wallet_data_pubkey = get_pubkey_hex(str(data_privkey))
+
+    if zonefile_data_pubkey is None and wallet_data_pubkey is not None:
+        # zone file does not have a data key set.
+        # the wallet data key *must* match the owner key
+        owner_privkey_info = wallet['owner_privkey']
+        owner_privkey = None
+        if is_singlesig(owner_privkey_info):
+            owner_privkey = owner_privkey_info
+        elif is_multisig(owner_privkey_info):
+            owner_privkey = owner_privkey_info['private_keys'][0]
+
+        owner_pubkey = get_pubkey_hex(str(owner_privkey))
+        if owner_pubkey != wallet_data_pubkey:
+            # doesn't match. no data key 
+            return {'error': 'No zone file key, and data key does not match owner key'}
+        
+    return str(data_privkey)
 
 
 def get_data_privkey_info(user_zonefile, wallet_keys=None, config_path=CONFIG_PATH):
