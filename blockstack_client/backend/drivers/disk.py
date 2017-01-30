@@ -29,16 +29,18 @@ import sys
 import traceback
 import logging
 from common import get_logger, DEBUG
+from ConfigParser import SafeConfigParser
 
 log = get_logger("blockstack-storage-driver-disk")
+
+DISK_ROOT = None
+MUTABLE_STORAGE_ROOT = None
+IMMUTABLE_STORAGE_ROOT = None
 
 if os.environ.get("BLOCKSTACK_TEST", None) is not None:
     DISK_ROOT = "/tmp/blockstack-disk"
 else:
     DISK_ROOT = os.path.expanduser("~/.blockstack/storage-disk")
-
-IMMUTABLE_STORAGE_ROOT = DISK_ROOT + "/immutable"
-MUTABLE_STORAGE_ROOT = DISK_ROOT + "/mutable"
 
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
@@ -50,15 +52,52 @@ def storage_init(conf):
    Return False on error 
    """
    global DISK_ROOT, MUTABLE_STORAGE_ROOT, IMMUTABLE_STORAGE_ROOT
-   
+
+   config_path = conf['path']
+   if os.path.exists( config_path ):
+
+       parser = SafeConfigParser()
+        
+       try:
+           parser.read(config_path)
+       except Exception, e:
+           log.exception(e)
+           return False
+
+       if parser.has_section('disk'):
+           
+           if parser.has_option('disk', 'root'):
+               DISK_ROOT = parser.get('disk', 'root')
+
+           if parser.has_option('disk', 'immutable'):
+               IMMUTABLE_STORAGE_ROOT = parser.get('disk', 'immutable')
+
+           if parser.has_option('disk', 'mutable'):
+               MUTABLE_STORAGE_ROOT = parser.get('disk', 'mutable')
+
+   if MUTABLE_STORAGE_ROOT is None:
+       MUTABLE_STORAGE_ROOT = os.path.join(DISK_ROOT, 'mutable')
+
+   if IMMUTABLE_STORAGE_ROOT is None:
+       IMMUTABLE_STORAGE_ROOT = os.path.join(DISK_ROOT, 'immutable')
+
    if not os.path.isdir( DISK_ROOT ):
-      os.makedirs( DISK_ROOT )
+      try:
+          os.makedirs( DISK_ROOT )
+      except:
+          pass
    
    if not os.path.isdir( MUTABLE_STORAGE_ROOT ):
-      os.makedirs( MUTABLE_STORAGE_ROOT )
+      try:
+          os.makedirs( MUTABLE_STORAGE_ROOT )
+      except:
+          pass
     
    if not os.path.isdir( IMMUTABLE_STORAGE_ROOT ):
-      os.makedirs( IMMUTABLE_STORAGE_ROOT )
+      try:
+          os.makedirs( IMMUTABLE_STORAGE_ROOT )
+      except:
+          pass
    
    return True 
 
