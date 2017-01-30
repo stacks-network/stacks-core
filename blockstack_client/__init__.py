@@ -44,7 +44,8 @@ from proxy import getinfo, ping, get_name_cost, get_namespace_cost, get_all_name
 from keys import make_wallet_keys, get_owner_privkey_info, get_data_privkey_info, get_payment_privkey_info
 
 from cli import get_cli_methods
-from client import session, get_default_proxy, set_default_proxy, register_storage, load_storage
+from client import session, get_default_proxy, set_default_proxy, register_storage, load_storage, storage_setup, \
+        check_storage_setup
 
 from snv import snv_lookup, lookup_snv
 from data import get_immutable, get_immutable_by_name, get_mutable, put_immutable, put_mutable, delete_immutable, \
@@ -64,7 +65,7 @@ from resolve import blockstack_data_url as make_data_url
 from resolve import BlockstackURLHandle, BlockstackHandler
 
 from storage import get_data_hash, get_blockchain_compat_hash, get_zonefile_data_hash
-from storage import get_storage_handlers, hash_zonefile
+from storage import get_storage_handlers, lookup_storage_handler, hash_zonefile
 from storage import parse_mutable_data as parse_signed_data
 from storage import sign_raw_data, verify_raw_data, sign_file_data, verify_file_data
 
