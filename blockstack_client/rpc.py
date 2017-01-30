@@ -58,6 +58,7 @@ import proxy
 from proxy import json_is_error
 
 from .constants import BLOCKSTACK_DEBUG, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH
+from .client import check_storage_setup
 from .method_parser import parse_methods
 import app
 import assets
@@ -191,6 +192,7 @@ def run_cli_rpc(command_name, argv, config_path=CONFIG_PATH, check_rpc=True, **k
     num_argv = len(argv)
     num_args = len(command_info['args'])
     num_opts = len(command_info['opts'])
+    pragmas = command_info['pragmas']
 
     if num_argv > num_args + num_opts:
         msg = 'Invalid number of arguments (need at most {}, got {})'
@@ -221,6 +223,13 @@ def run_cli_rpc(command_name, argv, config_path=CONFIG_PATH, check_rpc=True, **k
 
     if 'config_path' in kw:
         config_path = kw.pop('config_path')
+
+    if 'check_storage' in pragmas:
+        # need storage set up first
+        res = check_storage_setup(config_path=config_path)
+        if 'error' in res:
+            log.error("Storage is not set up for this wallet")
+            return {'error': 'Storage is not set up.  Please run `upgrade_storage`.'}
 
     res = command_info['method'](args, config_path=config_path, **kw)
 
@@ -790,6 +799,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         # serve back the page that lets users select whether or not
         # to create an account and begin an application session.
+        log.debug("Get app config for {}:{}".format(app_fqu, appname))
         app_config = app.app_get_config( app_fqu, appname, config_path=self.server.config_path )
         if 'error' in app_config:
             log.error("Failed to load app config for {}:{}".format(app_fqu, appname))
@@ -803,8 +813,18 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         app_methods = app_config['api_methods']
 
-        users = user_db.users_list( self.server.master_data_pubkey, config_path=self.server.config_path )
-        user_ids = [user['user_id'] for user in users]
+        log.debug("Get user list for {}".format(self.server.master_data_pubkey))
+        # users = user_db.users_list( self.server.master_data_pubkey, config_path=self.server.config_path )
+        users = data.get_user_list( self.server.master_data_pubkey, config_path=self.server.config_path )
+        if 'error' in users:
+            log.error("Failed to load users list")
+            error_page = assets.asset_make_error_page("Failed to get user list.")
+            self._send_headers(content_type='text/html')
+            self.wfile.write(error_page)
+            return
+
+        user_ids = users['user_ids']
+        # user_ids = [user['user_id'] for user in users]
         name_payload = {
             'name': app_fqu,
             'appname': appname
@@ -907,8 +927,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         self._send_headers(content_type='text/html')
 
+        """
         users = user_db.users_list(self.server.master_data_pubkey, config_path=self.server.config_path)
         app_users_txt = ["{}@{}:{}".format(a['user_id'], a['appname'], a['app_fqu']) for a in users]
+        """
+        users = data.get_user_list(self.server.master_data_pubkey, config_path=self.server.config_path)
+        if 'error' in users:
+            log.error("Failed to get user list")
+            error_page = assets.asset_make_error_page("Failed to get users list.")
+            self._send_headers(content_type='text/html')
+            self.wfile.write(error_page)
+            return
 
         home_page = assets.asset_make_home_page( app_users_txt )
         self.wfile.write( home_page )
@@ -1106,7 +1135,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         zonefile_res = zonefile.get_name_zonefile(name, raw_zonefile=True, name_record=name_rec)
         zonefile_txt = None
-        if zonefile_res is None or 'error' in zonefile_res:
+        if 'error' in zonefile_res:
             error = "No zonefile for name"
             if zonefile_res is not None:
                 error = zonefile_res['error']
@@ -2869,14 +2898,13 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
                 log.warning("Failed to load RPC token from {}".format(config_path))
 
         if wallet_keys is not None:
-            if not BLOCKSTACK_TEST:
-                assert wallet_keys.has_key('data_privkey')
+            assert wallet_keys.has_key('data_privkey')
 
-                self.master_data_privkey = ECPrivateKey(wallet_keys['data_privkey']).to_hex()
-                self.master_data_pubkey = ECPrivateKey(self.master_data_privkey).public_key().to_hex()
+            self.master_data_privkey = ECPrivateKey(wallet_keys['data_privkey']).to_hex()
+            self.master_data_pubkey = ECPrivateKey(self.master_data_privkey).public_key().to_hex()
 
-                if keylib.key_formatting.get_pubkey_format(self.master_data_pubkey) == 'hex_compressed':
-                    self.master_data_pubkey = keylib.key_formatting.decompress(self.master_data_pubkey)
+            if keylib.key_formatting.get_pubkey_format(self.master_data_pubkey) == 'hex_compressed':
+                self.master_data_pubkey = keylib.key_formatting.decompress(self.master_data_pubkey)
 
         self.register_api_functions(config_path, plugins)
 
@@ -3219,7 +3247,7 @@ def local_rpc_start(portnum, config_dir=blockstack_config.CONFIG_DIR, foreground
 
     if wallet['migrated']:
         log.error("Wallet is in legacy format")
-        print("Wallet is in legacy format.  Please migrate it first with the `migrate_wallet` command.")
+        print("Wallet is in legacy format.  Please migrate it first with the `upgrade_wallet` command.", file=sys.stderr)
         return False
 
     wallet = wallet['wallet']
@@ -3435,10 +3463,12 @@ def local_rpc_ensure_running(config_dir=blockstack_config.CONFIG_DIR, password=N
         return False
 
     # ping it
+    running = False
     for i in range(1, 4):
         try:
             local_proxy = local_rpc_connect(config_dir=config_dir)
             local_proxy.ping()
+            running = True
             break
         except requests.ConnectionError as ie:
             log.debug('API server is not responding; trying again in {} seconds'.format(i))
@@ -3454,7 +3484,7 @@ def local_rpc_ensure_running(config_dir=blockstack_config.CONFIG_DIR, password=N
             else:
                 raise
 
-    return True
+    return running
 
 
 def start_rpc_endpoint(config_dir=blockstack_config.CONFIG_DIR, password=None):
