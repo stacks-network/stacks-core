@@ -34,8 +34,6 @@ from .config import get_logger, get_config, semver_match
 
 log = get_logger()
 
-from wallet import *
-
 # ancillary storage providers
 STORAGE_IMPL = None
 ANALYTICS_KEY = None
@@ -65,11 +63,6 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
         if not semver_match(conf_version, VERSION):
             log.error("Failed to use legacy configuration file {}".format(config_path))
             return None
-
-    res = system_setup(config_path=config_path, password=wallet_password, interactive=False)
-    if 'error' in res:
-        log.error("System setup failed: {}".format(res['error']))
-        return None
 
     if conf is not None:
         if server_host is None:
@@ -289,28 +282,64 @@ def analytics_user_update(payload, proxy=None):
     return True
 
 
-def system_setup_mark_progress(config_path):
+def check_storage_setup(config_path=CONFIG_PATH):
     """
-    Mark on the FS that we've begun one-time setup
+    Verify whether or not we have successfully upgraded
+    to the latest storage format
+
+    Return {'status': True} on success
+    Return {'error': ...} on error
     """
+    from .wallet import get_addresses_from_file
+    
     config_dir = os.path.dirname(config_path)
-    setup_progress_path = os.path.join(config_dir, '.setup-progress-{}'.format(VERSION))
-    try:
-        with open(setup_progress_path, 'w') as f:
-            pass
 
-    except:
-        # TODO
-        log.err
+    _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
+    if data_pubkey is None:
+        return {'error': 'Wallet is not set up.  Please run `upgrade_wallet`'}
 
-def system_setup(config_path=CONFIG_PATH, password=None, interactive=True):
+    # use a file to indicate that setup is in progress (in case we get interrupted)
+    setup_complete_path = os.path.join(config_dir, '.storage-setup-complete-{}-{}'.format(data_pubkey, VERSION))
+    if os.path.exists(setup_complete_path):
+        # already did this
+        return {'status': True}
+
+    return {'error': 'Storage is not set up'}
+
+
+def set_storage_setup(config_path=CONFIG_PATH):
     """
-    Perform one-time system setup tasks:
+    Mark that we have successfully setup storage
+    """
+    from .wallet import get_addresses_from_file
+
+    # record that we've succeeded
+    config_dir = os.path.dirname(config_path)
+    _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
+    if data_pubkey is None:
+        return {'error': 'Wallet is not set up.  Please run `upgrade_wallet`'}
+
+    setup_complete_path = os.path.join(config_dir, '.storage-setup-complete-{}-{}'.format(data_pubkey, VERSION))
+    try:
+        with open(setup_complete_path, 'w') as f:
+            pass
+    except:
+        log.error("Failed to record successful startup")
+        return {'error': 'Failed to set up'}
+
+    return {'status': True}
+
+
+def storage_setup(blockchain_id, config_path=CONFIG_PATH, wallet_data=None, password=None, interactive=True):
+    """
+    Set up storage for this blockchain ID
     * make sure the wallet has been migrated to the latest format
-    * bootstrap mutable storage 
-    * inform the caller if their zone file has the wallet's data public key
+    * bootstrap mutable storage for the identity pointed to by the given name 
+        (making sure our wallet info is consistent with the blockchain ID)
 
     Return {'status': True} if all is well
+    Return {'error': ..., 'need_migrate': True} if the wallet needs to be updated
+    Return {'error': ..., 'need_migrate': False} if this is some other error
     """
     
     from .data import data_setup
@@ -318,71 +347,40 @@ def system_setup(config_path=CONFIG_PATH, password=None, interactive=True):
     
     config_dir = os.path.dirname(config_path)
 
-    # use a file to indicate that setup is in progress (in case we get interrupted)
-    setup_complete_path = os.path.join(config_dir, '.setup-complete-{}'.format(VERSION))
-    if os.path.exists(setup_complete_path):
-        # already did this
-        return {'status': True}
+    # make sure the wallet is migrated
+    res = wallet_setup(config_path=config_path, wallet_data=wallet_data, password=password, dry_run=True)
+    if 'error' in res:
+        log.error("wallet_setup failed")
+        return res
 
-    setup_progress_path = os.path.join(config_dir, '.setup-progress-{}'.format(VERSION))
-    if not interactive and os.path.exists(setup_progress_path):
-        # already in progress
-        return {'status': True}
+    if res['migrated']:
+        # wallet must be migrated
+        log.error("Wallet must be migrated to the latest format first")
+        return {'error': 'Wallet must be migrated. Please use the `upgrade_wallet` command.', 'need_migrate': True}
 
-    try:
-        with open(setup_progress_path, 'w') as f:
-            pass
+    wallet = res['wallet']
 
-    except:
-        log.error("Failed to begin system setup")
-        return {'error': 'Failed to begin system setup'}
-    
+    # are we good to do already?
+    res = check_storage_setup(config_path=config_path)
+    if 'error' not in res:
+        return res
+   
     if not interactive and password is None:
         log.error("No password given, and not in interactive mode")
-        try:
-            os.unlink(system_progress_path)
-        except:
-            pass
-
         return {'error': 'Password required'}
 
     log.debug("Doing one-time setup for Blockstack version {}".format(VERSION))
 
-    res = wallet_setup(config_path=config_path, password=password)
-    if 'error' in res:
-        try:
-            os.unlink(system_progress_path)
-        except:
-            pass
-
-        log.error("wallet_setup failed")
-        return res
-
-    wallet = res['wallet']
-
     # make sure we have private key indexes and user listings set up
-    res = data_setup(password, wallet_keys=wallet, config_path=config_path)
+    res = data_setup(blockchain_id, password, wallet_keys=wallet, config_path=config_path)
     if 'error' in res:
-        
-        try:
-            os.unlink(system_progress_path)
-        except:
-            pass
-
         log.error("data_setup failed")
+        res['need_migrate'] = False
         return res
 
-    # record that we've succeeded 
-    try:
-        with open(setup_complete_path, 'w') as f:
-            pass
-    except:
-        log.error("Failed to record successful startup")
-   
-    try:
-        os.unlink(system_progress_path)
-    except:
-        pass
+    res = set_storage_setup(config_path=config_path)
+    if 'error' in res:
+        return res
 
     return {'status': True}
 
