@@ -353,7 +353,9 @@ def user_zonefile_data_pubkey(user_zonefile, key_prefix='pubkey:data:'):
     Return None if not defined
     Raise if there are multiple ones.
     """
-    assert is_user_zonefile(user_zonefile)
+    if not is_user_zonefile(user_zonefile):
+        log.debug("invalid zone file")
+        return None
 
     if 'txt' not in user_zonefile:
         return None
@@ -504,7 +506,9 @@ def put_immutable_data_zonefile(user_zonefile, data_id, data_hash, data_url=None
     Return False otherwise.
     """
 
-    assert is_user_zonefile(user_zonefile)
+    if not is_user_zonefile(user_zonefile):
+        log.debug("Invalid zone file structure")
+        return False
 
     data_hash = str(data_hash)
     assert scripts.is_valid_hash(data_hash)
@@ -631,7 +635,9 @@ def has_immutable_data_id(user_zonefile, data_id):
     Return True if so
     Return False if not
     """
-    assert is_user_zonefile(user_zonefile)
+    if not is_user_zonefile(user_zonefile):
+        log.debug("Not a valid zone file")
+        return False
 
     if 'txt' not in user_zonefile:
         return False
