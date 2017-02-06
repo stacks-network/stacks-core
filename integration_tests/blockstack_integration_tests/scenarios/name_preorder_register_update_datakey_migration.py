@@ -52,6 +52,11 @@ def scenario( wallets, **kw ):
 
     global datasets
 
+    wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, None )
+
+    test_proxy = testlib.TestAPIProxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
@@ -67,17 +72,12 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
-    test_proxy = testlib.TestAPIProxy()
-    blockstack_client.set_default_proxy( test_proxy )
-    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, payment_privkey=wallets[5].privkey )
-    
     # migrate profile (but no data key)
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
         res['test'] = 'Failed to initialize foo.test profile'
         print json.dumps(res, indent=4, sort_keys=True)
-        error = True
-        return 
+        return False 
 
     # tell serialization-checker that value_hash can be ignored here
     print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
@@ -87,12 +87,12 @@ def scenario( wallets, **kw ):
 
     # put immutable (with owner key)
     log.debug("put immutable 1 with owner key")
-    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1_immutable", datasets[0], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None ) 
+    
+    put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_1_immutable", json.dumps(datasets[0]), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
-        error = True
-        return
+        return False
 
     testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
 
@@ -108,12 +108,10 @@ def scenario( wallets, **kw ):
     
     # put immutable (with owner key)
     log.debug("put immutable 2 with owner key")
-    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_2_immutable", datasets[1], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
+    testlib.blockstack_cli_put_immutable("foo.test", "hello_world_2_immutable", json.dumps(datasets[1]), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
-        error = True
-        return
+        return False
 
     testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
 
@@ -129,19 +127,17 @@ def scenario( wallets, **kw ):
 
     # put mutable (with owner key)
     log.debug("put mutable 1 with owner key")
-    put_result = blockstack_client.put_mutable( "foo.test", "hello_world_1_mutable", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_1_mutable", json.dumps(datasets[0]), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
-        error = True
-        return
+        return False
 
     # put mutable (with owner key)
     log.debug("put mutable 2 with owner key")
-    put_result = blockstack_client.put_mutable( "foo.test", "hello_world_2_mutable", datasets[1], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_2_mutable", json.dumps(datasets[1]), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
-        error = True 
-        return
+        return False
 
     testlib.next_block( **kw )
 
@@ -149,13 +145,9 @@ def scenario( wallets, **kw ):
     res = blockstack_client.set_data_pubkey("foo.test", wallets[4].pubkey_hex, wallet_keys=wallet_keys, proxy=test_proxy )
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
-        error = True
-        return 
+        return False 
 
     testlib.expect_atlas_zonefile(res['zonefile_hash'])
-
-    wallet_keys['data_privkey'] = wallets[4].privkey
-    wallet_keys['data_pubkey'] = wallets[4].pubkey_hex
 
     # tell serialization-checker that value_hash can be ignored here
     print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
@@ -171,14 +163,13 @@ def scenario( wallets, **kw ):
     log.debug("put immutable with new key")
 
     # restart daemon
-    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
+    wallet_keys = testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
 
     # put immutable
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3_immutable", datasets[2], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_3_immutable", json.dumps(datasets[2]), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
-        error = True
-        return
+        return False
 
     testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
 
@@ -194,21 +185,19 @@ def scenario( wallets, **kw ):
 
     # put mutable (with new key)
     log.debug("put mutable with new key")
-    put_result = blockstack_client.put_mutable( "foo.test", "hello_world_3_mutable", datasets[2], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_3_mutable", json.dumps(datasets[2]), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
-        error = True 
-        return
+        return False
 
     testlib.next_block( **kw )
 
     # delete immutable (new key)
     log.debug("delete immutable with new key")
-    result = blockstack_client.delete_immutable( "foo.test", None, data_id="hello_world_1_immutable", proxy=test_proxy, wallet_keys=wallet_keys )
+    result = testlib.blockstack_cli_delete_immutable("foo.test", "hello_world_1_immutable", password='0123456789abcedef')
     if 'error' in result:
         print json.dumps(result, indent=4, sort_keys=True)
-        error = True
-        return 
+        return False 
 
     testlib.expect_atlas_zonefile(result['zonefile_hash'])
 
@@ -224,11 +213,10 @@ def scenario( wallets, **kw ):
 
     # delete mutable (new key)
     log.debug("delete mutable with new key")
-    result = blockstack_client.delete_mutable( "foo.test", "hello_world_1_mutable", proxy=test_proxy, wallet_keys=wallet_keys )
+    result = testlib.blockstack_cli_delete_mutable("foo.test", "hello_world-1_mutable", password='0123456789abcdef')
     if 'error' in result:
         print json.dumps(result, indent=4, sort_keys=True)
-        error = True
-        return
+        return False
 
     testlib.next_block( **kw )
 
@@ -276,7 +264,7 @@ def check( state_engine ):
 
     # should always work
     for i in xrange(1, len(datasets)):
-        immutable_data = blockstack_client.get_immutable_by_name( "foo.test", "hello_world_%s_immutable" % (i+1), proxy=test_proxy )
+        immutable_data = testlib.blockstack_cli_get_immutable('foo.test', 'hello_world_{}_immutable'.format(i+1))
         if immutable_data is None:
             print "No data received for immutable dataset %s" % i
             return False 
@@ -289,12 +277,12 @@ def check( state_engine ):
             print "Missing data\n%s" % json.dumps(immutable_data, indent=4, sort_keys=True)
             return False 
 
-        data_json = immutable_data['data']
+        data_json = json.loads(immutable_data['data'])
         if data_json != datasets[i]:
             print "did not get dataset %s\ngot %s\nexpected %s" % (i, data_json, datasets[i])
             return False 
 
-        mutable_data = blockstack_client.get_mutable( "foo.test", "hello_world_%s_mutable" % (i+1), proxy=test_proxy )
+        mutable_data = testlib.blockstack_cli_get_mutable('foo.test', 'hello_world_{}_mutable'.format(i+1))
         if mutable_data is None:
             print "No data received for mutable dataset %s" % (i+1)
             return False
@@ -303,18 +291,18 @@ def check( state_engine ):
             print "No data received for mutable dataset %s: %s" % (i+1, mutable_data['error'])
             return False
 
-        data_json = mutable_data['data']
+        data_json = json.loads(mutable_data['data'])
         if data_json != datasets[i]:
             print "did not get dataset %s\ngot %s\nexpected %s" % (i+1, data_json, datasets[i])
             return False
 
     # should fail 
-    immutable_data = blockstack_client.get_immutable_by_name( "foo.test", "hello_world_1_immutable", proxy=test_proxy)
+    immutable_data = testlib.blockstack_cli_get_immutable('foo.test', 'hello_world_1_immutable')
     if immutable_data is not None and 'error' not in immutable_data:
         print "Got deleted immutable dataset"
         return False
 
-    mutable_data = blockstack_client.get_mutable( "foo.tesT", "hello_world_1_mutable", proxy=test_proxy )
+    mutable_data = testlib.blockstack_cli_get_mutable( "foo.test", "hello_world_1_mutable")
     if mutable_data is not None and 'error' not in mutable_data:
         print "Got deleted mutable dataset"
         return False
