@@ -242,12 +242,17 @@ def broadcast_transaction( *args, **kw ):
     return utxo_client.broadcast_transaction( *args, **kw )
 
 
-def make_proxy(password=None):
+def make_proxy(password=None, config_path=None):
     """
     Create a blockstack client API proxy
     """
-    client_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
-    assert client_path is not None
+    client_path = None
+    if config_path is None:
+        client_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+        assert client_path is not None
+
+    else:
+        client_path = config_path
 
     client_config = blockstack_client.get_config(client_path)
     proxy = blockstack_client.session( conf=client_config, wallet_password=password )
@@ -262,12 +267,13 @@ def make_proxy(password=None):
     return proxy
 
 
-def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, subsidy_key=None, consensus_hash=None, safety_checks=False ):
+def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, subsidy_key=None, consensus_hash=None, safety_checks=False, config_path=None ):
 
     global api_call_history 
 
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     name_cost_info = test_proxy.get_name_cost( name )
     assert 'satoshis' in name_cost_info, "error getting cost of %s: %s" % (name, name_cost_info)
@@ -280,16 +286,17 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, subs
 
     log.debug("Preorder '%s' for %s satoshis" % (name, name_cost_info['satoshis']))
 
-    resp = blockstack_client.do_preorder( name, privatekey, register_addr, name_cost_info['satoshis'], test_proxy, test_proxy, owner_privkey_params=register_privkey_params, consensus_hash=consensus_hash, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
+    resp = blockstack_client.do_preorder( name, privatekey, register_addr, name_cost_info['satoshis'], test_proxy, test_proxy, owner_privkey_params=register_privkey_params, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     api_call_history.append( APICallRecord( "preorder", name, resp ) )
     return resp
 
 
-def blockstack_name_register( name, privatekey, register_addr, wallet=None, subsidy_key=None, user_public_key=None, safety_checks=False ):
+def blockstack_name_register( name, privatekey, register_addr, wallet=None, subsidy_key=None, user_public_key=None, safety_checks=False, config_path=None ):
     
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     register_addr = virtualchain.address_reencode(register_addr)
 
@@ -297,43 +304,46 @@ def blockstack_name_register( name, privatekey, register_addr, wallet=None, subs
     if wallet is not None:
         register_privkey_params = get_privkey_info_params( wallet.privkey )
 
-    resp = blockstack_client.do_register( name, privatekey, register_addr, test_proxy, test_proxy, owner_privkey_params=register_privkey_params, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
+    resp = blockstack_client.do_register( name, privatekey, register_addr, test_proxy, test_proxy, owner_privkey_params=register_privkey_params, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "register", name, resp ) )
     return resp
 
 
-def blockstack_name_update( name, data_hash, privatekey, user_public_key=None, subsidy_key=None, consensus_hash=None, test_api_proxy=True, safety_checks=False ):
+def blockstack_name_update( name, data_hash, privatekey, user_public_key=None, subsidy_key=None, consensus_hash=None, test_api_proxy=True, safety_checks=False, config_path=None ):
     
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     payment_key = get_default_payment_wallet().privkey
     if subsidy_key is not None:
         payment_key = subsidy_key
 
-    resp = blockstack_client.do_update( name, data_hash, privatekey, payment_key, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
+    resp = blockstack_client.do_update( name, data_hash, privatekey, payment_key, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "update", name, resp ) )
     return resp
 
 
-def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_key=None, subsidy_key=None, consensus_hash=None, safety_checks=False ):
+def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_key=None, subsidy_key=None, consensus_hash=None, safety_checks=False, config_path=None ):
      
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     payment_key = get_default_payment_wallet().privkey
     if subsidy_key is not None:
         payment_key = subsidy_key 
 
-    resp = blockstack_client.do_transfer( name, address, keepdata, privatekey, payment_key, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks)
+    resp = blockstack_client.do_transfer( name, address, keepdata, privatekey, payment_key, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks)
     api_call_history.append( APICallRecord( "transfer", name, resp ) )
     return resp
 
 
-def blockstack_name_renew( name, privatekey, register_addr=None, subsidy_key=None, user_public_key=None, safety_checks=False ):
+def blockstack_name_renew( name, privatekey, register_addr=None, subsidy_key=None, user_public_key=None, safety_checks=False, config_path=None ):
     
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     name_cost_info = test_proxy.get_name_cost( name )
     if register_addr is None:
@@ -346,40 +356,43 @@ def blockstack_name_renew( name, privatekey, register_addr=None, subsidy_key=Non
         payment_key = subsidy_key 
 
     log.debug("Renew %s for %s satoshis" % (name, name_cost_info['satoshis']))
-    resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['satoshis'], test_proxy, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
+    resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['satoshis'], test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     api_call_history.append( APICallRecord( "renew", name, resp ) )
     return resp
 
 
-def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, user_public_key=None, safety_checks=False ):
+def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, user_public_key=None, safety_checks=False, config_path=None ):
     
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     payment_key = get_default_payment_wallet().privkey
     if subsidy_key is not None:
         payment_key = subsidy_key
 
-    resp = blockstack_client.do_revoke( name, privatekey, payment_key, test_proxy, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
+    resp = blockstack_client.do_revoke( name, privatekey, payment_key, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "revoke", name, resp ) )
     return resp
 
 
-def blockstack_name_import( name, recipient_address, update_hash, privatekey, safety_checks=False ):
+def blockstack_name_import( name, recipient_address, update_hash, privatekey, safety_checks=False, config_path=None ):
     
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
-    resp = blockstack_client.do_name_import( name, privatekey, recipient_address, update_hash, test_proxy, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
+    resp = blockstack_client.do_name_import( name, privatekey, recipient_address, update_hash, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "name_import", name, resp ) )
     return resp
 
 
-def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, consensus_hash=None, safety_checks=False ):
+def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, consensus_hash=None, safety_checks=False, config_path=None ):
     
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     register_addr = virtualchain.address_reencode(register_addr)
 
@@ -388,49 +401,55 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
         log.error("Failed to get namespace cost for '%s': %s" % (namespace_id, namespace_cost['error']))
         return {'error': 'Failed to get namespace costs'}
 
-    resp = blockstack_client.do_namespace_preorder( namespace_id, namespace_cost['satoshis'], privatekey, register_addr, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
+    resp = blockstack_client.do_namespace_preorder( namespace_id, namespace_cost['satoshis'], privatekey, register_addr, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, resp ) )
     return resp
 
 
-def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, safety_checks=False ):
+def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, safety_checks=False, config_path=None ):
     
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     register_addr = virtualchain.address_reencode(register_addr)
 
-    resp = blockstack_client.do_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, test_proxy, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy)
+    resp = blockstack_client.do_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy)
     api_call_history.append( APICallRecord( "namespace_reveal", namespace_id, resp ) )
     return resp
 
 
-def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=False ):
+def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=False, config_path=None ):
     
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
     
-    resp = blockstack_client.do_namespace_ready( namespace_id, privatekey, test_proxy, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks ) 
+    resp = blockstack_client.do_namespace_ready( namespace_id, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks ) 
     api_call_history.append( APICallRecord( "namespace_ready", namespace_id, resp ) )
     return resp
 
 
-def blockstack_announce( message, privatekey, user_public_key=None, subsidy_key=None, safety_checks=False ):
+def blockstack_announce( message, privatekey, user_public_key=None, subsidy_key=None, safety_checks=False, config_path=None ):
     
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
-    resp = blockstack_client.do_announce( message, privatekey, test_proxy, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
+    resp = blockstack_client.do_announce( message, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "announce", message, resp ) )
     return resp
 
 
-def blockstack_client_initialize_wallet( password, payment_privkey, owner_privkey, data_privkey, exception=True, start_rpc=True ):
+def blockstack_client_initialize_wallet( password, payment_privkey, owner_privkey, data_privkey, exception=True, start_rpc=True, config_path=None ):
     """
     Set up a wallet on disk.  Private keys can be single private keys or multisig bundles
+    Optionally save it somewhere besides the default config path
     """
-    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
-    assert config_path is not None
+    if config_path is None:
+        config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+        assert config_path is not None
+
     config_dir = os.path.dirname(config_path)
 
     wallet_path = os.path.join( os.path.dirname(config_path), blockstack_client.config.WALLET_FILENAME )
@@ -482,12 +501,13 @@ def blockstack_client_initialize_wallet( password, payment_privkey, owner_privke
     return wallet
 
 
-def blockstack_client_get_wallet():
+def blockstack_client_get_wallet(config_path=None):
     """
     Get the wallet from the running RPC daemon
     """
-    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
-    assert config_path is not None
+    if config_path is None:
+        config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+        assert config_path is not None
 
     wallet = blockstack_client.wallet.get_wallet( config_path )
     if 'error' in wallet:
@@ -497,16 +517,17 @@ def blockstack_client_get_wallet():
     return wallet
 
 
-def blockstack_client_set_wallet( password, payment_privkey, owner_privkey, data_privkey ):
+def blockstack_client_set_wallet( password, payment_privkey, owner_privkey, data_privkey, config_path=None):
     """
     Set the wallet to a runnin RPC daemon
     """
-    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
-    assert config_path is not None
+    if config_path is None:
+        config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+        assert config_path is not None
 
     config_dir = os.path.dirname(config_path)
 
-    wallet = blockstack_client_initialize_wallet( password, payment_privkey, owner_privkey, data_privkey, start_rpc=False )
+    wallet = blockstack_client_initialize_wallet( password, payment_privkey, owner_privkey, data_privkey, start_rpc=False, config_path=None )
     if 'error' in wallet:
         log.error("Failed to initialize wallet: %s" % wallet['error'])
         raise Exception("Failed to initialize wallet")
@@ -520,45 +541,48 @@ def blockstack_client_set_wallet( password, payment_privkey, owner_privkey, data
     return wallet
 
 
-def blockstack_client_queue_state():
+def blockstack_client_queue_state(config_path=None):
     """
     Get queue information from the client backend
     """
-    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
-    assert config_path is not None
+    if config_path is None:
+        config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+        assert config_path is not None
    
     conf = blockstack_client.get_config(config_path)
     queue_info = blockstack_client.backend.queue.get_queue_state( path=conf['queue_path'])
     return queue_info
 
 
-def blockstack_cli_register( name, password ):
+def blockstack_cli_register( name, password, config_path=None):
     """
     Register a name, using the backend RPC endpoint
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
     args.name = name
-    resp = cli_register( args, config_path=test_proxy.config_path, password=password, interactive=False, proxy=test_proxy )
+    resp = cli_register( args, config_path=config_path, password=password, interactive=False, proxy=test_proxy )
     return resp
 
 
-def blockstack_cli_update( name, zonefile_json, password, nonstandard=True ):
+def blockstack_cli_update( name, zonefile_json, password, nonstandard=True, config_path=None):
     """
     Update a name's value hash to point to the new zonefile
     """
     global atlas_zonefiles_present
 
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
     args.name = name
     args.data = zonefile_json 
 
-    resp = cli_update( args, config_path=test_proxy.config_path, password=password, interactive=False, nonstandard=nonstandard )
+    resp = cli_update( args, config_path=config_path, password=password, interactive=False, nonstandard=nonstandard )
 
     if 'value_hash' in resp:
         atlas_zonefiles_present.append( resp['value_hash'] )
@@ -566,276 +590,305 @@ def blockstack_cli_update( name, zonefile_json, password, nonstandard=True ):
     return resp
 
 
-def blockstack_cli_transfer( name, new_owner_address, password ):
+def blockstack_cli_transfer( name, new_owner_address, password, config_path=None):
     """
     transfer a name to a new address
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
     args.name = name
     args.address = new_owner_address
 
-    resp = cli_transfer( args, config_path=test_proxy.config_path, password=password )
+    resp = cli_transfer( args, config_path=config_path, password=password )
     return resp
 
 
-def blockstack_cli_renew( name, password ):
+def blockstack_cli_renew( name, password, config_path=None):
     """
     Renew a name, using the backend RPC endpoint
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
     args.name = name
 
-    resp = cli_renew( args, config_path=test_proxy.config_path, password=password, interactive=False, proxy=test_proxy )
+    resp = cli_renew( args, config_path=config_path, password=password, interactive=False, proxy=test_proxy )
     return resp
 
 
-def blockstack_cli_revoke( name, password ):
+def blockstack_cli_revoke( name, password, config_path=None):
     """
     Revoke a name, using the backend RPC endpoint
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
     args.name = name
 
-    resp = cli_revoke( args, config_path=test_proxy.config_path, password=password, interactive=False, proxy=test_proxy )
+    resp = cli_revoke( args, config_path=config_path, password=password, interactive=False, proxy=test_proxy )
     return resp
 
 
-def blockstack_cli_names():
+def blockstack_cli_names(config_path=None):
     """
     Get the list of nams owned by the local wallet
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
-    resp = cli_names( args, config_path=test_proxy.config_path )
+    resp = cli_names( args, config_path=config_path )
     return resp
 
  
-def blockstack_cli_set_zonefile_hash( name, zonefile_hash ):
+def blockstack_cli_set_zonefile_hash( name, zonefile_hash, config_path=None):
     """
     Set the zonefile hash directly
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
     args.name = name
     args.zonefile_hash = zonefile_hash
 
-    resp = cli_set_zonefile_hash( args, config_path=test_proxy.config_path )
+    resp = cli_set_zonefile_hash( args, config_path=config_path )
     return resp
 
 
-def blockstack_cli_sync_zonefile( name, zonefile_string=None, txid=None, interactive=False, nonstandard=True ):
+def blockstack_cli_sync_zonefile( name, zonefile_string=None, txid=None, interactive=False, nonstandard=True, config_path=None):
     """
     Forcibly synchronize the zonefile
     """
     global atlas_zonefiles_present
 
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
     args.name = name
     args.zonefile = zonefile_string
     args.txid = txid
 
-    resp = cli_sync_zonefile( args, config_path=test_proxy.config_path, proxy=test_proxy, interactive=interactive, nonstandard=nonstandard )
+    resp = cli_sync_zonefile( args, config_path=config_path, proxy=test_proxy, interactive=interactive, nonstandard=nonstandard )
     if 'value_hash' in resp:
         atlas_zonefiles_present.append( resp['value_hash'] )
 
     return resp
 
 
-def blockstack_cli_balance():
+def blockstack_cli_balance(config_path=None):
     """
     Get the balance
     """
     args = CLIArgs()
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
-    return cli_balance( args, config_path=test_proxy.config_path )
+    return cli_balance( args, config_path=config_path )
 
 
-def blockstack_cli_price( name, password ):
+def blockstack_cli_price( name, password, config_path=None):
     """
     Get the price of a name
     """
     args = CLIArgs()
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     args.name = name
-    return cli_price( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password )
+    return cli_price( args, config_path=config_path, proxy=test_proxy, password=password )
 
 
-def blockstack_cli_deposit():
+def blockstack_cli_deposit(config_path=None):
     """
     Get the deposit information
     """
     args = CLIArgs()
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
-    return cli_deposit( args, config_path=test_proxy.config_path )
+    return cli_deposit( args, config_path=config_path )
 
 
-def blockstack_cli_import():
+def blockstack_cli_import(config_path=None):
     """
     Get name import information
     """
     args = CLIArgs()
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
-    return cli_import( args, config_path=test_proxy.config_path )
+    return cli_import( args, config_path=config_path )
 
 
-def blockstack_cli_info():
+def blockstack_cli_info(config_path=None):
     """
     Get name and server information
     """
     args = CLIArgs()
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
-    return cli_info( args, config_path=test_proxy.config_path )
+    return cli_info( args, config_path=config_path )
     
 
-def blockstack_cli_whois( name ):
+def blockstack_cli_whois( name, config_path=None):
     """
     Get the WHOIS information for a name
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
     args.name = name
 
-    resp = cli_whois( args, config_path=test_proxy.config_path )
+    resp = cli_whois( args, config_path=config_path )
     return resp
 
 
-def blockstack_cli_ping():
+def blockstack_cli_ping(config_path=None):
     """
     Ping the running server
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
 
-    return cli_ping( args, config_path=test_proxy.config_path )
+    return cli_ping( args, config_path=config_path )
 
 
-def blockstack_cli_lookup( name ):
+def blockstack_cli_lookup( name, config_path=None):
     """
     Look up a name's zonefile/profile
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
 
-    return cli_lookup( args, config_path=test_proxy.config_path )
+    return cli_lookup( args, config_path=config_path )
 
 
-def blockstack_cli_migrate( name, password, force=False ):
+def blockstack_cli_migrate( name, password, force=False, config_path=None):
     """
     Migrate from legacy zonefile to new zonefile
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
    
     args.name = name
 
-    return cli_migrate( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password, interactive=False, force=force )
+    return cli_migrate( args, config_path=config_path, proxy=test_proxy, password=password, interactive=False, force=force )
     
 
-def blockstack_cli_import_wallet( password, payment_privkey, owner_privkey, data_privkey=None, force=False ):
+def blockstack_cli_import_wallet( password, payment_privkey, owner_privkey, data_privkey=None, force=False, config_path=None):
     """
     Import a wallet
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.payment_privkey = payment_privkey
     args.owner_privkey = owner_privkey
     args.data_privkey = data_privkey
 
-    return cli_import_wallet( args, config_path=test_proxy.config_path, password=password, force=force )
+    return cli_import_wallet( args, config_path=config_path, password=password, force=force )
 
 
-def blockstack_cli_upgrade_wallet( password ):
+def blockstack_cli_upgrade_wallet( password, config_path=None):
     """
     Upgrade wallet
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
-    return cli_upgrade_wallet(args, config_path=test_proxy.config_path, password=password )
+    return cli_upgrade_wallet(args, config_path=config_path, password=password )
 
 
 def blockstack_cli_upgrade_storage( name, password=None, wallet_keys=None):
     """
     Upgrade storage
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy(test_proxy)
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
     
     args.name = name
     
-    return cli_upgrade_storage(args, config_path=test_proxy.config_path, password=password, wallet_keys=wallet_keys, interactive=False)
+    return cli_upgrade_storage(args, config_path=config_path, password=password, wallet_keys=wallet_keys, interactive=False)
 
 
-def blockstack_cli_list_accounts( name ):
+def blockstack_cli_list_accounts( name, config_path=None):
     """
     list a name's accounts
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
 
-    return cli_list_accounts( args, config_path=test_proxy.config_path, proxy=test_proxy )
+    return cli_list_accounts( args, config_path=config_path, proxy=test_proxy )
 
 
-def blockstack_cli_get_account( name, service, identifier ):
+def blockstack_cli_get_account( name, service, identifier, config_path=None):
     """
     get an account by name/service/serviceID
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.service = service
     args.identifier = identifier
 
-    return cli_get_account( args, config_path=test_proxy.config_path, proxy=test_proxy )
+    return cli_get_account( args, config_path=config_path, proxy=test_proxy )
 
 
 def blockstack_cli_put_account( name, service, identifier, content_url, password, extra_data=None, wallet_keys=None):
     """
     put an account
     """
-    test_proxy = make_proxy(password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
@@ -844,121 +897,133 @@ def blockstack_cli_put_account( name, service, identifier, content_url, password
     args.content_url = content_url
     args.extra_data = extra_data
 
-    return cli_put_account( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password, wallet_keys=wallet_keys )
+    return cli_put_account( args, config_path=config_path, proxy=test_proxy, password=password, wallet_keys=wallet_keys )
 
 
-def blockstack_cli_delete_account( name, service, identifier, password, wallet_keys=None ):
+def blockstack_cli_delete_account( name, service, identifier, password, wallet_keys=None, config_path=None):
     """
     delete an account
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.service = service
     args.identifier = identifier
 
-    return cli_delete_account( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password, wallet_keys=wallet_keys )
+    return cli_delete_account( args, config_path=config_path, proxy=test_proxy, password=password, wallet_keys=wallet_keys )
 
 
-def blockstack_cli_wallet( password ):
+def blockstack_cli_wallet( password, config_path=None):
     """
     get the wallet
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     try:
-        return cli_wallet( args, config_path=test_proxy.config_path, password=password )
+        return cli_wallet( args, config_path=config_path, password=password )
     except NameError:
         # 0.14.0.x
-        return cli_advanced_wallet( args, config_path=test_proxy.config_path, password=password )
+        return cli_advanced_wallet( args, config_path=config_path, password=password )
     
 
-def blockstack_cli_consensus( height=None ):
+def blockstack_cli_consensus( height=None, config_path=None):
     """
     get consensus
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
     
     args.block_height = height
 
-    return cli_consensus( args, config_path=test_proxy.config_path )
+    return cli_consensus( args, config_path=config_path )
 
 
-def blockstack_cli_rpcctl( command ):
+def blockstack_cli_rpcctl( command, config_path=None):
     """
     control-command to the RPC daemon
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.command = command
 
     try:
-        return cli_rpcctl( args, config_path=test_proxy.config_path )
+        return cli_rpcctl( args, config_path=config_path )
     except NameError:
         # 0.14.0.x
-        return cli_advanced_rpcctl( args, config_path=test_proxy.config_path )
+        return cli_advanced_rpcctl( args, config_path=config_path )
 
 
-def blockstack_cli_rpc( method, rpc_args=None, rpc_kw=None ):
+def blockstack_cli_rpc( method, rpc_args=None, rpc_kw=None, config_path=None):
     """
     send an RPC command to the RPC daemon
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.method = method
     args.args = rpc_args
     args.kwargs = rpc_kw
 
-    return cli_rpc( args, config_path=test_proxy.config_path )
+    return cli_rpc( args, config_path=config_path )
 
 
-def blockstack_cli_name_import( name, address, value_hash, owner_privkey ):
+def blockstack_cli_name_import( name, address, value_hash, owner_privkey, config_path=None):
     """
     do a name import in the CLI
     """
     raise Exception("BROKEN IN THE CLIENT")
 
 
-def blockstack_cli_namespace_preorder( namespace_id, owner_privkey, reveal_address ):
+def blockstack_cli_namespace_preorder( namespace_id, owner_privkey, reveal_address, config_path=None):
     """
     do a namespace preorder in the CLI
     """
     raise Exception("BROKEN IN THE CLIENT")
 
 
-def blockstack_cli_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base, buckets, nonalpha_discount, no_vowel_discount, reveal_privkey ):
+def blockstack_cli_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base, buckets, nonalpha_discount, no_vowel_discount, reveal_privkey, config_path=None):
     """
     do a namespace reveal in the CLI
     """
     raise Exception("BROKEN IN THE CLIENT")
 
 
-def blockstack_cli_put_mutable( name, data_id, data_json_str, password=None ):
+def blockstack_cli_put_mutable( name, data_id, data_json_str, password=None, config_path=None):
     """
     put mutable data
     """
     global data_urls
     global data_ids
 
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.data_id = data_id
     args.data = data_json_str
 
-    res = cli_put_mutable( args, config_path=test_proxy.config_path, password=password )
+    res = cli_put_mutable( args, config_path=config_path, password=password )
     if 'error' in res:
         return res
 
@@ -984,22 +1049,24 @@ def blockstack_cli_put_mutable( name, data_id, data_json_str, password=None ):
     return res
 
 
-def blockstack_cli_put_immutable( name, data_id, data_json_str, password=None ):
+def blockstack_cli_put_immutable( name, data_id, data_json_str, password=None, config_path=None):
     """
     put immutable data
     """
     global data_urls
     global data_ids
 
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.data_id = data_id
     args.data = data_json_str
 
-    res = cli_put_immutable( args, config_path=test_proxy.config_path, password=password )
+    res = cli_put_immutable( args, config_path=config_path, password=password )
     if 'error' in res:
         return res
 
@@ -1015,85 +1082,97 @@ def blockstack_cli_put_immutable( name, data_id, data_json_str, password=None ):
 
 
 
-def blockstack_cli_get_mutable( name, data_id ):
+def blockstack_cli_get_mutable( name, data_id, config_path=None):
     """
     get mutable data
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.data_id = data_id
 
-    return cli_get_mutable( args, config_path=test_proxy.config_path )
+    return cli_get_mutable( args, config_path=config_path )
 
 
-def blockstack_cli_get_immutable( name, data_id_or_hash ):
+def blockstack_cli_get_immutable( name, data_id_or_hash, config_path=None):
     """
     get immutable data
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.data_id_or_hash = data_id_or_hash
 
-    return cli_get_immutable( args, config_path=test_proxy.config_path )
+    return cli_get_immutable( args, config_path=config_path )
 
 
-def blockstack_cli_get_data( url ):
+def blockstack_cli_get_data( url, config_path=None):
     """
     get data by url
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
     
     args.url = url
 
-    return cli_get_data( args, config_path=test_proxy.config_path )
+    return cli_get_data( args, config_path=config_path )
 
 
-def blockstack_cli_list_update_history( name, config_path=CONFIG_PATH ):
+def blockstack_cli_list_update_history( name, config_path=CONFIG_PATH):
     """
     list value hash history
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
     
     args.name = name
-    return cli_list_update_history( args, config_path=test_proxy.config_path )
+    return cli_list_update_history( args, config_path=config_path )
 
 
-def blockstack_cli_list_zonefile_history( name, config_path=CONFIG_PATH ):
+def blockstack_cli_list_zonefile_history( name, config_path=CONFIG_PATH):
     """
     list zonefile history
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
-    return cli_list_zonefile_history( args, config_path=test_proxy.config_path )
+    return cli_list_zonefile_history( args, config_path=config_path )
 
 
-def blockstack_cli_list_immutable_data_history( name, data_id, config_path=CONFIG_PATH ):
+def blockstack_cli_list_immutable_data_history( name, data_id, config_path=CONFIG_PATH):
     """
     list immutable data history
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.data_id = data_id
-    return cli_list_immutable_data_history( args, config_path=test_proxy.config_path )
+    return cli_list_immutable_data_history( args, config_path=config_path )
     
 
-def blockstack_cli_delete_immutable( name, hash_str, config_path=CONFIG_PATH ):
+def blockstack_cli_delete_immutable( name, hash_str, config_path=CONFIG_PATH, password=None):
     """
     delete immutable
     """
@@ -1101,13 +1180,15 @@ def blockstack_cli_delete_immutable( name, hash_str, config_path=CONFIG_PATH ):
     global data_ids
     global deleted_urls
 
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.hash = hash_str
-    res = cli_delete_immutable( args, config_path=test_proxy.config_path )
+    res = cli_delete_immutable( args, config_path=config_path, password=password )
     if 'error' in res:
         return res
 
@@ -1123,7 +1204,7 @@ def blockstack_cli_delete_immutable( name, hash_str, config_path=CONFIG_PATH ):
     return res
 
 
-def blockstack_cli_delete_mutable( name, data_id, config_path=CONFIG_PATH ):
+def blockstack_cli_delete_mutable( name, data_id, config_path=CONFIG_PATH, password=None):
     """
     delete mutable
     """
@@ -1131,13 +1212,15 @@ def blockstack_cli_delete_mutable( name, data_id, config_path=CONFIG_PATH ):
     global data_ids
     global deleted_urls
 
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.data_id = data_id
-    res = cli_delete_mutable( args, config_path=test_proxy.config_path )
+    res = cli_delete_mutable( args, config_path=config_path, password=password )
     if 'error' in res:
         return res
 
@@ -1153,216 +1236,248 @@ def blockstack_cli_delete_mutable( name, data_id, config_path=CONFIG_PATH ):
     return res
     
 
-def blockstack_cli_get_name_blockchain_record( name, config_path=CONFIG_PATH ):
+def blockstack_cli_get_name_blockchain_record( name, config_path=CONFIG_PATH):
     """
     get name blockchain record
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
-    return cli_get_name_blockchain_record( args, config_path=test_proxy.config_path )
+    return cli_get_name_blockchain_record( args, config_path=config_path )
 
 
-def blockstack_cli_get_name_blockchain_history( name, start_block=None, end_block=None, config_path=CONFIG_PATH ):
+def blockstack_cli_get_name_blockchain_history( name, start_block=None, end_block=None, config_path=CONFIG_PATH):
     """
     get name blockchain history
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.start_block = start_block
     args.end_block = end_block
 
-    return cli_get_name_blockchain_history(  args, config_path=test_proxy.config_path )
+    return cli_get_name_blockchain_history(  args, config_path=config_path )
 
 
-def blockstack_cli_get_namespace_blockchain_record( namespace_id, config_path=CONFIG_PATH ):
+def blockstack_cli_get_namespace_blockchain_record( namespace_id, config_path=CONFIG_PATH):
     """
     get namespace blockchain record
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.namespace_id = namespace_id
-    return cli_get_namespace_blockchain_record( args, config_path=test_proxy.config_path )
+    return cli_get_namespace_blockchain_record( args, config_path=config_path )
 
 
-def blockstack_cli_lookup_snv( name, block_id, trust_anchor, config_path=CONFIG_PATH ):
+def blockstack_cli_lookup_snv( name, block_id, trust_anchor, config_path=CONFIG_PATH):
     """
     SNV lookup
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.block_id = block_id
     args.trust_anchor = trust_anchor
 
-    return cli_lookup_snv( args, config_path=test_proxy.config_path )
+    return cli_lookup_snv( args, config_path=config_path )
 
 
-def blockstack_cli_get_name_zonefile( name, config_path=CONFIG_PATH, json=False ):
+def blockstack_cli_get_name_zonefile( name, config_path=CONFIG_PATH, json=False):
     """
     get name zonefile
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.json = "True" if json else "False"
 
-    return cli_get_name_zonefile( args, config_path=test_proxy.config_path )
+    return cli_get_name_zonefile( args, config_path=config_path )
 
 
-def blockstack_cli_get_names_owned_by_address( address, config_path=CONFIG_PATH ):
+def blockstack_cli_get_names_owned_by_address( address, config_path=CONFIG_PATH):
     """
     get names owned by address
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.address = address
-    return cli_get_names_owned_by_address( args, config_path=test_proxy.config_path )
+    return cli_get_names_owned_by_address( args, config_path=config_path )
 
 
-def blockstack_cli_get_namespace_cost( namespace_id, config_path=CONFIG_PATH ):
+def blockstack_cli_get_namespace_cost( namespace_id, config_path=CONFIG_PATH):
     """
     get namespace cost
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.namespace_id = namespace_id
-    return cli_get_namespace_cost( args, config_path=test_proxy.config_path )
+    return cli_get_namespace_cost( args, config_path=config_path )
 
 
-def blockstack_cli_get_all_names( offset=None, count=None, config_path=CONFIG_PATH ):
+def blockstack_cli_get_all_names( offset=None, count=None, config_path=CONFIG_PATH):
     """
     get all names
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.offset = offset
     args.count = count
 
-    return cli_get_all_names( args, config_path=test_proxy.config_path )
+    return cli_get_all_names( args, config_path=config_path )
 
 
-def blockstack_cli_get_names_in_namespace( namespace_id, offset=None, count=None, config_path=CONFIG_PATH ):
+def blockstack_cli_get_names_in_namespace( namespace_id, offset=None, count=None, config_path=CONFIG_PATH):
     """
     get names in a particular namespace
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.namespace_id = namespace_id
     args.offset = offset
     args.count = count
 
-    return cli_get_names_in_namespace( args, config_path=test_proxy.config_path )
+    return cli_get_names_in_namespace( args, config_path=config_path )
 
 
-def blockstack_cli_get_records_at( block_id, config_path=CONFIG_PATH ):
+def blockstack_cli_get_records_at( block_id, config_path=CONFIG_PATH):
     """
     get name records at a block height
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.block_id = block_id
 
-    return cli_get_records_at( args, config_path=test_proxy.config_path )
+    return cli_get_records_at( args, config_path=config_path )
 
 
-def blockstack_cli_set_zonefile_hash( name, zonefile_hash, config_path=CONFIG_PATH, password=None ):
+def blockstack_cli_set_zonefile_hash( name, zonefile_hash, config_path=CONFIG_PATH, password=None):
     """
     set the zonefile hash directly
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.zonefile_hash = zonefile_hash
     
-    return cli_set_zonefile_hash( args, config_path=test_proxy.config_path, password=password )
+    return cli_set_zonefile_hash( args, config_path=config_path, password=password )
 
 
-def blockstack_cli_unqueue( name, queue_id, txid, config_path=CONFIG_PATH, password=None ):
+def blockstack_cli_unqueue( name, queue_id, txid, config_path=CONFIG_PATH, password=None):
     """
     unqueue from the registrar queue
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.queue_id = queue_id
     args.txid = txid
 
-    return cli_unqueue( args, config_path=test_proxy.config_path, password=password )
+    return cli_unqueue( args, config_path=config_path, password=password )
 
 
-def blockstack_cli_set_name_profile( name, data_json_str, password=None ):
+def blockstack_cli_set_name_profile( name, data_json_str, password=None, config_path=None):
     """
     set the profile directly, by name
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.data = data_json_str
 
-    return cli_set_name_profile( args, config_path=test_proxy.config_path, password=password, proxy=test_proxy )
+    return cli_set_name_profile( args, config_path=config_path, password=password, proxy=test_proxy )
 
 
-def blockstack_cli_set_user_profile( user_id, data_json_str ):
+def blockstack_cli_set_user_profile( user_id, data_json_str, config_path=None):
     """
     set a user profile directly
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
     
     args.user_id = user_id
     args.data = data_json_str 
 
-    return cli_set_user_profile( args, config_path=test_proxy.config_path, proxy=test_proxy )
+    return cli_set_user_profile( args, config_path=config_path, proxy=test_proxy )
 
 
-def blockstack_cli_convert_legacy_profile( path, config_path=CONFIG_PATH ):
+def blockstack_cli_convert_legacy_profile( path, config_path=CONFIG_PATH):
     """
     convert a legacy profile
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.path = path
 
-    return cli_convert_legacy_profile( args, config_path=test_proxy.config_path )
+    return cli_convert_legacy_profile( args, config_path=config_path )
 
 
-def blockstack_cli_app_publish( name, methods, index_file, appname=None, urls=None, drivers=None, interactive=False, password=None ):
+def blockstack_cli_app_publish( name, methods, index_file, appname=None, urls=None, drivers=None, interactive=False, password=None, config_path=None):
     """
     publish a blockstack application
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
@@ -1372,58 +1487,66 @@ def blockstack_cli_app_publish( name, methods, index_file, appname=None, urls=No
     args.urls = urls
     args.drivers = drivers
     
-    return cli_app_publish( args, config_path=test_proxy.config_path, interactive=interactive, password=password, proxy=test_proxy )
+    return cli_app_publish( args, config_path=config_path, interactive=interactive, password=password, proxy=test_proxy )
 
 
-def blockstack_cli_app_get_config( name, appname=None, interactive=False ):
+def blockstack_cli_app_get_config( name, appname=None, interactive=False, config_path=None):
     """
     get app config
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.appname = appname
 
-    return cli_app_get_config( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+    return cli_app_get_config( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
 
 
-def blockstack_cli_app_get_index_file( name, appname, interactive=False ):
+def blockstack_cli_app_get_index_file( name, appname, interactive=False, config_path=None):
     """
     Get application index file
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.appname = appname
 
-    return cli_app_get_index_file( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+    return cli_app_get_index_file( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
     
 
-def blockstack_cli_app_get_resource( name, appname, resname, interactive=False ):
+def blockstack_cli_app_get_resource( name, appname, resname, interactive=False, config_path=None):
     """
     Get application resource
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
     args.appname = appname
     args.resname = resname
 
-    return cli_app_get_resource( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+    return cli_app_get_resource( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
 
 
-def blockstack_cli_app_put_resource( name, appname, resname, respath, interactive=False, password=None ):
+def blockstack_cli_app_put_resource( name, appname, resname, respath, interactive=False, password=None, config_path=None):
     """
     Get application resource
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.name = name
@@ -1431,15 +1554,17 @@ def blockstack_cli_app_put_resource( name, appname, resname, respath, interactiv
     args.res_file = respath
     args.resname = resname
 
-    return cli_app_put_resource( args, config_path=test_proxy.config_path, interactive=interactive, password=password, proxy=test_proxy )
+    return cli_app_put_resource( args, config_path=config_path, interactive=interactive, password=password, proxy=test_proxy )
 
 
-def blockstack_cli_app_put_account( user_id, app_fqu, appname, api_methods, session_lifetime=None ):
+def blockstack_cli_app_put_account( user_id, app_fqu, appname, api_methods, session_lifetime=None, config_path=None):
     """
     put an account
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.app_blockchain_id = app_fqu
@@ -1448,59 +1573,67 @@ def blockstack_cli_app_put_account( user_id, app_fqu, appname, api_methods, sess
     args.user_id = user_id
     args.session_lifetime = session_lifetime 
 
-    return cli_app_put_account( args, config_path=test_proxy.config_path, proxy=test_proxy )
+    return cli_app_put_account( args, config_path=config_path, proxy=test_proxy )
 
 
-def blockstack_cli_app_get_account( user_id, app_fqu, appname ):
+def blockstack_cli_app_get_account( user_id, app_fqu, appname, config_path=None):
     """
     get an account
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.app_blockchain_id = app_fqu
     args.app_name = appname
     args.user_id = user_id
 
-    return cli_app_get_account( args, config_path=test_proxy.config_path, proxy=test_proxy )
+    return cli_app_get_account( args, config_path=config_path, proxy=test_proxy )
 
 
-def blockstack_cli_app_list_accounts( user_id=None, app_blockchain_id=None, app_name=None ):
+def blockstack_cli_app_list_accounts( user_id=None, app_blockchain_id=None, app_name=None, config_path=None):
     """
     list user accounts
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.app_blockchain_id = app_blockchain_id
     args.app_name = app_name
     args.user_id = user_id
 
-    return cli_app_list_accounts( args, config_path=test_proxy.config_path, proxy=test_proxy )
+    return cli_app_list_accounts( args, config_path=config_path, proxy=test_proxy )
 
 
-def blockstack_cli_app_delete_account( user_id, app_fqu, appname, password=None ):
+def blockstack_cli_app_delete_account( user_id, app_fqu, appname, password=None, config_path=None):
     """
     delete an account
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.app_blockchain_id = app_fqu
     args.app_name = appname
     args.user_id = user_id
-    return cli_app_delete_account( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password )
+    return cli_app_delete_account( args, config_path=config_path, proxy=test_proxy, password=password )
 
 
-def blockstack_cli_create_user( user_id, blockchain_id=None, password=None ):
+def blockstack_cli_create_user( user_id, blockchain_id=None, password=None, config_path=None):
     """
     create a user
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.user_id = user_id
@@ -1508,154 +1641,176 @@ def blockstack_cli_create_user( user_id, blockchain_id=None, password=None ):
     if blockchain_id:
         args.name = blockchain_id
 
-    return cli_create_user( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password )
+    return cli_create_user( args, config_path=config_path, proxy=test_proxy, password=password )
 
 
-def blockstack_cli_get_user( user_id ):
+def blockstack_cli_get_user( user_id, config_path=None):
     """
     get a user
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.user_id = user_id
-    return cli_get_user( args, config_path=test_proxy.config_path, proxy=test_proxy )
+    return cli_get_user( args, config_path=config_path, proxy=test_proxy )
 
 
 def blockstack_cli_list_users():
     """
     list users
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
-    return cli_list_users( args, config_path=test_proxy.config_path, proxy=test_proxy )
+    return cli_list_users( args, config_path=config_path, proxy=test_proxy )
 
 
-def blockstack_cli_delete_user( user_id, blockchain_id=None, password=None ):
+def blockstack_cli_delete_user( user_id, blockchain_id=None, password=None, config_path=None):
     """
     delete users
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.user_id = user_id
     args.name = blockchain_id
-    return cli_delete_user( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password )
+    return cli_delete_user( args, config_path=config_path, proxy=test_proxy, password=password )
 
 
-def blockstack_cli_create_datastore(user_id, datastore_name, config_path=None, password=None ):
+def blockstack_cli_create_datastore(user_id, datastore_name, config_path=None, password=None):
     """
     create_datastore
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.user_id = user_id
     args.datastore_id = datastore_name
 
-    return cli_create_datastore( args, config_path=test_proxy.config_path, password=password, proxy=test_proxy )
+    return cli_create_datastore( args, config_path=config_path, password=password, proxy=test_proxy )
 
 
-def blockstack_cli_delete_datastore(user_id, datastore_name, config_path=None, password=None ):
+def blockstack_cli_delete_datastore(user_id, datastore_name, config_path=None, password=None):
     """
     delete datastore
     """
-    test_proxy = make_proxy(password=password)
+    test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.user_id = user_id
     args.datastore_id = datastore_name
 
-    return cli_delete_datastore( args, config_path=test_proxy.config_path, password=password, proxy=test_proxy )
+    return cli_delete_datastore( args, config_path=config_path, password=password, proxy=test_proxy )
 
 
-def blockstack_cli_datastore_mkdir( user_id, app_fqu, appname, path, config_path=None, interactive=False, proxy=None ):
+def blockstack_cli_datastore_mkdir( user_id, app_fqu, appname, path, config_path=None, interactive=False, proxy=None):
     """
     mkdir
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.user_id = user_id
     args.datastore_id = app_account_datastore_name(app_account_name(user_id, app_fqu, appname))
     args.path = path 
 
-    return cli_datastore_mkdir( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+    return cli_datastore_mkdir( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
 
 
-def blockstack_cli_datastore_rmdir( user_id, app_fqu, appname, path, config_path=None, interactive=False, proxy=None ):
+def blockstack_cli_datastore_rmdir( user_id, app_fqu, appname, path, config_path=None, interactive=False, proxy=None):
     """
     rmdir
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.user_id = user_id
     args.datastore_id = app_account_datastore_name(app_account_name(user_id, app_fqu, appname))
     args.path = path 
 
-    return cli_datastore_rmdir( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+    return cli_datastore_rmdir( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
 
 
-def blockstack_cli_datastore_listdir( user_id, app_fqu, appname, path, config_path=None, interactive=False, proxy=None ):
+def blockstack_cli_datastore_listdir( user_id, app_fqu, appname, path, config_path=None, interactive=False, proxy=None):
     """
     listdir
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.user_id = user_id
     args.datastore_id = app_account_datastore_name(app_account_name(user_id, app_fqu, appname))
     args.path = path 
 
-    return cli_datastore_listdir( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+    return cli_datastore_listdir( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
 
 
-def blockstack_cli_datastore_stat( user_id, app_fqu, appname, path, config_path=None, interactive=False, proxy=None ):
+def blockstack_cli_datastore_stat( user_id, app_fqu, appname, path, config_path=None, interactive=False, proxy=None):
     """
     stat
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.user_id = user_id
     args.datastore_id = app_account_datastore_name(app_account_name(user_id, app_fqu, appname))
     args.path = path 
 
-    return cli_datastore_stat( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+    return cli_datastore_stat( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
 
 
-def blockstack_cli_datastore_getfile( user_id, app_fqu, appname, path, config_path=None, interactive=False, proxy=None ):
+def blockstack_cli_datastore_getfile( user_id, app_fqu, appname, path, config_path=None, interactive=False, proxy=None):
     """
     getfile
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
     
     args.user_id = user_id
     args.datastore_id = app_account_datastore_name(app_account_name(user_id, app_fqu, appname))
     args.path = path 
 
-    return cli_datastore_getfile( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+    return cli_datastore_getfile( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
 
 
-def blockstack_cli_datastore_putfile( user_id, app_fqu, appname, path, data, data_path=None, interactive=False, proxy=None ):
+def blockstack_cli_datastore_putfile( user_id, app_fqu, appname, path, data, data_path=None, interactive=False, proxy=None, config_path=None):
     """
     putfile
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.user_id = user_id
@@ -1664,45 +1819,105 @@ def blockstack_cli_datastore_putfile( user_id, app_fqu, appname, path, data, dat
     args.data = data
     args.data_path = data_path 
 
-    return cli_datastore_putfile( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+    return cli_datastore_putfile( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
 
 
-def blockstack_cli_datastore_deletefile( user_id, app_fqu, appname, path, interactive=False, proxy=None ):
+def blockstack_cli_datastore_deletefile( user_id, app_fqu, appname, path, interactive=False, proxy=None, config_path=None):
     """
     deletefile
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
     args = CLIArgs()
 
     args.user_id = user_id
     args.datastore_id = app_account_datastore_name(app_account_name(user_id, app_fqu, appname))
     args.path = path 
 
-    return cli_datastore_deletefile( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+    return cli_datastore_deletefile( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
 
 
-def blockstack_rpc_set_zonefile_hash( name, zonefile_hash ):
+def blockstack_cli_list_device_ids( config_path=None ):
+    """
+    list device IDs
+    """
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+
+    return cli_list_device_ids( args, config_path=config_path )
+
+
+def blockstack_cli_get_device_id( config_path=None ):
+    """
+    get device ID
+    """ 
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+
+    return cli_get_device_id( args, config_path=config_path )
+
+
+def blockstack_cli_add_device_id( device_id, config_path=None ):
+    """
+    add device
+    """
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    args.device_id = device_id
+
+    return cli_add_device_id( args, config_path=config_path )
+
+
+def blockstack_cli_remove_device_id( device_id, config_path=None ):
+    """
+    remove device
+    """
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    args.device_id = device_id
+
+    return cli_remove_device_id( device_id, config_path=config_path )
+     
+
+def blockstack_rpc_set_zonefile_hash( name, zonefile_hash, config_path=None ):
     """
     Set the zonefile hash directly
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
 
     args = CLIArgs()
     args.name = name
     args.zonefile_hash = zonefile_hash
 
-    resp = cli_set_zonefile_hash( args, config_path=test_proxy.config_path )
+    resp = cli_set_zonefile_hash( args, config_path=config_path )
     return resp
 
 
-def blockstack_rpc_sync_zonefile( name, zonefile_string=None, txid=None ):
+def blockstack_rpc_sync_zonefile( name, zonefile_string=None, txid=None, config_path=None ):
     """
     Forcibly synchronize the zonefile
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
 
     args = CLIArgs()
     args.name = name
@@ -1713,18 +1928,20 @@ def blockstack_rpc_sync_zonefile( name, zonefile_string=None, txid=None ):
     if txid is not None:
         args.txid = txid
 
-    resp = cli_sync_zonefile( args, config_path=test_proxy.config_path, proxy=test_proxy )
+    resp = cli_sync_zonefile( args, config_path=config_path, proxy=test_proxy )
     return resp
 
 
-def blockstack_get_zonefile( zonefile_hash ):
+def blockstack_get_zonefile( zonefile_hash, config_path=None ):
     """
     Get a zonefile from the RPC endpoint
     Return None if not given
     MEANT FOR DIAGNOSTIC PURPOSES ONLY
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
 
     zonefile_result = test_proxy.get_zonefiles( [zonefile_hash] )
     if 'error' in zonefile_result:
@@ -1743,14 +1960,16 @@ def blockstack_get_zonefile( zonefile_hash ):
     return zonefile
 
 
-def blockstack_get_profile( name ):
+def blockstack_get_profile( name, config_path=None ):
     """
     Get a profile from the RPC endpoint
     Return None if not given
     MEANT FOR DIAGNOSTIC PURPOSES ONLY
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
 
     profile_result = test_proxy.get_profile( name )
     if 'error' in profile_result:
@@ -1781,15 +2000,17 @@ def blockstack_app_get_session( url ):
     return {'ses': qs_info['session'][0]}
 
 
-def blockstack_app_create_account( user_id, name, appname ):
+def blockstack_app_create_account( user_id, name, appname, config_path=None ):
     """
     Create an account.
     Intercept the returned HTML, select the create_account URL, navigate to it, and load the index.html.
     Returns {'url': final url, 'index_file': index file data} on success
     Returns {'error': ...} on error
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
 
     if appname is None:
         appname = '_default'
@@ -1841,15 +2062,17 @@ def blockstack_app_create_account( user_id, name, appname ):
     return {'url': create_account_resp.url, 'index_file': create_account_resp.text, 'ses': ses}
 
 
-def blockstack_app_signin( user_id, name, appname ):
+def blockstack_app_signin( user_id, name, appname, config_path=None ):
     """
     Sign into an app with an existing account.
     Intercept the returned HTML, select the 'signin' URL, navigate to it, and load the index.html.
     Returns {'url': final url, 'index_file': index file data} on success
     Returns {'error': ...} on error
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
 
     if appname is None:
         appname = '_default'
@@ -1904,13 +2127,15 @@ def blockstack_app_signin( user_id, name, appname ):
     return {'url': signin_resp.url, 'index_file': signin_resp.text, 'ses': ses}
 
 
-def blockstack_REST_call( method, route, session, app_fqu=None, appname=None, data=None, raw_data=None, **query_fields ):
+def blockstack_REST_call( method, route, session, app_fqu=None, appname=None, data=None, raw_data=None, config_path=None, **query_fields ):
     """
     Low-level call to an API route
     Returns {'http_status': http status, 'response': json}
     """
-    test_proxy = make_proxy()
+    test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
 
     api_port = test_proxy.conf['api_endpoint_port']
 
@@ -2600,7 +2825,7 @@ def put_test_data( relpath, data, **kw ):
     return True
 
 
-def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=True, force=False ):
+def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=True, force=False, config_path=None ):
     """
     Migrate a user's profile from the legacy format to the profile/zonefile format.
     Broadcast an update transaction with the zonefile hash.
@@ -2614,8 +2839,10 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
     value_hash = None
 
     if proxy is None:
-        proxy = make_proxy()
+        proxy = make_proxy(config_path=config_path)
         blockstack_client.set_default_proxy( proxy )
+
+    config_path = test_proxy.config_path if config_path is None else config_path
 
     user_profile, user_zonefile, legacy = blockstack_client.get_and_migrate_profile( name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys )
     if 'error' in user_profile:
@@ -2851,4 +3078,57 @@ def peer_join( peer_info ):
                 proc.send_signal( signal.SIGKILL )
             except:
                 pass
+
+
+def make_client_device( index ):
+    """
+    Make another client device, and add it to all other devices.
+    Return {'status': True, 'config_path': config path} on success
+    Return {'error': ...} on failure
+    """
+    # set up a second client
+    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+    assert config_path
+
+    all_config_dirs = os.path.dirname(os.path.dirname(config_path))
+
+    config_dir_2 = os.path.dirname(config_path) + '.{}'.format(index)
+    os.makedirs(config_dir_2)
+
+    config_path_2 = os.path.join(config_dir_2, 'client.ini')
+    if os.path.exists(config_path_2):
+        raise Exception("Config already exists for client {}".format(index))
+
+    res = testlib.peer_make_config(16300 + index, config_dir_2)
+    if 'error' in res:
+        print "failed to set up {}".format(config_dir_2)
+        return {'error': 'failed to set up config dir'}
+
+    # get device ID 
+    res = blockstack_cli_get_device_id( config_path=config_path_2 )
+    if 'error' in res:
+        print 'failed to get device ID for {}'.format(config_dir_2)
+        return res
+
+    my_device_id = res['device_id']
+
+    # add this device to all other devices 
+    device_ids = []
+    for name in os.listdirs(all_config_dirs):
+        dev_config_path = os.path.join( all_config_dirs, name, 'client.ini' )
+        if os.path.exists(dev_config_path):
+
+            device_id_info = blockstack_cli_get_device_id(config_path=dev_config_path)
+            if 'error' in device_id_info:
+                continue
+
+            device_id = device_id_info['device_id']
+            if my_device_id != device_id:
+                # add here 
+                res = blockstack_cli_add_device_id(device_id, config_path=dev_config_path)
+                if 'error' in res:
+                    print "failed to add device {} to {}".format(device_id, dev_config_path)
+                    return res
+
+    return {'status': True}
 
