@@ -175,6 +175,8 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     cli_argv = False
     cli_default_yes = False
 
+    cli_interactive = True
+
     if '-v' in argv or '--version' in argv:
         print(VERSION)
         sys.exit(0)
@@ -184,7 +186,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     if new_argv is None:
         # invalid
         sys.exit(1)
-    
+   
     argv = new_argv
     if cli_config_path:
         cli_argv = True
@@ -212,7 +214,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         log.debug("Assume YES to all interactive prompts")
         os.setenv("BLOCKSTACK_CLIENT_INTERACTIVE_YES", "1")
 
-    conf = config.get_config(path=config_path)
+    conf = config.get_config(path=config_path, interactive=(not cli_default_yes))
     if conf is None:
         return {'error': 'Failed to load config'}
 
