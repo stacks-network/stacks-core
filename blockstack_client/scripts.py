@@ -395,22 +395,25 @@ def tx_sign_all_unsigned_inputs(private_key_info, unsigned_tx_hex):
     return tx_hex
 
 
-def tx_get_address_and_utxos(private_key_info, utxo_client):
+def tx_get_address_and_utxos(private_key_info, utxo_client, address=None):
     """
     Get information about a private key (or a set of private keys used for multisig).
     Return (payer_address, payer_utxos) on success.
     UTXOs will be in BTC, not satoshis!
     """
-    if isinstance(private_key_info, (str, unicode)):
+
+    if private_key_info is None:
+        # just go with the address 
+        unspents = pybitcoin.get_unspents(address, utxo_client)
+        return addr, unspents 
+
+    if is_singlesig(private_key_info):
         _, payer_address, payer_utxos = virtualchain.analyze_private_key(
             str(private_key_info), utxo_client
         )
         return payer_address, payer_utxos
 
-    if isinstance(private_key_info, dict):
-        assert 'redeem_script' in private_key_info
-        assert 'private_keys' in private_key_info
-
+    if is_multisig(private_key_info):
         redeem_script = str(private_key_info['redeem_script'])
         addr = virtualchain.make_multisig_address(redeem_script)
         unspents = pybitcoin.get_unspents(addr, utxo_client)
@@ -420,23 +423,25 @@ def tx_get_address_and_utxos(private_key_info, utxo_client):
     raise ValueError('Invalid private key info')
 
 
-def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_client, tx_fee=0):
+def tx_get_subsidy_info(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_client, subsidy_address=None, tx_fee=0):
     """
-    Given an unsigned serialized transaction from Blockstack, make it into a subsidized transaction
-    for the client to go sign off on.
-    * Add subsidization inputs/outputs
-    * Make sure the subsidy does not exceed the maximum subsidy fee
-    * Sign our inputs with SIGHASH_ANYONECANPAY
+    Get the requisite information to subsidize the given transaction:
+    * parse the given transaction (tx)
+    * calculate the operation-specific fee (op_fee)
+    * calculate the dust fee (dust_fee)
+    * calculate the transaction fee (tx_fee)
+    * calculate the paying key's UTXOs (payer_utxos) 
+    * calculate the paying key's address (payer_address)
 
-    @tx_fee should be in satoshis
-    Raise ValueError if there are not enough inputs to subsidize
+    All fees will be in satoshis
+
+    Return a dict with the above
+    Return {'error': ...} on error
     """
 
     # get subsidizer key info
-    # private_key_obj, payer_address, payer_utxo_inputs =
-    # virtualchain.analyze_private_key(subsidy_key, utxo_client)
     payer_address, payer_utxo_inputs = tx_get_address_and_utxos(
-        subsidy_key_info, utxo_client
+        subsidy_key_info, utxo_client, address=subsidy_address 
     )
 
     tx = tx_deserialize(blockstack_tx)
@@ -453,17 +458,55 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
 
     if dust_fee is None or op_fee is None:
         log.error('Invalid fee structure')
-        return None
+        return {'error': 'Invalid fee structure'}
 
     if dust_fee + op_fee + tx_fee > max_fee:
         log.error('Op fee ({}) + dust fee ({}) exceeds maximum subsidy {}'.format(dust_fee, op_fee, max_fee))
-        return None
+        return {'error': 'Fee exceeds maximum subsidy'}
+
     else:
         if tx_fee > 0:
-            log.debug('{} will subsidize {} (ops+dust) + {} (txfee) satoshi'.format(get_privkey_info_address(subsidy_key_info), dust_fee + op_fee, tx_fee ))
+            log.debug('{} will subsidize {} (ops+dust) + {} (txfee) satoshi'.format(payer_address, dust_fee + op_fee, tx_fee ))
         else:
-            log.debug('{} will subsidize {} (ops+dust) satoshi'.format(get_privkey_info_address(subsidy_key_info), dust_fee + op_fee ))
+            log.debug('{} will subsidize {} (ops+dust) satoshi'.format(payer_address, dust_fee + op_fee ))
+
+    res = {
+        'op_fee': op_fee,
+        'dust_fee': dust_fee,
+        'tx_fee': tx_fee, 
+        'payer_address': payer_address,
+        'payer_utxos': payer_utxo_inputs,
+        'tx': tx
+    }
+    return res
+
+
+def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_client, tx_fee=0, subsidy_address=None):
+    """
+    Given an unsigned serialized transaction from Blockstack, make it into a subsidized transaction
+    for the client to go sign off on.
+    * Add subsidization inputs/outputs
+    * Make sure the subsidy does not exceed the maximum subsidy fee
+    * Sign our inputs with SIGHASH_ANYONECANPAY (if subsidy_key_info is not None)
+
+    @tx_fee should be in satoshis
+
+    Returns the transaction; signed if subsidy_key_info is given; unsigned otherwise
+    Raise ValueError if there are not enough inputs to subsidize
+    """
   
+    subsidy_info = tx_get_subsidy_info(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_client, tx_fee=tx_fee, subsidy_address=subsidy_address)
+    if 'error' in subsidy_info:
+        return subsidy_info
+
+    payer_utxo_inputs = subsidy_info['payer_utxos']
+    payer_address = subsidy_info['payer_address']
+    op_fee = subsidy_info['op_fee']
+    dust_fee = subsidy_info['dust_fee']
+    tx_fee = subsidy_info['tx_fee']
+    tx = subsidy_info['tx']
+    tx_inputs = tx['vin']
+
     # NOTE: pybitcoin-formatted output; values are still in satoshis!
     subsidy_output = tx_make_subsidization_output(
         payer_utxo_inputs, payer_address, op_fee, dust_fee + tx_fee
@@ -474,11 +517,15 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
 
     # sign each of our inputs with our key, but use
     # SIGHASH_ANYONECANPAY so the client can sign its inputs
-    for i in range(len(payer_utxo_inputs)):
-        idx = i + len(tx_inputs)
-        subsidized_tx = tx_sign_input(
-            subsidized_tx, idx, subsidy_key_info, hashcode=bitcoin.SIGHASH_ANYONECANPAY
-        )
+    if subsidy_key_info is not None:
+        for i in range(len(payer_utxo_inputs)):
+            idx = i + len(tx_inputs)
+            subsidized_tx = tx_sign_input(
+                subsidized_tx, idx, subsidy_key_info, hashcode=bitcoin.SIGHASH_ANYONECANPAY
+            )
+    
+    else:
+        log.debug("Warning: no subsidy key given; transaction will be subsidized but not signed")
 
     return subsidized_tx
 
