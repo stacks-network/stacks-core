@@ -525,7 +525,14 @@ def cli_configure(args, config_path=CONFIG_PATH):
     help: Interactively configure the client
     """
 
-    opts = configure(interactive=True, force=True, config_file=config_path)
+    interactive = True
+    force = True
+
+    if os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) == "1":
+        interactive = False
+        force = False
+
+    opts = configure(interactive=interactive, force=force, config_file=config_path)
     result = {}
     result['path'] = opts['blockstack-client']['path']
 
@@ -1720,7 +1727,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
         return res
 
     user_zonefile = get_name_zonefile(
-        fqu, proxy=proxy, wallet_keys=wallet_keys,
+        fqu, proxy=proxy,
         raw_zonefile=True, include_name_record=True
     )
 
@@ -2726,7 +2733,7 @@ def cli_delete_immutable(args, config_path=CONFIG_PATH, proxy=None, password=Non
     return result
 
 
-def cli_delete_mutable(args, config_path=CONFIG_PATH, password=None):
+def cli_delete_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     """
     command: delete_mutable advanced
     help: Delete a mutable datum from a profile.
@@ -3992,6 +3999,69 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
     # sanity check 
     assert storage.parse_mutable_data(res, pubkey)
     return json.loads(res) 
+
+
+def cli_list_device_ids( args, config_path=CONFIG_PATH, proxy=None ):
+    """
+    command: list_device_ids advanced
+    help: Get the list of known devices that write to your data stores
+    """
+
+    try:
+        device_ids = config.get_all_device_ids(config_path=config_path)
+        return {'device_ids': device_ids}
+    except AssertionError:
+        return {'error': 'Failed to read config file'}
+
+
+def cli_get_device_id( args, config_path=CONFIG_PATH, proxy=None ):
+    """
+    command: get_device_id advanced
+    help: Get this device's ID
+    """
+    try:
+        device_id = config.get_local_device_id(config_path=config_path)
+        return {'device_id': device_id}
+
+    except AssertionError:
+        return {'error': 'Failed to read config file'}
+
+
+def cli_add_device_id( args, config_path=CONFIG_PATH, proxy=None ):
+    """
+    command: add_device_id advanced
+    help: Add a device that can read and write your data
+    arg: device_id (str) 'The ID of the device to add'
+    """
+    try:
+        device_ids = config.get_all_device_ids(config_path=config_path)
+        device_id_str = ','.join( list(set(device_ids + [str(args.device_id)])) )
+        config.write_config_field( config_path, 'blockstack-client', 'default_devices', device_id_str )
+        return {'status': True}
+    
+    except AssertionError:
+        return {'error': 'Failed to add device'}
+
+
+def cli_remove_device_id( args, config_path=CONFIG_PATH, proxy=None ):
+    """
+    command: remove_device_id advanced
+    help: Remove a device ID so this device will ignore its data
+    arg: device_id (str) 'The ID of the device to remove'
+    """
+    try:
+        device_id = str(args.device_id)
+        device_ids = config.get_all_device_ids(config_path=config_path)
+        if device_id not in device_ids:
+            return {'status': True}
+
+        device_ids.remove(device_id)
+        device_id_str = ','.join(device_ids)
+        config.write_config_field( config_path, 'blockstack-client', 'default_devices', device_id_str )
+        return {'status': True}
+
+    except AssertionError:
+        return {'error': 'Failed to remove device'}
 
 
 def make_account_datastore(account_info, user_privkey_hex, driver_names=None, device_ids=None, config_path=CONFIG_PATH ):
