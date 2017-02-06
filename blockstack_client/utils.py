@@ -22,6 +22,7 @@
 """
 
 import json
+import sys
 
 from config import get_logger
 log = get_logger()
@@ -33,7 +34,7 @@ def exit_with_error(error_message, help_message=None):
     if help_message is not None:
         result['help'] = help_message
     print_result(result)
-    exit(0)
+    sys.exit(0)
 
 
 def pretty_dump(data):
