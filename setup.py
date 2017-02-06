@@ -53,8 +53,10 @@ setup(
         'pycrypto>=2.6.1',
         'simplejson>=3.8.2',
         'jsonschema>=2.5.1',
+        'fastecdsa>=1.3.2',
         'basicrpc>=0.0.2',      # DHT storage driver
-        'boto>=2.38.0'          # S3 storage driver
+        'boto>=2.38.0',         # S3 storage driver
+        'dropbox>=7.1.1',       # Dropbox driver
     ],
     classifiers=[
         'Intended Audience :: Developers',
