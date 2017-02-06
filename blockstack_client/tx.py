@@ -161,6 +161,7 @@ def broadcast_tx(tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None):
             os.abort()
 
     # for compatibility
+    resp['status'] = True
     resp['transaction_hash'] = resp.pop('tx_hash')
 
     return resp
@@ -171,6 +172,7 @@ def sign_and_broadcast_tx(tx_hex, private_key_info, config_path=CONFIG_PATH, tx_
     Sign and send a transaction
     """
     signed_tx = sign_tx(tx_hex, private_key_info)
+    resp = {}
     try:
         resp = broadcast_tx(signed_tx, config_path=config_path, tx_broadcaster=tx_broadcaster)
     except Exception as e:
