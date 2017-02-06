@@ -931,7 +931,7 @@ def put_mutable_data(fq_data_id, data_json, privatekey_hex, data_text=None, prof
     if serialized_data is None:
 
         # sanity check: only support single-sig private keys
-        if not keys.is_singlesig(privatekey_hex):
+        if not keys.is_singlesig_hex(privatekey_hex):
             log.error('Only single-signature data private keys are supported')
             return False
 
@@ -998,7 +998,7 @@ def delete_immutable_data(data_hash, txid, privkey):
     global storage_handlers
 
     # sanity check
-    if not keys.is_singlesig(privkey):
+    if not keys.is_singlesig_hex(privkey):
         log.error('Only single-signature data private keys are supported')
         return False
 
@@ -1037,7 +1037,7 @@ def delete_mutable_data(fq_data_id, privatekey, skip=None, blockchain_id=None, p
         fqu = blockchain_id
 
     # sanity check
-    if not keys.is_singlesig(privatekey):
+    if not keys.is_singlesig_hex(privatekey):
         log.error('Only single-signature data private keys are supported')
         return False
 
