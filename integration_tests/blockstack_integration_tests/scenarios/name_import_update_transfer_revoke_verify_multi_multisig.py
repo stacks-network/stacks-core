@@ -28,6 +28,7 @@ import shutil
 import tempfile
 import os
 import virtualchain
+import keychain
 
 # activate multisig
 """
@@ -58,14 +59,16 @@ def scenario( wallets, **kw ):
 
     # make a test namespace
     resp = testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
-    if debug or 'error' in resp:
+    if 'error' in resp:
         print json.dumps( resp, indent=4 )
+        return False
 
     testlib.next_block( **kw )
 
     resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
-    if debug or 'error' in resp:
+    if 'error' in resp:
         print json.dumps( resp, indent=4 )
+        return False
 
     testlib.next_block( **kw )
     
@@ -75,22 +78,40 @@ def scenario( wallets, **kw ):
     name_register_wallets = [wallets[5], wallets[6], wallets[7]]
     name_transfer_wallets = [wallets[6], wallets[7], wallets[5]]
 
+    # derive importer keys and do imports
+    # NOTE: breaks consensus trace from 0.14.0
+    private_keychain = keychain.PrivateKeychain.from_private_key( wallets[1].privkey )
+    private_keys = [wallets[1].privkey]     # NOTE: always start with the reveal key, then use children
+    for i in xrange(0, len(names)-1):
+        import_key = private_keychain.child(i).private_key()
+
+        print "fund {} (child {})".format(import_key, i)
+        res = testlib.send_funds( wallets[1].privkey, 100000000, virtualchain.BitcoinPrivateKey(import_key).public_key().address() )
+        if 'error' in res:
+            print json.dumps(res, indent=4, sort_keys=True)
+            return False
+
+        testlib.next_block(**kw)
+        private_keys.append(import_key)
+
     for i in xrange(0, len(names)):
 
         name = names[i]
         register_wallet = name_register_wallets[i]
+        import_key = private_keys[i]
 
-        resp = testlib.blockstack_name_import( name, register_wallet.addr, str(9 - i) * 40, wallets[1].privkey )
-        if debug or  'error' in resp:
+        resp = testlib.blockstack_name_import( name, register_wallet.addr, str(9 - i) * 40, import_key )
+        if 'error' in resp:
             print json.dumps( resp, indent=4 )
+            return False
 
-   
     testlib.next_block( **kw )
 
     # namespace ready...
     resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
-    if debug or  'error' in resp:
+    if 'error' in resp:
         print json.dumps( resp, indent=4 )
+        return False
 
     testlib.next_block( **kw )
 
@@ -101,8 +122,9 @@ def scenario( wallets, **kw ):
         register_wallet = name_register_wallets[i]
 
         resp = testlib.blockstack_name_update( name, str(i + 2) * 40, register_wallet.privkey )
-        if debug or  'error' in resp:
+        if 'error' in resp:
             print json.dumps( resp, indent=4 )
+            return False
 
     testlib.next_block( **kw )
 
@@ -113,8 +135,9 @@ def scenario( wallets, **kw ):
         register_wallet = name_register_wallets[i]
 
         resp = testlib.blockstack_name_update( name, str(i + 1) * 40, register_wallet.privkey )
-        if debug or  'error' in resp:
+        if 'error' in resp:
             print json.dumps( resp, indent=4 )
+            return False
 
     testlib.next_block( **kw )
 
@@ -126,8 +149,9 @@ def scenario( wallets, **kw ):
         transfer_wallet = name_transfer_wallets[i]
 
         resp = testlib.blockstack_name_transfer( name, transfer_wallet.addr, True, register_wallet.privkey ) 
-        if debug or  'error' in resp:
+        if 'error' in resp:
             print json.dumps( resp, indent=4 )
+            return False
 
     testlib.next_block( **kw )
 
@@ -143,8 +167,9 @@ def scenario( wallets, **kw ):
         register_wallet = name_register_wallets[i]
 
         resp = testlib.blockstack_name_revoke( name, register_wallet.privkey )
-        if debug or 'error' in resp:
+        if 'error' in resp:
             print json.dumps( resp, indent=4 )
+            return False
 
     # iterate the blocks a few times 
     for i in xrange(0, 5):

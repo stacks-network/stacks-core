@@ -27,6 +27,8 @@ import json
 import shutil
 import tempfile
 import os
+import keychain
+import virtualchain
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -65,12 +67,30 @@ def scenario( wallets, **kw ):
     name_register_wallets = [wallets[5], wallets[6], wallets[7]]
     name_transfer_wallets = [wallets[6], wallets[7], wallets[5]]
 
+    # derive importer keys and do imports
+    # NOTE: breaks consensus trace from 0.14.0
+    private_keychain = keychain.PrivateKeychain.from_private_key( wallets[1].privkey )
+    private_keys = [wallets[1].privkey]     # NOTE: always start with the reveal key, then use children
+    for i in xrange(0, len(names)-1):
+        import_key = private_keychain.child(i).private_key()
+
+        print "fund {} (child {})".format(import_key, i)
+        res = testlib.send_funds( wallets[1].privkey, 100000000, virtualchain.BitcoinPrivateKey(import_key).public_key().address() )
+        if 'error' in res:
+            print json.dumps(res, indent=4, sort_keys=True)
+            return False
+
+        testlib.next_block(**kw)
+        private_keys.append(import_key)
+
+
     for i in xrange(0, len(names)):
 
         name = names[i]
         register_wallet = name_register_wallets[i]
+        import_key = private_keys[i]
 
-        resp = testlib.blockstack_name_import( name, register_wallet.addr, str(9 - i) * 40, wallets[1].privkey )
+        resp = testlib.blockstack_name_import( name, register_wallet.addr, str(9 - i) * 40, import_key )
         if debug or  'error' in resp:
             print json.dumps( resp, indent=4 )
 
