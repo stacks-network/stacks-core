@@ -178,10 +178,11 @@ def fast_sync_snapshot( export_path, private_key, working_dir, block_number ):
     # ugly hack to work around the lack of a `nonlocal` keyword in Python 2.x
     def _zonefile_copy_progress_outer():
         def inner(src, names):
-            for _ in names:
-                inner.zonefile_count += 1
-                if inner.zonefile_count % 100 == 0:
-                    log.debug("{} zone files copied".format(zonefile_count))
+            for name in names:
+                if name == 'zonefile.txt':
+                    inner.zonefile_count += 1
+                    if inner.zonefile_count % 100 == 0:
+                        log.debug("{} zone files copied".format(inner.zonefile_count))
         
             return []
 
