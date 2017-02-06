@@ -254,6 +254,19 @@ def is_singlesig(privkey_info):
         return False
 
 
+def is_singlesig_hex(privkey_info):
+    """
+    Does the given private key info represent
+    a single signature bundle? (i.e. one private key)?
+    """
+    from .schemas import PRIVKEY_SINGLESIG_SCHEMA_HEX
+    try:
+        jsonschema.validate(privkey_info, PRIVKEY_SINGLESIG_SCHEMA_HEX)
+        return True
+    except ValidationError as e:
+        return False
+
+
 def is_encrypted_singlesig(privkey_info):
     """
     Does the given string represent an encrypted
