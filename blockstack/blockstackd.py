@@ -76,6 +76,8 @@ import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
 from lib.consensus import *
 
+from blockstack_client.constants import BLOCKSTACK_TEST
+
 # global variables, for use with the RPC server
 bitcoind = None
 rpc_server = None
@@ -1182,7 +1184,14 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             except Exception, e:
                 log.debug("Not a well-formed zonefile: %s" % zonefile_hash)
 
-            storage_enqueue_zonefile( txid, str(zonefile_hash), str(zonefile_data) )
+            # queue for replication
+            rc = storage_enqueue_zonefile( txid, str(zonefile_hash), str(zonefile_data) )
+            if not rc:
+                log.error("Failed to store zonefile {}".format(zonefile_hash))
+                saved.append(0)
+                continue
+
+            log.debug("Enqueued {}".format(zonefile_hash))
             saved.append(1)
        
         db.close()
@@ -1689,7 +1698,7 @@ class BlockstackStoragePusher( threading.Thread ):
             log.debug("Invalid zonefile data type")
             return False
         
-        if type(txid) not in [str, unicode]:
+        if txid is not None and type(txid) not in [str, unicode]:
             log.debug("Invalid txid type")
             return False
 
