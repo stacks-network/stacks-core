@@ -271,19 +271,23 @@ def store_zonefile_to_storage( zonefile_dict, required=None, skip=None, cache=Fa
 def store_mutable_data_to_storage( blockchain_id, data_id, data_txt, required=None, skip=None ):
     """
     Store the given mutable datum to storage providers.
+    Used by the storage gateway logic.
     Return True on successful replication to all required drivers
     Return False on error
     """
-    
-    res = blockstack_client.storage.put_mutable_data(data_id, None, None, data_text=data_txt, required=required, skip=skip, blockchain_id=blockchain_id)
+   
+    nocollide_data_id = '{}-{}'.format(blockchain_id, data_id)
+    res = blockstack_client.storage.put_mutable_data(nocollide_data_id, None, None, data_text=data_txt, required=required, skip=skip, blockchain_id=blockchain_id)
     return res
 
 
 def load_mutable_data_from_storage( blockchain_id, data_id, drivers=None ):
     """
-    Load mutable data from storage
+    Load mutable data from storage.
+    Used by the storage gateway logic.
     """
-
+    
+    nocollide_data_id = '{}-{}'.format(blockchain_id, data_id)
     res = blockstack_client.storage.get_mutable_data(data_id, None, blockchain_id=blockchain_id, drivers=drivers, decode=False)
     return res
    
