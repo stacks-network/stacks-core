@@ -175,31 +175,10 @@ def put_data( data_id, data_txt, zonefile=False, fqu=None ):
     ses = xmlrpclib.ServerProxy( url, allow_none=True )
 
     if zonefile:
-        # must be a zonefile 
-        try:
-            zf = blockstack_zones.parse_zone_file( data_txt )
-        except:
-            log.error("Failed to parse zone file for %s" % data_id)
-            return False
- 
-        log.debug("Replicate zonefile for %s" % data_id)
-        res_json = ses.put_zonefiles( [base64.b64encode(data_txt)] )
-        try:
-            res = json.loads(res_json)
-        except:
-            log.error("Invalid non-JSON response")
-            return False
-
-        if 'error' in res:
-            log.error("Failed to put %s: %s" % (data_id, data_txt))
-            return False
-        elif len(res['saved']) != 1 or res['saved'][0] != 1:
-            log.error("Server %s:%s failed to save %s" % (SERVER_NAME, SERVER_PORT, data_id))
-            return False 
-
-        else:
-            return True
-
+        # don't duplicate effort
+        log.error("Driver does not support putting a zonefile")
+        return False
+        
     elif fqu is not None and data_id == fqu:
         log.debug("Replicate profile for %s" % data_id)
 
