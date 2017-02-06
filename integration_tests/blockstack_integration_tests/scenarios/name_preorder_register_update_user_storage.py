@@ -319,8 +319,12 @@ def check( state_engine ):
     with open(api_log_path, "r") as f:
         api_log = f.read()
 
-    if "Traceback (most recent call last)" in api_log_path:
+    if "Traceback (most recent call last)" in api_log:
         print "exception thrown by client"
+        return False
+
+    if "Server did not save" in api_log:
+        print 'server did not save'
         return False
 
     return True
