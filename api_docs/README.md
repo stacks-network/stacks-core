@@ -60,6 +60,7 @@ Each application specifies in advance which family of API calls it will need to 
 | Get block operations | GET /blockchains/{blockchainName}/block/{blockHeight} | blockchains | - | 
 | Get raw name history | GET /blockchains/{blockchainName}/names/{nameID}/history | blockchains |  - | 
 | Get consensus hash | GET /blockchains/{blockchainName}/consensusHash | blockchains | - | 
+| Get pending transactions | GET /blockchains/{blockchainName}/pending | blockchains | - |
 
 ## Identity API
 
