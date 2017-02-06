@@ -1770,9 +1770,11 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
                 return {'error': 'Invalid peer listing'}
 
         peers = peer_list_resp
+
     except (ValidationError, AssertionError) as e:
         log.exception(e)
         peers = json_traceback()
+
     except Exception as ee:
         log.exception(ee)
         resp = {'error': 'Failed to execute RPC method'}
@@ -1835,12 +1837,15 @@ def get_zonefiles(hostport, zonefile_hashes, timeout=30, my_hostport=None, proxy
         # return this 
         zf_payload['zonefiles'] = decoded_zonefiles
         zonefiles = zf_payload
+
     except AssertionError as ae:
         log.exception(ae)
         zonefiles = {'error': 'Zonefile data mismatch'}
+
     except ValidationError as ve:
         log.exception(ve)
         zonefiles = json_traceback()
+
     except Exception as ee:
         log.exception(ee)
         resp = {'error': 'Failed to execute RPC method'}
@@ -1881,13 +1886,16 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
 
     push_info = None
     try:
+
         push_info = proxy.put_zonefiles(zonefile_data_list)
         push_info = json_validate(schema, push_info)
         if json_is_error(push_info):
             return push_info
+
     except ValidationError as e:
         log.exception(e)
         push_info = json_traceback()
+
     except Exception as ee:
         log.exception(ee)
         resp = {'error': 'Failed to execute RPC method'}
