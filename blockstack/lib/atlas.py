@@ -40,6 +40,7 @@ import hashlib
 import errno
 import socket
 import gc
+import subprocess
 
 import blockstack_zones
 import virtualchain
@@ -3582,8 +3583,12 @@ class AtlasZonefileCrawler( threading.Thread ):
             zfhash = zonefile_hashes[i]
             present = is_zonefile_cached( zfhash, zonefile_dir=self.zonefile_dir, validate=True )
             if present:
-                log.debug("%s: zonefile %s already cached" % (self.hostport, zfhash))
+                log.debug("%s: zonefile %s already cached.  Marking present" % (self.hostport, zfhash))
                 zonefile_hashes[i] = None
+
+                # mark it as present
+                res = atlasdb_set_zonefile_present( zfhash, True, path=self.path ) 
+
 
         zonefile_hashes = filter( lambda zfh: zfh is not None, zonefile_hashes )
 
