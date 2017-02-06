@@ -51,7 +51,7 @@ from .queue import queue_cleanall, queue_find_accepted
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
 from .blockchain import get_block_height
 
-from ..keys import get_data_privkey_info, is_singlesig, is_multisig, get_privkey_info_address, get_privkey_info_params, encrypt_private_key_info, decrypt_private_key_info
+from ..keys import get_data_privkey_info, is_singlesig, is_singlesig_hex, is_multisig, get_privkey_info_address, get_privkey_info_params, encrypt_private_key_info, decrypt_private_key_info
 from ..proxy import is_name_registered, is_zonefile_hash_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost, get_atlas_peers, json_is_error
 from ..profile import get_and_migrate_profile
 from ..zonefile import zonefile_data_replicate, make_empty_zonefile
@@ -862,7 +862,7 @@ def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, p
     if not is_singlesig( owner_keypair[1] ) and not is_multisig( owner_keypair[1] ):
         return {'error': 'Invalid owner key info'}
 
-    if not is_singlesig( data_keypair[1] ):
+    if not is_singlesig_hex( data_keypair[1] ):
         return {'error': 'Invalid data key info'}
 
     state.payment_address = payment_keypair[0]
