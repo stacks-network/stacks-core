@@ -292,6 +292,7 @@ def get_local_device_id(config_dir=CONFIG_DIR):
 def get_all_device_ids(config_path=CONFIG_PATH):
     """
     Get the list of all device IDs that use this wallet
+    The first device ID is guaranteed to be the local device ID
     """
     local_device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
     device_ids = [local_device_id]
@@ -743,9 +744,9 @@ def read_config_file(path=CONFIG_PATH):
     return ret
 
 
-def get_config(path=CONFIG_PATH):
+def get_config(path=CONFIG_PATH, interactive=False):
     """
-    Read our config file.
+    Read our config file (legacy compat).
     Flatten the resulting config:
     * make all bitcoin-specific fields start with 'bitcoind_' (makes this config compatible with virtualchain)
     * keep only the blockstack-client and bitcoin fields
@@ -755,7 +756,7 @@ def get_config(path=CONFIG_PATH):
     """
 
     try:
-        opts = configure(config_file=path)
+        opts = configure(config_file=path, interactive=interactive)
     except Exception as e:
         log.exception(e)
         return None
