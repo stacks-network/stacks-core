@@ -5,6 +5,8 @@ from setuptools import setup, find_packages
 # to set __version__
 exec(open('blockstack_integration_tests/version.py').read())
 
+print 'version = {}'.format(__version__)
+
 setup(
     name='blockstack-integration-tests',
     version=__version__,
@@ -12,7 +14,7 @@ setup(
     license='GPLv3',
     author='Blockstack.org',
     author_email='support@blockstack.org',
-    description='Integration tests for Blockstack Server, Blockstack Client, and other supporting infrastructure',
+    description='Integration tests for Blockstack packages',
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
     scripts=[
@@ -25,7 +27,7 @@ setup(
     include_package_data=True,
     install_requires=[
         'blockstack>=0.14.1',
-        'blockstack-file>=0.14.0',
+        'blockstack-file>=0.14.1',
         'blockstack-gpg>=0.14.1',
     ],
     classifiers=[
