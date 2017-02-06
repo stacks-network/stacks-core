@@ -155,6 +155,9 @@ def encrypt_wallet(wallet, password, test_legacy=False):
         log.error('Invalid data private key')
         return {'error': 'Invalid data private key'}
 
+    if not is_singlesig_hex(data_privkey_info):
+        data_privkey_info = ECPrivateKey(data_privkey_info).to_hex()
+
     encrypted_wallet = _make_encrypted_wallet_data(password, payment_privkey_info, owner_privkey_info, data_privkey_info, test_legacy=test_legacy)
 
     if 'error' in encrypted_wallet:
@@ -306,7 +309,7 @@ def make_legacy_wallet_keys(data, password, max_tries=WALLET_DECRYPT_MAX_TRIES):
     key_defaults = {
         'payment': child_keys[0][1],
         'owner': child_keys[1][1],
-        'data': child_keys[2[1]]
+        'data': child_keys[2][1]
     }
 
     return key_defaults
