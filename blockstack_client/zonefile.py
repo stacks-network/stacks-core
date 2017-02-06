@@ -420,7 +420,11 @@ def zonefile_data_publish(fqu, zonefile_txt, server_list, wallet_keys=None):
             hostport = '{}:{}'.format(server_host, server_port)
 
             res = put_zonefiles(hostport, [base64.b64encode(zonefile_txt)])
-            if 'error' in res or res['saved'][0] != 1:
+            if 'error' in res or len(res['saved']) == 0 or res['saved'][0] != 1:
+                if not res.has_key('error'):
+                    res['error'] = 'server did not save'
+                
+                log.debug("server returned {}".format(res))
                 msg = 'Failed to publish zonefile to {}:{}: {}'
                 log.error(msg.format(server_host, server_port, res['error']))
                 continue
