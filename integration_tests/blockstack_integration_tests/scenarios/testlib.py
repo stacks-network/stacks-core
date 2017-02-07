@@ -2154,9 +2154,9 @@ def blockstack_REST_call( method, route, session, app_fqu=None, appname=None, da
 
     log.debug("REST call: {} {}".format(method, url))
 
-    headers = {
-        'authorization': 'bearer {}'.format(session)
-    }
+    headers = {}
+    if session:
+        headers['authorization'] = 'bearer {}'.format(session)
 
     assert not (data and raw_data), "Multiple data given"
 
