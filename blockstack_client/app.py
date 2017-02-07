@@ -233,8 +233,30 @@ def app_account_get_privkey( user_data_privkey_hex, app_account ):
     for the account.
     Return the private key
     """
-    app_account_privkey = HDWallet.get_privkey( user_data_privkey_hex, app_account['privkey_index'] )
-    return app_account_privkey
+    if app_account['privkey_index'] >= 0:
+        app_account_privkey = HDWallet.get_privkey( user_data_privkey_hex, app_account['privkey_index'] )
+        return app_account_privkey
+
+    else:
+        return user_data_privkey_hex
+
+
+def app_make_account_info( app_fqu, appname, api_methods, user_id, user_pubkey_hex, privkey_index, session_lifetime ):
+    """
+    Create account information
+    Pass -1 for privkey_index to use the master data private key (useful for testing)
+    """
+
+    info = {
+        'name': app_fqu,
+        'appname': appname,
+        'methods': api_methods,
+        'user_id': user_id,
+        'public_key': user_pubkey_hex,
+        'privkey_index': privkey_index,
+        'session_lifetime': session_lifetime
+    }
+    return info
 
 
 def app_make_account( user_info, user_privkey_hex, app_fqu, appname, api_methods, config_path=CONFIG_PATH, session_lifetime=3600*24*7):
@@ -253,15 +275,7 @@ def app_make_account( user_info, user_privkey_hex, app_fqu, appname, api_methods
     hdwallet = HDWallet( hex_privkey=user_privkey_hex )
     app_account_privkey = hdwallet.get_child_privkey( index=next_privkey_index )
 
-    info = {
-        'name': app_fqu,
-        'appname': appname,
-        'methods': api_methods,
-        'user_id': user_info['user_id'],
-        'public_key': get_pubkey_hex(app_account_privkey),
-        'privkey_index': next_privkey_index,
-        'session_lifetime': session_lifetime
-    }
+    info = app_make_account_info( app_fqu, appname, api_methods, user_info['user_id'], get_pubkey_hex(app_account_privkey), next_privkey_index, session_lifetime )
 
     # sign
     signer = jsontokens.TokenSigner()
