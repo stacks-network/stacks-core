@@ -212,7 +212,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
     if cli_default_yes:
         log.debug("Assume YES to all interactive prompts")
-        os.setenv("BLOCKSTACK_CLIENT_INTERACTIVE_YES", "1")
+        os.environ["BLOCKSTACK_CLIENT_INTERACTIVE_YES"] = '1'
 
     conf = config.get_config(path=config_path, interactive=(not cli_default_yes))
     if conf is None:
