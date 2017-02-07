@@ -260,10 +260,14 @@ def get_or_set_uuid(config_dir=CONFIG_DIR):
     else:
         try:
             u = str(uuid.uuid4())
+            if not os.path.exists(config_dir):
+                os.makedirs(config_dir)
+
             with open(uuid_path, 'w') as f:
                 f.write(u)
                 f.flush()
                 os.fsync(f.fileno())
+
         except Exception as e:
             log.exception(e)
             return None
@@ -675,6 +679,7 @@ def read_config_file(path=CONFIG_PATH):
         parser.set('blockstack-client', 'users', USER_DIRNAME)
         parser.set('blockstack-client', 'datastores', DATASTORE_DIRNAME)
         parser.set('blockstack-client', 'default_devices', '')
+        parser.set('blockstack-client', 'authenticate_api', 'True')
 
         rpc_token = os.urandom(32)
         parser.set('blockstack-client', 'rpc_token', hexlify(rpc_token))
@@ -720,7 +725,8 @@ def read_config_file(path=CONFIG_PATH):
         'blockstack-client': [
             'advanced_mode',
             'rpc_detach',
-            'anonymous_statistics'
+            'anonymous_statistics',
+            'authenticate_api',
         ]
     }
 
