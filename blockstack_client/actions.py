@@ -737,13 +737,21 @@ def cli_get_registrar_info(args, config_path=CONFIG_PATH, queues=None):
     if rpc is None:
         return {'error': 'Failed to connect to RPC endpoint'}
 
-    current_state = json.loads(rpc.backend_state(conf['rpc_token']))
+    try:
+        current_state = json.loads(rpc.backend_state(conf['rpc_token']))
+    except Exception, e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error("Failed to contact Blockstack daemon")
+        return {'error': 'Failed to contact blockstack daemon.  Please ensure that it is running with the `rpcctl` command.'}
 
     queue_types = dict( [(queue_name, []) for queue_name in queues] )
 
     def format_queue_entry(entry):
         """
-        Determine data to display
+        Determine data to display for a queue entry.
+        Return {'name': ..., 'tx_hash': ..., 'confirmations': ...}
         """
         new_entry = {}
         new_entry['name'] = entry['fqu']
@@ -1909,7 +1917,9 @@ def _save_person_profile(name, zonefile, profile, wallet_keys, blockchain_id=Non
     required_storage_drivers = required_storage_drivers.split()
 
     res = put_profile(name, profile, user_zonefile=zonefile,
-                       wallet_keys=wallet_keys, proxy=proxy, required_drivers=required_storage_drivers, blockchain_id=name )
+                       wallet_keys=wallet_keys, proxy=proxy,
+                       required_drivers=required_storage_drivers, blockchain_id=name,
+                       config_path=config_path )
 
     return res
 
@@ -3065,7 +3075,9 @@ def cli_put_name_profile(args, config_path=CONFIG_PATH, password=None, proxy=Non
         return {'error': msg}
 
     res = put_profile(name, profile, user_zonefile=user_zonefile,
-                       wallet_keys=wallet_keys, proxy=proxy, required_drivers=required_storage_drivers, blockchain_id=name )
+                       wallet_keys=wallet_keys, proxy=proxy,
+                       required_drivers=required_storage_drivers, blockchain_id=name,
+                       config_path=config_path)
 
     if 'error' in res:
         return res
@@ -3829,7 +3841,7 @@ def cli_get_user_profile(args, proxy=None, config_path=CONFIG_PATH):
     return res
 
 
-def cli_put_user_profile(args, proxy=None, password=None, config_path=CONFIG_PATH):
+def cli_put_user_profile(args, proxy=None, password=None, force_data=False, config_path=CONFIG_PATH):
     """
     command: put_user_profile advanced check_storage
     help: Set a profile for a user persona.
@@ -3851,7 +3863,7 @@ def cli_put_user_profile(args, proxy=None, password=None, config_path=CONFIG_PAT
     profile_json_str = str(args.data)
 
     profile = None
-    if is_valid_path(profile_json_str) and os.path.exists(profile_json_str):
+    if not force_data and is_valid_path(profile_json_str) and os.path.exists(profile_json_str):
         # this is a path.  try to load it
         try:
             with open(profile_json_str, 'r') as f:
@@ -3891,7 +3903,7 @@ def cli_put_user_profile(args, proxy=None, password=None, config_path=CONFIG_PAT
         return {'error': 'Failed to get user private key'}
 
     # NOTE: no blockchain ID here
-    res = put_profile(user_id, profile, user_data_privkey=user_privkey_hex, proxy=proxy)
+    res = put_profile(user_id, profile, user_data_privkey=user_privkey_hex, proxy=proxy, config_path=config_path)
     return res
 
 
