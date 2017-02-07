@@ -38,7 +38,7 @@ from .config import get_logger, get_config
 from .constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 
 from .zonefile import load_data_pubkey_for_new_zonefile, get_name_zonefile, make_empty_zonefile
-from .keys import get_data_privkey_info 
+from .keys import get_data_privkey_info, get_pubkey_hex 
 
 log = get_logger()
 
@@ -159,7 +159,7 @@ def get_user_profile(user_id, user_data_pubkey=None, user_zonefile=None, data_ad
 
 
 def put_profile(name, new_profile, blockchain_id=None, user_data_privkey=None, user_zonefile=None,
-                   proxy=None, wallet_keys=None, required_drivers=None):
+                   proxy=None, wallet_keys=None, required_drivers=None, config_path=CONFIG_PATH):
     """
     Set the new profile data.  CLIENTS SHOULD NOT CALL THIS METHOD DIRECTLY.
     Return {'status: True} on success
@@ -169,7 +169,6 @@ def put_profile(name, new_profile, blockchain_id=None, user_data_privkey=None, u
     ret = {}
 
     proxy = get_default_proxy() if proxy is None else proxy
-
     config = proxy.conf
     
     # deduce storage drivers
@@ -185,7 +184,7 @@ def put_profile(name, new_profile, blockchain_id=None, user_data_privkey=None, u
 
     # deduce private key
     if user_data_privkey is None:
-        user_data_privkey = get_data_privkey_info(user_zonefile, wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+        user_data_privkey = get_data_privkey_info(user_zonefile, wallet_keys=wallet_keys, config_path=config_path)
         if json_is_error(user_data_privkey):
             log.error("Failed to get data private key: {}".format(user_data_privkey['error']))
             return {'error': 'No data key defined'}
@@ -193,9 +192,11 @@ def put_profile(name, new_profile, blockchain_id=None, user_data_privkey=None, u
     profile_payload = copy.deepcopy(new_profile)
     profile_payload = set_profile_timestamp(profile_payload)
 
-    log.debug('Save updated profile for "{}" to {} at {}'.format(
-        name, ','.join(required_storage_drivers), get_profile_timestamp(profile_payload))
-    )
+    if BLOCKSTACK_DEBUG:
+        # NOTE: don't calculate this string unless we're actually debugging...
+        log.debug('Save updated profile for "{}" to {} at {} by {}'.format(
+            name, ','.join(required_storage_drivers), get_profile_timestamp(profile_payload), get_pubkey_hex(user_data_privkey))
+        )
 
     rc = storage.put_mutable_data(
         name, profile_payload, user_data_privkey,
