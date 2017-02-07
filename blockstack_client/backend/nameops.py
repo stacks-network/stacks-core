@@ -608,32 +608,43 @@ def get_consensus_hash( proxy, config_path=CONFIG_PATH ):
     Return {'error': ...} on failure
     """
 
-    blockstack_info = blockstack_getinfo( proxy=proxy )
-    if 'error' in blockstack_info:
-        return {'error': 'Blockstack server did not return consensus hash: %s' % blockstack_info['error']}
+    delay = 1.0
+    while True:
+        blockstack_info = blockstack_getinfo( proxy=proxy )
+        if 'error' in blockstack_info:
+            log.error("Blockstack server did not return consensus hash: {}".format(blockstack_info['error']))
+            time.sleep(delay)
+            delay = 2 * delay + random.randint(0, delay)
+            continue
 
-    # up-to-date?
-    last_block_processed = None
-    last_block_seen = None
-    try:
-        last_block_processed = int(blockstack_info['last_block_processed'])
-        last_block_seen = int(blockstack_info['last_block_seen'])
-        consensus_hash = blockstack_info['consensus']
-    except Exception, e:
-        log.exception(e) 
-        return {'error': 'Invalid consensus hash from server'}
+        # up-to-date?
+        last_block_processed = None
+        last_block_seen = None
+        try:
+            last_block_processed = int(blockstack_info['last_block_processed'])
+            last_block_seen = int(blockstack_info['last_block_seen'])
+            consensus_hash = blockstack_info['consensus']
+        except Exception, e:
+            log.exception(e)
+            log.error("Invalid consensus hash from server")
+            time.sleep(delay)
+            delay = 2 * delay + random.randint(0, delay)
+            continue
 
-    # valid?
-    height = get_block_height( config_path=config_path )
-    if height is None:
-        return {'error': 'Failed to get blockchain height'}
+        # valid?
+        height = get_block_height( config_path=config_path )
+        if height is None:
+            log.error("Failed to get blockchain height")
+            delay = 2 * delay + random.randint(0, delay)
+            continue
 
-    if height > last_block_processed + 20 or (last_block_seen is not None and last_block_seen > last_block_processed + 20):
-        # server is lagging
-        log.error("Server is lagging behind: bitcoind height is %s, server is %s" % (height, last_block_processed))
-        return {'error': 'Server is lagging behind'}
+        if height > last_block_processed + 20 or (last_block_seen is not None and last_block_seen > last_block_processed + 20):
+            # server is lagging
+            log.error("Server is lagging behind: bitcoind height is %s, server is %s" % (height, last_block_processed))
+            delay = 2 * delay + random.randint(0, delay)
 
-    return {'status': True, 'consensus_hash': consensus_hash}
+        # success
+        return {'status': True, 'consensus_hash': consensus_hash}
 
 
 def address_privkey_match( address, privkey_params ):
@@ -928,6 +939,7 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
     if consensus_hash is None:
         consensus_hash_res = get_consensus_hash( proxy, config_path=config_path )
         if 'error' in consensus_hash_res:
+            log.error("Failed to get consensus hash")
             return {'error': 'Failed to get consensus hash: %s' % consensus_hash_res['error']}
 
         consensus_hash = consensus_hash_res['consensus_hash']
