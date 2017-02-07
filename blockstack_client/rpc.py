@@ -55,7 +55,7 @@ import json
 import config as blockstack_config
 import backend
 import proxy
-from proxy import json_is_error
+from proxy import json_is_error, json_is_exception
 
 from .constants import BLOCKSTACK_DEBUG, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH
 from .client import check_storage_setup
@@ -1534,7 +1534,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         internal = self.server.get_internal_proxy()
-        resp = internal.cli_put_user_profile( user_id, json.dumps(profile_json['profile']) )
+        resp = internal.cli_put_user_profile( user_id, json.dumps(profile_json['profile']), force_data=True )
         if json_is_error(resp):
             self._reply_json({'error': resp['error']}, status_code=500)
             return 
@@ -2032,16 +2032,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return 
 
 
-    def GET_blockchain_ops( self, ses, path_info, blockchain_id, blockheight ):
+    def GET_blockchain_ops( self, ses, path_info, blockchain_name, blockheight ):
         """
         Get the name's historic name operations
         Reply the list of nameops at the given block height
         Reply 404 for blockchains other than those supported
         Reply 500 for any error we have in talking to the blockstack server
         """
-        if blockchain_id != 'bitcoin':
+        if blockchain_name != 'bitcoin':
             # not supported
-            self._reply_json({'error': 'Unsupported blockchain'}, status_code=404)
+            self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
             return
 
         nameops = proxy.get_nameops_at(blockheight)
@@ -2060,16 +2060,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def GET_blockchain_name_history( self, ses, path_info, blockchain_id, name ):
+    def GET_blockchain_name_history( self, ses, path_info, blockchain_name, name ):
         """
         Get the name's blockchain history
         Reply the raw history record on success
         Reply 404 if the name is not found
         Reply 500 if we have an error talking to the server
         """
-        if blockchain_id != 'bitcoin':
+        if blockchain_name != 'bitcoin':
             # not supported
-            self._reply_json({'error': 'Unsupported blockchain'}, status_code=404)
+            self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
             return 
 
         name_rec = proxy.get_name_blockchain_record(name)
@@ -2087,16 +2087,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         pass
 
 
-    def GET_blockchain_consensus( self, ses, path_info, blockchain_id ):
+    def GET_blockchain_consensus( self, ses, path_info, blockchain_name ):
         """
         Handle GET /blockchain/:blockchainID/consensus
         Reply the consensus hash at this blockchain's tip
+        Reply 401 for unrecognized blockchain 
         Reply 404 for blockchains that we don't support
         Reply 500 for any error we have in talking to the blockstack server
         """
-        if blockchain_id != 'bitcoin':
+        if blockchain_name != 'bitcoin':
             # not supported
-            self._reply_json({'error': 'Unsupported blockchain'}, status_code=404)
+            self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
             return
 
         info = proxy.getinfo()
@@ -2113,6 +2114,34 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         self._reply_json({'consensus_hash': info['consensus']})
         return 
+
+
+    def GET_blockchain_pending( self, ses, path_info, blockchain_name ):
+        """
+        Handle GET /blockchain/:blockchainID/pending
+        Reply the list of pending transactions from our internal registrar queue
+        Reply 404 
+        """
+        if blockchain_name != 'bitcoin':
+            # not supported
+            self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
+            return 
+
+        internal = self.server.get_internal_proxy()
+        res = internal.cli_get_registrar_info()
+        if json_is_error(res):
+            # error
+            status_code = None
+            if json_is_exception(info):
+                status_code = 500
+            else:
+                status_code = 404
+
+            self._reply_json({'error': res['error']}, status_code=status_code)
+            return 
+
+        self._reply_json({'queues': res})
+        return
 
 
     def GET_ping(self, session, path_info):
@@ -2211,12 +2240,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             },
             r'^/api/v1/addresses/({})/names$'.format(BASE58CHECK_CLASS): {
                 'routes': {
-                    'GET': self.GET_names_owned_by_address
+                    'GET': self.GET_names_owned_by_address,
                 },
                 'whitelist': {
                     'GET': {
                         'name': 'names',
-                        'desc': 'get names owned by an address'
+                        'desc': 'get names owned by an address',
                     },
                 },
             },
@@ -2250,6 +2279,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'blockchain',
                         'desc': 'get current consensus hash'
+                    },
+                },
+            },
+            r'^/api/v1/blockchains/({})/pending$'.format(URLENCODING_CLASS): {
+                'routes': {
+                    'GET': self.GET_blockchain_pending,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'blockchain',
+                        'desc': 'get pending transactions this node has sent'
                     },
                 },
             },
