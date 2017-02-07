@@ -816,18 +816,21 @@ def ping():
     """
     Check if RPC daemon is alive
     """
-
     data = {'status': 'alive'}
     return data
 
 
 # RPC method: backend_state
-def state():
+def state( rpc_token ):
     """
     Return status on current registrations
     """
-
     state, config_path, proxy = get_plugin_state()
+
+    valid_rpc_token = get_rpc_token(config_path=config_path)
+    if str(valid_rpc_token) != str(rpc_token):
+        return {'error': 'Incorrect RPC token'}
+
     log.debug("Get queue state from %s" % state.queue_path)
     data = get_queue_state(path=state.queue_path)
     return json.dumps(data)
@@ -958,8 +961,8 @@ def get_wallet(rpc_token=None, config_path=None, proxy=None):
 
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     data = {}
+    
     valid_rpc_token = get_rpc_token(config_path=config_path)
-
     if str(valid_rpc_token) != str(rpc_token):
         data['error'] = "Incorrect RPC token"
         return data
@@ -1000,6 +1003,11 @@ def preorder(rpc_token, fqu, config_path=None, proxy=None):
 
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     data = {}
+
+    valid_rpc_token = get_rpc_token(config_path=config_path)
+    if str(valid_rpc_token) != str(rpc_token):
+        data['error'] = "Incorrect RPC token"
+        return data
 
     if state.payment_address is None or state.owner_address is None:
         log.debug("Wallet is not unlocked")
@@ -1051,6 +1059,14 @@ def update( rpc_token, fqu, zonefile_txt_b64, profile, zonefile_hash, config_pat
     Send a new zonefile hash.  Queue the zonefile data for subsequent replication.
     """
 
+    state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
+    data = {}
+
+    valid_rpc_token = get_rpc_token(config_path=config_path)
+    if str(valid_rpc_token) != str(rpc_token):
+        data['error'] = "Incorrect RPC token"
+        return data
+
     assert zonefile_txt_b64 is not None or zonefile_hash is not None, "need zonefile or zonefile hash"
     
     zonefile_txt = None
@@ -1063,9 +1079,6 @@ def update( rpc_token, fqu, zonefile_txt_b64, profile, zonefile_hash, config_pat
     if zonefile_hash is None:
         zonefile_hash = get_zonefile_data_hash( zonefile_txt )
         
-    state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
-    data = {}
-
     if state.payment_address is None or state.owner_address is None:
         data['success'] = False
         data['error'] = "Wallet is not unlocked."
@@ -1128,6 +1141,11 @@ def transfer(rpc_token, fqu, transfer_address, config_path=None, proxy=None ):
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     data = {}
 
+    valid_rpc_token = get_rpc_token(config_path=config_path)
+    if str(valid_rpc_token) != str(rpc_token):
+        data['error'] = "Incorrect RPC token"
+        return data
+
     if state.payment_address is None or state.owner_address is None:
         data['success'] = False
         data['error'] = "Wallet is not unlocked."
@@ -1179,6 +1197,11 @@ def migrate( rpc_token, fqu, config_path=None, proxy=None ):
 
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     data = {}
+
+    valid_rpc_token = get_rpc_token(config_path=config_path)
+    if str(valid_rpc_token) != str(rpc_token):
+        data['error'] = "Incorrect RPC token"
+        return data
 
     if state.payment_address is None or state.owner_address is None:
         data['success'] = False
@@ -1273,6 +1296,11 @@ def renew( rpc_token, fqu, renewal_fee, config_path=None, proxy=None ):
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     data = {}
 
+    valid_rpc_token = get_rpc_token(config_path=config_path)
+    if str(valid_rpc_token) != str(rpc_token):
+        data['error'] = "Incorrect RPC token"
+        return data
+
     if state.payment_address is None or state.owner_address is None:
         data['success'] = False
         data['error'] = "Wallet is not unlocked."
@@ -1318,6 +1346,11 @@ def revoke( rpc_token, fqu, config_path=None, proxy=None ):
 
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     data = {}
+
+    valid_rpc_token = get_rpc_token(config_path=config_path)
+    if str(valid_rpc_token) != str(rpc_token):
+        data['error'] = "Incorrect RPC token"
+        return data
 
     if state.payment_address is None or state.owner_address is None:
         data['success'] = False
