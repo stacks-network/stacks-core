@@ -55,9 +55,67 @@ error = False
 index_file_data = "<html><head></head><body>foo.test hello world</body></html>"
 resource_data = "hello world"
 
+def verify_in_queue( ses, name, queue_name, tx_hash, expected_length=1 ):
+
+    # verify that it's in the queue 
+    res = testlib.blockstack_REST_call('GET', '/api/v1/blockchains/bitcoin/pending', ses, name='foo.test', appname='register')
+    if 'error' in res:
+        res['test'] = 'Failed to get queues'
+        print json.dumps(res)
+        error = True
+        return False
+
+    res = res['response']
+
+    # needs to be in the queue 
+    if not res.has_key('queues'):
+        res['test'] = 'Missing queues'
+        print json.dumps(res)
+        error = True
+        return False
+
+    if not res['queues'].has_key(queue_name):
+        res['test'] = 'Missing {} queue'.format(queue_name)
+        print json.dumps(res)
+        error = True
+        return False
+    
+    if len(res['queues'][queue_name]) != expected_length:
+        res['test'] = 'invalid preorder queue'
+        print json.dumps(res)
+        error = True
+        return False
+
+    found = False
+    for queue_entry in res['queues'][queue_name]:
+        if queue_entry['name'] != name:
+            continue
+
+        found = True
+
+        if tx_hash is not None and queue_entry['tx_hash'] != tx_hash:
+            res['test'] = 'tx hash mismatch: expected {}'.format(tx_hash)
+            print json.dumps(res)
+            error = True
+            return False
+
+        break
+
+    if not found:
+        print "name {} not found in queues".format(name)
+        print json.dumps(res)
+        return False
+
+    return True
+    
+
 def scenario( wallets, **kw ):
 
     global wallet_keys, wallet_keys_2, error, index_file_data, resource_data
+
+    wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
+    test_proxy = testlib.TestAPIProxy()
+    blockstack_client.set_default_proxy( test_proxy )
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -73,14 +131,6 @@ def scenario( wallets, **kw ):
     
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
-
-    test_proxy = testlib.TestAPIProxy()
-    blockstack_client.set_default_proxy( test_proxy )
-
-    wallet_keys = blockstack_client.make_wallet_keys( payment_privkey=wallets[5].privkey, owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
-    wallet_keys_2 = blockstack_client.make_wallet_keys( payment_privkey=wallets[9].privkey, owner_privkey=wallets[7].privkey, data_privkey=wallets[8].privkey )
-
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
     
     # migrate profiles 
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
@@ -90,15 +140,23 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
+    # bootstrap storage for this wallet
+    res = testlib.blockstack_cli_upgrade_storage("foo.test", password="0123456789abcdef")
+    if 'error' in res:
+        print 'failed to bootstrap storage for foo.test'
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False
+
+    if not blockstack_client.check_storage_setup():
+        print "storage is not set up"
+        return False
+
     # tell serialization-checker that value_hash can be ignored here
     print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
     sys.stdout.flush()
     
     testlib.next_block( **kw )
 
-    data_pk = wallets[-1].privkey
-    data_pub = wallets[-1].pubkey_hex
-    
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
 
     # make an index file for a dumb app 
@@ -107,7 +165,7 @@ def scenario( wallets, **kw ):
         f.write(index_file_data)
 
     # register an application under foo.test
-    res = testlib.blockstack_cli_app_publish("foo.test", "names,register,prices,user_read,user_write,user_admin,zonefiles", index_file_path, appname="register", drivers="disk", password="0123456789abcdef" )
+    res = testlib.blockstack_cli_app_publish("foo.test", "names,register,prices,user_read,user_write,user_admin,zonefiles,blockchain", index_file_path, appname="register", drivers="disk", password="0123456789abcdef" )
     if 'error' in res:
         res['test'] = 'Failed to register foo.test/register app'
         print json.dumps(res, indent=4, sort_keys=True)
@@ -174,11 +232,6 @@ def scenario( wallets, **kw ):
     # get the user (via the REST api)
     # expect 404, since the user has no profile
     res = testlib.blockstack_REST_call('GET', '/api/v1/users/foo_user_id', ses, name="foo.test", appname="register")
-    if 'error' in res:
-        res['test'] = 'Failed to get user profile'
-        print json.dumps(res)
-        return False
-
     if res['http_status'] != 404:
         res['test'] = 'expected http 404'
         print json.dumps(res)
@@ -210,9 +263,20 @@ def scenario( wallets, **kw ):
         print json.dumps(res)
         error = True
         return False
- 
+
+    print res
+    tx_hash = res['response']['transaction_hash']
+
+    # wait for preorder to get confirmed...
+    for i in xrange(0, 6):
+        testlib.next_block( **kw )
+
+    res = verify_in_queue(ses, 'bar.test', 'preorder', tx_hash )
+    if not res:
+        return False
+
     # wait for the preorder to get confirmed
-    for i in xrange(0, 12):
+    for i in xrange(0, 6):
         testlib.next_block( **kw )
 
     in_preorder_queue = False
@@ -253,9 +317,17 @@ def scenario( wallets, **kw ):
         return False
 
     # wait for the register to get confirmed 
-    for i in xrange(0, 12):
+    for i in xrange(0, 6):
         testlib.next_block( **kw )
 
+    res = verify_in_queue(ses, 'bar.test', 'register', None )
+    if not res:
+        return False
+
+    for i in xrange(0, 6):
+        testlib.next_block( **kw )
+
+    in_update_queue = False
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
     for i in xrange(0, 10):
         # poll 
@@ -275,6 +347,13 @@ def scenario( wallets, **kw ):
         time.sleep(1)
 
     # wait for update to get confirmed 
+    for i in xrange(0, 6):
+        testlib.next_block( **kw )
+
+    res = verify_in_queue(ses, 'bar.test', 'update', None )
+    if not res:
+        return False
+
     for i in xrange(0, 12):
         testlib.next_block( **kw )
 
