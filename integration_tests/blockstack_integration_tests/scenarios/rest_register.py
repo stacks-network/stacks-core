@@ -165,7 +165,7 @@ def scenario( wallets, **kw ):
         f.write(index_file_data)
 
     # register an application under foo.test
-    res = testlib.blockstack_cli_app_publish("foo.test", "names,register,prices,user_read,user_write,user_admin,zonefiles,blockchain", index_file_path, appname="register", drivers="disk", password="0123456789abcdef" )
+    res = testlib.blockstack_cli_app_publish("foo.test", "names,register,prices,user_read,user_write,user_admin,zonefiles,blockchain,node_read", index_file_path, appname="register", drivers="disk", password="0123456789abcdef" )
     if 'error' in res:
         res['test'] = 'Failed to register foo.test/register app'
         print json.dumps(res, indent=4, sort_keys=True)
@@ -228,6 +228,15 @@ def scenario( wallets, **kw ):
         res['test'] = 'Got invalid users'
         print json.dumps(res)
         return False
+
+    # query wallet 
+    wallet_public = testlib.blockstack_REST_call('GET', '/api/v1/node/wallet/public', ses, name='foo.test', appname='register')
+    if wallet_public['http_status'] != 200:
+        wallet_public['test'] = 'failed to get wallet'
+        print json.dumps(wallet_public)
+        return False
+
+    print '\n\nwallet public info:\n{}\n\n'.format(json.dumps(wallet_public, indent=4, sort_keys=True))
 
     # get the user (via the REST api)
     # expect 404, since the user has no profile
