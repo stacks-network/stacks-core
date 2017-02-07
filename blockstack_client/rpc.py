@@ -57,13 +57,14 @@ import backend
 import proxy
 from proxy import json_is_error, json_is_exception
 
-from .constants import BLOCKSTACK_DEBUG, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH
+from .constants import BLOCKSTACK_DEBUG, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME
 from .client import check_storage_setup
 from .method_parser import parse_methods
 import app
 import assets
 import data
 import zonefile
+import wallet
 import user as user_db
 
 log = blockstack_config.get_logger()
@@ -2031,6 +2032,28 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self._reply_json({'error': 'Unimplemented'}, status_code=405)
         return 
 
+    
+    def GET_wallet_public( self, ses, path_info ):
+        """
+        Get the public fields of the wallet
+        """
+
+        wallet_path = os.path.join( os.path.dirname(self.server.config_path), WALLET_FILENAME )
+
+        try:
+            payment_address, owner_address, data_pubkey = wallet.get_addresses_from_file(wallet_path=wallet_path)
+            ret = {
+                'payment_address': payment_address,
+                'owner_address': owner_address,
+                'data_pubkey': data_pubkey
+            }
+            self._reply_json(ret)
+            return 
+
+        except Exception as e:
+            self._reply_json({'error': 'Failed to read wallet file'}, status_code=500)
+            return
+
 
     def GET_blockchain_ops( self, ses, path_info, blockchain_name, blockheight ):
         """
@@ -2441,6 +2464,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'PUT': {
                         'name': 'namespace_registration',
                         'desc': 're-import names into a new namespace'
+                    },
+                },
+            },
+            r'^/api/v1/node/wallet/public$': {
+                'routes': {
+                    'GET': self.GET_wallet_public,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'node_read',
+                        'desc': 'get the node wallet\'s public information'
                     },
                 },
             },
