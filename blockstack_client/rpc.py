@@ -815,7 +815,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         app_methods = app_config['api_methods']
 
         log.debug("Get user list for {}".format(self.server.master_data_pubkey))
-        # users = user_db.users_list( self.server.master_data_pubkey, config_path=self.server.config_path )
         users = data.get_user_list( self.server.master_data_pubkey, config_path=self.server.config_path )
         if 'error' in users:
             log.error("Failed to load users list")
@@ -825,7 +824,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         user_ids = users['user_ids']
-        # user_ids = [user['user_id'] for user in users]
         name_payload = {
             'name': app_fqu,
             'appname': appname
@@ -926,12 +924,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Serve back the identity panel
         """
-        self._send_headers(content_type='text/html')
-
-        """
-        users = user_db.users_list(self.server.master_data_pubkey, config_path=self.server.config_path)
-        app_users_txt = ["{}@{}:{}".format(a['user_id'], a['appname'], a['app_fqu']) for a in users]
-        """
         users = data.get_user_list(self.server.master_data_pubkey, config_path=self.server.config_path)
         if 'error' in users:
             log.error("Failed to get user list")
@@ -940,6 +932,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self.wfile.write(error_page)
             return
 
+        self._send_headers(content_type='text/html')
         home_page = assets.asset_make_home_page( app_users_txt )
         self.wfile.write( home_page )
         return
@@ -2691,7 +2684,32 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 self._send_headers(status_code=400, content_type='text/plain')
                 return 
 
-        if not route.has_key('authenticate') or route['authenticate']:
+        if not self.server.authenticate:
+            # server has disabled authentication
+            # make a new session.
+            log.warning("Authentication disabled; making a new session automatically")
+
+            # require appname=, name=, user_id=
+            appname = qs_values.get('appname', None)
+            app_fqu = qs_values.get('app_fqu', None)
+            user_id = qs_values.get('user_id', None)
+            
+            if appname is None:
+                appname = 'unknown'
+
+            if app_fqu is None:
+                app_fqu = 'unknown'
+
+            if user_id is None:
+                user_id = 'unknown'
+
+            fake_account = app.app_make_account_info( app_fqu, appname, [], user_id, self.server.master_data_pubkey, -1, 3600*24*7 )
+            session = app.app_make_session( fake_account, self.server.master_data_privkey, config_path=self.server.config_path )
+            if 'error' in session:
+                log.error("Failed to make session for {}/{}".format(app_fqu, appname))
+                return self._send_headers(status_code=500, content_type='text/plain')
+
+        elif not route.has_key('authenticate') or route['authenticate']:
             # session token required 
             session = self.verify_session(qs_values)
             if session is None:
@@ -2719,11 +2737,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 if whitelist_info['name'] not in allowed_methods:
                     # this method is not allowed
                     log.info("Unauthorized method call to {} from {}/{}".format(path_info['path'], app_fqu, appname))
-                    self._send_headers(status_code=403, content_type='text/plain')
-                    return
+                    return self._send_headers(status_code=403, content_type='text/plain')
 
         try:
-            route_method( session, path_info, *route_args )
+            return route_method( session, path_info, *route_args )
         except Exception as e:
             if BLOCKSTACK_DEBUG:
                 log.exception(e)
@@ -2964,12 +2981,18 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
         self.port = port
         self.app_configs = {}   # cached app config state
         self.rpc_token = rpc_token
+        self.authenticate = True
+
+        conf = blockstack_config.get_config(path=config_path)
 
         if self.rpc_token is None:
-            conf = blockstack_config.get_config(path=config_path)
             self.rpc_token = conf.get('rpc_token', None)
             if self.rpc_token is None:
                 log.warning("Failed to load RPC token from {}".format(config_path))
+
+        if not conf.get('authenticate_api', True):
+            log.warn("Will NOT authenticate API calls with session tokens")
+            self.authenticate = False
 
         if wallet_keys is not None:
             assert wallet_keys.has_key('data_privkey')
