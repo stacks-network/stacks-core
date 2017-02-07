@@ -363,7 +363,7 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None):
     # try pubkey, if given
     if public_key is not None:
         mutable_data_json = blockstack_profiles.get_profile_from_tokens(
-            mutable_data_jwt, public_key
+            mutable_data_jwt, str(public_key)
         )
 
         if len(mutable_data_json) > 0:
