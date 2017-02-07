@@ -103,9 +103,6 @@ def scenario( wallets, **kw ):
     sys.stdout.flush()
     
     testlib.next_block( **kw )
-
-    data_pk = wallets[-1].privkey
-    data_pub = wallets[-1].pubkey_hex
     
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
 
@@ -121,7 +118,7 @@ def scenario( wallets, **kw ):
         print json.dumps(res, indent=4, sort_keys=True)
         return False
 
-    # make a user for bar.test (via the REST api)
+    # make a user for bar.test (via the CLI)
     res = testlib.blockstack_cli_create_user( "foo_user_id", password="0123456789abcdef" )
     if 'error' in res:
         res['test'] = 'Failed to create user'
