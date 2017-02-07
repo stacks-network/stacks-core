@@ -53,6 +53,13 @@ Each application specifies in advance which family of API calls it will need to 
 | Get namespace price | GET /prices/namespaces/{tld} | prices | - | 
 | Get name price | GET /prices/names/{name} | prices | - | 
 
+### Node
+
+| Method  | API Call | API family | Notes | 
+| ------------- | ------------- | ------------- | ------------- |
+| Get public wallet fields | GET /node/wallet/public | node_read | - |
+
+
 ### Blockchains
 
 | Method  | API Call | API family | Notes | 
