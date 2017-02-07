@@ -834,7 +834,7 @@ def blockstack_cli_upgrade_wallet( password, config_path=None):
     return cli_upgrade_wallet(args, config_path=config_path, password=password )
 
 
-def blockstack_cli_upgrade_storage( name, password=None, wallet_keys=None):
+def blockstack_cli_upgrade_storage( name, password=None, wallet_keys=None, config_path=CONFIG_PATH):
     """
     Upgrade storage
     """
@@ -881,7 +881,7 @@ def blockstack_cli_get_account( name, service, identifier, config_path=None):
     return cli_get_account( args, config_path=config_path, proxy=test_proxy )
 
 
-def blockstack_cli_put_account( name, service, identifier, content_url, password, extra_data=None, wallet_keys=None):
+def blockstack_cli_put_account( name, service, identifier, content_url, password, extra_data=None, wallet_keys=None, config_path=None):
     """
     put an account
     """
@@ -1658,7 +1658,7 @@ def blockstack_cli_get_user( user_id, config_path=None):
     return cli_get_user( args, config_path=config_path, proxy=test_proxy )
 
 
-def blockstack_cli_list_users():
+def blockstack_cli_list_users(config_path=None):
     """
     list users
     """
@@ -2842,7 +2842,7 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
         proxy = make_proxy(config_path=config_path)
         blockstack_client.set_default_proxy( proxy )
 
-    config_path = test_proxy.config_path if config_path is None else config_path
+    config_path = proxy.config_path if config_path is None else config_path
 
     user_profile, user_zonefile, legacy = blockstack_client.get_and_migrate_profile( name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys )
     if 'error' in user_profile:
