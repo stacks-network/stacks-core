@@ -38,7 +38,7 @@ If you encounter any technical issues in installing or using Blockstack, please 
 
 ## Development Status
 
-The latest stable release of Blockstack Core is 0.14.0 (available in the master branch).
+**The latest stable release of Blockstack Core is 0.14.0** (available in the master branch).
 
 The next release candidate for Blockstack Core is 0.14.1 ([release notes](https://github.com/blockstack/blockstack-core/issues/281)) and most of the development is happening in that branch. Please submit all
 pull requests to the [rc-0.14.1b](https://github.com/blockstack/blockstack-core/tree/rc-0.14.1b) branch.
