@@ -6,14 +6,44 @@
 Blockstack is a new decentralized web, where users own their data and apps run on user devices without the need for hosting. Developers can build
 serverless apps without the need to trust any centralized services or infrastructure.
 
-Blockstack Core handles the main functionality of the system. It is responsible for processing blockchain transactions, creating virtualchain state, and building the peer network amongst other things. 
+For more info on Blockstack see: http://github.com/blockstack/blockstack
 
-Blockstack Core provides a RESTful interface for clients and also comes with a command-line-interface (CLI).
+**Blockstack Core is the reference implementation of Blockstack.** It is responsible for processing blockchain transactions, creating virtualchain state, and building the peer network amongst other things. Blockstack Core provides a RESTful interface for clients and also comes with a command-line-interface (CLI).
+
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Development Status](#development-status)
+- [Blockstack Docs](#blockstack-docs)
+- [Contributing](#contributing)
+- [Community](#community)
+
+## Quick Start
+
+The fastest way to get started with Blockstack is with pip:
+
+```
+sudo pip install blockstack
+```
+
+After installation, you can start Blockstack Core and index the blockchain:
+
+```bash
+$ blockstack-server start
+```
+
+Next, visit the [basic usage docs](https://blockstack.org/docs/basic-usage) and [extended usage docs](https://blockstack.org/docs/basic-usage) to learn how to register names of your own, as well as transfer them and associate data with them.
+
+If you encounter any technical issues in installing or using Blockstack, please [search the open issues](https://github.com/blockstack/blockstack-core/issues) and start a new one if your issue is not covered. 
+
+## Development Status
 
 The latest stable release of Blockstack Core is 0.14.0 (available in the master branch).
 
 The next release candidate for Blockstack Core is 0.14.1 ([release notes](https://github.com/blockstack/blockstack-core/issues/281)) and most of the development is happening in that branch. Please submit all
 pull requests to the [rc-0.14.1b](https://github.com/blockstack/blockstack-core/tree/rc-0.14.1b) branch.
+
+## Blockstack Docs
 
 You can learn more by visiting [the Blockstack Website](https://blockstack.org) and checking out the in-depth articles and documentation:
 
@@ -29,30 +59,7 @@ You can also read the Blockstack paper:
 
 If you have high-level questions about Blockstack, try [searching our forum](https://forum.blockstack.org) and start a new question if your question is not answered there.
 
-### Installation
-
-The fastest way to get started with blockstack is with pip:
-
-```
-sudo pip install blockstack
-```
-
-If you encounter any problems during the pip install, see the [detailed installation
-instructions](https://blockstack.org/docs/installation).
-
-### Getting Started
-
-First, start the Blockstack server and index the blockchain:
-
-```bash
-$ blockstack-server start
-```
-
-Next, visit the [basic usage docs](https://blockstack.org/docs/basic-usage) and [extended usage docs](https://blockstack.org/docs/basic-usage) to learn how to register names of your own, as well as transfer them and associate data with them.
-
-If you encounter any technical issues in installing or using Blockstack, please [search the open issues](https://github.com/blockstack/blockstack-core/issues) and start a new one if your issue is not covered. 
-
-### Contributing
+## Contributing
 
 We welcome any small or big contributions! Please take a moment to
 [review the guidelines for contributing to open source](https://guides.github.com/activities/contributing-to-open-source/) in order to make the contribution process easy and effective for everyone involved.
@@ -70,7 +77,7 @@ We welcome any small or big contributions! Please take a moment to
 - [Contributor Graph](../../graphs/contributors)
 - [Code Overview](https://github.com/blockstack/blockstack/blob/master/overview.md)
 
-### Community
+## Community
 
 We have an active community of developers and the best place to interact with the community is:
 
@@ -78,7 +85,7 @@ We have an active community of developers and the best place to interact with th
 - [Blockstack Forum](http://forum.blockstack.org)
 - [Live chat on Slack](http://chat.blockstack.org/) (2,400+ members)
 
-### Copyright and License
+## Copyright and License
 
 The code and documentation copyright are attributed to blockstack.org for the year of 2017.
 
