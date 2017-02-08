@@ -25,6 +25,8 @@ from blockstack_profiles import get_profile_from_tokens
 #from blockstack_profiles import is_profile_in_legacy_format
 from blockstack_zones import parse_zone_file
 
+from blockstack_client.proxy import get_name_blockchain_record
+
 from .crossdomain import crossdomain
 
 from .config import DEBUG
@@ -167,13 +169,22 @@ def is_profile_in_legacy_format(profile):
 
 def parse_uri_from_zone_file(zone_file):
 
+    token_file_url = None
     zone_file = dict(parse_zone_file(zone_file))
 
     if isinstance(zone_file["uri"], list) and len(zone_file["uri"]) > 0:
 
-        if "target" in zone_file["uri"][2]:
-            first_uri_record = zone_file["uri"][2]
-            token_file_url = first_uri_record["target"]
+        index = 0
+        while(index < len(zone_file["uri"])):
+
+            record = zone_file["uri"][index]
+
+            if 'name' in record and record['name'] == '_http._tcp':
+                first_uri_record = zone_file["uri"][index]
+                token_file_url = first_uri_record["target"]
+                break
+
+            index += 1
 
     return token_file_url
 
@@ -182,7 +193,10 @@ def resolve_zone_file_from_rpc(zone_file, owner_address):
 
     rpc_uri = parse_uri_from_zone_file(zone_file)
 
-    uri, fqu = rpc_uri.rsplit('#')
+    try:
+        uri, fqu = rpc_uri.rsplit('#')
+    except:
+        return None
 
     try:
         s = xmlrpclib.ServerProxy(uri, allow_none=True)
@@ -219,7 +233,6 @@ def resolve_zone_file_to_profile(zone_file, address_or_public_key):
         profile = get_profile_from_tokens(profile_token_records, address_or_public_key)
     except Exception as e:
         profile = resolve_zone_file_from_rpc(zone_file, address_or_public_key)
-        #return None, str(e)
 
     return profile, None
 
@@ -243,7 +256,7 @@ def format_profile(profile, username, address, refresh=False):
         return data
 
     try:
-        profile, error = resolve_zone_file_to_profile(profile, address)
+        profile, error = resolve_zone_file_to_profile(zone_file, address)
     except:
         if 'message' in profile:
             data['profile'] = json.loads(profile)
@@ -270,7 +283,10 @@ def format_profile(profile, username, address, refresh=False):
             data['verifications'] = fetch_proofs(data['profile'], username,
                                                  profile_ver=3, refresh=refresh)
         else:
-            data['profile'] = json.loads(profile)
+            if type(profile) is not dict:
+                data['profile'] = json.loads(profile)
+            else:
+                data['profile'] = profile
             data['verifications'] = fetch_proofs(data['profile'], username,
                                                  refresh=refresh)
 
@@ -301,10 +317,7 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
     if dht_cache_reply is None:
 
         try:
-            bs_client = Proxy(BLOCKSTACKD_IP, BLOCKSTACKD_PORT, timeout=10)
-            bs_resp = bs_client.get_name_blockchain_record(username + "." + namespace)
-            bs_resp = bs_resp[0]
-
+            bs_resp = get_name_blockchain_record(username + "." + namespace)
         except:
             abort(500, "Connection to blockstack-server %s:%s timed out" % (BLOCKSTACKD_IP, BLOCKSTACKD_PORT))
 
@@ -348,8 +361,6 @@ def get_all_users():
     return data
 
 
-#@app.route('/v2/users/<usernames>', methods=['GET'], strict_slashes=False)
-#@crossdomain(origin='*')
 def get_users(usernames):
     """ Fetch data from username in .id namespace
     """
@@ -374,7 +385,7 @@ def get_users(usernames):
 
         if 'error' in info:
             reply[username] = info
-            return jsonify(reply), 502
+            return reply
         else:
             reply[username] = info
 
@@ -455,3 +466,24 @@ def get_user_count():
 
     return jsonify(reply)
 
+
+@app.route('/')
+def index():
+    """ Default HTML display if someone visits the resolver
+    """
+
+    reply = '<hmtl><body>Welcome to this Blockstack resolver, see \
+            <a href="http://github.com/blockstack/blockstack-resolver"> \
+            this Github repo</a> for details.</body></html>'
+
+    return reply
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    return make_response(jsonify({'error': error.description}), 500)
+
+
+@app.errorhandler(404)
+def not_found(error):
+    return make_response(jsonify({'error': 'Not found'}), 404)

@@ -1,0 +1,29 @@
+name: blockstack
+version: master
+summary:  A server that handles the core functionality of Blockstack
+description: |
+  Blockstack is a new decentralized web, where users own their data and apps
+  run on user devices without the need for hosting.
+
+  Blockstack Core handles the main functionality of the system. It is
+  responsible for processing blockchain transactions, creating virtualchain
+  state, and building the peer network amongst other things. Blockstack Core
+  provides RPC and RESTful interfaces for Blockstack clients.
+
+grade: devel
+confinement: strict
+
+apps:
+  server:
+    command: blockstack-server
+    plugs: [network, network-bind]
+  blockstack:
+    command: blockstack
+    plugs: [network]
+
+parts:
+  core:
+    plugin: python
+    python-version: python2
+    source: ../../
+    build-packages: [libffi-dev, libssl-dev]
