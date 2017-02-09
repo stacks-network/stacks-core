@@ -336,7 +336,7 @@ def get_total_registration_fees(name, payment_privkey_info, owner_privkey_info,
         msg = 'Could not determine price of name: {}'
         return {'error': msg.format(data['error'])}
 
-    insufficient_funds, owner_address, payment_address = False, None, None
+    insufficient_funds, owner_address = False, None
 
     if payment_privkey_info is not None:
         payment_address = get_privkey_info_address(payment_privkey_info)
@@ -647,8 +647,8 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
 
     for k in btc_keys:
         v = {
-            'satoshis': '{}'.format(fees[k]),
-            'btc': '{}'.format(satoshis_to_btc(fees[k]))
+            'satoshis': fees[k],
+            'btc': satoshis_to_btc(fees[k])
         }
         fees[k] = v
 
