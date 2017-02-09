@@ -27,6 +27,8 @@ import json
 import shutil
 import tempfile
 import os
+import keychain
+import virtualchain
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -59,80 +61,96 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_name_import( "foo.test", wallets[3].addr, "11" * 20, wallets[1].privkey )
+    # derive importer keys and do imports
+    # NOTE: breaks consensus trace from 0.14.0
+    private_keychain = keychain.PrivateKeychain.from_private_key( wallets[1].privkey )
+    private_keys = [wallets[1].privkey]     # NOTE: always start with the reveal key, then use children
+    for i in xrange(0, 3):
+        import_key = private_keychain.child(i).private_key()
+
+        print "fund {} (child {})".format(import_key, i)
+        res = testlib.send_funds( wallets[1].privkey, 100000000, virtualchain.BitcoinPrivateKey(import_key).public_key().address() )
+        if 'error' in res:
+            print json.dumps(res, indent=4, sort_keys=True)
+            return False
+
+        testlib.next_block(**kw)
+        private_keys.append(import_key)
+
+    resp = testlib.blockstack_name_import( "foo.test", wallets[3].addr, "11" * 20, private_keys[0] )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
     # import twice
-    resp = testlib.blockstack_name_import( "bar.test", wallets[4].addr, "22" * 20, wallets[1].privkey )
+    resp = testlib.blockstack_name_import( "bar.test", wallets[4].addr, "22" * 20, private_keys[0] )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_name_import( "bar.test", wallets[4].addr, "33" * 20, wallets[1].privkey )
+    resp = testlib.blockstack_name_import( "bar.test", wallets[4].addr, "33" * 20, private_keys[1] )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
  
     testlib.next_block( **kw )
 
     # import thrice in the same block 
-    resp = testlib.blockstack_name_import( "baz.test", wallets[5].addr, "44" * 20, wallets[1].privkey )
+    resp = testlib.blockstack_name_import( "baz.test", wallets[5].addr, "44" * 20, private_keys[0] )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_import( "baz.test", wallets[5].addr, "55" * 20, wallets[1].privkey )
+    resp = testlib.blockstack_name_import( "baz.test", wallets[5].addr, "55" * 20, private_keys[1] )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_import( "baz.test", wallets[5].addr, "66" * 20, wallets[1].privkey )
+    resp = testlib.blockstack_name_import( "baz.test", wallets[5].addr, "66" * 20, private_keys[2] )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
     
     testlib.next_block( **kw )
 
     # import all three in the same block 
-    resp = testlib.blockstack_name_import( "foo.test", wallets[5].addr, "66" * 20, wallets[1].privkey )
+    resp = testlib.blockstack_name_import( "foo.test", wallets[5].addr, "66" * 20, private_keys[0] )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_import( "bar.test", wallets[3].addr, "77" * 20, wallets[1].privkey )
+    resp = testlib.blockstack_name_import( "bar.test", wallets[3].addr, "77" * 20, private_keys[1] )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_import( "baz.test", wallets[4].addr, "88" * 20, wallets[1].privkey )
+    resp = testlib.blockstack_name_import( "baz.test", wallets[4].addr, "88" * 20, private_keys[2] )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
     
     # import thrice in the same block, again
-    resp = testlib.blockstack_name_import( "baz.test", wallets[5].addr, "44" * 20, wallets[1].privkey )
+    resp = testlib.blockstack_name_import( "baz.test", wallets[5].addr, "44" * 20, private_keys[0] )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_import( "baz.test", wallets[5].addr, "55" * 20, wallets[1].privkey )
+    resp = testlib.blockstack_name_import( "baz.test", wallets[5].addr, "55" * 20, private_keys[1] )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_import( "baz.test", wallets[5].addr, "66" * 20, wallets[1].privkey )
+    resp = testlib.blockstack_name_import( "baz.test", wallets[5].addr, "66" * 20, private_keys[2] )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
     
     testlib.next_block( **kw )
     
     # import all three in the same block, again 
-    resp = testlib.blockstack_name_import( "foo.test", wallets[5].addr, "66" * 20, wallets[1].privkey )
+    resp = testlib.blockstack_name_import( "foo.test", wallets[5].addr, "66" * 20, private_keys[0] )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_import( "bar.test", wallets[3].addr, "77" * 20, wallets[1].privkey )
+    resp = testlib.blockstack_name_import( "bar.test", wallets[3].addr, "77" * 20, private_keys[1] )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_import( "baz.test", wallets[4].addr, "88" * 20, wallets[1].privkey )
+    resp = testlib.blockstack_name_import( "baz.test", wallets[4].addr, "88" * 20, private_keys[2] )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
