@@ -26,7 +26,8 @@ Each application specifies in advance which family of API calls it will need to 
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
-| Get public wallet fields | GET /wallet/public | wallet_read | - |
+| Get wallet payment address | GET /wallet/payment_address | wallet_read | - |
+| Get wallet owner address | GET /wallet/owner_address | wallet_read | - |
 | Set the wallet | PUT /wallet/private | - | Requires a pre-shared secret in the `Authorization:` header |
 
 ### Authorization
@@ -38,33 +39,31 @@ Each application specifies in advance which family of API calls it will need to 
 The `POST /auth` endpoint expects a JSON document with at least the following fields defined:
 ```
 {
-   'name': str,         # OPTIONAL; see below
-   'appname': str,      # OPTIONAL; see below
-   'user_id': str,      # OPTIONAL; see below
    'public_key': str    # the ECDSA public key of the account this token is for
    'permissions': [str] # the list of "API families" that this token will enable.
 }
 ```
 
-Blockstack Core session tokens are JWTs defined as follows:
+Blockstack Core session tokens are JWTs defined as follows.  They will be signed by the data private key in the wallet:
 ```
 {
-    'name': str       # the blockchain ID of the application's owner (e.g. the Host: field)
-    'appname': str    # the name of the application
-    'user_id': str    # the name of the user's persona that signed in
+    'name': str       # app developer's blockchain ID
+    'appname': str    # app's DNS name
+    'user_id': str    # persona identifier
     'methods': [str]  # the list of API families the bearer may call
-    'public_key': str # the ECDSA public key of the account
+    'public_key': str # the ECDSA public key for the account
     'timestamp': int  # the time at which this token was created
     'expires': int    # the time at which this token expires
 }
 ```
-The token will be signed by the data private key in the wallet.
 
-The process that calls `POST /auth` supplies the values for `name`, `appname`, and `user_id` fields.  While they are not required, their absence will limit some API calls as described below.
+The token represents the rights of an account, identified by the (`name`, `appname`, `user_id`) tuple.  For example, (`name="storage.app"`, `appname="www.blockstack-storage.com"`, `user_id=jude_storage`) can be interpreted as "The account for user `jude_storage` in `storage.app`'s application `www.blockstack-storage.com`". 
 
-The `name` and `appname` fields identify the program that the token is for.  This makes the most sense for Web applications, where we have to authenticate `index.html` using a signed `.blockstackrc` file.  In these cases, `name` will be used to look up the public key to verify the signed `.blockstackrc` file, which will then be used to authenticate the `index.html` file and the app's DNS name.  The `appname` field is a long-form app-chosen description of the application (e.g. `name=google.app` and `appname=Google, Inc`).  If these fields are omitted, then the token-bearer will be unable to use the `resources` API family or use Blockstack Core as a Web proxy.
+The `name` and `appname` fields identify the program that the token is for.  They are meant primarily for accounts of Web applications, where the client program needs to authenticate the `index.html` file using a `.blockstackrc` file in the same directory.  In this case, `name` will be used to look up the public key to verify the signed `.blockstackrc` file (e.g. `name` is the developer's blockchain ID), which will then be used to authenticate the `index.html` file.  The `appname` field is the name of a specific application whose data is signed by the `name`'s owner (for Web apps, this is the app's DNS name).
 
-The `user_id` field identifies a child keypair derived from the node's data key that can be used for loading and storing profiles and data.  The core node must already know about the keypair.  It needs to have been generated prior to the `/auth` call by using the CLI's `create_user` command or the REST API's `POST /users` endpoint.  If the `user_id` field is omitted or does not correspond to a known user, then the token-bearer will be unable to use the Identities API (see below).
+The `user_id` field identifies user persona known to Blockstack Core (i.e. created with `blockstack create_user` or `POST /users`).  User personas are derived from the data private key in the wallet, and their public keys are replicated to the owner's storage providers by default (so other clients can look them up, given the `user_id` and the blockchain ID that points to the data public key).
+
+In practice, the wallet owner should create user personas to group accounts.  For example, a wallet owner might have a personal user and a business user.  An agent that wants to create tokens on behalf of other programs (like the Blockstack Browser) should create a user persona for itself, and use that persona to generate tokens for its clients.
 
 ## Naming API
 
