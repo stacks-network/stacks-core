@@ -238,6 +238,19 @@ def scenario( wallets, **kw ):
    
     zonefile_hash = res['response']['zonefile_hash']
 
+    # present?
+    res = testlib.blockstack_REST_call('GET', '/api/v1/names', ses, name='foo.test', appname='register')
+    if 'error' in res or res['http_status'] != 202:
+        res['test'] = 'failed to list names'
+        print json.dumps(res)
+        return False
+
+    names = res['response']
+    if sorted(names) != ['bar.test', 'foo.test']:
+        res['test'] = 'invalid names response: got {}'.format(names)
+        print json.dumps(res)
+        return False
+
     # revoke it
     res = testlib.blockstack_REST_call("DELETE", "/api/v1/names/bar.test", ses, name="foo.test", appname="register")
     if 'error' in res or res['http_status'] != 202:
@@ -270,6 +283,19 @@ def scenario( wallets, **kw ):
     # revoked?
     if res['response']['status'] != 'revoked':
         res['test'] = 'name not revoked'
+        print json.dumps(res)
+        return False
+
+    # absent?
+    res = testlib.blockstack_REST_call('GET', '/api/v1/names', ses, name='foo.test', appname='register')
+    if 'error' in res or res['http_status'] != 202:
+        res['test'] = 'failed to list names'
+        print json.dumps(res)
+        return False
+
+    names = res['response']
+    if names != ['foo.test']:
+        res['test'] = 'invalid names response: got {}'.format(names)
         print json.dumps(res)
         return False
 
