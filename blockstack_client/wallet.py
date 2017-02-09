@@ -661,6 +661,9 @@ def load_wallet(password=None, config_path=CONFIG_PATH, wallet_path=None, includ
     if password is None:
         password = prompt_wallet_password()
 
+    if not os.path.exists(wallet_path):
+        return {'error': 'No such file or directory'}
+
     with open(wallet_path, 'r') as f:
         data = f.read()
         data = json.loads(data)
