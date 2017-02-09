@@ -73,7 +73,7 @@ def user_path(user_id, config_path=CONFIG_PATH):
     return os.path.join(dirp, user_name(user_id))
 
 
-def user_init( user_id, master_data_privkey_hex, blockchain_id=None, config_path=CONFIG_PATH ):
+def user_init( user_id, master_data_privkey_hex, privkey_index=None, blockchain_id=None, config_path=CONFIG_PATH ):
     """
     Generate a new local user with the given user ID
     Returns {'user': ..., 'user_token': ...} on success
@@ -81,20 +81,21 @@ def user_init( user_id, master_data_privkey_hex, blockchain_id=None, config_path
     raises on fatal error
     """
     
-    from .data import next_privkey_index
-    next_privkey_index_info = next_privkey_index(master_data_privkey_hex, config_path=config_path)
-    if 'error' in next_privkey_index_info:
-        return next_privkey_index_info
+    if privkey_index is None:
+        from .data import next_privkey_index
+        next_privkey_index_info = next_privkey_index(master_data_privkey_hex, config_path=config_path)
+        if 'error' in next_privkey_index_info:
+            return next_privkey_index_info
 
-    next_privkey_index = next_privkey_index_info['index']
+        privkey_index = next_privkey_index_info['index']
     
     hdwallet = HDWallet( hex_privkey=master_data_privkey_hex)
-    user_privkey = hdwallet.get_child_privkey( index=next_privkey_index )
+    user_privkey = hdwallet.get_child_privkey( index=privkey_index )
 
     info = {
         'user_id': user_id,
         'public_key': get_pubkey_hex(user_privkey),
-        'privkey_index': next_privkey_index
+        'privkey_index': privkey_index
     }
     if blockchain_id is not None:
         info['blockchain_id'] = blockchain_id
