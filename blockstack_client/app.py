@@ -259,23 +259,24 @@ def app_make_account_info( app_fqu, appname, api_methods, user_id, user_pubkey_h
     return info
 
 
-def app_make_account( user_info, user_privkey_hex, app_fqu, appname, api_methods, config_path=CONFIG_PATH, session_lifetime=3600*24*7):
+def app_make_account( user_info, user_privkey_hex, app_fqu, appname, api_methods, privkey_index=None, config_path=CONFIG_PATH, session_lifetime=3600*24*7):
     """
     Create a new application account, and an associated store.
     Return {'account': jwt, 'account_token': token} on success
     Return {'error': ...} on error
     """
 
-    next_privkey_index_info = data.next_privkey_index(user_privkey_hex, config_path=config_path)
-    if 'error' in next_privkey_index_info:
-        return next_privkey_index_info
+    if privkey_index is None:
+        next_privkey_index_info = data.next_privkey_index(user_privkey_hex, config_path=config_path)
+        if 'error' in next_privkey_index_info:
+            return next_privkey_index_info
 
-    next_privkey_index = next_privkey_index_info['index']
+        privkey_index = next_privkey_index_info['index']
 
     hdwallet = HDWallet( hex_privkey=user_privkey_hex )
-    app_account_privkey = hdwallet.get_child_privkey( index=next_privkey_index )
+    app_account_privkey = hdwallet.get_child_privkey( index=privkey_index )
 
-    info = app_make_account_info( app_fqu, appname, api_methods, user_info['user_id'], get_pubkey_hex(app_account_privkey), next_privkey_index, session_lifetime )
+    info = app_make_account_info( app_fqu, appname, api_methods, user_info['user_id'], get_pubkey_hex(app_account_privkey), privkey_index, session_lifetime )
 
     # sign
     signer = jsontokens.TokenSigner()
