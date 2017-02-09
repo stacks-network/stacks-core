@@ -156,7 +156,7 @@ def scenario( wallets, **kw ):
         print json.dumps(res)
         return False
 
-    bar_price = res['response']['satoshis']
+    bar_price = res['response']['total_estimated_cost']['satoshis']
     print "\n\nbar.test will cost {} satoshis\n\n".format(bar_price)
   
     # make another user, via the REST api 
