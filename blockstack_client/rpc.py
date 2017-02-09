@@ -920,24 +920,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return 
 
 
-    def GET_identity_panel(self, ses_ignored, path_info ):
-        """
-        Serve back the identity panel
-        """
-        users = data.get_user_list(self.server.master_data_pubkey, config_path=self.server.config_path)
-        if 'error' in users:
-            log.error("Failed to get user list")
-            error_page = assets.asset_make_error_page("Failed to get users list.")
-            self._send_headers(content_type='text/html')
-            self.wfile.write(error_page)
-            return
-
-        self._send_headers(content_type='text/html')
-        home_page = assets.asset_make_home_page( app_users_txt )
-        self.wfile.write( home_page )
-        return
-
-
     def GET_index(self, ses, path_info ):
         """
         Handle GET /index.html
@@ -968,7 +950,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Return 404 on not found.
         Return 403 if the FQU or app name do not match the session
         """
-        if appname != ses['appname'] or fqu != ses['name']:   # TODO: exception is the identity app
+        if appname != ses['appname'] or fqu != ses['name']:
             # nope!
             self._send_headers(status_code=403, content_type='text/plain')
             return 
@@ -1001,7 +983,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': 'Failed to list names by address'}, status_code=500)
             return 
 
-        self._reply_json(res)
+        self._reply_json({'names': res})
         return
 
 
@@ -1456,9 +1438,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Delete a user and its profile.
         Return 200 on success
+        Return 403 if the user ID does not match the session user ID
         Return 500 on failure to remove the local user information.
         Return 503 to delete the profile.  The caller should try this method again until it succeeds.
         """
+        if user_id != ses['user_id']:
+            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
+            return 
+
         internal = self.server.get_internal_proxy()
         res = internal.cli_delete_user_profile( user_id, wallet_keys=self.server.wallet_keys )
         if json_is_error(res):
@@ -1605,6 +1592,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Update a user store.
         """
+        if user_id != ses['user_id']:
+            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
+            return 
+
         pass
 
     
@@ -1827,6 +1818,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Get the list of collections
         Reply the list of collections on success.
         """
+        if user_id != ses['user_id']:
+            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
+            return 
 
         pass
 
@@ -1835,6 +1829,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Create a new collection
         """
+        if user_id != ses['user_id']:
+            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
+            return 
+
         pass
 
 
@@ -1844,6 +1842,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply the list of items on success
         Reply 404 on not found
         """
+        if user_id != ses['user_id']:
+            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
+            return 
 
         pass
 
@@ -1855,6 +1856,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the collection doesn't exist
         Reply 404 if the item doesn't exist
         """
+        if user_id != ses['user_id']:
+            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
+            return 
 
         pass
 
@@ -1863,6 +1867,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Add an item to a collection
         """
+        if user_id != ses['user_id']:
+            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
+            return 
+
         pass
 
 
@@ -1898,23 +1906,22 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the namespace doesn't exist
         Reply 500 if we can't reach the server for whatever reason
         """
-        price_info = proxy.get_name_cost(name)
-        if json_is_error(price_info):
+
+        internal = self.server.get_internal_proxy()
+        res = internal.cli_price(name)
+        if json_is_error(res):
             # error
             status_code = None
-            if json_is_exception(price_info):
+            if json_is_exception(info):
                 status_code = 500
             else:
                 status_code = 404
 
-            self._reply_json({'error': price_info['error']}, status_code=status_code)
+            self._reply_json({'error': res['error']}, status_code=status_code)
             return 
 
-        ret = {
-            'satoshis': price_info['satoshis']
-        }
-        self._reply_json(ret)
-        return
+        self._reply_json(res)
+        return 
 
     
     def GET_namespaces( self, ses, path_info ):
@@ -2046,6 +2053,35 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             self._reply_json({'error': 'Failed to read wallet file'}, status_code=500)
             return
+
+
+    def PUT_wallet( self, ses, path_info ):
+        """
+        Upload a new wallet.
+        Requires the caller pass the RPC secret.
+        Return 200 on success
+        Return 403 on wrong token
+        """
+        pass
+
+
+    def GET_ping( self, ses, path_info ):
+        """
+        Ping the node
+        always succeeds
+        """
+        self._send_headers(status_code=200, content_type='text/plain')
+        return
+
+
+    def POST_reboot( self, ses, path_info ):
+        """
+        Reboot the node.
+        Requires the caller pass the RPC secret
+        Does not return on success
+        Return 403 on failure
+        """
+        pass
 
 
     def GET_blockchain_ops( self, ses, path_info, blockchain_name, blockheight ):
@@ -2214,17 +2250,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
                 'need_data_key': False,
-            },
-            r'^/api/v1/home$': {
-                'routes': {
-                    'GET': self.GET_identity_panel
-                },
-                'whitelist': {
-                    'GET': {
-                        'name': 'identity',
-                        'desc': 'read identity'
-                    },
-                },
             },
             r'^/api/v1/auth/signin/({})/({})$'.format(NAME_CLASS, URLENCODING_CLASS): {
                 'authenticate_url': True,
@@ -2460,16 +2485,55 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/node/wallet/public$': {
+            r'^/api/v1/wallet/public$': {
                 'routes': {
                     'GET': self.GET_wallet_public,
                 },
                 'whitelist': {
                     'GET': {
-                        'name': 'node_read',
+                        'name': 'wallet_read',
                         'desc': 'get the node wallet\'s public information'
                     },
                 },
+            },
+            r'^/api/v1/wallet/private$': {
+                'authenticate': False,
+                'routes': {
+                    'PUT': self.PUT_wallet,
+                },
+                'whitelist': {
+                    'PUT': {
+                        'name': 'wallet_write',
+                        'desc': 'Set the wallet\'s private keys'
+                    },
+                },
+                'need_data_key': False
+            },
+            r'^/api/v1/node/ping$': {
+                'authenticate': False,
+                'routes': {
+                    'GET': self.GET_ping,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': '',
+                        'desc': 'ping the node'
+                    },
+                },
+                'need_data_key': False,
+            },
+            r'^/api/v1/node/reboot$': {
+                'authenticate': False,
+                'routes': {
+                    'POST': self.POST_reboot,
+                },
+                'whitelist': {
+                    'POST': {
+                        'name': '',
+                        'desc': 'reboot the node'
+                    },
+                },
+                'need_data_key': False,
             },
             r'^/api/v1/prices/namespaces/({})$'.format(NAMESPACE_CLASS): {
                 'routes': {
@@ -3321,17 +3385,20 @@ def local_rpc_start(portnum, config_dir=blockstack_config.CONFIG_DIR, foreground
     # already running?
     rpc_pidpath = local_rpc_pidfile_path(config_dir=config_dir)
     if os.path.exists(rpc_pidpath):
-        msg = 'API endpoint already running (PID {}, {})'
-        msg = msg.format(local_rpc_read_pidfile(rpc_pidpath), rpc_pidpath)
-        print(msg, file=sys.stderr)
+        pid = local_rpc_read_pidfile(rpc_pidpath)
+        print("API endpoint already running (PID {}, {})".format(pid, rpc_pidpath), file=sys.stderr)
         return False
 
+    if not os.path.exists(wallet_path):
+        print("No wallet found at {}".format(wallet_path), file=sys.stderr)
+        return False
+    
     signal.signal(signal.SIGINT, local_rpc_exit_handler)
     signal.signal(signal.SIGQUIT, local_rpc_exit_handler)
     signal.signal(signal.SIGTERM, local_rpc_exit_handler)
 
     atexit.register(local_rpc_atexit)
-
+        
     wallet = load_wallet(
         password=password, config_path=config_path,
         include_private=True, wallet_path=wallet_path
