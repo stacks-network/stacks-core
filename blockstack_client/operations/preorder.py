@@ -127,7 +127,7 @@ def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, bl
     # tx only
     inputs = tx_get_unspents( preorder_addr, blockchain_client )
     if safety:
-        assert len(inputs) > 0
+        assert len(inputs) > 0, "No UTXOs for {}".format(preorder_addr)
         
     script_pubkey = virtualchain.make_payment_script( preorder_addr )
 
