@@ -369,8 +369,11 @@ def getinfo(proxy=None):
 
     try:
         resp = proxy.getinfo()
+        old_resp = resp
         resp = json_validate( schema, resp )
         if json_is_error(resp):
+            if BLOCKSTACKT_TEST:
+                log.debug("invalid response: {}".format(old_resp))
             return resp
 
     except ValidationError as e:
@@ -1370,18 +1373,11 @@ def get_nameops_affected_at(block_id, proxy=None):
             if json_is_error(resp):
                 return resp
 
+            if len(resp['nameops']) == 0:
+                return {'error': 'Got zero-length nameops reply'}
+
             all_nameops += resp['nameops']
 
-            if BLOCKSTACK_TEST is not None:
-                if len(resp) == page_size:
-                    continue
-
-                if len(all_nameops) == num_nameops:
-                    continue
-
-                # something's wrong--we should have them all
-                msg = 'Missing nameops: expected {}, got {}'
-                raise Exception(msg.format(num_nameops, len(all_nameops)))
         except ValidationError as e:
             log.exception(e)
             resp = json_traceback(resp.get('error'))
