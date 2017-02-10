@@ -37,8 +37,8 @@ import virtualchain
 from .backend.utxo import *
 from .constants import *
 
-def get_logger(debug=DEBUG):
-    logger = virtualchain.get_logger('blockstack-client')
+def get_logger(name="blockstack-client", debug=DEBUG):
+    logger = virtualchain.get_logger(name)
     logger.setLevel(logging.DEBUG if debug else logging.INFO)
     return logger
 
@@ -645,7 +645,7 @@ def read_config_file(path=CONFIG_PATH):
 
     # try to create
     if path is not None:
-        dirname = os.path.dirname(CONFIG_PATH)
+        dirname = os.path.dirname(path)
         if not os.path.exists(dirname):
             os.makedirs(dirname)
         if not os.path.isdir(dirname):
@@ -655,17 +655,17 @@ def read_config_file(path=CONFIG_PATH):
     if client_uuid is None:
         raise Exception("Failed to get client device ID")
 
+    config_dir = os.path.dirname(path)
     if path is None or not os.path.exists(path):
 
         parser = SafeConfigParser()
         parser.add_section('blockstack-client')
         parser.set('blockstack-client', 'server', str(BLOCKSTACKD_SERVER))
         parser.set('blockstack-client', 'port', str(BLOCKSTACKD_PORT))
-        parser.set('blockstack-client', 'metadata', BLOCKSTACK_METADATA_DIR)
+        parser.set('blockstack-client', 'metadata', METADATA_DIRNAME)
         parser.set('blockstack-client', 'storage_drivers', BLOCKSTACK_DEFAULT_STORAGE_DRIVERS)
         parser.set('blockstack-client', 'storage_drivers_local', 'disk')
         parser.set('blockstack-client', 'storage_drivers_required_write', BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE)
-        parser.set('blockstack-client', 'blockchain_headers', SPV_HEADERS_PATH)
         parser.set('blockstack-client', 'advanced_mode', 'false')
         parser.set('blockstack-client', 'api_endpoint_port', str(DEFAULT_API_PORT))
         parser.set('blockstack-client', 'queue_path', str(DEFAULT_QUEUE_PATH))

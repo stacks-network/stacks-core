@@ -277,23 +277,29 @@ RPC_MAX_PROFILE_LEN = 1024000   # 1MB
 CONFIG_FILENAME = 'client.ini'
 WALLET_FILENAME = 'wallet.json'
 
+CONFIG_PATH = os.environ.get('BLOCKSTACK_CLIENT_CONFIG')
+
 if not BLOCKSTACK_TEST:
-    CONFIG_DIR = os.path.expanduser('~/.blockstack')
-    CONFIG_PATH = os.path.join(CONFIG_DIR, CONFIG_FILENAME)
+    # production
+    if CONFIG_PATH is None:
+        # default
+        CONFIG_DIR = os.path.expanduser("~/.blockstack")
+        CONFIG_PATH = os.path.join(CONFIG_DIR, CONFIG_FILENAME)
+
+    else:
+        # env value
+        CONFIG_DIR = os.path.dirname(CONFIG_PATH)
 else:
     # testing
-    CONFIG_PATH = os.environ.get('BLOCKSTACK_CLIENT_CONFIG')
     assert CONFIG_PATH, 'BLOCKSTACK_CLIENT_CONFIG not set'
 
     CONFIG_DIR = os.path.dirname(CONFIG_PATH)
     print('TEST ACTIVE: CONFIG_PATH = {}'.format(CONFIG_PATH))
 
-BLOCKSTACK_METADATA_DIR = os.path.join( os.path.dirname(CONFIG_PATH), "metadata" )
-
 WALLET_PATH = os.path.join(CONFIG_DIR, 'wallet.json')
-SPV_HEADERS_PATH = os.path.join(CONFIG_DIR, 'blockchain-headers.dat')
 DEFAULT_QUEUE_PATH = os.path.join(CONFIG_DIR, 'queues.db')
 
+METADATA_DIRNAME = 'metadata'
 APP_ACCOUNT_DIRNAME = 'accounts'
 USER_DIRNAME = 'accounts'
 DATASTORE_DIRNAME = 'datastores'
@@ -323,8 +329,10 @@ APPROX_REVOKE_TX_LEN = 1240
 
 # for estimating tx lengths, when we can't generate a transaction.
 APPROX_TX_OVERHEAD_LEN = 12
-APPROX_TX_IN_P2PKH_LEN = 180
+APPROX_TX_IN_P2PKH_LEN = 150
 APPROX_TX_OUT_P2PKH_LEN = 40
+APPROX_TX_IN_P2SH_LEN = 300
+APPROX_TX_OUT_P2SH_LEN = 40
 
 # epoch dates
 EPOCH_1_END_BLOCK = 436650
