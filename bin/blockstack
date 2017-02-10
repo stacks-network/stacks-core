@@ -40,62 +40,13 @@ parent_dir = os.path.abspath(current_dir + "/../")
 sys.path.insert(0, parent_dir)
 
 from blockstack_client.cli import run_cli, exit_with_error
-from blockstack_client.config import get_logger, configure, CONFIG_PATH, client_uuid_path, VERSION
-from blockstack_client.client import analytics_event, analytics_user_register, analytics_user_update
+from blockstack_client.config import get_logger, configure, CONFIG_PATH, VERSION
 from blockstack_client.utils import pretty_print
-
-
-def enable_debug( argv ):
-    """
-    If '--debug' was passed, then activate debugging
-    by re-execing with BLOCKSTACK_DEBUG=1 set.
-    """
-    new_argv = []
-
-    set_envar = False
-
-    debug = (os.environ.get("BLOCKSTACK_DEBUG", None) == "1")
-    set_debug = False
-
-    for arg in argv: 
-        if not debug and arg in ['-v', '-d', '--verbose', '--debug']:
-            # will set debug 
-            set_debug = True
-            set_envar = True
-
-        else:
-            # skip 
-            new_argv.append(arg)
-
-    if set_envar:
-        if set_debug:
-            os.environ["BLOCKSTACK_DEBUG"] = "1"
-
-        os.execv( new_argv[0], new_argv )
-
-    return True
 
 
 if __name__ == '__main__':
 
     log = get_logger()
-    enable_debug( sys.argv )
-
-    uuid_path = client_uuid_path()
-    first_time = False
-
-    if not os.path.exists(uuid_path):
-        first_time = True
-
-    # make sure we have sane defaults, and we have registered this installation
-    res = configure(interactive=False, force=False)
-    if res.has_key('uuid') and first_time:
-        # prompt for email 
-        print "Would you like to receive an email when there is a new release of this software available?"
-        email_addr = raw_input("Email address (leave blank to opt out): ")
-
-        # will only process real email addresses when we email announcements out
-        analytics_user_register( res['uuid'], email_addr )
        
     try:
         result = run_cli()
