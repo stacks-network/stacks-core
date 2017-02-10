@@ -275,7 +275,7 @@ def get_name_zonefile(name, storage_drivers=None, proxy=None,
     an extra key called 'name_record' that includes the blockchain name record.
 
     If 'raw_zonefile' is true, no attempt to parse the zonefile will be made.
-    The raw zonefile will be returned in 'zonefile'.
+    The raw zonefile will be returned in 'zonefile'.  allow_legacy is ignored.
     
     If 'allow_legacy' is true, then support returning older supported versions of the zone file
     (including old Onename profiles).  Otherwise, this method fails.
