@@ -124,6 +124,7 @@ port = 18332
 use_https = False
 user = blockstack
 regtest = True
+spv_path = /tmp/blockstack-test-scenario-spv.dat
 """ % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT)
 
 
@@ -1013,6 +1014,10 @@ if __name__ == "__main__":
     # set up disk storage 
     if os.path.exists("/tmp/blockstack-disk"):
         shutil.rmtree("/tmp/blockstack-disk")
+    
+    # set up SPV 
+    if os.path.exists("/tmp/blockstack-test-scenario-spv.dat"):
+        os.unlink("/tmp/blockstack-test-scenario-spv.dat")
 
     # set up default payment wallet 
     default_payment_wallet = testlib.MultisigWallet( 2, '5JYAj69z2GuFAZHrkhRuBKoCmKh6GcPXgcw9pbH8e8J2pu2RU9z', '5Kfg4xkZ1gGN5ozgDZ37Mn3EH9pXSuWZnQt1pzax4cLax8PetNs', '5JXB7rNxZa8yQtpuKtwy1nWUUTgdDEYTDmaEqQvKKC8HCWs64bL' ) 
