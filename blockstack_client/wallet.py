@@ -1069,7 +1069,7 @@ def get_total_balance(config_path=CONFIG_PATH, wallet_path=WALLET_PATH):
     return total_balance, payment_addresses
 
 
-def wallet_setup(config_path=CONFIG_PATH, wallet_data=None, wallet_path=None, password=None, dry_run=False, test_legacy=False):
+def wallet_setup(config_path=CONFIG_PATH, interactive=True, wallet_data=None, wallet_path=None, password=None, dry_run=False, test_legacy=False):
     """
     Do one-time wallet setup.
     * make sure the wallet exists (creating it if need be)
@@ -1078,6 +1078,7 @@ def wallet_setup(config_path=CONFIG_PATH, wallet_data=None, wallet_path=None, pa
     Return {'status': True, 'created': False, 'migrated': False, 'password': ..., 'wallet'; ... } on success
     Return {'status': True, 'created'; True, 'migrated': False, 'password': ..., 'wallet': ...} if we had to create the wallet
     Return {'status': True, 'created': False, 'migrated': True, 'password': ..., 'wallet': ...} if we had to migrate the wallet
+    Optionally also include 'backup_wallet': ... if the wallet was migrated
     """
     
     config_dir = os.path.dirname(config_path)
@@ -1087,11 +1088,12 @@ def wallet_setup(config_path=CONFIG_PATH, wallet_data=None, wallet_path=None, pa
     wallet = None
     created = False
     migrated = False
+    backup_path = None
 
     if not wallet_exists(wallet_path=wallet_path):
         # create
         if wallet_data is None:
-            res = initialize_wallet(wallet_path=wallet_path, password=password)
+            res = initialize_wallet(wallet_path=wallet_path, password=password, interactive=interactive)
             if 'error' in res:
                 return res
         
@@ -1128,6 +1130,7 @@ def wallet_setup(config_path=CONFIG_PATH, wallet_data=None, wallet_path=None, pa
 
         password = res['wallet_password']
         wallet = res['wallet']
+        backup_path = res.get('backup_wallet', None)
     
     res = {
         'status': True,
@@ -1136,6 +1139,9 @@ def wallet_setup(config_path=CONFIG_PATH, wallet_data=None, wallet_path=None, pa
         'wallet': wallet,
         'password': password,
     }
+
+    if backup_path:
+        res['backup_wallet'] = backup_path
 
     return res
 
