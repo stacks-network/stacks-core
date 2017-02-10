@@ -75,7 +75,7 @@ def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None):
     return packaged_script
 
 
-def make_outputs( data, inputs, sender_addr, fee, tx_fee ):
+def make_outputs( data, inputs, sender_addr, fee, tx_fee, pay_fee=True ):
     """
     Make outputs for a name preorder:
     [0] OP_RETURN with the name 
@@ -88,7 +88,15 @@ def make_outputs( data, inputs, sender_addr, fee, tx_fee ):
     dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE + tx_fee
     dust_value = DEFAULT_DUST_FEE
      
-    bill = op_fee
+    bill = 0
+
+    if pay_fee:
+        bill = op_fee
+
+    else:
+        op_fee = 0
+        bill = 0
+        dust_fee = 0
     
     return [
         # main output
@@ -105,7 +113,7 @@ def make_outputs( data, inputs, sender_addr, fee, tx_fee ):
     ]
 
 
-def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, blockchain_client, tx_fee=0, safety=True):
+def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, blockchain_client, tx_fee=0, subsidize=False, safety=True):
     """
     Builds and broadcasts a preorder transaction.
     """
@@ -124,6 +132,10 @@ def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, bl
     private_key_obj = None
     script_pubkey = None    # to be mixed into preorder hash
     
+    pay_fee = True
+    if subsidize:
+        pay_fee = False
+
     # tx only
     inputs = tx_get_unspents( preorder_addr, blockchain_client )
     if safety:
@@ -132,7 +144,7 @@ def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, bl
     script_pubkey = virtualchain.make_payment_script( preorder_addr )
 
     nulldata = build( name, script_pubkey, register_addr, consensus_hash)
-    outputs = make_outputs(nulldata, inputs, preorder_addr, fee, tx_fee)
+    outputs = make_outputs(nulldata, inputs, preorder_addr, fee, tx_fee, pay_fee=pay_fee)
     
     return (inputs, outputs)
 
