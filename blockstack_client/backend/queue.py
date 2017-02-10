@@ -32,7 +32,7 @@ import random
 from ..config import DEFAULT_QUEUE_PATH, QUEUE_LENGTH_TO_MONITOR, PREORDER_MAX_CONFIRMATIONS, CONFIG_PATH
 from ..proxy import get_default_proxy
 
-from ..storage import hash_zonefile
+from ..storage import get_zonefile_data_hash
 from ..profile import get_name_zonefile
 from ..proxy import is_name_registered, is_name_owner, has_zonefile_hash
 from .blockchain import get_block_height, get_tx_confirmations, is_tx_rejected, is_tx_accepted
@@ -283,7 +283,7 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
 
     new_entry['profile'] = profile
     if zonefile_hash is None and zonefile_data is not None:
-        zonefile_hash = hash_zonefile(zonefile_data)
+        zonefile_hash = get_zonefile_data_hash(zonefile_data)
 
     if zonefile_hash is not None:
         new_entry['zonefile_hash'] = zonefile_hash
@@ -300,7 +300,7 @@ def extract_entry( rowdata ):
     entry['tx_hash'] = rowdata['tx_hash']
     entry['fqu'] = rowdata['fqu']
     entry['type'] = rowdata['queue_id']
-
+    
     if entry.has_key('zonefile_b64'):
         entry['zonefile'] = base64.b64decode(entry['zonefile_b64'])
         del entry['zonefile_b64']
@@ -380,42 +380,6 @@ def is_revoke_expired( entry, config_path=CONFIG_PATH ):
     Is a revoke expired?
     """
     return is_revoke_expired(entry, config_path=CONFIG_PATH)
-
-
-def display_queue(queue_id, display_details=False, path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
-    """
-    Print debugging information about a queue
-    """
-    track_confirmations = [0] * QUEUE_LENGTH_TO_MONITOR
-
-    rows = queuedb_findall( queue_id, path=path)
-    for rowdata in rows:
-        entry = extract_entry(rowdata)
-
-        try:
-            confirmations = get_tx_confirmations(entry['tx_hash'], config_path=config_path)
-        except:
-            continue
-
-        try:
-            track_confirmations[confirmations] += 1
-        except:
-            pass
-
-        if display_details:
-            log.debug('-' * 5)
-            log.debug("%s %s" % (queue.name, entry['fqu']))
-            log.debug("(%s, confirmations %s)" % (entry['tx_hash'],
-                                              confirmations))
-            log.debug("payment: %s" % entry['payment_address'])
-            log.debug("owner: %s" % entry['owner_address'])
-
-            if entry['payment_address'] == entry['owner_address']:
-                log.debug("problem")
-
-    log.debug(queue.name)
-    log.debug(track_confirmations)
-    log.debug('-' * 5)
 
 
 def cleanup_preorder_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
@@ -597,19 +561,6 @@ def queue_cleanall(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     cleanup_transfer_queue(path=path, config_path=config_path )
     cleanup_renew_queue(path=path, config_path=config_path)
     cleanup_revoke_queue(path=path, config_path=config_path)
-
-
-def display_queue_info(display_details=False, path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
-    """
-    Dump all information about our queues 
-    to stderr.
-    """
-    display_queue("preorder", display_details, path=path, config_path=config_path)
-    display_queue("register", display_details, path=path, config_path=config_path)
-    display_queue("update", display_details, path=path, config_path=config_path)
-    display_queue("transfer", display_details, path=path, config_path=config_path)
-    display_queue("renew", display_details, path=path, config_path=config_path)
-    display_queue("revoke", display_details, path=path, config_path=config_path)
 
 
 def get_queue_state(queue_ids=None, limit=None, path=DEFAULT_QUEUE_PATH):
