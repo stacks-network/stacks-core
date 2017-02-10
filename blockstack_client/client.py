@@ -74,7 +74,7 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
         if metadata_dir is None:
             metadata_dir = conf['metadata']
         if spv_headers_path is None:
-            spv_headers_path = conf['blockchain_headers']
+            spv_headers_path = conf['bitcoind_spv_path']
 
     if storage_drivers is None:
         msg = ('No storage driver(s) defined in the config file. '
@@ -284,8 +284,8 @@ def analytics_user_update(payload, proxy=None):
 
 def check_storage_setup(config_path=CONFIG_PATH):
     """
-    Verify whether or not we have successfully upgraded
-    to the latest storage format
+    Verify whether or not we have successfully set up storage 
+    for this wallet.
 
     Return {'status': True} on success
     Return {'error': ...} on error
@@ -296,10 +296,10 @@ def check_storage_setup(config_path=CONFIG_PATH):
 
     _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
     if data_pubkey is None:
-        return {'error': 'Wallet is not set up.  Please run `upgrade_wallet`'}
+        return {'error': 'Wallet is not set up.  Please run `setup_wallet`'}
 
     # use a file to indicate that setup is in progress (in case we get interrupted)
-    setup_complete_path = os.path.join(config_dir, '.storage-setup-complete-{}-{}'.format(data_pubkey, VERSION))
+    setup_complete_path = os.path.join(config_dir, '.storage-setup-{}'.format(data_pubkey))
     if os.path.exists(setup_complete_path):
         # already did this
         return {'status': True}
@@ -307,7 +307,7 @@ def check_storage_setup(config_path=CONFIG_PATH):
     return {'error': 'Storage is not set up'}
 
 
-def set_storage_setup(config_path=CONFIG_PATH):
+def set_storage_setup( config_path=CONFIG_PATH):
     """
     Mark that we have successfully setup storage
     """
@@ -317,9 +317,9 @@ def set_storage_setup(config_path=CONFIG_PATH):
     config_dir = os.path.dirname(config_path)
     _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
     if data_pubkey is None:
-        return {'error': 'Wallet is not set up.  Please run `upgrade_wallet`'}
+        return {'error': 'Wallet is not set up.  Please run `setup_wallet`'}
 
-    setup_complete_path = os.path.join(config_dir, '.storage-setup-complete-{}-{}'.format(data_pubkey, VERSION))
+    setup_complete_path = os.path.join(config_dir, '.storage-setup-{}'.format(data_pubkey))
     try:
         with open(setup_complete_path, 'w') as f:
             pass
@@ -330,7 +330,7 @@ def set_storage_setup(config_path=CONFIG_PATH):
     return {'status': True}
 
 
-def storage_setup(blockchain_id, config_path=CONFIG_PATH, wallet_data=None, password=None, interactive=True):
+def storage_setup(password, blockchain_id=None, config_path=CONFIG_PATH, wallet_data=None):
     """
     Set up storage for this blockchain ID
     * make sure the wallet has been migrated to the latest format
@@ -356,29 +356,20 @@ def storage_setup(blockchain_id, config_path=CONFIG_PATH, wallet_data=None, pass
     if res['migrated']:
         # wallet must be migrated
         log.error("Wallet must be migrated to the latest format first")
-        return {'error': 'Wallet must be migrated. Please use the `upgrade_wallet` command.', 'need_migrate': True}
+        return {'error': 'Wallet must be migrated. Please use the `setup_wallet` command.', 'need_migrate': True}
 
     wallet = res['wallet']
-
-    # are we good to do already?
-    res = check_storage_setup(config_path=config_path)
-    if 'error' not in res:
-        return res
    
-    if not interactive and password is None:
-        log.error("No password given, and not in interactive mode")
-        return {'error': 'Password required'}
-
     log.debug("Doing one-time setup for Blockstack version {}".format(VERSION))
 
     # make sure we have private key indexes and user listings set up
-    res = data_setup(blockchain_id, password, wallet_keys=wallet, config_path=config_path)
+    res = data_setup( password=password, blockchain_id=blockchain_id, wallet_keys=wallet, config_path=config_path)
     if 'error' in res:
         log.error("data_setup failed")
         res['need_migrate'] = False
         return res
 
-    res = set_storage_setup(config_path=config_path)
+    res = set_storage_setup( config_path=config_path )
     if 'error' in res:
         return res
 
