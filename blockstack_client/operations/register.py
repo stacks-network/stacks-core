@@ -131,7 +131,7 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
     return outputs
     
 
-def make_transaction(name, preorder_addr, register_addr, blockchain_client, tx_fee=0, renewal_fee=None, safety=True):
+def make_transaction(name, preorder_addr, register_addr, blockchain_client, tx_fee=0, renewal_fee=None, subsidized=False, safety=True):
     
     preorder_addr = str(preorder_addr)
     register_addr = str(register_addr)
@@ -144,18 +144,22 @@ def make_transaction(name, preorder_addr, register_addr, blockchain_client, tx_f
         renewal_fee = int(renewal_fee)
 
     change_inputs = None
-    subsidized_renewal = False
+    pay_fee = True
     
     change_inputs = tx_get_unspents( preorder_addr, blockchain_client )
     if safety:
         assert len(change_inputs) > 0
 
     if renewal_fee is not None:
+        # will be subsidizing with a separate payment key
         assert preorder_addr == register_addr, "%s != %s" % (preorder_addr, register_addr)
-        subsidized_renewal = True
+        pay_fee = False
+
+    if subsidized:
+        pay_fee = False
 
     nulldata = build(name)
-    outputs = make_outputs(nulldata, change_inputs, register_addr, preorder_addr, tx_fee, renewal_fee=renewal_fee, pay_fee=(not subsidized_renewal) )
+    outputs = make_outputs(nulldata, change_inputs, register_addr, preorder_addr, tx_fee, renewal_fee=renewal_fee, pay_fee=pay_fee )
  
     return (change_inputs, outputs)
 
