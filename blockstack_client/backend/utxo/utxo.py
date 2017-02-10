@@ -27,43 +27,11 @@ from ConfigParser import SafeConfigParser
 import pybitcoin
 import logging
 import json
+import traceback
 from .blockstack_utxo import BlockstackUTXOClient
 
 DEBUG = True
 FIRST_BLOCK_MAINNET = 373601        # well-known value for blockstack-server; doesn't ever change
-
-def get_logger(name=None):
-    """
-    Get logger
-    """
-
-    level = logging.CRITICAL
-    if DEBUG:
-        logging.disable(logging.NOTSET)
-        level = logging.DEBUG
-
-    if name is None:
-        name = "<unknown>"
-        level = logging.CRITICAL
-
-    log = logging.getLogger(name=name)
-    log.setLevel( level )
-    console = logging.StreamHandler()
-    console.setLevel( level )
-    log_format = ('[%(levelname)s] [%(module)s:%(lineno)d] (' + str(os.getpid()) + ') %(message)s' if DEBUG else '%(message)s')
-    formatter = logging.Formatter( log_format )
-    console.setFormatter(formatter)
-    log.propagate = False
-
-    if len(log.handlers) > 0:
-        for i in xrange(0, len(log.handlers)):
-            log.handlers.pop(0)
-    
-    log.addHandler(console)
-    return log
-
-
-log = get_logger("blockstack-utxo")
 
 
 SUPPORTED_UTXO_PROVIDERS = [ "blockcypher", "blockchain_info", "bitcoind_utxo", "blockstack_utxo", "mock_utxo" ]
@@ -451,6 +419,6 @@ def get_utxo_provider_client(utxo_provider, config_file):
        utxo_provider = connect_utxo_provider( utxo_opts )
        return utxo_provider
    except Exception, e:
-       log.exception(e)
+       traceback.print_exc()
        return None
 
