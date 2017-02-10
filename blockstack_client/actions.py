@@ -121,7 +121,7 @@ from .proxy import *
 from .client import analytics_event, check_storage_setup, storage_setup
 from .scripts import UTXOException, is_name_valid
 from .user import add_user_zonefile_url, remove_user_zonefile_url, user_zonefile_urls, \
-        users_list, user_init, \
+        users_list, user_init, make_empty_user_profile, \
         user_get_privkey
 
 from .resolve import *
@@ -136,7 +136,7 @@ from .app import app_publish, app_make_resource_data_id, app_get_config, app_get
 
 from .data import datastore_mkdir, datastore_rmdir, make_datastore, get_datastore, put_datastore, delete_datastore, \
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir, datastore_stat, datastore_list, \
-        datastore_rmtree, get_user, put_user, delete_user, next_privkey_index, put_user_list, data_setup
+        datastore_rmtree, get_user, put_user, delete_user, next_privkey_index, put_user_list 
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN
 
@@ -321,7 +321,8 @@ def operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info,
 
 
 def get_total_registration_fees(name, payment_privkey_info, owner_privkey_info,
-                                proxy=None, config_path=CONFIG_PATH, payment_address=None):
+                                proxy=None, config_path=CONFIG_PATH, payment_address=None,
+                                owner_address=None, transfer_address=None):
     """
     Get all fees associated with registrations.
     Returned values are in satoshis.
@@ -336,7 +337,7 @@ def get_total_registration_fees(name, payment_privkey_info, owner_privkey_info,
         msg = 'Could not determine price of name: {}'
         return {'error': msg.format(data['error'])}
 
-    insufficient_funds, owner_address = False, None
+    insufficient_funds = False
 
     if payment_privkey_info is not None:
         payment_address = get_privkey_info_address(payment_privkey_info)
@@ -352,13 +353,21 @@ def get_total_registration_fees(name, payment_privkey_info, owner_privkey_info,
     reply = {}
     reply['name_price'] = data['satoshis']
 
-    preorder_tx_fee, register_tx_fee, update_tx_fee = None, None, None
+    preorder_tx_fee, register_tx_fee, update_tx_fee, transfer_tx_fee = None, None, None, None
+    
+    if owner_address:
+        owner_address = str(owner_address)
+    if payment_address:
+        payment_address = str(payment_address)
+    if transfer_address:
+        transfer_address = str(transfer_address)
 
+    log.debug("Get total registration fees for registering {} to {} paid by {}".format(name, owner_address, payment_address))
     try:
         owner_privkey_params = get_privkey_info_params(owner_privkey_info)
 
         preorder_tx_fee = estimate_preorder_tx_fee(
-            name, data['satoshis'], payment_address, utxo_client,
+            name, data['satoshis'], owner_address, payment_address, utxo_client,
             owner_privkey_params=owner_privkey_params,
             config_path=config_path, include_dust=True
         )
@@ -371,7 +380,7 @@ def get_total_registration_fees(name, payment_privkey_info, owner_privkey_info,
             insufficient_funds = True
 
         register_tx_fee = estimate_register_tx_fee(
-            name, payment_address, utxo_client,
+            name, owner_address, payment_address, utxo_client,
             owner_privkey_params=owner_privkey_params,
             config_path=config_path, include_dust=True
         )
@@ -393,6 +402,20 @@ def get_total_registration_fees(name, payment_privkey_info, owner_privkey_info,
         else:
             update_tx_fee = get_tx_fee('00' * APPROX_UPDATE_TX_LEN, config_path=config_path)
             insufficient_funds = True
+
+        if transfer_address is not None:
+            transfer_tx_fee = estimate_transfer_tx_fee(
+                name, payment_privkey_info, owner_address, utxo_client,
+                owner_privkey_params=owner_privkey_params,
+                config_path=config_path, payment_address=payment_address, include_dust=True
+            )
+            
+            if transfer_tx_fee is not None:
+                transfer_tx_fee = int(transfer_tx_fee)
+            else:
+                transfer_tx_fee = get_tx_fee('00' * APPROX_TRANSFER_TX_LEN, config_path=config_path)
+                insufficient_funds = True
+
     except UTXOException as ue:
         log.error('Failed to query UTXO provider.')
         if BLOCKSTACK_DEBUG is not None:
@@ -404,12 +427,10 @@ def get_total_registration_fees(name, payment_privkey_info, owner_privkey_info,
     reply['register_tx_fee'] = int(register_tx_fee)
     reply['update_tx_fee'] = int(update_tx_fee)
 
-    reply['total_estimated_cost'] = sum((
-        int(reply['name_price']),
-        reply['preorder_tx_fee'],
-        reply['register_tx_fee'],
-        reply['update_tx_fee']
-    ))
+    if transfer_tx_fee is not None:
+        reply['transfer_tx_fee'] = int(transfer_tx_fee)
+
+    reply['total_estimated_cost'] = sum( filter( lambda v: v is not None, [reply.get(f, None) for f in ['preorder_tx_fee', 'register_tx_fee', 'update_tx_fee', 'transfer_tx_fee', 'name_price']] ) )
 
     if insufficient_funds and payment_privkey_info is not None:
         reply['warnings'] = ['Insufficient funds; fees are rough estimates.']
@@ -421,34 +442,16 @@ def get_total_registration_fees(name, payment_privkey_info, owner_privkey_info,
     return reply
 
 
-def wallet_ensure_exists(config_dir=CONFIG_DIR, password=None, wallet_path=None):
+def wallet_ensure_exists(config_path=CONFIG_PATH):
     """
-    Ensure that the wallet exists and is initialized
+    Check that the wallet exists
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    config_path = os.path.join(config_dir, CONFIG_FILENAME)
-    privkey_progress_path = os.path.join(config_dir, '.no_privkey_index')
-
-    res = {'status': True}
     if not wallet_exists(config_path=config_path):
+        return {'error': 'No wallet exists.  Please create one with `blockstack setup`'}
 
-        try:
-            with open(privkey_progress_path, 'w') as f:
-                pass
-
-        except Exception as e:
-            log.exception(e)
-            return {'error': 'Failed to mark the absence of a private key index'}
-
-        res = initialize_wallet(wallet_path=wallet_path, password=password)
-        if 'error' in res:
-            return res
-        
-        password = res['wallet_password']
-
-    return res
+    return {'status': True}
 
 
 def load_zonefile_from_string(fqu, zonefile_data, check_current=True):
@@ -519,6 +522,52 @@ def get_default_password(password):
     return password if password is not None else os.environ.get("BLOCKSTACK_CLIENT_WALLET_PASSWORD", None)
 
 
+def get_default_interactive(interactive):
+    """
+    Get default interactive setting
+    """
+    if os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) == "1":
+        return False
+    else:
+        return interactive
+
+
+def cli_init(args, config_path=CONFIG_PATH, password=None):
+    """
+    command: init
+    help: Set up your Blockstack installation
+    """
+
+    password = get_default_password(password)
+    interactive = get_default_interactive(True)
+
+    subsys = getattr(args, 'subsys', None)
+    ret = {}
+    
+    log.debug("Set up config file")
+
+    # are we configured?
+    opts = configure(interactive=interactive, force=False, config_file=config_path)
+    if 'error' in opts:
+        return opts
+
+    class WalletSetupArgs(object):
+        pass
+
+    wallet_args = WalletSetupArgs()
+    
+    # is our wallet ready?
+    res = cli_setup_wallet(wallet_args, interactive=interactive, config_path=config_path, password=password)
+    if 'error' in res:
+        return res
+
+    if 'backup_wallet' in res:
+        ret['backup_wallet'] = res['backup_wallet']
+
+    ret['status'] = True
+    return ret
+
+
 def cli_configure(args, config_path=CONFIG_PATH):
     """
     command: configure
@@ -548,7 +597,7 @@ def cli_balance(args, config_path=CONFIG_PATH):
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
-    res = wallet_ensure_exists(config_dir=config_dir, wallet_path=wallet_path) 
+    res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
 
@@ -586,21 +635,23 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
     command: price
     help: Get the price of a name
     arg: name (str) 'Name to query'
+    opt: recipient (str) 'Address of the recipient, if not this wallet.'
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
     password = get_default_password(password)
 
     fqu = str(args.name)
+    transfer_address = getattr(args, 'recipient', None)
+
     error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
     payment_privkey_info, owner_privkey_info = None, None
-    payment_address, owner_address = None, None
-
-    if error:
-        return {'error': error}
 
     payment_address, owner_address, data_pubkey = (
         get_addresses_from_file(config_dir=config_dir, wallet_path=wallet_path)
@@ -630,7 +681,8 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
 
     fees = get_total_registration_fees(
         fqu, payment_privkey_info, owner_privkey_info, proxy=proxy,
-        config_path=config_path, payment_address=payment_address
+        config_path=config_path, payment_address=payment_address, owner_address=owner_address,
+        transfer_address=transfer_address
     )
 
     analytics_event('Name price', {})
@@ -642,15 +694,16 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
     btc_keys = [
         'preorder_tx_fee', 'register_tx_fee',
         'update_tx_fee', 'total_estimated_cost',
-        'name_price'
+        'name_price', 'transfer_tx_fee'
     ]
 
     for k in btc_keys:
-        v = {
-            'satoshis': fees[k],
-            'btc': satoshis_to_btc(fees[k])
-        }
-        fees[k] = v
+        if k in fees.keys():
+            v = {
+                'satoshis': fees[k],
+                'btc': satoshis_to_btc(fees[k])
+            }
+            fees[k] = v
 
     return fees
 
@@ -664,7 +717,7 @@ def cli_deposit(args, config_path=CONFIG_PATH):
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     
-    res = wallet_ensure_exists(config_dir=config_dir, wallet_path=wallet_path) 
+    res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
 
@@ -686,7 +739,7 @@ def cli_import(args, config_path=CONFIG_PATH):
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     
-    res = wallet_ensure_exists(config_dir=config_dir, wallet_path=wallet_path) 
+    res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
 
@@ -712,7 +765,7 @@ def cli_names(args, config_path=CONFIG_DIR):
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     
-    res = wallet_ensure_exists(config_dir=config_dir, wallet_path=wallet_path) 
+    res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
 
@@ -866,9 +919,10 @@ def get_server_info(config_path=CONFIG_PATH, get_local_info=False):
         return result
 
     # get state of pending names
-    res = wallet_ensure_exists(config_dir)
+    res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
-        return res
+        # no wallet; return what we have
+        return result
 
     res = start_rpc_endpoint(config_dir)
     if 'error' in res:
@@ -1051,7 +1105,7 @@ def get_wallet_keys(config_path, password):
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     
-    res = wallet_ensure_exists(config_dir=config_dir, wallet_path=wallet_path) 
+    res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
 
@@ -1063,8 +1117,8 @@ def get_wallet_keys(config_path, password):
             return res
 
         if res.has_key('legacy') and res['legacy']:
-            log.error("Wallet is in legacy format.  Please migrate it to the latest version with `upgrade_wallet`.")
-            return {'error': 'Wallet is in legacy format.  Please migrate it to the latest version with `upgrade_wallet.`'}
+            log.error("Wallet is in legacy format.  Please migrate it to the latest version with `setup_wallet`.")
+            return {'error': 'Wallet is in legacy format.  Please migrate it to the latest version with `setup_wallet.`'}
 
     return get_wallet_with_backoff(config_path)
 
@@ -1122,6 +1176,9 @@ def cli_register(args, config_path=CONFIG_PATH,
     command: register
     help: Register a name
     arg: name (str) 'The name to register'
+    opt: recipient (str) 'The recipient address, if not this wallet'
+    opt: data_pubkey (str) 'The recipient data public key'
+    opt: drivers (str) 'The comma-separated list of drivers for the recipient zone file'
     """
 
     proxy = get_default_proxy(config_path) if proxy is None else proxy
@@ -1131,7 +1188,7 @@ def cli_register(args, config_path=CONFIG_PATH,
     assert conf 
 
     config_dir = os.path.dirname(config_path)
-    res = wallet_ensure_exists(config_dir)
+    res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
 
@@ -1140,7 +1197,25 @@ def cli_register(args, config_path=CONFIG_PATH,
         return res
 
     result = {}
+
     fqu = str(args.name)
+    transfer_address = getattr(args, 'recipient', None)
+    recipient_data_pubkey = getattr(args, 'data_pubkey', None)
+    driver_list = getattr(args, 'drivers', None)
+
+    if transfer_address:
+        if not re.match(schemas.OP_BASE58CHECK_PATTERN, transfer_address):
+            return {'error': 'Not a valid address'}
+
+    if recipient_data_pubkey:
+        try:
+            recipient_data_pubkey = ECPublicKey(recipient_data_pubkey).to_hex()
+        except:
+            return {'error': 'Not a valid public key'}
+
+    if driver_list:
+        driver_list = driver_list.split(',')
+
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
@@ -1158,9 +1233,31 @@ def cli_register(args, config_path=CONFIG_PATH,
     owner_address = get_privkey_info_address(owner_privkey_info)
     payment_address = get_privkey_info_address(payment_privkey_info)
 
+    # if we have a data key, then make an empty profile and zonefile 
+    user_zonefile = None
+    user_profile = None
+    if recipient_data_pubkey:
+        # registering for someone else.  No profile.
+        urls = None
+        if driver_list:
+            # generate URLs
+            urls = storage.make_mutable_data_urls(fqu, use_only=driver_list)
+
+        zonefile_dict = make_empty_zonefile( fqu, recipient_data_pubkey, urls=urls )
+        user_zonefile = blockstack_zones.make_zone_file( zonefile_dict, origin=fqu, ttl=USER_ZONEFILE_TTL )
+        
+    else:
+        # registering for this wallet.  Put an empty profile
+        if not wallet_keys.has_key('data_pubkey'):
+            return {'error': 'No data key in wallet'}
+
+        zonefile_dict = make_empty_zonefile( fqu, wallet_keys['data_pubkey'], urls=urls )
+        user_zonefile = blockstack_zones.make_zone_file( zonefile_dict, origin=fqu, ttl=USER_ZONEFILE_TTL )
+        user_profile = make_empty_user_profile()
+
     fees = get_total_registration_fees(
         fqu, payment_privkey_info, owner_privkey_info,
-        proxy=proxy, config_path=config_path
+        proxy=proxy, config_path=config_path, transfer_address=transfer_address, owner_address=owner_address
     )
 
     if 'error' in fees:
@@ -1211,10 +1308,11 @@ def cli_register(args, config_path=CONFIG_PATH,
         msg = msg.format(payment_address)
         return {'error': msg}
 
+    log.debug("Preorder {}, zonefile={}, profile={}, recipient={}".format(fqu, user_zonefile, user_profile, transfer_address))
     rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
-        resp = rpc.backend_preorder(conf['rpc_token'], fqu)
+        resp = rpc.backend_preorder(conf['rpc_token'], fqu, user_zonefile, user_profile, transfer_address)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1264,7 +1362,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     assert conf
 
     config_dir = os.path.dirname(config_path)
-    res = wallet_ensure_exists(config_dir)
+    res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
 
@@ -1362,9 +1460,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
-        resp = rpc.backend_update(
-            conf['rpc_token'], fqu, base64.b64encode(user_data_txt), None, user_data_hash
-        )
+        res = rpc.backend_update(conf['rpc_token'], fqu, base64.b64encode(user_data_txt), None, user_data_hash, None, config_path=config_path, proxy=proxy)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1400,7 +1496,7 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     assert conf
 
     config_dir = os.path.dirname(config_path)
-    res = wallet_ensure_exists(config_dir)
+    res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
 
@@ -1479,7 +1575,7 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     assert conf
 
     config_dir = os.path.dirname(config_path)
-    res = wallet_ensure_exists(config_dir)
+    res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
 
@@ -1616,7 +1712,7 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
     assert conf
 
     config_dir = os.path.dirname(config_path)
-    res = wallet_ensure_exists(config_dir)
+    res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
 
@@ -1697,6 +1793,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     command: migrate
     help: Migrate a name-linked profile to the latest zonefile and profile format
     arg: name (str) 'The name to migrate'
+    opt: force (str) 'Reset the zone file no matter what.'
     """
 
     password = get_default_password(password)
@@ -1704,7 +1801,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     assert conf
 
     config_dir = os.path.dirname(config_path)
-    res = wallet_ensure_exists(config_dir)
+    res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
 
@@ -1712,9 +1809,15 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
         proxy = get_default_proxy(config_path=config_path)
 
     fqu = str(args.name)
+    force = (force or (getattr(args, 'force', '').lower() in ['1', 'yes', 'force', 'true']))
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
+
+    # need data public key 
+    _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
+    if data_pubkey is None:
+        return {'error': 'No data key in wallet'}
 
     res = start_rpc_endpoint(config_dir, password=password)
     if 'error' in res:
@@ -1734,14 +1837,17 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     if 'error' in res:
         return res
 
-    user_zonefile = get_name_zonefile(
+    res = get_name_zonefile(
         fqu, proxy=proxy,
         raw_zonefile=True, include_name_record=True
     )
 
-    if 'error' not in user_zonefile:
-        name_rec = user_zonefile['name_record']
-        user_zonefile_txt = user_zonefile['zonefile']
+    user_zonefile = None
+    user_profile = None
+
+    if 'error' not in res:
+        name_rec = res['name_record']
+        user_zonefile_txt = res['zonefile']
         user_zonefile_hash = storage.get_zonefile_data_hash(user_zonefile_txt)
         user_zonefile = None
         legacy = False
@@ -1756,17 +1862,19 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
             log.warning('Non-standard zonefile {}'.format(user_zonefile_hash))
             nonstandard = True
 
-        current = name_rec.get('value_hash', '') == user_zonefile_hash
+        if nonstandard:
+            if force:
+                # forcibly reset the zone file
+                user_profile = make_empty_user_profile()
+                user_zonefile = make_empty_zonefile(fqu, data_pubkey)
 
-        if nonstandard and not legacy:
-            # maybe we're trying to reset the profile?
-            if interactive and not force:
+            else:
                 if os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
                     # prompt
                     msg = (
                         ''
-                        'WARNING!  Non-standard zonefile detected.'
-                        'If you proceed, your zonefile will be reset.'
+                        'WARNING!  Non-standard zone file detected.'
+                        'If you proceed, your zone file will be reset.'
                         ''
                         'Proceed? (y/N): '
                     )
@@ -1776,23 +1884,34 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
                     if not proceed:
                         return {'error': 'Non-standard zonefile'}
 
-            elif not force:
-                return {'error': 'Non-standard zonefile'}
+                    else:
+                        user_profile = make_empty_user_profile()
+                        user_zonefile = make_empty_zonefile(fqu, data_pubkey)
+                else:
+                    return {'error': 'Non-standard zonefile'}
 
-        # is current and either standard or legacy?
-        elif not legacy and not force:
-            if current:
-                msg = 'Zonefile data is same as current zonefile; update not needed.'
+            # going ahead with zonefile and profile reset
+
+        else:
+            # standard or legacy zone file
+            if not legacy:
+                msg = 'Zone file is in the latest format.  No migration needed'
                 return {'error': msg}
 
-            # maybe this is intentional (like fixing a corrupt zonefile)
-            msg = 'Not a legacy profile; cannot migrate.'
-            return {'error': msg}
+            # convert
+            user_profile = blockstack_profiles.get_person_from_legacy_format(user_zonefile)
+            user_zonefile = make_empty_zonefile(fqu, data_pubkey)
+
+    else:
+        log.error("Failed to get zone file for {}".format(fqu))
+        return {'error': res['error']}
+
+    zonefile_txt = blockstack_zones.make_zone_file(user_zonefile)
+    zonefile_txt_b64 = base64.b64encode(zonefile_txt)
 
     rpc = local_rpc_connect(config_dir=config_dir)
-
     try:
-        resp = rpc.backend_migrate(conf['rpc_token'], fqu)
+        resp = rpc.backend_update(conf['rpc_token'], fqu, zonefile_txt_b64, user_profile, None, None)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1813,47 +1932,51 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     return result
 
 
-def cli_upgrade_wallet(args, config_path=CONFIG_PATH, password=None):
+def cli_setup_wallet(args, config_path=CONFIG_PATH, password=None, interactive=True):
     """
-    command: upgrade_wallet 
-    help: Upgrade your wallet to the latest supported format.
+    command: setup_wallet 
+    help: Create or upgrade up your wallet.
     """
+    
+    # TODO: change password option
 
     password = get_default_password(password)
-    config_dir = os.path.dirname(config_path)
-    res = migrate_wallet(password=password, config_path=config_path)
+    ret = {}
+
+    res = wallet_setup(config_path=config_path, interactive=interactive, password=password)
     if 'error' in res:
         return res
 
-    if not res.has_key('backup_wallet'):
-        # already migrated 
-        return {'status': True, 'message': 'Wallet is already in the latest format'}
+    if res.has_key('backup_wallet'):
+        # return this
+        ret['backup_wallet'] = res['backup_wallet']
 
-    backup_path = res['backup_wallet']
-    wallet_data = res['wallet']
-    wallet_password = res['wallet_password']
-
-    # stop RPC daemon  
-    if local_rpc_status(config_dir=config_dir):
-        local_rpc_stop(config_dir=config_dir)
-
-    return {'status': True, 'backup_wallet': backup_path}
+    ret['status'] = True
+    return ret
 
 
-def cli_upgrade_storage(args, config_path=CONFIG_PATH, password=None, wallet_keys=None, interactive=True):
+def cli_setup_storage(args, config_path=CONFIG_PATH, password=None, wallet_keys=None, interactive=True):
     """
-    command: upgrade_storage
+    command: setup_storage advanced
     help: Enable a name to use data stores for applications
-    arg: name (str) 'The blockchain ID to start using'
+    opt: name (str) 'A blockchain ID that points to the wallet data key'
     """
     
-    res = check_storage_setup(config_path=config_path)
-    if 'error' not in res:
-        return res
-
     name = str(args.name)
-    
-    res = storage_setup(name, config_path=config_path, password=password, wallet_data=wallet_keys, interactive=interactive)
+    password = get_default_password(password)
+   
+    if wallet_keys is None:
+        res = load_wallet(password=password, config_path=config_path, include_private=True)
+        if 'error' in res:
+            return res
+        
+        if res['migrated']:
+            return {'error': 'Wallet is in legacy format.  Please migrate it with `setup_wallet`'}
+
+        wallet_keys = res['wallet']
+        password = res['password']
+
+    res = storage_setup(password=password, config_path=config_path, blockchain_id=name, wallet_data=wallet_keys)
     if 'error' in res:
         return res
 
@@ -2292,7 +2415,7 @@ def cli_wallet(args, config_path=CONFIG_PATH, password=None):
 
     result = {}
     config_dir = os.path.dirname(config_path)
-    res = wallet_ensure_exists(config_dir, password=password)
+    res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
 
@@ -3440,7 +3563,7 @@ def cli_app_get_account( args, config_path=CONFIG_PATH, proxy=None ):
  
     _, _, master_data_pubkey = get_addresses_from_file(config_dir=config_dir)
     if not master_data_pubkey:
-        return {'error': 'No wallet'}
+        return {'error': 'No data key in wallet.'}
 
     datastore_info = get_account_datastore_info( master_data_pubkey, None, user_id, app_fqu, appname, proxy=proxy )
     if 'error' in datastore_info:
@@ -3482,7 +3605,7 @@ def cli_app_list_accounts( args, config_path=CONFIG_PATH, proxy=None ):
 
     _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
     if not data_pubkey:
-        return {'error': 'No wallet'}
+        return {'error': 'No data key in wallet'}
 
     all_accounts = app_accounts_list( user_id=user_id, app_fqu=app_blockchain_id, appname=app_name, config_path=config_path )
     return all_accounts
@@ -3655,7 +3778,7 @@ def cli_get_user(args, proxy=None, config_path=CONFIG_PATH):
    
     _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
     if not data_pubkey:
-        return {'error': 'No wallet'}
+        return {'error': 'No data key in wallet'}
 
     user_id = str(args.user_id)
 
@@ -3806,7 +3929,7 @@ def cli_list_users( args, proxy=None, config_path=CONFIG_PATH ):
    
     _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
     if not data_pubkey:
-        return {'error': 'No wallet'}
+        return {'error': 'No data key in wallet'}
 
     ret = users_list( data_pubkey, config_path=config_path )
     return ret
@@ -3824,7 +3947,7 @@ def cli_get_user_profile(args, proxy=None, config_path=CONFIG_PATH):
    
     _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
     if not data_pubkey:
-        return {'error': 'No wallet'}
+        return {'error': 'No data key wallet'}
 
     user_id = str(args.user_id)
 
