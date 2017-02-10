@@ -2245,7 +2245,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': self.GET_index
                 },
             },
-            r'^/api/v1/ping$': {
+            r'^/v1/ping$': {
                 'routes': {
                     'GET': self.GET_ping,
                 },
@@ -2257,7 +2257,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 },
                 'need_data_key': False,
             },
-            r'^/api/v1/jsonrpc$': {
+            r'^/v1/jsonrpc$': {
                 # JSONRPC endpoint (we handle our own auth)
                 'authenticate': False,
                 'routes': {
@@ -2271,35 +2271,35 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 },
                 'need_data_key': False,
             },
-            r'^/api/v1/auth/signin/({})/({})$'.format(NAME_CLASS, URLENCODING_CLASS): {
+            r'^/v1/auth/signin/({})/({})$'.format(NAME_CLASS, URLENCODING_CLASS): {
                 'authenticate_url': True,
                 'authenticate': False,
                 'routes': {
                     'GET': self.GET_auth_signin,
                 },
             },
-            r'^/api/v1/auth/loadaccount/({})/({})/({})$'.format(URLENCODING_CLASS, NAME_CLASS, URLENCODING_CLASS): {
+            r'^/v1/auth/loadaccount/({})/({})/({})$'.format(URLENCODING_CLASS, NAME_CLASS, URLENCODING_CLASS): {
                 'authenticate_url': True,
                 'authenticate': False,
                 'routes': {
                     'GET': self.GET_auth_load_account_and_redirect,
                 },
             },
-            r'^/api/v1/auth/allowdeny/({})/({})$'.format(NAME_CLASS, URLENCODING_CLASS): {
+            r'^/v1/auth/allowdeny/({})/({})$'.format(NAME_CLASS, URLENCODING_CLASS): {
                 'authenticate_url': True,
                 'authenticate': False,
                 'routes': {
                     'GET': self.GET_auth_allowdeny,
                 },
             },
-            r'^/api/v1/auth/newaccount/({})/({})/({})$'.format(URLENCODING_CLASS, NAME_CLASS, URLENCODING_CLASS): {
+            r'^/v1/auth/newaccount/({})/({})/({})$'.format(URLENCODING_CLASS, NAME_CLASS, URLENCODING_CLASS): {
                 'authenticate_url': True,
                 'authenticate': False,
                 'routes': {
                     'GET': self.GET_auth_create_account_and_redirect
                 },
             },
-            r'^/api/v1/addresses/({})/names$'.format(BASE58CHECK_CLASS): {
+            r'^/v1/addresses/({})/names$'.format(BASE58CHECK_CLASS): {
                 'routes': {
                     'GET': self.GET_names_owned_by_address,
                 },
@@ -2310,7 +2310,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/blockchains/({})/operations/([0-9]+)$'.format(URLENCODING_CLASS): {
+            r'^/v1/blockchains/({})/operations/([0-9]+)$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_blockchain_ops
                 },
@@ -2321,7 +2321,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/blockchains/({})/names/({})/history$'.format(URLENCODING_CLASS, NAME_CLASS): {
+            r'^/v1/blockchains/({})/names/({})/history$'.format(URLENCODING_CLASS, NAME_CLASS): {
                 'routes': {
                     'GET': self.GET_blockchain_name_history
                 },
@@ -2332,7 +2332,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/blockchains/({})/consensus$'.format(URLENCODING_CLASS): {
+            r'^/v1/blockchains/({})/consensus$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_blockchain_consensus,
                 },
@@ -2343,7 +2343,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/blockchains/({})/pending$'.format(URLENCODING_CLASS): {
+            r'^/v1/blockchains/({})/pending$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_blockchain_pending,
                 },
@@ -2354,7 +2354,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/names$': {
+            r'^/v1/names$': {
                 'routes': {
                     'GET': self.GET_names,
                     'POST': self.POST_names,    # accepts: name, address, zonefile.  Returns: HTTP 202 with txid
@@ -2370,7 +2370,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/names/({})$'.format(NAME_CLASS): {
+            r'^/v1/names/({})$'.format(NAME_CLASS): {
                 'routes': {
                     'GET': self.GET_name_info,
                     'DELETE': self.DELETE_name,     # revoke
@@ -2386,7 +2386,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/names/({})/history$'.format(NAME_CLASS): {
+            r'^/v1/names/({})/history$'.format(NAME_CLASS): {
                 'routes': {
                     'GET': self.GET_name_history,
                 },
@@ -2397,7 +2397,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/names/({})/owner$'.format(NAME_CLASS): {
+            r'^/v1/names/({})/owner$'.format(NAME_CLASS): {
                 'routes': {
                     'PATCH': self.PATCH_name_transfer,     # accepts: recipient address.  Returns: HTTP 202 with txid
                 },
@@ -2408,7 +2408,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/names/({})/zonefile$'.format(NAME_CLASS): {
+            r'^/v1/names/({})/zonefile$'.format(NAME_CLASS): {
                 'routes': {
                     'GET': self.GET_name_zonefile,
                     'PATCH': self.PATCH_name_zonefile,
@@ -2424,7 +2424,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/names/({})/zonefile/([0-9a-fA-F]{{40}})$'.format(NAME_CLASS): {
+            r'^/v1/names/({})/zonefile/([0-9a-fA-F]{{40}})$'.format(NAME_CLASS): {
                 'routes': {
                     'GET': self.GET_name_zonefile_by_hash,     # returns a zonefile
                 },
@@ -2435,7 +2435,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/names/({})/zonefile/zonefileHash$'.format(NAME_CLASS): {
+            r'^/v1/names/({})/zonefile/zonefileHash$'.format(NAME_CLASS): {
                 'routes': {
                     'PUT': self.PUT_name_zonefile_hash,     # accepts: zonefile hash.  Returns: HTTP 202 with txid
                 },
@@ -2446,7 +2446,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/namespaces$': {
+            r'^/v1/namespaces$': {
                 'routes': {
                     'GET': self.GET_namespaces, 
                     'POST': self.POST_namespaces,       # accepts: namespace-reveal info.  Returns: HTTP 202 with txid (NAMESPACE_PREORDER)
@@ -2462,7 +2462,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/namespaces/({})$'.format(NAMESPACE_CLASS): {
+            r'^/v1/namespaces/({})$'.format(NAMESPACE_CLASS): {
                 'routes': {
                     'GET': self.GET_namespace_info,
                     'PUT': self.PUT_namespace_ready,     # accepts: {'launched': True}, Returns: HTTP 202 with txid (NAMESPACE_READY)
@@ -2478,7 +2478,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/namespaces/({})/names$'.format(NAMESPACE_CLASS): {
+            r'^/v1/namespaces/({})/names$'.format(NAMESPACE_CLASS): {
                 'routes': {
                     'GET': self.GET_namespace_names,
                     'POST': self.POST_namespace_name_import,    # accepts name, owner, zonefile; returns HTTP 202 with txid (NAME_IMPORT)
@@ -2494,7 +2494,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/namespaces/({})/names/({})$'.format(NAMESPACE_CLASS, NAME_CLASS): {
+            r'^/v1/namespaces/({})/names/({})$'.format(NAMESPACE_CLASS, NAME_CLASS): {
                 'routes': {
                     'PUT': self.PUT_namespace_name_import,       # re-imports a name
                 },
@@ -2505,7 +2505,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/wallet/payment_address$': {
+            r'^/v1/wallet/payment_address$': {
                 'routes': {
                     'GET': self.GET_wallet_payment_address,
                 },
@@ -2516,7 +2516,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/wallet/owner_address$': {
+            r'^/v1/wallet/owner_address$': {
                 'routes': {
                     'GET': self.GET_wallet_owner_address,
                 },
@@ -2527,7 +2527,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/wallet/private$': {
+            r'^/v1/wallet/private$': {
                 'authenticate': False,
                 'routes': {
                     'PUT': self.PUT_wallet,
@@ -2540,7 +2540,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 },
                 'need_data_key': False
             },
-            r'^/api/v1/node/ping$': {
+            r'^/v1/node/ping$': {
                 'authenticate': False,
                 'routes': {
                     'GET': self.GET_ping,
@@ -2553,7 +2553,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 },
                 'need_data_key': False,
             },
-            r'^/api/v1/node/reboot$': {
+            r'^/v1/node/reboot$': {
                 'authenticate': False,
                 'routes': {
                     'POST': self.POST_reboot,
@@ -2566,7 +2566,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 },
                 'need_data_key': False,
             },
-            r'^/api/v1/prices/namespaces/({})$'.format(NAMESPACE_CLASS): {
+            r'^/v1/prices/namespaces/({})$'.format(NAMESPACE_CLASS): {
                 'routes': {
                     'GET': self.GET_prices_namespace,
                 },
@@ -2577,7 +2577,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/prices/names/({})$'.format(NAME_CLASS): {
+            r'^/v1/prices/names/({})$'.format(NAME_CLASS): {
                 'routes': {
                     'GET': self.GET_prices_name,
                 },
@@ -2588,7 +2588,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/resources/({})/({})/({})$'.format(NAME_CLASS, URLENCODING_CLASS, URLENCODING_CLASS): {
+            r'^/v1/resources/({})/({})/({})$'.format(NAME_CLASS, URLENCODING_CLASS, URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_app_resource,
                 },
@@ -2599,7 +2599,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/users$': {
+            r'^/v1/users$': {
                 'routes': {
                     'GET': self.GET_users,
                     'POST': self.POST_users,
@@ -2619,7 +2619,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/users/({})$'.format(URLENCODING_CLASS): {
+            r'^/v1/users/({})$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_user_profile,
                     'PATCH': self.PATCH_user_profile,
@@ -2640,7 +2640,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/users/({})/collections$'.format(URLENCODING_CLASS): {
+            r'^/v1/users/({})/collections$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_user_collections,
                     'POST': self.POST_user_collections,
@@ -2656,7 +2656,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/users/({})/collections/({})$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
+            r'^/v1/users/({})/collections/({})$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_user_collection_info,
                     'POST': self.POST_user_collection_item,
@@ -2672,7 +2672,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/users/({})/collections/({})/({})$'.format(URLENCODING_CLASS, URLENCODING_CLASS, URLENCODING_CLASS): {
+            r'^/v1/users/({})/collections/({})/({})$'.format(URLENCODING_CLASS, URLENCODING_CLASS, URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_user_collection_item,
                 },
@@ -2683,7 +2683,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/users/({})/stores$'.format(URLENCODING_CLASS): {
+            r'^/v1/users/({})/stores$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_user_stores,
                     'POST': self.POST_user_stores,
@@ -2699,7 +2699,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/users/({})/stores/({})$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
+            r'^/v1/users/({})/stores/({})$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
                 'routes': {
                     'PUT': self.PUT_user_stores,
                     'DELETE': self.DELETE_user_stores,
@@ -2715,7 +2715,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/users/({})/stores/({})/(file|directory|inode)$'.format(URLENCODING_CLASS, URLENCODING_CLASS, URLENCODING_CLASS): {
+            r'^/v1/users/({})/stores/({})/(file|directory|inode)$'.format(URLENCODING_CLASS, URLENCODING_CLASS, URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_user_store_item,
                     'POST': self.POST_user_store_item,
@@ -3120,7 +3120,7 @@ class BlockstackAPIEndpointClient(object):
     def __init__(self, server, port, max_rpc_len=1024*1024, rpc_token=None,
                  timeout=blockstack_config.DEFAULT_TIMEOUT, debug_timeline=False, **kw):
 
-        self.url = 'http://{}:{}/api/v1/jsonrpc'.format(server, port)
+        self.url = 'http://{}:{}/v1/jsonrpc'.format(server, port)
         self.timeout = timeout
         self.server = server
         self.port = port
