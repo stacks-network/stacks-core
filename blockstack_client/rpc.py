@@ -230,7 +230,7 @@ def run_cli_rpc(command_name, argv, config_path=CONFIG_PATH, check_rpc=True, **k
         res = check_storage_setup(config_path=config_path)
         if 'error' in res:
             log.error("Storage is not set up for this wallet")
-            return {'error': 'Storage is not set up.  Please run `upgrade_storage`.'}
+            return {'error': 'Storage is not set up.  Please run `setup_storage`.'}
 
     res = command_info['method'](args, config_path=config_path, **kw)
 
@@ -2033,21 +2033,41 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return 
 
     
-    def GET_wallet_public( self, ses, path_info ):
+    def GET_wallet_payment_address( self, ses, path_info ):
         """
-        Get the public fields of the wallet
+        Get the wallet payment address
+        Return 200 with {'address': ...} on success
+        Return 500 on failure to read the wallet
         """
 
         wallet_path = os.path.join( os.path.dirname(self.server.config_path), WALLET_FILENAME )
+        if not os.path.exists(wallet_path):
+            return self._reply_json({'error': 'No such wallet'}, status_code=500)
 
         try:
             payment_address, owner_address, data_pubkey = wallet.get_addresses_from_file(wallet_path=wallet_path)
-            ret = {
-                'payment_address': payment_address,
-                'owner_address': owner_address,
-                'data_pubkey': data_pubkey
-            }
-            self._reply_json(ret)
+            self._reply_json({'address': payment_address})
+            return 
+
+        except Exception as e:
+            self._reply_json({'error': 'Failed to read wallet file'}, status_code=500)
+            return
+
+
+    def GET_wallet_owner_address( self, ses, path_info ):
+        """
+        Get the wallet owner address
+        Return 200 with {'address': ...} on success
+        Return 500 on failure to read the wallet
+        """
+
+        wallet_path = os.path.join( os.path.dirname(self.server.config_path), WALLET_FILENAME )
+        if not os.path.exists(wallet_path):
+            return self._reply_json({'error': 'No such wallet'}, status_code=500)
+
+        try:
+            payment_address, owner_address, data_pubkey = wallet.get_addresses_from_file(wallet_path=wallet_path)
+            self._reply_json({'address': owner_address})
             return 
 
         except Exception as e:
@@ -2485,14 +2505,25 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/api/v1/wallet/public$': {
+            r'^/api/v1/wallet/payment_address$': {
                 'routes': {
-                    'GET': self.GET_wallet_public,
+                    'GET': self.GET_wallet_payment_address,
                 },
                 'whitelist': {
                     'GET': {
                         'name': 'wallet_read',
-                        'desc': 'get the node wallet\'s public information'
+                        'desc': 'get the node wallet\'s payment address',
+                    },
+                },
+            },
+            r'^/api/v1/wallet/owner_address$': {
+                'routes': {
+                    'GET': self.GET_wallet_owner_address,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'wallet_read',
+                        'desc': 'get the node wallet\'s payment address',
                     },
                 },
             },
@@ -3411,7 +3442,7 @@ def local_rpc_start(portnum, config_dir=blockstack_config.CONFIG_DIR, foreground
 
     if wallet['migrated']:
         log.error("Wallet is in legacy format")
-        print("Wallet is in legacy format.  Please migrate it first with the `upgrade_wallet` command.", file=sys.stderr)
+        print("Wallet is in legacy format.  Please migrate it first with the `setup_wallet` command.", file=sys.stderr)
         return False
 
     wallet = wallet['wallet']
