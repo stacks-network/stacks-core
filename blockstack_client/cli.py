@@ -214,7 +214,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         sys.exit(1)
 
     argv = new_argv
-    if cli_password or os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD') is None:
+    if cli_password and os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD') is None:
         log.debug("Use CLI password")
         os.environ["BLOCKSTACK_CLIENT_WALLET_PASSWORD"] = cli_password
 
