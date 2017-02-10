@@ -45,8 +45,8 @@ import logging
 logging.disable(logging.CRITICAL)
 
 from blockstack_client import config
-from blockstack_client.client import session, check_storage_setup 
-from blockstack_client.config import CONFIG_PATH, VERSION, semver_match
+from blockstack_client.client import session, check_storage_setup, analytics_user_register 
+from blockstack_client.config import CONFIG_PATH, VERSION, semver_match, get_config, client_uuid_path, get_or_set_uuid
 from blockstack_client.method_parser import parse_methods, build_method_subparsers
 
 from wallet import *
@@ -151,6 +151,7 @@ def find_arg(argv, has_arg, short_opt, long_opt):
                     arg = argv[i + 1]
                     argv.pop(i)
                     argv.pop(i)
+                    return (argv, arg)
 
                 else:
                     argv.pop(i)
@@ -172,14 +173,25 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     if argv is None:
         argv = sys.argv
 
-    cli_argv = False
+    cli_debug = False
+    cli_config_argv = False
     cli_default_yes = False
-
     cli_interactive = True
 
     if '-v' in argv or '--version' in argv:
         print(VERSION)
         sys.exit(0)
+
+    # debug?
+    new_argv, cli_debug = find_arg(argv, False, '-d', '--debug')
+    if new_argv is None:
+        # invalid 
+        sys.exit(1)
+    
+    if cli_debug:
+        os.environ['BLOCKSTACK_DEBUG'] = '1'
+        log.setLevel(logging.DEBUG)
+        log.debug("Activated debugging")
 
     # alternative config path?
     new_argv, cli_config_path = find_arg(argv, True, '-c', '--config')
@@ -189,20 +201,22 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
    
     argv = new_argv
     if cli_config_path:
-        cli_argv = True
+        cli_config_argv = True
         config_path = cli_config_path
         log.debug('Use config file {}'.format(config_path))
+    
+    os.environ['BLOCKSTACK_CLIENT_CONFIG'] = config_path
 
     # CLI-given password?
-    new_argv, password = find_arg(argv, True, '-p', '--password')
+    new_argv, cli_password = find_arg(argv, True, '-p', '--password')
     if new_argv is None:
         # invalid
         sys.exit(1)
 
     argv = new_argv
-    if password:
+    if cli_password or os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD') is None:
         log.debug("Use CLI password")
-        os.environ["BLOCKSTACK_CLIENT_WALLET_PASSWORD"] = password
+        os.environ["BLOCKSTACK_CLIENT_WALLET_PASSWORD"] = cli_password
 
     # assume YES to all prompts?
     new_argv, cli_default_yes = find_arg(argv, False, '-y', '--yes')
@@ -210,18 +224,41 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         # invalid
         sys.exit(1)
 
-    if cli_default_yes:
+    if cli_default_yes or os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES") != "1":
         log.debug("Assume YES to all interactive prompts")
         os.environ["BLOCKSTACK_CLIENT_INTERACTIVE_YES"] = '1'
 
-    conf = config.get_config(path=config_path, interactive=(not cli_default_yes))
+    if cli_config_argv or cli_debug:
+        # re-exec to reset variables
+        os.execv( argv[0], argv )
+
+    # do one-time opt-in request
+    uuid_path = client_uuid_path(config_dir=os.path.dirname(config_path))
+    first_time = False
+    client_uuid = None
+    
+    if not os.path.exists(uuid_path):
+        first_time = True
+        client_uuid = get_or_set_uuid(config_dir=os.path.dirname(config_path))
+
+        if os.environ.get('BLOCKSTACK_CLIENT_INTERACTIVE_YES') != '1':
+            # interactive allowed
+            # prompt for email 
+            print("Would you like to receive an email when there is a new release of this software available?")
+            email_addr = raw_input("Email address (leave blank to opt out): ")
+
+            # will only process real email addresses when we email announcements out
+            if len(email_addr) > 0:
+                analytics_user_register( client_uuid, email_addr )
+
+    conf = config.get_config(path=config_path, interactive=(os.environ.get('BLOCKSTACK_CLIENT_INTERACTIVE_YES') != '1'))
     if conf is None:
         return {'error': 'Failed to load config'}
 
     conf_version = conf.get('client_version', '')
     if not semver_match(conf_version, VERSION):
         # back up the config file 
-        if not cli_argv:
+        if not cli_config_argv:
             # default config file
             backup_path = config.backup_config_file(config_path=config_path)
             if not backup_path:
@@ -229,7 +266,6 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
             else:
                 exit_with_error("Backed up legacy configuration file from {} to {} and re-generated a new, default configuration.  Please restart.".format(config_path, backup_path))
-
 
     advanced_mode = conf.get('advanced_mode', False)
 
@@ -311,7 +347,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             # verify that we have set up storage
             res = check_storage_setup(config_path=config_path)
             if 'error' in res:
-                return {'error': 'Please run the `upgrade_storage` command first'}
+                return {'error': 'Please run the `setup_storage` command first'}
 
         # interactive?
         if interactive:
