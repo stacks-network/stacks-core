@@ -105,6 +105,20 @@ def serialize_mutable_data_id(data_id):
     return urllib.quote(urllib.unquote(data_id).replace('\0', '\\0')).replace('/', r'\x2f')
 
 
+def get_metadata_dir(conf):
+    """
+    Get the absolute path to the metadata directory
+    """
+    metadata_dir = conf.get('metadata', None)
+    assert metadata_dir, "Config file is missing blockstack_client.metadata"
+
+    if posixpath.normpath(os.path.abspath(metadata_dir)) != posixpath.normpath(conf['metadata']):
+        # relative path; make absolute
+        metadata_dir = posixpath.normpath( os.path.join(os.path.dirname(config_path), metadata_dir) )
+
+    return metadata_dir
+
+
 def load_mutable_data_version(conf, device_id, data_id, config_path=CONFIG_PATH):
     """
     Get the version field of a piece of mutable data from local cache.
@@ -118,10 +132,7 @@ def load_mutable_data_version(conf, device_id, data_id, config_path=CONFIG_PATH)
         log.debug(msg.format(fq_data_id))
         return None
 
-    metadata_dir = conf.get('metadata', None)
-    if metadata_dir is None or not os.path.isdir(metadata_dir):
-        return None
-
+    metadata_dir = get_metadata_dir(conf)
     dev_id = serialize_mutable_data_id(device_id)
     d_id = serialize_mutable_data_id(data_id)
 
@@ -161,9 +172,7 @@ def store_mutable_data_version(conf, device_id, data_id, ver, config_path=CONFIG
         log.warning(msg.format(fq_data_id))
         return False
 
-    metadata_dir = conf.get('metadata', '')
-
-    assert metadata_dir, 'Missing metadata directory'
+    metadata_dir = get_metadata_dir(conf)
 
     if not os.path.isdir(metadata_dir):
         try:
@@ -223,7 +232,7 @@ def delete_mutable_data_version(conf, data_id):
         log.warning(msg.format(data_id))
         return False
 
-    metadata_dir = conf['metadata']
+    metadata_dir = get_metadata_dir(conf)
     if not os.path.isdir(metadata_dir):
         msg = 'No metadata directory found; cannot store version of "{}"'
         log.warning(msg.format(data_id))
@@ -3098,12 +3107,13 @@ def have_seen( data_id, config_path=CONFIG_PATH ):
     return (expected_version is not None)
 
 
-def data_setup( blockchain_id, password, wallet_keys=None, config_path=CONFIG_PATH, proxy=None, interactive=False):
+def data_setup( password=None, blockchain_id=None, wallet_keys=None, config_path=CONFIG_PATH, proxy=None):
     """
-    Do the one-time setup necessary for using the data functions with this name's key bundle.
+    Do the one-time setup necessary for using the data functions with this wallet.
     The wallet must be set up first.
 
-    TODO: make interactive
+    Pass `blockchain_id` if we want to (1) verify that the zone file is consistent with the wallet, and (2) pass the blockchain ID
+    along to the storage drivers as a hint (as required by a few of them).
 
     Return {'status': True} on success
     Return {'error': ...} on error
@@ -3122,29 +3132,34 @@ def data_setup( blockchain_id, password, wallet_keys=None, config_path=CONFIG_PA
         return {'error': 'Wallet does not exist'}
 
     if wallet_keys is None:
+        if password is None:
+            return {'error': 'No wallet or password given'}
+
         wallet_info = load_wallet(password, config_path=config_path, wallet_path=wallet_path, include_private=True)
         if 'error' in wallet_info:
             return wallet_info
 
         if 'migrated' in wallet_info:
-            return {'error': 'Wallet must be updated to the latest format with the `upgrade_wallet` command'}
+            return {'error': 'Wallet must be updated to the latest format with the `setup_wallet` command'}
 
         wallet_keys = wallet_info['wallet']
-
-    # wallet data pubkey (which can be an owner pubkey) must match the zone file pubkey, if the zonefile has a pubkey
-    zonefile_data_pubkey = None
-    res = load_user_data_pubkey_addr(blockchain_id, proxy=proxy, config_path=config_path)
-    if 'error' not in res:
-        zonefile_data_pubkey = res['pubkey']
 
     master_data_privkey = wallet_keys['data_privkey']
     master_data_pubkey = get_pubkey_hex(master_data_privkey)
     addr = keylib.public_key_to_address(master_data_pubkey)
+    
+    # wallet data pubkey (which can be an owner pubkey) must match the name's zone file pubkey, if the zonefile has a pubkey
+    if blockchain_id is not None:
+        zonefile_data_pubkey = None
+        res = load_user_data_pubkey_addr(blockchain_id, proxy=proxy, config_path=config_path)
+        if 'error' not in res:
+            zonefile_data_pubkey = res['pubkey']
 
-    if zonefile_data_pubkey is not None and master_data_pubkey != zonefile_data_pubkey:
-        log.debug("Zone file public key '{}' does not match wallet public key '{}'".format(zonefile_data_pubkey, master_data_pubkey))
-        return {'error': 'Zone file public key does not match wallet public key.'}
-       
+        if zonefile_data_pubkey is not None and master_data_pubkey != zonefile_data_pubkey:
+            log.debug("Zone file public key '{}' does not match wallet public key '{}'".format(zonefile_data_pubkey, master_data_pubkey))
+            return {'error': 'Zone file public key does not match wallet public key.'}
+      
+    # TODO: move to "public user" setup
     # safe to put a private key index and user list--we have a key to sign with.
     res = next_privkey_index( master_data_privkey, blockchain_id=blockchain_id, config_path=config_path )
     if 'error' in res:
