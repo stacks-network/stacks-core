@@ -532,9 +532,9 @@ def get_default_interactive(interactive):
         return interactive
 
 
-def cli_init(args, config_path=CONFIG_PATH, password=None):
+def cli_setup(args, config_path=CONFIG_PATH, password=None):
     """
-    command: init
+    command: setup
     help: Set up your Blockstack installation
     """
 
