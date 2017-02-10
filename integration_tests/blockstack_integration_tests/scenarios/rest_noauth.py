@@ -88,7 +88,7 @@ def scenario( wallets, **kw ):
         return 
 
     # bootstrap storage for this wallet
-    res = testlib.blockstack_cli_upgrade_storage("foo.test", password="0123456789abcdef")
+    res = testlib.blockstack_cli_setup_storage("foo.test", password="0123456789abcdef")
     if 'error' in res:
         print 'failed to bootstrap storage for foo.test'
         print json.dumps(res, indent=4, sort_keys=True)
@@ -119,21 +119,21 @@ def scenario( wallets, **kw ):
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
 
     # make sure we can do REST calls
-    res = testlib.blockstack_REST_call('GET', '/api/v1/blockchains/bitcoin/pending', None, name='foo.test', appname='register', user_id='fake_user')
+    res = testlib.blockstack_REST_call('GET', '/v1/blockchains/bitcoin/pending', None, name='foo.test', appname='register', user_id='fake_user')
     if 'error' in res:
         res['test'] = 'Failed to get queues'
         print json.dumps(res)
         return False
 
     # make sure we can do REST calls with different app names and user names
-    res = testlib.blockstack_REST_call('GET', '/api/v1/blockchains/bitcoin/pending', None, name='foo.test', appname='fake', user_id='fake_user2')
+    res = testlib.blockstack_REST_call('GET', '/v1/blockchains/bitcoin/pending', None, name='foo.test', appname='fake', user_id='fake_user2')
     if 'error' in res:
         res['test'] = 'Failed to get queues'
         print json.dumps(res)
         return False
 
     # register the name bar.test 
-    res = testlib.blockstack_REST_call('POST', '/api/v1/names', None, name="foo.test", appname="also_fake", data={'name': 'bar.test'})
+    res = testlib.blockstack_REST_call('POST', '/v1/names', None, name="foo.test", appname="also_fake", data={'name': 'bar.test'})
     if 'error' in res:
         res['test'] = 'Failed to register user'
         print json.dumps(res)
@@ -148,7 +148,7 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
 
-    res = testlib.blockstack_REST_call("GET", "/api/v1/names/bar.test", None, name="foo.test", appname="register")
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", None, name="foo.test", appname="register")
     if 'error' in res:
         res['test'] = 'Failed to query name'
         print json.dumps(res)

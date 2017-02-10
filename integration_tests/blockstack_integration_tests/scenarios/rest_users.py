@@ -89,7 +89,7 @@ def scenario( wallets, **kw ):
         return 
 
     # bootstrap storage for this wallet
-    res = testlib.blockstack_cli_upgrade_storage("foo.test", password="0123456789abcdef")
+    res = testlib.blockstack_cli_setup_storage("foo.test", password="0123456789abcdef")
     if 'error' in res:
         print 'failed to bootstrap storage for foo.test'
         print json.dumps(res, indent=4, sort_keys=True)
@@ -140,7 +140,7 @@ def scenario( wallets, **kw ):
     ses = res['ses']
 
     # for funsies, get the price of .test
-    res = testlib.blockstack_REST_call('GET', '/api/v1/prices/namespaces/test', ses, name="foo.test", appname="register")
+    res = testlib.blockstack_REST_call('GET', '/v1/prices/namespaces/test', ses, name="foo.test", appname="register")
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get price of .test'
         print json.dumps(res)
@@ -150,7 +150,7 @@ def scenario( wallets, **kw ):
     print '\n\n.test costed {} satoshis\n\n'.format(test_price)
 
     # get the price for bar.test
-    res = testlib.blockstack_REST_call('GET', '/api/v1/prices/names/bar.test', ses, name="foo.test", appname="register")
+    res = testlib.blockstack_REST_call('GET', '/v1/prices/names/bar.test', ses, name="foo.test", appname="register")
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get price of bar.test'
         print json.dumps(res)
@@ -160,14 +160,14 @@ def scenario( wallets, **kw ):
     print "\n\nbar.test will cost {} satoshis\n\n".format(bar_price)
   
     # make another user, via the REST api 
-    res = testlib.blockstack_REST_call('POST', '/api/v1/users', ses, name='foo.test', appname='register', data={'user_id': 'foo_REST', 'profile': {'rest': 'profile'}})
+    res = testlib.blockstack_REST_call('POST', '/v1/users', ses, name='foo.test', appname='register', data={'user_id': 'foo_REST', 'profile': {'rest': 'profile'}})
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to create user foo_REST'
         print json.dumps(res)
         return False
 
     # get all users (via the REST api)
-    res = testlib.blockstack_REST_call('GET', '/api/v1/users', ses, name="foo.test", appname="register")
+    res = testlib.blockstack_REST_call('GET', '/v1/users', ses, name="foo.test", appname="register")
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get all users'
         print json.dumps(res)
@@ -188,7 +188,7 @@ def scenario( wallets, **kw ):
 
     # get the user (via the REST api)
     # expect 404, since the user has no profile
-    res = testlib.blockstack_REST_call('GET', '/api/v1/users/foo_user_id', ses, name="foo.test", appname="register")
+    res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id', ses, name="foo.test", appname="register")
     if 'error' in res:
         res['test'] = 'Failed to get user profile'
         print json.dumps(res)
@@ -200,14 +200,14 @@ def scenario( wallets, **kw ):
         return False
 
     # change the user profile for foo_user_id
-    res = testlib.blockstack_REST_call('PATCH', '/api/v1/users/foo_user_id', ses, name="foo.test", appname="register", data={'profile': {'hello': 'world'}})
+    res = testlib.blockstack_REST_call('PATCH', '/v1/users/foo_user_id', ses, name="foo.test", appname="register", data={'profile': {'hello': 'world'}})
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to set profile'
         print json.dumps(res)
         return False
 
     # get the profile. Should succeed
-    res = testlib.blockstack_REST_call('GET', '/api/v1/users/foo_user_id', ses, name="foo.test", appname="register" )
+    res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id', ses, name="foo.test", appname="register" )
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get profile'
         print json.dumps(res)
@@ -219,7 +219,7 @@ def scenario( wallets, **kw ):
         return False
 
     # get the REST-created profile.  Should fail, since we're not signed in as foo_REST
-    res = testlib.blockstack_REST_call('GET', '/api/v1/users/foo_REST', ses, name='foo.test', appname='register' )
+    res = testlib.blockstack_REST_call('GET', '/v1/users/foo_REST', ses, name='foo.test', appname='register' )
     if 'error' in res:
         res['test'] = 'Failed to call GET on foo_REST'
         print json.dumps(res)
@@ -240,7 +240,7 @@ def scenario( wallets, **kw ):
     ses_REST = res['ses']
 
     # get the REST-created profile.  Should succeed, since we're signed in now
-    res = testlib.blockstack_REST_call('GET', '/api/v1/users/foo_REST', ses_REST, name='foo.test', appname='register' )
+    res = testlib.blockstack_REST_call('GET', '/v1/users/foo_REST', ses_REST, name='foo.test', appname='register' )
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get profile for foo_REST'
         print json.dumps(res)
@@ -252,7 +252,7 @@ def scenario( wallets, **kw ):
         return False
 
     # get REST-created user with other session.  Should fail with 403 (since we don't own it)
-    res = testlib.blockstack_REST_call('GET', '/api/v1/users/foo_REST', ses, name='foo.test', appname='register' )
+    res = testlib.blockstack_REST_call('GET', '/v1/users/foo_REST', ses, name='foo.test', appname='register' )
     if 'error' in res:
         res['test'] = 'Failed to get user profile'
         print json.dumps(res)
@@ -264,21 +264,21 @@ def scenario( wallets, **kw ):
         return False
 
     # delete user 
-    res = testlib.blockstack_REST_call('DELETE', '/api/v1/users/foo_REST', ses_REST, name='foo.test', appname='register' )
+    res = testlib.blockstack_REST_call('DELETE', '/v1/users/foo_REST', ses_REST, name='foo.test', appname='register' )
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to delete foo_REST'
         print json.dumps(res)
         return False
 
     # session should be invalidated.  Should fail with 403
-    res = testlib.blockstack_REST_call('GET', '/api/v1/users/foo_REST', ses_REST, name='foo.test', appname='register')
+    res = testlib.blockstack_REST_call('GET', '/v1/users/foo_REST', ses_REST, name='foo.test', appname='register')
     if 'error' in res or res['http_status'] != 403:
         res['test'] = 'Accidentally succeeded in asking for foo_REST with expired session: {}'.format(res['http_status'])
         print json.dumps(res)
         return False
 
     # get REST-created user with other session.  Should fail with 403 (since we don't own it)
-    res = testlib.blockstack_REST_call('GET', '/api/v1/users/foo_REST', ses, name='foo.test', appname='register' )
+    res = testlib.blockstack_REST_call('GET', '/v1/users/foo_REST', ses, name='foo.test', appname='register' )
     if 'error' in res:
         res['test'] = 'Failed to get user profile'
         print json.dumps(res)
@@ -290,14 +290,14 @@ def scenario( wallets, **kw ):
         return False
 
     # create the user again
-    res = testlib.blockstack_REST_call('POST', '/api/v1/users', ses, name='foo.test', appname='register', data={'user_id': 'foo_REST', 'profile': {'rest2': 'profile2'}})
+    res = testlib.blockstack_REST_call('POST', '/v1/users', ses, name='foo.test', appname='register', data={'user_id': 'foo_REST', 'profile': {'rest2': 'profile2'}})
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to create user foo_REST'
         print json.dumps(res)
         return False
 
     # get all users (via the REST api)
-    res = testlib.blockstack_REST_call('GET', '/api/v1/users', ses, name="foo.test", appname="register")
+    res = testlib.blockstack_REST_call('GET', '/v1/users', ses, name="foo.test", appname="register")
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get all users'
         print json.dumps(res)
@@ -317,7 +317,7 @@ def scenario( wallets, **kw ):
         return False
 
     # get the profile. Should succeed, and should match the above
-    res = testlib.blockstack_REST_call('GET', '/api/v1/users/foo_REST', ses, name="foo.test", appname="register" )
+    res = testlib.blockstack_REST_call('GET', '/v1/users/foo_REST', ses, name="foo.test", appname="register" )
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get profile'
         print json.dumps(res)

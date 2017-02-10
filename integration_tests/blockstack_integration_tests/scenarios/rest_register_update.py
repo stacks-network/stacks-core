@@ -87,7 +87,7 @@ def scenario( wallets, **kw ):
         return 
 
     # bootstrap storage for this wallet
-    res = testlib.blockstack_cli_upgrade_storage("foo.test", password="0123456789abcdef")
+    res = testlib.blockstack_cli_setup_storage("foo.test", password="0123456789abcdef")
     if 'error' in res:
         print 'failed to bootstrap storage for foo.test'
         print json.dumps(res, indent=4, sort_keys=True)
@@ -138,7 +138,7 @@ def scenario( wallets, **kw ):
     ses = res['ses']
 
     # register the name bar.test 
-    res = testlib.blockstack_REST_call('POST', '/api/v1/names', ses, name="foo.test", appname="register", data={'name': 'bar.test'})
+    res = testlib.blockstack_REST_call('POST', '/v1/names', ses, name="foo.test", appname="register", data={'name': 'bar.test'})
     if 'error' in res:
         res['test'] = 'Failed to register user'
         print json.dumps(res)
@@ -155,7 +155,7 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to submit the register"
     for i in xrange(0, 10):
         # poll
-        res = testlib.blockstack_REST_call("GET", "/api/v1/names/bar.test", ses, name="foo.test", appname="register")
+        res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", ses, name="foo.test", appname="register")
         if 'error' in res:
             res['test'] = 'Failed to query name'
             print json.dumps(res)
@@ -193,7 +193,7 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
     for i in xrange(0, 10):
         # poll 
-        res = testlib.blockstack_REST_call("GET", "/api/v1/names/bar.test", ses, name="foo.test", appname="register")
+        res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", ses, name="foo.test", appname="register")
         if 'error' in res:
             res['test'] = 'Failed to query name'
             print json.dumps(res)
@@ -215,7 +215,7 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
     for i in xrange(0, 10):
         # poll 
-        res = testlib.blockstack_REST_call("GET", "/api/v1/names/bar.test", ses, name="foo.test", appname="register")
+        res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", ses, name="foo.test", appname="register")
         if 'error' in res:
             res['test'] = 'Failed to query name'
             print json.dumps(res)
@@ -239,7 +239,7 @@ def scenario( wallets, **kw ):
     first_zonefile_hash = res['response']['zonefile_hash']
 
     # update 
-    res = testlib.blockstack_REST_call("PATCH", "/api/v1/names/bar.test/zonefile", ses, name="foo.test", appname="register", data={"zonefile_hash": "11" * 20})
+    res = testlib.blockstack_REST_call("PATCH", "/v1/names/bar.test/zonefile", ses, name="foo.test", appname="register", data={"zonefile_hash": "11" * 20})
     if 'error' in res or res['http_status'] != 202:
         res['test'] = 'failed to update zonefile hash'
         print json.dumps(res)
@@ -251,7 +251,7 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
     for i in xrange(0, 10):
         # poll 
-        res = testlib.blockstack_REST_call("GET", "/api/v1/names/bar.test", ses, name="foo.test", appname="register")
+        res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", ses, name="foo.test", appname="register")
         if 'error' in res:
             res['test'] = 'Failed to query name'
             print json.dumps(res)
@@ -273,7 +273,7 @@ def scenario( wallets, **kw ):
         return False
 
     # update with zonefile 
-    res = testlib.blockstack_REST_call("PATCH", "/api/v1/names/bar.test/zonefile", ses, name="foo.test", appname="register", data={"zonefile": "hello world"})
+    res = testlib.blockstack_REST_call("PATCH", "/v1/names/bar.test/zonefile", ses, name="foo.test", appname="register", data={"zonefile": "hello world"})
     if 'error' in res or res['http_status'] != 202:
         res['test'] = 'failed to update zonefile hash'
         print json.dumps(res)
@@ -285,7 +285,7 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
     for i in xrange(0, 10):
         # poll 
-        res = testlib.blockstack_REST_call("GET", "/api/v1/names/bar.test", ses, name="foo.test", appname="register")
+        res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", ses, name="foo.test", appname="register")
         if 'error' in res:
             res['test'] = 'Failed to query name'
             print json.dumps(res)
@@ -303,7 +303,7 @@ def scenario( wallets, **kw ):
     last_zonefile_hash = res['response']['zonefile_hash']
 
     # do we have the history for the name?
-    res = testlib.blockstack_REST_call("GET", "/api/v1/names/bar.test/history", ses, name="foo.test", appname="register")
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/history", ses, name="foo.test", appname="register")
     if 'error' in res or res['http_status'] != 200:
         res['test'] = "Failed to get name history for foo.test"
         print json.dumps(res)
@@ -318,14 +318,14 @@ def scenario( wallets, **kw ):
         return False
 
     # get the historic zonefile
-    res = testlib.blockstack_REST_call("GET", "/api/v1/names/bar.test/zonefile/{}".format(first_zonefile_hash), ses, name="foo.test", appname="register")
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile/{}".format(first_zonefile_hash), ses, name="foo.test", appname="register")
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get first zonefile'
         print json.dumps(res)
         return False
 
     # get the latest zonefile
-    res = testlib.blockstack_REST_call("GET", "/api/v1/names/bar.test/zonefile/{}".format(last_zonefile_hash), ses, name="foo.test", appname="register")
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile/{}".format(last_zonefile_hash), ses, name="foo.test", appname="register")
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get last zonefile'
         print json.dumps(res)
