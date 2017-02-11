@@ -2299,7 +2299,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': self.GET_auth_create_account_and_redirect
                 },
             },
-            r'^/v1/addresses/({})/names$'.format(BASE58CHECK_CLASS): {
+            r'^/v1/addresses/({})$'.format(BASE58CHECK_CLASS): {
                 'routes': {
                     'GET': self.GET_names_owned_by_address,
                 },
