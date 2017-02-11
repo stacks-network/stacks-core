@@ -186,6 +186,9 @@ def estimate_owner_output_length( owner_address, owner_num_sigs=None ):
     Estimate the length of the owner input/output 
     of a transaction
     """
+    assert owner_address
+    owner_address = str(owner_address)
+
     if virtualchain.is_p2sh_address( owner_address ):
         if owner_num_sigs is None:
             log.warning("Guessing that owner address {} requires 2 signatures".format(owner_address))
@@ -207,7 +210,7 @@ def subsidize_or_pad_transaction( unsigned_tx, owner_address, owner_privkey_para
     Return the new transaction on success
     Raise Exception if payment_address is None and private key info is None
     """
-
+    
     fake_privkey = make_fake_privkey_info( owner_privkey_params )
     signed_subsidized_tx = None
 
@@ -241,6 +244,13 @@ def estimate_preorder_tx_fee( name, name_cost, owner_address, payment_addr, utxo
     Return the number of satoshis on success
     Return None on error
     """
+
+    assert owner_address
+    assert payment_addr
+
+    owner_address = str(owner_address)
+    payment_addr = str(payment_addr)
+
     fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
 
     try:
@@ -279,6 +289,13 @@ def estimate_register_tx_fee( name, owner_addr, payment_addr, utxo_client, owner
     Return the number of satoshis on success
     Return None on error
     """
+
+    assert owner_addr
+    assert payment_addr
+
+    owner_addr = str(owner_addr)
+    payment_addr = str(payment_addr)
+
     fake_privkey = make_fake_privkey_info( owner_privkey_params )
 
     try:
@@ -310,7 +327,7 @@ def estimate_register_tx_fee( name, owner_addr, payment_addr, utxo_client, owner
     return tx_fee
 
 
-def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(None, None), config_path=CONFIG_PATH, include_dust=False ):
+def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_privkey_info, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a renewal.
     Optionally include the dust fees as well.
@@ -318,14 +335,15 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_addr
     Return None on error
     """
     
-    fake_privkey = make_fake_privkey_info( owner_privkey_params )
-    address = get_privkey_info_address( payment_privkey_info )
+    payment_address = get_privkey_info_address( payment_privkey_info )
+    owner_address = get_privkey_info_address( owner_privkey_info )
+    owner_privkey_params = get_privkey_info_params(owner_privkey_info)
 
     try:
-        unsigned_tx = register_tx( name, address, address, utxo_client, renewal_fee=renewal_fee )
+        unsigned_tx = register_tx( name, payment_address, owner_address, utxo_client, renewal_fee=renewal_fee )
     except (AssertionError, ValueError), ve:
         # no UTXOs for this owner address.  Try again and add padding for one
-        unsigned_tx = register_tx( name, address, address, utxo_client, renewal_fee=None, subsidized=True, safety=False )
+        unsigned_tx = register_tx( name, payment_address, owner_address, utxo_client, renewal_fee=None, subsidized=True, safety=False )
         assert unsigned_tx
 
         pad_len = estimate_owner_output_length(owner_address)
@@ -333,15 +351,15 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_addr
 
     signed_subsidized_tx = subsidize_or_pad_transaction(unsigned_tx, owner_address, owner_privkey_params, payment_privkey_info, fees_registration, utxo_client, payment_address=payment_address, config_path=config_path )
 
-    tx_fee = get_tx_fee( signed_tx, config_path=config_path )
+    tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
     if tx_fee is None:
         log.error("Failed to get tx fee")
         return None
 
-    log.debug("renewal tx %s bytes, %s satoshis txfee" % (len(signed_tx)/2, int(tx_fee)))
+    log.debug("renewal tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx)/2, int(tx_fee)))
 
     if include_dust:
-        dust_fee = estimate_dust_fee( signed_tx, fees_registration )
+        dust_fee = estimate_dust_fee( signed_subsidized_tx, fees_registration )
         assert dust_fee is not None
         log.debug("Additional dust fee: %s" % dust_fee)
         tx_fee += dust_fee
@@ -356,6 +374,10 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
     Return the number of satoshis on success
     Return None on error
     """
+
+    assert owner_address
+    owner_address = str(owner_address)
+
     fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
     fake_zonefile_hash = '20b512149140494c0f7d565023973226908f6940'
 
@@ -424,6 +446,10 @@ def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, utxo_cl
     Return the number of satoshis on success
     Return None on error
     """
+
+    assert owner_address
+    owner_address = str(owner_address)
+
     fake_recipient_address = virtualchain.address_reencode('1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q')
     fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
     
@@ -486,6 +512,10 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
     Return the number of satoshis on success
     Return None on error
     """
+
+    assert owner_address
+    owner_address = str(owner_address)
+
     fake_privkey = make_fake_privkey_info( owner_privkey_params )
 
     try:
@@ -530,6 +560,10 @@ def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CON
 
     TODO: no dust fee estimation available for imports
     """
+
+    assert payment_addr
+    payment_addr = str(payment_addr)
+
     fake_privkey = '5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX'   # fake private key (NOTE: NAME_IMPORT only supports p2pkh)
     fake_zonefile_hash = '20b512149140494c0f7d565023973226908f6940'
     fake_recipient_address = virtualchain.address_reencode('1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q')
@@ -561,6 +595,10 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
 
     TODO: no dust fee estimation available for namespace preorder
     """
+
+    assert payment_address
+    payment_address = str(payment_address)
+
     fake_privkey = virtualchain.BitcoinPrivateKey('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_PREORDER only supports p2pkh)
     fake_reveal_address = virtualchain.address_reencode('1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q')
     fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
@@ -592,6 +630,10 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
 
     TODO: no dust estimation available for namespace reveal
     """
+
+    assert payment_address
+    payment_address = str(payment_address)
+
     fake_privkey = virtualchain.BitcoinPrivateKey('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_REVEAL only supports p2pkh)
     fake_reveal_address = virtualchain.address_reencode('1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q')
 
@@ -629,6 +671,10 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
 
     TODO: no dust estimation available for namespace ready
     """
+
+    assert reveal_addr
+    reveal_addr = str(reveal_addr)
+
     fake_privkey = virtualchain.BitcoinPrivateKey('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_READY only supports p2pkh)
 
     try:
@@ -657,6 +703,10 @@ def estimate_announce_tx_fee( sender_address, utxo_client, sender_privkey_params
     Return the number of satoshis on success
     Return None on error
     """
+
+    assert sender_address
+    sender_address = str(sender_address)
+
     fake_privkey = make_fake_privkey_info( sender_privkey_params )
     fake_announce_hash = '20b512149140494c0f7d565023973226908f6940'
 
@@ -1189,9 +1239,6 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     resp = {}
     owner_address = get_privkey_info_address( owner_privkey_info )
     payment_address = get_privkey_info_address( payment_privkey_info )
-    owner_privkey_params = get_privkey_info_params( owner_privkey_info )
-    if owner_privkey_params == (None, None):
-        return {'error': 'Invalid owner private key'}
 
     if safety_checks:
         if not is_name_registered(fqu, proxy=proxy):
@@ -1212,7 +1259,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
         log.error("Payment address not ready: %s" % payment_address)
         return {'error': 'Payment address has unconfirmed transactions'}
 
-    tx_fee = estimate_renewal_tx_fee( fqu, renewal_fee, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=owner_privkey_params, config_path=config_path ) 
+    tx_fee = estimate_renewal_tx_fee( fqu, renewal_fee, payment_privkey_info, owner_privkey_info, utxo_client, config_path=config_path ) 
     if tx_fee is None:
         log.error("Failed to estimate renewal tx fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
