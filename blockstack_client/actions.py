@@ -1933,9 +1933,60 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     return result
 
 
+def cli_wallet_password(args, config_path=CONFIG_PATH, password=None, interactive=True):
+    """
+    command: wallet_password
+    help: Change your wallet password
+    opt: new_password (str) 'The new password. It will be prompted if not given.'
+    """
+    
+    password = get_default_password(password)
+    wallet_path = get_wallet_path(config_path=config_path)
+    
+    res = load_wallet(password=password, wallet_path=wallet_path, interactive=interactive, include_private=True)
+    if 'error' in res:
+        return res
+    
+    if res['migrated']:
+        return {'error': 'Wallet is in legacy format.  Please migrate it with `setup_wallet`'}
+
+    wallet_keys = res['wallet']
+    password = res['password']
+
+    new_password = getattr(args, 'new_password', None)
+    if new_password is None:
+        new_password = prompt_wallet_password('Enter new wallet password: ')
+        new_password_2 = prompt_wallet_password('Re-enter new wallet password: ')
+
+        if new_password != new_password_2:
+            return {'error': 'New passwords do not match'}
+
+    if new_password == password:
+        return {'error': 'Passwords are the same'}
+
+    enc_wallet = encrypt_wallet(wallet_keys, new_password)
+    if 'error' in enc_wallet:
+        return enc_wallet
+
+    legacy_path = backup_wallet(wallet_path=wallet_path)
+    if legacy_path is None:
+        return {'error': 'Failed to replace old wallet'}
+    
+    res = write_wallet(enc_wallet, path=wallet_path)
+    if 'error' in res:
+        return res
+    
+    try:
+        os.unlink(legacy_path)
+    except:
+        pass
+
+    return {'status': True}
+    
+
 def cli_setup_wallet(args, config_path=CONFIG_PATH, password=None, interactive=True):
     """
-    command: setup_wallet 
+    command: setup_wallet
     help: Create or upgrade up your wallet.
     """
     
