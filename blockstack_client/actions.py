@@ -797,7 +797,7 @@ def cli_get_registrar_info(args, config_path=CONFIG_PATH, queues=None):
             log.exception(e)
 
         log.error("Failed to contact Blockstack daemon")
-        return {'error': 'Failed to contact blockstack daemon.  Please ensure that it is running with the `rpcctl` command.'}
+        return {'error': 'Failed to contact blockstack daemon.  Please ensure that it is running with the `api` command.'}
 
     queue_types = dict( [(queue_name, []) for queue_name in queues] )
 
@@ -2477,11 +2477,11 @@ def cli_consensus(args, config_path=CONFIG_PATH):
     return result
 
 
-def cli_rpcctl(args, config_path=CONFIG_PATH):
+def cli_api(args, config_path=CONFIG_PATH):
     """
-    command: rpcctl advanced
-    help: Control the background blockstack API endpoint
-    arg: command (str) '"start", "stop", "restart", or "status"'
+    command: api
+    help: Control the RESTful API endpoint
+    arg: command (str) '"start", "stop", or "status"'
     """
 
     config_dir = CONFIG_DIR
