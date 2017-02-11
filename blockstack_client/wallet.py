@@ -499,10 +499,11 @@ def decrypt_wallet(data, password, config_path=CONFIG_PATH,
     return ret
 
 
-def write_wallet(data, path=None, config_dir=CONFIG_DIR, test_legacy=False):
+def write_wallet(data, path=None, config_path=CONFIG_PATH, test_legacy=False):
     """
     Generate and save the wallet to disk.
     """
+    config_dir = os.path.dirname(config_path)
     if path is None:
         path = os.path.join(config_dir, WALLET_FILENAME)
 
@@ -627,6 +628,13 @@ def initialize_wallet(password='', wallet_path=None, interactive=True, config_di
     return result
 
 
+def get_wallet_path(config_path=CONFIG_PATH):
+    """
+    Get the path to the wallet
+    """
+    return os.path.join( os.path.dirname(config_path), WALLET_FILENAME )
+
+
 def wallet_exists(config_path=CONFIG_PATH, wallet_path=None):
     """
     Does a wallet exist?
@@ -640,17 +648,18 @@ def wallet_exists(config_path=CONFIG_PATH, wallet_path=None):
     return os.path.exists(wallet_path)
 
 
-def prompt_wallet_password():
+def prompt_wallet_password(prompt='Enter wallet password: '):
     """
     Get the wallet password from the user
     """
-    password = getpass("Enter wallet password: ")
+    password = getpass(prompt)
     return password
 
 
-def load_wallet(password=None, config_path=CONFIG_PATH, wallet_path=None, include_private=False):
+def load_wallet(password=None, config_path=CONFIG_PATH, wallet_path=None, interactive=True, include_private=False):
     """
     Get a wallet from disk, and unlock it.
+    Requries either a password, or interactive=True
     Return {'status': True, 'migrated': ..., 'wallet': ..., 'password': ...} on success
     Return {'error': ...} on error
     """
@@ -662,7 +671,7 @@ def load_wallet(password=None, config_path=CONFIG_PATH, wallet_path=None, includ
         password = prompt_wallet_password()
 
     if not os.path.exists(wallet_path):
-        return {'error': 'No such file or directory'}
+        return {'error': 'No wallet found'}
 
     with open(wallet_path, 'r') as f:
         data = f.read()
