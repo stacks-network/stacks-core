@@ -289,6 +289,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         self.send_response(status_code)
         self.send_header('content-type', content_type)
+        self.send_header('Access-Control-Allow-Origin', '*')    # CORS
         self.end_headers()
 
 
