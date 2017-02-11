@@ -1251,7 +1251,7 @@ def cli_register(args, config_path=CONFIG_PATH,
         if not wallet_keys.has_key('data_pubkey'):
             return {'error': 'No data key in wallet'}
 
-        zonefile_dict = make_empty_zonefile( fqu, wallet_keys['data_pubkey'], urls=urls )
+        zonefile_dict = make_empty_zonefile( fqu, wallet_keys['data_pubkey'] )
         user_zonefile = blockstack_zones.make_zone_file( zonefile_dict, origin=fqu, ttl=USER_ZONEFILE_TTL )
         user_profile = make_empty_user_profile()
 
@@ -1460,7 +1460,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
-        res = rpc.backend_update(conf['rpc_token'], fqu, base64.b64encode(user_data_txt), None, user_data_hash, None, config_path=config_path, proxy=proxy)
+        resp = rpc.backend_update(conf['rpc_token'], fqu, base64.b64encode(user_data_txt), None, user_data_hash, None )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1598,6 +1598,7 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
 
     owner_privkey_info = wallet_keys['owner_privkey']
     payment_privkey_info = wallet_keys['payment_privkey']
+    owner_privkey_params = get_privkey_info_params(owner_privkey_info)
 
     owner_address = get_privkey_info_address(owner_privkey_info)
     payment_address = get_privkey_info_address(payment_privkey_info)

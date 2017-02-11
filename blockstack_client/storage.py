@@ -240,7 +240,6 @@ def serialize_mutable_data(data_json, privatekey_hex, pubkey_hex, profile=False)
 
         serialized_data = json.dumps(tokenized_data, sort_keys=True)
         return serialized_data
-
     
     else:
         # version 2 for mutable data
