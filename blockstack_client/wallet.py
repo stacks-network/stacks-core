@@ -864,44 +864,6 @@ def get_wallet(config_path=CONFIG_PATH):
     return wallet_data
 
 
-def display_wallet_info(payment_address, owner_address, data_public_key, config_path=CONFIG_PATH):
-    """
-    Print out useful wallet information
-    """
-    print('-' * 60)
-    print('Payment address:\t{}'.format(payment_address))
-    print('Owner address:\t\t{}'.format(owner_address))
-
-    if data_public_key is not None:
-        print('Data public key:\t{}'.format(data_public_key))
-
-    balance = None
-    if payment_address is not None:
-        balance = get_balance( payment_address, config_path=config_path )
-
-    if balance is None:
-        print('Failed to look up balance')
-    else:
-        balance = satoshis_to_btc(balance)
-        print('-' * 60)
-        print('Balance:')
-        print('{}: {}'.format(payment_address, balance))
-        print('-' * 60)
-
-    names_owned = None
-    if owner_address is not None:
-        names_owned = get_names_owned(owner_address)
-        
-    if names_owned is None or 'error' in names_owned:
-        print('Failed to look up names owned')
-
-    else:
-        print('Names Owned:')
-        names_owned = get_names_owned(owner_address)
-        print('{}: {}'.format(owner_address, names_owned))
-        print('-' * 60)
-
-
 def get_names_owned(address, proxy=None):
     """
     Get names owned by address
