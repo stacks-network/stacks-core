@@ -5382,7 +5382,7 @@ def cli_collection_getitem( args, config_path=CONFIG_PATH, interactive=False, pa
     return datastore_file_get('collection', user_id, collection_id, '/{}'.format(item_id), password=password, wallet_keys=wallet_keys, config_path=config_path, proxy=proxy)
 
 
-def cli_start_indexer( args, config_path=CONFIG_PATH, interactive=False ):
+def cli_start_server( args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: start_server advanced
     help: Start a Blockstack server
