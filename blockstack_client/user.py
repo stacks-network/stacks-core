@@ -34,7 +34,7 @@ import re
 import keylib
 
 from .schemas import *
-from .constants import BLOCKSTACK_TEST, CONFIG_PATH, BLOCKSTACK_DEBUG, USER_DIRNAME
+from .constants import BLOCKSTACK_TEST, CONFIG_PATH, BLOCKSTACK_DEBUG, USER_DIRNAME, USER_GLOBAL_SIGNING_KEY_INDEX, USER_LOCAL_SIGNING_KEY_INDEX
 from .keys import HDWallet, get_pubkey_hex
 import scripts
 
@@ -73,45 +73,72 @@ def user_path(user_id, config_path=CONFIG_PATH):
     return os.path.join(dirp, user_name(user_id))
 
 
-def user_init( user_id, master_data_privkey_hex, privkey_index=None, blockchain_id=None, config_path=CONFIG_PATH ):
+def get_user_master_privkey( master_data_privkey, is_global=True, config_path=CONFIG_PATH ):
+    """
+    Get the key we use to derive user keys
+
+    hdpath is MASTER_PRIVKEY/USER_GLOBAL_SIGNING_KEY_INDEX'/0' for global users
+    """
+
+    parent_index = None
+    if is_global:
+        parent_index = USER_GLOBAL_SIGNING_KEY_INDEX
+    else:
+        parent_index = USER_LOCAL_SIGNING_KEY_INDEX
+
+    hdwallet_parent = HDWallet( hex_privkey=master_data_privkey, config_path=config_path )
+    master_user_privkey_parent = hdwallet_parent.get_child_privkey( index=parent_index )
+    
+    hdwallet = HDWallet( hex_privkey=master_user_privkey_parent, config_path=config_path )
+    master_user_privkey = hdwallet.get_child_privkey( index=0 )
+
+    return master_user_privkey
+
+
+def user_init( user_id, master_data_privkey_hex, is_global, blockchain_id=None, config_path=CONFIG_PATH ):
     """
     Generate a new local user with the given user ID
     Returns {'user': ..., 'user_token': ...} on success
     Returns {'error': ... on error}
     raises on fatal error
     """
-    
-    if privkey_index is None:
-        from .data import next_privkey_index
-        next_privkey_index_info = next_privkey_index(master_data_privkey_hex, config_path=config_path)
-        if 'error' in next_privkey_index_info:
-            return next_privkey_index_info
+   
+    privkey_index = None
 
-        privkey_index = next_privkey_index_info['index']
-    
-    hdwallet = HDWallet( hex_privkey=master_data_privkey_hex)
+    from .data import next_privkey_index
+    next_privkey_index_info = next_privkey_index(master_data_privkey_hex, is_global,
+                                                 blockchain_id=blockchain_id,
+                                                 config_path=config_path)
+
+    if 'error' in next_privkey_index_info:
+        return next_privkey_index_info
+
+    privkey_index = next_privkey_index_info['index']
+
+    user_master_privkey = get_user_master_privkey( master_data_privkey_hex, config_path=config_path )
+
+    hdwallet = HDWallet( hex_privkey=user_master_privkey, config_path=config_path )
     user_privkey = hdwallet.get_child_privkey( index=privkey_index )
 
     info = {
         'user_id': user_id,
         'public_key': get_pubkey_hex(user_privkey),
-        'privkey_index': privkey_index
+        'privkey_index': privkey_index,
+        'global': is_global,
     }
     if blockchain_id is not None:
         info['blockchain_id'] = blockchain_id
 
-    res = user_serialize(info, master_data_privkey_hex)
+    res = user_serialize(info, user_master_privkey, config_path=config_path)
     if 'error' in res:
         return res
 
     token = res['token']
 
-    # log.debug("\ncreate user with {}:\n{}\n".format(master_data_privkey, json.dumps(info, indent=4, sort_keys=True)))
-
     return {'user': info, 'user_token': token}
 
 
-def user_serialize( user_info, data_privkey_hex ):
+def user_serialize( user_info, master_data_privkey_hex, config_path=CONFIG_PATH ):
     """
     Sign and serialize a user into a JWT
     Return {'status': True, 'token': ...} on success
@@ -122,8 +149,9 @@ def user_serialize( user_info, data_privkey_hex ):
     except ValidationError:
         return {'error': 'Not a valid user'}
 
+    user_master_privkey = get_user_master_privkey( master_data_privkey_hex, config_path=config_path )
     signer = jsontokens.TokenSigner()
-    token = signer.sign(user_info, data_privkey_hex)
+    token = signer.sign(user_info, user_master_privkey)
     return {'status': True, 'token': token}
 
 
@@ -228,7 +256,7 @@ def user_is_local(user_id, config_path=CONFIG_PATH):
 def _user_load_path(path, data_pubkey_hex, config_path=CONFIG_PATH):
     """
     Load a user from a given path
-    Verify it conforms to the USER_SCHEMA
+    Verify it conforms to the USER_SCHEMA, and (optionally) that it was signed by the given public key
     Return {'user': ..., 'user_token': ...} on success
     Return {'error': ...} on error
     """
@@ -252,7 +280,7 @@ def _user_load_path(path, data_pubkey_hex, config_path=CONFIG_PATH):
     return {'user': data['payload'], 'user_token': jwt}
 
 
-def user_load( user_id, data_pubkey, config_path=CONFIG_PATH):
+def user_load( user_id, master_data_privkey, config_path=CONFIG_PATH):
     """
     Load the app account for the given (user_id, app owner name, appname) triple
     Return {'user': jwt, 'user_token': token} on success
@@ -260,13 +288,16 @@ def user_load( user_id, data_pubkey, config_path=CONFIG_PATH):
     """
     global USER_CACHE
 
+    user_master_privkey = get_user_master_privkey( master_data_privkey, config_path=config_path )
+    user_master_pubkey = get_pubkey_hex(user_master_privkey)
+
     name = user_name(user_id)
     if USER_CACHE.has_key(name):
         log.debug("User {} is cached".format(name))
         return USER_CACHE[name]
 
     path = user_path( user_id, config_path=config_path)
-    res = _user_load_path( path, data_pubkey, config_path=config_path )
+    res = _user_load_path( path, user_master_pubkey, config_path=config_path )
     if 'error' in res:
         return res
 
@@ -274,11 +305,14 @@ def user_load( user_id, data_pubkey, config_path=CONFIG_PATH):
     return res
 
 
-def users_list(data_pubkey, config_path=CONFIG_PATH):
+def users_list(master_data_privkey, config_path=CONFIG_PATH):
     """
     Get the list of all users
     Return a list of USER_SCHEMA-formatted objects
     """
+    user_master_privkey = get_user_master_privkey(master_data_privkey, config_path=config_path)
+    user_master_pubkey = get_pubkey_hex(user_master_privkey)
+
     dirp = user_dir(config_path=config_path)
     if not os.path.exists(dirp) or not os.path.isdir(dirp):
         log.error("No user directory")
@@ -289,7 +323,7 @@ def users_list(data_pubkey, config_path=CONFIG_PATH):
     ret = []
     for name in names:
         path = os.path.join( dirp, name )
-        info = _user_load_path( path, data_pubkey, config_path=config_path )
+        info = _user_load_path( path, user_master_pubkey, config_path=config_path )
         if 'error' in info:
             continue
 
@@ -298,13 +332,14 @@ def users_list(data_pubkey, config_path=CONFIG_PATH):
     return ret
 
 
-def user_get_privkey( master_privkey_hex, user_info ):
+def user_get_privkey( master_privkey_hex, user_info, config_path=CONFIG_PATH ):
     """
     Given the master data private key and a user structure, calculate the private key
     for the user.
     Return the private key
     """
-    user_privkey = HDWallet.get_privkey(master_privkey_hex, user_info['privkey_index'])
+    user_master_privkey = get_user_master_privkey(master_privkey_hex, config_path=config_path) 
+    user_privkey = HDWallet.get_privkey(user_master_privkey, user_info['privkey_index'])
     return user_privkey
 
 
