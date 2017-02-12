@@ -242,10 +242,13 @@ def serialize_mutable_data(data_json, privatekey_hex, pubkey_hex, profile=False)
         return serialized_data
     
     else:
-        # version 2 for mutable data
+        # version 2 format for mutable data
         data_txt = json.dumps(data_json, sort_keys=True)
         data_sig = sign_raw_data(data_txt, privatekey_hex)
-        res = "bsk2.{}.{}.{}".format(pubkey_hex, base64.b64encode(data_sig), data_txt)
+
+        # make sure it's compressed
+        pubkey_hex_compressed = keylib.key_formatting.compress(pubkey_hex)
+        res = "bsk2.{}.{}.{}".format(pubkey_hex_compressed, base64.b64encode(data_sig), data_txt)
 
         return res
 
