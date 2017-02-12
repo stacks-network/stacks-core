@@ -145,17 +145,19 @@ def find_arg(argv, has_arg, short_opt, long_opt):
             if argv[i] == short_opt or argv[i] == long_opt:
                 if has_arg:
                     if i + 1 >= len(argv) or argv[i+1].startswith('-'):
-                        print('{}: missing argument'.format(argv[i], file=sys.stderr))
+                        # print('{}: missing argument'.format(argv[i], file=sys.stderr))
                         return (None, None)
 
                     arg = argv[i + 1]
                     argv.pop(i)
                     argv.pop(i)
+                    print('found {}/{} at {} ({})'.format(short_opt, long_opt, i, arg))
                     return (argv, arg)
 
                 else:
                     argv.pop(i)
                     arg = True
+                    # print('found {}/{} at {} ({})'.format(short_opt, long_opt, i, arg))
 
             else:
                 i += 1
@@ -176,7 +178,6 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     cli_debug = False
     cli_config_argv = False
     cli_default_yes = False
-    cli_interactive = True
 
     if '-v' in argv or '--version' in argv:
         print(VERSION)
@@ -224,8 +225,8 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         # invalid
         sys.exit(1)
 
-    if cli_default_yes or os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES") != "1":
-        log.debug("Assume YES to all interactive prompts")
+    if cli_default_yes or os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES") == "1":
+        print("Assume YES to all interactive prompts", file=sys.stderr)
         os.environ["BLOCKSTACK_CLIENT_INTERACTIVE_YES"] = '1'
 
     if cli_config_argv or cli_debug:
