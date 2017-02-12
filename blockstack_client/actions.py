@@ -1178,7 +1178,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     arg: name (str) 'The name to register'
     opt: zonefile (str) 'The raw zone file to give this name (or a path to one)'
     opt: recipient (str) 'The recipient address, if not this wallet'
-    opt: min_conf (int) 'The minimum number of confirmations on the initial preorder'
+    opt: min_confs (int) 'The minimum number of confirmations on the initial preorder'
     """
 
     proxy = get_default_proxy(config_path) if proxy is None else proxy
@@ -1201,7 +1201,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     fqu = str(args.name)
     user_zonefile = getattr(args, 'zonefile', None)
     transfer_address = getattr(args, 'recipient', None)
-    min_payment_confs = getattr(args, 'min_conf', None)
+    min_payment_confs = getattr(args, 'min_confs', None)
 
     if transfer_address:
         if not re.match(schemas.OP_BASE58CHECK_PATTERN, transfer_address):
