@@ -670,7 +670,11 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         wallet_keys = res['wallet']
 
     send_addr, _, _ = get_addresses_from_file(config_dir=config_dir, wallet_path=wallet_path)
-    inputs = get_utxos(send_addr, min_confirmations=min_confs) 
+    inputs = get_utxos(send_addr, min_confirmations=min_confs)
+    
+    if len(inputs) == 0:
+        return {'error': 'Failed to find UTXOs for wallet payment address'}
+
     total_value = sum(inp['value'] for inp in inputs)
 
     tx_fee = 5500
