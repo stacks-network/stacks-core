@@ -113,7 +113,7 @@ def make_outputs( data, inputs, sender_addr, fee, tx_fee, pay_fee=True ):
     ]
 
 
-def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, blockchain_client, tx_fee=0, subsidize=False, safety=True):
+def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, blockchain_client, tx_fee=0, subsidize=False, safety=True, min_payment_confs=None):
     """
     Builds and broadcasts a preorder transaction.
     """
@@ -137,7 +137,7 @@ def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, bl
         pay_fee = False
 
     # tx only
-    inputs = tx_get_unspents( preorder_addr, blockchain_client )
+    inputs = tx_get_unspents( preorder_addr, blockchain_client, min_confirmations=min_payment_confs )
     if safety:
         assert len(inputs) > 0, "No UTXOs for {}".format(preorder_addr)
         
