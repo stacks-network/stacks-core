@@ -318,7 +318,7 @@ def tx_sign_multisig(tx, idx, redeem_script, private_keys, hashcode=bitcoin.SIGH
         sig = tx_make_input_signature(tx, idx, redeem_script, pk_str, hashcode)
         sigs.append(sig)
 
-    assert len(used_keys) == m, 'Missing private keys'
+    assert len(used_keys) == m, 'Missing private keys (used {}, required {})'.format(len(used_keys), m)
     return bitcoin.apply_multisignatures(tx, idx, str(redeem_script), sigs)
 
 
