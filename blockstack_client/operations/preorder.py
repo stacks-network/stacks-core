@@ -36,6 +36,7 @@ from binascii import hexlify, unhexlify
 from ..b40 import b40_to_hex, is_b40
 from ..config import *
 from ..scripts import *
+from ..constants import TX_MIN_CONFIRMATIONS
 
 import virtualchain
 log = virtualchain.get_logger("blockstack-client")
@@ -113,7 +114,7 @@ def make_outputs( data, inputs, sender_addr, fee, tx_fee, pay_fee=True ):
     ]
 
 
-def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, blockchain_client, tx_fee=0, subsidize=False, safety=True, min_payment_confs=None):
+def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, blockchain_client, tx_fee=0, subsidize=False, safety=True, min_payment_confs=TX_MIN_CONFIRMATIONS):
     """
     Builds and broadcasts a preorder transaction.
     """
