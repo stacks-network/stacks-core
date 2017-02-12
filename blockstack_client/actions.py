@@ -93,16 +93,17 @@ from .constants import (
     APPROX_PREORDER_TX_LEN, APPROX_REGISTER_TX_LEN,
     APPROX_UPDATE_TX_LEN, APPROX_TRANSFER_TX_LEN,
     FIRST_BLOCK_MAINNET, NAME_UPDATE,
-    BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
+    BLOCKSTACK_DEBUG, BLOCKSTACK_TEST,
+    TX_MIN_CONFIRMATIONS
 )
 
 from .b40 import is_b40
 from .storage import get_drivers_for_url, get_driver_urls, get_storage_handlers
 
-from pybitcoin import is_b58check_address
+from pybitcoin import is_b58check_address, serialize_transaction
 
 from .backend.blockchain import (
-    get_balance, is_address_usable,
+    get_balance, is_address_usable, get_utxos,
     can_receive_name, get_tx_confirmations, get_tx_fee
 )
 
@@ -125,7 +126,7 @@ from .user import add_user_zonefile_url, remove_user_zonefile_url, user_zonefile
         user_get_privkey
 
 from .resolve import *
-
+from .tx import sign_tx, broadcast_tx
 from .zonefile import make_empty_zonefile, url_to_uri_record
 
 from .utils import exit_with_error, satoshis_to_btc
@@ -629,6 +630,82 @@ def cli_balance(args, config_path=CONFIG_PATH):
 
     return result
 
+
+def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config_path=CONFIG_PATH):
+    """
+    command: withdraw
+    help: Transfer funds out of the Blockstack wallet to a new address
+    arg: address (str) 'The recipient address'
+    opt: amount (int) 'The amount to withdraw (defaults to all)'
+    opt: min_confs (str) 'The minimum confirmations for oustanding transactions'
+    opt: tx_only (str) 'If "True", only return the transaction'
+    """
+
+    config_dir = os.path.dirname(config_path)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    password = get_default_password(password)
+
+    recipient_addr = str(args.address)
+    amount = getattr(args, 'amount', None)
+    min_confs = getattr(args, 'min_confs', TX_MIN_CONFIRMATIONS)
+    tx_only = getattr(args, 'tx_only', False)
+
+    if min_confs is None:
+        min_confs = TX_MIN_CONFIRMATIONS
+
+    if tx_only:
+        if tx_only.lower() in ['1', 'yes', 'true']:
+            tx_only = True
+        else:
+            tx_only = False
+
+    res = wallet_ensure_exists(config_path=config_path)
+    if 'error' in res:
+        return res
+ 
+    if wallet_keys is None:
+        res = load_wallet(password=password, wallet_path=wallet_path, interactive=interactive, include_private=True)
+        if 'error' in res:
+            return res
+    
+        wallet_keys = res['wallet']
+
+    send_addr, _, _ = get_addresses_from_file(config_dir=config_dir, wallet_path=wallet_path)
+    inputs = get_utxos(send_addr, min_confirmations=min_confs) 
+    total_value = sum(inp['value'] for inp in inputs)
+
+    tx_fee = 5500
+    change = 0
+    if amount is None:
+        # total transfer, minus tx fee
+        amount = total_value - tx_fee
+        if amount < 0:
+            return {'error': 'Cannot withdraw dust'}
+        
+    else:
+        change = calculate_change_amount(inputs, amount, tx_fee)
+
+    outputs = [
+        {'script_hex': virtualchain.make_payment_script(recipient_addr),
+         'value': amount},
+    ]
+
+    if amount < total_value:
+        # need change and tx fee
+        outputs.append( 
+            {'script_hex': virtualchain.make_payment_script(send_addr),
+              "value": change}
+        )
+
+    serialized_tx = serialize_transaction(inputs, outputs)
+    signed_tx = sign_tx(serialized_tx, wallet_keys['payment_privkey'])
+
+    if tx_only:
+        return {'status': True, 'tx': signed_tx}
+
+    res = broadcast_tx( signed_tx, config_path=config_path )
+    return res
+    
 
 def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
     """
@@ -1201,7 +1278,10 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     fqu = str(args.name)
     user_zonefile = getattr(args, 'zonefile', None)
     transfer_address = getattr(args, 'recipient', None)
-    min_payment_confs = getattr(args, 'min_confs', None)
+    min_payment_confs = getattr(args, 'min_confs', TX_MIN_CONFIRMATIONS)
+
+    if min_payment_confs is None:
+        min_payment_confs = TX_MIN_CONFIRMATIONS
 
     if transfer_address:
         if not re.match(schemas.OP_BASE58CHECK_PATTERN, transfer_address):
