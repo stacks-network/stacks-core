@@ -214,11 +214,12 @@ def run_cli_rpc(command_name, argv, config_path=CONFIG_PATH, check_rpc=True, **k
         arg_name = arg_info['name']
         arg_type = arg_info['type']
 
-        # type-check...
-        try:
-            arg = arg_type(arg)
-        except:
-            return {'error': 'Type error: {} must be {}'.format(arg_name, arg_type)}
+        if arg is not None:
+            # type-check...
+            try:
+                arg = arg_type(arg)
+            except:
+                return {'error': 'Type error: {} must be {}'.format(arg_name, arg_type)}
 
         setattr(args, arg_name, arg)
 
@@ -2025,6 +2026,72 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
 
+    def GET_wallet_balance( self, ses, path_info ):
+        """
+        Get the wallet balance
+        Return 200 with the balance
+        """
+        internal = self.server.get_internal_proxy()
+        res = internal.cli_balance(config_path=self.server.config_path)
+        if 'error' in res:
+            log.debug("Failed to query wallet balance: {}".format(res['error']))
+            return self._reply_json({'error': 'Failed to query wallet balance'}, status_code=500)
+
+        return self._reply_json({'balance': res['total_balance']})
+
+
+    def POST_wallet_balance( self, ses, path_info ):
+        """
+        Transfer wallet balance.  Takes {'address': ...}
+        Return 200 with the balance 
+        Return 500 on failure to contact the blockchain service
+        """
+        address_schema = {
+            'type': 'object',
+            'properties': {
+                'address': {
+                    'type': 'string',
+                    'pattern': OP_BASE58CHECK_PATTERN,
+                },
+                'amount': {
+                    'type': 'integer',
+                },
+                'min_confs': {
+                    'type': 'integer',
+                },
+                'tx_only': {
+                    'type': 'boolean'
+                },
+            },
+            'required': [
+                'address'
+            ],
+            'additionalProperties': False
+        }
+
+        request = self._read_json(schema=address_schema)
+        if 'error' in request:
+            return self._reply_json({'error': 'Invalid request'}, status_code=401)
+            
+        address = request['address']
+        amount = request.get('amount', None)
+        min_confs = request.get('min_confs', None)
+        tx_only = request.get('tx_only', False)
+       
+        if tx_only:
+            tx_only = 'True'
+        else:
+            tx_only = 'False'
+
+        internal = self.server.get_internal_proxy()
+        res = internal.cli_withdraw(address, amount, min_confs, tx_only, config_path=self.server.config_path, interactive=False, wallet_keys=self.server.wallet_keys)
+        if 'error' in res:
+            log.debug("Failed to transfer balance: {}".format(res['error']))
+            return self._reply_json({'error': 'Failed to transfer balance: {}'.format(res['error'])}, status_code=500)
+
+        return self._reply_json(res)
+
+
     def PUT_wallet( self, ses, path_info ):
         """
         Upload a new wallet.
@@ -2559,6 +2626,28 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'auth_session': False,
                         'auth_pass': False,
                         'need_data_key': False
+                    },
+                },
+            },
+            r'^/v1/wallet/balance$': {
+                'routes': {
+                    'GET': self.GET_wallet_balance,
+                    'POST': self.POST_wallet_balance,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'wallet_read',
+                        'desc': 'get the node wallet\'s balance',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False,
+                    },
+                    'POST': {
+                        'name': 'wallet_write',
+                        'desc': 'transfer the node wallet\'s funds',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False,
                     },
                 },
             },
