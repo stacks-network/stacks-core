@@ -181,6 +181,9 @@ def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmati
     Return {'error': ...} on failure
     """
 
+    if min_confirmations != TX_MIN_CONFIRMATIONS:
+        log.warning("Using a different number of confirmations ({}) instead of default ({})".format(min_confirmations, TX_MIN_CONFIRMATIONS))
+
     if utxo_client is None:
         utxo_client = get_utxo_provider_client(config_path=config_path)
    
