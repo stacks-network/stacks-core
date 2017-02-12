@@ -46,7 +46,7 @@ from .storage import hash_zonefile
 from .zonefile import get_name_zonefile, load_name_zonefile, url_to_uri_record, store_name_zonefile
 
 from .config import get_logger, get_config, get_local_device_id, get_all_device_ids
-from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
+from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, USER_LIST_SIGNING_KEY_INDEX, PRIVKEY_INDEX_SIGNING_KEY_INDEX, LOCAL_PRIVKEY_INDEX_NAME
 from .schemas import *
 
 log = get_logger()
@@ -2733,7 +2733,7 @@ def get_read_storage_drivers(config_path):
 
 
 
-def get_user(user_id, local_master_data_pubkey, config_path=CONFIG_PATH, proxy=None):
+def get_user(user_id, local_master_data_privkey, config_path=CONFIG_PATH, proxy=None):
     """
     Get a user's information.
 
@@ -2762,19 +2762,26 @@ def get_user(user_id, local_master_data_pubkey, config_path=CONFIG_PATH, proxy=N
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    local_master_data_pubkey = get_pubkey_hex(local_master_data_privkey)
+
+    user_master_privkey = user_db.get_user_master_privkey(local_master_data_privkey)
+    user_master_pubkey = get_pubkey_hex(user_master_privkey)
+
     # does this user exist locally?  i.e. was it signed by the requester's
     # local master data key?
-    user_info = user_db.user_load(user_id, local_master_data_pubkey, config_path=config_path)
+    user_info = user_db.user_load(user_id, local_master_data_privkey, config_path=config_path)
     if 'error' not in user_info:
         user = user_info['user']
         return {'status': True, 'user': user, 'master_data_pubkey': local_master_data_pubkey, 'owned': True}
+
+    log.debug("Failed to load user {}: {}".format(user_id, user_info['error']))
 
     nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
 
     # nope.  We don't own this user.
     # try treating user_id as a blockchain ID.
     # be sure to check non-local storage only; don't want to hit stale disk data
-    user_data = get_mutable(user_id, blockchain_id=user_id, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
+    user_data = get_mutable(user_id, data_pubkey=user_master_pubkey, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
     if 'error' in user_data:
         log.error("Failed to fetch user data from storage")
         return user_data
@@ -2798,9 +2805,35 @@ def get_user(user_id, local_master_data_pubkey, config_path=CONFIG_PATH, proxy=N
     return {'status': True, 'user': user, 'master_data_pubkey': user_pubkey, 'owned': owned}
 
 
-def get_user_list(master_data_pubkey, proxy=None, config_path=CONFIG_PATH):
+def get_user_list_privkey( master_data_privkey, config_path=CONFIG_PATH ):
     """
-    Get our replicated list of users
+    Get the signing key for the user list.
+
+    hdpath is MASTER_PRIVKEY/USER_LIST_SIGNING_KEY_INDEX'/0'
+    """
+    hdwallet_parent = HDWallet( hex_privkey=master_data_privkey, config_path=config_path)
+    user_list_privkey_parent = hdwallet_parent.get_child_privkey( index=USER_LIST_SIGNING_KEY_INDEX )
+    
+    hdwallet = HDWallet( hex_privkey=user_list_privkey_parent, config_path=config_path)
+    user_list_privkey = hdwallet.get_child_privkey( index=0 )
+
+    return user_list_privkey
+
+
+def get_user_list_data_id( master_data_privkey, config_path=CONFIG_PATH ):
+    """
+    Get the data ID for the user list
+    """
+    user_list_privkey = get_user_list_privkey( master_data_privkey, config_path=config_path )
+    user_list_pubkey = get_pubkey_hex(user_list_privkey)
+    addr = keylib.public_key_to_address(user_list_pubkey)
+    data_id = '{}.{}'.format(addr, 'user_ids')
+    return data_id
+
+
+def get_global_user_list(master_data_privkey, proxy=None, config_path=CONFIG_PATH):
+    """
+    Get our replicated list of users.
     Return {'status': True, 'user_ids': [list of user IDs]}
     Return {'error': ...} on failure
     """
@@ -2809,12 +2842,13 @@ def get_user_list(master_data_pubkey, proxy=None, config_path=CONFIG_PATH):
 
     nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
 
-    addr = keylib.public_key_to_address(master_data_pubkey)
-    data_id = '{}.{}'.format(addr, 'user_ids')
-
     device_ids = get_all_device_ids(config_path=config_path)
 
-    listing_info = get_mutable(data_id, data_pubkey=master_data_pubkey, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
+    user_list_privkey = get_user_list_privkey( master_data_privkey, config_path=config_path )
+    user_list_pubkey = get_pubkey_hex(user_list_privkey)
+    data_id = get_user_list_data_id( master_data_privkey )
+
+    listing_info = get_mutable(data_id, data_pubkey=user_list_pubkey, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
     if 'error' in listing_info:
         log.error("Failed to get user list")
         return listing_info
@@ -2830,7 +2864,46 @@ def get_user_list(master_data_pubkey, proxy=None, config_path=CONFIG_PATH):
     return {'status': True, 'user_ids': user_listing}
 
 
-def put_user_list(master_data_privkey, user_listing, blockchain_id=None, proxy=None, config_path=CONFIG_PATH):
+def get_local_user_list(master_data_privkey, config_path=CONFIG_PATH):
+    """
+    Get the list of local users
+    Returns {'status': True, 'user_ids': [list of user IDs]}
+    returns {'error': ...} on failure
+    """
+    user_infos = user_db.users_list(master_data_privkey, config_path=config_path)
+    if 'error' in user_infos:
+        return {'error': 'Failed to list local users'}
+   
+    user_ids = [ui['user_id'] for ui in user_infos]
+    return {'status': True, 'user_ids': user_ids}
+   
+
+def get_user_list(master_data_privkey, config_path=CONFIG_PATH, proxy=None):
+    """
+    Get the list of users accessible with this key.
+    Include both local and global users
+    Return {'status': True, 'user_ids': [{'user_id': user id, 'global': true/false}]}
+    Return {'error': ...} on failure
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    global_user_list = get_global_user_list(master_data_privkey, proxy=proxy, config_path=config_path)
+    if 'error' in global_user_list:
+        return global_user_list
+
+    local_user_list = get_local_user_list(master_data_privkey, config_path=config_path)
+    if 'error' in local_user_list:
+        return local_user_list
+
+    global_user_ids = [{'user_id': uid, 'global': True} for uid in global_user_list['user_ids']]
+    local_user_ids = [{'user_id': uid, 'global': False} for uid in local_user_list['user_ids']]
+
+    return {'status': True, 'user_ids': global_user_ids + local_user_ids}
+
+
+def put_global_user_list(master_data_privkey, user_listing, blockchain_id=None, proxy=None, config_path=CONFIG_PATH):
     """
     Put our replicated list of users.
     blockchain_id is a hint to the drivers; it can be ignored
@@ -2845,13 +2918,14 @@ def put_user_list(master_data_privkey, user_listing, blockchain_id=None, proxy=N
     except ValidationError:
         return {'error': 'Invalid user listing'}
 
-    master_data_pubkey = get_pubkey_hex(master_data_privkey)
-    addr = keylib.public_key_to_address(master_data_pubkey)
+    user_list_privkey = get_user_list_privkey( master_data_privkey, config_path=config_path )
+    user_list_pubkey = get_pubkey_hex(user_list_privkey)
+    addr = keylib.public_key_to_address(user_list_pubkey)
     data_id = '{}.{}'.format(addr, 'user_ids')
 
     device_ids = get_all_device_ids(config_path=config_path)
     
-    res = put_mutable(data_id, user_listing, blockchain_id=blockchain_id, data_privkey=master_data_privkey, proxy=proxy, config_path=config_path)
+    res = put_mutable(data_id, user_listing, blockchain_id=blockchain_id, data_privkey=user_list_privkey, proxy=proxy, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -2898,15 +2972,14 @@ def put_user(user_info, master_data_privkey, blockchain_id=None, config_path=CON
             return {'error': 'Name "{}" is not owned by this wallet'.format(blockchain_id)}
 
     # sign and serialize
-    res = user_db.user_serialize(user_info, master_data_privkey)
+    res = user_db.user_serialize(user_info, master_data_privkey, config_path=config_path)
     if 'error' in res:
         return res
 
     user_token = res['token']
-    master_data_pubkey = get_pubkey_hex(master_data_privkey)
 
     # get the list of users so we can insert this user into it.
-    user_list_info = get_user_list(master_data_pubkey, proxy=proxy, config_path=config_path)
+    user_list_info = get_global_user_list(master_data_privkey, proxy=proxy, config_path=config_path)
     if 'error' in user_list_info:
         log.error("Failed to get user list")
         return {'error': 'Failed to get user list'}
@@ -2925,9 +2998,8 @@ def put_user(user_info, master_data_privkey, blockchain_id=None, config_path=CON
         return res
 
     # set a private key index for this user's accounts 
-    user_addr = keylib.public_key_to_address(user_info['public_key'])
-    user_privkey = user_db.user_get_privkey(master_data_privkey, user_info)
-    res = set_privkey_index( user_privkey, 1, config_path=config_path, proxy=proxy )
+    user_privkey = user_db.user_get_privkey(master_data_privkey, user_info, config_path=config_path)
+    res = set_global_privkey_index( user_privkey, 1, config_path=config_path, proxy=proxy )
     if 'error' in res:
         log.error("Failed to give user {} a private key index".format(user_info['user_id']))
         return res
@@ -2940,7 +3012,7 @@ def put_user(user_info, master_data_privkey, blockchain_id=None, config_path=CON
     min_version = res['version']
 
     # replicate, signing with the master private key
-    res = put_mutable(user_info['user_id'], user_info, blockchain_id=blockchain_id, data_privkey=master_data_privkey, proxy=proxy, config_path=config_path, version=min_version)
+    res = put_mutable(user_info['user_id'], user_info, blockchain_id=blockchain_id, data_privkey=user_privkey, proxy=proxy, config_path=config_path, version=min_version)
     if 'error' in res:
         log.error("Failed to replicate user")
         return {'error': 'Failed to replicate user'}
@@ -2950,7 +3022,7 @@ def put_user(user_info, master_data_privkey, blockchain_id=None, config_path=CON
     # update user list 
     user_list.append(user_info['user_id'])
 
-    res = put_user_list(master_data_privkey, user_list, blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
+    res = put_global_user_list(master_data_privkey, user_list, blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
     if 'error' in res:
         # undo
         delres = delete_mutable(user_info['user_id'], data_privkey=master_data_privkey, proxy=proxy, config_path=config_path)
@@ -2984,8 +3056,7 @@ def delete_user(user_id, master_data_privkey, blockchain_id=None, config_path=No
         proxy = get_default_proxy(config_path)
 
     # get the list of users so we can insert this user into it.
-    master_data_pubkey = get_pubkey_hex(master_data_privkey)
-    user_list_info = get_user_list(master_data_pubkey, proxy=proxy, config_path=config_path)
+    user_list_info = get_global_user_list(master_data_privkey, proxy=proxy, config_path=config_path)
     if 'error' in user_list_info:
         log.error("Failed to get user list")
         return {'error': 'Failed to get user list'}
@@ -2995,7 +3066,7 @@ def delete_user(user_id, master_data_privkey, blockchain_id=None, config_path=No
     # clear out from list
     if user_id in user_list:
         user_list.remove(user_id)
-        res = put_user_list(master_data_privkey, user_list, blockchain_id=blockchain_id, config_path=config_path, proxy=proxy)
+        res = put_global_user_list(master_data_privkey, user_list, blockchain_id=blockchain_id, config_path=config_path, proxy=proxy)
         if 'error' in res:
             log.error("Failed to update user listing")
             return res
@@ -3011,9 +3082,36 @@ def delete_user(user_id, master_data_privkey, blockchain_id=None, config_path=No
     return {'status': True}
 
 
-def next_privkey_index( data_privkey, blockchain_id=None, config_path=CONFIG_PATH, proxy=None, create=False):
+def get_privkey_index_privkey( master_data_privkey, config_path=CONFIG_PATH ):
     """
-    Get the next private key index.  Update the replica on our storage providers.
+    Derive the signing private key from our master private key.
+
+    hdpath is MASTER_PRIVKEY/PRIVKEY_INDEX_SIGNING_KEY_INDEX'/0'
+    """
+    hdwallet_parent = HDWallet( hex_privkey=master_data_privkey, config_path=config_path)
+    privkey_index_privkey_parent = hdwallet_parent.get_child_privkey( index=PRIVKEY_INDEX_SIGNING_KEY_INDEX )
+    
+    hdwallet = HDWallet( hex_privkey=privkey_index_privkey_parent, config_path=config_path)
+    privkey_index_privkey = hdwallet.get_child_privkey( index=0 )
+
+    return privkey_index_privkey
+    
+
+def get_privkey_index_data_id( master_data_privkey, config_path=CONFIG_PATH ):
+    """
+    Derive the data ID for the private key index counter
+    """
+    privkey_index_privkey = get_privkey_index_privkey(master_data_privkey, config_path=config_path)
+    data_pubkey = get_pubkey_hex(privkey_index_privkey)
+    addr = keylib.public_key_to_address(data_pubkey)
+
+    data_id = '{}.{}'.format(addr, 'privkey_index')
+    return data_id
+
+
+def next_global_privkey_index( master_data_privkey, blockchain_id=None, config_path=CONFIG_PATH, proxy=None, create=False):
+    """
+    Get the next global private key index.  Update the replica on our storage providers.
 
     Return {'status': True, 'index': ...} on success
     Return {'error': ...} on error
@@ -3022,19 +3120,19 @@ def next_privkey_index( data_privkey, blockchain_id=None, config_path=CONFIG_PAT
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    data_pubkey = get_pubkey_hex(data_privkey)
-    addr = keylib.public_key_to_address(data_pubkey)
+    privkey_index_privkey = get_privkey_index_privkey( master_data_privkey, config_path=config_path )
+    privkey_index_pubkey = get_pubkey_hex( privkey_index_privkey )
+    data_id = get_privkey_index_data_id( master_data_privkey )
 
-    data_id = '{}.{}'.format(addr, 'privkey_index')
     device_ids = get_all_device_ids(config_path=config_path)
 
     nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
 
-    privkey_index_info = get_mutable(data_id, blockchain_id=blockchain_id, data_pubkey=data_pubkey, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
+    privkey_index_info = get_mutable(data_id, blockchain_id=blockchain_id, data_pubkey=privkey_index_pubkey, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
     if 'error' in privkey_index_info:
         if create:
             # try to create
-            res = set_privkey_index( data_privkey, 0, config_path=config_path, blockchain_id=blockchain_id, proxy=proxy )
+            res = set_global_privkey_index( master_data_privkey, 0, config_path=config_path, blockchain_id=blockchain_id, proxy=proxy )
             if 'error' in res:
                 return res
 
@@ -3054,33 +3152,32 @@ def next_privkey_index( data_privkey, blockchain_id=None, config_path=CONFIG_PAT
 
     ret = privkey_index
     privkey_index += 1
-    res = set_privkey_index(data_privkey, privkey_index, blockchain_id=blockchain_id, config_path=config_path, proxy=proxy)
+    res = set_global_privkey_index(master_data_privkey, privkey_index, blockchain_id=blockchain_id, config_path=config_path, proxy=proxy)
     if 'error' in res:
         return res
 
     return {'status': True, 'index': ret}
    
 
-def set_privkey_index( master_data_privkey, value, blockchain_id=None, config_path=CONFIG_PATH, proxy=None ):
+def set_global_privkey_index( master_data_privkey, value, blockchain_id=None, config_path=CONFIG_PATH, proxy=None ):
     """
-    Set the current private key index
+    Set the current global private key index
     Return {'status': True} on success
     return {'error': ...} on error
     """
     
-    master_data_pubkey = get_pubkey_hex(master_data_privkey)
-    addr = keylib.public_key_to_address(master_data_pubkey)
-    
+    privkey_index_privkey = get_privkey_index_privkey( master_data_privkey, config_path=config_path )
+    privkey_index_pubkey = get_pubkey_hex( privkey_index_privkey )
+    data_id = get_privkey_index_data_id( master_data_privkey )
 
     try:
         value = int(value)
     except:
         return {'error': 'Invalid value'}
 
-    data_id = '{}.{}'.format(addr, 'privkey_index')
     device_ids = get_all_device_ids(config_path=config_path)
 
-    res = put_mutable(data_id, value, blockchain_id=blockchain_id, data_privkey=master_data_privkey, proxy=proxy, config_path=config_path)
+    res = put_mutable(data_id, value, blockchain_id=blockchain_id, data_privkey=privkey_index_privkey, proxy=proxy, config_path=config_path)
     if 'error' in res:
         log.error("Failed to put new private key index")
         return {'error': 'Failed to put new private key index'}
@@ -3091,6 +3188,92 @@ def set_privkey_index( master_data_privkey, value, blockchain_id=None, config_pa
         return res
 
     return {'status': True}
+
+
+def next_local_privkey_index( master_data_privkey, config_path=CONFIG_PATH, create=False):
+    """
+    Get the next host-local private key index.
+
+    Return {'status': True, 'index': ...} on success
+    Return {'error': ...} on error
+    """
+
+    privkey_index_privkey = get_privkey_index_privkey( master_data_privkey, config_path=config_path )
+    privkey_index_pubkey = get_pubkey_hex( privkey_index_privkey )
+    
+    data_path = os.path.join( os.path.dirname(config_path), LOCAL_PRIVKEY_INDEX_NAME )
+    if not os.path.exists(data_path):
+        if not create:
+            return {'error': 'No local private key index'}
+
+        # create it
+        res = set_local_privkey_index(master_data_privkey, 1, config_path=config_path)
+        if 'error' in res:
+            return res
+
+        return {'status': True, 'index': res['index']}
+
+    # read it and update it 
+    with open(data_path, 'r') as f:
+        index_jwt = f.read()
+
+    # validate 
+    verifier = jsontokens.TokenVerifier()
+    valid = verifier.verify( index_jwt, str(privkey_index_pubkey) )
+    if not valid:
+        return {'error': 'corrupt index file'}
+
+    # should be {'index': int}
+    try:
+        index_state = jsontokens.decode_token(verifier)
+        jsonschema.validate(index_state, {'type': 'object', 'properties': {'index': {'type': 'integer'}}, 'required': 'index', 'additionalProperties': False})
+    except (ValueError, ValidationError) as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        return {'error': 'Invalid index state'}
+
+    next_index = index_state['index'] + 1
+    res = set_local_privkey_index(master_data_privkey, next_index, config_path=config_path)
+    if 'error' in res:
+        return res
+
+    return {'status': True, 'index': next_index}
+
+
+def set_local_privkey_index( master_data_privkey, value, config_path=CONFIG_PATH ):
+    """
+    Set the host-local private key index
+
+    Return {'status': True, 'index': ...} on success
+    Return {'error': ...} on error
+    """
+
+    privkey_index_privkey = get_privkey_index_privkey( master_data_privkey, config_path=config_path )
+    data_path = os.path.join( os.path.dirname(config_path), LOCAL_PRIVKEY_INDEX_NAME )
+    index_state = {'index': value}
+
+    signer = jsontokens.TokenSigner()
+    index_jwt = signer.sign(index_state, privkey_index_privkey)
+
+    with open(data_path, 'w') as f:
+        f.write(index_jwt)
+        f.flush()
+        os.fsync(f.fileno())
+    
+    return {'status': True, 'index': value}
+
+
+def next_privkey_index( master_data_privkey, is_global, blockchain_id=None, config_path=CONFIG_PATH, proxy=None, create=False ):
+    """
+    Get the next private key index; global or local
+    Return {'status': True, 'index': ...} on success
+    Return {'error': ...} on error
+    """
+    if is_global:
+        return next_global_privkey_index( master_data_privkey, blockchain_id=blockchain_id, config_path=config_path, proxy=proxy, create=create )
+    else:
+        return next_local_privkey_index( master_data_privkey, config_path=config_path, create=create )
 
 
 def have_seen( data_id, config_path=CONFIG_PATH ):
@@ -3107,13 +3290,16 @@ def have_seen( data_id, config_path=CONFIG_PATH ):
     return (expected_version is not None)
 
 
-def data_setup( password=None, blockchain_id=None, wallet_keys=None, config_path=CONFIG_PATH, proxy=None):
+def data_setup( password=None, global_data=False, blockchain_id=None, wallet_keys=None, config_path=CONFIG_PATH, proxy=None):
     """
     Do the one-time setup necessary for using the data functions with this wallet.
     The wallet must be set up first.
 
     Pass `blockchain_id` if we want to (1) verify that the zone file is consistent with the wallet, and (2) pass the blockchain ID
     along to the storage drivers as a hint (as required by a few of them).
+
+    By default, we do not set up global user lists and global private key indexes.
+    Pass global_data=True for that.
 
     Return {'status': True} on success
     Return {'error': ...} on error
@@ -3146,7 +3332,6 @@ def data_setup( password=None, blockchain_id=None, wallet_keys=None, config_path
 
     master_data_privkey = wallet_keys['data_privkey']
     master_data_pubkey = get_pubkey_hex(master_data_privkey)
-    addr = keylib.public_key_to_address(master_data_pubkey)
     
     # wallet data pubkey (which can be an owner pubkey) must match the name's zone file pubkey, if the zonefile has a pubkey
     if blockchain_id is not None:
@@ -3158,10 +3343,22 @@ def data_setup( password=None, blockchain_id=None, wallet_keys=None, config_path
         if zonefile_data_pubkey is not None and master_data_pubkey != zonefile_data_pubkey:
             log.debug("Zone file public key '{}' does not match wallet public key '{}'".format(zonefile_data_pubkey, master_data_pubkey))
             return {'error': 'Zone file public key does not match wallet public key.'}
-      
+    
+    # set up local private key indexes 
+    res = next_local_privkey_index( master_data_privkey, config_path=config_path )
+    if 'error' in res:
+
+        # try creating
+        res = next_local_privkey_index( master_data_privkey, config_path=config_path, create=True)
+        if 'error' in res:
+            return res
+
+    # create local user 
+
+
     # TODO: move to "public user" setup
     # safe to put a private key index and user list--we have a key to sign with.
-    res = next_privkey_index( master_data_privkey, blockchain_id=blockchain_id, config_path=config_path )
+    res = next_global_privkey_index( master_data_privkey, blockchain_id=blockchain_id, config_path=config_path )
     if 'error' in res:
 
         if have_seen('privkey_index', config_path=config_path ):
@@ -3169,21 +3366,21 @@ def data_setup( password=None, blockchain_id=None, wallet_keys=None, config_path
             return res
 
         # try creating
-        res = next_privkey_index( master_data_privkey, blockchain_id=blockchain_id, config_path=config_path, create=True )
+        res = next_global_privkey_index( master_data_privkey, blockchain_id=blockchain_id, config_path=config_path, create=True )
         if 'error' in res:
             return res
 
     # put an empty user list, if we don't have one
-    res = get_user_list(master_data_pubkey, config_path=config_path)
+    res = get_global_user_list(master_data_privkey, config_path=config_path)
     if 'error' in res:
 
-        data_id = '{}.{}'.format(addr, 'user_ids')
+        data_id = get_user_list_data_id(master_data_privkey)
         if have_seen(data_id, config_path=config_path):
             # some other error
             return res
 
         # try putting one
-        res = put_user_list(master_data_privkey, [], blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
+        res = put_global_user_list(master_data_privkey, [], blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
         if 'error' in res:
             return res
 
