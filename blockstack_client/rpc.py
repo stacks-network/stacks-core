@@ -669,6 +669,33 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return session
 
 
+    def verify_password(self):
+        """
+        Verify that the caller submitted the right
+        RPC authorization header
+        
+        Return True if we got the right header
+        Return False if not
+        """
+        auth_header = self.headers.get('authorization', None)
+        if auth_header is None:
+            log.debug("No authorization header")
+            return False
+
+        auth_parts = auth_header.split(" ", 1)
+        if auth_parts[0].lower() != 'basic':
+            # need basic auth
+            log.debug("Not 'basic' auth")
+            return False
+
+        if auth_parts[1] != self.server.rpc_token:
+            # wrong token
+            log.debug("Wrong auth token")
+            return False
+
+        return True
+
+
     def get_path_and_qs(self):
         """
         Parse and obtain the path and query values.
@@ -700,7 +727,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Look up the method to call
         Return the route info and its arguments on success:
-            {'authenticate': True/False, 
         Return None on error
         """
         path = path_info['path']
@@ -714,262 +740,165 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 continue
 
             groups = grps.groups()
-            whitelist = route_info.get('whitelist', None)
-            if whitelist is not None:
-                assert method_name in whitelist.keys()
-                whitelist = whitelist[method_name]
+            whitelist = route_info['whitelist']
+            
+            assert method_name in whitelist.keys()
+            whitelist_info = whitelist[method_name]
 
             return {
                 'route': route_info,
-                'whitelist': whitelist,
+                'whitelist': whitelist_info,
                 'method': route_info['routes'][method_name],
                 'args': groups,
-                'need_data_key': route_info.get('need_data_key', True),
             }
 
         return None
 
 
-    def GET_auth_signin(self, ses_ignored, path_info, app_fqu, appname):
+    def OPTIONS_preflight( self, ses, path_info ):
         """
-        Handle an application signin.  The user has the option
-        of signing into the application, or going back to the identity page
-
-        @app_fqu is the name that owns the app
-        @appname is the name of the specific application.
-
-        Serve the signin page for the user, with a URL to finish the authentication.
+        Give back CORS preflight check headers
         """
-        # must correspond to this application
-        qs_values = path_info['qs_values']
-        app_info = self.get_app_info(qs_values)
-        if 'error' in app_info:
-            self._send_headers(status_code=401, content_type='text/plain')
-            return 
-
-        if app_info['app_fqu'] != app_fqu or app_info['appname'] != appname:
-            self._send_headers(status_code=403, content_type='text/plain')
-            return 
-
-        # serve back the page that lets users sign in to an application.
-        auth_abort_url = app.app_url_auth_abort( config_path=self.server.config_path )
-        if auth_abort_url is None:
-            log.error("Failed to generate URLs for signin page")
-            self._send_headers(status_code=500, content_type='text/plain')
-            return 
-
-        acct_infos = app.app_find_accounts(app_fqu=app_fqu, appname=appname, config_path=self.server.config_path)
-        if len(acct_infos) == 0:
-            log.error("Failed to find accounts for {}/{}".format(app_fqu, appname))
-            self._send_headers(status_code=500, content_type='text/plain')
-            return 
-
-        user_ids = list(set(acct_info['user_id'] for acct_info in acct_infos))
-        name_payload = {
-            'name': app_fqu,
-            'appname': appname
-        }
-
-        user_id_urls = [app.app_url_auth_load_account(user_id, app_fqu, appname, name_payload, self.server.master_data_privkey, config_path=self.server.config_path) for user_id in user_ids]
-        page = assets.asset_make_signin_page(appname, app_fqu, user_id_urls, auth_abort_url)
-
-        self._send_headers(content_type='text/html')
-        self.wfile.write(page)
-        return
-
-    
-    def GET_auth_allowdeny(self, ses_ignored, path_info, app_fqu, appname):
-        """
-        Handle an application account creation.  The user has the
-        option of creating an account for the application.
-
-        @app_fqu is the name that owns the app
-        @appname is the name of the app itself
-
-        Serve the allow/deny page for the user, with a URL to create the account
-        """
-        # must correspond to this application
-        qs_values = path_info['qs_values']
-        app_info = self.get_app_info(qs_values)
-        if 'error' in app_info:
-            self._send_headers(status_code=401, content_type='text/plain')
-            return 
-
-        if app_info['app_fqu'] != app_fqu or app_info['appname'] != appname:
-            self._send_headers(status_code=403, content_type='text/plain')
-            return 
-
-        # serve back the page that lets users select whether or not
-        # to create an account and begin an application session.
-        log.debug("Get app config for {}:{}".format(app_fqu, appname))
-        app_config = app.app_get_config( app_fqu, appname, config_path=self.server.config_path )
-        if 'error' in app_config:
-            log.error("Failed to load app config for {}:{}".format(app_fqu, appname))
-            error_page = assets.asset_make_error_page("Failed to load application config.")
-            self._send_headers(content_type='text/html')
-            self.wfile.write(error_page)
-            return
-
-        app_config = app_config['config']
-        self.server.cache_app_config(app_fqu, appname, app_config)
-
-        app_methods = app_config['api_methods']
-
-        log.debug("Get user list for {}".format(self.server.master_data_pubkey))
-        users = data.get_user_list( self.server.master_data_pubkey, config_path=self.server.config_path )
-        if 'error' in users:
-            log.error("Failed to load users list")
-            error_page = assets.asset_make_error_page("Failed to get user list.")
-            self._send_headers(content_type='text/html')
-            self.wfile.write(error_page)
-            return
-
-        user_ids = users['user_ids']
-        name_payload = {
-            'name': app_fqu,
-            'appname': appname
-        }
-        
-        create_account_urls = [app.app_url_auth_create_account(user_id, app_fqu, appname, name_payload, self.server.master_data_privkey, config_path=self.server.config_path) for user_id in user_ids]
-        auth_abort_url = app.app_url_auth_abort( config_path=self.server.config_path )
-        
-        if None in create_account_urls or auth_abort_url is None:
-            log.error("Failed to generate URLs for account-creation page")
-            self._send_headers(status_code=500, content_type='text/plain')
-            return 
-
-        page = assets.asset_make_account_page(app_fqu, appname, app_methods, create_account_urls, auth_abort_url )
-        
-        self._send_headers(content_type='text/html')
-        self.wfile.write(page)
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')    # CORS
+        self.send_header('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE')
+        self.send_header('Access-Control-Max-Age', 21600)
+        self.end_headers()
         return
 
 
-    def GET_auth_create_account_and_redirect(self, ses_ignored, path_info, user_id, app_fqu, appname ):
+    def GET_auth( self, ses, path_info ):
         """
-        Create an application account and make a session, and redirect
-        the user with a URL to finish authenticating the application
+        Get a session token, given a signed request in the query string.
+        The authorization request must take the following format:
+        {
+            'name': str             # blockchain ID of the application developer
+            'appname': str          # name of the application
+            'user_id': str          # persona that owns the account for this app
+            'methods': [str]        # list of methods to allow
+        }
+        Return 200 on success with {'token': token}
+        Return 401 if the authRequest argument is missing
+        Return 404 if the 
         """
-        # must correspond to this application
-        qs_values = path_info['qs_values']
-        app_info = self.get_app_info(qs_values)
-        if 'error' in app_info:
-            self._send_headers(status_code=401, content_type='text/plain')
-            return 
+        token_schema = {
+            'type': 'object',
+            'properties': {
+                'name': {
+                    'type': 'string',
+                    'pattern': OP_NAME_PATTERN,
+                },
+                'appname': {
+                    'type': 'string',
+                    'pattern': OP_URLENCODED_PATTERN,
+                },
+                'user_id': {
+                    'type': 'string',
+                    'pattern': OP_URLENCODED_PATTERN,
+                },
+            },
+            'required': [
+                'name', 
+                'appname',
+                'user_id',
+            ],
+            'additionalProperties': False,
+        }
 
-        if app_info['app_fqu'] != app_fqu or app_info['appname'] != appname:
-            self._send_headers(status_code=403, content_type='text/plain')
-            return 
+        token = path_info['qs_values'].get('authRequest')
+        if token is None:
+            log.debug("missing authRequest")
+            return self._send_headers(status_code=401, content_type='text/plain')
 
-        app_config = self.server.get_cached_app_config(app_fqu, appname)
-        if app_config is None:
-            log.error("No cached app config for {}:{}".format(app_fqu, appname))
-            self._send_headers(status_code=500, content_type='text/plain')
-            return 
+        if len(token) > 4096:
+            # no way no how
+            log.debug("token too long")
+            return self._send_headers(status_code=401, content_type='text/plain')
 
-        qs_values = path_info['qs_values']
-        app_methods = app_config['api_methods']
-        session_lifetime = qs_values.get("session_lifetime", 24*7*3600)
+        decoded_token = jsontokens.decode_token(token)
+        try:
+            assert isinstance(decoded_token, dict)
+            assert decoded_token.has_key('payload')
+            jsonschema.validate(decoded_token['payload'], token_schema)
+        except Exception as ve:
+            log.debug("Invalid token")
+            return self._send_headers(status_code=401, content_type='text/plain')
 
-        # TODO: override session lifetime from config file, or from page
+        user_id = decoded_token['user_id']
+        app_fqu = decoded_token['name']
+        appname = decoded_token['appname']
+ 
         internal = self.server.get_internal_proxy()
-        res = internal.cli_app_put_account( user_id, app_fqu, appname, ",".join(app_methods) )
+        res = internal.cli_app_signin( user_id, app_fqu, appname, self.server.master_data_privkey, config_path=self.server.config_path )
         if 'error' in res:
-            log.error("Failed to put account for {} in {}/{}: {}".format(user_id, app_fqu, appname, res['error']))
-            self._send_headers(status_code=503, content_type='text/plain')
-            return
+            return self._reply_json(res, status_code=404)
+            
+        return self._reply_json({'token': res['token']})
+        
 
-        # make a session 
-        return self.GET_auth_load_account_and_redirect(ses_ignored, path_info, user_id, app_fqu, appname )
-
-
-    def GET_auth_load_account_and_redirect(self, ses_ignored, path_info, user_id, app_fqu, appname ):
+    def POST_auth_accounts( self, ses, path_info ):
         """
-        Load a user, generate a session, and redirect to the auth-finish endpoint
+        Create a new account for the given user.
+        Arguments: {'user_id': ..., 'name': ..., 'appname': ..., 'methods': ...}
+        Returns 200 on success with the newly-created account and datastore
+        Returns 401 on invalid args
+        Returns 404 on missing user ID
+        Returns 500 on other errors
         """
-        # must correspond to this application
-        qs_values = path_info['qs_values']
-        app_info = self.get_app_info(qs_values)
-        if 'error' in app_info:
-            self._send_headers(status_code=401, content_type='text/plain')
-            return 
-
-        if app_info['app_fqu'] != app_fqu or app_info['appname'] != appname:
-            self._send_headers(status_code=403, content_type='text/plain')
-            return 
-
-        # make a session 
-        ses_token = self.app_make_session(user_id, app_fqu, appname)
-        if ses_token is None:
-            log.error("Failed to make session")
-            self._send_headers(status_code=403, content_type='text/plain')
-            return 
-
-        name_payload = {
-            'name': app_fqu,
-            'appname': appname
+    
+        request_schema = {
+            'type': 'object',
+            'properties': {
+                'user_id': {
+                    'type': 'string',
+                    'pattern': OP_URLENCODED_PATTERN,
+                },
+                'name': {
+                    'type': 'string',
+                    'pattern': OP_NAME_PATTERN,
+                },
+                'appname': {
+                    'type': 'string',
+                    'pattern': OP_URLENCODED_PATTERN,
+                },
+                'methods': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'string',
+                        'pattern': OP_URLENCODED_PATTERN
+                    },
+                },
+            },
+            'required': [
+                'name',
+                'appname',
+                'user_id',
+            ],
+            'additionalProperties': False,
         }
 
-        # redirect to finish 
-        auth_finish_url = app.app_url_auth_finish( name_payload, self.server.master_data_privkey, ses_token, config_path=self.server.config_path )
-        if auth_finish_url is None:
-            log.error("Failed to generate auth-finish URL")
-            self._send_headers(status_code=500, content_type='text/plain')
-            return 
+        request = self._read_json(schema=request_schema)
+        if request is None:
+            return self._reply_json({"error": 'Invalid request'}, status_code=401)
 
-        self._send_redirect(auth_finish_url)
-        return 
+        user_id = request['user_id']
+        name = request['name']
+        appname = request['appname']
+        methods = ','.join(request['methods'])
 
-
-    def GET_index(self, ses, path_info ):
-        """
-        Handle GET /index.html
-        Load the given application index file.
-        Handled separately from resources, since
-        the index file may be hosted on the legacy web.
-        """
-        appname = ses['appname']
-        app_fqu = ses['name']
-        app_config = self.server.get_cached_app_config(app_fqu, appname)
+        # assume 7-day session
+        internal = self.server.get_internal_proxy()
+        res = internal.cli_app_create_account( user_id, name, appname, methods, 3600*24*7, self.server.master_data_privkey, config_path=self.server.config_path )
+        if 'error' in res:
+            log.debug("Failed to create account: {}".format(res['error']))
+            return self._reply_json(res, status_code=404)
         
-        res = app.app_get_index_file( app_fqu, appname, app_config=app_config, config_path=self.server.config_path )
-        if 'error' in res:
-            # not found 
-            log.error("Failed to load index file {}:{}/index.html: {}".format(name, appname, path, res['error']))
-            self._send_headers(status_code=404, content_type='text/plain')
-            return 
-
-        self._send_headers(status_code=200, content_type='application/octet-stream')
-        self.wfile.write( res['index_file'] )
-        return 
+        return self._reply_json({'status': True, 'account': res['account'], 'datastore': res['datastore']})
 
 
-    def GET_app_resource(self, ses, path_info, fqu, appname, path ):
-        """
-        Load the given application resource
-        Write it back to the client on success.
-        Return 404 on not found.
-        Return 403 if the FQU or app name do not match the session
-        """
-        if appname != ses['appname'] or fqu != ses['name']:
-            # nope!
-            self._send_headers(status_code=403, content_type='text/plain')
-            return 
-
-        appname = ses['appname']
-        app_fqu = ses['name']
-        app_config = self.server.get_cached_app_config(app_fqu, appname)
-
-        res = app.app_get_resource( name, appname, path, app_config=app_config, config_path=self.server.config_path )
-        if 'error' in res:
-            # not found 
-            log.error("Failed to load {}:{}/{}: {}".format(name, appname, path, res['error']))
-            self._send_headers(status_code=404, content_type='text/plain')
-            return
-
-        self._send_headers(status_code=200, content_type='application/octet-stream')
-        self.wfile.write( res['data'] )
-        return
+    def DELETE_auth_accounts( self, ses, path_info ):
+        
+        pass
 
 
     def GET_names_owned_by_address( self, ses, path_info, address ):
@@ -1036,6 +965,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'type': 'string',
                     'pattern': OP_NAME_PATTERN
                 },
+                "zonefile": {
+                    'type': 'string',
+                    'maxLength': RPC_MAX_ZONEFILE_LEN,
+                },
+                "owner_address": {
+                    'type': 'string',
+                    'pattern': OP_BASE58CHECK_PATTERN,
+                },
             },
             'required': [
                 'name'
@@ -1052,7 +989,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return 
 
         name = request['name']
-        res = internal.cli_register(name, interactive=False)
+        zonefile_txt = request.get('zonefile', None)
+        recipient_address = request.get('owner_address', None)
+
+        res = internal.cli_register(name, zonefile_txt, recipient_address, interactive=False, force_data=True)
         if 'error' in res:
             log.error("Failed to register {}".format(name))
             self._reply_json({"error": "Failed to register name: {}".format(res['error'])}, status_code=500)
@@ -1403,8 +1343,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'profile': {
                     'type': 'object'
                 },
+                'local': {
+                    'type': 'boolean'
+                },
             },
             'required': [
+                'user_id',
                 'profile'
             ],
             'additionalProperties': False
@@ -1417,9 +1361,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         user_id = user_profile_json['user_id']
         user_profile = user_profile_json['profile']
+        local = user_profile_json.get('local', False)
 
         internal = self.server.get_internal_proxy()
-        res = internal.cli_create_user( user_id )
+        res = internal.cli_create_user( user_id, local )
         if json_is_error(res):
             self._reply_json({'error': 'Failed to create user: {}'.format(res['error'])}, status_code=500)
             return 
@@ -2086,6 +2031,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         pass
 
 
+    def PUT_wallet_password( self, ses, path_info ):
+        """
+        Change the wallet password.
+        Takes {'password': password, 'new_password': new password}
+        Requires the caller to pass the RPC secret
+        Returns 200 on success
+        Returns 403 on wrong token
+        """
+        pass
+        
+
     def GET_ping( self, ses, path_info ):
         """
         Ping the node
@@ -2236,16 +2192,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         BASE58CHECK_CLASS = r'[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+'
 
         routes = {
-            r'^/$': {
-                'routes': {
-                    'GET': self.GET_index
-                },
-            },
-            r'^/index.html$': {
-                'routes': {
-                    'GET': self.GET_index
-                },
-            },
             r'^/v1/ping$': {
                 'routes': {
                     'GET': self.GET_ping,
@@ -2253,51 +2199,63 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'whitelist': {
                     'GET': {
                         'name': 'ping',
-                        'desc': 'Check to see if the server is alive.'
+                        'desc': 'Check to see if the server is alive.',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                 },
                 'need_data_key': False,
             },
             r'^/v1/jsonrpc$': {
                 # JSONRPC endpoint (we handle our own auth)
-                'authenticate': False,
                 'routes': {
                     'POST': self.JSONRPC_call
                 },
                 'whitelist': {
                     'POST': {
                         'name': 'JSONRPC',
-                        'desc': 'full API access'
+                        'desc': 'full API access',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                 },
-                'need_data_key': False,
             },
-            r'^/v1/auth/signin/({})/({})$'.format(NAME_CLASS, URLENCODING_CLASS): {
-                'authenticate_url': True,
-                'authenticate': False,
+            r'^/v1/auth$': {
                 'routes': {
-                    'GET': self.GET_auth_signin,
+                    'GET': self.GET_auth,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'auth',
+                        'desc': 'get a session token',
+                        'auth_session': False,
+                        'auth_pass': True,
+                        'need_data_key': True,
+                    },
                 },
             },
-            r'^/v1/auth/loadaccount/({})/({})/({})$'.format(URLENCODING_CLASS, NAME_CLASS, URLENCODING_CLASS): {
-                'authenticate_url': True,
-                'authenticate': False,
+            r'^/v1/auth/accounts$': {
                 'routes': {
-                    'GET': self.GET_auth_load_account_and_redirect,
+                    'POST': self.POST_auth_accounts,
+                    'DELETE': self.DELETE_auth_accounts,
                 },
-            },
-            r'^/v1/auth/allowdeny/({})/({})$'.format(NAME_CLASS, URLENCODING_CLASS): {
-                'authenticate_url': True,
-                'authenticate': False,
-                'routes': {
-                    'GET': self.GET_auth_allowdeny,
-                },
-            },
-            r'^/v1/auth/newaccount/({})/({})/({})$'.format(URLENCODING_CLASS, NAME_CLASS, URLENCODING_CLASS): {
-                'authenticate_url': True,
-                'authenticate': False,
-                'routes': {
-                    'GET': self.GET_auth_create_account_and_redirect
+                'whitelist': {
+                    'POST': {
+                        'name': 'auth',
+                        'desc': 'create an account for a user',
+                        'auth_session': False,
+                        'auth_pass': True,
+                        'need_data_key': True,
+                    },
+                    'DELETE': {
+                        'name': 'auth',
+                        'desc': 'delete an account',
+                        'auth_session': True,   # a session can delete itself
+                        'auth_pass': True,
+                        'need_data_key': True,
+                    },
                 },
             },
             r'^/v1/addresses/({})$'.format(BASE58CHECK_CLASS): {
@@ -2308,6 +2266,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'names',
                         'desc': 'get names owned by an address',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                 },
             },
@@ -2318,7 +2279,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'whitelist': {
                     'GET': {
                         'name': 'blockchain',
-                        'desc': 'read blockchain name blocks'
+                        'desc': 'read blockchain name blocks',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                 },
             },
@@ -2330,6 +2294,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'blockchain',
                         'desc': 'read blockchain name histories',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                 },
             },
@@ -2340,7 +2307,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'whitelist': {
                     'GET': {
                         'name': 'blockchain',
-                        'desc': 'get current consensus hash'
+                        'desc': 'get current consensus hash',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                 },
             },
@@ -2351,7 +2321,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'whitelist': {
                     'GET': {
                         'name': 'blockchain',
-                        'desc': 'get pending transactions this node has sent'
+                        'desc': 'get pending transactions this node has sent',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                 },
             },
@@ -2364,10 +2337,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'names',
                         'desc': 'read all names',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                     'POST': {
                         'name': 'register',
                         'desc': 'register new names',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False,
                     },
                 },
             },
@@ -2380,10 +2359,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'names',
                         'desc': 'read name information',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                     'DELETE': {
                         'name': 'revoke',
-                        'desc': 'revoke names'
+                        'desc': 'revoke names',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False,
                     },
                 },
             },
@@ -2394,7 +2379,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'whitelist': {
                     'GET': {
                         'name': 'names',
-                        'desc': 'read name history'
+                        'desc': 'read name history',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                 },
             },
@@ -2405,7 +2393,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'whitelist': {
                     'PATCH': {
                         'name': 'transfer',
-                        'desc': 'transfer names to new addresses'
+                        'desc': 'transfer names to new addresses',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False,
                     },
                 },
             },
@@ -2418,10 +2409,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'zonefiles',
                         'desc': 'read name zonefiles',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                     'PATCH': {
                         'name': 'update',
-                        'desc': 'set name zonefiles'
+                        'desc': 'set name zonefiles',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False,
                     },
                 },
             },
@@ -2432,7 +2429,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'whitelist': {
                     'GET': {
                         'name': 'zonefiles',
-                        'desc': 'get current and historic name zonefiles'
+                        'desc': 'get current and historic name zonefiles',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                 },
             },
@@ -2443,7 +2443,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'whitelist': {
                     'PUT': {
                         'name': 'update',
-                        'desc': 'set name zonefile hashes'
+                        'desc': 'set name zonefile hashes',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False
                     },
                 },
             },
@@ -2456,10 +2459,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'namespaces',
                         'desc': 'read all namespace IDs',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False
                     },
                     'POST': {
                         'name': 'namespace_registration',
                         'desc': 'create new namespaces',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False
                     },
                 },
             },
@@ -2471,11 +2480,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'whitelist': {
                     'GET': {
                         'name': 'namespaces',
-                        'desc': 'read namespace information'
+                        'desc': 'read namespace information',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False
                     },
                     'PUT': {
                         'name': 'namespace_registration',
-                        'desc': 'launch namespaces'
+                        'desc': 'launch namespaces',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False
                     },
                 },
             },
@@ -2488,10 +2503,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'namespaces',
                         'desc': 'read all names in a namespace',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False
                     },
                     'POST': {
                         'name': 'namespace_registration',
-                        'desc': 'import names into new namespaces'
+                        'desc': 'import names into new namespaces',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False
                     },
                 },
             },
@@ -2502,7 +2523,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'whitelist': {
                     'PUT': {
                         'name': 'namespace_registration',
-                        'desc': 're-import names into a new namespace'
+                        'desc': 're-import names into a new namespace',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False
                     },
                 },
             },
@@ -2514,6 +2538,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'wallet_read',
                         'desc': 'get the node wallet\'s payment address',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False
                     },
                 },
             },
@@ -2525,47 +2552,67 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'wallet_read',
                         'desc': 'get the node wallet\'s payment address',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False
+                    },
+                },
+            },
+            r'^/v1/wallet/password$': {
+                'routes': {
+                    'PUT': self.PUT_wallet_password,
+                },
+                'whitelist': {
+                    'PUT': {
+                        'name': 'wallet_write',
+                        'desc': 'Change the wallet password',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False
                     },
                 },
             },
             r'^/v1/wallet/private$': {
-                'authenticate': False,
                 'routes': {
                     'PUT': self.PUT_wallet,
                 },
                 'whitelist': {
                     'PUT': {
                         'name': 'wallet_write',
-                        'desc': 'Set the wallet\'s private keys'
+                        'desc': 'Set the wallet\'s private keys',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False
                     },
                 },
-                'need_data_key': False
             },
             r'^/v1/node/ping$': {
-                'authenticate': False,
                 'routes': {
                     'GET': self.GET_ping,
                 },
                 'whitelist': {
                     'GET': {
                         'name': '',
-                        'desc': 'ping the node'
+                        'desc': 'ping the node',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False
                     },
                 },
-                'need_data_key': False,
             },
             r'^/v1/node/reboot$': {
-                'authenticate': False,
                 'routes': {
                     'POST': self.POST_reboot,
                 },
                 'whitelist': {
                     'POST': {
                         'name': '',
-                        'desc': 'reboot the node'
+                        'desc': 'reboot the node',
+                        'auth_session': False,
+                        'auth_pass': True,
+                        'need_data_key': False
                     },
                 },
-                'need_data_key': False,
             },
             r'^/v1/prices/namespaces/({})$'.format(NAMESPACE_CLASS): {
                 'routes': {
@@ -2574,29 +2621,25 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'whitelist': {
                     'GET': {
                         'name': 'prices',
-                        'desc': 'get the price of a namespace'
+                        'desc': 'get the price of a namespace',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                 },
             },
             r'^/v1/prices/names/({})$'.format(NAME_CLASS): {
+                'need_data_key': False,
                 'routes': {
                     'GET': self.GET_prices_name,
                 },
                 'whitelist': {
                     'GET': {
                         'name': 'prices',
-                        'desc': 'get the price of a name'
-                    },
-                },
-            },
-            r'^/v1/resources/({})/({})/({})$'.format(NAME_CLASS, URLENCODING_CLASS, URLENCODING_CLASS): {
-                'routes': {
-                    'GET': self.GET_app_resource,
-                },
-                'whitelist': {
-                    'GET': {
-                        'name': 'resources',
-                        'desc': 'load resources on-the-fly'
+                        'desc': 'get the price of a name',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                 },
             },
@@ -2609,14 +2652,23 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'user_admin',
                         'desc': 'list all users',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                     'POST': {
                         'name': 'user_admin',
                         'desc': 'create new users',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                     'DELETE': {
                         'name': 'user_admin',
                         'desc': 'delete users',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                 },
             },
@@ -2630,14 +2682,23 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'user_read',
                         'desc': 'read user profile',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                     'PATCH': {
                         'name': 'user_write',
-                        'desc': 'update user profile'
+                        'desc': 'update user profile',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                     'DELETE': {
                         'name': 'user_admin',
-                        'desc': 'delete user profile'
+                        'desc': 'delete user profile',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                 },
             },
@@ -2650,10 +2711,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'collections',
                         'desc': 'list a user\'s collections',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                     'POST': {
                         'name': 'collections_admin',
                         'desc': 'create new collections',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                 },
             },
@@ -2666,10 +2733,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'collections',
                         'desc': 'list items in a collection',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                     'POST': {
                         'name': 'collections_write',
                         'desc': 'add items to a collection',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                 },
             },
@@ -2681,6 +2754,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'collections',
                         'desc': 'read collection items',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                 },
             },
@@ -2692,11 +2768,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'whitelist': {
                     'GET': {
                         'name': 'store_admin',
-                        'desc': 'list a user\'s data stores'
+                        'desc': 'list a user\'s data stores',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                     'POST': {
                         'name': 'store_admin',
-                        'desc': 'create a new data store'
+                        'desc': 'create a new data store',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                 },
             },
@@ -2709,10 +2791,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'PUT': {
                         'name': 'store_admin',
                         'desc': 'update a user data store',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                     'DELETE': {
                         'name': 'store_admin',
                         'desc': 'delete a user data store',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                 },
             },
@@ -2726,19 +2814,45 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'whitelist': {
                     'GET': {
                         'name': 'store_read',
-                        'desc': 'read files and list directories in a data store'
+                        'desc': 'read files and list directories in a data store',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                     'POST': {
                         'name': 'store_write',
-                        'desc': 'create files and make directories in a data store'
+                        'desc': 'create files and make directories in a data store',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                     'PUT': {
                         'name': 'store_write',
                         'desc': 'write files and directories to a data store',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
                     },
                     'DELETE': {
                         'name': 'store_write',
                         'desc': 'delete files and directories in a data store',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
+                    },
+                },
+            },
+            r'^/v1/.*$': {
+                'routes': {
+                    'OPTIONS': self.OPTIONS_preflight,
+                },
+                'whitelist': {
+                    'OPTIONS': {
+                        'name': '',
+                        'desc': 'preflight check',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                 },
             },
@@ -2762,62 +2876,45 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         route_method = route_info['method']
         route = route_info['route']
         whitelist_info = route_info['whitelist']
-        need_data_key = route_info['need_data_key']
-        session = None
+        
+        need_data_key = whitelist_info['need_data_key']
+        use_session = whitelist_info['auth_session']
+        use_password = whitelist_info['auth_pass']
+        
+        log.debug("\nfull path: {}\nmethod: {}\npath: {}\nqs: {}\nheaders:\n {}\n".format(self.path, method_name, path_info['path'], qs_values, '\n'.join( '{}: {}'.format(k, v) for (k, v) in self.headers.items() )))
+
+        have_password = self.verify_password()
+        session = self.verify_session(qs_values)
+        authorized = False
 
         # sanity check: this API only works if we have a data key 
         if self.server.master_data_privkey is None and need_data_key:
             log.debug("No master data private key set")
             self._send_headers(status_code=503, content_type='text/plain')
             return 
-
-        log.debug("\nfull path: {}\nmethod: {}\npath: {}\nqs: {}\nheaders:\n {}\n".format(self.path, method_name, path_info['path'], qs_values, '\n'.join( '{}: {}'.format(k, v) for (k, v) in self.headers.items() )))
-
-        if route.get('authenticate_url'):
-            # authenticate URL first 
-            res = self.verify_url()
-            if not res:
-                self._send_headers(status_code=400, content_type='text/plain')
-                return 
-
+        
         if not self.server.authenticate:
-            # server has disabled authentication
-            # make a new session.
-            log.warning("Authentication disabled; making a new session automatically")
+            # no auth needed
+            authorized = True
 
-            # require appname=, name=, user_id=
-            appname = qs_values.get('appname', None)
-            app_fqu = qs_values.get('app_fqu', None)
-            user_id = qs_values.get('user_id', None)
-            
-            if appname is None:
-                appname = 'unknown'
+        elif not use_session and not use_password:
+            # no auth needed
+            authorized = True
 
-            if app_fqu is None:
-                app_fqu = 'unknown'
+        elif have_password and use_password:
+            # password allowed
+            authorized = True
 
-            if user_id is None:
-                user_id = 'unknown'
+        elif session is not None and use_session:
+            # session required, but we have one
+            # validate session
+            allowed_methods = session['methods']
 
-            fake_account = app.app_make_account_info( app_fqu, appname, [], user_id, self.server.master_data_pubkey, -1, 3600*24*7 )
-            session = app.app_make_session( fake_account, self.server.master_data_privkey, config_path=self.server.config_path )
-            if 'error' in session:
-                log.error("Failed to make session for {}/{}".format(app_fqu, appname))
-                return self._send_headers(status_code=500, content_type='text/plain')
-
-        elif not route.has_key('authenticate') or route['authenticate']:
-            # session token required 
-            session = self.verify_session(qs_values)
-            if session is None:
-                # caller is not authenticated.
-                # begin authentication
-                log.debug("Unauthenticated method call to {}".format(path_info['path']))
-                return self.app_auth_begin(qs_values)
-            
+            '''
+            # TODO: I don't think this is necessary any longer for what we're ultimately going to do
+            # must match requested application and application name 
             appname = session['appname']
             app_fqu = session['name']
-
-            # must match requested application and application name 
             app_info = self.get_app_info(qs_values)
             if 'error' in app_info:
                 log.debug("Could not determine application")
@@ -2826,15 +2923,21 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if app_info['appname'] != appname or app_info['app_fqu'] != app_fqu:
                 log.debug("Session for {}/{} does not match requested {}/{}".format(appname, app_fqu, app_info['appname'], app_info['app_fqu']))
                 return self._send_headers(status_code=403, content_type='text/plain')
-            
-            # is this method allowed?
-            if whitelist_info is not None:
-                allowed_methods = session['methods']
-                if whitelist_info['name'] not in allowed_methods:
-                    # this method is not allowed
-                    log.info("Unauthorized method call to {} from {}/{}".format(path_info['path'], app_fqu, appname))
-                    return self._send_headers(status_code=403, content_type='text/plain')
+            '''
 
+            # is this method allowed?
+            if whitelist_info['name'] not in allowed_methods:
+                # this method is not allowed
+                log.info("Unauthorized method call to {} from {}/{}".format(path_info['path'], app_fqu, appname))
+                return self._send_headers(status_code=403, content_type='text/plain')
+            
+            authorized = True
+
+        if not authorized:
+            log.info("Failed to authenticate caller")
+            return self._send_headers(status_code=403, content_type='text/plain')
+
+        # good to go!
         try:
             return route_method( session, path_info, *route_args )
         except Exception as e:
