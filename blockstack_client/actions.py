@@ -542,7 +542,6 @@ def cli_setup(args, config_path=CONFIG_PATH, password=None):
     password = get_default_password(password)
     interactive = get_default_interactive(True)
 
-    subsys = getattr(args, 'subsys', None)
     ret = {}
     
     log.debug("Set up config file")
@@ -1388,7 +1387,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
         msg = msg.format(payment_address)
         return {'error': msg}
 
-    log.debug("Preorder {}, zonefile={}, profile={}, recipient={}".format(fqu, user_zonefile, user_profile, transfer_address))
+    log.debug("Preorder {}, zonefile={}, profile={}, recipient={} min_confs={}".format(fqu, user_zonefile, user_profile, transfer_address, min_payment_confs))
     rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
@@ -5491,7 +5490,7 @@ def cli_start_server( args, config_path=CONFIG_PATH, interactive=False ):
         cmds.append('--testnet')
 
     if working_dir is not None:
-        working_dir_envar = 'VIRTUALCHAIN_WORKING_DIR={}'.format(working_dir)
+        working_dir_envar = 'VIRTUALCHAIN_WORKING_DIR="{}"'.format(working_dir)
         cmds = [working_dir_envar] + cmds
 
     cmd_str = " ".join(cmds)
@@ -5518,7 +5517,7 @@ def cli_stop_server( args, config_path=CONFIG_PATH, interactive=False ):
     cmds = ['blockstack-server', 'stop']
 
     if working_dir is not None:
-        working_dir_envar = 'VIRTUALCHAIN_WORKING_DIR={}'.format(working_dir)
+        working_dir_envar = 'VIRTUALCHAIN_WORKING_DIR="{}"'.format(working_dir)
         cmds = [working_dir_envar] + cmds
 
     cmd_str = " ".join(cmds)
