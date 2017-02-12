@@ -1103,6 +1103,8 @@ def preorder(rpc_token, fqu, zonefile_data, profile, transfer_address, min_payme
 
     if min_payment_confs is None:
         min_payment_confs = TX_MIN_CONFIRMATIONS
+    else:
+        log.warn("Using {} confirmations instead of the default {}".format(min_payment_confs, TX_MIN_CONFIRMATIONS))
 
     valid_rpc_token = get_rpc_token(config_path=config_path)
     if str(valid_rpc_token) != str(rpc_token):
@@ -1145,7 +1147,7 @@ def preorder(rpc_token, fqu, zonefile_data, profile, transfer_address, min_payme
 
     log.debug("async_preorder({}, zonefile_data={}, profile={}, transfer_address={})".format(fqu, zonefile_data, profile, transfer_address)) 
     resp = async_preorder(fqu, payment_privkey_info, owner_address, cost_info['satoshis'],
-                          owner_privkey_params=owner_privkey_params, name_data=name_data,
+                          owner_privkey_params=owner_privkey_params, name_data=name_data, min_payment_confs=min_payment_confs,
                           proxy=proxy, config_path=config_path, queue_path=state.queue_path)
 
     if 'error' not in resp:
