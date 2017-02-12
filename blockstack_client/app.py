@@ -186,9 +186,11 @@ def _app_load_account_path( account_path, data_pubkey_hex, config_path=CONFIG_PA
     return {'account': data['payload'], 'account_token': jwt}
 
 
-def app_load_account( user_id, app_fqu, appname, data_pubkey_hex, config_path=CONFIG_PATH):
+def app_load_account( user_id, app_fqu, appname, user_pubkey_hex, config_path=CONFIG_PATH):
     """
     Load the app account for the given (user_id, app owner name, appname) triple
+    user_pubkey_hex is the user's public key.
+
     Return {'account: jwt, 'account_token': token} on success
     Return {'error': ...} on error
     """
@@ -200,7 +202,7 @@ def app_load_account( user_id, app_fqu, appname, data_pubkey_hex, config_path=CO
         return ACCOUNT_CACHE[account_name]
     
     path = app_account_path( user_id, app_fqu, appname, config_path=config_path)
-    res = _app_load_account_path( path, data_pubkey_hex, config_path=config_path )
+    res = _app_load_account_path( path, user_pubkey_hex, config_path=config_path )
     if 'error' in res:
         return res
 
@@ -227,24 +229,27 @@ def app_find_accounts( user_id=None, app_fqu=None, appname=None, user_pubkey_hex
     return infos
 
 
-def app_account_get_privkey( user_data_privkey_hex, app_account ):
+def app_account_get_privkey( user_data_privkey_hex, app_account, config_path=CONFIG_PATH ):
     """
     Given the owning user's private key and an app account structure, calculate the private key
     for the account.
+
+    hdpath is USER_PRIVKEY/0'/ACCOUNT_INDEX'
+    
     Return the private key
     """
-    if app_account['privkey_index'] >= 0:
-        app_account_privkey = HDWallet.get_privkey( user_data_privkey_hex, app_account['privkey_index'] )
-        return app_account_privkey
+    hdwallet_parent = HDWallet( hex_privkey=user_data_privkey_hex, config_path=config_path)
+    app_account_privkey_parent = hdwallet_parent.get_child_privkey( index=0 )
 
-    else:
-        return user_data_privkey_hex
+    hdwallet = HDWallet( hex_privkey=app_account_privkey_parent, config_path=config_path )
+    app_account_privkey = hdwallet.get_child_privkey( index=app_account['privkey_index'] )
+
+    return app_account_privkey
 
 
 def app_make_account_info( app_fqu, appname, api_methods, user_id, user_pubkey_hex, privkey_index, session_lifetime ):
     """
     Create account information
-    Pass -1 for privkey_index to use the master data private key (useful for testing)
     """
 
     info = {
@@ -259,19 +264,20 @@ def app_make_account_info( app_fqu, appname, api_methods, user_id, user_pubkey_h
     return info
 
 
-def app_make_account( user_info, user_privkey_hex, app_fqu, appname, api_methods, privkey_index=None, config_path=CONFIG_PATH, session_lifetime=3600*24*7):
+def app_make_account( user_info, user_privkey_hex, app_fqu, appname, api_methods, config_path=CONFIG_PATH, session_lifetime=3600*24*7):
     """
     Create a new application account, and an associated store.
     Return {'account': jwt, 'account_token': token} on success
     Return {'error': ...} on error
     """
+    
+    next_privkey_index_info = data.next_privkey_index(user_privkey_hex, user_info['global'],
+                                                      blockchain_id=user_info.get('blockchain_id', None),
+                                                      config_path=config_path)
+    if 'error' in next_privkey_index_info:
+        return next_privkey_index_info
 
-    if privkey_index is None:
-        next_privkey_index_info = data.next_privkey_index(user_privkey_hex, config_path=config_path)
-        if 'error' in next_privkey_index_info:
-            return next_privkey_index_info
-
-        privkey_index = next_privkey_index_info['index']
+    privkey_index = next_privkey_index_info['index']
 
     hdwallet = HDWallet( hex_privkey=user_privkey_hex )
     app_account_privkey = hdwallet.get_child_privkey( index=privkey_index )
