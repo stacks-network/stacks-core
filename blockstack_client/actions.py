@@ -101,6 +101,7 @@ from .b40 import is_b40
 from .storage import get_drivers_for_url, get_driver_urls, get_storage_handlers
 
 from pybitcoin import is_b58check_address, serialize_transaction
+from pybitcoin.transactions.outputs import calculate_change_amount
 
 from .backend.blockchain import (
     get_balance, is_address_usable, get_utxos,
@@ -139,7 +140,7 @@ from .data import datastore_mkdir, datastore_rmdir, make_datastore, get_datastor
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir, datastore_stat, datastore_list, \
         datastore_rmtree, get_user, get_user_list, put_user, delete_user, next_privkey_index 
 
-from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN
+from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
 
 log = config.get_logger()
 
@@ -636,7 +637,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
     help: Transfer funds out of the Blockstack wallet to a new address
     arg: address (str) 'The recipient address'
     opt: amount (int) 'The amount to withdraw (defaults to all)'
-    opt: min_confs (str) 'The minimum confirmations for oustanding transactions'
+    opt: min_confs (int) 'The minimum confirmations for oustanding transactions'
     opt: tx_only (str) 'If "True", only return the transaction'
     """
 
@@ -648,7 +649,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
     amount = getattr(args, 'amount', None)
     min_confs = getattr(args, 'min_confs', TX_MIN_CONFIRMATIONS)
     tx_only = getattr(args, 'tx_only', False)
-
+   
     if min_confs is None:
         min_confs = TX_MIN_CONFIRMATIONS
 
@@ -657,6 +658,23 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
             tx_only = True
         else:
             tx_only = False
+
+    if not re.match(OP_BASE58CHECK_PATTERN, recipient_addr):
+        log.debug("recipient = {}".format(recipient_addr))
+        return {'error': 'Invalid address'}
+
+    if not isinstance(amount, int):
+        log.debug("amount = {}".format(amount))
+        return {'error': 'Invalid amount'}
+
+    if not isinstance(min_confs, int):
+        log.debug("min_confs = {}".format(min_confs))
+        return {'error': 'Invalid min confs'}
+
+    if not isinstance(tx_only, bool):
+        log.debug("tx_only = {}".format(tx_only))
+        return {'error': 'Invalid tx_only'}
+
 
     res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
@@ -670,9 +688,10 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         wallet_keys = res['wallet']
 
     send_addr, _, _ = get_addresses_from_file(config_dir=config_dir, wallet_path=wallet_path)
-    inputs = get_utxos(send_addr, min_confirmations=min_confs)
+    inputs = get_utxos(str(send_addr), min_confirmations=min_confs, config_path=config_path)
     
     if len(inputs) == 0:
+        log.error("No UTXOs for {}".format(send_addr))
         return {'error': 'Failed to find UTXOs for wallet payment address'}
 
     total_value = sum(inp['value'] for inp in inputs)
@@ -694,7 +713,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
          'value': amount},
     ]
 
-    if amount < total_value:
+    if amount < total_value and change > 0:
         # need change and tx fee
         outputs.append( 
             {'script_hex': virtualchain.make_payment_script(send_addr),
