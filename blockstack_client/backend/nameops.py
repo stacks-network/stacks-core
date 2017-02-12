@@ -792,7 +792,7 @@ def address_privkey_match( address, privkey_params ):
     """
     if privkey_params == (1,1) and pybitcoin.b58check_version_byte( str(address) ) != virtualchain.version_byte:
         # invalid address, given parameters
-        log.error("Address %s does not correspond to a single private key" % owner_address)
+        log.error("Address %s does not correspond to a single private key" % address)
         return False
 
     elif (privkey_params[0] > 1 or privkey_params[1] > 1) and pybitcoin.b58check_version_byte( str(address) ) != virtualchain.multisig_version_byte:
