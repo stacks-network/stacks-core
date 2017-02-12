@@ -537,6 +537,12 @@ def tx_get_unspents(address, utxo_client, min_confirmations=TX_MIN_CONFIRMATIONS
     Raise UTXOException on error
     """
 
+    if min_confirmations is None:
+        min_confirmations = TX_MIN_CONFIRMATIONS
+
+    if min_confirmations != TX_MIN_CONFIRMATIONS:
+        log.warning("Using UTXOs with {} confirmations instead of the default {}".format(min_confirmations, TX_MIN_CONFIRMATIONS))
+
     data = pybitcoin.get_unspents(address, utxo_client)
 
     try:
