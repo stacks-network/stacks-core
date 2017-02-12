@@ -69,12 +69,16 @@ class HDWallet(object):
     """
     Initialize a hierarchical deterministic wallet with
     hex_privkey and get child addresses and private keys
+
+    TODO: chain state
     """
 
-    def __init__(self, hex_privkey=None):
+    def __init__(self, hex_privkey=None, config_path=CONFIG_PATH):
         """
         If @hex_privkey is given, use that to derive keychain
         otherwise, use a new random seed
+
+        TODO: load chain state from config path
         """
         global KEYCHAIN_CACHE
 
@@ -114,6 +118,7 @@ class HDWallet(object):
 
     def get_child_privkey(self, index=0):
         """
+        Get a hardened child private key
         @index is the child index
 
         Returns:
