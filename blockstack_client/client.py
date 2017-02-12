@@ -330,7 +330,7 @@ def set_storage_setup( config_path=CONFIG_PATH):
     return {'status': True}
 
 
-def storage_setup(password, blockchain_id=None, config_path=CONFIG_PATH, wallet_data=None):
+def storage_setup(password, global_data=True, blockchain_id=None, config_path=CONFIG_PATH, wallet_data=None):
     """
     Set up storage for this blockchain ID
     * make sure the wallet has been migrated to the latest format
@@ -360,10 +360,10 @@ def storage_setup(password, blockchain_id=None, config_path=CONFIG_PATH, wallet_
 
     wallet = res['wallet']
    
-    log.debug("Doing one-time setup for Blockstack version {}".format(VERSION))
+    log.debug("Set up for Blockstack version {}, for blockchain ID {}".format(VERSION, blockchain_id))
 
     # make sure we have private key indexes and user listings set up
-    res = data_setup( password=password, blockchain_id=blockchain_id, wallet_keys=wallet, config_path=config_path)
+    res = data_setup( password=password, global_data=global_data, blockchain_id=blockchain_id, wallet_keys=wallet, config_path=config_path)
     if 'error' in res:
         log.error("data_setup failed")
         res['need_migrate'] = False
