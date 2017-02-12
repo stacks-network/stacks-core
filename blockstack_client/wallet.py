@@ -934,11 +934,11 @@ def get_addresses_from_file(config_dir=CONFIG_DIR, wallet_path=None):
    
     # extract addresses
     if data.has_key('payment_addresses'):
-        payment_address = data['payment_addresses'][0]
+        payment_address = str(data['payment_addresses'][0])
     if data.has_key('owner_addresses'):
-        owner_address = data['owner_addresses'][0]
+        owner_address = str(data['owner_addresses'][0])
     if data.has_key('data_pubkeys'):
-        data_pubkey = data['data_pubkeys'][0]
+        data_pubkey = str(data['data_pubkeys'][0])
 
     return payment_address, owner_address, data_pubkey
 
