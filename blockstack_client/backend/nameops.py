@@ -46,7 +46,7 @@ from ..utils import pretty_dump
 
 from ..config import PREORDER_CONFIRMATIONS, DEFAULT_QUEUE_PATH, CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster, RPC_MAX_ZONEFILE_LEN, RPC_MAX_PROFILE_LEN
 from ..config import get_logger, APPROX_TX_IN_P2PKH_LEN, APPROX_TX_OUT_P2PKH_LEN, APPROX_TX_OVERHEAD_LEN, APPROX_TX_IN_P2SH_LEN, APPROX_TX_OUT_P2SH_LEN
-from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
+from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS
 
 from ..proxy import get_default_proxy
 from ..proxy import getinfo as blockstack_getinfo
@@ -237,7 +237,7 @@ def subsidize_or_pad_transaction( unsigned_tx, owner_address, owner_privkey_para
     return signed_subsidized_tx
 
 
-def estimate_preorder_tx_fee( name, name_cost, owner_address, payment_addr, utxo_client, owner_privkey_params=(None, None), config_path=CONFIG_PATH, include_dust=False ):
+def estimate_preorder_tx_fee( name, name_cost, owner_address, payment_addr, utxo_client, min_payment_confs=TX_MIN_CONFIRMATIONS, owner_privkey_params=(None, None), config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a preorder.
     Optionally include the dust fees as well.
@@ -254,11 +254,11 @@ def estimate_preorder_tx_fee( name, name_cost, owner_address, payment_addr, utxo
     fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
 
     try:
-        unsigned_tx = preorder_tx( name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client, safety=False )
+        unsigned_tx = preorder_tx( name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client, min_payment_confs=min_payment_confs )
         assert unsigned_tx
     except ValueError:
         # unfunded payment addr
-        unsigned_tx = preorder_tx( name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client, safety=False, subsidize=True )
+        unsigned_tx = preorder_tx( name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client, safety=False, subsidize=True, min_payment_confs=min_payment_confs )
         assert unsigned_tx
 
         pad_len = estimate_owner_output_length(owner_address)
@@ -299,7 +299,7 @@ def estimate_register_tx_fee( name, owner_addr, payment_addr, utxo_client, owner
     fake_privkey = make_fake_privkey_info( owner_privkey_params )
 
     try:
-        unsigned_tx = register_tx( name, payment_addr, owner_addr, utxo_client, subsidized=True, safety=False )
+        unsigned_tx = register_tx( name, payment_addr, owner_addr, utxo_client, subsidized=True )
         assert unsigned_tx
     except ValueError:
         # no UTXOs for this owner address.  Try again and add padding for one
@@ -901,7 +901,7 @@ def do_blockchain_tx( unsigned_tx, privkey_info=None, config_path=CONFIG_PATH, t
 
 def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx_broadcaster,
                  owner_privkey_params=(None,None), config_path=CONFIG_PATH, payment_address=None, payment_utxos=None,
-                 proxy=None, consensus_hash=None, safety_checks=True, dry_run=False ):
+                 min_payment_confs=TX_MIN_CONFIRMATIONS, proxy=None, consensus_hash=None, safety_checks=True, dry_run=False ):
     """
     Preorder a name.
 
@@ -949,7 +949,7 @@ def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx
     else:
         log.warn("Using user-supplied consensus hash %s" % consensus_hash)
 
-    tx_fee = estimate_preorder_tx_fee( fqu, cost, owner_address, payment_address, utxo_client, owner_privkey_params=owner_privkey_params, config_path=config_path )
+    tx_fee = estimate_preorder_tx_fee( fqu, cost, owner_address, payment_address, utxo_client, min_payment_confs=min_payment_confs, owner_privkey_params=owner_privkey_params, config_path=config_path )
     if tx_fee is None:
         log.error("Failed to estimate preorder TX fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
@@ -957,7 +957,7 @@ def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx
     log.debug("Preordering (%s, %s, %s), tx_fee = %s" % (fqu, payment_address, owner_address, tx_fee))
 
     try:
-        unsigned_tx = preorder_tx( fqu, payment_address, owner_address, cost, consensus_hash, utxo_client, tx_fee=tx_fee )
+        unsigned_tx = preorder_tx( fqu, payment_address, owner_address, cost, consensus_hash, utxo_client, tx_fee=tx_fee, min_payment_confs=min_payment_confs )
     except ValueError:
         log.error("Failed to create preorder TX")
         return {'error': 'Insufficient funds'}
@@ -1605,7 +1605,7 @@ def do_announce( message_text, sender_privkey_info, utxo_client, tx_broadcaster,
 
 
 
-def async_preorder(fqu, payment_privkey_info, owner_address, cost, owner_privkey_params=(None,None), name_data={},
+def async_preorder(fqu, payment_privkey_info, owner_address, cost, owner_privkey_params=(None,None), name_data={}, min_payment_confs=TX_MIN_CONFIRMATIONS,
                    proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
     """
         Preorder a fqu (step #1)
@@ -1639,7 +1639,7 @@ def async_preorder(fqu, payment_privkey_info, owner_address, cost, owner_privkey
         return {'error': 'Already in preorder queue'}
 
     try:
-        resp = do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx_broadcaster, owner_privkey_params=owner_privkey_params, config_path=CONFIG_PATH )
+        resp = do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx_broadcaster, min_payment_confs=min_payment_confs, owner_privkey_params=owner_privkey_params, config_path=CONFIG_PATH )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast preorder transaction'}
