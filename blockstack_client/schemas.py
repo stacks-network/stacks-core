@@ -683,6 +683,9 @@ USER_SCHEMA = {
         'user_id': {
             'type': 'string'
         },
+        'global': {
+            'type': 'boolean',
+        },
 
         # optional
         'blockchain_id': {
@@ -694,6 +697,7 @@ USER_SCHEMA = {
         'public_key',
         'privkey_index',
         'user_id',
+        'global'
     ],
     'additionalProperties': False,
 }
