@@ -53,11 +53,12 @@ from keylib import *
 import signal
 import json
 import config as blockstack_config
+import config as blockstack_constants
 import backend
 import proxy
 from proxy import json_is_error, json_is_exception
 
-from .constants import BLOCKSTACK_DEBUG, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME
+from .constants import BLOCKSTACK_DEBUG, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS
 from .client import check_storage_setup
 from .method_parser import parse_methods
 import app
@@ -996,7 +997,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         name = request['name']
         zonefile_txt = request.get('zonefile', None)
         recipient_address = request.get('owner_address', None)
-        min_confs = request.get('min_confs', None)
+        min_confs = request.get('min_confs', TX_MIN_CONFIRMATIONS)
+
+        if min_confs < 0:
+            min_confs = 0
 
         res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs, interactive=False, force_data=True)
         if 'error' in res:
@@ -2076,13 +2080,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         address = str(request['address'])
         amount = request.get('amount', None)
-        min_confs = request.get('min_confs', None)
+        min_confs = request.get('min_confs', TX_MIN_CONFIRMATIONS)
         tx_only = request.get('tx_only', False)
 
         if tx_only:
             tx_only = 'True'
         else:
             tx_only = 'False'
+
+        if min_confs < 0:
+            min_confs = 0
 
         internal = self.server.get_internal_proxy()
         res = internal.cli_withdraw(address, amount, min_confs, tx_only, config_path=self.server.config_path, interactive=False, wallet_keys=self.server.wallet_keys)
@@ -3247,7 +3254,7 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
         return self.app_configs.get("{}:{}".format(name, appname), None)
 
 
-    def __init__(self, wallet_keys, host='localhost', rpc_token=None, port=blockstack_config.DEFAULT_API_PORT,
+    def __init__(self, wallet_keys, host='localhost', rpc_token=None, port=blockstack_constants.DEFAULT_API_PORT,
                  plugins=None, handler=BlockstackAPIEndpointHandler,
                  config_path=CONFIG_PATH, server=True):
 
@@ -3322,7 +3329,7 @@ class BlockstackAPIEndpointClient(object):
     JSONRPC client for blockstack's local RPC endpoint
     """
     def __init__(self, server, port, max_rpc_len=1024*1024, rpc_token=None,
-                 timeout=blockstack_config.DEFAULT_TIMEOUT, debug_timeline=False, **kw):
+                 timeout=blockstack_constants.DEFAULT_TIMEOUT, debug_timeline=False, **kw):
 
         self.url = 'http://{}:{}/v1/jsonrpc'.format(server, port)
         self.timeout = timeout
@@ -3395,7 +3402,7 @@ def get_default_plugins():
     return [backend]
 
 
-def make_local_rpc_server(portnum, wallet_keys, config_path=blockstack_config.CONFIG_PATH, plugins=None):
+def make_local_rpc_server(portnum, wallet_keys, config_path=blockstack_constants.CONFIG_PATH, plugins=None):
     """
     Make a local RPC server instance.
     It will be derived from BaseHTTPServer.HTTPServer.
@@ -3411,7 +3418,7 @@ def make_local_rpc_server(portnum, wallet_keys, config_path=blockstack_config.CO
     return srv
 
 
-def is_rpc_server(config_dir=blockstack_config.CONFIG_DIR):
+def is_rpc_server(config_dir=blockstack_constants.CONFIG_DIR):
     """
     Is this process running an RPC server?
     Return True if so
@@ -3448,7 +3455,7 @@ def local_rpc_server_stop(srv):
     srv.socket.close()
 
 
-def local_rpc_connect(config_dir=blockstack_config.CONFIG_DIR, api_port=None):
+def local_rpc_connect(config_dir=blockstack_constants.CONFIG_DIR, api_port=None):
     """
     Connect to a locally-running RPC server.
     Return a server proxy object on success.
@@ -3460,7 +3467,7 @@ def local_rpc_connect(config_dir=blockstack_config.CONFIG_DIR, api_port=None):
     directly.
     """
 
-    config_path = os.path.join(config_dir, blockstack_config.CONFIG_FILENAME)
+    config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
 
     if is_rpc_server(config_dir=config_dir):
         # this process is an RPC server.
@@ -3480,7 +3487,7 @@ def local_rpc_connect(config_dir=blockstack_config.CONFIG_DIR, api_port=None):
     return BlockstackAPIEndpointClient('localhost', api_port, timeout=3000, config_path=config_path, rpc_token=rpc_token)
 
 
-def local_rpc_action(command, config_dir=blockstack_config.CONFIG_DIR):
+def local_rpc_action(command, config_dir=blockstack_constants.CONFIG_DIR):
     """
     Handle an API endpoint command:
     * start: start up an API endpoint
@@ -3494,7 +3501,7 @@ def local_rpc_action(command, config_dir=blockstack_config.CONFIG_DIR):
     if command not in ['start', 'start-foreground', 'stop', 'status', 'restart']:
         raise ValueError('Invalid command "{}"'.format(command))
 
-    config_path = os.path.join(config_dir, blockstack_config.CONFIG_FILENAME)
+    config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
 
     conf = blockstack_config.get_config(config_path)
     if conf is None:
@@ -3502,7 +3509,7 @@ def local_rpc_action(command, config_dir=blockstack_config.CONFIG_DIR):
 
     api_port = conf['api_endpoint_port']
 
-    cmdline_fmt = '{} -m blockstack_client.rpc_runner {} {} {}'
+    cmdline_fmt = '{} -m blockstack_client.rpc_runner {} {} "{}"'
     cmdline = cmdline_fmt.format(sys.executable, command, api_port, config_dir)
 
     rc = os.system(cmdline)
@@ -3515,7 +3522,7 @@ def local_rpc_dispatch(port, method_name, *args, **kw):
     Connect to the running endpoint, issue the command,
     and return the result.
     """
-    config_dir = kw.pop('config_dir', blockstack_config.CONFIG_DIR)
+    config_dir = kw.pop('config_dir', blockstack_constants.CONFIG_DIR)
 
     client = local_rpc_connect(config_dir=config_dir, api_port=port)
     try:
@@ -3529,14 +3536,14 @@ def local_rpc_dispatch(port, method_name, *args, **kw):
         return {'error': traceback.format_exc()}
 
 
-def local_rpc_pidfile_path(config_dir=blockstack_config.CONFIG_DIR):
+def local_rpc_pidfile_path(config_dir=blockstack_constants.CONFIG_DIR):
     """
     Where do we put the PID file?
     """
     return os.path.join(config_dir, 'api_endpoint.pid')
 
 
-def local_rpc_logfile_path(config_dir=blockstack_config.CONFIG_DIR):
+def local_rpc_logfile_path(config_dir=blockstack_constants.CONFIG_DIR):
     """
     Where do we put logs?
     """
@@ -3603,7 +3610,7 @@ rpc_pidpath = None
 rpc_srv = None
 
 
-def local_rpc_start(portnum, config_dir=blockstack_config.CONFIG_DIR, foreground=False, password=None):
+def local_rpc_start(portnum, config_dir=blockstack_constants.CONFIG_DIR, foreground=False, password=None):
     """
     Start up an API endpoint
     Return True on success
@@ -3614,8 +3621,8 @@ def local_rpc_start(portnum, config_dir=blockstack_config.CONFIG_DIR, foreground
     from blockstack_client.wallet import load_wallet
 
     global rpc_pidpath, rpc_srv, running
-    config_path = os.path.join(config_dir, blockstack_config.CONFIG_FILENAME)
-    wallet_path = os.path.join(config_dir, blockstack_config.WALLET_FILENAME)
+    config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
+    wallet_path = os.path.join(config_dir, blockstack_constants.WALLET_FILENAME)
 
     # already running?
     rpc_pidpath = local_rpc_pidfile_path(config_dir=config_dir)
@@ -3762,7 +3769,7 @@ def rpc_kill(pidpath, pid, sig, unlink_pidfile=True):
             raise
 
 
-def local_rpc_stop(config_dir=blockstack_config.CONFIG_DIR):
+def local_rpc_stop(config_dir=blockstack_constants.CONFIG_DIR):
     """
     Shut down an API endpoint
     Return True if we stopped it
@@ -3805,7 +3812,7 @@ def local_rpc_stop(config_dir=blockstack_config.CONFIG_DIR):
     return rpc_kill(pidpath, pid, signal.SIGKILL)
 
 
-def local_rpc_status(config_dir=blockstack_config.CONFIG_DIR):
+def local_rpc_status(config_dir=blockstack_constants.CONFIG_DIR):
     """
     Print the status of an instantiated API endpoint
     Return True if the daemon is running.
@@ -3830,7 +3837,7 @@ def local_rpc_status(config_dir=blockstack_config.CONFIG_DIR):
     return True
 
 
-def local_rpc_ensure_running(config_dir=blockstack_config.CONFIG_DIR, password=None):
+def local_rpc_ensure_running(config_dir=blockstack_constants.CONFIG_DIR, password=None):
     """
     Ensure that the RPC daemon is running.
     Start it if it is not.
@@ -3886,7 +3893,7 @@ def local_rpc_ensure_running(config_dir=blockstack_config.CONFIG_DIR, password=N
     return running
 
 
-def start_rpc_endpoint(config_dir=blockstack_config.CONFIG_DIR, password=None):
+def start_rpc_endpoint(config_dir=blockstack_constants.CONFIG_DIR, password=None):
     """
     Ensure that the RPC endpoint is running.
     Used in interactive mode due to its better error messages.
