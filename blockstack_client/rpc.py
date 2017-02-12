@@ -973,6 +973,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'type': 'string',
                     'pattern': OP_BASE58CHECK_PATTERN,
                 },
+                'min_confs': {
+                    'type': 'integer'
+                },
             },
             'required': [
                 'name'
@@ -991,8 +994,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         name = request['name']
         zonefile_txt = request.get('zonefile', None)
         recipient_address = request.get('owner_address', None)
+        min_confs = request.get('min_confs', None)
 
-        res = internal.cli_register(name, zonefile_txt, recipient_address, interactive=False, force_data=True)
+        res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs, interactive=False, force_data=True)
         if 'error' in res:
             log.error("Failed to register {}".format(name))
             self._reply_json({"error": "Failed to register name: {}".format(res['error'])}, status_code=500)
@@ -2976,6 +2980,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Top-level HEAD dispatch
         """
         return self._dispatch("HEAD")
+
+    def do_OPTIONS(self):
+        """
+        Top-level OPTIONS dispatch
+        """
+        return self._dispatch("OPTIONS")
 
     def do_PATCH(self):
         """
