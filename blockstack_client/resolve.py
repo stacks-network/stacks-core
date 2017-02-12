@@ -40,6 +40,9 @@ from constants import CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 from scripts import is_name_valid, is_valid_hash
 import string
 
+class PasswordRequiredException(Exception):
+    pass
+
 log = get_logger('blockstack-client')
 
 B40_CHARS = string.digits + string.lowercase + '-_.+'
@@ -99,20 +102,21 @@ def get_user_datastore(user_info, datastore_name, proxy=None, config_path=CONFIG
     return data.get_datastore(user_id, datastore_name, datastore_pubkey, config_path=config_path, proxy=proxy ) 
 
 
-def get_account_datastore_info( master_data_pubkey, master_data_privkey, user_id, app_fqu, app_name, config_path=CONFIG_PATH, proxy=None ):
+def get_account_datastore_info( master_data_privkey, user_id, app_fqu, app_name, config_path=CONFIG_PATH, proxy=None ):
     """
     Get information about an account datastore.
     At least, get the user and account owner.
-    If master_data_privkey is not None, then also get the datastore private key.
 
     Return {'status': True, 'user': user, 'user_privkey': ..., 'account': account, 'datastore': ..., 'datastore_privkey': ...} on success.
     If master_data_privkey is not given, then user_privkey and datastore_privkey will not be provided.
 
     Return {'error': ...} on failure
     """
-   
+  
+    master_data_pubkey = get_pubkey_hex(master_data_privkey)
+
     # get user info
-    user_info = data.get_user(user_id, master_data_pubkey, config_path=config_path)
+    user_info = data.get_user(user_id, master_data_privkey, config_path=config_path)
     if 'error' in user_info:
         return user_info
 
@@ -121,12 +125,10 @@ def get_account_datastore_info( master_data_pubkey, master_data_privkey, user_id
         return {'error': 'This wallet does not own this user'}
 
     user = user_info['user']
-    user_privkey_hex = None
 
-    if master_data_privkey is not None:
-        user_privkey_hex = user_db.user_get_privkey(master_data_privkey, user)
-        if user_privkey_hex is None:
-            return {'error': 'Failed to load user private key'}
+    user_privkey_hex = user_db.user_get_privkey(master_data_privkey, user, config_path=config_path)
+    if user_privkey_hex is None:
+        return {'error': 'Failed to load user private key'}
     
     res = app.app_load_account(user_id, app_fqu, app_name, user['public_key'], config_path=config_path)
     if 'error' in res:
@@ -164,7 +166,7 @@ def get_account_datastore_info( master_data_pubkey, master_data_privkey, user_id
     return ret
 
 
-def get_user_datastore_info( master_data_pubkey, master_data_privkey, user_id, datastore_name, config_path=CONFIG_PATH, proxy=None ):
+def get_user_datastore_info( master_data_privkey, user_id, datastore_name, config_path=CONFIG_PATH, proxy=None ):
     """
     Get information about a datastore that belongs directly to a user (without an account)
     If master_data_privkey is not None, then also get the datastore private key.
@@ -175,18 +177,18 @@ def get_user_datastore_info( master_data_pubkey, master_data_privkey, user_id, d
     Return {'error': ...} on failure
     """
     
-    res = data.get_user(user_id, master_data_pubkey, config_path=config_path)
+    master_data_pubkey = get_pubkey_hex(master_data_privkey)
+
+    res = data.get_user(user_id, master_data_privkey, config_path=config_path)
     if 'error' in res:
         return res
 
     user = res['user']
     user_pubkey = user['public_key']
-    user_privkey_hex = None
-
-    if master_data_privkey is not None:
-        user_privkey_hex = user_db.user_get_privkey(master_data_privkey, user)
-        if user_privkey_hex is None:
-            return {'error': 'Failed to load user private key'}
+        
+    user_privkey_hex = user_db.user_get_privkey(master_data_privkey, user, config_path=config_path)
+    if user_privkey_hex is None:
+        return {'error': 'Failed to load user private key'}
     
     res = get_user_datastore(user, datastore_name, proxy=proxy, config_path=config_path)
     if 'error' in res:
@@ -235,7 +237,7 @@ def get_datastore_name_info( user_id, datastore_id ):
     return {'app_fqu': app_fqu, 'appname': appname, 'datastore_name': datastore_name}    
 
 
-def get_datastore_info( user_id, datastore_id, include_private=False, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
+def get_datastore_info( user_id, datastore_id, wallet_keys, include_private=False, config_path=CONFIG_PATH, proxy=None, password=None ):
     """
     Get datastore information.  If the datastore information is not locally hosted, then user_id must be a blockchain ID that points to the
     zone file with the master public key.
@@ -274,26 +276,21 @@ def get_datastore_info( user_id, datastore_id, include_private=False, config_pat
     appname = name_info['appname']
     datastore_name = name_info['datastore_name']
 
-    # try local public key (may have to later on look it up)
-    _, _, master_data_pubkey = wallet.get_addresses_from_file(config_dir=config_dir)
-    if not master_data_pubkey:
-        return {'error': 'No wallet'}
-
-    if include_private:
-        assert wallet_keys
-        assert wallet_keys.has_key('data_privkey')
-        master_data_privkey = wallet_keys['data_privkey']
+    assert wallet_keys
+    assert wallet_keys.has_key('data_privkey')
+    master_data_privkey = wallet_keys['data_privkey']
+    master_data_pubkey = get_pubkey_hex(master_data_privkey)
 
     datastore_info = None
     datastore = None
 
     if app_fqu is not None and appname is not None:
         log.debug("Datastore {} is an account datastore".format(datastore_id))
-        datastore_info = get_account_datastore_info( str(master_data_pubkey), master_data_privkey, user_id, app_fqu, appname, config_path=config_path, proxy=proxy )
+        datastore_info = get_account_datastore_info( master_data_privkey, user_id, app_fqu, appname, config_path=config_path, proxy=proxy )
 
     else:
         log.debug("Datastore {} is a user datastore".format(datastore_id))
-        datastore_info = get_user_datastore_info( str(master_data_pubkey), master_data_privkey, user_id, datastore_name, config_path=config_path, proxy=proxy )
+        datastore_info = get_user_datastore_info( master_data_privkey, user_id, datastore_name, config_path=config_path, proxy=proxy )
 
     if 'error' in datastore_info:
         log.error("Failed to get datastore information")
@@ -302,7 +299,7 @@ def get_datastore_info( user_id, datastore_id, include_private=False, config_pat
     datastore = datastore_info['datastore']
     if include_private:
         datastore_privkey_hex = datastore_info['datastore_privkey']
-
+        
     ret = {
         'datastore': datastore,
         'datastore_privkey': datastore_privkey_hex,
@@ -311,8 +308,10 @@ def get_datastore_info( user_id, datastore_id, include_private=False, config_pat
         'appname': appname,
         'datastore_name': datastore_name,
         'master_data_pubkey': master_data_pubkey,
-        'master_data_privkey': master_data_privkey
     }
+    
+    if include_private:
+        ret['master_data_privkey'] = master_data_privkey
 
     return ret
 
@@ -555,11 +554,14 @@ def blockstack_data_url(field_dict):
     )
 
 
-def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH):
+def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH, wallet_keys=None):
     """
     Given a blockstack:// url, fetch its data.
     If the data is an immutable data url, and the hash is not given, then look up the hash first.
     If the data is a mutable data url, and the version is not given, then look up the version as well.
+
+    Data from datastores requires wallet_keys
+
     Return {"data": data} on success
     Return {"error": error message} on error
     """
@@ -593,8 +595,12 @@ def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH):
 
     if mutable:
         if user_id is not None and datastore_id is not None:
-            # get from datastore     
-            datastore_info = get_datastore_info(user_id, datastore_id, config_path=config_path, proxy=proxy)
+            # get from datastore
+            if wallet_keys is None:
+                raise PasswordRequiredException("need wallet keys to access data stores")
+
+            assert wallet_keys, "Need wallet keys to access data stores"
+            datastore_info = get_datastore_info(user_id, datastore_id, config_path=config_path, proxy=proxy, wallet_keys=wallet_keys)
             if 'error' in datastore_info:
                 return datastore_info
 
