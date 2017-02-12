@@ -2074,7 +2074,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if 'error' in request:
             return self._reply_json({'error': 'Invalid request'}, status_code=401)
 
-        address = request['address']
+        address = str(request['address'])
         amount = request.get('amount', None)
         min_confs = request.get('min_confs', None)
         tx_only = request.get('tx_only', False)
