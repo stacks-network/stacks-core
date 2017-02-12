@@ -683,6 +683,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         # total transfer, minus tx fee
         amount = total_value - tx_fee
         if amount < 0:
+            log.error("Dust: total value = {}, tx fee = {}".format(total_value, tx_fee))
             return {'error': 'Cannot withdraw dust'}
         
     else:
