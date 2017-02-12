@@ -61,7 +61,7 @@ from ..data import get_profile_timestamp, set_profile_timestamp
 
 from .crypto.utils import aes_decrypt, aes_encrypt
 
-from ..constants import SLEEP_INTERVAL, CONFIG_PATH, DEFAULT_QUEUE_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
+from ..constants import SLEEP_INTERVAL, CONFIG_PATH, DEFAULT_QUEUE_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, TX_MIN_CONFIRMATIONS
 from ..config import get_config, get_logger, url_to_host_port
 
 DEBUG = True
@@ -1088,7 +1088,7 @@ def get_wallet(rpc_token=None, config_path=None, proxy=None):
 
 
 # RPC method: backend_preorder
-def preorder(rpc_token, fqu, zonefile_data, profile, transfer_address, config_path=None, proxy=None):
+def preorder(rpc_token, fqu, zonefile_data, profile, transfer_address, min_payment_confs, config_path=None, proxy=None):
     """
     Send preorder transaction and enter it in queue.
     Queue up additional state so we can update and transfer it as well.
@@ -1100,6 +1100,9 @@ def preorder(rpc_token, fqu, zonefile_data, profile, transfer_address, config_pa
 
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     data = {}
+
+    if min_payment_confs is None:
+        min_payment_confs = TX_MIN_CONFIRMATIONS
 
     valid_rpc_token = get_rpc_token(config_path=config_path)
     if str(valid_rpc_token) != str(rpc_token):
