@@ -34,13 +34,15 @@ Each application specifies in advance which family of API calls it will need to 
 
 | Method | API Call | API family | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| Create an authorization token | POST /auth | - | Requires a pre-shared secret in the `Authorization:` header. |
+| Create an authorization token | GET /auth?authRequest={authRequestToken} | - | Requires a pre-shared secret in the `Authorization:` header. |
 
-The `POST /auth` endpoint expects a JSON document with at least the following fields defined:
+The `GET /auth` endpoint creates a session JWT for an account.  Accounts are identified by a persona and an application (where a persona is derived from the user's master data key).  This endpoint expects a JSON document with at least the following fields defined:
 ```
 {
-   'public_key': str    # the ECDSA public key of the account this token is for
-   'permissions': [str] # the list of "API families" that this token will enable.
+   'name': str          # the app developer's blockchain ID
+   'appname': str       # the app's DNS name (but can be arbitrary)
+   'user_id': str       # the ID of the persona 
+   'methods': [str]     # the list of "API families" that this token will enable.
 }
 ```
 
@@ -48,22 +50,21 @@ Blockstack Core session tokens are JWTs defined as follows.  They will be signed
 ```
 {
     'name': str       # app developer's blockchain ID
-    'appname': str    # app's DNS name
+    'appname': str    # app's DNS name (but can be arbitrary)
     'user_id': str    # persona identifier
     'methods': [str]  # the list of API families the bearer may call
-    'public_key': str # the ECDSA public key for the account
     'timestamp': int  # the time at which this token was created
     'expires': int    # the time at which this token expires
 }
 ```
 
-The token represents the rights of an account, identified by the (`name`, `appname`, `user_id`) tuple.  For example, (`name="storage.app"`, `appname="www.blockstack-storage.com"`, `user_id=jude_storage`) can be interpreted as "The account for user `jude_storage` in `storage.app`'s application `www.blockstack-storage.com`". 
+The token represents the rights of an account, identified by the (`name`, `appname`, `user_id`) tuple.  For example, (`name="storage.app"`, `appname="www.blockstack-storage.com"`, `user_id=jude_storage`) can be interpreted as "The account for user persona `jude_storage` in `storage.app`'s application `www.blockstack-storage.com`". 
 
-The `name` and `appname` fields identify the program that the token is for.  They are meant primarily for accounts of Web applications, where the client program needs to authenticate the `index.html` file using a `.blockstackrc` file in the same directory.  In this case, `name` will be used to look up the public key to verify the signed `.blockstackrc` file (e.g. `name` is the developer's blockchain ID), which will then be used to authenticate the `index.html` file.  The `appname` field is the name of a specific application whose data is signed by the `name`'s owner (for Web apps, this is the app's DNS name).
+The `name` and `appname` fields identify the program that the token is for.  They are meant primarily for accounts of Web applications where the client program will ask Blockstack to fetch and authenticate both the app's `index.html` file and a `.blockstackrc` file.  In this case, `name` will be used to look up the public key to verify the signed `.blockstackrc` file (e.g. `name` is the developer's blockchain ID), which will then be used to authenticate the `index.html` file.  The `appname` field is the name of a specific application whose data is signed by the `name`'s owner (for Web apps, this is the app's DNS name).
 
 The `user_id` field identifies user persona known to Blockstack Core (i.e. created with `blockstack create_user` or `POST /users`).  User personas are derived from the data private key in the wallet, and their public keys are replicated to the owner's storage providers by default (so other clients can look them up, given the `user_id` and the blockchain ID that points to the data public key).
 
-In practice, the wallet owner should create user personas to group accounts.  For example, a wallet owner might have a personal user and a business user.  An agent that wants to create tokens on behalf of other programs (like the Blockstack Browser) should create a user persona for itself, and use that persona to generate tokens for its clients.
+User personas represent collections of accounts.  For example, a wallet owner might have a personal user and a business user.  An agent that wants to create tokens on behalf of other programs (like the Blockstack Browser Portal) should create a user persona for itself, and use that persona to generate tokens for its Web clients.
 
 ## Naming API
 
@@ -85,7 +86,7 @@ In practice, the wallet owner should create user personas to group accounts.  Fo
 
 | Method | API Call | API family | Notes |
 | ------------- | ------------- | ------------- | ------------- |
-| Get names owned by address | GET /addresses/{address}/names | names | - |
+| Get names owned by address | GET /addresses/{address} | names | - |
 
 ### Namespaces
 
@@ -157,9 +158,3 @@ In practice, the wallet owner should create user personas to group accounts.  Fo
 | Get all collection items | GET /users/{userID}/collections/{collectionID} | collection_read | - | 
 | Create collection item | POST /users/{userID}/collections/{collectionID} | collection_write | - | 
 | Get collection item | GET /users/{userID}/collections/{collectionID}/{itemID} | collection_read | - | 
-
-### Resources
-
-| Method  | API Call | API family | Notes | 
-| ------------- | ------------- | ------------- | ------------- |
-| Get app resource | GET /appResources/{appID}/{resourceID} | resources | - | 
