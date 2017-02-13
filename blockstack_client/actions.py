@@ -663,7 +663,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         log.debug("recipient = {}".format(recipient_addr))
         return {'error': 'Invalid address'}
 
-    if amount is not None not isinstance(amount, int):
+    if amount is not None and not isinstance(amount, int):
         log.debug("amount = {}".format(amount))
         return {'error': 'Invalid amount'}
 
