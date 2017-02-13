@@ -1,13 +1,18 @@
 #Search
 
-Search server for blockchain ID
+The search subsystem for Blockstack Core creates an index for data associated
+with registered names in namespaces and makes that data searchable.
 
-Currently has two search sub-systems to handle search queries:
+The search subsystem is currently meant to index the .id namespace but can
+be easily expanded to include other namespaces.
 
-* Substring search on people usernames,full names,twitter_handle (powered by mongodb)
-* raw lucene index which handles profile bio search
+Currently there are two types of indexes to handle search queries:
 
-Search will currently return upto a max of 20 results (can be less depending on the query) with data that follows structure of [blockchain IDs](https://github.com/blockstack/blockchain-id):
+* Substring search on usernames, full names, twitter_handle (powered by MongoDB)
+* Raw Lucene index which handles searching extended data e.g., bio.
+
+Search will currently return upto a max of 20 results (can be less depending on the query)
+with data that follows structure of [blockstack IDs](https://github.com/blockstack/blockstack):
 
 ### Creating index:
 
