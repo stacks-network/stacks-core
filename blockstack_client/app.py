@@ -133,7 +133,7 @@ def app_account_path(user_id, app_fqu, appname, config_path=CONFIG_PATH):
     return account_path
 
 
-def app_accounts_list(config_path=CONFIG_PATH, data_pubkey_hex=None):
+def app_accounts_list(config_path=CONFIG_PATH, data_privkey_hex=None):
     """
     Get the list of all accounts
     Return a list of APP_ACCOUNT_SCHEMA-formatted objects
@@ -150,7 +150,7 @@ def app_accounts_list(config_path=CONFIG_PATH, data_pubkey_hex=None):
 
     for name in names:
         path = os.path.join( accounts_dir, name )
-        info = _app_load_account_path( path, data_pubkey_hex, config_path=config_path )
+        info = _app_load_account_path( path, data_privkey_hex, config_path=config_path )
         if 'error' in info:
             continue
 
@@ -159,7 +159,7 @@ def app_accounts_list(config_path=CONFIG_PATH, data_pubkey_hex=None):
     return ret
 
 
-def _app_load_account_path( account_path, data_pubkey_hex, config_path=CONFIG_PATH ):
+def _app_load_account_path( account_path, user_privkey_hex, config_path=CONFIG_PATH ):
     """
     Load and return the JWT for a account, given its path
     Return {'account: account jwt, 'account_token': token} on success
@@ -174,19 +174,23 @@ def _app_load_account_path( account_path, data_pubkey_hex, config_path=CONFIG_PA
         log.error("Failed to load {}".format(account_path))
         return {'error': 'Failed to read account'}
 
+    data = jsontokens.decode_token( jwt )
+    jsonschema.validate( data['payload'], APP_ACCOUNT_SCHEMA )
+
     # verify
-    if data_pubkey_hex is not None:
+    if user_privkey_hex is not None:
+        account_privkey_hex = app_account_get_privkey(user_privkey_hex, data['payload'], config_path=config_path)
+        account_pubkey_hex = get_pubkey_hex(account_privkey_hex)
+
         verifier = jsontokens.TokenVerifier()
-        valid = verifier.verify( jwt, str(data_pubkey_hex) )
+        valid = verifier.verify( jwt, str(account_pubkey_hex) )
         if not valid:
             return {'error': 'Failed to verify JWT data'}
 
-    data = jsontokens.decode_token( jwt )
-    jsonschema.validate( data['payload'], APP_ACCOUNT_SCHEMA )
     return {'account': data['payload'], 'account_token': jwt}
 
 
-def app_load_account( user_id, app_fqu, appname, user_pubkey_hex, config_path=CONFIG_PATH):
+def app_load_account( user_id, app_fqu, appname, user_privkey_hex, config_path=CONFIG_PATH):
     """
     Load the app account for the given (user_id, app owner name, appname) triple
     user_pubkey_hex is the user's public key.
@@ -202,7 +206,7 @@ def app_load_account( user_id, app_fqu, appname, user_pubkey_hex, config_path=CO
         return ACCOUNT_CACHE[account_name]
     
     path = app_account_path( user_id, app_fqu, appname, config_path=config_path)
-    res = _app_load_account_path( path, user_pubkey_hex, config_path=config_path )
+    res = _app_load_account_path( path, user_privkey_hex, config_path=config_path )
     if 'error' in res:
         return res
 
@@ -210,12 +214,12 @@ def app_load_account( user_id, app_fqu, appname, user_pubkey_hex, config_path=CO
     return res
 
 
-def app_find_accounts( user_id=None, app_fqu=None, appname=None, user_pubkey_hex=None, config_path=CONFIG_PATH ):
+def app_find_accounts( user_id=None, app_fqu=None, appname=None, user_privkey_hex=None, config_path=CONFIG_PATH ):
     """
     Find the list of accounts for a particular application
     Return the list of account IDs found
     """
-    infos = app_accounts_list(config_path=CONFIG_PATH, data_pubkey_hex=user_pubkey_hex)
+    infos = app_accounts_list(config_path=CONFIG_PATH, data_privkey_hex=user_privkey_hex)
 
     if user_id is not None:
         infos = filter( lambda ai: ai['user_id'] == user_id, infos )
@@ -247,7 +251,7 @@ def app_account_get_privkey( user_data_privkey_hex, app_account, config_path=CON
     return app_account_privkey
 
 
-def app_make_account_info( app_fqu, appname, api_methods, user_id, user_pubkey_hex, privkey_index, session_lifetime ):
+def app_make_account_info( app_fqu, appname, api_methods, user_id, account_pubkey_hex, privkey_index, session_lifetime ):
     """
     Create account information
     """
@@ -257,7 +261,7 @@ def app_make_account_info( app_fqu, appname, api_methods, user_id, user_pubkey_h
         'appname': appname,
         'methods': api_methods,
         'user_id': user_id,
-        'public_key': user_pubkey_hex,
+        'public_key': account_pubkey_hex,
         'privkey_index': privkey_index,
         'session_lifetime': session_lifetime
     }
@@ -279,14 +283,12 @@ def app_make_account( user_info, user_privkey_hex, app_fqu, appname, api_methods
 
     privkey_index = next_privkey_index_info['index']
 
-    hdwallet = HDWallet( hex_privkey=user_privkey_hex )
-    app_account_privkey = hdwallet.get_child_privkey( index=privkey_index )
-
+    app_account_privkey = app_account_get_privkey(user_privkey_hex, {'privkey_index': privkey_index}, config_path=config_path)
     info = app_make_account_info( app_fqu, appname, api_methods, user_info['user_id'], get_pubkey_hex(app_account_privkey), privkey_index, session_lifetime )
 
     # sign
     signer = jsontokens.TokenSigner()
-    token = signer.sign( info, user_privkey_hex )
+    token = signer.sign( info, app_account_privkey )
     return {'account': info, 'account_token': token}
 
 
@@ -353,16 +355,18 @@ def app_delete_account( user_id, app_fqu, appname, config_path=CONFIG_PATH):
     return {'status': True}
 
 
-def app_make_session( app_account, data_privkey_hex, config_path=CONFIG_PATH ):
+def app_make_session( app_account, master_data_privkey_hex, user_privkey_hex, config_path=CONFIG_PATH ):
     """
     Make a session JWT for this application.
+    Verify with user private key
+    Sign with master private key
     Return {'session': session jwt, 'session_token': session token} on success
     Return {'error': ...} on error
     """
     conf = get_config(path=config_path)
     default_lifetime = conf.get('default_session_lifetime', 1e80)
 
-    privkey = app_account_get_privkey( data_privkey_hex, app_account )
+    privkey = app_account_get_privkey( user_privkey_hex, app_account )
 
     ses = {
         'name': app_account['name'],
@@ -377,7 +381,7 @@ def app_make_session( app_account, data_privkey_hex, config_path=CONFIG_PATH ):
     jsonschema.validate(ses, APP_SESSION_SCHEMA)
 
     signer = jsontokens.TokenSigner()
-    session_token = signer.sign( ses, data_privkey_hex )
+    session_token = signer.sign( ses, master_data_privkey_hex )
     session = jsontokens.decode_token(session_token)
 
     return {'session': session, 'session_token': session_token}
@@ -710,7 +714,7 @@ def app_auth_begin( app_fqu, appname, app_url_payload, data_privkey, config_path
         return url
 
 
-def app_auth_finish( user_id, app_fqu, appname, data_pubkey, config_path=CONFIG_PATH):
+def app_auth_finish( user_id, app_fqu, appname, user_data_privkey, config_path=CONFIG_PATH):
     """
     Finish authenticating.
     Load up and return a session JWT
@@ -719,7 +723,7 @@ def app_auth_finish( user_id, app_fqu, appname, data_pubkey, config_path=CONFIG_
     """
 
     # load up the account...
-    info = app_load_account( user_id, app_fqu, appname, data_pubkey, config_path=config_path)
+    info = app_load_account( user_id, app_fqu, appname, user_data_privkey, config_path=config_path)
     if 'error' in info:
         log.error("Failed to load app account for {}".format(appname))
         return {'error': 'Failed to load app info'}
