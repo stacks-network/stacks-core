@@ -296,8 +296,17 @@ def tx_sign_multisig(tx, idx, redeem_script, private_keys, hashcode=bitcoin.SIGH
 
     TODO: move to virtualchain
     """
-    # sign in the right order
-    privs = {virtualchain.BitcoinPrivateKey(str(pk)).public_key().to_hex(): str(pk) for pk in private_keys}
+    # sign in the right order.  map all possible public keys to their private key 
+    privs = {}
+    for pk in private_keys:
+        pubk = keylib.ECPrivateKey(pk).public_key().to_hex()
+
+        compressed_pubkey = keylib.key_formatting.compress(pubk)
+        uncompressed_pubkey = keylib.key_formatting.decompress(pubk)
+
+        privs[compressed_pubkey] = pk
+        privs[uncompressed_pubkey] = pk
+
     m, public_keys = virtualchain.parse_multisig_redeemscript(str(redeem_script))
 
     used_keys, sigs = [], []
@@ -312,8 +321,6 @@ def tx_sign_multisig(tx, idx, redeem_script, private_keys, hashcode=bitcoin.SIGH
 
         pk_str = privs[public_key]
         used_keys.append(public_key)
-
-        pk_hex = virtualchain.BitcoinPrivateKey(str(pk_str)).to_hex()
 
         sig = tx_make_input_signature(tx, idx, redeem_script, pk_str, hashcode)
         sigs.append(sig)
