@@ -46,7 +46,7 @@ from .storage import hash_zonefile
 from .zonefile import get_name_zonefile, load_name_zonefile, url_to_uri_record, store_name_zonefile
 
 from .config import get_logger, get_config, get_local_device_id, get_all_device_ids
-from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, USER_LIST_SIGNING_KEY_INDEX, PRIVKEY_INDEX_SIGNING_KEY_INDEX, LOCAL_PRIVKEY_INDEX_NAME
+from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, USER_LIST_SIGNING_KEY_INDEX, PRIVKEY_INDEX_SIGNING_KEY_INDEX, LOCAL_PRIVKEY_INDEX_NAME, DATASTORE_SIGNING_KEY_INDEX
 from .schemas import *
 
 log = get_logger()
@@ -1347,6 +1347,18 @@ def datastore_get_user_id( datastore ):
     Get the datastore user ID
     """
     return datastore['user_id']
+
+
+def datastore_get_privkey( account_privkey, config_path=CONFIG_PATH ):
+    """
+    Make the datastore private key
+
+    It's hdpath is account_privkey/0'
+    """
+    
+    hdwallet = HDWallet( hex_privkey=account_privkey, config_path=config_path)
+    datastore_privkey = hdwallet.get_child_privkey( index=DATASTORE_SIGNING_KEY_INDEX )
+    return datastore_privkey
 
 
 def _make_datastore_info( datastore_type, user_id, datastore_name, datastore_privkey_hex, driver_names, device_ids, config_path=CONFIG_PATH ):
