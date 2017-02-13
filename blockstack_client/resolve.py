@@ -30,6 +30,7 @@ import base64
 import posixpath
 
 import data
+from keys import get_pubkey_hex
 import app
 import user as user_db
 import wallet
@@ -64,18 +65,21 @@ def _get_account_datastore_name(account_info):
     return datastore_name
 
 
-def get_account_datastore_creds( account_info, user_privkey_hex ):
+def get_account_datastore_creds( account_info, account_privkey_hex, config_path=CONFIG_PATH ):
     """
     Get an account datastore's name and private key
     """
-    datastore_privkey_hex = app.app_account_get_privkey( user_privkey_hex, account_info )
+    datastore_privkey_hex = data.datastore_get_privkey( account_privkey_hex, config_path=CONFIG_PATH )
+    if datastore_privkey_hex is None:
+        return {'error': 'Failed to load datastore private key'}
+
     user_id = account_info['user_id']
     datastore_name = _get_account_datastore_name(account_info)
 
     return {'user_id': user_id, 'datastore_name': datastore_name, 'datastore_privkey': datastore_privkey_hex}
 
 
-def get_account_datastore(account_info, proxy=None, config_path=CONFIG_PATH ):
+def get_account_datastore(account_info, account_privkey_hex, proxy=None, config_path=CONFIG_PATH ):
     """
     Get the datastore for the given account
     @account_info is the account information
@@ -84,7 +88,11 @@ def get_account_datastore(account_info, proxy=None, config_path=CONFIG_PATH ):
     """
     user_id = account_info['user_id']
     datastore_name = _get_account_datastore_name(account_info)
-    datastore_pubkey = str(account_info['public_key'])
+    datastore_privkey = data.datastore_get_privkey( account_privkey_hex, config_path=CONFIG_PATH )
+    if datastore_privkey is None:
+        return {'error': 'Failed to load datastore private key'}
+
+    datastore_pubkey = get_pubkey_hex(datastore_privkey)
     log.debug("Get account datastore {}".format(datastore_name))
     return data.get_datastore(user_id, datastore_name, datastore_pubkey, config_path=config_path, proxy=proxy ) 
 
@@ -107,8 +115,7 @@ def get_account_datastore_info( master_data_privkey, user_id, app_fqu, app_name,
     Get information about an account datastore.
     At least, get the user and account owner.
 
-    Return {'status': True, 'user': user, 'user_privkey': ..., 'account': account, 'datastore': ..., 'datastore_privkey': ...} on success.
-    If master_data_privkey is not given, then user_privkey and datastore_privkey will not be provided.
+    Return {'status': True, 'user': user, 'user_privkey': ..., 'account': account, 'account_privkey': ..., 'datastore': ..., 'datastore_privkey': ...} on success.
 
     Return {'error': ...} on failure
     """
@@ -130,25 +137,24 @@ def get_account_datastore_info( master_data_privkey, user_id, app_fqu, app_name,
     if user_privkey_hex is None:
         return {'error': 'Failed to load user private key'}
     
-    res = app.app_load_account(user_id, app_fqu, app_name, user['public_key'], config_path=config_path)
+    res = app.app_load_account(user_id, app_fqu, app_name, user_privkey_hex, config_path=config_path)
     if 'error' in res:
         return res
 
     acct = res['account']
+    acct_privkey_hex = app.app_account_get_privkey(user_privkey_hex, acct, config_path=config_path) 
+    if acct_privkey_hex is None:
+        return {'error': 'Failed to load account private key'}
 
-    res = get_account_datastore(acct, proxy=proxy, config_path=config_path)
+    res = get_account_datastore(acct, acct_privkey_hex, proxy=proxy, config_path=config_path)
     if 'error' in res:
         log.debug("Failed to get datastore for {}".format(user_id))
         return res
 
     datastore = res['datastore']
-    datastore_privkey_hex = None
-
-    if user_privkey_hex is not None:
-        datastore_privkey_hex = app.app_account_get_privkey( user_privkey_hex, acct )
-        if datastore_privkey_hex is None:
-            return {'error': 'Failed to load app account private key'}
-
+    datastore_privkey_hex = data.datastore_get_privkey( acct_privkey_hex, config_path=config_path )
+    if datastore_privkey_hex is None:
+        return {'error': 'Failed to load datastore private key'}
 
     ret = {
         'user': user,
@@ -162,6 +168,9 @@ def get_account_datastore_info( master_data_privkey, user_id, app_fqu, app_name,
 
     if datastore_privkey_hex is not None:
         ret['datastore_privkey'] = datastore_privkey_hex
+
+    if acct_privkey_hex is not None:
+        ret['account_privkey'] = acct_privkey_hex
 
     return ret
 
@@ -302,7 +311,6 @@ def get_datastore_info( user_id, datastore_id, wallet_keys, include_private=Fals
         
     ret = {
         'datastore': datastore,
-        'datastore_privkey': datastore_privkey_hex,
         'datastore_info': datastore_info,
         'app_fqu': app_fqu,
         'appname': appname,
@@ -312,6 +320,7 @@ def get_datastore_info( user_id, datastore_id, wallet_keys, include_private=Fals
     
     if include_private:
         ret['master_data_privkey'] = master_data_privkey
+        ret['datastore_privkey'] = datastore_privkey_hex
 
     return ret
 
