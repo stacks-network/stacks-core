@@ -34,7 +34,6 @@ from keylib.address_formatting import bin_hash160_to_address
 from keylib.key_formatting import compress, decompress
 from keylib.public_key_encoding import PubkeyType
 
-from .backend.crypto.utils import get_address_from_privkey
 from .backend.crypto.utils import aes_encrypt, aes_decrypt
 
 from keychain import PrivateKeychain
@@ -60,10 +59,6 @@ log = get_logger()
 # maps hex_privkey --> {key_index: child_key}
 KEY_CACHE = {}
 KEYCHAIN_CACHE = {}
-
-# LRU cache of hashes we've verified
-VERIFIER_CACHE = None
-
 
 class HDWallet(object):
     """
@@ -163,7 +158,8 @@ class HDWallet(object):
             return self.master_address
 
         hex_privkey = self.get_master_privkey()
-        return get_address_from_privkey(hex_privkey)
+        hex_pubkey = get_pubkey_hex(hex_privkey)
+        return keylib.public_key_to_address(hex_pubkey)
 
 
     def get_child_address(self, index=0):
@@ -178,7 +174,8 @@ class HDWallet(object):
             return self.child_addresses[index]
 
         hex_privkey = self.get_child_privkey(index)
-        return get_address_from_privkey(hex_privkey)
+        hex_pubkey = get_pubkey_hex(hex_privkey)
+        return keylib.public_key_to_address(hex_pubkey)
 
 
     def get_child_keypairs(self, count=1, offset=0, include_privkey=False):
