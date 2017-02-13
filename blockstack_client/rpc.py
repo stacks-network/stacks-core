@@ -43,6 +43,7 @@ import urllib2
 import re
 import base58
 import jsonschema
+import jsontokens
 from jsonschema import ValidationError
 from schemas import *
 
@@ -575,40 +576,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def app_make_session(self, user_id, app_fqu, appname):
-        """
-        Make a session for the application
-        Return the session token on success
-        Return None on error
-        """
-        user = data.get_user( user_id, self.server.master_data_pubkey, config_path=self.server.config_path )
-        if 'error' in user:
-            log.error("Failed to load user {}".format(user_id))
-            return None
-
-        # we have to own it locally
-        if not user['owned']:
-            log.error("This wallet does not own user {}".format(user_id))
-            return None
-
-        user_info = user['user']
-
-        acct = app.app_load_account( user_id, app_fqu, appname, user_info['public_key'], config_path=self.server.config_path)
-        if 'error' in acct:
-            log.error("Failed to load user for {}/{}".format(app_fqu, appname))
-            return None
-
-        # extract account payload
-        acct_info = acct['account']
-
-        ses = app.app_make_session( acct_info, self.server.master_data_privkey, config_path=self.server.config_path )
-        if 'error' in ses:
-            log.error("Failed to make session for {}/{}".format(app_fqu, appname))
-            return None
-
-        return ses['session_token']
-
-
     def parse_qs(self, qs):
         """
         Parse query string, but enforce one instance of each variable.
@@ -827,9 +794,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Invalid token")
             return self._send_headers(status_code=401, content_type='text/plain')
 
-        user_id = decoded_token['user_id']
-        app_fqu = decoded_token['name']
-        appname = decoded_token['appname']
+        payload = decoded_token['payload']
+        user_id = payload['user_id']
+        app_fqu = payload['name']
+        appname = payload['appname']
 
         internal = self.server.get_internal_proxy()
         res = internal.cli_app_signin( user_id, app_fqu, appname, self.server.master_data_privkey, config_path=self.server.config_path )
