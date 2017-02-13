@@ -134,7 +134,7 @@ from .utils import exit_with_error, satoshis_to_btc
 from .app import app_publish, app_make_resource_data_id, app_get_config, app_get_resource, \
         app_get_index_file, app_put_resource, app_account_get_privkey, app_load_account, app_make_account, \
         app_accounts_list, app_delete_account, app_store_account, app_account_name, app_account_parse_name, \
-        app_account_datastore_name, app_account_parse_datastore_name, app_find_accounts
+        app_account_datastore_name, app_account_parse_datastore_name, app_find_accounts, app_make_session
 
 from .data import datastore_mkdir, datastore_rmdir, make_datastore, get_datastore, put_datastore, delete_datastore, \
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir, datastore_stat, datastore_list, \
@@ -1307,7 +1307,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
         min_payment_confs = TX_MIN_CONFIRMATIONS
 
     if transfer_address:
-        if not re.match(schemas.OP_BASE58CHECK_PATTERN, transfer_address):
+        if not re.match(OP_BASE58CHECK_PATTERN, transfer_address):
             return {'error': 'Not a valid address'}
 
     if user_zonefile:
@@ -3944,11 +3944,15 @@ def cli_app_create_account( args, config_path=CONFIG_PATH, interactive=False, pr
         return res
 
     # make the account datastore
-    datastore_info = make_account_datastore( acct, user_privkey_hex, config_path=config_path )
+    account_privkey_hex = app_account_get_privkey(user_privkey_hex, acct, config_path=config_path)
+    if account_privkey_hex is None:
+        return {'error': 'Failed to load account private key'}
+
+    datastore_info = make_account_datastore( acct, account_privkey_hex, config_path=config_path )
     if 'error' in datastore_info:
         return datastore_info
 
-    res = put_account_datastore( acct, datastore_info, user_privkey_hex, proxy=proxy, config_path=config_path )
+    res = put_account_datastore( acct, datastore_info, account_privkey_hex, proxy=proxy, config_path=config_path )
     if 'error' in res:
         return res
 
@@ -3976,19 +3980,6 @@ def cli_app_signin(args, config_path=CONFIG_PATH, password=None):
     password = get_default_password(password)
     config_dir = os.path.dirname(config_path)
     
-    res = data.get_user(user_id, config_path=self.server.config_path)
-    if 'error' in res:
-        log.debug("could not load user {}".format(user_id))
-        return {'error': 'Failed to load user'}
-
-    user_info = res['user']
-    user_pubkey = user_info['public_key']
-
-    res = app_load_account( user_id, app_fqu, appname, user_pubkey, config_path=config_path )
-    if 'error' in res:
-        log.debug("could not load account {},{},{}".format(user_id, app_fqu, appname))
-        return {'error': 'Failed to load account'}
-
     if master_data_privkey is None:
         # RPC daemon must be running
         res = start_rpc_endpoint(config_dir, password=password)
@@ -4001,11 +3992,24 @@ def cli_app_signin(args, config_path=CONFIG_PATH, password=None):
 
         master_data_privkey = wallet_keys['data_privkey']
 
+    res = get_user(user_id, master_data_privkey, config_path=config_path)
+    if 'error' in res:
+        log.debug("could not load user {}".format(user_id))
+        return {'error': 'Failed to load user'}
+
+    user_info = res['user']
+    user_privkey = user_get_privkey( master_data_privkey, user_info, config_path=config_path)
+
+    res = app_load_account( user_id, app_fqu, appname, user_privkey, config_path=config_path )
+    if 'error' in res:
+        log.debug("could not load account {},{},{}".format(user_id, app_fqu, appname))
+        return {'error': 'Failed to load account'}
+
     acct = res['account']
-    res = app_make_session(acct, master_data_privkey, config_path=config_path)
+    res = app_make_session(acct, master_data_privkey, user_privkey, config_path=config_path)
     if 'error' in res:
         log.debug("failed to make session for {},{},{}".format(user_id, app_fqu, appname))
-        return self._reply_json({'error': 'Failed to create session'}, status_code=500)
+        return {'error': 'Failed to create session'}
 
     ses_token = res['session_token']
     return {'status': True, 'token': ses_token}
@@ -4032,8 +4036,9 @@ def _delete_account_info( user_id, app_fqu, appname, wallet_keys, config_path=CO
     acct = datastore_info['account']
     datastore = datastore_info['datastore']
     datastore_privkey_hex = datastore_info['datastore_privkey']
+    account_privkey_hex = datastore_info['account_privkey']
 
-    res = delete_account_datastore(acct, user_privkey_hex, force=False, config_path=config_path, proxy=proxy )
+    res = delete_account_datastore(acct, account_privkey_hex, force=False, config_path=config_path, proxy=proxy )
     if 'error' in res:
         return res
 
@@ -4211,7 +4216,7 @@ def cli_delete_user(args, proxy=None, password=None, wallet_keys=None, config_pa
         return {'error': 'Failed to get user private key'}
 
     # find and delete all accounts and account datastores
-    user_accts = app_find_accounts( user_id=user_id, user_pubkey_hex=str(user['public_key']), config_path=config_path )
+    user_accts = app_find_accounts( user_id=user_id, user_privkey_hex=user_privkey_hex, config_path=config_path )
     if 'error' in user_accts:
         return user_accts
 
@@ -4544,13 +4549,13 @@ def cli_remove_device_id( args, config_path=CONFIG_PATH, proxy=None ):
         return {'error': 'Failed to remove device'}
 
 
-def make_account_datastore(account_info, user_privkey_hex, driver_names=None, device_ids=None, config_path=CONFIG_PATH ):
+def make_account_datastore(account_info, account_privkey_hex, driver_names=None, device_ids=None, config_path=CONFIG_PATH ):
     """
     Create a datastore for a particular application account.
 
     Return {'datastore': datastore information, 'root': root inode}
     """
-    ds_info = get_account_datastore_creds(account_info, user_privkey_hex)
+    ds_info = get_account_datastore_creds(account_info, account_privkey_hex, config_path=config_path)
     user_id = ds_info['user_id']
     datastore_name = ds_info['datastore_name']
     datastore_privkey_hex = ds_info['datastore_privkey']
@@ -4558,7 +4563,7 @@ def make_account_datastore(account_info, user_privkey_hex, driver_names=None, de
     return make_datastore( user_id, datastore_name, datastore_privkey_hex, driver_names=driver_names, device_ids=device_ids, config_path=config_path )
 
 
-def put_account_datastore(account_info, datastore_info, user_privkey_hex, proxy=None, config_path=CONFIG_PATH ):
+def put_account_datastore(account_info, datastore_info, account_privkey_hex, proxy=None, config_path=CONFIG_PATH ):
     """
     Create and store a new datastore for the given account.
     @account_info is the account information
@@ -4566,7 +4571,7 @@ def put_account_datastore(account_info, datastore_info, user_privkey_hex, proxy=
     return {'status': True} on success
     return {'error': ...} on failure
     """
-    ds_info = get_account_datastore_creds(account_info, user_privkey_hex)
+    ds_info = get_account_datastore_creds(account_info, account_privkey_hex, config_path=config_path)
     user_id = ds_info['user_id']
     datastore_name = ds_info['datastore_name']
     datastore_privkey_hex = ds_info['datastore_privkey']
@@ -4585,7 +4590,7 @@ def put_user_datastore(user_info, datastore_name, datastore_info, user_privkey_h
     return put_datastore(user_id, datastore_name, datastore_info, user_privkey_hex, proxy=None, config_path=CONFIG_PATH )
 
 
-def delete_account_datastore(account_info, user_privkey_hex, rmtree=True, force=False, config_path=CONFIG_PATH, proxy=None ):
+def delete_account_datastore(account_info, account_privkey_hex, rmtree=True, force=False, config_path=CONFIG_PATH, proxy=None ):
     """
     Delete an account datastore
     If rmtree is True, then the datastore will be emptied first.
@@ -4593,14 +4598,14 @@ def delete_account_datastore(account_info, user_privkey_hex, rmtree=True, force=
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-    ds_info = get_account_datastore_creds(account_info, user_privkey_hex)
+    ds_info = get_account_datastore_creds(account_info, account_privkey_hex, config_path=config_path)
     user_id = ds_info['user_id']
     datastore_name = ds_info['datastore_name']
     datastore_privkey = ds_info['datastore_privkey']
 
     # clear the datastore
     if rmtree:
-        datastore_rec = get_account_datastore(account_info, proxy=proxy, config_path=config_path)
+        datastore_rec = get_account_datastore(account_info, account_privkey_hex, proxy=proxy, config_path=config_path)
         if 'error' in datastore_rec:
             return datastore_rec
         
@@ -4804,6 +4809,7 @@ def datastore_file_get(datastore_type, user_id, datastore_id, path, proxy=None, 
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    config_dir = os.path.dirname(config_path)
     password = get_default_password(password)
 
     if wallet_keys is None:
@@ -4936,7 +4942,8 @@ def datastore_path_stat(datastore_type, user_id, datastore_id, path, proxy=None,
     """
     if proxy is None:
         proxy = get_default_proxy(config_path)
-
+    
+    config_dir = os.path.dirname(config_path)
     password = get_default_password(password)
     if wallet_keys is None:
         # RPC daemon must be running 
