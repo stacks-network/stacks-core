@@ -663,7 +663,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         log.debug("recipient = {}".format(recipient_addr))
         return {'error': 'Invalid address'}
 
-    if not isinstance(amount, int):
+    if amount is not None not isinstance(amount, int):
         log.debug("amount = {}".format(amount))
         return {'error': 'Invalid amount'}
 
@@ -2707,6 +2707,7 @@ def cli_api(args, config_path=CONFIG_PATH):
     command: api
     help: Control the RESTful API endpoint
     arg: command (str) '"start", "stop", or "status"'
+    opt: secret (str) 'The password all RPC callers must use. Defaults to rpc_token in the config file.'
     """
 
     config_dir = CONFIG_DIR
