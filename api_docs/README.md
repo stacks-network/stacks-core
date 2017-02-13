@@ -1,3 +1,10 @@
+Blockstack Core API
+=========
+
+The Blockstack REST APIv1 is defined here. See [development status](https://github.com/blockstack/blockstack-core/milestone/6). 
+
+Blockstack Core v0.13 and earlier had an RPC interface. Starting from Blockstack Core v0.14, we'll focus on the new REST API as the primary interface. We're also consolidating various Blockstack services, like the resolver and search, into a single interface. 
+ 
 # Blockstack Specifications
 
 ## Dashboard Endpoints
