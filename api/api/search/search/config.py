@@ -4,8 +4,8 @@
     Search
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2017 by Blockstack Inc.
+    copyright: (c) 2017 by Blockstack.org
 
 This file is part of Search.
 
@@ -45,8 +45,9 @@ BLOCKCHAIN_STATE_FILENAME = "data/blockchain_state.json"
 DHT_STATE_FILENAME = "data/dht_state.json"
 
 current_dir = os.path.abspath(os.path.dirname(__file__))
-BLOCKCHAIN_STATE_FILE = os.path.join(current_dir, BLOCKCHAIN_STATE_FILENAME)
-DHT_STATE_FILE = os.path.join(current_dir, DHT_STATE_FILENAME)
+parent_dir = os.path.abspath(current_dir + "/../")
+BLOCKCHAIN_STATE_FILE = os.path.join(parent_dir, BLOCKCHAIN_STATE_FILENAME)
+DHT_STATE_FILE = os.path.join(parent_dir, DHT_STATE_FILENAME)
 
 SUPPORTED_PROOFS = ['twitter', 'facebook', 'github', 'domain']
 
