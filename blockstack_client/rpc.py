@@ -970,6 +970,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if min_confs < 0:
             min_confs = 0
 
+        if min_confs != TX_MIN_CONFIRMATIONS:
+            log.warning("Using payment UTXOs with as few as {} confirmations".format(min_confs))
+
         res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs, interactive=False, force_data=True)
         if 'error' in res:
             log.error("Failed to register {}".format(name))
