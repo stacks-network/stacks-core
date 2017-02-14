@@ -151,7 +151,7 @@ def find_arg(argv, has_arg, short_opt, long_opt):
                     arg = argv[i + 1]
                     argv.pop(i)
                     argv.pop(i)
-                    print('found {}/{} at {} ({})'.format(short_opt, long_opt, i, arg))
+                    # print('found {}/{} at {} ({})'.format(short_opt, long_opt, i, arg))
                     return (argv, arg)
 
                 else:
@@ -231,6 +231,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
     if cli_config_argv or cli_debug:
         # re-exec to reset variables
+        print("Re-exec {} with {}".format(argv[0], argv))
         os.execv( argv[0], argv )
 
     # do one-time opt-in request
