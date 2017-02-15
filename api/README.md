@@ -1,10 +1,3 @@
-Blockstack Core API
-=========
-
-The Blockstack REST APIv1 is defined here. See the [development status](https://github.com/blockstack/blockstack-core/milestone/6). 
-
-Blockstack Core v0.13 and earlier had an RPC interface. Starting from Blockstack Core v0.14, we'll focus on the new REST API as the primary interface. We're also consolidating various Blockstack services, like the resolver and search, into a single interface. 
- 
 # Blockstack Specifications
 
 ## Dashboard Endpoints
@@ -35,7 +28,8 @@ Each application specifies in advance which family of API calls it will need to 
 | ------------- | ------------- | ------------- | ------------- |
 | Get wallet payment address | GET /wallet/payment_address | wallet_read | - |
 | Get wallet owner address | GET /wallet/owner_address | wallet_read | - |
-| Set the wallet | PUT /wallet/private | - | Requires a pre-shared secret in the `Authorization:` header |
+| Set the wallet | PUT /wallet/keys | - | Requires a pre-shared secret in the `Authorization:` header |
+| Get the wallet | GET /wallet/keys | - | Requires a pre-shared secret in the `Authorization:` header |
 
 ### Authorization
 
@@ -46,32 +40,24 @@ Each application specifies in advance which family of API calls it will need to 
 The `GET /auth` endpoint creates a session JWT for an account.  Accounts are identified by a persona and an application (where a persona is derived from the user's master data key).  This endpoint expects a JSON document with at least the following fields defined:
 ```
 {
-   'name': str          # the app developer's blockchain ID
-   'appname': str       # the app's DNS name (but can be arbitrary)
-   'user_id': str       # the ID of the persona 
-   'methods': [str]     # the list of "API families" that this token will enable.
+   'app_domain': str        # the name of the application (DNS name or blockchain ID)
+   'app_user_id': str       # the public key the user will use for this application
+   'methods': [str]         # the list of "API families" that this token will enable.
 }
 ```
 
-Blockstack Core session tokens are JWTs defined as follows.  They will be signed by the data private key in the wallet:
+Blockstack Core session tokens are JWTs defined as follows.  They will be signed by the data private key in its wallet:
 ```
 {
-    'name': str       # app developer's blockchain ID
-    'appname': str    # app's DNS name (but can be arbitrary)
-    'user_id': str    # persona identifier
+    'app_domain': str    # same as ablve
+    'app_user_id': str   # same as above
     'methods': [str]  # the list of API families the bearer may call
     'timestamp': int  # the time at which this token was created
     'expires': int    # the time at which this token expires
 }
 ```
 
-The token represents the rights of an account, identified by the (`name`, `appname`, `user_id`) tuple.  For example, (`name="storage.app"`, `appname="www.blockstack-storage.com"`, `user_id=jude_storage`) can be interpreted as "The account for user persona `jude_storage` in `storage.app`'s application `www.blockstack-storage.com`". 
-
-The `name` and `appname` fields identify the program that the token is for.  They are meant primarily for accounts of Web applications where the client program will ask Blockstack to fetch and authenticate both the app's `index.html` file and a `.blockstackrc` file.  In this case, `name` will be used to look up the public key to verify the signed `.blockstackrc` file (e.g. `name` is the developer's blockchain ID), which will then be used to authenticate the `index.html` file.  The `appname` field is the name of a specific application whose data is signed by the `name`'s owner (for Web apps, this is the app's DNS name).
-
-The `user_id` field identifies user persona known to Blockstack Core (i.e. created with `blockstack create_user` or `POST /users`).  User personas are derived from the data private key in the wallet, and their public keys are replicated to the owner's storage providers by default (so other clients can look them up, given the `user_id` and the blockchain ID that points to the data public key).
-
-User personas represent collections of accounts.  For example, a wallet owner might have a personal user and a business user.  An agent that wants to create tokens on behalf of other programs (like the Blockstack Browser Portal) should create a user persona for itself, and use that persona to generate tokens for its Web clients.
+**Notes for Web developers**.  The `app_domain` should be a DNSSEC-secured DNS name, or a blockchain ID.  Either way, it must refer to a zone file with a `TXT` record that has a public key.  Core will fetch this public key, and use it to verify the signature of a `.blockstackrc` file hosted in the same directory as the application's `index.html` file.  This `.blockstackrc` file contains the hash of the `index.html` file, as well as other application assets. 
 
 ## Naming API
 
@@ -127,15 +113,19 @@ User personas represent collections of accounts.  For example, a wallet owner mi
 
 ### Users
 
+Here, `{userID}` is the address of the user's public key in his/her zone file.
+
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
-| Get all users | GET /users | user_admin | - | 
-| Create user | POST /users | user_admin | Payload: {"user_id": USER_ID, "profile": PROFILE} | 
+| Create user profile | POST /users | user_admin | Payload: {"user_id": USER_ID, "profile": PROFILE} | 
 | Get user profile | GET /users/{userID} | users | Only works on the session's designated user. | 
-| Delete user | DELETE /users/{userID} | user_admin | - | 
+| Delete user profile | DELETE /users/{userID} | user_admin | - | 
 | Update profile | PATCH /users/{userID} | user_admin | Payload: {"profile": PROFILE }.  Only works on the session's designiated user. | 
 
 ### User Stores
+
+Here, `{userID}` is the address of the user's public key in his/her zone file.
+The `{storeID}` is the address of the `app_user_id` public key in the session token.
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
@@ -157,6 +147,8 @@ User personas represent collections of accounts.  For example, a wallet owner mi
 | Delete file (rm) | DELETE /users/{userID}/stores/{storeID}/files?path={path} | store_write | - | 
 
 ### User Collections
+
+Here, `{userID}` is the address of the user's public key in his/her zone file.
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
