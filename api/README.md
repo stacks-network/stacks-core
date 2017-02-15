@@ -117,8 +117,8 @@ Here, `{userID}` is the address of the user's public key in his/her zone file.
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
-| Create user profile | POST /users | user_admin | Payload: {"user_id": USER_ID, "profile": PROFILE} | 
-| Get user profile | GET /users/{userID} | users | Only works on the session's designated user. | 
+| Create user profile | POST /users | user_admin | Payload: {"name": NAME, "profile": PROFILE} | 
+| Get user profile | GET /users/{userID} | user_read | - | 
 | Delete user profile | DELETE /users/{userID} | user_admin | - | 
 | Update profile | PATCH /users/{userID} | user_admin | Payload: {"profile": PROFILE }.  Only works on the session's designiated user. | 
 
