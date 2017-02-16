@@ -49,7 +49,7 @@ Blockstack Core session tokens are JWTs defined as follows.  They will be signed
 ```
 {
     'app_domain': str    # same as above
-    'app_user_id': str   # same as above
+    'app_user_id': str   # public key of an app-specific hardened child private key
     'methods': [str]  # the list of API families the bearer may call
     'timestamp': int  # the time at which this token was created
     'expires': int    # the time at which this token expires
@@ -110,27 +110,24 @@ Blockstack Core session tokens are JWTs defined as follows.  They will be signed
 
 ## Identity API
 
-Here, `{userID}` is a name.
+TODO:  We need to figure out what `{userID}` and `{storeID}` are.  I think this should be the address of `app_user_id`, since then it would be unlinkable to the data private key (i.e. `app_user_id` is the public key of a hardened child of the master private key).  `{storeID}` should similarly be the address of the datastore public key, since the datastore private key would be a hardened child of `app_user_id`'s private key.
 
-TODO: `{userID}` could be derived from the session, somehow.  If `{userID}` is a name, then the application is going to need to get it from the user.  More generally, if the application is going to do something on behalf of the user, like storing persistent state, then the user is going to need to give the application something that identifies his/her public key.
+I like the idea of using the datastore's public key's address as `{storeID}`, since we can also use it to verify the authenticity of the datastore metadata record.
 
-Alternatives to `{userID}` could be:
-
-* the address of the user's data public key (UNSAFE TO SHARE--can reverse-lookup to find name).
-* the address of the `app_user_id` public key
-
-Also, I'm not sure what `{storeID}` should be, if not the address of `app_user_id` (i.e. equal to `{userID}`).
+TODO: We need a way for an application to ask for a specific blockchain ID that identifies the user.  This is not yet covered by any endpoints.
 
 ### Users
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
-| Create user profile | POST /users | user_admin | Payload: {"name": NAME, "profile": PROFILE} | 
-| Get user profile | GET /users/{userID} | user_read | TODO: for which name? | 
-| Delete user profile | DELETE /users/{userID} | user_admin | TODO: for which name? | 
-| Update profile | PATCH /users/{userID} | user_admin | Payload: {"name": NAME, "profile": PROFILE }. | 
+| Create user profile | POST /users | user_admin | Payload: {"blockchain_id": NAME, "profile": PROFILE} | 
+| Get user profile | GET /users/{userID} | user_read | TODO: could this be a generic `lookup` endpoint? | 
+| Delete user profile | DELETE /users/{userID} | user_admin | TODO: caller needs the blockchain ID | 
+| Update profile | PATCH /users/{userID} | user_admin | Payload: {"blockchain_id": NAME, "profile": PROFILE }. | 
 
 ### User Stores
+
+TODO: `{userID}` and `{storeID}` are not used on the write paths, since the caller (the application) should only be able to modify its own datastore.  We can ignore them precisely because they can be independently derived with the data private key and the session token fields.  However, we could use `{userID}` and `{storeID}` in the endpoint to NACK writes from unauthorized token bearers.
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
