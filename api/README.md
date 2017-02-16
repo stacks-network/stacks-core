@@ -49,7 +49,7 @@ Blockstack Core session tokens are JWTs defined as follows.  They will be signed
 ```
 {
     'app_domain': str    # same as above
-    'app_user_id': str   # public key of an app-specific hardened child private key
+    'app_user_id': str   # public key address of an app-specific hardened child private key
     'methods': [str]  # the list of API families the bearer may call
     'timestamp': int  # the time at which this token was created
     'expires': int    # the time at which this token expires
