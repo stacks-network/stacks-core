@@ -110,7 +110,7 @@ Blockstack Core session tokens are JWTs defined as follows.  They will be signed
 
 ## Identity API
 
-TODO:  We need to figure out what `{userID}` and `{storeID}` are.  I think this should be the address of `app_user_id`, since then it would be unlinkable to the data private key (i.e. `app_user_id` is the public key of a hardened child of the master private key).  `{storeID}` should similarly be the address of the datastore public key, since the datastore private key would be a hardened child of `app_user_id`'s private key.
+TODO:  We need to figure out what `{userID}` and `{storeID}` are.  I think this should be the address of the key used to create `app_user_id`, since then it would be unlinkable to the data private key (i.e. `app_user_id` derived from a hardened child of the master private key).  `{storeID}` should similarly be the address of the datastore public key, since the datastore private key would be a hardened child of `app_user_id`'s private key.
 
 I like the idea of using the datastore's public key's address as `{storeID}`, since we can also use it to verify the authenticity of the datastore metadata record.
 
