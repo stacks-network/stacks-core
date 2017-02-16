@@ -127,14 +127,14 @@ TODO: We need a way for an application to ask for a specific blockchain ID that 
 
 ### User Stores
 
-TODO: `{userID}` and `{storeID}` are not used on the write paths, since the caller (the application) should only be able to modify its own datastore.  We can ignore them precisely because they can be independently derived with the data private key and the session token fields.  However, we could use `{userID}` and `{storeID}` in the endpoint to NACK writes from unauthorized token bearers.
+TODO: `{userID}` and `{storeID}` are not used in the `store_write` API family, since the caller (the application) should only be able to modify its own datastore.  We can ignore them precisely because they can be independently derived with the data private key and the session token fields.  However, we could use `{userID}` and `{storeID}` in the endpoint to NACK writes from unauthorized token bearers.
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
-| Get all stores | GET /users/{userID}/stores | store_admin | - | 
-| Create store | POST /users/{userID}/stores | store_write | Creates a datastore for the application indicated by the session (akin to creating an account) | 
-| Get store | GET /users/{userID}/stores/{storeID} | store_admin | Gets the datastore metadata | 
-| Update store | PUT /users/{userID}/stores/{storeID} | store_write | Updates the datastore for the application indicated by the session | 
+| Get all stores | GET /users/{userID}/stores | store_admin | TODO: drop this method; no way to easily implement it (and we probably don't want to for privacy and scalability reasons).  Compromise option: this lists all datastores created by this device. | 
+| Create store | POST /users/{userID}/stores | store_write | Creates a datastore for the application indicated by the session (akin to instantiating one's account) | 
+| Get store | GET /users/{userID}/stores/{storeID} | store_admin | Gets arbitrary datastore metadata | 
+| Update store | PUT /users/{userID}/stores/{storeID} | store_admin | Updates arbitrary datastore metadata.  Payload: {"device_ids": [uuids], "drivers": [driver names]} | 
 | Delete store | DELETE /users/{userID}/stores/{storeID} | store_write | Deletes the datastore for the application indicated by the session (akin to deleting one's account) | 
 | - | - | - | - |
 | Get inode info (stat) | GET /users/{userID}/stores/{storeID}/inodes?path={path} | store_read | - | 
@@ -154,7 +154,7 @@ TODO: work out precise semantics here
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
-| Get all collections | GET /users/{userID}/collections | collection_read | - | 
+| Get all collections | GET /users/{userID}/collections | collection_read | TODO: drop this method too (unless we have a canonical list of collections) | 
 | Create collection | POST /users/{userID}/collections | collection_admin | - | 
 | Get all collection items | GET /users/{userID}/collections/{collectionID} | collection_read | - | 
 | Create collection item | POST /users/{userID}/collections/{collectionID} | collection_write | - | 
