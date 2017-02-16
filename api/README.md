@@ -41,7 +41,6 @@ The `GET /auth` endpoint creates a session JWT for an account.  Accounts are ide
 ```
 {
    'app_domain': str        # the name of the application (DNS name or blockchain ID)
-   'app_user_id': str       # the public key the user will use for this application
    'methods': [str]         # the list of "API families" that this token will enable.
 }
 ```
@@ -49,7 +48,7 @@ The `GET /auth` endpoint creates a session JWT for an account.  Accounts are ide
 Blockstack Core session tokens are JWTs defined as follows.  They will be signed by the data private key in its wallet:
 ```
 {
-    'app_domain': str    # same as ablve
+    'app_domain': str    # same as above
     'app_user_id': str   # same as above
     'methods': [str]  # the list of API families the bearer may call
     'timestamp': int  # the time at which this token was created
@@ -111,44 +110,50 @@ Blockstack Core session tokens are JWTs defined as follows.  They will be signed
 
 ## Identity API
 
-### Users
+Here, `{userID}` is a name.
 
-Here, `{userID}` is the address of the user's public key in his/her zone file.
+TODO: `{userID}` could be derived from the session, somehow.  If `{userID}` is a name, then the application is going to need to get it from the user.  More generally, if the application is going to do something on behalf of the user, like storing persistent state, then the user is going to need to give the application something that identifies his/her public key.
+
+Alternatives to `{userID}` could be:
+
+* the address of the user's data public key (UNSAFE TO SHARE--can reverse-lookup to find name).
+* the address of the `app_user_id` public key
+
+Also, I'm not sure what `{storeID}` should be, if not the address of `app_user_id` (i.e. equal to `{userID}`).
+
+### Users
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
 | Create user profile | POST /users | user_admin | Payload: {"name": NAME, "profile": PROFILE} | 
-| Get user profile | GET /users/{userID} | user_read | - | 
-| Delete user profile | DELETE /users/{userID} | user_admin | - | 
-| Update profile | PATCH /users/{userID} | user_admin | Payload: {"profile": PROFILE }.  Only works on the session's designiated user. | 
+| Get user profile | GET /users/{userID} | user_read | TODO: for which name? | 
+| Delete user profile | DELETE /users/{userID} | user_admin | TODO: for which name? | 
+| Update profile | PATCH /users/{userID} | user_admin | Payload: {"name": NAME, "profile": PROFILE }. | 
 
 ### User Stores
-
-Here, `{userID}` is the address of the user's public key in his/her zone file.
-The `{storeID}` is the address of the `app_user_id` public key in the session token.
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
 | Get all stores | GET /users/{userID}/stores | store_admin | - | 
-| Create store | POST /users/{userID}/stores | store_admin | Payload: {'storeID': store ID} | 
-| Get store | GET /users/{userID}/stores/{storeID} | store_admin | - | 
-| Update store | PUT /users/{userID}/stores/{storeID} | store_admin | - | 
-| Delete store | DELETE /users/{userID}/stores/{storeID} | store_admin | - | 
+| Create store | POST /users/{userID}/stores | store_write | Creates a datastore for the application indicated by the session (akin to creating an account) | 
+| Get store | GET /users/{userID}/stores/{storeID} | store_admin | Gets the datastore metadata | 
+| Update store | PUT /users/{userID}/stores/{storeID} | store_write | Updates the datastore for the application indicated by the session | 
+| Delete store | DELETE /users/{userID}/stores/{storeID} | store_write | Deletes the datastore for the application indicated by the session (akin to deleting one's account) | 
 | - | - | - | - |
 | Get inode info (stat) | GET /users/{userID}/stores/{storeID}/inodes?path={path} | store_read | - | 
 | - | - | - | - |
 | Get directory files (ls) | GET /users/{userID}/stores/{storeID}/directories?path={path} | store_read | - | 
-| Create directory (mkdir) | POST /users/{userID}/stores/{storeID}/directories?path={path} | store_write | - | 
-| Delete directory (rmdir) | DELETE /users/{userID}/stores/{storeID}/directories?path={path} | store_write | - | 
+| Create directory (mkdir) | POST /users/{userID}/stores/{storeID}/directories?path={path} | store_write | Only works on the datastore for the application indicated by the session | 
+| Delete directory (rmdir) | DELETE /users/{userID}/stores/{storeID}/directories?path={path} | store_write | Only works on the datastore for the application indicated by the session | 
 | - | - | - | - |
 | Get file data (open) | GET /users/{userID}/stores/{storeID}/files?path={path} | store_read | - | 
-| Create file | POST /users/{userID}/stores/{storeID}/files?path={path} | store_write | Uploads `application/octet-stream` raw file data | 
-| Update file | PUT /users/{userID}/stores/{storeID}/files?path={path} | store_write | Uploads `application/octet-stream` raw file data | 
-| Delete file (rm) | DELETE /users/{userID}/stores/{storeID}/files?path={path} | store_write | - | 
+| Create file | POST /users/{userID}/stores/{storeID}/files?path={path} | store_write | Uploads `application/octet-stream` raw file data.  Only works on the datastore for the application indicated by the session. | 
+| Update file | PUT /users/{userID}/stores/{storeID}/files?path={path} | store_write | Uploads `application/octet-stream` raw file data.  Only works on the datastore for the application indicated by the session. | 
+| Delete file (rm) | DELETE /users/{userID}/stores/{storeID}/files?path={path} | store_write | Only works on the datastore for the application indicated by the session | 
 
 ### User Collections
 
-Here, `{userID}` is the address of the user's public key in his/her zone file.
+TODO: work out precise semantics here
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
