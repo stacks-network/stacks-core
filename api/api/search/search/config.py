@@ -7,20 +7,20 @@
     copyright: (c) 2014-2017 by Blockstack Inc.
     copyright: (c) 2017 by Blockstack.org
 
-This file is part of Search.
+This file is part of Blockstack.
 
-    Search is free software: you can redistribute it and/or modify
+    Blockstack is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Search is distributed in the hope that it will be useful,
+    Blockstack is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    along with Search. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
 import os
@@ -41,13 +41,13 @@ MEMCACHED_TIMEOUT = 6 * 60 * 60
 RESOLVER_URL = 'http://resolver.onename.com'
 ALL_USERS_ENDPOINT = '/v2/users'
 
-BLOCKCHAIN_STATE_FILENAME = "data/blockchain_state.json"
-DHT_STATE_FILENAME = "data/dht_state.json"
+BLOCKCHAIN_DATA_FILENAME = "data/blockchain_data.json"
+PROFILE_DATA_FILENAME = "data/profile_data.json"
 
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
-BLOCKCHAIN_STATE_FILE = os.path.join(parent_dir, BLOCKCHAIN_STATE_FILENAME)
-DHT_STATE_FILE = os.path.join(parent_dir, DHT_STATE_FILENAME)
+BLOCKCHAIN_DATA_FILE = os.path.join(parent_dir, BLOCKCHAIN_DATA_FILENAME)
+PROFILE_DATA_FILE = os.path.join(parent_dir, PROFILE_DATA_FILENAME)
 
 SUPPORTED_PROOFS = ['twitter', 'facebook', 'github', 'domain']
 

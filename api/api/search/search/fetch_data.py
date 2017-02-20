@@ -29,8 +29,10 @@ import json
 from .utils import validUsername
 from .utils import get_json, config_log
 
-from .config import RESOLVER_URL, ALL_USERS_ENDPOINT
-from .config import BLOCKCHAIN_STATE_FILE, DHT_STATE_FILE
+from .config import BLOCKCHAIN_DATA_FILE, PROFILE_DATA_FILE
+
+from blockstack_client.proxy import get_all_names
+from blockstack_client.profile import get_name_profile
 
 log = config_log(__name__)
 
@@ -38,23 +40,58 @@ log = config_log(__name__)
 def fetch_namespace():
     """
         Fetch all names in a namespace that should be indexed.
-        Data is saved in: data/namespace_data.json
+        Data is saved in data/ directory
     """
-    
+
+    resp = get_all_names()
+
+    fout = open(BLOCKCHAIN_DATA_FILE, 'w')
+    fout.write(json.dumps(resp))
+    fout.close()
+
     return
 
 
 def fetch_profiles():
-    """ 
+    """
         Fetch profile data using Blockstack Core and save the data.
         Data is saved in: data/profile_data.json
-        Format of the data is <key, value>
-        * key: fqu
-        * value: json profile data
+        Format of the data is <fqu, profile>
+        * fqu: fully-qualified name
+        * profile: json profile data
     """
 
+    fin = open(BLOCKCHAIN_DATA_FILE, 'r')
+    file = fin.read()
+    fin.close()
+
+    all_names = json.loads(file)
+
+    all_profiles = []
+
+    counter = 0
+
+    for fqu in all_names:
+
+        resp = {}
+        resp['fqu'] = fqu
+
+        try:
+            resp['profile'] = get_name_profile(fqu)[0]
+            all_profiles.append(resp)
+        except:
+            pass
+
+        counter += 1
+        if counter % 100 == 0:
+            print counter
+
+    fout = open(PROFILE_DATA_FILE, 'w')
+    fout.write(json.dumps(all_profiles))
+    fout.close()
+
     return
-    
+
 
 if __name__ == "__main__":
 
@@ -66,7 +103,7 @@ if __name__ == "__main__":
 
     if(option == '--fetch_namespace'):
         # Step 1
-        flush_namespace()
+        fetch_namespace()
 
     elif(option == '--fetch_profiles'):
         # Step 2
