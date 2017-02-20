@@ -14,21 +14,36 @@ Currently there are two types of indexes to handle search queries:
 Search will currently return upto a max of 20 results (can be less depending on the query)
 with data that follows structure of [blockstack IDs](https://github.com/blockstack/blockstack):
 
-### Creating index:
+# Installation
+
+- **Step 1:** Make sure you have Blockstack Core running locally (see [instructions](https://github.com/blockstack/blockstack-core/blob/master/README.md#quick-start)). We highly
+recommend using a local node because the search subsystem issues thousands of calls to 
+Blockstack Core for re-indexing and remote nodes can slow down performance. 
+
+- **Step 2:** Fetch the data for the .id namespace and respective profiles:
+
+```
+$ python -m search.fetch_data --fetch_namespace
+
+$ python -m search.fetch_data --fetch_profiles
+```
+
+- **Step 3:** Create the search index:
 
 ```
 python -m search.basic_index --refresh
 ```
-### Quick Testing
 
-Using search from command line
+# Usage
+
+You can quickly test the search index from the command line:
 
 ```
 python -m search.substring_search --search_name "Fred Wil"
 python -m search.substring_search --search_twitter fredwil
 ```
 
-Usage:
+You can also use the search API end-point:
 
 > curl -G {machine_ip}:port/search/name -d "query=muneeb" 
 
@@ -39,29 +54,33 @@ Sample Response:
   "people": [
    {
       "profile": {
-        "avatar": {
-          "url": "https://s3.amazonaws.com/kd4/emadelwany"
-        }, 
-        "bio": "Co-founder @Onename (YC S14) w/ @Ryaneshea. Final-year PhD candidate @Princeton. Love NYC, coffee shops, and building things", 
-        "bitcoin": {
-          "address": "1DTRDHkWt3xyhrMCRHz1XV5DjCe9VxRoRW"
-        }, 
-        "cover": {
-          "url": "https://s3.amazonaws.com/dx3/emadelwany"
-        }, 
-        "location": {
-          "formatted": "New York"
-        }, 
-        "name": {
-          "formatted": "Muneeb Ali"
-        }, 
-        "twitter": {
-          "username": "muneeb"
-        }, 
-        "v": "0.2", 
-        "website": "http://onename.com/muneeb"
-      }, 
-      "username": "emadelwany"
+          "website": [
+          {
+            "url": "http://muneebali.com",
+            "@type": "WebSite"
+          }
+          ],
+        "name": "Muneeb Ali",
+        "address": {
+          "addressLocality": "New York, NY",
+          "@type": "PostalAddress"
+        },
+        "image": [
+          {
+            "contentUrl": "https://s3.amazonaws.com/dx3/muneeb",
+            "@type": "ImageObject",
+            "name": "cover"
+          },
+          {
+            "contentUrl": "https://s3.amazonaws.com/kd4/muneeb",
+            "@type": "ImageObject",
+            "name": "avatar"
+          }
+        ],
+        "@type": "Person",
+        "description": "Co-founder of Blockstack. Interested in distributed systems and blockchains. Previously, PhD at Princeton."
+    },
+    "username": "muneeb"
     }, 
     {
       "profile": {
