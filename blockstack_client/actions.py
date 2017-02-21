@@ -139,7 +139,7 @@ from .app import app_publish, app_make_resource_data_id, app_get_config, app_get
 
 from .data import datastore_mkdir, datastore_rmdir, make_datastore, get_datastore, put_datastore, delete_datastore, \
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir, datastore_stat, \
-        datastore_rmtree, datastore_get_id 
+        datastore_rmtree, datastore_get_id, datastore_get_privkey
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
 
@@ -3584,17 +3584,23 @@ def _remove_datastore(datastore, datastore_privkey, rmtree=True, force=False, co
     return delete_datastore(datastore_privkey, force=force, config_path=config_path, proxy=proxy )
 
 
-def get_datastore_privkey_info( app_domain, wallet_keys, app_user_privkey=None, config_path=CONFIG_PATH, proxy=None ):
+def get_datastore_privkey_info( app_domain, wallet_keys, app_user_privkey=None, password=None, config_path=CONFIG_PATH, proxy=None ):
     """
-    Get the application user private key
+    Get the application datastore private key info
+    Return {'status': True, 'datastore': ..., 'datastore_privkey': ..., 'datastore_id': ...} on success
+    Return {'error': ...} on error
     """
     master_data_privkey = None
-    if wallet_keys is None:
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
 
-    master_data_privkey = wallet_keys['master_data_privkey']
+    if app_user_privkey is None:
+        if wallet_keys is None:
+            password = get_default_password(password)
+            wallet_keys = get_wallet_keys(config_path, password)
+            if 'error' in wallet_keys:
+                return wallet_keys
+
+        master_data_privkey = wallet_keys['data_privkey']
+
     res = get_datastore_info( app_user_privkey=app_user_privkey, master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy )
     return res
 
@@ -3618,19 +3624,22 @@ def create_datastore_by_type( datastore_type, app_domain, proxy=None, config_pat
         if 'error' in wallet_keys:
             return wallet_keys
 
+    assert 'data_privkey' in wallet_keys, str(wallet_keys)
+
     master_data_privkey = wallet_keys['data_privkey']
+    assert master_data_privkey is not None and app_domain is not None
 
     res = get_datastore_info( master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy )
     if 'error' not in res:
         # already exists
         return {'error': 'Datastore exists'}
 
-    datastore_privkey = res['datastore_privkey']
-    datastore_info = make_datastore( datastore_privkey, config_path=CONFIG_PATH)
+    datastore_privkey = datastore_get_privkey( master_data_privkey, app_domain, config_path=config_path ) 
+    datastore_info = make_datastore( datastore_type, datastore_privkey, config_path=CONFIG_PATH)
     if 'error' in datastore_info:
         return datastore_info
     
-    res = put_datastore(datastore_info, datastore_privkey_hex, proxy=proxy, config_path=config_path)
+    res = put_datastore(datastore_info, datastore_privkey, proxy=proxy, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -3739,13 +3748,16 @@ def datastore_file_put(datastore_type, datastore_privkey, path, data, create=Tru
     if 'error 'in datastore_info:
         datastore_info['errno'] = errno.EPERM
         return datastore_info
+    
+    datastore = datastore_info['datastore']
+    datastore_privkey = datastore_info['datastore_privkey']
+    datastore_id = datastore_info['datastore_id']
 
-    res = datastore_putfile( datastore, path, data, datastore_info['datastore_privkey'], create=create, config_path=config_path, proxy=proxy )
+    res = datastore_putfile( datastore, path, data, datastore_privkey, create=create, config_path=config_path, proxy=proxy )
     if 'error' in res:
         return res
 
     # make url
-    datastore_id = datastore_info['datastore_id']
     url = blockstack_datastore_url( datastore_id, app_domain, path )
     res['url'] = url
 
@@ -3782,7 +3794,7 @@ def datastore_dir_list(datastore_type, datastore_id, path, config_path=CONFIG_PA
     return res
 
 
-def datastore_path_stat(datastore_type, datastore_id, proxy=None, config_path=CONFIG_PATH ):
+def datastore_path_stat(datastore_type, datastore_id, path, proxy=None, config_path=CONFIG_PATH ):
     """
     Stat a path in a datastore or collection
     Return {'status': True, 'inode': ...} on success
@@ -3886,7 +3898,7 @@ def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy
             if 'error' in wallet_keys:
                 return wallet_keys
 
-        master_data_privkey = wallet_keys['master_data_privkey']
+        master_data_privkey = wallet_keys['data_privkey']
 
     datastore_info = get_datastore_info(app_user_privkey=app_user_privkey, master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy)
     if 'error' in datastore_info:
@@ -3937,7 +3949,7 @@ def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False, proxy
             if 'error' in wallet_keys:
                 return wallet_keys
 
-        master_data_privkey = wallet_keys['master_data_privkey']
+        master_data_privkey = wallet_keys['data_privkey']
 
     datastore_info = get_datastore_info(app_user_privkey=app_user_privkey, master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy)
     if 'error' in datastore_info:
@@ -3961,7 +3973,6 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False, pro
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
-    password = get_default_password(password)
     app_user_id = str(args.app_user_id)
     path = str(args.path)
 
@@ -3979,8 +3990,8 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False, prox
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    password = get_default_password(password)
     app_user_id = str(args.app_user_id)
+    path = str(args.path)
 
     return datastore_dir_list('datastore', app_user_id, path, config_path=config_path, proxy=proxy)
 
@@ -3999,7 +4010,7 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False, proxy=N
     path = str(args.path)
     app_user_id = str(args.app_user_id)
 
-    return datastore_path_stat('datastore', app_user_id, path, proxy=proxy, password=password, wallet_keys=wallet_keys, config_path=config_path) 
+    return datastore_path_stat('datastore', app_user_id, path, proxy=proxy, config_path=config_path) 
 
 
 def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, force_data=False, wallet_keys=None ):
@@ -4052,14 +4063,15 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False, p
         app_user_privkey = str(app_user_privkey)
     
     datastore_info = None 
+    master_data_privkey = None
 
-    if app_user_privkey is not None:
+    if app_user_privkey is None:
         if wallet_keys is None:
             wallet_keys = get_wallet_keys(config_path, password)
             if 'error' in wallet_keys:
                 return wallet_keys
 
-        master_data_privkey = wallet_keys['master_data_privkey']
+        master_data_privkey = wallet_keys['data_privkey']
 
     datastore_info = get_datastore_info(app_user_privkey=app_user_privkey, master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy)
     if 'error' in datastore_info:
@@ -4071,7 +4083,40 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False, p
 
     res = datastore_deletefile( datastore, path, datastore_privkey_hex, config_path=config_path, proxy=proxy )
     return res
-   
+
+
+def cli_datastore_get_id(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, wallet_keys=None ):
+    """
+    command: datastore_get_id advanced
+    help: Get the ID of an application data store
+    arg: app_domain (str) 'The application domain of this data store'
+    opt: app_user_privkey (str) 'If given, then this is the application user private key'
+    """
+    password = get_default_password(password)
+
+    config_dir = os.path.dirname(config_path)
+    app_domain = str(args.app_domain)
+    
+    app_user_privkey = getattr(args, 'app_user_privkey', None)
+    if app_user_privkey is not None:
+        app_user_privkey = str(app_user_privkey)
+    
+    else:
+        if wallet_keys is None:
+            wallet_keys = get_wallet_keys(config_path, password)
+            if 'error' in wallet_keys:
+                return wallet_keys
+
+        master_data_privkey = wallet_keys['data_privkey']
+        app_user_privkey = datastore_get_privkey( master_data_privkey, app_domain, config_path=config_path )
+        if app_user_privkey is None:
+            return {'error': 'Failed to generate app private key'}
+
+    app_pubkey = get_pubkey_hex(app_user_privkey)
+    datastore_id = datastore_get_id( app_pubkey )
+
+    return {'status': True, 'datastore_id': datastore_id}
+
 
 def cli_get_collection( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
     """
@@ -4149,11 +4194,11 @@ def cli_collection_listitems(args, config_path=CONFIG_PATH, wallet_keys=None, pa
     return {'status': True, 'dir': filtered_dir_info}
 
 
-def cli_collection_statitem(args, config_path=CONFIG_PATH, interactive=False, password=None, wallet_keys=None, proxy=None):
+def cli_collection_statitem(args, config_path=CONFIG_PATH, interactive=False, proxy=None):
     """
     command: collection_statitem advanced
     help: Stat an item in a collection
-    arg: collection_domain (str) 'The domain of this collection'
+    arg: collection_id (str) 'The ID of this collection'
     arg: item_id (str) 'The name of the item to stat'
     """
 
@@ -4162,10 +4207,10 @@ def cli_collection_statitem(args, config_path=CONFIG_PATH, interactive=False, pa
 
     password = get_default_password(password)
 
-    collection_domain = str(args.collection_domain)
+    collection_id = str(args.collection_id)
     item_id = str(args.item_id)
 
-    return datastore_path_stat('collection', collection_domain, '/{}'.format(item_id), proxy=proxy, password=password, wallet_keys=wallet_keys, config_path=config_path)
+    return datastore_path_stat('collection', collection_id, '/{}'.format(item_id), proxy=proxy, config_path=config_path)
 
 
 def cli_collection_putitem(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, force_data=False, wallet_keys=None ):
