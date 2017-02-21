@@ -2901,6 +2901,15 @@ def run_blockstackd():
       # fetch the snapshot and verify it 
       url = str(args.url)
       public_keys = config.FAST_SYNC_PUBLIC_KEYS
+
+      if args.public_keys is not None:
+          public_keys = args.public_keys.split(',')
+          for pubk in public_keys:
+              try:
+                  keylib.ECPublicKey(pubk)
+              except:
+                  print "Invalid public key"
+                  sys.exit(1)
       
       num_required = len(public_keys)
       if args.num_required:
