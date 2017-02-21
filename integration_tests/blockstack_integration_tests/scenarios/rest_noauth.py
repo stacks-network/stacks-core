@@ -87,17 +87,6 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
-    # bootstrap storage for this wallet
-    res = testlib.blockstack_cli_setup_storage("foo.test", password="0123456789abcdef")
-    if 'error' in res:
-        print 'failed to bootstrap storage for foo.test'
-        print json.dumps(res, indent=4, sort_keys=True)
-        return False
-
-    if not blockstack_client.check_storage_setup():
-        print "storage is not set up"
-        return False
-
     # tell serialization-checker that value_hash can be ignored here
     print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
     sys.stdout.flush()
@@ -105,35 +94,29 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
     
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+    conf = blockstack_client.get_config(config_path)
+    assert conf
+
+    api_pass = conf['api_password']
+
     config_dir = os.path.dirname(config_path)
 
-    # deactivate authentication 
-    blockstack_client.config.write_config_field(config_path, 'blockstack-client', 'authenticate_api', 'False')
-    
-    blockstack_client.rpc.local_rpc_stop(config_dir=config_dir)
-    res = blockstack_client.rpc.local_rpc_ensure_running(config_dir=config_dir, password="0123456789abcdef")
-    if not res:
-        print 'failed to restart RPC daemon'
-        return False
-
-    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
-
     # make sure we can do REST calls
-    res = testlib.blockstack_REST_call('GET', '/v1/blockchains/bitcoin/pending', None, name='foo.test', appname='register', user_id='fake_user')
+    res = testlib.blockstack_REST_call('GET', '/v1/blockchains/bitcoin/pending', None, api_pass=api_pass )
     if 'error' in res:
         res['test'] = 'Failed to get queues'
         print json.dumps(res)
         return False
 
     # make sure we can do REST calls with different app names and user names
-    res = testlib.blockstack_REST_call('GET', '/v1/blockchains/bitcoin/pending', None, name='foo.test', appname='fake', user_id='fake_user2')
+    res = testlib.blockstack_REST_call('GET', '/v1/blockchains/bitcoin/pending', None, api_pass=api_pass )
     if 'error' in res:
         res['test'] = 'Failed to get queues'
         print json.dumps(res)
         return False
 
     # register the name bar.test 
-    res = testlib.blockstack_REST_call('POST', '/v1/names', None, name="foo.test", appname="also_fake", data={'name': 'bar.test'})
+    res = testlib.blockstack_REST_call('POST', '/v1/names', None, api_pass=api_pass )
     if 'error' in res:
         res['test'] = 'Failed to register user'
         print json.dumps(res)
@@ -148,7 +131,7 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
 
-    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", None, name="foo.test", appname="register")
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", None, api_pass=api_pass)
     if 'error' in res:
         res['test'] = 'Failed to query name'
         print json.dumps(res)
