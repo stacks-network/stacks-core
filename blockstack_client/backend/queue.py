@@ -379,7 +379,7 @@ def is_revoke_expired( entry, config_path=CONFIG_PATH ):
     """
     Is a revoke expired?
     """
-    return is_revoke_expired(entry, config_path=CONFIG_PATH)
+    return is_update_expired(entry, config_path=CONFIG_PATH)
 
 
 def cleanup_preorder_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
