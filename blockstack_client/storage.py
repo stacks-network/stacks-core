@@ -35,16 +35,8 @@ import base64
 import posixpath
 
 import blockstack_zones
-import fastecdsa
-import fastecdsa.curve
-import fastecdsa.keys
-import fastecdsa.ecdsa
 
-from fastecdsa import _ecdsa
-from fastecdsa.util import RFC6979
 from binascii import hexlify
-import hmac
-from struct import pack
 
 from keylib import ECPrivateKey, ECPublicKey
 
@@ -54,7 +46,7 @@ from config import get_logger
 from constants import CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 from scripts import is_name_valid
 import schemas
-import keys
+from keys import *
 
 log = get_logger()
 
@@ -68,53 +60,6 @@ class UnhandledURLException(Exception):
     def __init__(self, url):
         super(UnhandledURLException, self).__init__()
         self.unhandled_url = url
-
-
-class RFC6979_file(RFC6979):
-    """
-    Generate RFC6979 nonces from a file
-    """
-    def __init__(self, x, q, hashfunc):
-        RFC6979.__init__(self, '', x, q, hashfunc)
-
-
-    def gen_nonce_from_file(self, fd):
-        ''' http://tools.ietf.org/html/rfc6979#section-3.2 '''
-        # based on gen_nonce()
-        
-        h1 = self.hashfunc()
-        while True:
-            buf = fd.read(65536)
-            if len(buf) == 0:
-                break
-
-            h1.update(buf)
-
-        hash_size = h1.digest_size
-        h1 = h1.digest()
-        key_and_msg = self._int2octets(self.x) + self._bits2octets(h1)
-
-        v = b''.join([b'\x01' for _ in range(hash_size)])
-        k = b''.join([b'\x00' for _ in range(hash_size)])
-
-        k = hmac.new(k, v + b'\x00' + key_and_msg, self.hashfunc).digest()
-        v = hmac.new(k, v, self.hashfunc).digest()
-        k = hmac.new(k, v + b'\x01' + key_and_msg, self.hashfunc).digest()
-        v = hmac.new(k, v, self.hashfunc).digest()
-
-        while True:
-            t = b''
-
-            while len(t) * 8 < self.qlen:
-                v = hmac.new(k, v, self.hashfunc).digest()
-                t = t + v
-
-            nonce = self._bits2int(t)
-            if nonce >= 1 and nonce < self.q:
-                return nonce
-
-            k = hmac.new(k, v + b'\x00', self.hashfunc).digest()
-            v = hmac.new(k, v, self.hashfunc).digest()
 
 
 def get_data_hash(data_txt):
@@ -253,11 +198,12 @@ def serialize_mutable_data(data_json, privatekey_hex, pubkey_hex, profile=False)
         return res
 
 
-def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash=None):
+def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash=None, data_hash=None):
     """
     Version 2 parser
     Parse a piece of mutable data back into the serialized payload.
     Verify that it was signed by the given public key, or the public key hash.
+    If neither are given, then verify that it has the given hash.
     Return the data on success
     Return None on error
     """
@@ -278,6 +224,16 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
     if not re.match(schemas.OP_BASE64_PATTERN_SECTION, sig_b64):
         log.debug("Not a v2 mutable datum: Invalid signature data")
         return None
+
+    # shortcut: if hash is given, we're done 
+    if data_hash is not None:
+        dh = hashlib.sha256(data_txt).hexdigest()
+        if dh == data_hash:
+            # done!
+            return json.loads(data_txt)
+
+        else:
+            log.debug("Hash mismatch: expected {}, got {}".format(data_hash, dh))
 
     # validate 
     if keylib.key_formatting.get_pubkey_format(pubk_hex) == 'hex_compressed':
@@ -331,7 +287,7 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
     return None
 
 
-def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None):
+def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, data_hash=None):
     """
     Given the serialized JSON for a piece of mutable data,
     parse it into a JSON document.  Verify that it was
@@ -346,7 +302,7 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None):
     # newer version?
     if mutable_data_json_txt.startswith("bsk2."):
         mutable_data_json_txt = mutable_data_json_txt[len("bsk2."):]
-        return parse_mutable_data_v2(mutable_data_json_txt, public_key, public_key_hash=public_key_hash)
+        return parse_mutable_data_v2(mutable_data_json_txt, public_key, public_key_hash=public_key_hash, data_hash=data_hash)
         
     # legacy parser
     assert public_key is not None or public_key_hash is not None, 'Need a public key or public key hash'
@@ -395,6 +351,10 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None):
 
         msg = 'Failed to verify with public key hash "{}" ("{}")'
         log.warn(msg.format(public_key_hash, public_key_hash_0))
+
+    # try sha256 hash 
+    if data_hash is not None:
+        log.error("Verifying profiles by hash it not supported")
 
     return None
 
@@ -522,137 +482,16 @@ def get_immutable_data(data_hash, data_url=None, hash_func=get_data_hash, fqu=No
     return None
 
 
-def decode_privkey_hex(privkey_hex):
+def get_file_hash( fd, hashfunc, fd_len=None ):
     """
-    Decode a private key for ecdsa signature
+    Get the hex-encoded hash of the fd's data
     """
-    # force uncompressed
-    priv = str(privkey_hex)
-    if len(priv) > 64:
-        assert priv[-2:] == '01'
-        priv = priv[:64]
-
-    pk_i = int(priv, 16)
-    return pk_i
-
-
-def decode_pubkey_hex(pubkey_hex):
-    """
-    Decode a public key for ecdsa verification
-    """
-    pubk = str(pubkey_hex)
-    if keylib.key_formatting.get_pubkey_format(pubk) == 'hex_compressed':
-        pubk = keylib.key_formatting.decompress(pubk)
-
-    assert len(pubk) == 130
-
-    pubk_raw = pubk[2:]
-    pubk_i = (int(pubk_raw[:64], 16), int(pubk_raw[64:], 16))
-    return pubk_i
-
-
-def encode_signature(sig_r, sig_s):
-    """
-    Encode an ECDSA signature, with low-s
-    """
-    # enforce low-s 
-    if sig_s * 2 >= fastecdsa.curve.secp256k1.q:
-        log.debug("High-S to low-S")
-        sig_s = fastecdsa.curve.secp256k1.q - sig_s
-
-    sig_bin = '{:064x}{:064x}'.format(sig_r, sig_s).decode('hex')
-    assert len(sig_bin) == 64
-
-    sig_b64 = base64.b64encode(sig_bin)
-    return sig_b64
-
-
-def decode_signature(sigb64):
-    """
-    Decode a signature into r, s
-    """
-    sig_bin = base64.b64decode(sigb64)
-    assert len(sig_bin) == 64
-
-    sig_hex = sig_bin.encode('hex')
-    sig_r = int(sig_hex[:64], 16)
-    sig_s = int(sig_hex[64:], 16)
-    return sig_r, sig_s
-
-
-def sign_raw_data(raw_data, privatekey_hex):
-    """
-    Sign a string of data.
-    Returns signature as a base64 string
-    """
-    pk_i = decode_privkey_hex(privatekey_hex)
-    sig_r, sig_s = fastecdsa.ecdsa.sign(raw_data, pk_i, curve=fastecdsa.curve.secp256k1)
-    sig_b64 = encode_signature(sig_r, sig_s)
-    return sig_b64
-
-
-def verify_raw_data(raw_data, pubkey_hex, sigb64):
-    """
-    Verify the signature over a string, given the public key
-    and base64-encode signature.
-    Return True on success.
-    Return False on error.
-    """
-    sig_r, sig_s = decode_signature(sigb64)
-    pubk_i = decode_pubkey_hex(pubkey_hex)
-    res = fastecdsa.ecdsa.verify((sig_r, sig_s), raw_data, pubk_i, curve=fastecdsa.curve.secp256k1)
-    return res
-
-
-def sign_file_data(fd, privkey_hex, curve=fastecdsa.curve.secp256k1, hashfunc=hashlib.sha256):
-    """
-    Sign data from a file-like object.
-    Based on fastecdsa.ecdsa.sign()
-    """
-
-    pk_i = decode_privkey_hex(privkey_hex)
-
-    # generate a deterministic nonce per RFC6979
-    rfc6979 = RFC6979_file(pk_i, curve.q, hashfunc)
-    k = rfc6979.gen_nonce_from_file(fd)
 
     h = hashfunc()
     fd.seek(0, os.SEEK_SET)
 
-    while True:
-        buf = fd.read(65536)
-        if len(buf) == 0:
-            break
-
-        h.update(buf)
-
-    hashed = h.hexdigest()
-    r, s = _ecdsa.sign(hashed, str(pk_i), str(k), curve.name)
-    return encode_signature(int(r), int(s))
-
-
-def verify_file_data(fd, pubkey_hex, sigb64, fd_len=None, curve=fastecdsa.curve.secp256k1, hashfunc=hashlib.sha256):
-    """
-    Verify data from a file-like object.
-    Based on fastecdsa.ecdsa.verify()
-    """
-    
-    Q = decode_pubkey_hex(pubkey_hex)
-    r, s = decode_signature(sigb64)
-
-    # validate Q, r, s
-    if not curve.is_point_on_curve(Q):
-        raise fastecdsa.ecdsa.EcdsaError('Invalid public key, point is not on curve {}'.format(curve.name))
-    elif r > curve.q or r < 1:
-        raise fastecdsa.ecdsa.EcdsaError('Invalid Signature: r is not a positive integer smaller than the curve order')
-    elif s > curve.q or s < 1:
-        raise fastecdsa.ecdsa.EcdsaError('Invalid Signature: s is not a positive integer smaller than the curve order')
-
-    qx, qy = Q
-
-    h = hashfunc()
     count = 0
-    while fd_len is None or count < fd_len:
+    while True:
         buf = fd.read(65536)
         if len(buf) == 0:
             break
@@ -665,7 +504,7 @@ def verify_file_data(fd, pubkey_hex, sigb64, fd_len=None, curve=fastecdsa.curve.
         count += len(buf)
 
     hashed = h.hexdigest()
-    return _ecdsa.verify(str(r), str(s), hashed, str(qx), str(qy), curve.name)
+    return hashed
 
 
 def get_drivers_for_url(url):
@@ -700,7 +539,7 @@ def get_driver_urls( fq_data_id, storage_drivers ):
     return ret
 
 
-def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None,
+def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data_hash=None,
                      owner_address=None, blockchain_id=None, drivers=None, decode=True):
     """
     Low-level call to get mutable data, given a fully-qualified data name.
@@ -793,12 +632,12 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None,
                 data = None
                 if data_pubkey is not None or data_address is not None:
                     data = parse_mutable_data(
-                        data_txt, data_pubkey, public_key_hash=data_address
+                        data_txt, data_pubkey, public_key_hash=data_address, data_hash=data_hash
                     )
 
                 if data is None and owner_address is not None:
                     data = parse_mutable_data(
-                        data_txt, data_pubkey, public_key_hash=owner_address
+                        data_txt, data_pubkey, public_key_hash=owner_address, data_hash=data_hash
                     )
 
                 if data is None:
@@ -933,12 +772,12 @@ def put_mutable_data(fq_data_id, data_json, privatekey_hex, data_text=None, prof
     if serialized_data is None:
 
         # sanity check: only support single-sig private keys
-        if not keys.is_singlesig_hex(privatekey_hex):
+        if not is_singlesig_hex(privatekey_hex):
             log.error('Only single-signature data private keys are supported')
             return False
 
         assert privatekey_hex is not None
-        pubkey_hex = keys.get_pubkey_hex( privatekey_hex )
+        pubkey_hex = get_pubkey_hex( privatekey_hex )
         serialized_data = serialize_mutable_data(data_json, privatekey_hex, pubkey_hex, profile=profile)
     
     successes = 0
@@ -1000,7 +839,7 @@ def delete_immutable_data(data_hash, txid, privkey):
     global storage_handlers
 
     # sanity check
-    if not keys.is_singlesig_hex(privkey):
+    if not is_singlesig_hex(privkey):
         log.error('Only single-signature data private keys are supported')
         return False
 
@@ -1039,7 +878,7 @@ def delete_mutable_data(fq_data_id, privatekey, skip=None, blockchain_id=None, p
         fqu = blockchain_id
 
     # sanity check
-    if not keys.is_singlesig_hex(privatekey):
+    if not is_singlesig_hex(privatekey):
         log.error('Only single-signature data private keys are supported')
         return False
 
