@@ -39,6 +39,8 @@ import base64
 import binascii
 import urllib
 import urlparse
+import subprocess
+import signal
 
 import blockstack.blockstackd as blockstackd
 
@@ -46,6 +48,7 @@ import blockstack_client
 from blockstack_client.actions import *
 from blockstack_client.keys import *
 from blockstack_client.app import *
+from blockstack_client.config import atlas_inventory_to_string
 import blockstack
 import pybitcoin
 import keylib
@@ -117,7 +120,9 @@ class TestAPIProxy(object):
             "queue_path": client_config['queue_path'],
             "server": client_config['server'],
             "port": client_config['port'],
-            "api_endpoint_port": client_config['api_endpoint_port']
+            "api_endpoint_port": int(client_config['api_endpoint_port']),
+            'bitcoind_spv_path': utxo_opts['spv_headers_path'],
+            "api_password": client_config['api_password'],
         }
         self.spv_headers_path = utxo_opts['spv_headers_path']
 
@@ -179,6 +184,9 @@ atlas_zonefiles_present = []
 
 # default payment wallet 
 default_payment_wallet = None
+
+# all scenario wallets
+wallets = None
 
 # map data URLs to the data they put
 data_urls = {}
@@ -267,7 +275,7 @@ def make_proxy(password=None, config_path=None):
     return proxy
 
 
-def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, subsidy_key=None, consensus_hash=None, safety_checks=False, config_path=None ):
+def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, subsidy_key=None, consensus_hash=None, safety_checks=True, config_path=None ):
 
     global api_call_history 
 
@@ -275,41 +283,35 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, subs
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
+    owner_privkey_info = find_wallet(register_addr).privkey
+    register_addr = virtualchain.address_reencode(register_addr)
+
     name_cost_info = test_proxy.get_name_cost( name )
     assert 'satoshis' in name_cost_info, "error getting cost of %s: %s" % (name, name_cost_info)
 
-    register_addr = virtualchain.address_reencode(register_addr)
-
-    register_privkey_params = (1,1)
-    if wallet is not None:
-        register_privkey_params = get_privkey_info_params( wallet.privkey )
-
     log.debug("Preorder '%s' for %s satoshis" % (name, name_cost_info['satoshis']))
 
-    resp = blockstack_client.do_preorder( name, privatekey, register_addr, name_cost_info['satoshis'], test_proxy, test_proxy, owner_privkey_params=register_privkey_params, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+    resp = blockstack_client.do_preorder( name, privatekey, owner_privkey_info, name_cost_info['satoshis'], test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     api_call_history.append( APICallRecord( "preorder", name, resp ) )
     return resp
 
 
-def blockstack_name_register( name, privatekey, register_addr, wallet=None, subsidy_key=None, user_public_key=None, safety_checks=False, config_path=None ):
+def blockstack_name_register( name, privatekey, register_addr, wallet=None, subsidy_key=None, user_public_key=None, safety_checks=True, config_path=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
+    owner_privkey_info = find_wallet(register_addr).privkey
     register_addr = virtualchain.address_reencode(register_addr)
 
-    register_privkey_params = (1,1)
-    if wallet is not None:
-        register_privkey_params = get_privkey_info_params( wallet.privkey )
-
-    resp = blockstack_client.do_register( name, privatekey, register_addr, test_proxy, test_proxy, owner_privkey_params=register_privkey_params, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "register", name, resp ) )
     return resp
 
 
-def blockstack_name_update( name, data_hash, privatekey, user_public_key=None, subsidy_key=None, consensus_hash=None, test_api_proxy=True, safety_checks=False, config_path=None ):
+def blockstack_name_update( name, data_hash, privatekey, user_public_key=None, subsidy_key=None, consensus_hash=None, test_api_proxy=True, safety_checks=True, config_path=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -324,7 +326,7 @@ def blockstack_name_update( name, data_hash, privatekey, user_public_key=None, s
     return resp
 
 
-def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_key=None, subsidy_key=None, consensus_hash=None, safety_checks=False, config_path=None ):
+def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_key=None, subsidy_key=None, consensus_hash=None, safety_checks=True, config_path=None ):
      
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -339,7 +341,7 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_k
     return resp
 
 
-def blockstack_name_renew( name, privatekey, register_addr=None, subsidy_key=None, user_public_key=None, safety_checks=False, config_path=None ):
+def blockstack_name_renew( name, privatekey, register_addr=None, subsidy_key=None, user_public_key=None, safety_checks=True, config_path=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -362,7 +364,7 @@ def blockstack_name_renew( name, privatekey, register_addr=None, subsidy_key=Non
     return resp
 
 
-def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, user_public_key=None, safety_checks=False, config_path=None ):
+def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, user_public_key=None, safety_checks=True, config_path=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -377,7 +379,7 @@ def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, u
     return resp
 
 
-def blockstack_name_import( name, recipient_address, update_hash, privatekey, safety_checks=False, config_path=None ):
+def blockstack_name_import( name, recipient_address, update_hash, privatekey, safety_checks=True, config_path=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -388,7 +390,7 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
     return resp
 
 
-def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, consensus_hash=None, safety_checks=False, config_path=None ):
+def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, consensus_hash=None, safety_checks=True, config_path=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -406,7 +408,7 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
     return resp
 
 
-def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, safety_checks=False, config_path=None ):
+def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, safety_checks=True, config_path=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -419,7 +421,7 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
     return resp
 
 
-def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=False, config_path=None ):
+def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, config_path=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -430,7 +432,7 @@ def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=False, c
     return resp
 
 
-def blockstack_announce( message, privatekey, user_public_key=None, subsidy_key=None, safety_checks=False, config_path=None ):
+def blockstack_announce( message, privatekey, user_public_key=None, subsidy_key=None, safety_checks=True, config_path=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -451,6 +453,8 @@ def blockstack_client_initialize_wallet( password, payment_privkey, owner_privke
         assert config_path is not None
 
     config_dir = os.path.dirname(config_path)
+    conf = blockstack_client.get_config(config_path)
+    assert conf
 
     wallet_path = os.path.join( os.path.dirname(config_path), blockstack_client.config.WALLET_FILENAME )
 
@@ -490,8 +494,8 @@ def blockstack_client_initialize_wallet( password, payment_privkey, owner_privke
 
     print "\n(re)starting RPC daemon\n"
 
-    blockstack_client.rpc.local_rpc_stop(config_dir=config_dir)
-    res = blockstack_client.rpc.local_rpc_ensure_running(config_dir=config_dir, password=password)
+    blockstack_client.rpc.local_api_stop(config_dir=config_dir)
+    res = blockstack_client.rpc.local_api_start(api_pass=conf['api_password'], port=int(conf['api_endpoint_port']), config_dir=os.path.dirname(config_path), password="0123456789abcdef")
     if not res:
         if exception:
             raise Exception("Failed to restart RPC daemon")
@@ -525,6 +529,9 @@ def blockstack_client_set_wallet( password, payment_privkey, owner_privkey, data
         config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
         assert config_path is not None
 
+    conf = blockstack_client.get_config(config_path)
+    assert conf
+
     config_dir = os.path.dirname(config_path)
 
     wallet = blockstack_client_initialize_wallet( password, payment_privkey, owner_privkey, data_privkey, start_rpc=False, config_path=None )
@@ -533,8 +540,8 @@ def blockstack_client_set_wallet( password, payment_privkey, owner_privkey, data
         raise Exception("Failed to initialize wallet")
 
     print "\n(re)starting RPC daemon\n"
-    blockstack_client.rpc.local_rpc_stop(config_dir=config_dir)
-    res = blockstack_client.rpc.local_rpc_ensure_running(config_dir=config_dir, password=password)
+    blockstack_client.rpc.local_api_stop(config_dir=config_dir)
+    res = blockstack_client.rpc.local_api_start(api_pass=conf['api_password'], port=int(conf['api_endpoint_port']), config_dir=os.path.dirname(config_path), password="0123456789abcdef")
     if not res:
         raise Exception("Failed to restart RPC daemon")
 
@@ -554,7 +561,7 @@ def blockstack_client_queue_state(config_path=None):
     return queue_info
 
 
-def blockstack_cli_register( name, password, config_path=None):
+def blockstack_cli_register( name, password, recipient_address=None, zonefile=None, config_path=None):
     """
     Register a name, using the backend RPC endpoint
     """
@@ -564,6 +571,9 @@ def blockstack_cli_register( name, password, config_path=None):
 
     args = CLIArgs()
     args.name = name
+    args.recipient = recipient_address
+    args.zonefile = zonefile
+
     resp = cli_register( args, config_path=config_path, password=password, interactive=False, proxy=test_proxy )
     return resp
 
@@ -699,6 +709,18 @@ def blockstack_cli_balance(config_path=None):
     return cli_balance( args, config_path=config_path )
 
 
+def blockstack_cli_info(config_path=None):
+    """
+    Get the queue state
+    """
+    args = CLIArgs()
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    return cli_info( args, config_path=config_path, password=password )
+
+
 def blockstack_cli_price( name, password, config_path=None):
     """
     Get the price of a name
@@ -821,7 +843,7 @@ def blockstack_cli_import_wallet( password, payment_privkey, owner_privkey, data
     return cli_import_wallet( args, config_path=config_path, password=password, force=force )
 
 
-def blockstack_cli_upgrade_wallet( password, config_path=None):
+def blockstack_cli_setup_wallet( password, config_path=None):
     """
     Upgrade wallet
     """
@@ -831,10 +853,10 @@ def blockstack_cli_upgrade_wallet( password, config_path=None):
 
     args = CLIArgs()
 
-    return cli_upgrade_wallet(args, config_path=config_path, password=password )
+    return cli_setup_wallet(args, config_path=config_path, password=password )
 
 
-def blockstack_cli_upgrade_storage( name, password=None, wallet_keys=None, config_path=CONFIG_PATH):
+def blockstack_cli_setup_storage( name, password=None, wallet_keys=None, config_path=CONFIG_PATH):
     """
     Upgrade storage
     """
@@ -846,7 +868,7 @@ def blockstack_cli_upgrade_storage( name, password=None, wallet_keys=None, confi
     
     args.name = name
     
-    return cli_upgrade_storage(args, config_path=config_path, password=password, wallet_keys=wallet_keys, interactive=False)
+    return cli_setup_storage(args, config_path=config_path, password=password, wallet_keys=wallet_keys, interactive=False)
 
 
 def blockstack_cli_list_accounts( name, config_path=None):
@@ -1557,7 +1579,7 @@ def blockstack_cli_app_put_resource( name, appname, resname, respath, interactiv
     return cli_app_put_resource( args, config_path=config_path, interactive=interactive, password=password, proxy=test_proxy )
 
 
-def blockstack_cli_app_put_account( user_id, app_fqu, appname, api_methods, session_lifetime=None, config_path=None):
+def blockstack_cli_app_create_account( user_id, app_fqu, appname, api_methods, session_lifetime=None, config_path=None):
     """
     put an account
     """
@@ -1573,7 +1595,24 @@ def blockstack_cli_app_put_account( user_id, app_fqu, appname, api_methods, sess
     args.user_id = user_id
     args.session_lifetime = session_lifetime 
 
-    return cli_app_put_account( args, config_path=config_path, proxy=test_proxy )
+    return cli_app_create_account( args, config_path=config_path, proxy=test_proxy )
+
+
+def blockstack_cli_app_signin( user_id, app_fqu, appname, config_path=None, password=None, wallet_keys=None ):
+    """
+    sign in and get a token
+    """
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+
+    args.app_blockchain_id = app_fqu
+    args.app_name = appname
+    args.user_id = user_id
+
+    return cli_app_signin( args, config_path=config_path, password=password, wallet_keys=wallet_keys )
 
 
 def blockstack_cli_app_get_account( user_id, app_fqu, appname, config_path=None):
@@ -1938,6 +1977,8 @@ def blockstack_get_zonefile( zonefile_hash, config_path=None ):
     Return None if not given
     MEANT FOR DIAGNOSTIC PURPOSES ONLY
     """
+
+    # TODO: sync with API
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -1966,6 +2007,8 @@ def blockstack_get_profile( name, config_path=None ):
     Return None if not given
     MEANT FOR DIAGNOSTIC PURPOSES ONLY
     """
+
+    # TODO: sync with API
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -1981,153 +2024,40 @@ def blockstack_get_profile( name, config_path=None ):
     return profile_result['profile']
 
 
-def blockstack_app_get_session( url ):
+def blockstack_app_session( app_domain, methods, config_path=None ):
     """
-    Get the session token from an auth-finish URL
-    """
- 
-    # extract session jwt 
-    url_info = urlparse.urlparse(url)
-    qs_info = urlparse.parse_qs(url_info.query)
-    if not qs_info.has_key('session'):
-        log.error("Missing session token in {}".format(url))
-        return {'error': 'Missing session'}
-
-    if len(qs_info['session']) != 1:
-        log.error("Got wrong number of sessions in {}".format(url))
-        return {'error': 'Invalid session info'}
-
-    return {'ses': qs_info['session'][0]}
-
-
-def blockstack_app_create_account( user_id, name, appname, config_path=None ):
-    """
-    Create an account.
-    Intercept the returned HTML, select the create_account URL, navigate to it, and load the index.html.
-    Returns {'url': final url, 'index_file': index file data} on success
+    Make a session for the given application
     Returns {'error': ...} on error
     """
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
+    api_pass = test_proxy.conf['api_password']
+    api_port = int(test_proxy.conf['api_endpoint_port'])
 
-    if appname is None:
-        appname = '_default'
-
-    api_port = test_proxy.conf['api_endpoint_port']
-    app_url = 'http://localhost:{}/?appname={}&name={}&user_id={}'.format(api_port, appname, name, user_id)
-
-    auth_page_resp = requests.get(app_url)
-    if auth_page_resp.status_code != 200:
-        log.error("GET {} status code {}".format(app_url, auth_page_resp.status_code))
-        return {'error': 'Failed to get auth page'}
-
-    auth_page = auth_page_resp.text
-
-    # find the create_account=... comment... 
-    regex = r'^<!--user_id=([^ ]+) create_account=(.+)-->$'
-    create_account_url = None
-
-    for line in auth_page.split('\n'):
-        grps = re.match(regex, line)
-        if grps is None:
-            continue
-
-        html_user_id, create_account_url = grps.groups()
-        if html_user_id != user_id:
-            create_account_url = None
-            continue
-
-        break
-
-    if create_account_url is None:
-        log.error("Failed to find create_account= URL in\n{}\n".format(auth_page))
-        return {'error': 'No create_account URL'}
-
-    # go to the create_accounts URL
-    log.debug("Create account for {}: {}".format(user_id, create_account_url))
-    create_account_resp = requests.get(create_account_url)
-
-    if create_account_resp.status_code != 200:
-        log.error("GET {} status code {}".format(create_account_url, create_account_resp.status_code))
-        return {'error': 'Failed to create account'}
-
-    # extract session jwt 
-    ses_info = blockstack_app_get_session(create_account_resp.url)
-    if 'error' in ses_info:
-        return ses_info
-
-    ses = ses_info['ses']
-    return {'url': create_account_resp.url, 'index_file': create_account_resp.text, 'ses': ses}
-
-
-def blockstack_app_signin( user_id, name, appname, config_path=None ):
-    """
-    Sign into an app with an existing account.
-    Intercept the returned HTML, select the 'signin' URL, navigate to it, and load the index.html.
-    Returns {'url': final url, 'index_file': index file data} on success
-    Returns {'error': ...} on error
-    """
-    test_proxy = make_proxy(config_path=config_path)
-    blockstack_client.set_default_proxy( test_proxy )
-    config_path = test_proxy.config_path if config_path is None else config_path
-
-
-    if appname is None:
-        appname = '_default'
-
-    api_port = test_proxy.conf['api_endpoint_port']
-    app_url = 'http://localhost:{}/?appname={}&name={}&user_id={}'.format(api_port, appname, name, user_id)
-
-    auth_page_resp = requests.get(app_url)
-    if auth_page_resp.status_code != 200:
-        log.error("GET {} status code {}".format(app_url, auth_page_resp.status_code))
-        return {'error': 'Failed to get auth page'}
-
-    auth_page = auth_page_resp.text
-
-    # log.debug("auth page:\n{}".format(auth_page))
-
-    # find the signin=... comment... 
-    regex = r'^<!--account=([^ ]+) signin=(.+)-->$'
-    signin_url = None
-    signin_account = None
-    account_id = app_account_name(user_id, name, appname) 
-
-    for line in auth_page.split('\n'):
-        grps = re.match(regex, line)
-        if grps is None:
-            continue
-
-        signin_account = grps.groups()[0]
-
-        if signin_account == user_id:
-            signin_url = grps.groups()[1]
-            break
-
-    if signin_url is None:
-        log.error("Failed to find signin= URL for {} in\n{}\n".format(account_id, auth_page))
-        return {'error': 'No signin URL'}
-
-    # go to the signin URL
-    log.debug("Sign-in as {}: {}".format(user_id, signin_url))
-    signin_resp = requests.get(signin_url)
-
-    if signin_resp.status_code != 200:
-        log.error("GET {} status code {}".format(signin_url, signin_resp.status_code))
-        return {'error': 'Failed to sign in'}
+    req = {
+        'app_domain': app_domain,
+        'methods': methods,
+    }
     
-    # extract session jwt 
-    ses_info = blockstack_app_get_session(signin_resp.url)
-    if 'error' in ses_info:
-        return ses_info
+    privk = '0a324d66e9d23de40e5455c5d95507b4641cdbef08a473954586790cf78a80c701'
 
-    ses = ses_info['ses']
-    return {'url': signin_resp.url, 'index_file': signin_resp.text, 'ses': ses}
+    signer = jsontokens.TokenSigner()
+    token = signer.sign( req, privk )
+
+    url = 'http://localhost:{}/v1/auth?authRequest={}'.format(api_port, token)
+    resp = requests.get( url, headers={'Authorization': 'basic {}'.format(api_pass)} )
+    if resp.status_code != 200:
+        log.error("GET {} status code {}".format(url, resp.status_code))
+        return {'error': 'Failed to get session'}
+
+    payload = resp.json()
+    ses = payload['token']
+    return {'ses': ses}
 
 
-def blockstack_REST_call( method, route, session, app_fqu=None, appname=None, data=None, raw_data=None, config_path=None, **query_fields ):
+def blockstack_REST_call( method, route, session, api_pass=None, app_fqu=None, appname=None, data=None, raw_data=None, config_path=None, **query_fields ):
     """
     Low-level call to an API route
     Returns {'http_status': http status, 'response': json}
@@ -2136,8 +2066,7 @@ def blockstack_REST_call( method, route, session, app_fqu=None, appname=None, da
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
-
-    api_port = test_proxy.conf['api_endpoint_port']
+    api_port = int(test_proxy.conf['api_endpoint_port'])
 
     if app_fqu:
         query_fields['name'] = app_fqu
@@ -2157,6 +2086,8 @@ def blockstack_REST_call( method, route, session, app_fqu=None, appname=None, da
     headers = {}
     if session:
         headers['authorization'] = 'bearer {}'.format(session)
+    elif api_pass:
+        headers['authorization'] = 'basic {}'.format(api_pass)
 
     assert not (data and raw_data), "Multiple data given"
 
@@ -2283,7 +2214,11 @@ def instantiate_wallet():
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
     assert config_path is not None
 
-    blockstack_client.rpc.local_rpc_ensure_running(config_dir=os.path.dirname(config_path), password="0123456789abcdef")
+    conf = blockstack_client.get_config(config_path)
+    port = int(conf['api_endpoint_port'])
+    api_pass = conf['api_password']
+
+    blockstack_client.rpc.local_api_start(api_pass=api_password, port=port, config_dir=os.path.dirname(config_path), password="0123456789abcdef")
 
     wallet_info = blockstack_client.actions.get_wallet_with_backoff(config_path)
     if 'error' in wallet_info:
@@ -2302,6 +2237,14 @@ def instantiate_wallet():
     bitcoind = get_bitcoind()
     bitcoind.importaddress(owner_address, "", True)
     return {'owner_address': owner_address, 'payment_address': payment_address}
+
+
+def get_balance( addr ):
+    """
+    Get the address balance
+    """
+    inputs = blockstack_client.backend.blockchain.get_utxos(addr)
+    return sum([inp['value'] for inp in inputs])
 
 
 def send_funds( privkey, satoshis, payment_addr ):
@@ -2775,6 +2718,18 @@ def get_default_payment_wallet():
     global default_payment_wallet
     return default_payment_wallet
 
+def set_wallets(ws):
+    global wallets
+    wallets = ws
+
+def find_wallet(addr):
+    global wallets
+    for w in wallets:
+        if w.addr == addr:
+            return w
+
+    raise Exception("No wallet for {}".format(addr))
+
 def gpg_key_dir( **kw ):
     return os.path.join( kw['working_dir'], "keys" )
 
@@ -2825,7 +2780,7 @@ def put_test_data( relpath, data, **kw ):
     return True
 
 
-def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=True, force=False, config_path=None ):
+def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=True, config_path=None ):
     """
     Migrate a user's profile from the legacy format to the profile/zonefile format.
     Broadcast an update transaction with the zonefile hash.
@@ -2842,18 +2797,35 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
         proxy = make_proxy(config_path=config_path)
         blockstack_client.set_default_proxy( proxy )
 
+    assert wallet_keys
     config_path = proxy.config_path if config_path is None else config_path
 
-    user_profile, user_zonefile, legacy = blockstack_client.get_and_migrate_profile( name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys )
-    if 'error' in user_profile:
-        log.debug("Unable to load user zonefile for '%s': %s" % (name, user_profile['error']))
-        return user_profile
+    user_profile = None
+    user_zonefile = None
 
-    if not legacy and not force:
-        return {'status': True}
+    res = blockstack_cli_lookup(name, config_path=config_path)
+    if 'error' in res:
 
-    user_zonefile = user_zonefile['zonefile']
-    user_profile = user_profile['profile']
+        name_rec = blockstack_cli_get_name_blockchain_record(name, config_path=config_path)
+        if 'error' in name_rec:
+            return name_rec
+
+        # empty
+        user_profile = blockstack_client.user.make_empty_user_profile()
+        user_zonefile = blockstack_client.zonefile.make_empty_zonefile(name, wallet_keys['data_pubkey'])
+
+    else:
+        user_profile = res['profile']
+        user_zonefile_txt = res['zonefile']
+
+        try:
+            user_zonefile_json = json.loads(user_profile_txt)
+            if blockstack_profiles.is_profile_in_legacy_format(user_zonefile_json):
+                user_profile = blockstack_profiles.get_person_from_legacy_format(user_zonefile_json)
+                
+            user_zonefile = blockstack_client.zonefile.make_empty_zonefile(name, wallet_keys['data_pubkey'])
+        except:
+            user_zonefile = blockstack_zones.parse_zone_file(user_zonefile_txt)
 
     if not zonefile_has_data_key:
         # remove the TXT record with the public key
@@ -2903,7 +2875,7 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
     return result
 
 
-def peer_make_config( peer_port, dirp, extra_fields={} ):
+def peer_make_config( peer_port, dirp, seed_relations={}, blacklist_relations={}, extra_fields={} ):
     """
     Make a config directory for a peer blockstack server
     """
@@ -2940,17 +2912,25 @@ def peer_make_config( peer_port, dirp, extra_fields={} ):
 
     conf_path = os.path.join( dirp, 'blockstack-server.ini' )
     log.debug("Save server config for localhost:%s to %s" % (peer_port, conf_path))
+
+    if not os.path.exists(dirp):
+        os.makedirs(dirp)
+
     blockstack_client.config.write_config_file( conf, conf_path )
 
     # copy over client config
     client_config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
     client_conf = blockstack_client.config.configure( config_file=client_config_path, force=False, interactive=False )
 
+    for f in ['path', 'dir']:
+        if f in client_conf['blockstack-client']:
+            del client_conf['blockstack-client'][f]
+
     # update...
-    client_conf['blockstack-client']['queue_path'] = os.path.join(client_dirp, 'queues.db')
-    client_conf['blockstack-client']['metadata'] = os.path.join(client_dirp, 'metadata')
+    client_conf['blockstack-client']['queue_path'] = os.path.join(dirp, 'queues.db')
+    client_conf['blockstack-client']['metadata'] = os.path.join(dirp, 'metadata')
     client_conf['blockstack-client']['blockchain_headers'] = virtualchain_bitcoin_conf['bitcoind_spv_path']
-    client_conf['blockstack-client']['api_endpoint_port'] = max(peer_ports) + i + 1
+    client_conf['blockstack-client']['api_endpoint_port'] = peer_port + 10000
     client_conf['blockstack-client']['port'] = peer_port
 
     new_conf = {
@@ -2962,12 +2942,12 @@ def peer_make_config( peer_port, dirp, extra_fields={} ):
 
     new_conf.update(extra_fields)
 
-    log.debug("Save client for localhost:%s's to %s" % (peer_port, os.path.join(client_dirp, 'client.ini')))
-    blockstack_client.config.write_config_file( new_conf, os.path.join(client_dirp, "client.ini") )
+    log.debug("Save client for localhost:%s's to %s" % (peer_port, os.path.join(dirp, 'client.ini')))
+    blockstack_client.config.write_config_file( new_conf, os.path.join(dirp, "client.ini") )
     return True
 
 
-def peer_start( host, working_dir, port=None, command='start', args=['--foreground']):
+def peer_start( working_dir, port=None, command='start', args=['--foreground']):
     """
     Start up a peer blockstack subprocess
     to communicate on the given network server.
@@ -3080,42 +3060,82 @@ def peer_join( peer_info ):
                 pass
 
 
+def peer_working_dir( index ):
+    """
+    Get the working dir for a peer
+    """
+    working_dir = os.environ.get("VIRTUALCHAIN_WORKING_DIR", None)
+    assert working_dir
+    peer_wd = os.path.join(working_dir, 'peer-{}'.format(index))
+    return peer_wd
+
+
+def peer_setup( index ):
+    """
+    Set up the ith peer
+    Return {'working_dir': ..., 'device_id': ..., 'config_path': ...} on success
+    Return {'error': ...} on error 
+    """
+    # set up a new peer
+    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+    assert config_path
+
+    config_dir = os.path.dirname(config_path)
+
+    peer_wd = peer_working_dir(index)
+    peer_config_dir = os.path.join(peer_wd, 'client')
+
+    os.makedirs(peer_wd)
+    os.makedirs(peer_config_dir)
+
+    config_path_2 = os.path.join(peer_config_dir, 'client.ini')
+    if os.path.exists(config_path_2):
+        raise Exception("Config already exists for client {}".format(index))
+
+    res = peer_make_config(16300 + index, peer_wd)
+    if 'error' in res:
+        print "failed to set up {}".format(peer_wd)
+        return {'error': 'failed to set up config dir'}
+
+    return {'working_dir': peer_wd, 'device_id': res['device_id'], 'config_path': config_path_2}
+
+
+def list_working_dirs():
+    """
+    Find all working directories
+    """
+    working_dir = os.environ.get("VIRTUALCHAIN_WORKING_DIR", None)
+    assert working_dir
+
+    ret = [working_dir]
+
+    # account for all peers too 
+    for name in os.listdir(working_dir):
+        if name.startswith("peer-"):
+            ret.append(os.path.join(working_dir, name))
+
+    return ret
+
+
 def make_client_device( index ):
     """
     Make another client device, and add it to all other devices.
     Return {'status': True, 'config_path': config path} on success
     Return {'error': ...} on failure
     """
-    # set up a second client
-    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
-    assert config_path
-
-    all_config_dirs = os.path.dirname(os.path.dirname(config_path))
-
-    config_dir_2 = os.path.dirname(config_path) + '.{}'.format(index)
-    os.makedirs(config_dir_2)
-
-    config_path_2 = os.path.join(config_dir_2, 'client.ini')
-    if os.path.exists(config_path_2):
-        raise Exception("Config already exists for client {}".format(index))
-
-    res = testlib.peer_make_config(16300 + index, config_dir_2)
+    # set up a second peer
+    res = peer_setup( index )
     if 'error' in res:
-        print "failed to set up {}".format(config_dir_2)
-        return {'error': 'failed to set up config dir'}
-
-    # get device ID 
-    res = blockstack_cli_get_device_id( config_path=config_path_2 )
-    if 'error' in res:
-        print 'failed to get device ID for {}'.format(config_dir_2)
         return res
 
+    config_path_2 = res['config_path']
     my_device_id = res['device_id']
 
-    # add this device to all other devices 
-    device_ids = []
-    for name in os.listdirs(all_config_dirs):
-        dev_config_path = os.path.join( all_config_dirs, name, 'client.ini' )
+    all_working_dirs = list_working_dirs()
+    all_config_paths = [os.path.join(wd, 'client/client.ini') for wd in all_working_dirs]
+
+    # add this device to all other devices
+    for dev_config_path in all_config_paths:
         if os.path.exists(dev_config_path):
 
             device_id_info = blockstack_cli_get_device_id(config_path=dev_config_path)
@@ -3131,4 +3151,79 @@ def make_client_device( index ):
                     return res
 
     return {'status': True}
+
+
+def verify_in_queue( ses, name, queue_name, tx_hash, expected_length=1 ):
+    """
+    Verify that a name (optionally with the given tx hash) is in the given queue
+    """
+    # verify that it's in the queue 
+    res = blockstack_REST_call('GET', '/v1/blockchains/bitcoin/pending', ses )
+    if 'error' in res:
+        res['test'] = 'Failed to get queues'
+        print json.dumps(res)
+        error = True
+        return False
+
+    res = res['response']
+
+    # needs to be in the queue 
+    if not res.has_key('queues'):
+        res['test'] = 'Missing queues'
+        print json.dumps(res)
+        error = True
+        return False
+
+    if not res['queues'].has_key(queue_name):
+        res['test'] = 'Missing {} queue'.format(queue_name)
+        print json.dumps(res)
+        error = True
+        return False
+    
+    if len(res['queues'][queue_name]) != expected_length:
+        res['test'] = 'invalid preorder queue'
+        print json.dumps(res)
+        error = True
+        return False
+
+    found = False
+    for queue_entry in res['queues'][queue_name]:
+        if queue_entry['name'] != name:
+            continue
+
+        found = True
+
+        if tx_hash is not None and queue_entry['tx_hash'] != tx_hash:
+            res['test'] = 'tx hash mismatch: expected {}'.format(tx_hash)
+            print json.dumps(res)
+            error = True
+            return False
+
+        break
+
+    if not found:
+        print "name {} not found in queues".format(name)
+        print json.dumps(res)
+        return False
+
+    # verify that it's name resolves to the right queue state 
+    res = blockstack_REST_call("GET", "/v1/names/{}".format(name), ses)
+    if 'error' in res:
+        res['test'] = 'Failed to query name'
+        print json.dumps(res)
+        error = True
+        return False
+
+    if res['http_status'] != 200 and res['http_status'] != 404:
+        res['test'] = 'HTTP status {}, response = {}'.format(res['http_status'], res['response'])
+        print json.dumps(res)
+        error = True
+        return False
+
+    # should be in the preorder queue at some point 
+    if res['response']['operation'] != queue_name:
+        return False
+
+
+    return True
 
