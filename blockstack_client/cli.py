@@ -45,7 +45,7 @@ import logging
 logging.disable(logging.CRITICAL)
 
 from blockstack_client import config
-from blockstack_client.client import session, check_storage_setup, analytics_user_register 
+from blockstack_client.client import session, analytics_user_register 
 from blockstack_client.config import CONFIG_PATH, VERSION, semver_match, get_config, client_uuid_path, get_or_set_uuid
 from blockstack_client.method_parser import parse_methods, build_method_subparsers
 
@@ -178,6 +178,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     cli_debug = False
     cli_config_argv = False
     cli_default_yes = False
+    cli_api_pass = None
 
     if '-v' in argv or '--version' in argv:
         print(VERSION)
@@ -228,6 +229,16 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     if cli_default_yes or os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES") == "1":
         print("Assume YES to all interactive prompts", file=sys.stderr)
         os.environ["BLOCKSTACK_CLIENT_INTERACTIVE_YES"] = '1'
+
+    # API password?
+    new_argv, cli_api_pass = find_arg(argv, True, '-a', '--api_password')
+    if new_argv is None:
+        # invalid
+        sys.exit(1)
+
+    argv = new_argv
+    if cli_api_pass:
+        os.environ['BLOCKSTACK_API_PASSWORD'] = cli_api_pass
 
     if cli_config_argv or cli_debug:
         # re-exec to reset variables
@@ -344,12 +355,6 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
         method = method_info['method']
         pragmas = method_info['pragmas']
-
-        if 'check_storage' in pragmas:
-            # verify that we have set up storage
-            res = check_storage_setup(config_path=config_path)
-            if 'error' in res:
-                return {'error': 'Please run the `setup_storage` command first'}
 
         # interactive?
         if interactive:
