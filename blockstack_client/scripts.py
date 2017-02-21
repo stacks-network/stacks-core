@@ -269,22 +269,13 @@ def tx_make_input_signature(tx, idx, script, privkey_str, hashcode):
 
     # sign using uncompressed private key
     pk_uncompressed_hex, pubk_uncompressed_hex = get_uncompressed_private_and_public_keys(priv)
-
-    sk = ecdsa.SigningKey.from_string(pk_uncompressed_hex.decode('hex'), curve=ecdsa.SECP256k1)
-    sig_bin = sk.sign_digest(txhash, sigencode=ecdsa.util.sigencode_der)
-    
-    # enforce low-s
-    sig_r, sig_s = ecdsa.util.sigdecode_der( sig_bin, ecdsa.SECP256k1.order )
-    if sig_s * 2 >= ecdsa.SECP256k1.order:
-        log.debug("High-S to low-S")
-        sig_s = ecdsa.SECP256k1.order - sig_s
-
-    sig_bin = ecdsa.util.sigencode_der( sig_r, sig_s, ecdsa.SECP256k1.order )
+    sigb64 = sign_digest( txhash.encode('hex'), priv )
 
     # sanity check 
-    vk = ecdsa.VerifyingKey.from_string(pubk_uncompressed_hex[2:].decode('hex'), curve=ecdsa.SECP256k1)
-    assert vk.verify_digest(sig_bin, txhash, sigdecode=ecdsa.util.sigdecode_der), "Failed to verify signature ({}, {})".format(sig_r, sig_s)
+    assert verify_digest( txhash.encode('hex'), pubk_uncompressed_hex, sigb64 )
 
+    sig_r, sig_s = decode_signature(sigb64)
+    sig_bin = ecdsa.util.sigencode_der( sig_r, sig_s, ecdsa.SECP256k1.order )
     sig = sig_bin.encode('hex') + bitcoin.encode(hashcode, 16, 2)
     return sig
 
@@ -499,12 +490,14 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
     @tx_fee should be in satoshis
 
     Returns the transaction; signed if subsidy_key_info is given; unsigned otherwise
+    Returns None if we can't get subsidy info
     Raise ValueError if there are not enough inputs to subsidize
     """
   
     subsidy_info = tx_get_subsidy_info(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_client, tx_fee=tx_fee, subsidy_address=subsidy_address)
     if 'error' in subsidy_info:
-        return subsidy_info
+        log.error("Failed to get subsidy info: {}".format(subsidy_info['error']))
+        return None
 
     payer_utxo_inputs = subsidy_info['payer_utxos']
     payer_address = subsidy_info['payer_address']
