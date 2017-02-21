@@ -56,7 +56,7 @@ def scenario( wallets, **kw ):
     legacy_wallet = testlib.make_legacy_wallet( wallets[2].privkey, "0123456789abcdef" )
     testlib.store_wallet( legacy_wallet )
 
-    res = testlib.blockstack_cli_upgrade_wallet("0123456789abcdef")
+    res = testlib.blockstack_cli_setup_wallet("0123456789abcdef")
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         return False
@@ -116,16 +116,7 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
     time.sleep(10)
 
-    # upgrade storage 
-    res = testlib.blockstack_cli_upgrade_storage( "foo.test", password="0123456789abcdef")
-    if 'error' in res:
-        print json.dumps(res, indent=4, sort_keys=True)
-        return False
-
-    if not blockstack_client.check_storage_setup():
-        print "storage is not set up"
-        return False
-
+    # TODO: do something useful here
 
 def check( state_engine ):
 

@@ -124,17 +124,6 @@ def scenario( wallets, **kw ):
     # activate bar.test
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[9].privkey, wallets[7].privkey, wallets[8].privkey )
 
-    # bootstrap storage for this wallet
-    res = testlib.blockstack_cli_upgrade_storage("bar.test", password="0123456789abcdef")
-    if 'error' in res:
-        print 'failed to bootstrap storage for foo.test'
-        print json.dumps(res, indent=4, sort_keys=True)
-        return False
-
-    if not blockstack_client.check_storage_setup():
-        print "storage is not set up"
-        return False
-
     # make a user for bar.test 
     res = testlib.blockstack_cli_create_user( "bar_user_id", blockchain_id='bar.test', password="0123456789abcdef" )
     if 'error' in res:

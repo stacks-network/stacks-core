@@ -91,17 +91,6 @@ def scenario( wallets, **kw ):
     
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
 
-    # bootstrap storage for this wallet
-    res = testlib.blockstack_cli_upgrade_storage("foo.test", password="0123456789abcdef")
-    if 'error' in res:
-        print 'failed to bootstrap storage for foo.test'
-        print json.dumps(res, indent=4, sort_keys=True)
-        return False
-
-    if not blockstack_client.check_storage_setup():
-        print "storage is not set up"
-        return False
-
     # make an index file 
     index_file_path = "/tmp/name_preorder_register_update_app_publish.foo.test.index.html"
     with open(index_file_path, "w") as f:

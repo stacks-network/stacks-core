@@ -85,17 +85,6 @@ def scenario( wallets, **kw ):
     
     testlib.next_block( **kw )
 
-    # bootstrap storage for this wallet
-    res = testlib.blockstack_cli_upgrade_storage("foo.test", password="0123456789abcdef")
-    if 'error' in res:
-        print 'failed to bootstrap storage for foo.test'
-        print json.dumps(res, indent=4, sort_keys=True)
-        return False
-
-    if not blockstack_client.check_storage_setup():
-        print "storage is not set up"
-        return False
-
     # make an index file 
     index_file_path = "/tmp/name_preorder_register_update_app_publish.foo.test.index.html"
     with open(index_file_path, "w") as f:
@@ -144,7 +133,7 @@ def scenario( wallets, **kw ):
         return False
 
     # make an app user account 
-    res = testlib.blockstack_cli_app_put_account( "foo_id", "foo.test", "bar", "get_mutable", session_lifetime=3600 )
+    res = testlib.blockstack_cli_app_create_account( "foo_id", "foo.test", "bar", "get_mutable", session_lifetime=3600 )
     if 'error' in res:
         print "failed to create account for foo_id in foo.test/bar"
         print json.dumps(res, indent=4, sort_keys=True)

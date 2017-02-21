@@ -235,18 +235,6 @@ def scenario( wallets, **kw ):
         print json.dumps(res, indent=4, sort_keys=True)
         return False
 
-    # bootstrap storage for this wallet
-    log.debug("bootstrap storage")
-    res = testlib.blockstack_cli_upgrade_storage("foo.test", password="0123456789abcdef")
-    if 'error' in res:
-        print 'failed to bootstrap storage for foo.test'
-        print json.dumps(res, indent=4, sort_keys=True)
-        return False
-
-    if not blockstack_client.check_storage_setup():
-        print "storage is not set up"
-        return False
-
     # make a user 
     log.debug("create user")
     res = testlib.blockstack_cli_create_user( "foo_id", password="0123456789abcdef" )
@@ -257,7 +245,7 @@ def scenario( wallets, **kw ):
 
     # make an app user account 
     log.debug("put account")
-    res = testlib.blockstack_cli_app_put_account( "foo_id", "foo.test", "bar", "get_mutable", session_lifetime=3600 )
+    res = testlib.blockstack_cli_app_create_account( "foo_id", "foo.test", "bar", "get_mutable", session_lifetime=3600 )
     if 'error' in res:
         print "failed to create account for foo_id in foo.test/bar"
         print json.dumps(res, indent=4, sort_keys=True)
