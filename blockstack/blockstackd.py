@@ -1266,8 +1266,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             # NOTE: since we did not generate this zonefile (i.e. it's untrusted input, and we may be using different storage drivers),
             # don't trust its URLs.  Auto-generate them using our designated drivers instead.
             # Also, do not attempt to decode the profile.  The client will do this instead (avoid any decode-related attack vectors)
-            profile, zonefile = blockstack_client.get_name_profile(name, profile_storage_drivers=profile_storage_drivers, zonefile_storage_drivers=zonefile_storage_drivers,
-                                                                   user_zonefile=zonefile_dict, name_record=name_rec, use_zonefile_urls=False, decode_profile=False)
+            profile, zonefile = blockstack_client.get_profile(name, profile_storage_drivers=profile_storage_drivers, zonefile_storage_drivers=zonefile_storage_drivers,
+                                                             user_zonefile=zonefile_dict, name_record=name_rec, use_zonefile_urls=False, decode_profile=False)
         except Exception, e:
             log.exception(e)
             log.debug("Failed to load profile for '%s'" % name)
@@ -1328,8 +1328,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         # verify that the previous profile actually does have this hash 
         try:
-            old_profile_txt, zonefile = blockstack_client.get_name_profile(name, profile_storage_drivers=profile_storage_drivers, zonefile_storage_drivers=zonefile_storage_drivers,
-                                                                           user_zonefile=zonefile_dict, name_record=name_rec, use_zonefile_urls=False, decode_profile=False)
+            old_profile_txt, zonefile = blockstack_client.get_profile(name, profile_storage_drivers=profile_storage_drivers, zonefile_storage_drivers=zonefile_storage_drivers,
+                                                                       user_zonefile=zonefile_dict, name_record=name_rec, use_zonefile_urls=False, decode_profile=False)
         except Exception, e:
             log.exception(e)
             log.debug("Failed to load profile for '%s'" % name)
@@ -2604,6 +2604,12 @@ def run_blockstackd():
        # fatal error
        os.abort()
 
+   # need sqlite3 
+   sqlite3_tool = sqlite3_find_tool()
+   if sqlite3_tool is None:
+       print 'Failed to find sqlite3 tool in your PATH.  Cannot continue'
+       sys.exit(1)
+       
    working_dir = virtualchain.get_working_dir()
 
    # get RPC server options
@@ -2698,21 +2704,34 @@ def run_blockstackd():
       'url',
       help='the URL to the name database snapshot')
    parser.add_argument(
-      'public_key', nargs='?',
-      help='the public key to use to verify the snapshot')
+      'public_keys', nargs='?',
+      help='a CSV of public keys to use to verify the snapshot')
+   parser.add_argument(
+      '--num_required', action='store',
+      help='the number of required signature matches')
 
    parser = subparsers.add_parser(
       'fast_sync_snapshot',
       help='make a fast-sync snapshot')
    parser.add_argument(
       'private_key',
-      help='the private key to use to generate the snapshot')
+      help='a private key to use to sign the snapshot')
    parser.add_argument(
       'path',
       help='the path to the resulting snapshot')
    parser.add_argument(
       'block_id', nargs='?',
       help='the block ID of the backup to use to make a fast-sync snapshot')
+
+   parser = subparsers.add_parser(
+      'fast_sync_sign',
+      help='sign an existing fast-sync snapshot')
+   parser.add_argument(
+      'path', action='store',
+      help='the path to the snapshot')
+   parser.add_argument(
+      'private_key', action='store',
+      help='a private key to use to sign the snapshot')
 
    args, _ = argparser.parse_known_args()
 
@@ -2847,24 +2866,47 @@ def run_blockstackd():
    elif args.action == 'fast_sync_snapshot':
       # create a fast-sync snapshot from the last backup 
       dest_path = str(args.path)
-      private_key = keylib.ECPrivateKey(str(args.private_key)).to_hex()
+      private_key = str(args.private_key)
+      try:
+          keylib.ECPrivateKey(private_key)
+      except:
+          print "Invalid private key"
+          sys.exit(1)
+
       block_id = None
       if args.block_id is not None:
           block_id = int(args.block_id)
 
-      rc = fast_sync_snapshot( dest_path, private_key, working_dir, block_id )
+      rc = fast_sync_snapshot( dest_path, private_key, block_id )
       if not rc:
-          print "fast_sync_snapshot failed"
+          print "Failed to create snapshot"
+          sys.exit(1)
+
+   elif args.action == 'fast_sync_sign':
+      # sign an existing fast-sync snapshot with an additional key 
+      snapshot_path = str(args.path)
+      private_key = str(args.private_key)
+      try:
+          keylib.ECPrivateKey(private_key)
+      except:
+          print "Invalid private key"
+          sys.exit(1)
+
+      rc = fast_sync_sign_snapshot( snapshot_path, private_key )
+      if not rc:
+          print "Failed to sign snapshot"
           sys.exit(1)
 
    elif args.action == 'fast_sync':
       # fetch the snapshot and verify it 
       url = str(args.url)
-      public_key = config.FAST_SYNC_PUBLIC_KEY
-      if args.public_key is not None:
-          args.public_key = keylib.ECPublicKey(str(args.public_key)).to_hex()
+      public_keys = config.FAST_SYNC_PUBLIC_KEYS
+      
+      num_required = len(public_keys)
+      if args.num_required:
+          num_required = int(args.num_required)
 
-      rc = fast_sync_import(working_dir, url, public_key=public_key)
+      rc = fast_sync_import(working_dir, url, public_keys=public_keys, num_required=num_required)
       if not rc:
           print 'fast_sync failed'
           sys.exit(1)
