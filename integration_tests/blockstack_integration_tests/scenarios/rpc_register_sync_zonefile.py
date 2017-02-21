@@ -129,7 +129,7 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "\nstopping RPC daemon\n"
     config_dir = os.path.dirname(test_proxy.config_path)
 
-    blockstack_client.rpc.local_rpc_stop(config_dir=config_dir)
+    blockstack_client.rpc.local_api_stop(config_dir=config_dir)
     time.sleep(3)
 
     # store to queue
