@@ -646,7 +646,7 @@ def atlas_network_build( peer_ports, seed_relations, blacklist_relations, networ
         hostport = "localhost:%s" % peer_port
         dirp = os.path.join( network_dir, hostport )
 
-        res = testlib.peer_make_config(peer_port, dirp)
+        res = testlib.peer_make_config(peer_port, dirp, seed_relations=seed_relations, blacklist_relations=blacklist_relations)
         if not res:
             print("Failed to make config in {}".format(dirp))
             return None
@@ -675,7 +675,7 @@ def atlas_network_start( network_des, **network_params ):
     for port in peer_ports:
         hostport = "localhost:%s" % port
         dirp = os.path.join( network_dir, hostport )
-        peer = atlas_peer_start( "localhost", port, srv, dirp )
+        peer = atlas_peer_start( port, srv, dirp )
         peers.append(peer)
 
     network_des['netsrv'] = srv
@@ -728,14 +728,14 @@ def atlas_network_stop( network_des ):
     return True
 
 
-def atlas_peer_start( host, port, srv, working_dir ):
+def atlas_peer_start( port, srv, working_dir ):
     """
     Start up a peer atlas subprocess
     to communicate on the given network server.
     Return a dict with the peer information.
     """
     import scenarios.testlib as testlib
-    return testlib.peer_start( host, working_dir, port=port )
+    return testlib.peer_start( working_dir, port=port )
 
 
 def atlas_peer_rpc( peer_info ):
