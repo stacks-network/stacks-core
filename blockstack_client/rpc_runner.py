@@ -28,7 +28,7 @@ import os
 import sys
 import traceback
 import config as blockstack_config
-from rpc import local_rpc_start, local_rpc_stop, local_rpc_status
+from rpc import local_api_start, local_api_stop, local_api_status, local_api_connect
 
 
 if __name__ == '__main__':
@@ -49,19 +49,38 @@ if __name__ == '__main__':
         print(usage, file=sys.stderr)
         sys.exit(1)
 
+    passwd = os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD', None)
+    api_pass = os.environ.get("BLOCKSTACK_API_PASSWORD", None)
+    
+    if api_pass is None:
+        # try to get it from the config file 
+        conf = blockstack_config.get_config(config_path)
+        assert conf 
+
+        api_pass = conf['api_password']
+
     if command == 'start':
-        # maybe inherited password through the environment?
-        passwd = os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD', None)
-        rc = local_rpc_start(portnum, config_dir=config_dir, password=passwd)
-        sys.exit(0 if rc else 1)
+        assert passwd, "No wallet password given"
+        assert api_pass, "No API password given"
+
+        rc = local_api_start(port=portnum, config_dir=config_dir, api_pass=api_pass, password=passwd)
+        if not rc:
+            sys.exit(1)
+
+        sys.exit(0)
 
     elif command == 'start-foreground':
-        passwd = os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD', None)
-        rc = local_rpc_start(portnum, config_dir=config_dir, password=passwd, foreground=True)
-        sys.exit(0 if rc else 1)
+        assert passwd, "No wallet password given"
+        assert api_pass, "No API password given"
+
+        rc = local_api_start(port=portnum, config_dir=config_dir, api_pass=api_pass, password=passwd, foreground=True)
+        if not rc:
+            sys.exit(1)
+
+        sys.exit(0)
 
     elif command == 'status':
-        rc = local_rpc_status(config_dir=config_dir)
+        rc = local_api_status(config_dir=config_dir)
         if rc:
             print('Alive', file=sys.stderr)
             sys.exit(0)
@@ -70,17 +89,21 @@ if __name__ == '__main__':
             sys.exit(1)
 
     elif command == 'stop':
-        rc = local_rpc_stop(config_dir=config_dir)
+        rc = local_api_stop(config_dir=config_dir)
         sys.exit(0 if rc else 1)
 
     elif command == 'restart':
-        rc = local_rpc_stop(config_dir=config_dir)
+        rc = local_api_stop(config_dir=config_dir)
         if not rc:
             sys.exit(1)
         else:
-            passwd = os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD', None)
-            rc = local_rpc_start(portnum, config_dir=config_dir, password=passwd)
-            sys.exit(0 if rc else 1)
+            assert passwd, "No wallet password given"
+            assert api_pass, "No API password given"
+            rc = local_api_start(port=portnum, config_dir=config_dir, api_pass=api_pass, password=passwd)
+            if not rc:
+                sys.exit(1)
+
+            sys.exit(0)
     else:
         print(usage, file=sys.stderr)
         sys.exit(1)
