@@ -675,14 +675,10 @@ def read_config_file(path=CONFIG_PATH):
         parser.set('blockstack-client', 'blockchain_writer', DEFAULT_BLOCKCHAIN_WRITER)
         parser.set('blockstack-client', 'anonymous_statistics', 'True')
         parser.set('blockstack-client', 'client_version', VERSION)
-        parser.set('blockstack-client', 'accounts', APP_ACCOUNT_DIRNAME)
-        parser.set('blockstack-client', 'users', USER_DIRNAME)
-        parser.set('blockstack-client', 'datastores', DATASTORE_DIRNAME)
         parser.set('blockstack-client', 'default_devices', '')
-        parser.set('blockstack-client', 'authenticate_api', 'False')
 
-        rpc_token = os.urandom(32)
-        parser.set('blockstack-client', 'rpc_token', hexlify(rpc_token))
+        api_pass = os.urandom(32)
+        parser.set('blockstack-client', 'api_password', hexlify(api_pass))
 
         if path is not None:
             try:
