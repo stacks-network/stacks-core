@@ -557,9 +557,13 @@ def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None
             pks = [virtualchain.BitcoinPrivateKey(pk).to_hex() for pk in owner_privkey['private_keys']]
             m, pubs = virtualchain.parse_multisig_redeemscript(owner_privkey['redeem_script'])
             ret['owner_privkey'] = virtualchain.make_multisig_info(m, pks)
+            ret['owner_addresses'] = [ret['owner_privkey']['address']]
+
         elif is_singlesig(owner_privkey):
             pk_owner = virtualchain.BitcoinPrivateKey(owner_privkey).to_hex()
             ret['owner_privkey'] = pk_owner
+            ret['owner_addresses'] = [virtualchain.BitcoinPrivateKey(pk_owner).public_key().address()]
+
         else:
             raise ValueError('Invalid owner key info')
 
@@ -570,11 +574,18 @@ def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None
         pks = [virtualchain.BitcoinPrivateKey(pk).to_hex() for pk in payment_privkey['private_keys']]
         m, pubs = virtualchain.parse_multisig_redeemscript(payment_privkey['redeem_script'])
         ret['payment_privkey'] = virtualchain.make_multisig_info(m, pks)
+        ret['payment_addresses'] = [ret['payment_privkey']['address']]
+
     elif is_singlesig(payment_privkey):
         pk_payment = virtualchain.BitcoinPrivateKey(payment_privkey).to_hex()
         ret['payment_privkey'] = pk_payment
+        ret['payment_addresses'] = [virtualchain.BitcoinPrivateKey(pk_payment).public_key().address()]
+
     else:
         raise ValueError('Invalid payment key info')
+
+    ret['data_pubkey'] = ECPrivateKey(ret['data_privkey']).public_key().to_hex()
+    ret['data_pubkeys'] = [ret['data_pubkey']]
 
     return ret
 
