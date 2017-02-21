@@ -397,12 +397,17 @@ MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES = {
         'type': 'string',
         'pattern': OP_UUID_PATTERN
     },
+}
+
+# header contains hash of payload
+MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
+MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES.update({
     'data_hash': {
         # hash of associated inode data
         'type': 'string',
         'pattern': OP_HEX_PATTERN
     },
-}
+})
 
 MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
 MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
@@ -462,6 +467,13 @@ MUTABLE_DATUM_INODE_SCHEMA = {
     'properties': MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES,
     'additionalProperties': False,
     'required': MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.keys()
+}
+
+MUTABLE_DATUM_INODE_HEADER_SCHEMA = {
+    'type': 'object',
+    'properties': MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES,
+    'additionalProperties': False,
+    'required': MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES.keys()
 }
 
 MUTABLE_DATUM_FILE_SCHEMA = {
