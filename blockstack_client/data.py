@@ -46,12 +46,11 @@ from .storage import hash_zonefile
 from .zonefile import get_name_zonefile, load_name_zonefile, url_to_uri_record, store_name_zonefile
 
 from .config import get_logger, get_config, get_local_device_id, get_all_device_ids
-from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, USER_LIST_SIGNING_KEY_INDEX, PRIVKEY_INDEX_SIGNING_KEY_INDEX, LOCAL_PRIVKEY_INDEX_NAME, DATASTORE_SIGNING_KEY_INDEX
+from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DATASTORE_SIGNING_KEY_INDEX
 from .schemas import *
 
 log = get_logger()
 
-DATASTORE_CACHE = {}
 DIR_CACHE = None      # cached directories (maps inode uuid to dir data)
 
 class InodeCache(object):
@@ -514,7 +513,7 @@ def load_user_data_pubkey_addr( name, storage_drivers=None, proxy=None, config_p
     return {'pubkey': data_pubkey, 'address': data_address}
 
 
-def get_mutable(data_id, blockchain_id=None, data_pubkey=None, data_address=None, storage_drivers=None,
+def get_mutable(data_id, blockchain_id=None, data_pubkey=None, data_address=None, data_hash=None, storage_drivers=None,
                          proxy=None, ver_min=None, ver_max=None, urls=None, device_ids=None, fully_qualified_data_id=False,
                          config_path=CONFIG_PATH, all_drivers=False):
     """
@@ -525,7 +524,8 @@ def get_mutable(data_id, blockchain_id=None, data_pubkey=None, data_address=None
     If @ver_min is given, ensure the data's version is greater or equal to it.
     If @ver_max is given, ensure the data's version is less than it.
     
-    If data_pubkey or data_address is given, then blockchain_id can be arbitrary (it will be passed as a hint to the drivers)
+    If data_pubkey or data_address is given, then blockchain_id will be ignored (but it will be passed as a hint to the drivers)
+    If data_hash is given, then all three will be ignored
 
     Return {'data': the data, 'version': the version, 'timestamp': ..., 'data_pubkey': ..., 'owner_pubkey_hash': ..., 'drivers': [driver name]} on success
     Return {'error': ...} on error
@@ -548,7 +548,7 @@ def get_mutable(data_id, blockchain_id=None, data_pubkey=None, data_address=None
         fq_data_ids = [data_id]
 
     lookup = False
-    if data_address is None and data_pubkey is None:
+    if data_address is None and data_pubkey is None and data_hash is None:
         if blockchain_id is None:
             raise ValueError("No data public key, data address, or blockchain ID given")
 
@@ -575,7 +575,9 @@ def get_mutable(data_id, blockchain_id=None, data_pubkey=None, data_address=None
 
     expected_version = version_info['version']
 
-    log.debug("get_mutable({}, blockchain_id={}, pubkey={} ({}), addr={}, expected_version={}, storage_drivers={})".format(data_id, blockchain_id, data_pubkey, lookup, data_address, expected_version, ','.join(storage_drivers)))
+    log.debug("get_mutable({}, blockchain_id={}, pubkey={} ({}), addr={}, hash={}, expected_version={}, storage_drivers={})".format(
+        data_id, blockchain_id, data_pubkey, lookup, data_address, data_hash, expected_version, ','.join(storage_drivers)
+    ))
 
     mutable_data = None
     mutable_drivers = []
@@ -587,7 +589,7 @@ def get_mutable(data_id, blockchain_id=None, data_pubkey=None, data_address=None
         for driver in storage_drivers: 
 
             # get the mutable data itsef
-            data = storage.get_mutable_data(fq_data_id, data_pubkey, urls=urls, drivers=[driver], data_address=data_address, blockchain_id=blockchain_id)
+            data = storage.get_mutable_data(fq_data_id, data_pubkey, urls=urls, drivers=[driver], data_address=data_address, data_hash=data_hash, blockchain_id=blockchain_id)
             if data is None:
                 log.error("Failed to get mutable datum {}".format(fq_data_id))
                 return {'error': 'Failed to look up mutable datum'}
@@ -1175,212 +1177,44 @@ def set_data_pubkey(blockchain_id, data_pubkey, proxy=None, wallet_keys=None, tx
     return result
 
 
-def datastore_dir(config_path=CONFIG_PATH):
+def datastore_get_id( pubkey ):
     """
-    Get the directory that holds all datastore state
+    Get the datastore ID
     """
-    conf = get_config(path=config_path)
-    assert conf
+    return keylib.public_key_to_address( pubkey )
+         
 
-    datastore_dir = conf['datastores']
-    if posixpath.normpath(os.path.abspath(datastore_dir)) != posixpath.normpath(conf['datastores']):
-        # relative path; make absolute
-        datastore_dir = posixpath.normpath( os.path.join(os.path.dirname(config_path), datastore_dir) )
-
-    return datastore_dir
-
-
-def _make_datastore_name( user_id, datastore_name ):
+def datastore_get_privkey( master_data_privkey, app_domain, config_path=CONFIG_PATH ):
     """
-    Make a datastore name
+    Make the public/private key for an application account,
+    given the app domain and the master private key
+
+    Its master_data_privkey[sha256(app_domain)]/0', where sha256(app_domain) is the chaincode
     """
-    assert re.match(OP_USER_ID_PATTERN, user_id)
-    assert re.match(OP_DATASTORE_ID_PATTERN, datastore_name)
-    return "{}@{}".format(user_id, datastore_name)
+    chaincode = hashlib.sha256(str(app_domain)).digest()
+    hdwallet = HDWallet( hex_privkey=master_data_privkey, chaincode=chaincode )
+    app_private_key = hdwallet.get_child_privkey( index=DATASTORE_SIGNING_KEY_INDEX )
+
+    return app_private_key
 
 
-def datastore_path(user_id, datastore_name, config_path=CONFIG_PATH):
-    """
-    Get the path to the private datastore information.
-    """
-    datastore_filename = _make_datastore_name(user_id, datastore_name) + ".datastore"
-    datastore_dirp = datastore_dir(config_path=config_path)
-
-    return os.path.join(datastore_dirp, datastore_filename)
-
-
-def datastore_list(config_path=CONFIG_PATH, pubkey_hex=None):
-    """
-    Get the list of datastores controlled on this host.
-    Return {'datastore_name': ..., 'user_id': ...} list on success
-    """
-    datastore_dirp = datastore_dir(config_path=config_path)
-    if not os.path.exists(datastore_dirp) or not os.path.isdir(datastore_dirp):
-        log.error("No datastore directory")
-        return []
-
-    names = os.listdir(datastore_dirp)
-    names = filter(lambda n: n.endswith(".datastore"), names)
-
-    ret = []
-    for name in names:
-        datastore_info = _datastore_load_path(os.path.join(datastore_dirp, name), pubkey_hex, config_path=config_path)
-        if 'error' in datastore_info:
-            continue
-
-        ret.append( datastore_info['datastore'] )
-
-    return ret
-    
-
-def datastore_store(token, config_path=CONFIG_PATH):
-    """
-    Store a datastore record (as a JWT) locally
-    Return {'status': True} on success
-    Return {'error': ...} on error
-    """
-    global DATASTORE_CACHE
-
-    jwt = jsontokens.decode_token(token)
-    payload = jwt['payload']
-    jsonschema.validate(payload, DATASTORE_SCHEMA)
-
-    user_id = payload['user_id']
-    datastore_name = payload['datastore_name']
-    path = datastore_path( user_id, datastore_name, config_path=config_path)
-    try:
-        pathdir = os.path.dirname(path)
-        if not os.path.exists(pathdir):
-            os.makedirs(pathdir)
-
-        with open(path, "w") as f:
-            f.write(token)
-
-    except:
-        log.error("Failed to store datastore record {}".format(path))
-        return {'error': 'Failed to store datastore record'}
-
-    cache_name = _make_datastore_name(user_id, datastore_name)
-    if DATASTORE_CACHE.has_key(cache_name):
-        del DATASTORE_CACHE[cache_name]
-
-    return {'status': True}
-   
-
-def datastore_unlink( user_id, datastore_name, config_path=CONFIG_PATH ):
-    """
-    Delete a local datastore record
-    Return {'status': True} on success
-    """
-    global DATASTORE_CACHE
-
-    path = datastore_path(user_id, datastore_name, config_path=config_path)
-    if not os.path.exists(path):
-        return {'error': 'No such datastore'}
-
-    try:
-        os.unlink(path)
-    except Exception, e:
-        log.exception(e)
-        return {'error': 'Failed to unlink'}
-
-    cache_name = _make_datastore_name(user_id, datastore_name)
-    if DATASTORE_CACHE.has_key(cache_name):
-        del DATASTORE_CACHE[cache_name]
-
-    return {'status': True}
-
-
-def _datastore_load_path(path, data_pubkey_hex, config_path=CONFIG_PATH):
-    """
-    Load a datastore from a given path
-    Verify it conforms to the DATASTORE_SCHEMA
-    Return {'datastore': ..., 'datastore_token': ...} on success
-    Return {'error': ...} on error
-    """
-
-    jwt = None
-    try:
-        with open(path, "r") as f:
-            jwt = f.read()
-
-    except:
-        log.error("Failed to load {}".format(path))
-        return {'error': 'Failed to read datastore'}
-
-    if data_pubkey_hex is not None:
-        # verify
-        verifier = jsontokens.TokenVerifier()
-        valid = verifier.verify( jwt, data_pubkey_hex )
-        if not valid:
-            return {'error': 'Failed to verify datastore JWT data'}
-
-    data = jsontokens.decode_token( jwt )
-    jsonschema.validate(data['payload'], DATASTORE_SCHEMA)
-    return {'datastore': data['payload'], 'datastore_token': jwt}
-
-
-def datastore_load(user_id, datastore_name, data_pubkey_hex, config_path=CONFIG_PATH):
-    """
-    Load a datastore record from disk
-    Return {'datastore': datastore, 'datastore_token': token} on success
-    Return {'error': ...} on error
-    """
-    global DATASTORE_CACHE
-
-    cache_name = _make_datastore_name(user_id, datastore_name)
-    if DATASTORE_CACHE.has_key(cache_name):
-        log.debug("Datastore {} is cached".format(cache_name))
-        return DATASTORE_CACHE[cache_name]
-
-    path = datastore_path( user_id, datastore_name, config_path=config_path)
-    res = _datastore_load_path(path, data_pubkey_hex, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    DATASTORE_CACHE[cache_name] = res
-    return res
-    
-
-def datastore_get_user_id( datastore ):
-    """
-    Get the datastore user ID
-    """
-    return datastore['user_id']
-
-
-def datastore_get_privkey( account_privkey, config_path=CONFIG_PATH ):
-    """
-    Make the datastore private key
-
-    It's hdpath is account_privkey/0'
-    """
-    
-    hdwallet = HDWallet( hex_privkey=account_privkey, config_path=config_path)
-    datastore_privkey = hdwallet.get_child_privkey( index=DATASTORE_SIGNING_KEY_INDEX )
-    return datastore_privkey
-
-
-def _make_datastore_info( datastore_type, user_id, datastore_name, datastore_privkey_hex, driver_names, device_ids, config_path=CONFIG_PATH ):
+def _make_datastore_info( datastore_type, datastore_privkey_hex, driver_names, device_ids, config_path=CONFIG_PATH ):
     """
     Make the private part of a datastore record.
     Returns {'datastore': ..., 'root': ...} on success
     Returns {'error': ...} on error
     """
-
     root_uuid = str(uuid.uuid4())
     datastore_pubkey = get_pubkey_hex(datastore_privkey_hex)
-    datastore_address = keylib.public_key_to_address(datastore_pubkey)
-    datastore_root = _mutable_data_make_dir( datastore_address, root_uuid, {} )
+    datastore_id = keylib.public_key_to_address(datastore_pubkey)
+    datastore_root = _mutable_data_make_dir( datastore_id, root_uuid, {} )
     datastore_root['idata'] = {}
 
     assert datastore_type in ['datastore', 'collection'], datastore_type
 
     datastore_info = {
         'type': datastore_type,
-        'datastore_name': datastore_name, 
-        'user_id': user_id,
-        'owner_pubkey': datastore_pubkey,
+        'pubkey': datastore_pubkey,
         'drivers': driver_names,
         'device_ids': device_ids,
         'root_uuid': root_uuid
@@ -1393,13 +1227,9 @@ def _make_datastore_info( datastore_type, user_id, datastore_name, datastore_pri
     return {'datastore': datastore_info, 'datastore_token': token, 'root': datastore_root}
 
 
-def get_datastore(user_id, datastore_name, datastore_pubkey, config_path=CONFIG_PATH, proxy=None):
+def get_datastore( datastore_id, config_path=CONFIG_PATH, proxy=None):
     """
     Get a datastore's information.
-    @user_id can be a pet name if the datastore is only owned locally.
-    However, @user_id must be a blockchain ID if the datastore is accessible
-    across hosts.
-
     Returns {'status': True, 'datastore': public datastore info}
     Returns {'error': ...} on failure
     """
@@ -1407,16 +1237,10 @@ def get_datastore(user_id, datastore_name, datastore_pubkey, config_path=CONFIG_
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    # try local first
-    datastore_info = datastore_load(user_id, datastore_name, datastore_pubkey, config_path=config_path)
-    if 'error' not in datastore_info:
-        return {'status': True, 'datastore': datastore_info['datastore']}
-
     nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
 
-    # fall back to mutable storage.
-    data_id = '{}.{}'.format(user_id, datastore_name)
-    datastore_info = get_mutable(data_id, data_pubkey=datastore_pubkey, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
+    data_id = '{}.datastore'.format(datastore_id)
+    datastore_info = get_mutable(data_id, data_address=datastore_id, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
     if 'error' in datastore_info:
         log.error("Failed to load public datastore information: {}".format(datastore_info['error']))
         return {'error': 'Failed to load public datastore record'}
@@ -1425,7 +1249,6 @@ def get_datastore(user_id, datastore_name, datastore_pubkey, config_path=CONFIG_
 
     try:
         jsonschema.validate(datastore, DATASTORE_SCHEMA) 
-        assert datastore['datastore_name'] == datastore_name, "Datastore name mismatch"
     except (AssertionError, ValidationError) as ve:
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
@@ -1436,7 +1259,7 @@ def get_datastore(user_id, datastore_name, datastore_pubkey, config_path=CONFIG_
     return {'status': True, 'datastore': datastore}
 
 
-def make_datastore(user_id, datastore_name, datastore_privkey_hex, driver_names=None, device_ids=None, config_path=CONFIG_PATH, datastore_type='datastore' ):
+def make_datastore( datastore_privkey_hex, driver_names=None, device_ids=None, config_path=CONFIG_PATH, datastore_type='datastore' ):
     """
     Create a new datastore record with the given name, using the given account_info structure
     Return {'datastore': public datastore information, 'datastore_token': datastore JWT, 'root': root inode}
@@ -1449,11 +1272,11 @@ def make_datastore(user_id, datastore_name, datastore_privkey_hex, driver_names=
     if device_ids is None:
         device_ids = get_all_device_ids(config_path=config_path)
 
-    datastore_info = _make_datastore_info( datastore_type, user_id, datastore_name, datastore_privkey_hex, driver_names, device_ids, config_path=config_path)
+    datastore_info = _make_datastore_info( datastore_privkey_hex, driver_names, device_ids, config_path=config_path)
     return {'datastore': datastore_info['datastore'],  'datastore_token': datastore_info['datastore_token'], 'root': datastore_info['root']}
 
 
-def put_datastore(user_id, datastore_name, datastore_info, datastore_privkey, proxy=None, config_path=CONFIG_PATH ):
+def put_datastore(datastore_info, datastore_privkey, proxy=None, config_path=CONFIG_PATH ):
     """
     Create and put a new datastore.
     @datastore_info should be the structure returned by make_datastore()
@@ -1466,43 +1289,33 @@ def put_datastore(user_id, datastore_name, datastore_info, datastore_privkey, pr
         proxy = get_default_proxy(config_path)
 
     datastore = datastore_info['datastore']
+    datastore_id = datastore_get_id( datastore['pubkey'] )
     datastore_token = datastore_info['datastore_token']
-    user_id = datastore['user_id']
     root = datastore_info['root']
     drivers = datastore['drivers']
     device_ids = datastore['device_ids']
     all_device_ids = get_all_device_ids(config_path=config_path)
 
-    assert datastore_name == datastore['datastore_name']
-    assert re.match(OP_USER_ID_PATTERN, user_id), user_id
-    assert re.match(OP_DATASTORE_ID_PATTERN, datastore_name), datastore_name
-
     # replicate root inode
-    res = _put_inode(user_id, root, datastore_privkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=proxy, create=True )
+    res = _put_inode(datastore_id, root, datastore_privkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=proxy, create=True )
     if 'error' in res:
-        log.error("Failed to put root inode for datastore {}".format(datastore_name))
+        log.error("Failed to put root inode for datastore {}".format(datastore_id))
         return {'error': 'Failed to replicate datastore metadata'}
 
     # replicate public datastore record
-    data_id = '{}.{}'.format(user_id, datastore_name)
+    data_id = '{}.datastore'.format(datastore_id)
     res = put_mutable( data_id, datastore, data_privkey=datastore_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy )
     if 'error' in res:
         log.error("Failed to put datastore metadata for {}".format(datastore_fq_id))
 
         # try to clean up...
-        res = _delete_inode(user_id, root['uuid'], datastore_privkey, drivers, device_ids, proxy=proxy, config_path=config_path)
+        res = _delete_inode(datastore_id, root['uuid'], datastore_privkey, drivers, device_ids, proxy=proxy, config_path=config_path)
         if 'error' in res:
             log.error("Failed to clean up root inode {}".format(root['uuid']))
 
         return {'error': 'Failed to replicate datastore metadata'}
 
     datastore_rec_version = res['version']
-
-    # store local record 
-    res = datastore_store(datastore_token, config_path=config_path)
-    if 'error' in res:
-        log.error("Failed to store local datastore record")
-        return {'error': 'Failed to store local datastore record'}
 
     # advance version for all devices
     res = _put_mutable_data_versions(data_id, datastore_rec_version, all_device_ids, config_path=config_path)
@@ -1513,7 +1326,7 @@ def put_datastore(user_id, datastore_name, datastore_info, datastore_privkey, pr
     return {'status': True}
 
 
-def delete_datastore(user_id, datastore_name, datastore_privkey, force=False, config_path=CONFIG_PATH, proxy=None ):
+def delete_datastore( datastore_privkey, force=False, config_path=CONFIG_PATH, proxy=None ):
     """
     Delete a datastore's information, given the app user structure and the datastore name
     If force is True, then delete the root inode even if it's not empty.
@@ -1531,11 +1344,12 @@ def delete_datastore(user_id, datastore_name, datastore_privkey, force=False, co
         DIR_CACHE = InodeCache()
 
     datastore_pubkey = get_pubkey_hex(datastore_privkey)
+    datastore_id = datastore_get_id(datastore_pubkey)
 
     # get the datastore first
-    datastore_info = get_datastore(user_id, datastore_name, datastore_pubkey, config_path=config_path, proxy=proxy )
+    datastore_info = get_datastore(datastore_id, config_path=config_path, proxy=proxy )
     if 'error' in datastore_info:
-        log.error("Failed to look up datastore information for {}:{}".format(user_id, datastore_name))
+        log.error("Failed to look up datastore information for {}".format(datastore_id))
         return {'error': 'Failed to look up datastore'}
     
     datastore = datastore_info['datastore']
@@ -1553,24 +1367,17 @@ def delete_datastore(user_id, datastore_name, datastore_privkey, force=False, co
         log.error("Datastore not empty\n{}\n".format(json.dumps(res['dir']['idata'], indent=4, sort_keys=True)))
         return {'error': 'Datastore not empty'}
 
-    res = _delete_inode(user_id, datastore['root_uuid'], datastore_privkey, datastore['drivers'], datastore['device_ids'], proxy=proxy, config_path=config_path, cache=DIR_CACHE) 
+    res = _delete_inode(datastore_id, datastore['root_uuid'], datastore_privkey, datastore['drivers'], datastore['device_ids'], proxy=proxy, config_path=config_path, cache=DIR_CACHE) 
     if 'error' in res:
         log.error("Failed to delete root inode {}".format(datastore['root_uuid']))
         return {'error': res['error']}
 
     # remove public datastore record
-    datastore_name = datastore['datastore_name']
-    data_id = '{}.{}'.format(user_id, datastore_name)
+    data_id = '{}.datastore'.format(datastore_id)
     res = delete_mutable(data_id, data_privkey=datastore_privkey, proxy=proxy, config_path=config_path, delete_version=False )
     if 'error' in res:
         log.error("Failed to delete public datastore record: {}".format(res['error']))
         return {'error': 'Failed to delete public datastore record'}
-
-    # remove local private datastore record 
-    res = datastore_unlink(user_id, datastore_name, config_path=config_path)
-    if 'error' in res:
-        log.error("Failed to delete local datastore record: {}".format(res['error']))
-        return {'error': 'Failed to delete local datastore record'}
 
     return {'status': True}
 
@@ -1585,13 +1392,15 @@ def _is_cacheable(inode_info):
         return False
 
 
-def _get_inode(user_id, inode_uuid, inode_type, data_pubkey_hex, drivers, device_ids, config_path=CONFIG_PATH, proxy=None, cache=None ):
+def _get_inode(datastore_id, inode_uuid, inode_type, data_pubkey_hex, drivers, device_ids, config_path=CONFIG_PATH, proxy=None, cache=None ):
     """
     Get an inode from non-local mutable storage.  Verify that it has an
     equal or later version number than the one we have locally.
 
     If cache is not None, and if the inode is a directory, then check
     the cache for the data and add it if it is not present
+
+    # TODO: check data hash against inode header
 
     Return {'status': True, 'inode': inode info} on success.
     Return {'error': ...} on error
@@ -1621,7 +1430,7 @@ def _get_inode(user_id, inode_uuid, inode_type, data_pubkey_hex, drivers, device
     inode_version = None
 
     # get latest header from all drivers 
-    res = _get_inode_header(user_id, inode_uuid, data_pubkey_hex, drivers, device_ids, config_path=config_path, proxy=proxy, cache=cache)
+    res = _get_inode_header(datastore_id, inode_uuid, data_pubkey_hex, drivers, device_ids, config_path=config_path, proxy=proxy, cache=cache)
     if 'error' in res:
         log.error("Failed to get inode header for {}: {}".format(inode_uuid, res['error']))
         return res
@@ -1629,10 +1438,11 @@ def _get_inode(user_id, inode_uuid, inode_type, data_pubkey_hex, drivers, device
     header_version = res['version']
     inode_header = res['inode']
     drivers_to_try = res['drivers']
+    data_hash = inode_header['data_hash']
 
     # get inode from only the driver(s) that gave back fresh information 
-    data_id = '{}.{}'.format(user_id, inode_uuid)
-    res = get_mutable(data_id, ver_min=header_version, data_pubkey=data_pubkey_hex, storage_drivers=drivers_to_try, proxy=proxy, config_path=config_path)
+    data_id = '{}.{}'.format(datastore_id, inode_uuid)
+    res = get_mutable(data_id, ver_min=header_version, data_hash=data_hash, storage_drivers=drivers_to_try, proxy=proxy, config_path=config_path)
     if 'error' in res:
         log.error("Failed to get inode {} from {}: {}".format(inode_uuid, successful_driver, res['error']))
         return {'error': 'Failed to find fresh inode'}
@@ -1672,7 +1482,7 @@ def _get_inode(user_id, inode_uuid, inode_type, data_pubkey_hex, drivers, device
         cache.put( inode_uuid, inode_info )
     '''
 
-    res = _put_inode_consistency_info(user_id, inode_uuid, max(inode_version, header_version), device_ids, config_path=config_path)
+    res = _put_inode_consistency_info(datastore_id, inode_uuid, max(inode_version, header_version), device_ids, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -1722,7 +1532,7 @@ def _put_mutable_data_versions( data_id, new_version, device_ids, config_path=CO
     return {'status': True, 'version': new_version}
 
 
-def _put_inode_consistency_info(user_id, inode_uuid, new_version, device_ids, config_path=CONFIG_PATH):
+def _put_inode_consistency_info(datastore_id, inode_uuid, new_version, device_ids, config_path=CONFIG_PATH):
     """
     Advance all versions of an inode locally
     Return {'status': True} on success
@@ -1730,8 +1540,8 @@ def _put_inode_consistency_info(user_id, inode_uuid, new_version, device_ids, co
     """
 
     # advance header version and inode version
-    inode_data_id = '{}.{}'.format(user_id, inode_uuid)
-    hdr_data_id = '{}.{}.hdr'.format(user_id, inode_uuid)
+    inode_data_id = '{}.{}'.format(datastore_id, inode_uuid)
+    hdr_data_id = '{}.{}.hdr'.format(datastore_id, inode_uuid)
 
     res = _put_mutable_data_versions(inode_data_id, new_version, device_ids, config_path=CONFIG_PATH)
     if 'error' in res:
@@ -1752,7 +1562,7 @@ def _put_inode_consistency_info(user_id, inode_uuid, new_version, device_ids, co
     return {'status': True}
 
 
-def _get_inode_header(user_id, inode_uuid, data_pubkey_hex, drivers, device_ids, inode_hdr_version=None, config_path=CONFIG_PATH, proxy=None, cache=None):
+def _get_inode_header(datastore_id, inode_uuid, data_pubkey_hex, drivers, device_ids, inode_hdr_version=None, config_path=CONFIG_PATH, proxy=None, cache=None):
     """
     Get an inode's header data.  Verify it matches the inode info.
     Fetch the header from *all* drivers
@@ -1768,8 +1578,8 @@ def _get_inode_header(user_id, inode_uuid, data_pubkey_hex, drivers, device_ids,
     assert conf
 
     # get latest inode and inode header version
-    inode_id = '{}.{}'.format(user_id, inode_uuid)
-    inode_hdr_id = '{}.{}.hdr'.format(user_id, inode_uuid)
+    inode_id = '{}.{}'.format(datastore_id, inode_uuid)
+    inode_hdr_id = '{}.{}.hdr'.format(datastore_id, inode_uuid)
 
     inode_version = 0
     inode_hdr_version = 0
@@ -1802,7 +1612,7 @@ def _get_inode_header(user_id, inode_uuid, data_pubkey_hex, drivers, device_ids,
     '''
 
     # get from *all* drivers so we know that if we succeed, we have a fresh version
-    data_id = '{}.{}.hdr'.format(user_id, inode_uuid)
+    data_id = '{}.{}.hdr'.format(datastore_id, inode_uuid)
     res = get_mutable(data_id, ver_min=max(inode_version, inode_hdr_version), data_pubkey=data_pubkey_hex, storage_drivers=drivers, device_ids=device_ids, proxy=proxy, config_path=config_path, all_drivers=True)
     if 'error' in res:
         log.error("Failed to get inode data {}: {}".format(inode_uuid, res['error']))
@@ -1813,14 +1623,14 @@ def _get_inode_header(user_id, inode_uuid, data_pubkey_hex, drivers, device_ids,
     inode_drivers = res['drivers']
 
     # advance header version and inode version
-    res = _put_inode_consistency_info(user_id, inode_uuid, max(inode_hdr_version, inode_version), device_ids, config_path=config_path)
+    res = _put_inode_consistency_info(datastore_id, inode_uuid, max(inode_hdr_version, inode_version), device_ids, config_path=config_path)
     if 'error' in res:
         return res
 
     return {'status': True, 'inode': inode_hdr, 'version': max(inode_hdr_version, inode_version), 'drivers': inode_drivers}
 
 
-def _put_inode(user_id, _inode, data_privkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=None, create=False, cache=None ):
+def _put_inode(datastore_id, _inode, data_privkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=None, create=False, cache=None ):
     """
     Store an inode and its associated idata
     If cache is given, invalidate the cache.
@@ -1833,7 +1643,7 @@ def _put_inode(user_id, _inode, data_privkey, drivers, device_ids, config_path=C
 
     # separate data from metadata.
     # put metadata as a separate record.
-    data_id = '{}.{}'.format(user_id, _inode['uuid'])
+    data_id = '{}.{}'.format(datastore_id, _inode['uuid'])
     res = put_mutable(data_id, _inode, data_privkey=data_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy, create=create )
     if 'error' in res:
         log.error("Failed to replicate inode {}: {}".format(_inode['uuid'], res['error']))
@@ -1847,7 +1657,7 @@ def _put_inode(user_id, _inode, data_privkey, drivers, device_ids, config_path=C
         if k != 'idata':
             inode_hdr[k] = copy.deepcopy(_inode[k])
 
-    data_hdr_id = '{}.{}.hdr'.format(user_id, _inode['uuid'])
+    data_hdr_id = '{}.{}.hdr'.format(datastore_id, _inode['uuid'])
     res = put_mutable(data_hdr_id, inode_hdr, data_privkey=data_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy, create=create )
     if 'error' in res:
         log.error("Failed to replicate inode header for {}: {}".format(inode['uuid'], res['error']))
@@ -1855,7 +1665,7 @@ def _put_inode(user_id, _inode, data_privkey, drivers, device_ids, config_path=C
 
     inode_hdr_version = res['version']
 
-    res = _put_inode_consistency_info(user_id, _inode['uuid'], max(inode_version, inode_hdr_version), device_ids, config_path=config_path)
+    res = _put_inode_consistency_info(datastore_id, _inode['uuid'], max(inode_version, inode_hdr_version), device_ids, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -1869,7 +1679,7 @@ def _put_inode(user_id, _inode, data_privkey, drivers, device_ids, config_path=C
     return {'status': True}
 
 
-def _delete_inode(user_id, inode_uuid, data_privkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=None, cache=None ):
+def _delete_inode(datastore_id, inode_uuid, data_privkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=None, cache=None ):
     """
     Delete an inode and its associated data.
     Return {'status': True} on success
@@ -1881,14 +1691,14 @@ def _delete_inode(user_id, inode_uuid, data_privkey, drivers, device_ids, config
 
     # delete inode header
     idata_id = '{}.hdr'.format(inode_uuid)
-    hdata_id = '{}.{}'.format(user_id, idata_id)
+    hdata_id = '{}.{}'.format(datastore_id, idata_id)
     res = delete_mutable(hdata_id, data_privkey=data_privkey, proxy=proxy, storage_drivers=drivers, device_ids=device_ids, delete_version=False, config_path=config_path)
     if 'error' in res:
         log.error("Faled to delete idata for {}: {}".format(inode_uuid, res['error']))
         return res
 
     # delete inode 
-    data_id = '{}.{}'.format(user_id, inode_uuid)
+    data_id = '{}.{}'.format(datastore_id, inode_uuid)
     res = delete_mutable(idata_id, data_privkey=data_privkey, proxy=proxy, storage_drivers=drivers, device_ids=device_ids, delete_version=False, config_path=config_path )
     if 'error' in res:
         log.error("Failed to delete inode {}: {}".format(inode_uuid, res['error']))
@@ -1941,17 +1751,17 @@ def _resolve_path( datastore, path, data_pubkey, get_idata=True, config_path=CON
 
         return path_ent
 
-    user_id = datastore_get_user_id(datastore)
     path = posixpath.normpath(path).strip("/")
     path_parts = path.split('/')
     prefix = '/'
 
+    datastore_id = datastore_get_id(datastore['pubkey'])
     drivers = datastore['drivers']
     device_ids = datastore['device_ids']
     root_uuid = datastore['root_uuid']
    
     # getting only the root?
-    root_inode = _get_inode(user_id, root_uuid, MUTABLE_DATUM_DIR_TYPE, data_pubkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=proxy, cache=DIR_CACHE)
+    root_inode = _get_inode(datastore_id, root_uuid, MUTABLE_DATUM_DIR_TYPE, data_pubkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=proxy, cache=DIR_CACHE)
     if 'error' in root_inode:
         log.error("Failed to get root inode: {}".format(root_inode['error']))
         return {'error': root_inode['error'], 'errno': errno.EIO}
@@ -1990,13 +1800,13 @@ def _resolve_path( datastore, path, data_pubkey, get_idata=True, config_path=CON
             break
         
         # get child
-        child_entry = _get_inode(user_id, child_uuid, child_type, data_pubkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=proxy, cache=DIR_CACHE)
+        child_entry = _get_inode(datastore_id, child_uuid, child_type, data_pubkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=proxy, cache=DIR_CACHE)
         if 'error' in child_entry:
             log.error("Failed to get inode {} at {}: {}".format(child_uuid, prefix + name, child_entry['error']))
             return {'error': child_entry['error'], 'errno': errno.EIO}
 
         child_entry = child_entry['inode']
-        assert child_entry['type'] == child_dirent['type'], "Corrupt inode {}".format(storage.make_fq_data_id(user_id,child_uuid))
+        assert child_entry['type'] == child_dirent['type'], "Corrupt inode {}".format(storage.make_fq_data_id(datastore_id,child_uuid))
 
         path_ent = _make_path_entry(name, child_uuid, child_entry, prefix)
         ret[prefix + name] = path_ent
@@ -2017,7 +1827,7 @@ def _resolve_path( datastore, path, data_pubkey, get_idata=True, config_path=CON
     if child_type == MUTABLE_DATUM_DIR_TYPE or (get_idata and child_type == MUTABLE_DATUM_FILE_TYPE):
         # get file data too 
         assert ret.has_key(prefix + name), "BUG: missing {}".format(prefix + name) 
-        child_entry = _get_inode(user_id, child_uuid, child_type, data_pubkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=proxy )
+        child_entry = _get_inode(datastore_id, child_uuid, child_type, data_pubkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=proxy )
 
     else:
         # get only inode header.
@@ -2027,7 +1837,7 @@ def _resolve_path( datastore, path, data_pubkey, get_idata=True, config_path=CON
         path_ent = _make_path_entry(name, child_uuid, child_entry, prefix)
         ret[prefix + name] = path_ent
 
-        child_entry = _get_inode_header(user_id, child_uuid, data_pubkey, drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE)
+        child_entry = _get_inode_header(datastore_id, child_uuid, data_pubkey, drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE)
 
     if 'error' in child_entry:
         log.error("Failed to get file data for {} at {}: {}".format(child_uuid, prefix + name, child_entry['error']))
@@ -2131,12 +1941,12 @@ def _mutable_data_dir_unlink( parent_dir, child_name ):
     return parent_dir
 
 
-def _mutable_data_make_links(user_id, inode_uuid, urls=None, driver_names=None ):
+def _mutable_data_make_links(datastore_id, inode_uuid, urls=None, driver_names=None ):
     """
     Make a bundle of URI record links for the given inode data.
     This constitutes the directory's idata
     """
-    fq_data_id = storage.make_fq_data_id(user_id, inode_uuid)
+    fq_data_id = storage.make_fq_data_id(datastore_id, inode_uuid)
 
     if urls is None:
         if driver_names is None:
@@ -2208,13 +2018,13 @@ def datastore_mkdir(datastore, data_path, data_privkey_hex, config_path=CONFIG_P
     if DIR_CACHE is None:
         DIR_CACHE = InodeCache()
 
-    log.debug("mkdir {}:{}".format(datastore['datastore_name'], data_path))
-
-    user_id = datastore_get_user_id(datastore)
+    datastore_id = datastore['datastore_id']
     path_info = _parse_data_path( data_path )
     parent_path = path_info['parent_path']
     data_path = path_info['data_path']
     name = path_info['iname']
+
+    log.debug("mkdir {}:{}".format(datastore_id, data_path))
 
     drivers = datastore['drivers']
     device_ids = datastore['device_ids']
@@ -2241,20 +2051,20 @@ def datastore_mkdir(datastore, data_path, data_privkey_hex, config_path=CONFIG_P
     
     # make a directory!
     child_uuid = str(uuid.uuid4())
-    child_dir_links = _mutable_data_make_links(user_id, child_uuid, driver_names=drivers )
+    child_dir_links = _mutable_data_make_links(datastore_id, child_uuid, driver_names=drivers )
     child_dir_inode = _mutable_data_make_dir( data_address, child_uuid, {} )
 
     # update parent 
     parent_dir, child_dirent = _mutable_data_dir_link( parent_dir, MUTABLE_DATUM_DIR_TYPE, name, child_uuid, child_dir_links )
 
     # replicate the new child
-    res = _put_inode(user_id, child_dir_inode, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, create=True, cache=DIR_CACHE )
+    res = _put_inode(datastore_id, child_dir_inode, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, create=True, cache=DIR_CACHE )
     if 'error' in res:
         log.error("Failed to create directory {}: {}".format(data_path, res['error']))
         return {'error': 'Failed to store child directory', 'errno': errno.EIO}
 
     # replicate the new parent 
-    res = _put_inode(user_id, parent_dir, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
+    res = _put_inode(datastore_id, parent_dir, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
     if 'error' in res:
         log.error("Failed to update directory {}: {}".format(parent_path, res['error']))
         return {'error': 'Failed to store parent directory', 'stored_child': True, 'errno': errno.EIO}
@@ -2276,7 +2086,7 @@ def datastore_rmdir(datastore, data_path, data_privkey_hex, config_path=CONFIG_P
     if DIR_CACHE is None:
         DIR_CACHE = InodeCache()
 
-    user_id = datastore_get_user_id(datastore)
+    datastore_id = datastore['datastore_id']
     path_info = _parse_data_path( data_path )
     data_path = path_info['data_path']
     name = path_info['iname']
@@ -2290,7 +2100,7 @@ def datastore_rmdir(datastore, data_path, data_privkey_hex, config_path=CONFIG_P
     device_ids = datastore['device_ids']
     data_pubkey = get_pubkey_hex(str(data_privkey_hex))
 
-    log.debug("rmdir {}:{}".format(datastore['datastore_name'], data_path))
+    log.debug("rmdir {}:{}".format(datastore_id, data_path))
 
     dir_info = _lookup(datastore, data_path, data_pubkey, config_path=config_path, proxy=proxy )
     if 'error' in dir_info:
@@ -2319,13 +2129,13 @@ def datastore_rmdir(datastore, data_path, data_privkey_hex, config_path=CONFIG_P
 
     # good to do.  Update parent 
     parent_dir_inode = _mutable_data_dir_unlink( parent_dir_inode, name )
-    res = _put_inode(user_id, parent_dir_inode, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
+    res = _put_inode(datastore_id, parent_dir_inode, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
     if 'error' in res:
         log.error("Failed to update directory {}: {}".format(parent_path, res['error']))
         return {'error': 'Failed to update directory', 'errno': errno.EIO}
 
     # delete the child
-    res = _delete_inode(user_id, dir_inode_uuid, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
+    res = _delete_inode(datastore_id, dir_inode_uuid, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
     if 'error' in res:
         log.error("Failed to delete directory {}: {}".format(data_path, res['error']))
         return {'error': 'Failed to delete directory', 'errno': errno.EIO}
@@ -2345,12 +2155,13 @@ def datastore_getfile(datastore, data_path, config_path=CONFIG_PATH, proxy=None 
 
     path_info = _parse_data_path( data_path )
     data_path = path_info['data_path']
-
+    
+    datastore_id = datastore_get_id(datastore['pubkey'])
     drivers = datastore['drivers']
     
-    log.debug("getfile {}:{}".format(datastore['datastore_name'], data_path))
+    log.debug("getfile {}:{}".format(datastore_id, data_path))
 
-    file_info = _lookup(datastore, data_path, datastore['owner_pubkey'], config_path=CONFIG_PATH, proxy=proxy )
+    file_info = _lookup(datastore, data_path, datastore['pubkey'], config_path=CONFIG_PATH, proxy=proxy )
     if 'error' in file_info:
         log.error("Failed to resolve {}".format(data_path))
         return file_info
@@ -2374,12 +2185,13 @@ def datastore_listdir(datastore, data_path, config_path=CONFIG_PATH, proxy=None 
 
     path_info = _parse_data_path( data_path )
     data_path = path_info['data_path']
-
+    
+    datastore_id = datastore_get_id(datastore['pubkey'])
     drivers = datastore['drivers']
     
-    log.debug("listdir {}:{}".format(datastore['datastore_name'], data_path))
+    log.debug("listdir {}:{}".format(datastore_id, data_path))
 
-    dir_info = _lookup(datastore, data_path, datastore['owner_pubkey'], config_path=CONFIG_PATH, proxy=proxy )
+    dir_info = _lookup(datastore, data_path, datastore['pubkey'], config_path=CONFIG_PATH, proxy=proxy )
     if 'error' in dir_info:
         log.error("Failed to resolve {}".format(data_path))
         return dir_info
@@ -2407,7 +2219,7 @@ def datastore_putfile(datastore, data_path, file_data, data_privkey_hex, create=
     if DIR_CACHE is None:
         DIR_CACHE = InodeCache()
 
-    user_id = datastore_get_user_id(datastore)
+    datastore_id = datastore['datastore_id']
     path_info = _parse_data_path( data_path )
     data_path = path_info['data_path']
     name = path_info['iname']
@@ -2418,8 +2230,8 @@ def datastore_putfile(datastore, data_path, file_data, data_privkey_hex, create=
 
     data_pubkey = get_pubkey_hex(str(data_privkey_hex))
     data_address = keylib.public_key_to_address(data_pubkey)
-
-    log.debug("putfile {}:{}".format(datastore['datastore_name'], data_path))
+    
+    log.debug("putfile {}:{}".format(datastore_id, data_path))
 
     # make sure the file doesn't exist
     parent_path_info = _lookup(datastore, parent_dirpath, data_pubkey, config_path=config_path, proxy=proxy )
@@ -2438,20 +2250,20 @@ def datastore_putfile(datastore, data_path, file_data, data_privkey_hex, create=
 
     # make a file!
     child_uuid = str(uuid.uuid4())
-    child_file_links = _mutable_data_make_links( user_id, child_uuid, driver_names=drivers )
+    child_file_links = _mutable_data_make_links( datastore_id, child_uuid, driver_names=drivers )
     child_file_inode = _mutable_data_make_file( data_address, child_uuid, file_data )
 
     # update parent 
     parent_dir_inode, child_dirent = _mutable_data_dir_link( parent_dir_inode, MUTABLE_DATUM_FILE_TYPE, name, child_uuid, child_file_links )
     
     # replicate the new child (but don't cache files)
-    res = _put_inode(user_id, child_file_inode, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, create=create )
+    res = _put_inode(datastore_id, child_file_inode, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, create=create )
     if 'error' in res:
         log.error("Failed to replicate file {}: {}".format(data_path, res['error']))
         return {'error': 'Failed to store file', 'errno': errno.EIO}
 
     # replicate the new parent
-    res = _put_inode(user_id, parent_dir_inode, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
+    res = _put_inode(datastore_id, parent_dir_inode, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
     if 'error' in res:
         log.error("Failed to update directory {}: {}".format(parent_dirpath, res['error']))
         return {'error': 'Failed to update directory', 'errno': errno.EIO}
@@ -2474,7 +2286,7 @@ def datastore_deletefile(datastore, data_path, data_privkey_hex, config_path=CON
     if DIR_CACHE is None:
         DIR_CACHE = InodeCache()
 
-    user_id = datastore_get_user_id(datastore)
+    datastore_id = datastore['datastore_id']
     path_info = _parse_data_path( data_path )
     data_path = path_info['data_path']
     name = path_info['iname']
@@ -2485,7 +2297,7 @@ def datastore_deletefile(datastore, data_path, data_privkey_hex, config_path=CON
 
     data_pubkey = get_pubkey_hex(str(data_privkey_hex))
 
-    log.debug("deletefile {}:{}".format(datastore['datastore_name'], data_path))
+    log.debug("deletefile {}:{}".format(datastore_id, data_path))
 
     file_path_info = _lookup( datastore, data_path, data_pubkey, get_idata=False, config_path=config_path, proxy=proxy )
     if 'error' in file_path_info:
@@ -2508,13 +2320,13 @@ def datastore_deletefile(datastore, data_path, data_privkey_hex, config_path=CON
 
     # Update parent 
     parent_dir_inode = _mutable_data_dir_unlink( parent_dir_inode, name )
-    res = _put_inode(user_id, parent_dir_inode, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
+    res = _put_inode(datastore_id, parent_dir_inode, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE )
     if 'error' in res:
         log.error("Failed to update directory {}: {}".format(dir_path, res['error']))
         return {'error': 'Failed to update directory', 'errno': errno.EIO}
 
     # delete child 
-    res = _delete_inode(user_id, file_uuid, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy )
+    res = _delete_inode(datastore_id, file_uuid, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy )
     if 'error' in res:
         log.error("Failed to delete file {}: {}".format(data_path, res['error']))
         return {'error': 'Failed to delete file', 'errno': errno.EIO}
@@ -2534,12 +2346,12 @@ def datastore_stat(datastore, data_path, config_path=CONFIG_PATH, proxy=None ):
 
     path_info = _parse_data_path( data_path )
     data_path = path_info['data_path']
-
+    datastore_id = datastore_get_id(datastore['pubkey'])
     drivers = datastore['drivers']
     
-    log.debug("stat {}:{}".format(datastore['datastore_name'], data_path))
+    log.debug("stat {}:{}".format(datastore_id, data_path))
 
-    inode_info = _lookup(datastore, data_path, datastore['owner_pubkey'], get_idata=False, config_path=CONFIG_PATH, proxy=proxy )
+    inode_info = _lookup(datastore, data_path, datastore['pubkey'], get_idata=False, config_path=CONFIG_PATH, proxy=proxy )
     if 'error' in inode_info:
         log.error("Failed to resolve {}".format(data_path))
         return inode_info
@@ -2562,7 +2374,7 @@ def datastore_rmtree(datastore, data_path, data_privkey_hex, config_path=CONFIG_
     if DIR_CACHE is None:
         DIR_CACHE = InodeCache()
 
-    user_id = datastore_get_user_id(datastore)
+    datastore_id = datastore['datastore_id']
     path_info = _parse_data_path( data_path )
     data_path = path_info['data_path']
     data_pubkey_hex = get_pubkey_hex(data_privkey_hex)
@@ -2625,7 +2437,7 @@ def datastore_rmtree(datastore, data_path, data_privkey_hex, config_path=CONFIG_
         """
         log.debug("Search {}".format(dir_inode_uuid))
 
-        res = _get_inode(user_id, dir_inode_uuid, MUTABLE_DATUM_DIR_TYPE, str(data_pubkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE)
+        res = _get_inode(datastore_id, dir_inode_uuid, MUTABLE_DATUM_DIR_TYPE, str(data_pubkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE)
         if 'error' in res:
             return res
         
@@ -2649,7 +2461,7 @@ def datastore_rmtree(datastore, data_path, data_privkey_hex, config_path=CONFIG_
         if inode_info['type'] == MUTABLE_DATUM_FILE_TYPE:
             # files can be deleted immediately 
             log.debug("Delete file {}".format(inode_info['uuid']))
-            res = _delete_inode(user_id, inode_info['uuid'], str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy )
+            res = _delete_inode(datastore_id, inode_info['uuid'], str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy )
             if 'error' in res:
                 return res
 
@@ -2661,7 +2473,7 @@ def datastore_rmtree(datastore, data_path, data_privkey_hex, config_path=CONFIG_
             if inode_info['searched']:
                 # already explored this directory.  Can remove now
                 log.debug("Delete directory {}".format(inode_info['uuid']))
-                res = _delete_inode(user_id, inode_info['uuid'], str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE)
+                res = _delete_inode(datastore_id, inode_info['uuid'], str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, cache=DIR_CACHE)
                 if 'error' in res:
                     return res
 
@@ -2679,7 +2491,7 @@ def datastore_rmtree(datastore, data_path, data_privkey_hex, config_path=CONFIG_
 
     # clear this inode's children
     dir_inode_info = _mutable_data_make_dir( data_address, dir_uuid, {} )
-    res = _put_inode(user_id, dir_inode_info, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, create=False, cache=DIR_CACHE )
+    res = _put_inode(datastore_id, dir_inode_info, str(data_privkey_hex), drivers, device_ids, config_path=config_path, proxy=proxy, create=False, cache=DIR_CACHE )
     if 'error' in res:
         return res
 
@@ -2742,659 +2554,4 @@ def get_read_storage_drivers(config_path):
     storage_handlers = storage.get_storage_handlers()
     storage_drivers = [sh.__name__ for sh in storage_handlers]
     return storage_drivers
-
-
-
-def get_user(user_id, local_master_data_privkey, config_path=CONFIG_PATH, proxy=None):
-    """
-    Get a user's information.
-
-    A user is simply a named public key.  The name for the user (the user_id)
-    may be a blockchain ID (i.e. globally-unique, written to Blockstack's blockchain),
-    or it may be a local pet name for a public key.
-
-    Either way, the user's public key is derived from the owner's master data public key.
-
-    State for a user is stored locally on the owner's computer, and backed up to the owner's
-    storage providers as mutable data under the *same data ID as the user ID*.
-    In order to look up the user, the requester either
-    needs to be the owner (so as to get to the local state), or the user ID must be a
-    blockchain ID (so as to find and resolve the publicly-replicated state).
-
-    This method tries to fetch the user data locally and authenticate it with the given master
-    public key.  Failing that, this method tries to fetch the user data from mutable storage.
-
-    Return {'status': True, 'user': user state, 'master_data_pubkey': ..., 'owned': ....} on success,
-    where 'master_data_pubkey' is the public key that signed off on the user (i.e. the user's owner's
-    data public key)
-
-    Return {'error': ...} on failure
-    """
-     
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    local_master_data_pubkey = get_pubkey_hex(local_master_data_privkey)
-
-    user_master_privkey = user_db.get_user_master_privkey(local_master_data_privkey)
-    user_master_pubkey = get_pubkey_hex(user_master_privkey)
-
-    # does this user exist locally?  i.e. was it signed by the requester's
-    # local master data key?
-    user_info = user_db.user_load(user_id, local_master_data_privkey, config_path=config_path)
-    if 'error' not in user_info:
-        user = user_info['user']
-        return {'status': True, 'user': user, 'master_data_pubkey': local_master_data_pubkey, 'owned': True}
-
-    log.debug("Failed to load user {}: {}".format(user_id, user_info['error']))
-
-    nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
-
-    # nope.  We don't own this user.
-    # try treating user_id as a blockchain ID.
-    # be sure to check non-local storage only; don't want to hit stale disk data
-    user_data = get_mutable(user_id, data_pubkey=user_master_pubkey, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
-    if 'error' in user_data:
-        log.error("Failed to fetch user data from storage")
-        return user_data
-
-    user_jwt = user_data['data']
-    user_pubkey = user_data['data_pubkey']
-    
-    if user_pubkey is None:
-        log.error("No user public key available")
-        return {'error': 'No user public key available'}
-                
-    # validate 
-    user = user_db.user_validate(user_jwt)
-    if 'error' in user:
-        log.error("Failed to validate user data")
-        return user
-
-    owned = user_db.user_verify(user_jwt, local_master_data_pubkey)
-    
-    # success!
-    return {'status': True, 'user': user, 'master_data_pubkey': user_pubkey, 'owned': owned}
-
-
-def get_user_list_privkey( master_data_privkey, config_path=CONFIG_PATH ):
-    """
-    Get the signing key for the user list.
-
-    hdpath is MASTER_PRIVKEY/USER_LIST_SIGNING_KEY_INDEX'/0'
-    """
-    hdwallet_parent = HDWallet( hex_privkey=master_data_privkey, config_path=config_path)
-    user_list_privkey_parent = hdwallet_parent.get_child_privkey( index=USER_LIST_SIGNING_KEY_INDEX )
-    
-    hdwallet = HDWallet( hex_privkey=user_list_privkey_parent, config_path=config_path)
-    user_list_privkey = hdwallet.get_child_privkey( index=0 )
-
-    return user_list_privkey
-
-
-def get_user_list_data_id( master_data_privkey, config_path=CONFIG_PATH ):
-    """
-    Get the data ID for the user list
-    """
-    user_list_privkey = get_user_list_privkey( master_data_privkey, config_path=config_path )
-    user_list_pubkey = get_pubkey_hex(user_list_privkey)
-    addr = keylib.public_key_to_address(user_list_pubkey)
-    data_id = '{}.{}'.format(addr, 'user_ids')
-    return data_id
-
-
-def get_global_user_list(master_data_privkey, proxy=None, config_path=CONFIG_PATH):
-    """
-    Get our replicated list of users.
-    Return {'status': True, 'user_ids': [list of user IDs]}
-    Return {'error': ...} on failure
-    """
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
-
-    device_ids = get_all_device_ids(config_path=config_path)
-
-    user_list_privkey = get_user_list_privkey( master_data_privkey, config_path=config_path )
-    user_list_pubkey = get_pubkey_hex(user_list_privkey)
-    data_id = get_user_list_data_id( master_data_privkey )
-
-    listing_info = get_mutable(data_id, data_pubkey=user_list_pubkey, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
-    if 'error' in listing_info:
-        log.error("Failed to get user list")
-        return listing_info
-
-    user_listing = listing_info['data']
-    user_list_version = listing_info['version']
-
-    try:
-        jsonschema.validate(user_listing, {'type': 'array', 'items': {'type': 'string', 'pattern': OP_USER_ID_PATTERN}})
-    except ValidationError:
-        return {'error': 'Invalid user listing'}
-
-    return {'status': True, 'user_ids': user_listing}
-
-
-def get_local_user_list(master_data_privkey, config_path=CONFIG_PATH):
-    """
-    Get the list of local users
-    Returns {'status': True, 'user_ids': [list of user IDs]}
-    returns {'error': ...} on failure
-    """
-    user_infos = user_db.users_list(master_data_privkey, config_path=config_path)
-    if 'error' in user_infos:
-        return {'error': 'Failed to list local users'}
-   
-    user_ids = [ui['user_id'] for ui in user_infos]
-    return {'status': True, 'user_ids': user_ids}
-   
-
-def get_user_list(master_data_privkey, config_path=CONFIG_PATH, proxy=None):
-    """
-    Get the list of users accessible with this key.
-    Include both local and global users
-    Return {'status': True, 'user_ids': [{'user_id': user id, 'global': true/false}]}
-    Return {'error': ...} on failure
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    global_user_list = get_global_user_list(master_data_privkey, proxy=proxy, config_path=config_path)
-    if 'error' in global_user_list:
-        return global_user_list
-
-    local_user_list = get_local_user_list(master_data_privkey, config_path=config_path)
-    if 'error' in local_user_list:
-        return local_user_list
-
-    global_user_ids = [{'user_id': uid, 'global': True} for uid in global_user_list['user_ids']]
-    local_user_ids = [{'user_id': uid, 'global': False} for uid in local_user_list['user_ids']]
-
-    return {'status': True, 'user_ids': global_user_ids + local_user_ids}
-
-
-def put_global_user_list(master_data_privkey, user_listing, blockchain_id=None, proxy=None, config_path=CONFIG_PATH):
-    """
-    Put our replicated list of users.
-    blockchain_id is a hint to the drivers; it can be ignored
-    Return {'status': True} on success
-    Return {'error': ...} on failure
-    """
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-    
-    try:
-        jsonschema.validate(user_listing, {'type': 'array', 'items': {'type': 'string', 'pattern': OP_USER_ID_PATTERN}})
-    except ValidationError:
-        return {'error': 'Invalid user listing'}
-
-    user_list_privkey = get_user_list_privkey( master_data_privkey, config_path=config_path )
-    user_list_pubkey = get_pubkey_hex(user_list_privkey)
-    addr = keylib.public_key_to_address(user_list_pubkey)
-    data_id = '{}.{}'.format(addr, 'user_ids')
-
-    device_ids = get_all_device_ids(config_path=config_path)
-    
-    res = put_mutable(data_id, user_listing, blockchain_id=blockchain_id, data_privkey=user_list_privkey, proxy=proxy, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    user_list_version = res['version']
-
-    # advance for all devices!
-    res = _put_mutable_data_versions(data_id, user_list_version, device_ids, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    return {'status': True}
-
-
-def put_user(user_info, master_data_privkey, blockchain_id=None, config_path=CONFIG_PATH, proxy=None):
-    """
-    Store a user to local storage and our data storage providers.
-    The user info will be signed off by the given master private key
-
-    blockchain_id is a hint to the drivers; it can be ignored.
-
-    Return {'status': True} on success
-    Return {'error': ...} on failure
-    """
-
-    from .wallet import get_addresses_from_file
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    device_ids = get_all_device_ids(config_path=config_path)
-
-    # we have to own this blockchain ID, if given
-    if blockchain_id is not None:
-        # we have to own it
-        name_rec = get_name_blockchain_record(blockchain_id)
-        if json_is_error(name_rec):
-            return name_rec
-
-        config_dir = os.path.dirname(config_path)
-        _, owner_address, _ = get_addresses_from_file(config_dir=config_dir)
-        assert owner_address
-        
-        if name_rec['address'] != owner_address:
-            return {'error': 'Name "{}" is not owned by this wallet'.format(blockchain_id)}
-
-    # sign and serialize
-    res = user_db.user_serialize(user_info, master_data_privkey, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    user_token = res['token']
-
-    # get the list of users so we can insert this user into it.
-    user_list_info = get_global_user_list(master_data_privkey, proxy=proxy, config_path=config_path)
-    if 'error' in user_list_info:
-        log.error("Failed to get user list")
-        return {'error': 'Failed to get user list'}
-
-    user_list = user_list_info['user_ids']
-    if user_info['user_id'] in user_list:
-        log.error("User {} already exists".format(user_info['user_id']))
-        return {'error': 'User already exists'}
-
-    log.debug("Put user {} for {}".format(user_info, blockchain_id))
-
-    # store locally
-    res = user_db.user_store( user_token, config_path=config_path )
-    if 'error' in res:
-        log.error("Failed to store user state locally")
-        return res
-
-    # set a private key index for this user's accounts 
-    user_privkey = user_db.user_get_privkey(master_data_privkey, user_info, config_path=config_path)
-    res = set_global_privkey_index( user_privkey, 1, config_path=config_path, proxy=proxy )
-    if 'error' in res:
-        log.error("Failed to give user {} a private key index".format(user_info['user_id']))
-        return res
-
-    # get expected version across all devices 
-    res = _get_mutable_data_versions(user_info['user_id'], device_ids, config_path=CONFIG_PATH)
-    if 'error' in res:
-        return res
-    
-    min_version = res['version']
-
-    # replicate, signing with the master private key
-    res = put_mutable(user_info['user_id'], user_info, blockchain_id=blockchain_id, data_privkey=user_privkey, proxy=proxy, config_path=config_path, version=min_version)
-    if 'error' in res:
-        log.error("Failed to replicate user")
-        return {'error': 'Failed to replicate user'}
-   
-    user_version = res['version']
-
-    # update user list 
-    user_list.append(user_info['user_id'])
-
-    res = put_global_user_list(master_data_privkey, user_list, blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
-    if 'error' in res:
-        # undo
-        delres = delete_mutable(user_info['user_id'], data_privkey=master_data_privkey, proxy=proxy, config_path=config_path)
-        user_delete(user_info['user_id'], config_path=config_path)
-        if 'error' in delres:
-            log.error("Failed to delete user {}: {}".format(user_info['user_id'], delres['error']))
-        
-        return res
-
-    # advance for all devices!
-    device_ids = get_all_device_ids(config_path=config_path)
-    res = _put_mutable_data_versions(user_info['user_id'], user_version, device_ids, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    return {'status': True}
-
-
-def delete_user(user_id, master_data_privkey, blockchain_id=None, config_path=None, proxy=None):
-    """
-    Delete a user.  Remove its local state, and delete it from our storage providers.
-
-    Return {'status': True} on success
-    Return {'error': ...} on failure
-    """
-
-    if not user_db.user_is_local(user_id):
-        return {'error': 'User is not locally owned'}
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    # get the list of users so we can insert this user into it.
-    user_list_info = get_global_user_list(master_data_privkey, proxy=proxy, config_path=config_path)
-    if 'error' in user_list_info:
-        log.error("Failed to get user list")
-        return {'error': 'Failed to get user list'}
-
-    user_list = user_list_info['user_ids']
-
-    # clear out from list
-    if user_id in user_list:
-        user_list.remove(user_id)
-        res = put_global_user_list(master_data_privkey, user_list, blockchain_id=blockchain_id, config_path=config_path, proxy=proxy)
-        if 'error' in res:
-            log.error("Failed to update user listing")
-            return res
-
-    # delete from storage providers 
-    res = delete_mutable(user_id, data_privkey=master_data_privkey, proxy=proxy, blockchain_id=blockchain_id, config_path=config_path, delete_version=False)
-    if 'error' in res:
-        log.error("Failed to delete from storage providers")
-        return {'error': 'Failed to delete from storage providers'}
-
-    # delete locally, but it's okay if this fails due to our not having it
-    user_db.user_delete(user_id, config_path=config_path)
-    return {'status': True}
-
-
-def get_privkey_index_privkey( master_data_privkey, config_path=CONFIG_PATH ):
-    """
-    Derive the signing private key from our master private key.
-
-    hdpath is MASTER_PRIVKEY/PRIVKEY_INDEX_SIGNING_KEY_INDEX'/0'
-    """
-    hdwallet_parent = HDWallet( hex_privkey=master_data_privkey, config_path=config_path)
-    privkey_index_privkey_parent = hdwallet_parent.get_child_privkey( index=PRIVKEY_INDEX_SIGNING_KEY_INDEX )
-    
-    hdwallet = HDWallet( hex_privkey=privkey_index_privkey_parent, config_path=config_path)
-    privkey_index_privkey = hdwallet.get_child_privkey( index=0 )
-
-    return privkey_index_privkey
-    
-
-def get_privkey_index_data_id( master_data_privkey, config_path=CONFIG_PATH ):
-    """
-    Derive the data ID for the private key index counter
-    """
-    privkey_index_privkey = get_privkey_index_privkey(master_data_privkey, config_path=config_path)
-    data_pubkey = get_pubkey_hex(privkey_index_privkey)
-    addr = keylib.public_key_to_address(data_pubkey)
-
-    data_id = '{}.{}'.format(addr, 'privkey_index')
-    return data_id
-
-
-def next_global_privkey_index( master_data_privkey, blockchain_id=None, config_path=CONFIG_PATH, proxy=None, create=False):
-    """
-    Get the next global private key index.  Update the replica on our storage providers.
-
-    Return {'status': True, 'index': ...} on success
-    Return {'error': ...} on error
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    privkey_index_privkey = get_privkey_index_privkey( master_data_privkey, config_path=config_path )
-    privkey_index_pubkey = get_pubkey_hex( privkey_index_privkey )
-    data_id = get_privkey_index_data_id( master_data_privkey )
-
-    device_ids = get_all_device_ids(config_path=config_path)
-
-    nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
-
-    privkey_index_info = get_mutable(data_id, blockchain_id=blockchain_id, data_pubkey=privkey_index_pubkey, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
-    if 'error' in privkey_index_info:
-        if create:
-            # try to create
-            res = set_global_privkey_index( master_data_privkey, 0, config_path=config_path, blockchain_id=blockchain_id, proxy=proxy )
-            if 'error' in res:
-                return res
-
-            privkey_index_info = {'data': 0}
-
-        else:
-            log.error("Failed to get current private key index")
-            return privkey_index_info
-
-    privkey_index = privkey_index_info['data']
-
-    try:
-        privkey_index = int(privkey_index)
-    except:
-        log.error("Invalid private key index")
-        return {'error': 'Invalid private key index'}
-
-    ret = privkey_index
-    privkey_index += 1
-    res = set_global_privkey_index(master_data_privkey, privkey_index, blockchain_id=blockchain_id, config_path=config_path, proxy=proxy)
-    if 'error' in res:
-        return res
-
-    return {'status': True, 'index': ret}
-   
-
-def set_global_privkey_index( master_data_privkey, value, blockchain_id=None, config_path=CONFIG_PATH, proxy=None ):
-    """
-    Set the current global private key index
-    Return {'status': True} on success
-    return {'error': ...} on error
-    """
-    
-    privkey_index_privkey = get_privkey_index_privkey( master_data_privkey, config_path=config_path )
-    privkey_index_pubkey = get_pubkey_hex( privkey_index_privkey )
-    data_id = get_privkey_index_data_id( master_data_privkey )
-
-    try:
-        value = int(value)
-    except:
-        return {'error': 'Invalid value'}
-
-    device_ids = get_all_device_ids(config_path=config_path)
-
-    res = put_mutable(data_id, value, blockchain_id=blockchain_id, data_privkey=privkey_index_privkey, proxy=proxy, config_path=config_path)
-    if 'error' in res:
-        log.error("Failed to put new private key index")
-        return {'error': 'Failed to put new private key index'}
-
-    # advance for all devices!
-    res = _put_mutable_data_versions(data_id, res['version'], device_ids, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    return {'status': True}
-
-
-def next_local_privkey_index( master_data_privkey, config_path=CONFIG_PATH, create=False):
-    """
-    Get the next host-local private key index.
-
-    Return {'status': True, 'index': ...} on success
-    Return {'error': ...} on error
-    """
-
-    privkey_index_privkey = get_privkey_index_privkey( master_data_privkey, config_path=config_path )
-    privkey_index_pubkey = get_pubkey_hex( privkey_index_privkey )
-    
-    data_path = os.path.join( os.path.dirname(config_path), LOCAL_PRIVKEY_INDEX_NAME )
-    if not os.path.exists(data_path):
-        if not create:
-            return {'error': 'No local private key index'}
-
-        # create it
-        res = set_local_privkey_index(master_data_privkey, 1, config_path=config_path)
-        if 'error' in res:
-            return res
-
-        return {'status': True, 'index': res['index']}
-
-    # read it and update it 
-    with open(data_path, 'r') as f:
-        index_jwt = f.read()
-
-    # validate 
-    verifier = jsontokens.TokenVerifier()
-    valid = verifier.verify( index_jwt, str(privkey_index_pubkey) )
-    if not valid:
-        return {'error': 'corrupt index file'}
-
-    # should be {'index': int}
-    try:
-        index_state = jsontokens.decode_token(verifier)
-        jsonschema.validate(index_state, {'type': 'object', 'properties': {'index': {'type': 'integer'}}, 'required': 'index', 'additionalProperties': False})
-    except (ValueError, ValidationError) as ve:
-        if BLOCKSTACK_DEBUG:
-            log.exception(ve)
-
-        return {'error': 'Invalid index state'}
-
-    next_index = index_state['index'] + 1
-    res = set_local_privkey_index(master_data_privkey, next_index, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    return {'status': True, 'index': next_index}
-
-
-def set_local_privkey_index( master_data_privkey, value, config_path=CONFIG_PATH ):
-    """
-    Set the host-local private key index
-
-    Return {'status': True, 'index': ...} on success
-    Return {'error': ...} on error
-    """
-
-    privkey_index_privkey = get_privkey_index_privkey( master_data_privkey, config_path=config_path )
-    data_path = os.path.join( os.path.dirname(config_path), LOCAL_PRIVKEY_INDEX_NAME )
-    index_state = {'index': value}
-
-    signer = jsontokens.TokenSigner()
-    index_jwt = signer.sign(index_state, privkey_index_privkey)
-
-    with open(data_path, 'w') as f:
-        f.write(index_jwt)
-        f.flush()
-        os.fsync(f.fileno())
-    
-    return {'status': True, 'index': value}
-
-
-def next_privkey_index( master_data_privkey, is_global, blockchain_id=None, config_path=CONFIG_PATH, proxy=None, create=False ):
-    """
-    Get the next private key index; global or local
-    Return {'status': True, 'index': ...} on success
-    Return {'error': ...} on error
-    """
-    if is_global:
-        return next_global_privkey_index( master_data_privkey, blockchain_id=blockchain_id, config_path=config_path, proxy=proxy, create=create )
-    else:
-        return next_local_privkey_index( master_data_privkey, config_path=config_path, create=create )
-
-
-def have_seen( data_id, config_path=CONFIG_PATH ):
-    """
-    Have we ever seen this datum before?
-    """
-
-    conf = get_config(config_path)
-    assert conf
-
-    device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
-    expected_version = load_mutable_data_version(conf, device_id, data_id, config_path=config_path)
-
-    return (expected_version is not None)
-
-
-def data_setup( password=None, global_data=False, blockchain_id=None, wallet_keys=None, config_path=CONFIG_PATH, proxy=None):
-    """
-    Do the one-time setup necessary for using the data functions with this wallet.
-    The wallet must be set up first.
-
-    Pass `blockchain_id` if we want to (1) verify that the zone file is consistent with the wallet, and (2) pass the blockchain ID
-    along to the storage drivers as a hint (as required by a few of them).
-
-    By default, we do not set up global user lists and global private key indexes.
-    Pass global_data=True for that.
-
-    Return {'status': True} on success
-    Return {'error': ...} on error
-    """
-
-    from .wallet import load_wallet
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    config_dir = os.path.dirname(config_path)
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    conf = get_config(config_path)
-
-    if not os.path.exists(wallet_path):
-        return {'error': 'Wallet does not exist'}
-
-    if wallet_keys is None:
-        if password is None:
-            return {'error': 'No wallet or password given'}
-
-        wallet_info = load_wallet(password, config_path=config_path, wallet_path=wallet_path, include_private=True)
-        if 'error' in wallet_info:
-            return wallet_info
-
-        if 'migrated' in wallet_info:
-            return {'error': 'Wallet must be updated to the latest format with the `setup_wallet` command'}
-
-        wallet_keys = wallet_info['wallet']
-
-    master_data_privkey = wallet_keys['data_privkey']
-    master_data_pubkey = get_pubkey_hex(master_data_privkey)
-    
-    # wallet data pubkey (which can be an owner pubkey) must match the name's zone file pubkey, if the zonefile has a pubkey
-    if blockchain_id is not None:
-        zonefile_data_pubkey = None
-        res = load_user_data_pubkey_addr(blockchain_id, proxy=proxy, config_path=config_path)
-        if 'error' not in res:
-            zonefile_data_pubkey = res['pubkey']
-
-        if zonefile_data_pubkey is not None and master_data_pubkey != zonefile_data_pubkey:
-            log.debug("Zone file public key '{}' does not match wallet public key '{}'".format(zonefile_data_pubkey, master_data_pubkey))
-            return {'error': 'Zone file public key does not match wallet public key.'}
-    
-    # set up local private key indexes 
-    res = next_local_privkey_index( master_data_privkey, config_path=config_path )
-    if 'error' in res:
-
-        # try creating
-        res = next_local_privkey_index( master_data_privkey, config_path=config_path, create=True)
-        if 'error' in res:
-            return res
-
-    # create local user 
-
-
-    # TODO: move to "public user" setup
-    # safe to put a private key index and user list--we have a key to sign with.
-    res = next_global_privkey_index( master_data_privkey, blockchain_id=blockchain_id, config_path=config_path )
-    if 'error' in res:
-
-        if have_seen('privkey_index', config_path=config_path ):
-            # some other error
-            return res
-
-        # try creating
-        res = next_global_privkey_index( master_data_privkey, blockchain_id=blockchain_id, config_path=config_path, create=True )
-        if 'error' in res:
-            return res
-
-    # put an empty user list, if we don't have one
-    res = get_global_user_list(master_data_privkey, config_path=config_path)
-    if 'error' in res:
-
-        data_id = get_user_list_data_id(master_data_privkey)
-        if have_seen(data_id, config_path=config_path):
-            # some other error
-            return res
-
-        # try putting one
-        res = put_global_user_list(master_data_privkey, [], blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
-        if 'error' in res:
-            return res
-
-    return {'status': True}
 
