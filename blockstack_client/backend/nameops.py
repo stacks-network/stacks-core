@@ -66,6 +66,8 @@ from ..operations import fees_update, fees_transfer, fees_revoke, fees_registrat
 
 from ..keys import get_privkey_info_address, get_privkey_info_params
 
+from .safety import *
+
 import virtualchain
 
 log = get_logger("blockstack-client")
@@ -340,10 +342,10 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_priv
     owner_privkey_params = get_privkey_info_params(owner_privkey_info)
 
     try:
-        unsigned_tx = register_tx( name, payment_address, owner_address, utxo_client, renewal_fee=renewal_fee )
+        unsigned_tx = register_tx( name, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee )
     except (AssertionError, ValueError), ve:
         # no UTXOs for this owner address.  Try again and add padding for one
-        unsigned_tx = register_tx( name, payment_address, owner_address, utxo_client, renewal_fee=None, subsidized=True, safety=False )
+        unsigned_tx = register_tx( name, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee, subsidized=True, safety=False )
         assert unsigned_tx
 
         pad_len = estimate_owner_output_length(owner_address)
@@ -359,7 +361,7 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_priv
     log.debug("renewal tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx)/2, int(tx_fee)))
 
     if include_dust:
-        dust_fee = estimate_dust_fee( signed_subsidized_tx, fees_registration )
+        dust_fee = estimate_dust_fee( unsigned_tx, fees_registration )   # must be unsigned_tx, without subsidy
         assert dust_fee is not None
         log.debug("Additional dust fee: %s" % dust_fee)
         tx_fee += dust_fee
@@ -431,7 +433,7 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
     log.debug("update tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx)/2, int(tx_fee)))
 
     if include_dust:
-        dust_fee = estimate_dust_fee( unsigned_tx, fees_update )
+        dust_fee = estimate_dust_fee( unsigned_tx, fees_update )    # must be unsigned tx, without subsidy
         assert dust_fee is not None
         log.debug("Additional dust fee: %s" % dust_fee)
         tx_fee += dust_fee
@@ -497,7 +499,7 @@ def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, utxo_cl
     log.debug("transfer tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx)/2, int(tx_fee)))
 
     if include_dust:
-        dust_fee = estimate_dust_fee( unsigned_tx, fees_transfer )
+        dust_fee = estimate_dust_fee( unsigned_tx, fees_transfer )  # must be unsigned tx, without subsidy
         assert dust_fee is not None
         log.debug("Additional dust fee: %s" % dust_fee)
         tx_fee += dust_fee
@@ -517,16 +519,28 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
     owner_address = str(owner_address)
 
     fake_privkey = make_fake_privkey_info( owner_privkey_params )
+    unsigned_tx = None
 
     try:
-        unsigned_tx = revoke_tx( name, owner_address, utxo_client, subsidize=True )
-        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 * 10**14, payment_privkey_info, utxo_client )
+        try:
+            unsigned_tx = revoke_tx( name, owner_address, utxo_client, subsidize=True )
+        except AssertionError as ae:
+            # no UTXOs for this owner address.  Try again and add padding for one
+            unsigned_tx = revoke_tx( name, owner_address, utxo_client, subsidize=True, safety=False )
+            assert unsigned_tx
+
+            pad_len = estimate_owner_output_length(owner_address)
+            unsigned_tx += "00" * pad_len
+
+        signed_subsidized_tx = subsidize_or_pad_transaction(unsigned_tx, owner_address, owner_privkey_params, payment_privkey_info, fees_revoke, utxo_client, config_path=config_path )
+
     except ValueError, ve:
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(ve)
 
         log.error("Insufficient funds:  Not enough inputs to make a revoke transaction.")
         return None
+
     except AssertionError as ae:
         if BLOCKSTACK_DEBUG:
             log.exception(ae)
@@ -534,7 +548,11 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
         log.error("Unable to make transaction")
         return None
 
-    signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
+    except Exception as e:
+        if os.environ.get("BLOCKSTACK_TEST") == "1":
+            log.exception(e)
+
+        return None
 
     tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
     if tx_fee is None:
@@ -544,7 +562,7 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
     log.debug("revoke tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx)/2, int(tx_fee)))
 
     if include_dust:
-        dust_fee = estimate_dust_fee( signed_tx, fees_revoke )
+        dust_fee = estimate_dust_fee( unsigned_tx, fees_revoke )    # must be unsigned tx, without subsidy
         assert dust_fee is not None
         log.debug("Additional dust fee: %s" % dust_fee)
         tx_fee += dust_fee
@@ -899,9 +917,9 @@ def do_blockchain_tx( unsigned_tx, privkey_info=None, config_path=CONFIG_PATH, t
         return {'error': 'Failed to sign and broadcast transaction'}
 
 
-def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx_broadcaster,
-                 owner_privkey_params=(None,None), config_path=CONFIG_PATH, payment_address=None, payment_utxos=None,
-                 min_payment_confs=TX_MIN_CONFIRMATIONS, proxy=None, consensus_hash=None, safety_checks=True, dry_run=False ):
+def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, utxo_client, tx_broadcaster, tx_fee=None,
+                 config_path=CONFIG_PATH, owner_address=None, payment_address=None, payment_utxos=None,
+                 min_payment_confs=TX_MIN_CONFIRMATIONS, proxy=None, consensus_hash=None, dry_run=False, safety_checks=True ):
     """
     Preorder a name.
 
@@ -918,14 +936,19 @@ def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx
     if proxy is None:
         proxy = get_default_proxy()
 
+    if dry_run or not safety_checks:
+        assert tx_fee, "invalid argument: tx_fee is required on dry-run"
+        assert cost_satoshis, 'invalid argument: cost_satoshis is required on dry-run'
+        safety_checks = False
+
     fqu = str(fqu)
 
     assert payment_privkey_info or dry_run, "Missing payment private keys"
     assert payment_privkey_info or payment_address, "Missing payment address or keys"
+    assert owner_privkey_info or owner_address, "Missing owner address or keys"
 
-    if not can_receive_name(owner_address, proxy=proxy):
-        log.error("Address %s owns too many names already." % owner_address)
-        return {'error': 'Address owns too many names'}
+    if owner_address is None:
+        owner_address = get_privkey_info_address( owner_privkey_info )
 
     if payment_address is None:
         payment_address = get_privkey_info_address( payment_privkey_info )
@@ -933,12 +956,18 @@ def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx
     utxo_client = build_utxo_client( utxo_client=utxo_client, address=payment_address, utxos=payment_utxos )
     assert utxo_client, "Unable to build UTXO client"
 
-    # sanity check
-    owner_privkey_params = deduce_privkey_params( address=owner_address, privkey_params=owner_privkey_params )
+    if not dry_run and (safety_checks or (cost_satoshis is None or tx_fee is None)):
+        # find tx fee, and do sanity checks
+        res = check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
+        if 'error' in res:
+            log.error("Failed to check preorder: {}".format(res['error']))
+            return res
 
-    if not is_address_usable(payment_address, config_path=config_path):
-        log.error("Payment address not ready: %s" % payment_address)
-        return {'error': 'Payment address is not ready'}
+        if tx_fee is None:
+            tx_fee = res['tx_fee']
+
+        if cost_satoshis is None:
+            cost_satoshis = res['name_price']
 
     if consensus_hash is None:
         consensus_hash_res = get_consensus_hash( proxy, config_path=config_path )
@@ -949,16 +978,14 @@ def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx
     else:
         log.warn("Using user-supplied consensus hash %s" % consensus_hash)
 
-    tx_fee = estimate_preorder_tx_fee( fqu, cost, owner_address, payment_address, utxo_client, min_payment_confs=min_payment_confs, owner_privkey_params=owner_privkey_params, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to estimate preorder TX fee")
-        return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
-
-    log.debug("Preordering (%s, %s, %s), tx_fee = %s" % (fqu, payment_address, owner_address, tx_fee))
+    log.debug("Preordering (%s, %s, %s), for %s, tx_fee = %s" % (fqu, payment_address, owner_address, cost_satoshis, tx_fee))
 
     try:
-        unsigned_tx = preorder_tx( fqu, payment_address, owner_address, cost, consensus_hash, utxo_client, tx_fee=tx_fee, min_payment_confs=min_payment_confs )
-    except ValueError:
+        unsigned_tx = preorder_tx( fqu, payment_address, owner_address, cost_satoshis, consensus_hash, utxo_client, tx_fee=tx_fee, min_payment_confs=min_payment_confs )
+    except ValueError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+            
         log.error("Failed to create preorder TX")
         return {'error': 'Insufficient funds'}
 
@@ -966,9 +993,9 @@ def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx
     return resp
 
 
-def do_register( fqu, payment_privkey_info, owner_address, utxo_client, tx_broadcaster,
-                 owner_privkey_params=(None,None), config_path=CONFIG_PATH, payment_address=None, payment_utxos=None,
-                 proxy=None, safety_checks=True, dry_run=False ):
+def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster, tx_fee=None,
+                 config_path=CONFIG_PATH, owner_address=None, payment_address=None, payment_utxos=None,
+                 proxy=None, dry_run=False, safety_checks=True ):
 
     """
     Register a name
@@ -986,42 +1013,43 @@ def do_register( fqu, payment_privkey_info, owner_address, utxo_client, tx_broad
     fqu = str(fqu)
     resp = {}
 
+    if dry_run or not safety_checks:
+        assert tx_fee, "Missing tx fee on dry-run"
+        safety_checks = False
+
     assert payment_privkey_info or dry_run, "Missing payment private keys"
     assert payment_privkey_info or payment_address, "Missing payment address or keys"
 
     if payment_address is None:
         payment_address = get_privkey_info_address( payment_privkey_info )
 
+    if owner_address is None:
+        owner_address = get_privkey_info_address( owner_privkey_info )
+
     assert payment_privkey_info or (payment_address and payment_utxos), "Missing payment keys or payment UTXOs and address"
 
     utxo_client = build_utxo_client( utxo_client=utxo_client, address=payment_address, utxos=payment_utxos )
     assert utxo_client, "Unable to build UTXO client"
+       
+    if not dry_run and (safety_checks or tx_fee is None):
+        # find tx fee, and do sanity checks
+        res = check_register(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
+        if 'error' in res:
+            log.error("Failed to check register: {}".format(res['error']))
+            return res
 
-    # sanity check
-    owner_privkey_params = deduce_privkey_params( address=owner_address, privkey_params=owner_privkey_params )
-
-    if safety_checks:
-        # name must not be registered yet
-        if is_name_registered(fqu, proxy=proxy):
-            log.error("Already registered %s" % fqu)
-            return {'error': 'Already registered'}
-
-    # check address usability
-    if not is_address_usable(payment_address, config_path=config_path, utxo_client=utxo_client):
-        log.error("Payment address not ready: %s" % payment_address)
-        return {'error': 'Payment address has unconfirmed transactions'}
-
-    tx_fee = estimate_register_tx_fee( fqu, owner_address, payment_address, utxo_client, owner_privkey_params=owner_privkey_params, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to estimate register TX fee")
-        return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
+        if tx_fee is None:
+            tx_fee = res['tx_fee']
 
     log.debug("Registering (%s, %s, %s), tx_fee = %s" % (fqu, payment_address, owner_address, tx_fee))
 
     # now send it
     try:
         unsigned_tx = register_tx( fqu, payment_address, owner_address, utxo_client, tx_fee=tx_fee )
-    except ValueError:
+    except ValueError as ve:
+        if BLOCKSTACK_TEST:
+            log.exception(ve)
+
         log.error("Failed to create register TX")
         return {'error': 'Insufficient funds'}
 
@@ -1029,14 +1057,12 @@ def do_register( fqu, payment_privkey_info, owner_address, utxo_client, tx_broad
     return resp
 
 
-def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster,
-               owner_address=None, owner_utxos=None, owner_privkey_params=(None, None), payment_address=None, payment_utxos=None,
-               config_path=CONFIG_PATH, proxy=None, consensus_hash=None, safety_checks=True, dry_run=False ):
+def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, tx_fee=None,
+               owner_address=None, owner_utxos=None, payment_address=None, payment_utxos=None,
+               config_path=CONFIG_PATH, proxy=None, consensus_hash=None, dry_run=False, safety_checks=True ):
     """
     Put a new zonefile hash for a name.
 
-    owner_privkey_info or (owner_address and owner_privkey_params) must be given.
-    payment_privkey_info or payment_address must be given.
     utxo_client must be given, or UTXO lists for both owner and payment private keys must be given.
     If private key(s) are missing, then dry_run must be True.
 
@@ -1048,6 +1074,10 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
     if proxy is None:
         proxy = get_default_proxy()
 
+    if dry_run or not safety_checks:
+        assert tx_fee, 'dry run needs tx fee'
+        safety_checks = False
+
     fqu = str(fqu)
 
     assert payment_privkey_info or dry_run, "Missing payment private keys"
@@ -1057,8 +1087,6 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
 
     if owner_address is None:
         owner_address = get_privkey_info_address( owner_privkey_info )
-
-    owner_privkey_params = deduce_privkey_params( address=owner_address, privkey_info=owner_privkey_info, privkey_params=owner_privkey_params )
 
     if payment_address is None:
         payment_address = get_privkey_info_address( payment_privkey_info )
@@ -1072,6 +1100,16 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
     utxo_client = build_utxo_client( utxo_client=utxo_client, address=owner_address, utxos=owner_utxos )
     assert utxo_client, "Unable to build UTXO client"
 
+    if not dry_run and (safety_checks or tx_fee is None):
+        # find tx fee, and do sanity checks
+        res = check_update(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
+        if 'error' in res:
+            log.error("Failed to check update: {}".format(res['error']))
+            return res
+
+        if tx_fee is None:
+            tx_fee = res['tx_fee']
+
     # get consensus hash
     if consensus_hash is None:
         consensus_hash_res = get_consensus_hash( proxy, config_path=config_path )
@@ -1083,31 +1121,6 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
 
     else:
         log.warn("Using caller-supplied consensus hash '%s'" % consensus_hash)
-
-    if safety_checks:
-        # check ownership
-        blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
-        if blockchain_record is None or 'error' in blockchain_record:
-            log.error("Failed to read blockchain record for %s" % fqu)
-            return {'error': 'Failed to read blockchain record for name'}
-
-        if owner_address != blockchain_record['address']:
-            log.error("Given privkey/address doesn't own this name.")
-            return {'error': 'Not name owner'}
-
-    # check address usability
-    if not is_address_usable(payment_address, config_path=config_path):
-        log.error("Payment address not ready: %s" % payment_address)
-        return {'error': 'Payment address has unconfirmed transactions'}
-
-    if not is_address_usable(owner_address, config_path=config_path):
-        log.error("Owner address not ready: %s" % owner_address)
-        return {'error': 'Owner address has unconfirmed transactions'}
-
-    tx_fee = estimate_update_tx_fee( fqu, payment_privkey_info, owner_address, utxo_client, payment_address=payment_address, owner_privkey_params=owner_privkey_params, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to estimate update TX fee")
-        return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     log.debug("Updating (%s, %s)" % (fqu, zonefile_hash))
     log.debug("<owner, payment> (%s, %s) tx_fee = %s" % (owner_address, payment_address, tx_fee))
@@ -1131,7 +1144,9 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
 
             unsigned_tx = subsidized_tx
         except ValueError, ve:
-            log.exception(ve)
+            if BLOCKSTACK_DEBUG:
+                log.exception(ve)
+
             log.error("Failed to subsidize update TX")
             return {'error': 'Insufficient funds'}
         except AssertionError as ae:
@@ -1149,7 +1164,8 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
     return resp
 
 
-def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, consensus_hash=None, safety_checks=True, dry_run=False ):
+def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, tx_fee=None,
+                 config_path=CONFIG_PATH, proxy=None, consensus_hash=None, dry_run=False, safety_checks=True ):
     """
     Transfer a name to a new address
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1159,12 +1175,23 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
     if proxy is None:
         proxy = get_default_proxy()
 
+    if dry_run or not safety_checks:
+        assert tx_fee is not None, 'Need tx fee for dry run'
+        safety_checks = False
+
     fqu = str(fqu)
     owner_address = get_privkey_info_address(owner_privkey_info)
     payment_address = get_privkey_info_address(payment_privkey_info)
-    owner_privkey_params = get_privkey_info_params(owner_privkey_info)
-    if owner_privkey_params == (None, None):
-        return {'error': 'Invalid owner private key'}
+
+    if not dry_run and (safety_checks or tx_fee is None):
+        # find tx fee, and do sanity checks
+        res = check_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
+        if 'error' in res:
+            log.error("Failed to check transfer: {}".format(res['error']))
+            return res
+
+        if tx_fee is None:
+            tx_fee = res['tx_fee']
 
     # get consensus hash
     if consensus_hash is None:
@@ -1177,39 +1204,15 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
     else:
         log.warn("Using caller-supplied consensus hash '%s'" % consensus_hash)
 
-    if safety_checks:
-        # name must exist
-        blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
-        if blockchain_record is None or 'error' in blockchain_record:
-            log.error("Failed to read blockchain record for %s" % fqu)
-            return {'error': 'Failed to read blockchain record for name'}
-
-        # must be owner
-        if blockchain_record['address'] != owner_address:
-            log.error("Given privkey/address doesn't own this name.")
-            return {'error': 'Given keypair does not own this name'}
-
-        # recipient must have space
-        if not can_receive_name(transfer_address, proxy=proxy):
-            log.error("Address %s owns too many names already." % transfer_address)
-            return {'error': 'Recipient owns too many names'}
-
-    # payment address must be usable
-    if not is_address_usable(payment_address, config_path=config_path):
-        log.error("Payment address not ready: %s" % payment_address)
-        return {'error': 'Payment address has unconfirmed transactions'}
-
-    tx_fee = estimate_transfer_tx_fee( fqu, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=owner_privkey_params, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to estimate tx fee")
-        return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
-
     subsidized_tx = None
     try:
         unsigned_tx = transfer_tx( fqu, transfer_address, keep_data, consensus_hash, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * (10**6) * (10**8), payment_privkey_info, utxo_client, tx_fee=tx_fee )
         assert subsidized_tx is not None
-    except ValueError:
+    except ValueError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
         log.error("Failed to generate transfer tx")
         return {'error': 'Insufficient funds'}
     except AssertionError as ae:
@@ -1226,7 +1229,7 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
     return resp
 
 
-def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True, dry_run=False ):
+def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster, tx_fee=None, config_path=CONFIG_PATH, proxy=None, dry_run=False, safety_checks=True ):
     """
     Renew a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1235,34 +1238,28 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     if proxy is None:
         proxy = get_default_proxy()
 
+    if dry_run or not safety_checks:
+        assert tx_fee, 'Need tx fee for dry run'
+        assert renewal_fee, 'Need renewal fee for dry run'
+        safety_checks = False
+
     fqu = str(fqu)
     resp = {}
     owner_address = get_privkey_info_address( owner_privkey_info )
     payment_address = get_privkey_info_address( payment_privkey_info )
 
-    if safety_checks:
-        if not is_name_registered(fqu, proxy=proxy):
-            log.error("Already registered %s" % fqu)
-            return {'error': 'Already registered'}
+    if not dry_run and (safety_checks or (renewal_fee is None or tx_fee is None)):
+        # find tx fee, and do sanity checks
+        res = check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
+        if 'error' in res:
+            log.error("Failed to check renewal: {}".format(res['error']))
+            return res
 
-        blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
-        if blockchain_record is None or 'error' in blockchain_record:
-            log.error("Failed to read blockchain record for %s" % fqu)
-            return {'error': 'Failed to read blockchain record for name'}
+        if tx_fee is None:
+            tx_fee = res['tx_fee']
 
-        if owner_address != blockchain_record['address']:
-            log.error("Given privkey/address doesn't own this name.")
-            return {'error': 'Not name owner'}
-
-    # check address usability
-    if not is_address_usable(payment_address, config_path=config_path, utxo_client=utxo_client):
-        log.error("Payment address not ready: %s" % payment_address)
-        return {'error': 'Payment address has unconfirmed transactions'}
-
-    tx_fee = estimate_renewal_tx_fee( fqu, renewal_fee, payment_privkey_info, owner_privkey_info, utxo_client, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to estimate renewal tx fee")
-        return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
+        if renewal_fee is None:
+            renewal_fee = res['name_price']
 
     log.debug("Renewing (%s, %s, %s), tx_fee = %s, renewal_fee = %s" % (fqu, payment_address, owner_address, tx_fee, renewal_fee))
 
@@ -1272,7 +1269,10 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
         unsigned_tx = register_tx( fqu, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee, tx_fee=tx_fee )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 ** (10**6) * (10**8), payment_privkey_info, utxo_client, tx_fee=tx_fee )
         assert subsidized_tx is not None
-    except ValueError:
+    except ValueError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
         log.error("Failed to generate renewal tx")
         return {'error': 'Insufficient funds'}
     except AssertionError as ae:
@@ -1286,7 +1286,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     return resp
 
 
-def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True, dry_run=False ):
+def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, tx_fee=None, proxy=None, dry_run=False, safety_checks=True):
     """
     Revoke a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1295,37 +1295,32 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
     if proxy is None:
         proxy = get_default_proxy()
 
+    if dry_run or not safety_checks:
+        assert tx_fee, "need tx fee for dry run"
+        safety_checks = False
+
     fqu = str(fqu)
     owner_address = get_privkey_info_address(owner_privkey_info)
     payment_address = get_privkey_info_address(payment_privkey_info)
-    owner_privkey_params = get_privkey_info_params(owner_privkey_info)
-    if owner_privkey_params == (None, None):
-        log.error("Invalid owner private key")
-        return {'error': 'Invalid owner private key'}
 
-    tx_fee = estimate_revoke_tx_fee( fqu, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=owner_privkey_params, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to estimate revoke tx fee")
-        return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
+    if not dry_run and (safety_checks or tx_fee is None):
+        res = check_revoke(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
+        if 'error' in res:
+            log.error("Failed to check revoke: {}".format(res['error']))
+            return res
 
-    if safety_checks:
-        # name must exist
-        blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
-        if blockchain_record is None or 'error' in blockchain_record:
-            log.error("Failed to read blockchain record for %s" % fqu)
-            return {'error': 'Failed to read blockchain record for name'}
-
-        # must be owner
-        if blockchain_record['address'] != owner_address:
-            log.error("Given privkey/address doesn't own this name.")
-            return {'error': 'Given keypair does not own this name'}
+        if tx_fee is None:
+            tx_fee = res['tx_fee']
 
     subsidized_tx = None
     try:
         unsigned_tx = revoke_tx( fqu, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 ** (10**6) * (10**8), payment_privkey_info, utxo_client, tx_fee=tx_fee )
         assert subsidized_tx is not None
-    except ValueError:
+    except ValueError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
         log.error("Failed to generate revoke tx")
         return {'error': 'Insufficient funds'}
     except AssertionError as ae:
@@ -1371,7 +1366,8 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
     try:
         unsigned_tx = name_import_tx( fqu, recipient_address, zonefile_hash, payment_address, utxo_client, tx_fee=tx_fee )
     except ValueError, ve:
-        log.exception(ve)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
         log.error("Failed to generate name import tx")
         return {'error': 'Insufficient funds'}
 
@@ -1605,8 +1601,8 @@ def do_announce( message_text, sender_privkey_info, utxo_client, tx_broadcaster,
 
 
 
-def async_preorder(fqu, payment_privkey_info, owner_address, cost, owner_privkey_params=(None,None), name_data={}, min_payment_confs=TX_MIN_CONFIRMATIONS,
-                   proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
+def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, tx_fee=None, name_data={}, min_payment_confs=TX_MIN_CONFIRMATIONS,
+                   proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH ):
     """
         Preorder a fqu (step #1)
 
@@ -1627,6 +1623,7 @@ def async_preorder(fqu, payment_privkey_info, owner_address, cost, owner_privkey
     utxo_client = get_utxo_provider_client( config_path=config_path )
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
+    owner_address = get_privkey_info_address( owner_privkey_info )
     payment_address = get_privkey_info_address( payment_privkey_info )
 
     # stale preorder will get removed from preorder_queue
@@ -1639,7 +1636,9 @@ def async_preorder(fqu, payment_privkey_info, owner_address, cost, owner_privkey
         return {'error': 'Already in preorder queue'}
 
     try:
-        resp = do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx_broadcaster, min_payment_confs=min_payment_confs, owner_privkey_params=owner_privkey_params, config_path=CONFIG_PATH )
+        resp = do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost, utxo_client, tx_broadcaster,
+                            tx_fee=tx_fee, min_payment_confs=min_payment_confs, config_path=CONFIG_PATH )
+
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast preorder transaction'}
@@ -1662,8 +1661,8 @@ def async_preorder(fqu, payment_privkey_info, owner_address, cost, owner_privkey
     return resp
 
 
-def async_register(fqu, payment_privkey_info, owner_address, owner_privkey_params=(None,None), name_data={},
-                   proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
+def async_register(fqu, payment_privkey_info, owner_privkey_info, tx_fee=None, name_data={},
+                   proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH, safety_checks=True):
     """
         Register a previously preordered fqu (step #2)
 
@@ -1683,6 +1682,7 @@ def async_register(fqu, payment_privkey_info, owner_address, owner_privkey_param
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
+    owner_address = get_privkey_info_address( owner_privkey_info )
     payment_address = get_privkey_info_address( payment_privkey_info )
 
     # check register_queue first
@@ -1710,7 +1710,8 @@ def async_register(fqu, payment_privkey_info, owner_address, owner_privkey_param
         return {'error': 'Waiting on preorder confirmations'}
 
     try:
-        resp = do_register( fqu, payment_privkey_info, owner_address, utxo_client, tx_broadcaster, owner_privkey_params=owner_privkey_params, config_path=config_path, proxy=proxy )
+        resp = do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster,
+                            tx_fee=tx_fee, config_path=config_path, proxy=proxy )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast registration transaction'}
@@ -1733,8 +1734,9 @@ def async_register(fqu, payment_privkey_info, owner_address, owner_privkey_param
         return {'error': 'Failed to send registration'}
 
 
-def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privkey_info, name_data={}, config_path=CONFIG_PATH,
-                 zonefile_hash=None, proxy=None, queue_path=DEFAULT_QUEUE_PATH):
+def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privkey_info,
+                 tx_fee=None, name_data={}, config_path=CONFIG_PATH,
+                 zonefile_hash=None, proxy=None, queue_path=DEFAULT_QUEUE_PATH ):
     """
         Update a previously registered fqu, using a different payment address
 
@@ -1785,7 +1787,8 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
 
     resp = {}
     try:
-        resp = do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy )
+        resp = do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster,
+                          tx_fee=tx_fee, config_path=config_path, proxy=proxy )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast update transaction'}
@@ -1809,7 +1812,8 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
         return {'error': 'Failed to broadcast update transaction'}
 
 
-def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_info, config_path=CONFIG_PATH, proxy=None, queue_path=DEFAULT_QUEUE_PATH):
+def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_info, 
+                   tx_fee=None, config_path=CONFIG_PATH, proxy=None, queue_path=DEFAULT_QUEUE_PATH):
     """
         Transfer a previously registered fqu, using a different payment address.
         Preserves the zonefile.
@@ -1836,7 +1840,8 @@ def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
         return {'error': 'Already in transfer queue'}
 
     try:
-        resp = do_transfer( fqu, transfer_address, True, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy )
+        resp = do_transfer( fqu, transfer_address, True, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster,
+                            tx_fee=tx_fee, config_path=config_path, proxy=proxy )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast transfer transaction'}
@@ -1855,7 +1860,8 @@ def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
     return resp
 
 
-def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
+def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee,
+                tx_fee=None, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
     """
         Renew an already-registered name.
 
@@ -1878,7 +1884,8 @@ def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee, prox
         return {'error': 'Already in renew queue'}
 
     try:
-        resp = do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy )
+        resp = do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster,
+                           tx_fee=tx_fee, config_path=config_path, proxy=proxy )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast renewal transaction'}
@@ -1897,7 +1904,8 @@ def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee, prox
         return resp
 
 
-def async_revoke(fqu, owner_privkey_info, payment_privkey_info, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
+def async_revoke(fqu, owner_privkey_info, payment_privkey_info, 
+                 tx_fee=None, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
     """
         Revoke a name.
 
@@ -1920,7 +1928,9 @@ def async_revoke(fqu, owner_privkey_info, payment_privkey_info, proxy=None, conf
         return {'error': 'Already in revoke queue'}
 
     try:
-        resp = do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy )
+        resp = do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster,
+                          tx_fee=tx_fee, config_path=config_path, proxy=proxy )
+
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast revoke transaction'}
