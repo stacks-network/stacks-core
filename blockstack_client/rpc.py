@@ -1160,7 +1160,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def GET_user_store( self, ses, path_info, app_user_id ):
+    def GET_store( self, ses, path_info, app_user_id ):
         """
         Get the specific data store for this app user account
         Reply 200 on success
@@ -1181,7 +1181,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json(res)
 
 
-    def POST_user_store( self, ses, path_info, app_user_id ):
+    def POST_store( self, ses, path_info ):
         """
         Make a data store for the application identified by the session
         Reply 200 on success
@@ -1190,9 +1190,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         # TODO see if we can load cached app user private key
         """
        
-        if app_user_id != ses['app_user_id']:
-            return self._reply_json({'error': 'Invalid user'}, status=403)
-
         internal = self.server.get_internal_proxy()
         res = internal.cli_create_datastore(app_domain, wallet_keys=self.server.wallet_keys, config_path=self.server.config_path)
         if json_is_error(res):
@@ -1201,7 +1198,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'status': True})
 
 
-    def PUT_user_store( self, ses, path_info, user_id ):
+    def PUT_store( self, ses, path_info, user_id ):
         """
         Update a data store for the application identified by the session.
         """
@@ -1209,7 +1206,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         pass
 
 
-    def DELETE_user_store( self, ses, path_info, app_user_id ):
+    def DELETE_store( self, ses, path_info ):
         """
         Delete the data store identified by the given session
         Reply 200 on success
@@ -1218,9 +1215,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         # TODO see if we can load cached app user private key
         """
-        if app_user_id != ses['app_user_id']:
-            return self._reply_json({'error': 'Invalid user'}, status=403)
-
         internal = self.server.get_internal_proxy()
         qs = path_info['qs_values']
         force = qs.get('force', "0")
@@ -1238,7 +1232,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def GET_user_store_item( self, ses, path_info, app_user_id, inode_type ):
+    def GET_store_item( self, ses, path_info, app_user_id, inode_type ):
         """
         Get a store item
         Only works on the session's user ID
@@ -1253,7 +1247,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if app_user_id != ses['app_user_id']:
             return self._reply_json({'error': 'Invalid user'}, status=403)
 
-        if inode_type not in ['file', 'directory', 'inode']:
+        if inode_type not in ['files', 'directories', 'inodes']:
             self._reply_json({'error': 'Invalid request'}, status_code=401)
             return
 
@@ -1266,9 +1260,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         res = None
 
-        if inode_type == 'file':
+        if inode_type == 'files':
             res = internal.cli_datastore_getfile(app_user_id, path, config_path=self.server.config_path, wallet_keys=self.server.wallet_keys)
-        elif inode_type == 'directory':
+        elif inode_type == 'directories':
             res = internal.cli_datastore_listdir(app_user_id, path, config_path=self.server.config_path, wallet_keys=self.server.wallet_keys)
         else:
             res = internal.cli_datastore_stat(app_user_id, path, config_path=self.server.config_path, wallet_keys=self.server.wallet_keys)
@@ -1282,11 +1276,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 self.reply_json({'error': 'Failed to read {}: {}'.format(inode_type, res['error'])})
                 return
 
-        if inode_type == 'file':
+        if inode_type == 'files':
             self._send_headers(status_code=200, content_type='application/octet-stream')
             self.wfile.write(res['file']['idata'])
 
-        elif inode_type == 'directory':
+        elif inode_type == 'directories':
             self._reply_json(res['dir']['idata'])
 
         else:
@@ -1295,7 +1289,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def POST_user_store_item( self, ses, path_info, app_user_id, inode_type ):
+    def POST_store_item( self, ses, path_info, app_user_id, inode_type ):
         """
         Create a store item.
         Only works with the session's user ID.
@@ -1309,7 +1303,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._create_or_update_store_item( ses, path_info, app_user_id, inode_type, create=True )
 
 
-    def PUT_user_store_item(self, ses, path_info, user_id, store_id, inode_type ):
+    def PUT_store_item(self, ses, path_info, user_id, store_id, inode_type ):
         """
         Update a store item.
         Only works with the session's user ID.
@@ -1325,7 +1319,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
     def _create_or_update_store_item( self, ses, path_info, app_user_id, inode_type, create=False ):
         """
         Create or update a file, or create a directory.
-        Implements POST_user_store_item and PUT_user_store_item
+        Implements POST_store_item and PUT_store_item
         
         # TODO see if we can load cached app user private key
         """
@@ -1333,7 +1327,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if app_user_id != ses['app_user_id']:
             return self._reply_json({'error': 'Invalid user'}, status=403)
 
-        if inode_type not in ['file', 'directory']:
+        if inode_type not in ['files', 'directories']:
             log.debug("Invalid request: unrecognized inode type")
             self._reply_json({'error': 'Invalid request'}, status_code=401)
             return
@@ -1379,7 +1373,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def DELETE_user_store_item( self, ses, path_info, app_user_id, inode_type ):
+    def DELETE_store_item( self, ses, path_info, app_user_id, inode_type ):
         """
         Delete a store item.
         Only works with the session's user ID.
@@ -1396,7 +1390,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if app_user_id != ses['app_user_id']:
             return self._reply_json({'error': 'Invalid user'}, status=403)
 
-        if inode_type not in ['file', 'directory']:
+        if inode_type not in ['files', 'directories']:
             self._reply_json({'error': 'Invalid request'}, status_code=401)
             return
 
@@ -1409,7 +1403,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         res = None
 
-        if inode_type == 'file':
+        if inode_type == 'files':
             res = internal.cli_datastore_deletefile(ses['app_domain'], path, wallet_keys=self.server.wallet_keys)
 
         else:
@@ -1429,7 +1423,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def GET_user_collections( self, ses, path_info, user_id ):
+    def GET_collections( self, ses, path_info, user_id ):
         """
         Get the list of collections
         Reply the list of collections on success.
@@ -1437,14 +1431,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         pass
 
 
-    def POST_user_collections( self, ses, path_info, user_id ):
+    def POST_collections( self, ses, path_info, user_id ):
         """
         Create a new collection
         """
         pass
 
 
-    def GET_user_collection_info( self, ses, path_info, user_id, collection_id ):
+    def GET_collection_info( self, ses, path_info, user_id, collection_id ):
         """
         Get metadata on a user's collection (including the list of items)
         Reply the list of items on success
@@ -1453,7 +1447,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         pass
 
 
-    def GET_user_collection_item( self, ses, path_info, user_id, collection_id, item_id ):
+    def GET_collection_item( self, ses, path_info, user_id, collection_id, item_id ):
         """
         Get a particular item from a particular collection
         Reply the item requested
@@ -1463,7 +1457,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         pass
 
 
-    def POST_user_collection_item( self, ses, path_info, user_id, collection_id ):
+    def POST_collection_item( self, ses, path_info, user_id, collection_id ):
         """
         Add an item to a collection
         """
@@ -2486,10 +2480,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/v1/users/({})/collections$'.format(URLENCODING_CLASS): {
+            r'^/v1/collections$': {
                 'routes': {
-                    'GET': self.GET_user_collections,
-                    'POST': self.POST_user_collections,
+                    'GET': self.GET_collections,
+                    'POST': self.POST_collections,
                 },
                 'whitelist': {
                     'GET': {
@@ -2508,10 +2502,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/v1/users/({})/collections/({})$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
+            r'^/v1/collections/({})$'.format(URLENCODING_CLASS): {
                 'routes': {
-                    'GET': self.GET_user_collection_info,
-                    'POST': self.POST_user_collection_item,
+                    'GET': self.GET_collection_info,
+                    'POST': self.POST_collection_item,
                 },
                 'whitelist': {
                     'GET': {
@@ -2530,9 +2524,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/v1/users/({})/collections/({})/({})$'.format(URLENCODING_CLASS, URLENCODING_CLASS, URLENCODING_CLASS): {
+            r'^/v1/collections/({})/({})$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
                 'routes': {
-                    'GET': self.GET_user_collection_item,
+                    'GET': self.GET_collection_item,
                 },
                 'whitelist': {
                     'GET': {
@@ -2544,21 +2538,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/v1/users/({})/store$'.format(URLENCODING_CLASS): {
+            r'^/v1/stores$': {
                 'routes': {
-                    'GET': self.GET_user_store,
-                    'POST': self.POST_user_store,
-                    'PUT': self.PUT_user_store,
-                    'DELETE': self.DELETE_user_store,
+                    'POST': self.POST_store,
+                    'PUT': self.PUT_store,
+                    'DELETE': self.DELETE_store,
                 },
                 'whitelist': {
-                    'GET': {
-                        'name': 'store_admin',
-                        'desc': 'Get an app user\'s datastore metadata',
-                        'auth_session': True,
-                        'auth_pass': True,
-                        'need_data_key': True,
-                    },
                     'POST': {
                         'name': 'store_write',
                         'desc': 'create the datastore for the app user',
@@ -2582,12 +2568,26 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/v1/users/({})/store/(file|directory|inode)$'.format(URLENCODING_CLASS, URLENCODING_CLASS, URLENCODING_CLASS): {
+            r'^/v1/stores/({})$'.format(URLENCODING_CLASS): {
                 'routes': {
-                    'GET': self.GET_user_store_item,
-                    'POST': self.POST_user_store_item,
-                    'PUT': self.PUT_user_store_item,
-                    'DELETE': self.DELETE_user_store_item,
+                    'GET': self.GET_store,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'store_admin',
+                        'desc': 'Get an app user\'s datastore metadata',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
+                    },
+                },
+            },
+            r'^/v1/stores/({})/(files|directories|inodes)$'.format(URLENCODING_CLASS, URLENCODING_CLASS, URLENCODING_CLASS): {
+                'routes': {
+                    'GET': self.GET_store_item,
+                    'POST': self.POST_store_item,
+                    'PUT': self.PUT_store_item,
+                    'DELETE': self.DELETE_store_item,
                 },
                 'whitelist': {
                     'GET': {
