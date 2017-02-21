@@ -826,7 +826,7 @@ def check_operations( fqu, operations, owner_privkey_info, payment_privkey_info,
             failed_checks.append(res_name)
 
     if len(failed_checks) > 0:
-        return {'error': 'Unable to {} name:\n{}'.format('\n'.join(','.join(operations), ['  * check "{}" failed'.format(reason) for reason in failed_checks]))}
+        return {'error': 'Unable to {} name:\n{}'.format(','.join(operations), '\n'.join(['  * check "{}" failed'.format(reason) for reason in failed_checks]))}
 
     balance = sg.get_result('get_balance')['status']
 
