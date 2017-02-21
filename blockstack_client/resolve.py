@@ -64,7 +64,7 @@ def get_datastore_creds( master_data_privkey=None, app_domain=None, app_user_pri
     assert app_user_privkey is not None or (master_data_privkey is not None and app_domain is not None), "Invalid creds: need app_domain and master_data_privkey, or app_user_privkey"
 
     if app_user_privkey is None:
-        app_user_privkey = data.datastore_get_privkey( privkey_hex, app_domain, config_path=CONFIG_PATH )
+        app_user_privkey = data.datastore_get_privkey( master_data_privkey, app_domain, config_path=CONFIG_PATH )
         if app_user_privkey is None:
             return {'error': 'Failed to load app user private key'}
 
@@ -86,20 +86,25 @@ def get_datastore_info( datastore_id=None, app_user_privkey=None, master_data_pr
     Get information about an account datastore.
     At least, get the user and account owner.
 
-    Return {'status': True, 'datastore': ..., ['datastore_privkey': ...}] on success.
+    Return {'status': True, 'datastore': ..., 'datastore_id': ..., ['datastore_privkey': ...}] on success.
 
     Return {'error': ...} on failure
     """
 
     datastore_privkey = None
-    
+
     if app_user_privkey is not None or (master_data_privkey is not None and app_domain is not None):
         creds = get_datastore_creds(master_data_privkey, app_domain=app_domain, app_user_privkey=app_user_privkey, config_path=config_path)
         if 'error' in creds:
             return creds
+        
+        if datastore_id is not None:
+            assert datastore_id == creds['datastore_id'], "Datastore mismatch: {} != {}".format(datastore_id, creds['datastore_id'])
 
         datastore_privkey = creds['datastore_privkey']
         datastore_id = creds['datastore_id']
+
+    assert datastore_id, 'No datastore ID given'
 
     res = data.get_datastore(datastore_id, config_path=config_path, proxy=proxy )
     if 'error' in res:
@@ -107,6 +112,11 @@ def get_datastore_info( datastore_id=None, app_user_privkey=None, master_data_pr
 
     if datastore_privkey is not None:
         res['datastore_privkey'] = datastore_privkey
+
+    if datastore_id is not None:
+        res['datastore_id'] = datastore_id
+    else:
+        res['datastore_id'] = datastore_get_id(res['datastore']['pubkey'])
 
     return res
 
