@@ -63,7 +63,7 @@ from .constants import (
 )
 
 from .proxy import get_names_owned_by_address, get_default_proxy
-from .rpc import local_rpc_connect, start_rpc_endpoint
+from .rpc import local_api_connect 
 from .schemas import *
 
 log = config.get_logger()
@@ -170,7 +170,7 @@ def encrypt_wallet(wallet, password, test_legacy=False):
     return encrypted_wallet
 
 
-def make_wallet(password, config_path=CONFIG_PATH, payment_privkey_info=None, owner_privkey_info=None, data_privkey_info=None, test_legacy=False):
+def make_wallet(password, config_path=CONFIG_PATH, payment_privkey_info=None, owner_privkey_info=None, data_privkey_info=None, test_legacy=False, encrypt=True):
     """
     Make a new, encrypted wallet structure.
     The owner and payment keys will be 2-of-3 multisig key bundles.
@@ -197,7 +197,14 @@ def make_wallet(password, config_path=CONFIG_PATH, payment_privkey_info=None, ow
     if not test_legacy:
         jsonschema.validate(new_wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
 
-    return new_wallet
+    if encrypt:
+        return new_wallet
+
+    # decrypt and return 
+    wallet_info = decrypt_wallet(new_wallet, password, config_path=config_path)
+    assert 'error' not in wallet_info, "Failed to decrypt new wallet: {}".format(wallet_info['error'])
+
+    return wallet_info['wallet']
 
 
 def log_failed_decrypt(max_tries=WALLET_DECRYPT_MAX_TRIES):
@@ -783,13 +790,7 @@ def unlock_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None):
 
         # save to RPC daemon
         try:
-            res = save_keys_to_memory(
-                (wallet['payment_addresses'][0], wallet['payment_privkey']),
-                (wallet['owner_addresses'][0], wallet['owner_privkey']),
-                (wallet['data_pubkeys'][0], wallet['data_privkey']),
-                config_path=config_path
-
-            )
+            res = save_keys_to_memory( wallet, config_path=config_path )
         except KeyError as ke:
             if BLOCKSACK_DEBUG is not None:
                 data = json.dumps(wallet, indent=4, sort_keys=True)
@@ -816,14 +817,14 @@ def is_wallet_unlocked(config_dir=CONFIG_DIR):
     Do so by asking the local RPC backend daemon
     """
     config_path = os.path.join(config_dir, CONFIG_FILENAME)
-    local_proxy = local_rpc_connect(config_dir=config_dir)
+    local_proxy = local_api_connect(config_dir=config_dir)
     conf = config.get_config(config_path)
 
     if not local_proxy:
         return False
 
     try:
-        wallet_data = local_proxy.backend_get_wallet(conf['rpc_token'])
+        wallet_data = local_proxy.backend_get_wallet()
     except (IOError, OSError):
         return False
     except Exception as e:
@@ -842,14 +843,14 @@ def get_wallet(config_path=CONFIG_PATH):
     Returns the wallet data on success
     Returns None on error
     """
-    local_proxy = local_rpc_connect(config_dir=os.path.dirname(config_path))
+    local_proxy = local_api_connect(config_dir=os.path.dirname(config_path))
     conf = config.get_config(config_path)
 
     if not local_proxy:
         return None
 
     try:
-        wallet_data = local_proxy.backend_get_wallet(conf['rpc_token'])
+        wallet_data = local_proxy.backend_get_wallet()
         if 'error' in wallet_data:
             msg = 'RPC error: {}'
             log.error(msg.format(wallet_data['error']))
@@ -879,7 +880,7 @@ def get_names_owned(address, proxy=None):
     return names_owned
 
 
-def save_keys_to_memory(payment_keypair, owner_keypair, data_keypair, config_path=CONFIG_PATH):
+def save_keys_to_memory( wallet_keys, config_path=CONFIG_PATH ):
     """
     Save keys to the running RPC backend
     Each keypair must be a list or tuple with 2 items: the address, and the private key information.
@@ -888,13 +889,12 @@ def save_keys_to_memory(payment_keypair, owner_keypair, data_keypair, config_pat
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-    conf = config.get_config(config_path)
     config_dir = os.path.dirname(config_path)
-    proxy = local_rpc_connect(config_dir=config_dir)
+    proxy = local_api_connect(config_dir=config_dir)
 
     log.debug('Saving keys to memory')
     try:
-        data = proxy.backend_set_wallet(conf['rpc_token'], payment_keypair, owner_keypair, data_keypair)
+        data = proxy.backend_set_wallet(wallet_keys)
         return data
     except Exception as e:
         log.exception(e)
