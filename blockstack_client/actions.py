@@ -58,6 +58,7 @@ import blockstack_profiles
 import requests
 import base64
 import jsonschema
+import threading
 from decimal import Decimal
 
 requests.packages.urllib3.disable_warnings()
@@ -74,16 +75,16 @@ sys.path.insert(0, parent_dir)
 from blockstack_client import (
     delete_immutable, delete_mutable, get_all_names, get_consensus_at,
     get_immutable, get_immutable_by_name, get_mutable, get_name_blockchain_record,
-    get_name_cost, get_name_profile, get_user_profile, get_name_zonefile,
+    get_name_cost, get_name_zonefile,
     get_nameops_at, get_names_in_namespace, get_names_owned_by_address,
     get_namespace_blockchain_record, get_namespace_cost,
     is_user_zonefile, list_immutable_data_history, list_update_history,
     list_zonefile_history, lookup_snv, put_immutable, put_mutable, zonefile_data_replicate
 )
 
-from blockstack_client.profile import put_profile, delete_profile
+from blockstack_client.profile import put_profile, delete_profile, get_profile
 
-from rpc import local_rpc_connect, local_rpc_status, local_rpc_stop, start_rpc_endpoint
+from rpc import local_api_connect, local_api_status, local_api_stop 
 import rpc as local_rpc
 import config
 
@@ -94,7 +95,7 @@ from .constants import (
     APPROX_UPDATE_TX_LEN, APPROX_TRANSFER_TX_LEN,
     FIRST_BLOCK_MAINNET, NAME_UPDATE,
     BLOCKSTACK_DEBUG, BLOCKSTACK_TEST,
-    TX_MIN_CONFIRMATIONS
+    TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME
 )
 
 from .b40 import is_b40
@@ -108,23 +109,25 @@ from .backend.blockchain import (
     can_receive_name, get_tx_confirmations, get_tx_fee
 )
 
+from .backend.registrar import get_wallet as registrar_get_wallet 
+
 from .backend.nameops import (
     estimate_preorder_tx_fee, estimate_register_tx_fee,
     estimate_update_tx_fee, estimate_transfer_tx_fee,
-    estimate_renewal_tx_fee
+    estimate_renewal_tx_fee, estimate_revoke_tx_fee
 )
 
+from .backend.safety import *
 from .backend.queue import queuedb_remove, queuedb_find
 from .backend.queue import extract_entry as queue_extract_entry
 
 from .wallet import *
 from .keys import *
 from .proxy import *
-from .client import analytics_event, check_storage_setup, storage_setup
+from .client import analytics_event 
 from .scripts import UTXOException, is_name_valid
 from .user import add_user_zonefile_url, remove_user_zonefile_url, user_zonefile_urls, \
-        user_init, make_empty_user_profile, \
-        user_get_privkey
+        make_empty_user_profile
 
 from .resolve import *
 from .tx import sign_tx, broadcast_tx
@@ -132,13 +135,11 @@ from .zonefile import make_empty_zonefile, url_to_uri_record
 
 from .utils import exit_with_error, satoshis_to_btc
 from .app import app_publish, app_make_resource_data_id, app_get_config, app_get_resource, \
-        app_get_index_file, app_put_resource, app_account_get_privkey, app_load_account, app_make_account, \
-        app_accounts_list, app_delete_account, app_store_account, app_account_name, app_account_parse_name, \
-        app_account_datastore_name, app_account_parse_datastore_name, app_find_accounts, app_make_session
+        app_get_index_file, app_put_resource, app_make_session 
 
 from .data import datastore_mkdir, datastore_rmdir, make_datastore, get_datastore, put_datastore, delete_datastore, \
-        datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir, datastore_stat, datastore_list, \
-        datastore_rmtree, get_user, get_user_list, put_user, delete_user, next_privkey_index 
+        datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir, datastore_stat, \
+        datastore_rmtree, datastore_get_id 
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
 
@@ -193,257 +194,6 @@ def _cli_skel(args, config_path=CONFIG_PATH):
     return result
 
 
-def check_valid_name(fqu):
-    """
-    Verify that a name is valid.
-    Return None on success
-    Return an error string on error
-    """
-
-    rc = is_name_valid(fqu)
-    if rc:
-        return None
-
-    # get a coherent reason why
-    if '.' not in fqu:
-        msg = (
-            'The name specified is invalid. '
-            'Names must end with a period followed by a valid TLD.'
-        )
-
-        return msg
-
-    name = fqu.split('.')[0]
-
-    if not name:
-        msg = (
-            'The name specified is invalid. '
-            'Names must be at least one character long, not including the TLD.'
-        )
-
-        return msg
-
-    if not is_b40(name):
-        msg = (
-            'The name specified is invalid. '
-            'Names may only contain alphanumeric characters, '
-            'dashes, and underscores.'
-        )
-
-        return msg
-
-    return 'The name is invalid'
-
-
-def operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info,
-                           config_path=CONFIG_PATH, transfer_address=None, proxy=None):
-    """
-    Any update, transfer, renew, or revoke operation
-    should pass these tests:
-    * name must be registered
-    * name must be owned by the owner address in the wallet
-    * the payment address must have enough BTC
-    * the payment address can't have any pending transactions
-    * if given, the transfer address must be suitable for receiving the name
-    (i.e. it can't own too many names already).
-
-    Return {'status': True} on success
-    Return {'error': ...} on error
-    """
-
-    config_dir = os.path.dirname(config_path)
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    if not is_name_registered(fqu, proxy=proxy):
-        return {'error': '{} is not registered yet.'.format(fqu)}
-
-    utxo_client = get_utxo_provider_client(config_path=config_path)
-    payment_address, owner_address, data_address = (
-        get_addresses_from_file(wallet_path=wallet_path)
-    )
-
-    if not is_name_owner(fqu, owner_address, proxy=proxy):
-        return {'error': '{} is not in your possession.'.format(fqu)}
-
-    owner_privkey_params = get_privkey_info_params(owner_privkey_info)
-
-    estimate_func = None
-
-    # get tx fee
-    if transfer_address is not None:
-        estimate_func = estimate_transfer_tx_fee
-        approx_tx = '00' * APPROX_TRANSFER_TX_LEN
-    else:
-        estimate_func = estimate_update_tx_fee
-        approx_tx = '00' * APPROX_UPDATE_TX_LEN
-
-    tx_fee = estimate_func(
-        fqu, payment_privkey_info, owner_address, utxo_client,
-        owner_privkey_params=owner_privkey_params,
-        config_path=config_path, include_dust=True
-    )
-
-    if tx_fee is None:
-        # do our best
-        tx_fee = get_tx_fee(approx_tx, config_path=config_path)
-
-    if tx_fee is None:
-        return {'error': 'Failed to get fee estimate'}
-
-    balance = get_balance(payment_address, config_path=config_path)
-    if balance is None:
-        msg = 'Failed to get balance'
-        return {'error': msg}
-
-    if balance < tx_fee:
-        msg = 'Address {} does not have a sufficient balance (need {}, have {}).'
-        return {'error': msg.format(payment_address, balance, tx_fee)}
-
-    if not is_address_usable(payment_address, config_path=config_path):
-        msg = 'Address {} has insufficiently confirmed transactions. Wait and try later.'
-        return {'error': msg.format(payment_address)}
-
-    if transfer_address is None:
-        return {'status': True}
-
-    try:
-        is_b58check_address(str(transfer_address))
-    except:
-        msg = 'Address {} is not a valid Bitcoin address.'
-        return {'error': msg.format(transfer_address)}
-
-    if not can_receive_name(transfer_address, proxy=proxy):
-        msg = 'Address {} owns too many names already.'
-        return {'error': msg.format(transfer_address)}
-
-    return {'status': True}
-
-
-def get_total_registration_fees(name, payment_privkey_info, owner_privkey_info,
-                                proxy=None, config_path=CONFIG_PATH, payment_address=None,
-                                owner_address=None, transfer_address=None):
-    """
-    Get all fees associated with registrations.
-    Returned values are in satoshis.
-    """
-    try:
-        data = get_name_cost(name, proxy=proxy)
-    except Exception as e:
-        log.exception(e)
-        return {'error': 'Could not connect to server'}
-
-    if 'error' in data:
-        msg = 'Could not determine price of name: {}'
-        return {'error': msg.format(data['error'])}
-
-    insufficient_funds = False
-
-    if payment_privkey_info is not None:
-        payment_address = get_privkey_info_address(payment_privkey_info)
-
-    if owner_privkey_info is not None:
-        owner_address = get_privkey_info_address(owner_privkey_info)
-
-    utxo_client = get_utxo_provider_client(config_path=config_path)
-
-    # fee estimation: cost of name + cost of preorder transaction +
-    # fee estimation: cost of registration transaction + cost of update transaction
-
-    reply = {}
-    reply['name_price'] = data['satoshis']
-
-    preorder_tx_fee, register_tx_fee, update_tx_fee, transfer_tx_fee = None, None, None, None
-    
-    if owner_address:
-        owner_address = str(owner_address)
-    if payment_address:
-        payment_address = str(payment_address)
-    if transfer_address:
-        transfer_address = str(transfer_address)
-
-    log.debug("Get total registration fees for registering {} to {} paid by {}".format(name, owner_address, payment_address))
-    try:
-        owner_privkey_params = get_privkey_info_params(owner_privkey_info)
-
-        preorder_tx_fee = estimate_preorder_tx_fee(
-            name, data['satoshis'], owner_address, payment_address, utxo_client,
-            owner_privkey_params=owner_privkey_params,
-            config_path=config_path, include_dust=True
-        )
-
-        if preorder_tx_fee is not None:
-            preorder_tx_fee = int(preorder_tx_fee)
-        else:
-            # do our best
-            preorder_tx_fee = get_tx_fee('00' * APPROX_PREORDER_TX_LEN, config_path=config_path)
-            insufficient_funds = True
-
-        register_tx_fee = estimate_register_tx_fee(
-            name, owner_address, payment_address, utxo_client,
-            owner_privkey_params=owner_privkey_params,
-            config_path=config_path, include_dust=True
-        )
-
-        if register_tx_fee is not None:
-            register_tx_fee = int(register_tx_fee)
-        else:
-            register_tx_fee = get_tx_fee('00' * APPROX_REGISTER_TX_LEN, config_path=config_path)
-            insufficient_funds = True
-
-        update_tx_fee = estimate_update_tx_fee(
-            name, payment_privkey_info, owner_address, utxo_client,
-            owner_privkey_params=owner_privkey_params,
-            config_path=config_path, payment_address=payment_address, include_dust=True
-        )
-
-        if update_tx_fee is not None:
-            update_tx_fee = int(update_tx_fee)
-        else:
-            update_tx_fee = get_tx_fee('00' * APPROX_UPDATE_TX_LEN, config_path=config_path)
-            insufficient_funds = True
-
-        if transfer_address is not None:
-            transfer_tx_fee = estimate_transfer_tx_fee(
-                name, payment_privkey_info, owner_address, utxo_client,
-                owner_privkey_params=owner_privkey_params,
-                config_path=config_path, payment_address=payment_address, include_dust=True
-            )
-            
-            if transfer_tx_fee is not None:
-                transfer_tx_fee = int(transfer_tx_fee)
-            else:
-                transfer_tx_fee = get_tx_fee('00' * APPROX_TRANSFER_TX_LEN, config_path=config_path)
-                insufficient_funds = True
-
-    except UTXOException as ue:
-        log.error('Failed to query UTXO provider.')
-        if BLOCKSTACK_DEBUG is not None:
-            log.exception(ue)
-
-        return {'error': 'Failed to query UTXO provider.  Please try again.'}
-
-    reply['preorder_tx_fee'] = int(preorder_tx_fee)
-    reply['register_tx_fee'] = int(register_tx_fee)
-    reply['update_tx_fee'] = int(update_tx_fee)
-
-    if transfer_tx_fee is not None:
-        reply['transfer_tx_fee'] = int(transfer_tx_fee)
-
-    reply['total_estimated_cost'] = sum( filter( lambda v: v is not None, [reply.get(f, None) for f in ['preorder_tx_fee', 'register_tx_fee', 'update_tx_fee', 'transfer_tx_fee', 'name_price']] ) )
-
-    if insufficient_funds and payment_privkey_info is not None:
-        reply['warnings'] = ['Insufficient funds; fees are rough estimates.']
-
-    if payment_privkey_info is None:
-        reply.setdefault('warnings', [])
-        reply['warnings'].append('Wallet not accessed; fees are rough estimates.')
-
-    return reply
-
-
 def wallet_ensure_exists(config_path=CONFIG_PATH):
     """
     Check that the wallet exists
@@ -451,7 +201,7 @@ def wallet_ensure_exists(config_path=CONFIG_PATH):
     Return {'error': ...} on error
     """
     if not wallet_exists(config_path=config_path):
-        return {'error': 'No wallet exists.  Please create one with `blockstack setup`'}
+        return {'error': 'No wallet exists for {}.  Please create one with `blockstack setup`'.format(config_path)}
 
     return {'status': True}
 
@@ -696,46 +446,55 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
 
     total_value = sum(inp['value'] for inp in inputs)
 
-    tx_fee = 5500
-    change = 0
-    if amount is None:
-        # total transfer, minus tx fee
-        amount = total_value - tx_fee
-        if amount < 0:
-            log.error("Dust: total value = {}, tx fee = {}".format(total_value, tx_fee))
-            return {'error': 'Cannot withdraw dust'}
-        
-    else:
-        change = calculate_change_amount(inputs, amount, tx_fee)
+    def mktx( amt, tx_fee ):
+        """
+        Make the transaction with the given fee
+        """
+        change = 0
+        if amt is None:
+            # total transfer, minus tx fee
+            amt = total_value - tx_fee
+            if amt < 0:
+                log.error("Dust: total value = {}, tx fee = {}".format(total_value, tx_fee))
+                return {'error': 'Cannot withdraw dust'}
+            
+        else:
+            change = calculate_change_amount(inputs, amt, tx_fee)
 
-    outputs = [
-        {'script_hex': virtualchain.make_payment_script(recipient_addr),
-         'value': amount},
-    ]
+        outputs = [
+            {'script_hex': virtualchain.make_payment_script(recipient_addr),
+             'value': amt},
+        ]
 
-    if amount < total_value and change > 0:
-        # need change and tx fee
-        outputs.append( 
-            {'script_hex': virtualchain.make_payment_script(send_addr),
-              "value": change}
-        )
+        if amt < total_value and change > 0:
+            # need change and tx fee
+            outputs.append( 
+                {'script_hex': virtualchain.make_payment_script(send_addr),
+                  "value": change}
+            )
 
-    serialized_tx = serialize_transaction(inputs, outputs)
-    signed_tx = sign_tx(serialized_tx, wallet_keys['payment_privkey'])
+        serialized_tx = serialize_transaction(inputs, outputs)
+        signed_tx = sign_tx(serialized_tx, wallet_keys['payment_privkey'])
+        return signed_tx
+
+    tx = mktx(amount, 0)
+    tx_fee = get_tx_fee(tx, config_path=config_path)
+    tx = mktx(amount, tx_fee)
 
     if tx_only:
-        return {'status': True, 'tx': signed_tx}
+        return {'status': True, 'tx': tx}
 
-    res = broadcast_tx( signed_tx, config_path=config_path )
+    res = broadcast_tx( tx, config_path=config_path )
     return res
     
 
 def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
     """
     command: price
-    help: Get the price of a name
+    help: Get the price to register a name
     arg: name (str) 'Name to query'
     opt: recipient (str) 'Address of the recipient, if not this wallet.'
+    opt: operations (str) 'A CSV of operations to check.'
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
@@ -743,11 +502,26 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
 
     fqu = str(args.name)
     transfer_address = getattr(args, 'recipient', None)
+    operations = getattr(args, 'operations', None)
+
+    if transfer_address is not None:
+        transfer_address = str(transfer_addrss)
+
+    if operations is not None:
+        operations = operations.split(',')
+    else:
+        operations = ['preorder', 'register', 'update']
+        if transfer_address:
+            operations.append('transfer')
+
+    res = wallet_ensure_exists(config_path=config_path)
+    if 'error' in res:
+        return res
 
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
-
+    
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
@@ -757,7 +531,9 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
         get_addresses_from_file(config_dir=config_dir, wallet_path=wallet_path)
     )
 
-    if local_rpc_status(config_dir=config_dir):
+    if local_api_status(config_dir=config_dir):
+        # API server is running.  Use actual wallet keys.
+        log.debug("Try to get wallet keys from API server")
         try:
             wallet_keys = get_wallet_keys(config_path, password)
             if 'error' in wallet_keys:
@@ -770,31 +546,32 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
             if BLOCKSTACK_DEBUG is not None:
                 log.exception(e)
 
-    # must be available
-    try:
-        blockchain_record = get_name_blockchain_record(fqu)
-    except socket_error:
-        return {'error': 'Error connecting to server.'}
+            log.debug("Could not get wallet keys from API server")
 
-    if 'owner_address' in blockchain_record:
-        return {'error': 'Name already registered.'}
+    sg = ScatterGather()
+    res = get_operation_fees( fqu, operations, sg, payment_privkey_info, owner_privkey_info,
+                              proxy=proxy, config_path=config_path, payment_address=payment_address,
+                              owner_address=owner_address, transfer_address=transfer_address )
 
-    fees = get_total_registration_fees(
-        fqu, payment_privkey_info, owner_privkey_info, proxy=proxy,
-        config_path=config_path, payment_address=payment_address, owner_address=owner_address,
-        transfer_address=transfer_address
-    )
+    if not res:
+        return {'error': 'Failed to get the requisite operation fees'}
 
-    analytics_event('Name price', {})
+    # do queries 
+    sg.run_tasks()
 
+    # get results 
+    fees = interpret_operation_fees(operations, sg)
     if 'error' in fees:
         return fees
+
+    analytics_event('Name price', {})
 
     # convert to BTC
     btc_keys = [
         'preorder_tx_fee', 'register_tx_fee',
         'update_tx_fee', 'total_estimated_cost',
-        'name_price', 'transfer_tx_fee'
+        'name_price', 'transfer_tx_fee', 'renewal_tx_fee',
+        'revoke_tx_fee',
     ]
 
     for k in btc_keys:
@@ -880,18 +657,17 @@ def cli_get_registrar_info(args, config_path=CONFIG_PATH, queues=None):
     command: get_registrar_info advanced
     help: Get information about the backend registrar queues
     """
-
+    
     queues = ['preorder', 'register', 'update', 'transfer', 'renew', 'revoke'] if queues is None else queues
     config_dir = os.path.dirname(config_path)
     conf = config.get_config(config_path)
-
-    # connect to backend thread
-    rpc = local_rpc_connect(config_dir=config_dir)
+    
+    rpc = local_api_connect(config_dir=config_dir)
     if rpc is None:
-        return {'error': 'Failed to connect to RPC endpoint'}
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
     try:
-        current_state = json.loads(rpc.backend_state(conf['rpc_token']))
+        current_state = rpc.backend_state()
     except Exception, e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
@@ -1018,18 +794,8 @@ def get_server_info(config_path=CONFIG_PATH, get_local_info=False):
     if not get_local_info:
         return result
 
-    # get state of pending names
-    res = wallet_ensure_exists(config_path=config_path)
-    if 'error' in res:
-        # no wallet; return what we have
-        return result
-
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
     queue_info = cli_get_registrar_info(None, config_path=config_path)
-    if len(queue_info.keys()) > 0:
+    if 'error' not in queue_info:
         result['queues'] = queue_info
 
     return result
@@ -1082,7 +848,7 @@ def cli_lookup(args, config_path=CONFIG_PATH):
         return {'error': msg}
 
     try:
-        user_profile, user_zonefile = get_name_profile(
+        user_profile, user_zonefile = get_profile(
             str(args.name), name_record=blockchain_record, include_raw_zonefile=True, use_legacy=True, use_legacy_zonefile=True
         )
 
@@ -1203,12 +969,20 @@ def get_wallet_keys(config_path, password):
     """
 
     config_dir = os.path.dirname(config_path)
+    if local_rpc.is_api_server(config_dir):
+        # can return directly
+        return registrar_get_wallet(config_path=config_path) 
+
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     
     res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
 
+    status = local_api_status(config_dir=os.path.dirname(config_path))
+    if not status:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
+    
     if not is_wallet_unlocked(config_dir=config_dir):
         log.debug('unlocking wallet ({})'.format(config_dir))
         res = unlock_wallet(config_dir=config_dir, password=password)
@@ -1270,8 +1044,8 @@ def is_valid_path(path):
     return '\x00' not in path
 
 
-def cli_register(args, config_path=CONFIG_PATH, force_data=False,
-                 interactive=True, password=None, proxy=None):
+def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
+                 cost_satoshis=None, interactive=True, password=None, proxy=None):
     """
     command: register
     help: Register a name
@@ -1280,7 +1054,6 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     opt: recipient (str) 'The recipient address, if not this wallet'
     opt: min_confs (int) 'The minimum number of confirmations on the initial preorder'
     """
-
     proxy = get_default_proxy(config_path) if proxy is None else proxy
     password = get_default_password(password)
 
@@ -1289,10 +1062,6 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
 
     config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_path=config_path)
-    if 'error' in res:
-        return res
-
-    res = start_rpc_endpoint(config_dir, password=password)
     if 'error' in res:
         return res
 
@@ -1330,48 +1099,88 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
                 proceed = prompt_invalid_zonefile()
                 if not proceed:
                     return {'error': 'Non-standard zone file'}
+    
+    else:
+        # make a default zonefile
+        _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
+        if not data_pubkey:
+            return {'error': 'No data key in wallet.  Please add one with `setup_wallet`'}
 
-
-    error = check_valid_name(fqu)
-    if error:
-        return {'error': error}
-
-    if is_name_registered(fqu, proxy=proxy):
-        return {'error': '{} is already registered.'.format(fqu)}
-
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        return wallet_keys
-
-    owner_privkey_info = wallet_keys['owner_privkey']
-    payment_privkey_info = wallet_keys['payment_privkey']
-
-    owner_address = get_privkey_info_address(owner_privkey_info)
-    payment_address = get_privkey_info_address(payment_privkey_info)
+        user_zonefile_dict = make_empty_zonefile(fqu, data_pubkey)
+        user_zonefile = blockstack_zones.make_zone_file(user_zonefile_dict)
 
     # if we have a data key, then make an empty profile and zonefile 
     user_profile = None
     if not transfer_address:
         # registering for this wallet.  Put an empty profile
-        if not wallet_keys.has_key('data_pubkey'):
+        _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
+        if not data_pubkey:
             return {'error': 'No data key in wallet.  Please add one with `setup_wallet`'}
 
         user_profile = make_empty_user_profile()
 
-    fees = get_total_registration_fees(
-        fqu, payment_privkey_info, owner_privkey_info,
-        proxy=proxy, config_path=config_path, transfer_address=transfer_address, owner_address=owner_address
-    )
+    # name must be well-formed
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
 
-    if 'error' in fees:
-        return fees
+    # operation checks (API server only)
+    if local_rpc.is_api_server(config_dir=config_dir):
+        # find tx fee, and do sanity checks
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
+        
+        owner_privkey_info = wallet_keys['owner_privkey']
+        payment_privkey_info = wallet_keys['payment_privkey']
+
+        operations = ['preorder', 'register', 'update']
+        required_checks = ['is_name_available', 'is_payment_address_usable', 'owner_can_receive']
+        if transfer_address:
+            operations.append('transfer')
+            required_checks.append('recipient_can_receive')
+
+        res = check_operations( fqu, operations, owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs,
+                                transfer_address=transfer_address, required_checks=required_checks, config_path=config_path, proxy=proxy )
+
+        if 'error' in res:
+            return res
+
+        opchecks = res['opchecks']
+
+        if tx_fee is None:
+            tx_fee = opchecks['preorder_tx_fee']
+        
+        if cost_satoshis is not None:
+            if opchecks['name_price'] > cost_satoshis:
+                return {'error': 'Invalid cost: expected {}, got {}'.format(opchecks['name_price'], cost_satoshis)}
+
+        else:
+            cost_satoshis = opchecks['name_price']
+
 
     if interactive and os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
         try:
-            cost = fees['total_estimated_cost']
+
+            print("Calculating total registration costs for {}...".format(fqu))
+
+            class PriceArgs(object):
+                pass
+
+            price_args = PriceArgs()
+            price_args.name = fqu
+            price_args.recipient = transfer_address
+
+            costs = cli_price( price_args, config_path=config_path, password=password, proxy=proxy )
+            if 'error' in costs:
+                return {'error': 'Failed to get name costs.  Please try again with `--debug` to see error messages.'}
+
+            cost = costs['total_estimated_cost']
             input_prompt = (
-                'Registering {} will cost {} BTC.\n'
-                'The entire process takes 30 confirmations, or about 5 hours.\n'
+                'Registering {} will cost about {} BTC.\n'
+                'Use `blockstack price` for a cost breakdown\n'
+                '\n'
+                'The entire process takes 48 confirmations, or about 5 hours.\n'
                 'You need to have Internet access during this time period, so\n'
                 'this program can send the right transactions at the right\n'
                 'times.\n\n'
@@ -1389,59 +1198,37 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
             print('\nExiting.')
             exit(0)
 
-    balance = get_balance(payment_address, config_path=config_path)
-    if balance is None:
-        msg = 'Failed to get balance'
-        return {'error': msg}
-
-    if balance < fees['total_estimated_cost']:
-        msg = 'Address {} does not have enough balance (need {}, have {}).'
-        msg = msg.format(payment_address, fees['total_estimated_cost'], balance)
-        return {'error': msg}
-
-    if not can_receive_name(owner_address, proxy=proxy):
-        msg = 'Address {} owns too many names already.'.format(owner_address)
-        return {'error': msg}
-
-    if not is_address_usable(payment_address, config_path=config_path):
-        msg = (
-            'Address {} has insufficiently confirmed transactions. '
-            'Wait and try later.'
-        )
-        msg = msg.format(payment_address)
-        return {'error': msg}
-
-    log.debug("Preorder {}, zonefile={}, profile={}, recipient={} min_confs={}".format(fqu, user_zonefile, user_profile, transfer_address, min_payment_confs))
-    rpc = local_rpc_connect(config_dir=config_dir)
+    # forward along to RESTful server (or if we're the RESTful server, call the registrar method)
+    log.debug("Preorder {}, zonefile={}, profile={}, recipient={} min_confs={} tx_fee={}".format(fqu, user_zonefile, user_profile, transfer_address, min_payment_confs, tx_fee))
+    rpc = local_api_connect(config_dir=config_dir)
+    assert rpc
 
     try:
-        resp = rpc.backend_preorder(conf['rpc_token'], fqu, user_zonefile, user_profile, transfer_address, min_payment_confs)
+        resp = rpc.backend_preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs, tx_fee )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
-
-    total_estimated_cost = {'total_estimated_cost': fees['total_estimated_cost']}
-
-    if 'success' in resp and resp['success']:
-        result = resp
-        analytics_event('Register name', total_estimated_cost)
-        return result
 
     if 'error' in resp:
         log.debug('RPC error: {}'.format(resp['error']))
         return resp
 
-    if 'message' in resp:
+    if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
 
-    analytics_event('Register name', total_estimated_cost)
+    result = resp
+   
+    if local_rpc.is_api_server(config_dir):
+        # log this
+        total_estimated_cost = {'total_estimated_cost': opchecks['total_estimated_cost']}
+        analytics_event('Register name', total_estimated_cost)
 
     return result
 
 
 def cli_update(args, config_path=CONFIG_PATH, password=None,
                interactive=True, proxy=None, nonstandard=False,
-               force_data=False):
+               force_data=False, tx_fee=None):
 
     """
     command: update
@@ -1470,13 +1257,14 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         return res
 
     fqu = str(args.name)
-    zonefile_data = None
-    if getattr(args, 'data', None) is not None:
-        zonefile_data = str(args.data)
-
+    
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
+
+    zonefile_data = None
+    if getattr(args, 'data', None) is not None:
+        zonefile_data = str(args.data)
 
     # is this a path?
     zonefile_data_exists = is_valid_path(zonefile_data) and os.path.exists(zonefile_data) and not force_data
@@ -1486,15 +1274,6 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
                 zonefile_data = f.read()
         except:
             return {'error': 'Failed to read "{}"'.format(zonefile_data)}
-
-    # load wallet
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        return wallet_keys
 
     # fetch remotely?
     if zonefile_data is None:
@@ -1514,6 +1293,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         user_data_txt = user_data_res['zonefile']
         user_data_hash = storage.get_zonefile_data_hash(user_data_res['zonefile'])
         user_zonefile_dict = blockstack_zones.parse_zone_file(user_data_res['zonefile'])
+
     else:
         if 'identical' in user_data_res:
             return {'error': 'Zonefile matches the current name hash; not updating.'}
@@ -1537,10 +1317,11 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         if zonefile_data is not None:
             user_data_hash = storage.get_zonefile_data_hash(zonefile_data)
 
-    # open the zonefile editor
-    data_pubkey = wallet_keys['data_pubkey']
 
     '''
+    # open the zonefile editor
+    _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
+
     if interactive:
         new_zonefile = configure_zonefile(
             fqu, user_zonefile_dict, data_pubkey=data_pubkey
@@ -1550,43 +1331,31 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
             return {'error': 'Zonefile did not change.  No update sent.'}
     '''
 
-    payment_privkey_info = wallet_keys['payment_privkey']
-    owner_privkey_info = wallet_keys['owner_privkey']
-
-    res = operation_sanity_check(
-        fqu, payment_privkey_info, owner_privkey_info, config_path=config_path
-    )
-
-    if 'error' in res:
-        return res
-
-    rpc = local_rpc_connect(config_dir=config_dir)
+    # forward along to RESTful server (or registrar)
+    log.debug("Update {}, zonefile={}, zonefile_hash={} tx_fee={}".format(fqu, user_data_txt, user_data_hash, tx_fee))
+    rpc = local_api_connect(config_dir=config_dir)
+    assert rpc
 
     try:
-        resp = rpc.backend_update(conf['rpc_token'], fqu, base64.b64encode(user_data_txt), None, user_data_hash, None )
+        # NOTE: already did safety checks
+        resp = rpc.backend_update(fqu, user_data_txt, None, user_data_hash, tx_fee )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
 
-    if 'success' in resp and resp['success']:
-        result = resp
-        analytics_event('Update name', {})
-        return result
-
     if 'error' in resp:
-        log.error('Backend failed to queue update: {}'.format(resp['error']))
+        log.debug('RPC error: {}'.format(resp['error']))
         return resp
 
-    if 'message' in resp:
-        log.error('Backend reports error: {}'.format(resp['message']))
+    if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
 
     analytics_event('Update name', {})
 
-    return result
+    return resp
 
 
-def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False):
+def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False, proxy=None, tx_fee=None):
     """
     command: transfer
     help: Transfer a name to a new address
@@ -1594,6 +1363,7 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     arg: address (str) 'The address to receive the name'
     """
 
+    proxy = get_default_proxy() if proxy is None else proxy
     password = get_default_password(password)
     conf = config.get_config(config_path)
     assert conf
@@ -1604,61 +1374,40 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
         return res
 
     fqu = str(args.name)
+    transfer_address = str(args.address)
+
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
-
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
-    # load wallet
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        return wallet_keys
-
-    payment_privkey_info = wallet_keys['payment_privkey']
-    owner_privkey_info = wallet_keys['owner_privkey']
-
-    transfer_address = str(args.address)
-
-    res = operation_sanity_check(
-        fqu, payment_privkey_info, owner_privkey_info,
-        transfer_address=transfer_address, config_path=config_path
-    )
-
-    if 'error' in res:
-        return res
 
     if interactive:
         res = prompt_transfer(transfer_address)
         if not res:
             return {'error': 'Transfer cancelled.'}
 
-    rpc = local_rpc_connect(config_dir=config_dir)
+    # do the name transfer via the RESTful server (or registrar)
+    rpc = local_api_connect(config_dir=config_dir)
+    assert rpc
 
     try:
-        resp = rpc.backend_transfer(conf['rpc_token'], fqu, transfer_address)
-    except:
+        resp = rpc.backend_transfer(fqu, transfer_address, tx_fee )
+    except Exception as e:
+        log.exception(e)
         return {'error': 'Error talking to server, try again.'}
 
-    if 'success' in resp and resp['success']:
-        result = resp
-        analytics_event('Transfer name', {})
-        return result
-
     if 'error' in resp:
+        log.debug('RPC error: {}'.format(resp['error']))
         return resp
 
-    if 'message' in resp:
+    if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
 
     analytics_event('Transfer name', {})
 
-    return result
+    return resp
 
 
-def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None):
+def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None, cost_satoshis=None, tx_fee=None):
     """
     command: renew
     help: Renew a name
@@ -1678,126 +1427,85 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     if 'error' in res:
         return res
 
-    result = {}
     fqu = str(args.name)
+
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
 
-    if not is_name_registered(fqu, proxy=proxy):
-        return {'error': '{} does not exist.'.format(fqu)}
+    if interactive:
+        print("Calculating total renewal costs for {}...".format(fqu))
+
+    # get the costs...
+    class PriceArgs(object):
+        pass
+
+    price_args = PriceArgs()
+    price_args.name = fqu
+    price_args.operations = 'renewal'
+
+    costs = cli_price( price_args, config_path=config_path, password=password, proxy=proxy )
+    if 'error' in costs:
+        return {'error': 'Failed to get renewal costs.  Please try again with `--debug` to see error messages.'}
+
+    cost = costs['total_estimated_cost']
+
+    if cost_satoshis is None:
+        cost_satoshis = costs['name_price']['satoshis']
     
-    # get wallet
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        return wallet_keys
-
-    owner_privkey_info = wallet_keys['owner_privkey']
-    payment_privkey_info = wallet_keys['payment_privkey']
-    owner_privkey_params = get_privkey_info_params(owner_privkey_info)
-
-    owner_address = get_privkey_info_address(owner_privkey_info)
-    payment_address = get_privkey_info_address(payment_privkey_info)
-
-    if not is_name_owner(fqu, owner_address, proxy=proxy):
-        return {'error': '{} is not in your possession.'.format(fqu)}
-
-    # estimate renewal fees
-    try:
-        renewal_fee = get_name_cost(fqu, proxy=proxy)
-    except Exception as e:
-        log.exception(e)
-        return {'error': 'Could not connect to server'}
-
-    if 'error' in renewal_fee:
-        msg = 'Could not determine price of name: {}'
-        return {'error': msg.format(renewal_fee['error'])}
-
-    utxo_client = get_utxo_provider_client(config_path=config_path)
-
-    # fee stimation: cost of name + cost of renewal transaction
-    name_price = renewal_fee['satoshis']
-
-    renewal_tx_fee = estimate_renewal_tx_fee(
-        fqu, name_price, payment_privkey_info, owner_privkey_info,
-        utxo_client, config_path=config_path
-    )
-
-    if renewal_tx_fee is None:
-        return {'error': 'Failed to estimate fee'}
-
-    cost = name_price + renewal_tx_fee
+    if tx_fee is None:
+        tx_fee = costs['renewal_tx_fee']['satoshis']
 
     if interactive and os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
         try:
-            cost = name_price + renewal_tx_fee
-            msg = (
-                'Renewing {} will cost {} BTC. '
-                'Continue? (y/n): '
+            input_prompt = (
+                'Renewing {} will cost about {} BTC.\n'
+                'Use `blockstack price "" renewal` for a cost breakdown\n'
+                '\n'
+                'The entire process takes 12 confirmations, or about 2 hours.\n'
+                'You need to have Internet access during this time period, so\n'
+                'this program can send the right transactions at the right\n'
+                'times.\n\n'
+                'Continue? (y/N): '
             )
-            input_prompt = msg.format(fqu, satoshis_to_btc(cost))
-
+            input_prompt = input_prompt.format(fqu, satoshis_to_btc(cost))
             user_input = raw_input(input_prompt)
             user_input = user_input.lower()
 
-            if user_input != 'y':
+            if user_input.lower() != 'y':
                 print('Not renewing.')
                 exit(0)
+
         except KeyboardInterrupt:
             print('\nExiting.')
             exit(0)
 
-    balance = get_balance(payment_address, config_path=config_path)
-    if balance is None:
-        msg = 'Failed to get balance'
-        return {'error': msg}
+    
+    rpc = local_api_connect(config_dir=config_dir)
+    assert rpc
 
-    if balance < cost:
-        msg = 'Address {} does not have enough balance (need {}).'
-        msg = msg.format(payment_address, balance)
-        return {'error': msg}
-
-    if not is_address_usable(payment_address, config_path=config_path):
-        msg = (
-            'Address {} has insufficiently confirmed transactions. '
-            'Wait and try later.'
-        )
-
-        msg = msg.format(payment_address)
-        return {'error': msg}
-
-    rpc = local_rpc_connect(config_dir=config_dir)
-
+    log.debug("Renew {} for {} BTC".format(fqu, cost_satoshis))
     try:
-        resp = rpc.backend_renew(conf['rpc_token'], fqu, name_price)
+        resp = rpc.backend_renew(fqu, cost_satoshis, tx_fee )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
 
     total_estimated_cost = {'total_estimated_cost': cost}
 
-    if 'success' in resp and resp['success']:
-        result = resp
-        analytics_event('Renew name', total_estimated_cost)
-        return result
-
     if 'error' in resp:
         log.debug('RPC error: {}'.format(resp['error']))
         return resp
 
-    if 'message' in resp:
+    if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
 
     analytics_event('Renew name', total_estimated_cost)
 
-    return result
+    return resp
 
 
-def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None):
+def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None, tx_fee=None):
     """
     command: revoke
     help: Revoke a name
@@ -1817,33 +1525,11 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
     if 'error' in res:
         return res
 
-    result = {}
     fqu = str(args.name)
+
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
-
-    if not is_name_registered(fqu, proxy=proxy):
-        return {'error': '{} does not exist.'.format(fqu)}
-    
-    # get wallet
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        return wallet_keys
-
-    owner_privkey_info = wallet_keys['owner_privkey']
-    payment_privkey_info = wallet_keys['payment_privkey']
-
-    res = operation_sanity_check(
-        fqu, payment_privkey_info, owner_privkey_info, config_path=config_path
-    )
-
-    if 'error' in res:
-        return res
 
     if interactive and os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
         try:
@@ -1864,33 +1550,30 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
             print('\nExiting.')
             exit(0)
 
-    rpc = local_rpc_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_dir=config_dir)
+    assert rpc
+
+    log.debug("Revoke {}".format(fqu))
 
     try:
-        resp = rpc.backend_revoke(conf['rpc_token'], fqu)
+        resp = rpc.backend_revoke(fqu, tx_fee)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
-
-    if 'success' in resp and resp['success']:
-        result = resp
-        analytics_event('Revoke name', {})
-        return result
 
     if 'error' in resp:
         log.debug('RPC error: {}'.format(resp['error']))
         return resp
 
-    if 'message' in resp:
+    if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
 
     analytics_event('Revoke name', {})
-
-    return result
+    return resp
 
 
 def cli_migrate(args, config_path=CONFIG_PATH, password=None,
-                proxy=None, interactive=True, force=False):
+                proxy=None, interactive=True, force=False, tx_fee=None):
     """
     command: migrate
     help: Migrate a name-linked profile to the latest zonefile and profile format
@@ -1912,6 +1595,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
 
     fqu = str(args.name)
     force = (force or (getattr(args, 'force', '').lower() in ['1', 'yes', 'force', 'true']))
+
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
@@ -1920,25 +1604,6 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
     if data_pubkey is None:
         return {'error': 'No data key in wallet'}
-
-    # also need private keys
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        return wallet_keys
-
-    owner_privkey_info = wallet_keys['owner_privkey']
-    payment_privkey_info = wallet_keys['payment_privkey']
-
-    res = operation_sanity_check(
-        fqu, payment_privkey_info, owner_privkey_info, config_path=config_path
-    )
-
-    if 'error' in res:
-        return res
 
     res = get_name_zonefile(
         fqu, proxy=proxy,
@@ -2010,39 +1675,40 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
         return {'error': res['error']}
 
     zonefile_txt = blockstack_zones.make_zone_file(user_zonefile)
-    zonefile_txt_b64 = base64.b64encode(zonefile_txt)
 
-    rpc = local_rpc_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_dir=config_dir)
+    assert rpc
+
     try:
-        resp = rpc.backend_update(conf['rpc_token'], fqu, zonefile_txt_b64, user_profile, None, None)
+        resp = rpc.backend_update(fqu, zonefile_txt, user_profile, None, None, tx_fee)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
 
-    if 'success' in resp and resp['success']:
-        result = resp
-        analytics_event('Migrate name', {})
-        return result
-
     if 'error' in resp:
+        log.debug('RPC error: {}'.format(resp['error']))
         return resp
 
-    if 'message' in resp:
+    if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
 
     analytics_event('Migrate name', {})
 
-    return result
+    return resp
 
 
 def cli_wallet_password(args, config_path=CONFIG_PATH, password=None, interactive=True):
     """
     command: wallet_password
     help: Change your wallet password
+    opt: old_password (str) 'The old password. It will be prompted if not given.'
     opt: new_password (str) 'The new password. It will be prompted if not given.'
     """
     
     password = get_default_password(password)
+    if password is None:
+        password = getattr(args, 'password', None)
+
     wallet_path = get_wallet_path(config_path=config_path)
     
     res = load_wallet(password=password, wallet_path=wallet_path, interactive=interactive, include_private=True)
@@ -2107,39 +1773,6 @@ def cli_setup_wallet(args, config_path=CONFIG_PATH, password=None, interactive=T
     return ret
 
 
-def cli_setup_storage(args, config_path=CONFIG_PATH, password=None, wallet_keys=None, interactive=True):
-    """
-    command: setup_storage advanced
-    help: Enable an identity to use data stores for applications
-    arg: name (str) 'A blockchain ID that points to the wallet data key'
-    opt: global_data (str) 'Pass "True" to enable globally-visible data.  Requires the proper storage drivers.'
-    """
-    
-    name = str(args.name)
-    is_global = getattr(args, 'global_data', False)
-    if is_global:
-        is_global = True
-
-    password = get_default_password(password)
-   
-    if wallet_keys is None:
-        res = load_wallet(password=password, config_path=config_path, include_private=True)
-        if 'error' in res:
-            return res
-        
-        if res['migrated']:
-            return {'error': 'Wallet is in legacy format.  Please migrate it with `setup_wallet`'}
-
-        wallet_keys = res['wallet']
-        password = res['password']
-
-    res = storage_setup(password=password, global_data=is_global, config_path=config_path, blockchain_id=name, wallet_data=wallet_keys)
-    if 'error' in res:
-        return res
-
-    return {'status': True}
-    
-
 def cli_set_advanced_mode(args, config_path=CONFIG_PATH):
     """
     command: set_advanced_mode
@@ -2164,7 +1797,7 @@ def _get_person_profile(name, proxy=None):
     Return {'error': ...} on error
     """
 
-    profile, zonefile = get_name_profile(name, proxy=proxy, use_legacy_zonefile=True)
+    profile, zonefile = get_profile(name, proxy=proxy, use_legacy_zonefile=True)
     if 'error' in zonefile:
         return {'error': 'Failed to load zonefile: {}'.format(zonefile['error'])}
 
@@ -2293,10 +1926,6 @@ def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, w
     config_dir = os.path.dirname(config_path)
 
     if wallet_keys is None:
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
-
         wallet_keys = get_wallet_keys(config_path, password)
         if 'error' in wallet_keys:
             return wallet_keys
@@ -2381,10 +2010,6 @@ def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None
 
     config_dir = os.path.dirname(config_path)
     if wallet_keys is None:
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
-
         wallet_keys = get_wallet_keys(config_path, password)
         if 'error' in wallet_keys:
             return wallet_keys
@@ -2549,16 +2174,31 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
 
     write_wallet(data, path=wallet_path)
 
-    if not local_rpc_status(config_dir=config_dir):
+    if not local_api_status(config_dir=config_dir):
         return {'status': True}
 
-    # update RPC daemon if we're running
-    local_rpc_stop(config_dir=config_dir)
+    # load into RPC daemon 
+    rpc = local_api_connect(config_dir=config_dir)
+    if rpc is None:
+        log.error("Failed to connect to API endpoint. Trying to shut it down...")
+        rc = local_rpc.local_api_action('stop', config_dir=config_dir)
+        if not rc:
+            log.error("Failed to stop API daemon")
+            return {'error': 'Failed to load wallet into API endpoint: failed to stop endpoint'}
 
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
+        else:
+            return {'error': 'Failed to load wallet into API endpoint: failed to connect to endpoint'}
 
+    try:
+        wallet = decrypt_wallet(data, password, config_path=config_path)
+        if 'error' in wallet:
+            return {'error': 'Failed to decrypt new wallet'}
+
+        rpc.backend_set_wallet( wallet )
+    except Exception as e:
+        log.exception(e)
+        return {'error': 'Failed to load wallet into API endpoint'}
+                
     return {'status': True}
 
 
@@ -2616,7 +2256,7 @@ def cli_wallet(args, config_path=CONFIG_PATH, interactive=True, password=None):
    
     config_dir = os.path.dirname(config_path)
         
-    if local_rpc_status(config_dir=config_dir):
+    if local_api_status(config_dir=config_dir):
         wallet_keys = get_wallet_keys(config_path, password)
         if 'error' in wallet_keys:
             return wallet_keys
@@ -2702,57 +2342,48 @@ def cli_consensus(args, config_path=CONFIG_PATH):
     return result
 
 
-def cli_api(args, config_path=CONFIG_PATH):
+def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
     """
     command: api
     help: Control the RESTful API endpoint
     arg: command (str) '"start", "stop", or "status"'
-    opt: secret (str) 'The password all RPC callers must use. Defaults to rpc_token in the config file.'
+    opt: wallet_password (str) 'The wallet password. Will prompt if required.'
     """
 
     config_dir = CONFIG_DIR
     if config_path is not None:
         config_dir = os.path.dirname(config_path)
 
-    rc = local_rpc.local_rpc_action(str(args.command), config_dir=config_dir)
-    if rc != 0:
-        return {'error': 'RPC controller exit code {}'.format(rc)}
+    command = str(args.command)
+    password = get_default_password(password)
+    if password is None and command == 'start':
+        password = getattr(args, 'wallet_password', None)
+        if password is None:
+            if not interactive:
+                return {'error': 'No wallet password given, and not in interactive mode'}
+
+            password = prompt_wallet_password()
+
+    api_pass = getattr(args, 'api_pass', None)
+    if api_pass is None:
+        # environment?
+        api_pass = os.environ.get('BLOCKSTACK_API_PASSWORD', None)
+        
+        if api_pass is None:
+            # config file?
+            conf = config.get_config(config_path)
+            assert conf
+
+            api_pass = conf.get('api_password', None)
+
+    if api_pass is None:
+        return {'error': 'Need --api-password= on the CLI, or `api_password=` set in your config file ({})'.format(config_path)}
+
+    rc = local_rpc.local_api_action(str(args.command), config_dir=config_dir, password=password, api_pass=api_pass)
+    if not rc:
+        return {'error': 'Failed to {} API server'.format(args.command)}
 
     return {'status': True}
-
-
-def cli_rpc(args, config_path=CONFIG_PATH):
-    """
-    command: rpc advanced
-    help: Issue an RPC request to a locally-running API endpoint
-    arg: method (str) 'The method to call'
-    opt: args (str) 'A JSON list of positional arguments.'
-    opt: kwargs (str) 'A JSON object of keyword arguments.'
-    """
-
-    rpc_args = []
-    rpc_kw = {}
-
-    if args.args is not None:
-        try:
-            rpc_args = json.loads(args.args)
-        except:
-            print('Not JSON: "{}"'.format(args.args), file=sys.stderr)
-            return {'error': 'Invalid arguments'}
-
-    if args.kwargs is not None:
-        try:
-            rpc_kw = json.loads(args.kwargs)
-        except:
-            print('Not JSON: "{}"'.format(args.kwargs), file=sys.stderr)
-            return {'error': 'Invalid arguments'}
-
-    conf = config.get_config(path=config_path)
-    portnum = conf['api_endpoint_port']
-    rpc_kw['config_dir'] = os.path.dirname(config_path)
-
-    result = local_rpc.local_rpc_dispatch(portnum, str(args.method), *rpc_args, **rpc_kw)
-    return result
 
 
 def cli_name_import(args, config_path=CONFIG_PATH):
@@ -2863,7 +2494,7 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     """
     command: put_mutable advanced
     help: Put signed, versioned data into your storage providers.
-    arg: name (str) 'The name that points to the key to use'
+    arg: name (str) 'The name that points to the zone file to use'
     arg: data_id (str) 'The name of the data'
     arg: data (str) 'The JSON-serializable data to store'
     """
@@ -2876,10 +2507,6 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
         return {'error': error}
 
     config_dir = os.path.dirname(config_path)
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
     wallet_keys = get_wallet_keys(config_path, password)
     if 'error' in wallet_keys:
         return wallet_keys
@@ -2924,10 +2551,6 @@ def cli_put_immutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
         data = json.loads(args.data)
     except:
         return {'error': 'Invalid JSON'}
-
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
 
     wallet_keys = get_wallet_keys(config_path, password)
     if 'error' in wallet_keys:
@@ -3019,10 +2642,6 @@ def cli_get_data(args, config_path=CONFIG_PATH, proxy=None, password=None, walle
         return res
     except PasswordRequiredException:
 
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
-
         wallet_keys = get_wallet_keys(config_path, password)
         if 'error' in wallet_keys:
             return wallet_keys
@@ -3078,10 +2697,6 @@ def cli_delete_immutable(args, config_path=CONFIG_PATH, proxy=None, password=Non
     if error:
         return {'error': error}
 
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
     wallet_keys = get_wallet_keys(config_path, password)
     if 'error' in wallet_keys:
         return wallet_keys
@@ -3123,10 +2738,6 @@ def cli_delete_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None)
         return {'error': error}
 
     config_dir = os.path.dirname(config_path)
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
     wallet_keys = get_wallet_keys(config_path, password)
     if 'error' in wallet_keys:
         return wallet_keys
@@ -3301,7 +2912,7 @@ def cli_get_nameops_at(args, config_path=CONFIG_PATH):
     return result
 
 
-def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
+def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None, tx_fee=None):
     """
     command: set_zonefile_hash advanced
     help: Directly set the hash associated with the name in the blockchain.
@@ -3324,28 +2935,13 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     if re.match(r'^[a-fA-F0-9]+$', zonefile_hash) is None or len(zonefile_hash) != 40:
         return {'error': 'Not a valid zonefile hash'}
 
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        return wallet_keys
-
-    owner_privkey_info = wallet_keys['owner_privkey']
-    payment_privkey_info = wallet_keys['payment_privkey']
-
-    res = operation_sanity_check(
-        fqu, payment_privkey_info, owner_privkey_info, config_path=config_path
-    )
-
-    if 'error' in res:
-        return res
-
-    rpc = local_rpc_connect(config_dir=config_dir)
+    # forward along to RESTful server (or registrar)
+    log.debug("Update {}, zonefile_hash={} tx_fee={}".format(fqu, zonefile_hash, tx_fee))
+    rpc = local_api_connect(config_dir=config_dir)
+    assert rpc
 
     try:
-        resp = rpc.backend_update(conf['rpc_token'], fqu, None, None, zonefile_hash)
+        resp = rpc.backend_update(fqu, None, None, zonefile_hash, tx_fee )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -3389,11 +2985,11 @@ def cli_unqueue(args, config_path=CONFIG_PATH):
     return {'status': True}
 
 
-def cli_put_name_profile(args, config_path=CONFIG_PATH, password=None, proxy=None):
+def cli_put_profile(args, config_path=CONFIG_PATH, password=None, proxy=None, force_data=False, wallet_keys=None):
     """
-    command: put_name_profile advanced
-    help: Set the profile for a user named by a blockchain ID.
-    arg: name (str) 'The name of the user to set the profile for'
+    command: put_profile advanced
+    help: Set the profile for a blockchain ID.
+    arg: blockchain_id (str) 'The blockchain ID.'
     arg: data (str) 'The profile as a JSON string, or a path to the profile.'
     """
 
@@ -3401,13 +2997,13 @@ def cli_put_name_profile(args, config_path=CONFIG_PATH, password=None, proxy=Non
 
     config_dir = os.path.dirname(config_path)
     conf = config.get_config(config_path)
-    name = str(args.name)
+    name = str(args.blockchain_id)
     profile_json_str = str(args.data)
 
     proxy = get_default_proxy() if proxy is None else proxy
 
     profile = None
-    if is_valid_path(profile_json_str) and os.path.exists(profile_json_str):
+    if not force_data and is_valid_path(profile_json_str) and os.path.exists(profile_json_str):
         # this is a path.  try to load it
         try:
             with open(profile_json_str, 'r') as f:
@@ -3421,13 +3017,10 @@ def cli_put_name_profile(args, config_path=CONFIG_PATH, password=None, proxy=Non
     except:
         return {'error': 'Invalid profile JSON'}
 
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        return wallet_keys
+    if wallet_keys is None:
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
 
     required_storage_drivers = conf.get(
         'storage_drivers_required_write',
@@ -3453,6 +3046,27 @@ def cli_put_name_profile(args, config_path=CONFIG_PATH, password=None, proxy=Non
         return res
 
     return {'status': True}
+
+
+def cli_delete_profile(args, config_path=CONFIG_PATH, password=None, proxy=None, wallet_keys=None ):
+    """
+    command: delete_profile advanced
+    help: Delete a profile from a blockchain ID.
+    arg: blockchain_id (str) 'The blockchain ID.'
+    """
+
+    proxy = get_default_proxy() if proxy is None else proxy
+    password = get_default_password(password)
+    
+    name = str(args.blockchain_id)
+
+    if wallet_keys is None:
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
+
+    res = delete_profile(name, user_data_privkey=wallet_keys['data_privkey'], proxy=proxy, wallet_keys=wallet_keys)
+    return res
 
 
 def cli_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, interactive=True, nonstandard=False):
@@ -3542,8 +3156,8 @@ def cli_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, interactive=Tru
         zonefile_hash = storage.get_zonefile_data_hash(user_data)
 
         if txid is None:
-            # not in queue.  Fetch from blockstack server
 
+            # not in queue.  Fetch from blockstack server
             name_rec = get_name_blockchain_record(name, proxy=proxy)
             if 'error' in name_rec:
                 msg = 'Failed to get name record for {}: {}'
@@ -3585,7 +3199,7 @@ def cli_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, interactive=Tru
     # can proceed to replicate
     res = zonefile_data_replicate(
         name, user_data, txid,
-        ((conf['server'], conf['port'])),
+        [(conf['server'], conf['port'])],
         config_path=config_path
     )
 
@@ -3630,6 +3244,7 @@ def get_app_name(appname):
     return appname if appname is not None else '_default'
 
 
+# TODO: revamp
 def cli_app_publish( args, config_path=CONFIG_PATH, interactive=False, password=None, proxy=None ):
     """
     command: app_publish advanced
@@ -3679,11 +3294,6 @@ def cli_app_publish( args, config_path=CONFIG_PATH, interactive=False, password=
 
     uris = [url_to_uri_record(u, datum_name=fq_index_data_id) for u in urls]
 
-    # RPC daemon must be running 
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
     wallet_keys = get_wallet_keys(config_path, password)
     if 'error' in wallet_keys:
         return wallet_keys
@@ -3695,6 +3305,7 @@ def cli_app_publish( args, config_path=CONFIG_PATH, interactive=False, password=
     return {'status': True}
 
 
+# TODO: revamp
 def cli_app_get_config( args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
     """
     command: app_get_config advanced
@@ -3713,6 +3324,7 @@ def cli_app_get_config( args, config_path=CONFIG_PATH, interactive=False, proxy=
     return app_config
 
 
+# TODO: revamp
 def cli_app_get_index_file( args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
     """
     command: app_get_index_file advanced
@@ -3731,6 +3343,7 @@ def cli_app_get_index_file( args, config_path=CONFIG_PATH, interactive=False, pr
     return res
 
 
+# TODO: revamp
 def cli_app_get_resource( args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
     """
     command: app_get_resource advanced
@@ -3751,6 +3364,7 @@ def cli_app_get_resource( args, config_path=CONFIG_PATH, interactive=False, prox
     return res
 
 
+# TODO: revamp
 def cli_app_put_resource( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None ):
     """
     command: app_put_resource advanced
@@ -3777,12 +3391,7 @@ def cli_app_put_resource( args, config_path=CONFIG_PATH, interactive=False, prox
     with open(args.res_file, "r") as f:
         resdata = f.read()
 
-    # RPC daemon must be running
     config_dir = os.path.dirname(config_path)
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
     wallet_keys = get_wallet_keys(config_path, password)
     if 'error' in wallet_keys:
         return wallet_keys
@@ -3791,642 +3400,48 @@ def cli_app_put_resource( args, config_path=CONFIG_PATH, interactive=False, prox
     return res
 
 
-def cli_app_get_account( args, config_path=CONFIG_PATH, proxy=None ):
-    """
-    command: app_get_account advanced
-    help: Get an application's local user account and datastore information.
-    arg: user_id (str) 'The user ID that owns the account'
-    arg: app_blockchain_id (str) 'The blockchain ID that owns the application'
-    arg: app_name (str) 'The name of the application'
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    config_dir = os.path.dirname(config_path)
-    user_id = str(args.user_id)
-    app_fqu = str(args.app_blockchain_id)
-    appname = str(args.app_name)
- 
-    _, _, master_data_pubkey = get_addresses_from_file(config_dir=config_dir)
-    if not master_data_pubkey:
-        return {'error': 'No data key in wallet.'}
-    
-    # get wallet
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        return wallet_keys
-
-    master_data_privkey = wallet_keys['data_privkey']
-
-    datastore_info = get_account_datastore_info( master_data_privkey, user_id, app_fqu, appname, proxy=proxy )
-    if 'error' in datastore_info:
-        return datastore_info
-
-    acct = datastore_info['account']
-    datastore = datastore_info['datastore']
-
-    return {
-        'account': acct,
-        'datastore': datastore
-    }
-
-
-def cli_app_list_accounts( args, config_path=CONFIG_PATH, proxy=None ):
-    """
-    command: app_list_accounts advanced
-    help: List all application accounts on this computer.
-    opt: user_id (str) 'Only list accounts owned by this user.  Pass * for all.'
-    opt: app_blockchain_id (str) 'Only list accounts for apps owned by this blockchain ID.  Pass * for all.'
-    opt: app_name (str) 'Only list accounts for apps for this particular application.  Pass * for all.'
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    user_id = getattr(args, 'user_id', None)
-    app_blockchain_id = getattr(args, "app_blockchain_id", None)
-    app_name = getattr(args, 'app_name', None)
-
-    if user_id == '*':
-        user_id = None
-
-    if app_blockchain_id == '*':
-        app_blockchain_id = None
-
-    if app_name == '*':
-        app_name = None
-
-    _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
-    if not data_pubkey:
-        return {'error': 'No data key in wallet'}
-
-    all_accounts = app_accounts_list( user_id=user_id, app_fqu=app_blockchain_id, appname=app_name, config_path=config_path )
-    return all_accounts
-
-
-def cli_app_create_account( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None ):
-    """
-    command: app_create_account advanced check_storage
-    help: Create a user account and datastore for an application.
-    arg: user_id (str) 'The user ID that owns the account'
-    arg: app_blockchain_id (str) 'The blockchain ID that owns the application'
-    arg: app_name (str) 'The name of the application'
-    arg: api_methods (str) 'A CSV of API methods this application may call'
-    opt: session_lifetime (int) 'How long an application session will last (in seconds).'
-    opt: identity_privkey (str) 'The identity private key to use'
-    """
-
-    res = check_storage_setup(config_path=config_path)
-    if 'error' in res:
-        return res
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    password = get_default_password(password)
-
-    user_id = str(args.user_id)
-    app_fqu = str(args.app_blockchain_id)
-    app_name = str(args.app_name)
-    api_methods = str(args.api_methods).split(',')
-    session_lifetime = getattr(args, 'session_lifetime', None)
-    master_data_privkey = getattr(args, 'identity_privkey', None)
-    
-    if session_lifetime is None:
-        session_lifetime = 3600*24*7     # 1 week
-
-    # TODO: validate API methods
-
-    if master_data_privkey is None:
-        # RPC daemon must be running
-        config_dir = os.path.dirname(config_path)
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
-
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-
-        master_data_privkey = wallet_keys['data_privkey']
-
-    master_data_pubkey = get_pubkey_hex(master_data_privkey)
-    
-    # load user
-    res = get_user(user_id, master_data_privkey, config_path=config_path)
-    if 'error' in res:
-        return res
-    
-    if not res['owned']:
-        # we don't own this user, so this is nonsensical 
-        return {'error': 'This user is not owned by this wallet or key'}
-
-    user = res['user']
-    user_privkey_hex = user_get_privkey( master_data_privkey, user, config_path=config_path )
-    if user_privkey_hex is None:
-        return {'error': 'Failed to load user private key'}
-
-    # make the account
-    res = app_make_account( user, user_privkey_hex, app_fqu, app_name, api_methods, config_path=config_path, session_lifetime=session_lifetime )
-    if 'error' in res:
-        return res
-
-    acct = res['account']
-    tok = res['account_token']
-
-    # store the account
-    res = app_store_account( tok, config_path=config_path )
-    if 'error' in res:
-        return res
-
-    # make the account datastore
-    account_privkey_hex = app_account_get_privkey(user_privkey_hex, acct, config_path=config_path)
-    if account_privkey_hex is None:
-        return {'error': 'Failed to load account private key'}
-
-    datastore_info = make_account_datastore( acct, account_privkey_hex, config_path=config_path )
-    if 'error' in datastore_info:
-        return datastore_info
-
-    res = put_account_datastore( acct, datastore_info, account_privkey_hex, proxy=proxy, config_path=config_path )
-    if 'error' in res:
-        return res
-
-    return {
-        'account': acct,
-        'datastore': datastore_info['datastore']
-    }
-
-
 def cli_app_signin(args, config_path=CONFIG_PATH, password=None):
     """
     command: app_signin advanced
-    help: Create a session token for the RESTful API for an existing account
-    arg: user_id (str) 'The ID of the persona who will access the API'
-    arg: app_blockchain_id (str) 'The blockchain ID of the app developer'
-    arg: app_name (str) 'The name of the application'
-    opt: identity_key (str) 'The root identity private key to use'
+    help: Create a session token for the RESTful API for a given application
+    arg: app_domain (str) 'The application domain'
+    arg: api_methods (str) 'A CSV of requested methods to call'
+    opt: session_lifetime (int) 'The lifetime of this token, in seconds'
+    opt: app_user_id (str) 'The application user ID to use'
     """
 
-    user_id = str(args.user_id)
-    app_fqu = str(args.app_blockchain_id)
-    appname = str(args.app_name)
-    master_data_privkey = getattr(args, 'identity_key', None)
+    app_domain = str(args.app_domain)
+    api_methods = str(args.api_methods)
+    session_lifetime = getattr(args, 'session_lifetime', None)
+    app_user_id = getattr(args, 'app_user_id', None)
 
-    password = get_default_password(password)
-    config_dir = os.path.dirname(config_path)
-    
-    if master_data_privkey is None:
-        # RPC daemon must be running
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
+    if session_lifetime is None:
+        session_lifetime = DEFAULT_SESSION_LIFETIME
 
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-
-        master_data_privkey = wallet_keys['data_privkey']
-
-    res = get_user(user_id, master_data_privkey, config_path=config_path)
-    if 'error' in res:
-        log.debug("could not load user {}".format(user_id))
-        return {'error': 'Failed to load user'}
-
-    user_info = res['user']
-    user_privkey = user_get_privkey( master_data_privkey, user_info, config_path=config_path)
-
-    res = app_load_account( user_id, app_fqu, appname, user_privkey, config_path=config_path )
-    if 'error' in res:
-        log.debug("could not load account {},{},{}".format(user_id, app_fqu, appname))
-        return {'error': 'Failed to load account'}
-
-    acct = res['account']
-    res = app_make_session(acct, master_data_privkey, user_privkey, config_path=config_path)
-    if 'error' in res:
-        log.debug("failed to make session for {},{},{}".format(user_id, app_fqu, appname))
-        return {'error': 'Failed to create session'}
-
-    ses_token = res['session_token']
-    return {'status': True, 'token': ses_token}
-
-
-def _delete_account_info( user_id, app_fqu, appname, wallet_keys, config_path=CONFIG_PATH, proxy=None ):
-    """
-    Delete an account's datastore and its files and directories.
-    Return {'status': True} on success
-    Return {'error': ...} on error
-    """
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    master_data_privkey = wallet_keys['data_privkey']
-
-    datastore_info = get_account_datastore_info( master_data_privkey, user_id, app_fqu, appname, proxy=proxy )
-    if 'error' in datastore_info:
-        log.debug("Failed to load datastore for {} in {}/{}".format(user_id, app_fqu, appname))
-        return datastore_info
-
-    user = datastore_info['user']
-    user_privkey_hex = datastore_info['user_privkey']
-    acct = datastore_info['account']
-    datastore = datastore_info['datastore']
-    datastore_privkey_hex = datastore_info['datastore_privkey']
-    account_privkey_hex = datastore_info['account_privkey']
-
-    res = delete_account_datastore(acct, account_privkey_hex, force=False, config_path=config_path, proxy=proxy )
-    if 'error' in res:
-        return res
-
-    res = app_delete_account( user_id, acct['name'], acct['appname'], config_path=config_path )
-    if 'error' in res:
-        return res
-
-    return {'status': True}
-
-
-def cli_app_delete_account( args, config_path=CONFIG_PATH, proxy=None, password=None ):
-    """
-    command: app_delete_account advanced check_storage
-    help: Delete a local user account and datastore for an application.
-    arg: user_id (str) 'The user ID that owns the account'
-    arg: app_blockchain_id (str) 'The blockchain ID that owns the application'
-    arg: app_name (str) 'The name of the application'
-    """
-    res = check_storage_setup(config_path=config_path)
-    if 'error' in res:
-        return res
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    password = get_default_password(password)
-
-    user_id = str(args.user_id)
-    app_fqu = str(args.app_blockchain_id)
-    appname = str(args.app_name)
-
-    config_dir = os.path.dirname(config_path)
-
-    # RPC daemon must be running 
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        return wallet_keys
-
-    res = _delete_account_info( user_id, app_fqu, appname, wallet_keys, config_path=config_path, proxy=proxy )
-    return res
-
-
-def cli_get_user(args, proxy=None, config_path=CONFIG_PATH):
-    """
-    command: get_user advanced
-    help: Get a named public key, given its identifier.
-    arg: user_id (str) 'The ID of the user to look up'
-    """
-    config_dir = os.path.dirname(config_path)
-    proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
-   
-    _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
-    if not data_pubkey:
-        return {'error': 'No data key in wallet'}
-
-    user_id = str(args.user_id)
-
-    # need private key
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        return wallet_keys
-
-    data_privkey = wallet_keys['data_privkey']
-
-    res = get_user(user_id, data_privkey, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    user = res['user']
-    owned = res['owned']
-    
-    return {'user': user, 'owned': owned}
-
-
-def cli_create_user(args, proxy=None, password=None, config_path=CONFIG_PATH):
-    """
-    command: create_user advanced check_storage
-    help: Create a persona associated with your identity.
-    arg: user_id (str) 'A pet name for the persona'
-    opt: local (str) 'Whether or not this persona is locally-visible, or globally-visible'
-    opt: name (str) 'The blockchain ID that should point to this user'
-    """
-
-    res = check_storage_setup(config_path=config_path)
-    if 'error' in res:
-        return res
-
-    config_dir = os.path.dirname(config_path)
-    proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
-
-    password = get_default_password(password)
-
-    user_id = str(args.user_id)
-    local = getattr(args, 'local', False)
-    if local:
-        local = True
+    if app_user_id is not None:
+        app_user_id = str(app_user_id)
         
-    blockchain_id = getattr(args, 'name', None)
+    api_methods = api_methods.split(',')
 
-    # RPC daemon must be running 
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        return wallet_keys
-
-    master_data_privkey = str(wallet_keys['data_privkey'])
-    res = user_init(user_id, master_data_privkey, not local, blockchain_id=blockchain_id, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    user = res['user']
-    tok = res['user_token']
-
-    res = put_user(user, master_data_privkey, blockchain_id=blockchain_id, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    return {'status': True}
-
-
-def cli_delete_user(args, proxy=None, password=None, wallet_keys=None, config_path=CONFIG_PATH):
-    """
-    command: delete_user advanced check_storage
-    help: Delete a persona associated with your identity.  All assocated accounts and data stores will also be deleted.
-    arg: user_id (str) 'The ID of the user to delete'
-    opt: name (str) 'The blockchain ID that points to the key for this user'
-    """
-    
-    res = check_storage_setup(config_path=config_path)
-    if 'error' in res:
-        return res
-
-    config_dir = os.path.dirname(config_path)
-    proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
+    # TODO: validate API methods
+    # TODO: fetch api methods from app domain, if need be
 
     password = get_default_password(password)
-
-    user_id = str(args.user_id)
-    blockchain_id = getattr(args, 'name', None)
-
-    if wallet_keys is None:
-        # RPC daemon must be running 
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
-
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-
-    master_data_privkey = wallet_keys['data_privkey']
-    master_data_pubkey = get_pubkey_hex(master_data_privkey)
-
-    res = get_user(user_id, master_data_privkey, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    if not res['owned']:
-        return {'error': 'This wallet does not own this user'}
-
-    user = res['user']
-    user_privkey_hex = user_get_privkey(master_data_privkey, user, config_path=config_path)
-    if user_privkey_hex is None:
-        return {'error': 'Failed to get user private key'}
-
-    # find and delete all accounts and account datastores
-    user_accts = app_find_accounts( user_id=user_id, user_privkey_hex=user_privkey_hex, config_path=config_path )
-    if 'error' in user_accts:
-        return user_accts
-
-    for account in user_accts:
-        app_fqu = account['name']
-        appname = account['appname']
-
-        res = _delete_account_info(user_id, app_fqu, appname, wallet_keys, config_path=config_path, proxy=proxy )
-        if 'error' in res:
-            log.error("Failed to delete account {}/{}".format(app_fqu, appname))
-            return res
-
-    # find and delete all user datastores
-    datastore_listing = datastore_list(config_path=config_path)
-    if 'error' in datastore_listing:
-        return datastore_listing
-
-    for datastore_entry in datastore_listing:
-        if user_id != datastore_listing['user_id']:
-            continue
-        
-        datastore_id = datastore_listing['datastore_name']
-       
-        res = delete_user_datastore(user, datastore_id, user_privkey_hex, rmtree=True, force=False, config_path=config_path, proxy=proxy )
-        if 'error' in res:
-            log.error("Failed to delete datastore {}".format(datastore_id))
-            return res
-
-    # delete the user itself
-    res = delete_user(user_id, master_data_privkey, blockchain_id=blockchain_id, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    return {'status': True}
-
-
-def cli_list_users( args, proxy=None, config_path=CONFIG_PATH ):
-    """
-    command: list_users advanced
-    help: List the IDs of all personas.
-    """
     config_dir = os.path.dirname(config_path)
-    proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
- 
-    if wallet_keys is None:
-        # RPC daemon must be running 
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
-
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-
-    data_privkey = wallet_keys['data_privkey']
-
-    ret = get_user_list( data_privkey, proxy=proxy, config_path=config_path )
-    return ret
-
-
-def cli_get_user_profile(args, proxy=None, config_path=CONFIG_PATH, wallet_keys=None):
-    """
-    command: get_user_profile advanced
-    help: Get a profile for a persona.
-    arg: user_id (str) 'The ID of the user to query.'
-    """
-
-    config_dir = os.path.dirname(config_path)
-    proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
-   
-    if wallet_keys is None:
-        # RPC daemon must be running 
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
-
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-
-    data_privkey = wallet_keys['data_privkey']
-
-    user_id = str(args.user_id)
-
-    res = get_user(user_id, data_privkey, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    user = res['user']
-
-    res = get_user_profile( str(args.user_id), user_data_pubkey=str(user['public_key']), use_zonefile_urls=False )
-    if res is None:
-        return {'error': 'No such profile'}
-
-    return res
-
-
-def cli_put_user_profile(args, proxy=None, password=None, force_data=False, config_path=CONFIG_PATH):
-    """
-    command: put_user_profile advanced check_storage
-    help: Set a profile for a user persona.
-    arg: user_id (str) 'The ID of the user to to receive the profile'
-    arg: data (str) 'A JSON-formatted profile data string, or a path to a file with such data'
-    """
-    res = check_storage_setup(config_path=config_path)
-    if 'error' in res:
-        return res
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
     
-    password = get_default_password(password)
-
-    config_dir = os.path.dirname(config_path)
-
-    user_id = str(args.user_id)
-    profile_json_str = str(args.data)
-
-    profile = None
-    if not force_data and is_valid_path(profile_json_str) and os.path.exists(profile_json_str):
-        # this is a path.  try to load it
-        try:
-            with open(profile_json_str, 'r') as f:
-                profile_json_str = f.read()
-        except:
-            return {'error': 'Failed to load "{}"'.format(profile_json_str)}
-
-    # try to parse it
-    try:
-        profile = json.loads(profile_json_str)
-    except:
-        return {'error': 'Invalid profile JSON'}
-
-    # RPC daemon must be running 
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
+    # RPC daemon must be running
     wallet_keys = get_wallet_keys(config_path, password)
     if 'error' in wallet_keys:
+        log.error("Failed to get wallet keys: {}".format(wallet_keys['error']))
         return wallet_keys
 
     master_data_privkey = wallet_keys['data_privkey']
-    master_data_pubkey = get_pubkey_hex(master_data_privkey)
-
-    user = None
-    res = get_user(user_id, master_data_privkey, config_path=config_path)
+    res = app_make_session( app_domain, api_methods, master_data_privkey, session_lifetime=session_lifetime, config_path=config_path )
     if 'error' in res:
-        return res
-    
-    if not res['owned']:
-        return {'error': 'This wallet does not own this user'}
-
-    user = res['user']
-    user_privkey_hex = user_get_privkey(master_data_privkey, user, config_path=config_path)
-    if user_privkey_hex is None:
-        return {'error': 'Failed to get user private key'}
-
-    # NOTE: no blockchain ID here
-    res = put_profile(user_id, profile, user_data_privkey=user_privkey_hex, proxy=proxy, config_path=config_path)
-    return res
-
-
-def cli_delete_user_profile(args, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None):
-    """
-    command: delete_user_profile advanced check_storage
-    help: Delete a profile for a persona.
-    arg: user_id (str) 'The ID of the user whose profile will be deleted.'
-    """
-    res = check_storage_setup(config_path=config_path)
-    if 'error' in res:
+        log.error("Failed to make session: {}".format(wallet_keys['error']))
         return res
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    password = get_default_password(password)
-
-    config_dir = os.path.dirname(config_path)
-
-    user_id = str(args.user_id)
-
-    if wallet_keys is None:
-        # RPC daemon must be running 
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
-
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-
-    master_data_privkey = wallet_keys['data_privkey']
-    master_data_pubkey = get_pubkey_hex(master_data_privkey)
-
-    res = get_user(user_id, master_data_privkey, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    if not res['owned']:
-        return {'error': 'This wallet does not own this user'}
-
-    user = res['user']
-    user_privkey_hex = user_get_privkey(master_data_privkey, user, config_path=config_path)
-    if user_privkey_hex is None:
-        return {'error': 'Failed to get user private key'}
-
-    res = delete_profile(user_id, user_data_privkey=user_privkey_hex)
-    return res
+    return {'status': True, 'token': res['session_token']}
 
 
 def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, interactive=False ):
@@ -4461,10 +3476,6 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
         privkey = str(args.privkey)
 
     else:
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
-
         wallet_keys = get_wallet_keys( config_path, password )
         if 'error' in wallet_keys:
             return wallet_keys
@@ -4550,80 +3561,7 @@ def cli_remove_device_id( args, config_path=CONFIG_PATH, proxy=None ):
         return {'error': 'Failed to remove device'}
 
 
-def make_account_datastore(account_info, account_privkey_hex, driver_names=None, device_ids=None, config_path=CONFIG_PATH ):
-    """
-    Create a datastore for a particular application account.
-
-    Return {'datastore': datastore information, 'root': root inode}
-    """
-    ds_info = get_account_datastore_creds(account_info, account_privkey_hex, config_path=config_path)
-    user_id = ds_info['user_id']
-    datastore_name = ds_info['datastore_name']
-    datastore_privkey_hex = ds_info['datastore_privkey']
-
-    return make_datastore( user_id, datastore_name, datastore_privkey_hex, driver_names=driver_names, device_ids=device_ids, config_path=config_path )
-
-
-def put_account_datastore(account_info, datastore_info, account_privkey_hex, proxy=None, config_path=CONFIG_PATH ):
-    """
-    Create and store a new datastore for the given account.
-    @account_info is the account information
-    @datastore_info is the datastore information 
-    return {'status': True} on success
-    return {'error': ...} on failure
-    """
-    ds_info = get_account_datastore_creds(account_info, account_privkey_hex, config_path=config_path)
-    user_id = ds_info['user_id']
-    datastore_name = ds_info['datastore_name']
-    datastore_privkey_hex = ds_info['datastore_privkey']
-    log.debug("Put account datastore {}".format(datastore_name))
-    return put_datastore(user_id, datastore_name, datastore_info, datastore_privkey_hex, proxy=proxy, config_path=config_path)
-
-
-def put_user_datastore(user_info, datastore_name, datastore_info, user_privkey_hex, proxy=None, config_path=CONFIG_PATH ):
-    """
-    Create and store a new datastore for the given user
-    return {'status': True} on success
-    return {'error': ...} on failure
-    """
-    user_id = user_info['user_id']
-    log.debug("Put user datastore {}".format(datastore_name))
-    return put_datastore(user_id, datastore_name, datastore_info, user_privkey_hex, proxy=None, config_path=CONFIG_PATH )
-
-
-def delete_account_datastore(account_info, account_privkey_hex, rmtree=True, force=False, config_path=CONFIG_PATH, proxy=None ):
-    """
-    Delete an account datastore
-    If rmtree is True, then the datastore will be emptied first.
-    If force is True, then the datastore will be deleted even if rmtree fails.
-    Return {'status': True} on success
-    Return {'error': ...} on error
-    """
-    ds_info = get_account_datastore_creds(account_info, account_privkey_hex, config_path=config_path)
-    user_id = ds_info['user_id']
-    datastore_name = ds_info['datastore_name']
-    datastore_privkey = ds_info['datastore_privkey']
-
-    # clear the datastore
-    if rmtree:
-        datastore_rec = get_account_datastore(account_info, account_privkey_hex, proxy=proxy, config_path=config_path)
-        if 'error' in datastore_rec:
-            return datastore_rec
-        
-        datastore = datastore_rec['datastore']
-
-        log.debug("Clear account datastore {}".format(datastore_name))
-        res = datastore_rmtree(datastore, '/', datastore_privkey, config_path=config_path, proxy=proxy)
-        if 'error' in res and not force:
-            log.error("Failed to rmtree account datastore {}".format(datastore_name))
-            return {'error': 'Failed to remove all files and directories'}
-
-    # delete the datastore record
-    log.debug("Delete account datastore {}".format(datastore_name))
-    return delete_datastore(user_id, datastore_name, datastore_privkey, force=force, config_path=config_path, proxy=proxy)
-
-
-def delete_user_datastore(user_info, datastore_name, user_privkey_hex, rmtree=True, force=False, config_path=CONFIG_PATH, proxy=None ):
+def _remove_datastore(datastore, datastore_privkey, rmtree=True, force=False, config_path=CONFIG_PATH, proxy=None ):
     """
     Delete a user datastore
     If rmtree is True, then the datastore will be emptied first.
@@ -4631,28 +3569,37 @@ def delete_user_datastore(user_info, datastore_name, user_privkey_hex, rmtree=Tr
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-    user_id = user_info['user_id']
-
     # clear the datastore 
     if rmtree:
-        datastore_rec = get_user_datastore(user_info, datastore_name, proxy=proxy, config_path=config_path)
-        if 'error' in datastore_rec:
-            return datastore_rec
-
-        datastore = datastore_rec['datastore']
-
         log.debug("Clear user datastore {}".format(datastore_name))
-        res = datastore_rmtree(datastore, '/', user_privkey_hex, config_path=config_path, proxy=proxy)
+        res = datastore_rmtree(datastore, '/', datastore_privkey, config_path=config_path, proxy=proxy)
         if 'error' in res and not force:
-            log.error("Failed to rmtree user datastore {}".format(datastore_name))
+            log.error("Failed to rmtree datastore {}".format(datastore_name))
             return {'error': 'Failed to remove all files and directories'}
 
     # delete the datastore record
-    log.debug("Delete user datastore {}".format(datastore_name))
-    return delete_datastore(user_id, datastore_name, user_privkey_hex, force=force, config_path=config_path, proxy=proxy )
+    datastore_pubkey = get_pubkey_hex(datastore_privkey)
+    datastore_id = datastore_get_id(datastore_pubkey)
+    log.debug("Delete datastore {}".format(datastore_id))
+    return delete_datastore(datastore_privkey, force=force, config_path=config_path, proxy=proxy )
 
 
-def create_datastore_by_type( datastore_type, user_id, datastore_id, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None ):
+def get_datastore_privkey_info( app_domain, wallet_keys, app_user_privkey=None, config_path=CONFIG_PATH, proxy=None ):
+    """
+    Get the application user private key
+    """
+    master_data_privkey = None
+    if wallet_keys is None:
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
+
+    master_data_privkey = wallet_keys['master_data_privkey']
+    res = get_datastore_info( app_user_privkey=app_user_privkey, master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy )
+    return res
+
+
+def create_datastore_by_type( datastore_type, app_domain, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None ):
     """
     Create a datastore or a collection for the given user with the given name.
     Return {'status': True} on success
@@ -4665,74 +3612,42 @@ def create_datastore_by_type( datastore_type, user_id, datastore_id, proxy=None,
     password = get_default_password(password)
     config_dir = os.path.dirname(config_path)
 
-    name_info = get_datastore_name_info( user_id, datastore_id )
-    if 'error' in name_info or (name_info['app_fqu'] is not None and name_info['appname'] is not None):
-        return {'error': 'Cannot create app-specific data store with this command.  Use app_put_account for that.'}
-
     if wallet_keys is None:
         # RPC daemon must be running 
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
-
         wallet_keys = get_wallet_keys(config_path, password)
         if 'error' in wallet_keys:
             return wallet_keys
 
-    datastore_info = get_datastore_info(user_id, datastore_id, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
-    if 'error' not in datastore_info:
+    master_data_privkey = wallet_keys['data_privkey']
+
+    res = get_datastore_info( master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy )
+    if 'error' not in res:
         # already exists
         return {'error': 'Datastore exists'}
 
-    master_data_privkey = wallet_keys['data_privkey']
-    master_data_pubkey = get_pubkey_hex(master_data_privkey)
-
-    res = get_user(user_id, master_data_privkey, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    if not res['owned']:
-        return {'error': 'This wallet does not own this user'}
-
-    user = res['user']
-    user_pubkey = user['public_key']
-    user_privkey_hex = user_get_privkey(master_data_privkey, user, config_path=config_path)
-    if user_privkey_hex is None:
-        return {'error': 'Failed to load user private key'}
-
-    datastore_info = make_datastore(user_id, datastore_id, user_privkey_hex, config_path=CONFIG_PATH)
+    datastore_privkey = res['datastore_privkey']
+    datastore_info = make_datastore( datastore_privkey, config_path=CONFIG_PATH)
     if 'error' in datastore_info:
         return datastore_info
-
-    res = put_user_datastore(user, datastore_id, datastore_info, user_privkey_hex, proxy=proxy, config_path=config_path)
+    
+    res = put_datastore(datastore_info, datastore_privkey_hex, proxy=proxy, config_path=config_path)
     if 'error' in res:
         return res
 
     return {'status': True}
 
 
-def get_datastore_by_type( datastore_type, user_id, datastore_id, include_private=False, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
+def get_datastore_by_type( datastore_type, datastore_id, config_path=CONFIG_PATH, proxy=None ):
     """
-    Get a datastore or collection
+    Get a datastore or collection.
+    Requires datastore_id, or app_domain and wallet keys (from config_path and password)
     Return the datastore object on success, optionally with private key information.
     Return {'error': ...} on error
     """
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    password = get_default_password(password)
-
-    if wallet_keys is None:
-        # RPC daemon must be running 
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
-
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-
-    datastore_info = get_datastore_info(user_id, datastore_id, include_private=include_private, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
+    datastore_info = get_datastore_info( datastore_id=datastore_id, config_path=config_path, proxy=proxy )
     if 'error' in datastore_info:
         return datastore_info
 
@@ -4743,7 +3658,7 @@ def get_datastore_by_type( datastore_type, user_id, datastore_id, include_privat
     return datastore
 
 
-def delete_datastore_by_type( datastore_type, user_id, datastore_id, force=False, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
+def delete_datastore_by_type( datastore_type, app_domain, app_user_privkey=None, force=False, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
     """
     Delete a datastore or collection.
     Return {'status': True} on success
@@ -4753,46 +3668,17 @@ def delete_datastore_by_type( datastore_type, user_id, datastore_id, force=False
         proxy = get_default_proxy(config_path)
 
     password = get_default_password(password)
-
     config_dir = os.path.dirname(config_path)
-    if wallet_keys is None:
-        # RPC daemon must be running 
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
 
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-
-    datastore_info = get_datastore_info(user_id, datastore_id, include_private=True, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
-    if 'error' in datastore_info:
+    datastore_info = get_datastore_privkey_info( app_domain, wallet_keys, app_user_privkey=app_user_privkey, config_path=config_path, proxy=proxy )
+    if 'error 'in datastore_info:
         return datastore_info
 
-    if datastore_info['app_fqu'] is not None and datastore_info['appname'] is not None:
-        return {'error': 'Cannot delete application data store.  Use app_delete_account for that.'}
-
     datastore = datastore_info['datastore']
-    master_data_privkey = datastore_info['master_data_privkey']
-    master_data_pubkey = get_pubkey_hex(master_data_privkey)
-
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = get_user(user_id, master_data_privkey, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    if 'error' in res:
-        return {'error': 'This wallet does not own this user'}
-
-    user = res['user']
-    user_pubkey = user['public_key']
-    user_privkey_hex = user_get_privkey(master_data_privkey, user, config_path=config_path)
-    if user_privkey_hex is None:
-        return {'error': 'Failed to load user private key'}
-
-    res = delete_user_datastore(user, datastore_id, user_privkey_hex, rmtree=True, force=force, config_path=config_path, proxy=proxy )
+    res = _remove_datastore(datastore, datastore_info['datastore_privkey'], rmtree=True, force=force, config_path=config_path, proxy=proxy )
     if 'error' in res:
         log.error("Failed to delete datastore record")
         return res
@@ -4800,7 +3686,7 @@ def delete_datastore_by_type( datastore_type, user_id, datastore_id, force=False
     return {'status': True}
 
 
-def datastore_file_get(datastore_type, user_id, datastore_id, path, proxy=None, config_path=CONFIG_PATH, wallet_keys=None, password=None ):
+def datastore_file_get(datastore_type, datastore_id, path, proxy=None, config_path=CONFIG_PATH ):
     """
     Get a file from a datastore or collection.
     Return {'status': True, 'file': ...} on success
@@ -4811,19 +3697,8 @@ def datastore_file_get(datastore_type, user_id, datastore_id, path, proxy=None, 
         proxy = get_default_proxy(config_path)
 
     config_dir = os.path.dirname(config_path)
-    password = get_default_password(password)
 
-    if wallet_keys is None:
-        # RPC daemon must be running 
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
-
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-
-    datastore_info = get_datastore_info(user_id, datastore_id, include_private=False, config_path=config_path, proxy=proxy, wallet_keys=wallet_keys)
+    datastore_info = get_datastore_info( datastore_id=datastore_id, config_path=config_path, proxy=proxy)
     if 'error' in datastore_info:
         datastore_info['errno'] = errno.EPERM
         return datastore_info
@@ -4836,9 +3711,10 @@ def datastore_file_get(datastore_type, user_id, datastore_id, path, proxy=None, 
     return res
 
 
-def datastore_file_put(datastore_type, user_id, datastore_id, path, data, create=True, force_data=False, proxy=None, config_path=CONFIG_PATH, wallet_keys=None, password=None ):
+def datastore_file_put(datastore_type, datastore_privkey, path, data, create=True, app_domain=None, force_data=False, proxy=None, password=None, wallet_keys=None, config_path=CONFIG_PATH ):
     """
     Put a file int oa datastore or collection.
+    need either datastore_id, or access to the wallet and the app_domain
     Return {'status': True} on success
     Return {'error': ...} on failure.
 
@@ -4849,7 +3725,6 @@ def datastore_file_put(datastore_type, user_id, datastore_id, path, data, create
         proxy = get_default_proxy(config_path)
 
     config_dir = os.path.dirname(config_path)
-    password = get_default_password(password)
 
     # is this a path, and are we allowed to take paths?
     if is_valid_path(data) and os.path.exists(data) and not force_data:
@@ -4860,41 +3735,24 @@ def datastore_file_put(datastore_type, user_id, datastore_id, path, data, create
         except:
             return {'error': 'Failed to read "{}"'.format(data)}
 
-    if wallet_keys is None:
-        # RPC daemon must be running 
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
-
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-
-    datastore_info = get_datastore_info(user_id, datastore_id, include_private=True, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
-    if 'error' in datastore_info:
+    datastore_info = get_datastore_privkey_info( app_domain, wallet_keys, app_user_privkey=datastore_privkey, config_path=config_path, proxy=proxy )
+    if 'error 'in datastore_info:
         datastore_info['errno'] = errno.EPERM
         return datastore_info
 
-    datastore = datastore_info['datastore']
-    if datastore['type'] != datastore_type:
-        return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
-
-    if datastore['type'] == 'collection' and not create:
-        return {'error': 'Invalid argument: collections only support create and append'}
-
-    datastore_privkey_hex = datastore_info['datastore_privkey']
-
-    res = datastore_putfile( datastore, path, data, datastore_privkey_hex, create=create, config_path=config_path, proxy=proxy )
+    res = datastore_putfile( datastore, path, data, datastore_info['datastore_privkey'], create=create, config_path=config_path, proxy=proxy )
     if 'error' in res:
         return res
 
-    # make url 
-    url = blockstack_datastore_url( user_id, datastore_id, path )
+    # make url
+    datastore_id = datastore_info['datastore_id']
+    url = blockstack_datastore_url( datastore_id, app_domain, path )
     res['url'] = url
+
     return res
 
 
-def datastore_dir_list(datastore_type, user_id, datastore_id, path, config_path=CONFIG_PATH, proxy=None, wallet_keys=None, password=None ):
+def datastore_dir_list(datastore_type, datastore_id, path, config_path=CONFIG_PATH, proxy=None ):
     """
     List a directory in a datastore or collection
     Return {'status': True, 'dir': ...} on success
@@ -4905,19 +3763,8 @@ def datastore_dir_list(datastore_type, user_id, datastore_id, path, config_path=
         proxy = get_default_proxy(config_path)
 
     config_dir = os.path.dirname(config_path)
-    password = get_default_password(password)
 
-    if wallet_keys is None:
-        # RPC daemon must be running 
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
-
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-
-    datastore_info = get_datastore_info(user_id, datastore_id, include_private=False, config_path=config_path, proxy=proxy, wallet_keys=wallet_keys)
+    datastore_info = get_datastore_info(datastore_id=datastore_id, config_path=config_path, proxy=proxy)
     if 'error' in datastore_info:
         datastore_info['errno'] = errno.EPERM
         return datastore_info
@@ -4935,7 +3782,7 @@ def datastore_dir_list(datastore_type, user_id, datastore_id, path, config_path=
     return res
 
 
-def datastore_path_stat(datastore_type, user_id, datastore_id, path, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None):
+def datastore_path_stat(datastore_type, datastore_id, proxy=None, config_path=CONFIG_PATH ):
     """
     Stat a path in a datastore or collection
     Return {'status': True, 'inode': ...} on success
@@ -4945,20 +3792,9 @@ def datastore_path_stat(datastore_type, user_id, datastore_id, path, proxy=None,
         proxy = get_default_proxy(config_path)
     
     config_dir = os.path.dirname(config_path)
-    password = get_default_password(password)
-    if wallet_keys is None:
-        # RPC daemon must be running 
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
 
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-
-    datastore_info = get_datastore_info(user_id, datastore_id, include_private=False, config_path=config_path, proxy=proxy, wallet_keys=wallet_keys)
+    datastore_info = get_datastore_info(datastore_id=datastore_id, config_path=config_path, proxy=proxy)
     if 'error' in datastore_info:
-        datastore_info['errno'] = errno.EPERM
         return datastore_info
 
     datastore = datastore_info['datastore']
@@ -4969,83 +3805,42 @@ def datastore_path_stat(datastore_type, user_id, datastore_id, path, proxy=None,
     return res
 
 
-def cli_get_datastore( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
+def cli_get_datastore( args, config_path=CONFIG_PATH, proxy=None ):
     """
     command: get_datastore advanced
     help: Get a datastore record
-    arg: user_id (str) 'The user ID that owns the datastore'
-    arg: datastore_id (str) 'The ID of the datastore'
-    opt: include_private (str) 'If True, then include the private key information as well'
+    arg: app_user_id (str) 'The application user ID that owns the datastore'
     """
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    password = get_default_password(password)
-
-    user_id = str(args.user_id)
-    datastore_id = str(args.datastore_id)
-    include_private = str(args.include_private)
-    if include_private.lower() in ['1', 'true', 'yes']:
-        include_private = True
-    else:
-        include_private = False
-
-    return get_datastore_by_type('datastore', user_id, datastore_id, include_private=include_private, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys )
-
-
-def cli_list_datastores( args, config_path=CONFIG_PATH, proxy=None, password=None ):
-    """
-    command: list_datastores advanced
-    help: List datastores accessible from this device.
-    opt: user_id (str) 'The optional user ID to filter datastores.'
-    """
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    password = get_default_password(password)
-
-    user_id = str(args.user_id)
-    res = datastore_list( config_path=config_path )
-
-    if len(str(getattr(args, "user_id", ""))) > 0:
-        res = filter(lambda ds: ds['user_id'] == str(args.user_id) and ds['type'] == 'datastore', res)
-
-    return res
+    datastore_id = str(app_user_id)    
+    return get_datastore_by_type('datastore', datastore_id, config_path=config_path, proxy=proxy )
 
 
 def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
     """
-    command: create_datastore advanced check_storage
-    help: Make a new datastore for a given user.
-    arg: user_id (str) 'The user ID'
-    arg: datastore_id (str) 'The ID of the datastore'
+    command: create_datastore advanced 
+    help: Make a new datastore for a given app user account.
+    arg: app_domain (str) 'The domain name of the application.'
     """
-    res = check_storage_setup(config_path=config_path)
-    if 'error' in res:
-        return res
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
     password = get_default_password(password)
 
-    user_id = str(args.user_id)
-    datastore_id = str(args.datastore_id)
-    
-    return create_datastore_by_type('datastore', user_id, datastore_id, proxy=proxy, config_path=config_path, password=password, wallet_keys=wallet_keys )
+    return create_datastore_by_type('datastore', str(args.app_domain), proxy=proxy, config_path=config_path, password=password, wallet_keys=wallet_keys )
 
 
 def cli_delete_datastore( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
     """
-    command: delete_datastore advanced check_storage
+    command: delete_datastore advanced 
     help: Delete a datastore owned by a given user, and all of the data it contains.
-    arg: user_id (str) 'The ID of the user that owns the datastore'
-    arg: datastore_id (str) 'The ID of the datastore'
+    arg: app_domain (str) 'The domain of the application for which this datastore exists'
     opt: force (str) 'If True, then delete the datastore even if it cannot be emptied'
+    opt: app_user_privkey (str) 'If given, then this is the app user private key'
     """
-    res = check_storage_setup(config_path=config_path)
-    if 'error' in res:
-        return res
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
@@ -5053,53 +3848,48 @@ def cli_delete_datastore( args, config_path=CONFIG_PATH, proxy=None, password=No
     password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
-    user_id = str(args.user_id)
-    datastore_id = str(args.datastore_id)
+    app_domain = str(args.app_domain)
     force = (str(args.force).lower() in ['1', 'true', 'force', 'yes'])
+    app_user_privkey = getattr(args, 'app_user_privkey', None)
+    if app_user_privkey is not None:
+        app_user_privkey = str(app_user_privkey)
 
-    return delete_datastore_by_type('datastore', user_id, datastore_id, force=force, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
+    return delete_datastore_by_type('datastore', app_domain, app_user_privkey=app_user_privkey, force=force, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
 
 
 def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, wallet_keys=None ):
     """
-    command: datastore_mkdir advanced check_storage
+    command: datastore_mkdir advanced 
     help: Make a directory in a datastore.
-    arg: user_id (str) 'The user ID that owns the datastore'
-    arg: datastore_id (str) 'The ID of the datatore'
+    arg: app_domain (str) 'The application domain of this datastore'
     arg: path (str) 'The path to the directory to remove'
+    opt: app_user_privkey (str) 'The app-specific private key'
     """
-
-    res = check_storage_setup(config_path=config_path)
-    if 'error' in res:
-        return res
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
     password = get_default_password(password)
 
+    app_domain = str(args.app_domain)
     config_dir = os.path.dirname(config_path)
-    user_id = str(args.user_id)
-    datastore_id = str(args.datastore_id)
     path = str(args.path)
 
-    if wallet_keys is None:
-        log.debug("get wallet begin")
-        # RPC daemon must be running 
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
+    app_user_privkey = getattr(args, 'app_user_privkey', None)
+    if app_user_privkey is not None:
+        app_user_privkey = str(app_user_privkey)
 
-        log.debug("RPC get wallet keys begin")
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
+    master_data_privkey = None
+    if app_user_privkey is None:
+        if wallet_keys is None:
+            wallet_keys = get_wallet_keys(config_path, password)
+            if 'error' in wallet_keys:
+                return wallet_keys
 
-        log.debug("get wallet end")
+        master_data_privkey = wallet_keys['master_data_privkey']
 
-    datastore_info = get_datastore_info(user_id, datastore_id, include_private=True, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
+    datastore_info = get_datastore_info(app_user_privkey=app_user_privkey, master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy)
     if 'error' in datastore_info:
-        datastore_info['errno'] = errno.EPERM
         return datastore_info
 
     datastore = datastore_info['datastore']
@@ -5113,46 +3903,44 @@ def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy
     if not path.endswith('/'):
         path += '/'
 
-    url = blockstack_datastore_url( user_id, datastore_id, path )
+    datastore_id = datastore_get_id( get_pubkey_hex(datastore_privkey_hex) )
+    url = blockstack_datastore_url( datastore_id, datastore_id, path )
     res['url'] = url
     return res
 
     
 def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, wallet_keys=None ):
     """
-    command: datastore_rmdir advanced check_storage
+    command: datastore_rmdir advanced 
     help: Remove a directory in a datastore.
-    arg: user_id (str) 'The user ID that owns the datastore'
-    arg: datastore_id (str) 'The ID of the datastore'
+    arg: app_domain (str) 'The application domain for this data store'
     arg: path (str) 'The path to the directory to remove'
+    opt: app_user_privkey (str) 'The app-specific user private key'
     """
-    res = check_storage_setup(config_path=config_path)
-    if 'error' in res:
-        return res
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
     password = get_default_password(password)
 
-    config_dir = os.path.dirname(config_path)
-    user_id = str(args.user_id)
-    datastore_id = str(args.datastore_id)
+    app_domain = str(args.app_domain)
     path = str(args.path)
 
-    if wallet_keys is None:
-        # RPC daemon must be running 
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
+    app_user_privkey = getattr(args, 'app_user_privkey', None)
+    if app_user_privkey is not None:
+        app_user_privkey = str(app_user_privkey)
 
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
+    master_data_privkey = None
+    if app_user_privkey is None:
+        if wallet_keys is None:
+            wallet_keys = get_wallet_keys(config_path, password)
+            if 'error' in wallet_keys:
+                return wallet_keys
 
-    datastore_info = get_datastore_info(user_id, datastore_id, include_private=True, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
+        master_data_privkey = wallet_keys['master_data_privkey']
+
+    datastore_info = get_datastore_info(app_user_privkey=app_user_privkey, master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy)
     if 'error' in datastore_info:
-        datastore_info['errno'] = errno.EPERM
         return datastore_info
 
     datastore = datastore_info['datastore']
@@ -5162,12 +3950,11 @@ def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False, proxy
     return res
 
 
-def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False, wallet_keys=None, password=None, proxy=None ):
+def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
     """
     command: datastore_getfile advanced
     help: Get a file from a datastore.
-    arg: user_id (str) 'The user ID that owns the datastore'
-    arg: datastore_id (str) 'The ID of the datastore'
+    arg: app_user_id (str) 'The ID of the application user'
     arg: path (str) 'The path to the file to load'
     """
 
@@ -5175,21 +3962,17 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False, wal
         proxy = get_default_proxy(config_path)
     
     password = get_default_password(password)
-
-    config_dir = os.path.dirname(config_path)
-    user_id = str(args.user_id)
-    datastore_id = str(args.datastore_id)
+    app_user_id = str(args.app_user_id)
     path = str(args.path)
 
-    return datastore_file_get('datastore', user_id, datastore_id, path, config_path=config_path, proxy=proxy, wallet_keys=wallet_keys, password=password)
+    return datastore_file_get('datastore', app_user_id, path, config_path=config_path, proxy=proxy)
 
 
-def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False, wallet_keys=None, password=None, proxy=None ):
+def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
     """
     command: datastore_listdir advanced
     help: List a directory in the datastore.
-    arg: user_id (str) 'The user ID that owns the datastore'
-    arg: datastore_id (str) 'The ID of the datastore'
+    arg: app_user_id (str) 'The ID of the application user'
     arg: path (str) 'The path to the directory to list'
     """
 
@@ -5197,50 +3980,38 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False, wall
         proxy = get_default_proxy(config_path)
 
     password = get_default_password(password)
+    app_user_id = str(args.app_user_id)
 
-    config_dir = os.path.dirname(config_path)
-    user_id = str(args.user_id)
-    datastore_id = str(args.datastore_id)
-    path = str(args.path)
-
-    return datastore_dir_list('datastore', user_id, datastore_id, path, config_path=CONFIG_PATH, wallet_keys=wallet_keys, password=password, proxy=proxy)
+    return datastore_dir_list('datastore', app_user_id, path, config_path=config_path, proxy=proxy)
 
 
-def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False, wallet_keys=None, password=None, proxy=None):
+def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False, proxy=None):
     """
     command: datastore_stat advanced
     help: Stat a file or directory in the datastore
-    arg: user_id (str) 'The user ID that owns this datastore'
-    arg: datastore_id (str) 'The ID of the datastore'
+    arg: app_user_id (str) 'The ID of the application user'
     arg: path (str) 'The path to the file or directory to stat'
     """
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    password = get_default_password(password)
-    config_dir = os.path.dirname(config_path)
-    user_id = str(args.user_id)
-    datastore_id = str(args.datastore_id)
     path = str(args.path)
+    app_user_id = str(args.app_user_id)
 
-    return datastore_path_stat('datastore', user_id, datastore_id, path, proxy=proxy, password=password, wallet_keys=wallet_keys, config_path=config_path) 
+    return datastore_path_stat('datastore', app_user_id, path, proxy=proxy, password=password, wallet_keys=wallet_keys, config_path=config_path) 
 
 
 def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, force_data=False, wallet_keys=None ):
     """
-    command: datastore_putfile advanced check_storage
+    command: datastore_putfile advanced 
     help: Put a file into the datastore at the given path.
-    arg: user_id (str) 'The user ID that owns the datastore'
-    arg: datastore_id (str) 'The ID of the datastore'
+    arg: app_domain (str) 'The application for this datastore'
     arg: path (str) 'The path to the new file'
     arg: data (str) 'The data to store, or a path to a file with the data'
     opt: create (str) 'If True, then only succeed if the file does not exist already'
+    opt: app_user_privkey (str) 'If given, then this is the application user private key'
     """
-
-    res = check_storage_setup(config_path=config_path)
-    if 'error' in res:
-        return res
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
@@ -5248,27 +4019,25 @@ def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, prox
     password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
-    user_id = str(args.user_id)
-    datastore_id = str(args.datastore_id)
+    app_domain = str(args.app_domain)
     path = str(args.path)
     data = args.data
     create = (str(getattr(args, "create", "")).lower() in ['1', 'create', 'true'])
+    app_user_privkey = getattr(args, 'app_user_privkey', None)
+    if app_user_privkey is not None:
+        app_user_privkey = str(app_user_privkey)
 
-    return datastore_file_put('datastore', user_id, datastore_id, path, data, create=create, force_data=force_data, proxy=proxy, config_path=config_path, wallet_keys=wallet_keys, password=password)
+    return datastore_file_put('datastore', app_user_privkey, path, data, create=create, app_domain=app_domain, wallet_keys=wallet_keys, password=password, force_data=force_data, proxy=proxy, config_path=config_path )
 
 
 def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, wallet_keys=None ):
     """
-    command: datastore_deletefile advanced check_storage
+    command: datastore_deletefile advanced
     help: Delete a file from the datastore.
-    arg: user_id (str) 'The user ID that owns the datastore'
-    arg: datastore_id (str) 'The blockchain ID that owns the application'
+    arg: app_domain (str) 'The application domain of this data store'
     arg: path (str) 'The path to the file to delete'
+    opt: app_user_privkey (str) 'If given, then this is the application user private key'
     """
-
-    res = check_storage_setup(config_path=config_path)
-    if 'error' in res:
-        return res
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
@@ -5276,21 +4045,23 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False, p
     password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
-    user_id = str(args.user_id)
-    datastore_id = str(args.datastore_id)
+    app_domain = str(args.app_domain)
     path = str(args.path)
+    app_user_privkey = getattr(args, 'app_user_privkey', None)
+    if app_user_privkey is not None:
+        app_user_privkey = str(app_user_privkey)
+    
+    datastore_info = None 
 
-    if wallet_keys is None:
-        # RPC daemon must be running 
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
+    if app_user_privkey is not None:
+        if wallet_keys is None:
+            wallet_keys = get_wallet_keys(config_path, password)
+            if 'error' in wallet_keys:
+                return wallet_keys
 
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
+        master_data_privkey = wallet_keys['master_data_privkey']
 
-    datastore_info = get_datastore_info(user_id, datastore_id, include_private=True, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
+    datastore_info = get_datastore_info(app_user_privkey=app_user_privkey, master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy)
     if 'error' in datastore_info:
         datastore_info['errno'] = errno.EPERM
         return datastore_info
@@ -5306,96 +4077,53 @@ def cli_get_collection( args, config_path=CONFIG_PATH, proxy=None, password=None
     """
     command: get_collection advanced
     help: Get a collection record
-    arg: user_id (str) 'The user ID that owns the collection'
-    arg: collection_id (str) 'The ID of the collection'
-    opt: include_private (str) 'If True, then include the private key information as well'
+    arg: collection_name (str) 'The name of the collection'
     """
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    password = get_default_password(password)
-
-    user_id = str(args.user_id)
-    collection_id = str(args.collection_id)
-    include_private = str(args.include_private)
-    if include_private.lower() in ['1', 'true', 'yes']:
-        include_private = True
-    else:
-        include_private = False
-
-    return get_datastore_by_type('collection', user_id, collection_id, include_private=include_private, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys )
-
-
-def cli_list_collections( args, config_path=CONFIG_PATH, proxy=None, password=None ):
-    """
-    command: list_collections advanced
-    help: List collections accessible from this device.
-    opt: user_id (str) 'The optional user ID to filter collections.'
-    """
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    password = get_default_password(password)
-
-    user_id = str(args.user_id)
-    res = datastore_list( config_path=config_path )
-
-    if len(str(getattr(args, "user_id", ""))) > 0:
-        res = filter(lambda ds: ds['user_id'] == str(args.user_id) and ds['type'] == 'collection', res)
-
-    return res
+    collection_domain = str(args.collection_name)
+    return get_datastore_by_type('collection', collection_domain, config_path=config_path, proxy=proxy )
 
 
 def cli_create_collection( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
     """
-    command: create_collection advanced check_storage
+    command: create_collection advanced 
     help: Make a new collection for a given user.
-    arg: user_id (str) 'The user ID'
-    arg: collection_id (str) 'The ID of the collection'
+    arg: collection_domain (str) 'The domain of this collection.'
     """
-    res = check_storage_setup(config_path=config_path)
-    if 'error' in res:
-        return res
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
     password = get_default_password(password)
+    collection_domain = str(args.collection_domain)
 
-    user_id = str(args.user_id)
-    collection_id = str(args.collection_id)
-
-    return create_datastore_by_type('collection', user_id, collection_id, proxy=proxy, config_path=config_path, password=password, wallet_keys=wallet_keys )
+    return create_datastore_by_type('collection', collection_domain, proxy=proxy, config_path=config_path, password=password, wallet_keys=wallet_keys )
 
 
 def cli_delete_collection( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
     """
-    command: delete_collection advanced check_storage
+    command: delete_collection advanced 
     help: Delete a collection owned by a given user, and all of the data it contains.
-    arg: user_id (str) 'The ID of the user that owns the collection'
-    arg: collection_id (str) 'The ID of the collection'
+    arg: collection_domain (str) 'The domain of this collection'
     """
-    res = check_storage_setup(config_path=config_path)
-    if 'error' in res:
-        return res
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
     password = get_default_password(password)
 
-    user_id = str(args.user_id)
-    collection_id = str(args.collection_id)
+    collection_domain = str(args.collection_domain)
 
-    return delete_datastore_by_type('collection', user_id, collection_id, force=True, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
+    return delete_datastore_by_type('collection', collection_domain, force=True, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
 
 
 def cli_collection_listitems(args, config_path=CONFIG_PATH, wallet_keys=None, password=None, interactive=False, proxy=None ):
     """
     command: collection_items advanced
     help: List the contents of a collection
-    arg: user_id (str) 'The user ID that owns the collection'
-    arg: collection_id (str) 'The ID of the collection'
+    arg: collection_domain (str) 'The domain of this collection'
     arg: path (str) 'The path to the directory to list'
     """
 
@@ -5404,11 +4132,10 @@ def cli_collection_listitems(args, config_path=CONFIG_PATH, wallet_keys=None, pa
 
     password = get_default_password(password)
 
-    user_id = str(args.user_id)
-    collection_id = str(args.collection_id)
+    collection_domain = str(args.collection_domain)
     path = str(args.path)
 
-    res = datastore_dir_list('collection', user_id, collection_id, '/', config_path=config_path, proxy=proxy)
+    res = datastore_dir_list('collection', collection_domain, '/', config_path=config_path, proxy=proxy)
     if 'error' in res:
         return res
 
@@ -5426,8 +4153,7 @@ def cli_collection_statitem(args, config_path=CONFIG_PATH, interactive=False, pa
     """
     command: collection_statitem advanced
     help: Stat an item in a collection
-    arg: user_id (str) 'The user ID that owns this collection'
-    arg: collection_id (str) 'The ID of the collection'
+    arg: collection_domain (str) 'The domain of this collection'
     arg: item_id (str) 'The name of the item to stat'
     """
 
@@ -5436,26 +4162,21 @@ def cli_collection_statitem(args, config_path=CONFIG_PATH, interactive=False, pa
 
     password = get_default_password(password)
 
-    user_id = str(args.user_id)
-    collection_id = str(args.collection_id)
+    collection_domain = str(args.collection_domain)
     item_id = str(args.item_id)
 
-    return datastore_path_stat('collection', user_id, collection_id, '/{}'.format(item_id), proxy=proxy, password=password, wallet_keys=wallet_keys, config_path=config_path)
+    return datastore_path_stat('collection', collection_domain, '/{}'.format(item_id), proxy=proxy, password=password, wallet_keys=wallet_keys, config_path=config_path)
 
 
 def cli_collection_putitem(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, force_data=False, wallet_keys=None ):
     """
-    command: collection_putitem advanced check_storage
+    command: collection_putitem advanced 
     help: Put an item into a collection.  Overwrites are forbidden.
-    arg: user_id (str) 'The user ID that owns the collection'
-    arg: collection_id (str) 'The ID of the collection'
+    arg: collection_name (str) 'The collection domain'
     arg: item_id (str) 'The item name'
     arg: data (str) 'The data to store, or a path to a file with the data'
+    opt: collection_privkey (str) 'The collection private key'
     """
-
-    res = check_storage_setup(config_path=config_path)
-    if 'error' in res:
-        return res
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
@@ -5463,20 +4184,22 @@ def cli_collection_putitem(args, config_path=CONFIG_PATH, interactive=False, pro
     password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
-    user_id = str(args.user_id)
-    collection_id = str(args.collection_id)
+    collection_domain = str(args.collection_domain)
     item_id = str(args.item_id)
     data = args.data
+    collection_privkey = getattr(args, 'collection_privkey', None)
+    if collection_privkey is not None:
+        collection_privkey = str(args.collection_privkey)
 
-    return datastore_file_put('collection', user_id, collection_id, '/{}'.format(item_id), data, create=True, force_data=force_data, proxy=proxy, config_path=config_path, wallet_keys=wallet_keys, password=password)
+    return datastore_file_put('collection', collection_privkey, '/{}'.format(item_id), data, app_domain=collection_domain, 
+                              create=True, force_data=force_data, proxy=proxy, config_path=config_path, wallet_keys=wallet_keys, password=password)
 
 
 def cli_collection_getitem( args, config_path=CONFIG_PATH, interactive=False, password=None, wallet_keys=None, proxy=None ):
     """
     command: collection_getitem advanced
     help: Get an item from a collection.
-    arg: user_id (str) 'The user ID that owns the collection'
-    arg: collection_id (str) 'The ID of the collection'
+    arg: collection_domain (str) 'The domain of this collection'
     arg: item_id (str) 'The item to fetch'
     """
 
@@ -5486,11 +4209,10 @@ def cli_collection_getitem( args, config_path=CONFIG_PATH, interactive=False, pa
     password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
-    user_id = str(args.user_id)
-    collection_id = str(args.collection_id)
+    collection_domain = str(args.collection_domain)
     item_id = str(args.item_id)
 
-    return datastore_file_get('collection', user_id, collection_id, '/{}'.format(item_id), password=password, wallet_keys=wallet_keys, config_path=config_path, proxy=proxy)
+    return datastore_file_get('collection', collection_domain, '/{}'.format(item_id), password=password, wallet_keys=wallet_keys, config_path=config_path, proxy=proxy)
 
 
 def cli_start_server( args, config_path=CONFIG_PATH, interactive=False ):
@@ -5521,6 +4243,7 @@ def cli_start_server( args, config_path=CONFIG_PATH, interactive=False ):
     if testnet:
         cmds.append('--testnet')
 
+    # TODO: use subprocess
     if working_dir is not None:
         working_dir_envar = 'VIRTUALCHAIN_WORKING_DIR="{}"'.format(working_dir)
         cmds = [working_dir_envar] + cmds
@@ -5554,6 +4277,7 @@ def cli_stop_server( args, config_path=CONFIG_PATH, interactive=False ):
 
     cmd_str = " ".join(cmds)
 
+    # TODO: use subprocess
     log.debug('Execute: {}'.format(cmd_str))
     exit_status = os.system(cmd_str)
 
