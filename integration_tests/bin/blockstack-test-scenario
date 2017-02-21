@@ -45,6 +45,7 @@ if os.environ.get("BLOCKSTACK_STORAGE_DRIVERS", None) is not None:
     BLOCKSTACK_STORAGE_DRIVERS = os.environ.get("BLOCKSTACK_STORAGE_DRIVERS")
 
 BITCOIN_DIR = "/tmp/bitcoin-regtest"
+SCENARIO_PID = os.getpid()
 
 DEFAULT_SERVER_INI_TEMPLATE = """
 [bitcoind]
@@ -60,7 +61,7 @@ spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
 [blockstack]
 server_version = 0.14.1
 rpc_port = %s
-backup_frequency = 3
+backup_frequency = 1
 backup_max_age = 30
 serve_zonefiles = True
 serve_profiles = True
@@ -92,7 +93,7 @@ storage_drivers_local =
 storage_drivers_required_write = @CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE@
 advanced_mode = true
 api_endpoint_port = %s
-rpc_token = a653b93e696a998f85f8fd2b241ff4dfcb5dd978fe1da26c413a4c2abf90321b
+api_password = a653b93e696a998f85f8fd2b241ff4dfcb5dd978fe1da26c413a4c2abf90321b
 poll_interval = 1
 queue_path = @CLIENT_QUEUE_PATH@
 rpc_detach = True
@@ -371,8 +372,12 @@ def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
     """
     Clean up a scenario
     """
-    global BITCOIN_DIR
+    global BITCOIN_DIR, SCENARIO_PID
+    if os.getpid() != SCENARIO_PID:
+        # don't let the API daemon call this by mistake
+        return
 
+    log.debug("atexit_cleanup")
     try:
         os.unlink(spv_headers_path)
     except:
@@ -380,7 +385,7 @@ def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
 
     if client_config_path is not None:
         client_config_dir = os.path.dirname(client_config_path)
-        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+        blockstack_client.rpc.local_api_stop(client_config_dir)
 
     if stop_bitcoind:
         bitcoin_conf = os.path.join(BITCOIN_DIR, "bitcoin.conf")
@@ -558,7 +563,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         atlas_stop( atlas_state )
         storage_stop()
         bitcoin_stop()
-        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+        blockstack_client.rpc.local_api_stop(client_config_dir)
 
         pinger.ask_join()
         pinger.join()
@@ -567,7 +572,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     if rc == False:
         # explicitly erred
         log.error("Scenario exits in error")
-        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+        blockstack_client.rpc.local_api_stop(client_config_dir)
         log.error("Failed to run tests '%s'" % scenario.__name__)
         network_stop()
         storage_stop()
@@ -585,7 +590,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     except Exception, e:
         log.exception(e)
         traceback.print_exc()
-        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+        blockstack_client.rpc.local_api_stop(client_config_dir)
         log.error("Failed to run tests '%s'" % scenario.__name__)
         network_stop()
         storage_stop()
@@ -596,7 +601,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         network_stop()
         storage_stop()
         bitcoin_stop()
-        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+        blockstack_client.rpc.local_api_stop(client_config_dir)
         return rc
 
     # do any more interactive tests
@@ -632,7 +637,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         network_stop()
         storage_stop()
         bitcoin_stop()
-        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+        blockstack_client.rpc.local_api_stop(client_config_dir)
         return rc
 
     log.info("History check passes!")
@@ -652,7 +657,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         network_stop()
         storage_stop()
         bitcoin_stop()
-        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+        blockstack_client.rpc.local_api_stop(client_config_dir)
         return rc
 
     log.info("SNV check passes!")
@@ -666,7 +671,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
             network_stop()
             storage_stop()
             bitcoin_stop()
-            blockstack_client.rpc.local_rpc_stop(client_config_dir)
+            blockstack_client.rpc.local_api_stop(client_config_dir)
             return rc
 
         log.info("Atlas zonefile checks pass!")
@@ -678,7 +683,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         network_stop()
         storage_stop()
         bitcoin_stop()
-        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+        blockstack_client.rpc.local_api_stop(client_config_dir)
         return rc
 
     log.info("Data URL check pass!")
@@ -686,7 +691,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     network_stop()
     storage_stop()
     bitcoin_stop()
-    blockstack_client.rpc.local_rpc_stop(client_config_dir)
+    blockstack_client.rpc.local_api_stop(client_config_dir)
     TEST_RESULT = True
     return True
 
@@ -1025,6 +1030,7 @@ if __name__ == "__main__":
     # load wallets 
     bitcoin_regtest_fill_wallets( scenario.wallets, default_payment_wallet=default_payment_wallet )
     testlib.set_default_payment_wallet( default_payment_wallet )
+    testlib.set_wallets( scenario.wallets )
 
     # did the scenario change the storage drivers?
     storage_drivers = BLOCKSTACK_STORAGE_DRIVERS
