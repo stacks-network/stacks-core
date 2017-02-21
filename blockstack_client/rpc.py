@@ -44,6 +44,7 @@ import re
 import base58
 import jsonschema
 import jsontokens
+import subprocess
 from jsonschema import ValidationError
 from schemas import *
 
@@ -60,11 +61,11 @@ import proxy
 from proxy import json_is_error, json_is_exception
 
 from .constants import BLOCKSTACK_DEBUG, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS
-from .client import check_storage_setup
 from .method_parser import parse_methods
 import app
 import assets
 import data
+import resolve
 import zonefile
 import wallet
 import user as user_db
@@ -94,7 +95,7 @@ class RPCException(Exception):
 
 
 # maps method name to method information
-def load_rpc_cli_method_info(blockstack_client_mod):
+def load_api_cli_method_info(blockstack_client_mod):
     """
     Load and cache RPC method information
     Call this from __main__
@@ -118,7 +119,7 @@ def load_rpc_cli_method_info(blockstack_client_mod):
     return RPC_CLI_METHOD_INFO
 
 
-def load_rpc_internal_methods(config_path):
+def load_api_internal_methods(config_path):
     """
     Load internal RPC method proxy
     (for the server to use to call its own methods safely)
@@ -129,9 +130,7 @@ def load_rpc_internal_methods(config_path):
     if RPC_INTERNAL_METHODS is not None:
         return RPC_INTERNAL_METHODS
 
-    srv_internal = BlockstackAPIEndpoint(
-        None, config_path=config_path, plugins=get_default_plugins(), server=False
-    )
+    srv_internal = BlockstackAPIEndpoint(None, None, config_path=config_path, server=False)
 
     RPC_INTERNAL_METHODS = srv_internal.internal_proxy
 
@@ -140,7 +139,7 @@ def load_rpc_internal_methods(config_path):
     return RPC_INTERNAL_METHODS
 
 
-def get_rpc_internal_methods():
+def get_api_internal_methods():
     """
     Get a proxy object to the set of registered
     RPC methods within the RPC server.
@@ -157,7 +156,7 @@ def get_rpc_internal_methods():
     return RPC_INTERNAL_METHODS
 
 
-def get_rpc_cli_method_info(method_name):
+def get_api_cli_method_info(method_name):
     global RPC_CLI_METHOD_INFO
 
     msg = 'RPC methods not initialized (loaded = {})'
@@ -167,7 +166,7 @@ def get_rpc_cli_method_info(method_name):
     return RPC_CLI_METHOD_INFO.get(method_name, None)
 
 
-def list_rpc_cli_method_info():
+def list_api_cli_method_info():
     global RPC_CLI_METHOD_INFO
 
     msg = 'RPC methods not loaded (loaded = {})'
@@ -177,16 +176,16 @@ def list_rpc_cli_method_info():
     return RPC_CLI_METHOD_INFO
 
 
-def run_cli_rpc(command_name, argv, config_path=CONFIG_PATH, check_rpc=True, **kw):
+def run_cli_api(command_name, argv, config_path=CONFIG_PATH, check_rpc=True, **kw):
     """
-    Invoke a CLI method via RPC.  Note that @command_name
+    Invoke a CLI method via the RESTful API.  Note that @command_name
     is the name of the *command*, not the method.
 
     Return the result of the command on success (as a dict).
 
     side-effect: caches parsed methods
     """
-    command_info = get_rpc_cli_method_info(command_name)
+    command_info = get_api_cli_method_info(command_name)
 
     # do sanity checks.
     if command_info is None:
@@ -228,25 +227,18 @@ def run_cli_rpc(command_name, argv, config_path=CONFIG_PATH, check_rpc=True, **k
     if 'config_path' in kw:
         config_path = kw.pop('config_path')
 
-    if 'check_storage' in pragmas:
-        # need storage set up first
-        res = check_storage_setup(config_path=config_path)
-        if 'error' in res:
-            log.error("Storage is not set up for this wallet")
-            return {'error': 'Storage is not set up.  Please run `setup_storage`.'}
-
     res = command_info['method'](args, config_path=config_path, **kw)
 
     return res
 
 
 # need to wrap CLI methods to capture arguments
-def local_rpc_factory(method_info, config_path, check_rpc=True, include_kw=False):
+def api_cli_wrapper(method_info, config_path, check_rpc=True, include_kw=False):
     """
     Factory for producing methods that call the right
-    version of run_cli_rpc.  Makes the same methods
+    version of run_cli_api.  Makes the same methods
     available via the CLI accessible to both the
-    RPC daemon code and to external clients of the RPC daemon.
+    API daemon code and to external clients of the API daemon.
     """
     def argwrapper(*args, **kw):
         cf = config_path
@@ -254,9 +246,9 @@ def local_rpc_factory(method_info, config_path, check_rpc=True, include_kw=False
             cf = kw.pop('config_path')
 
         if include_kw:
-            result = run_cli_rpc(method_info['command'], list(args), config_path=cf, check_rpc=check_rpc, **kw)
+            result = run_cli_api(method_info['command'], list(args), config_path=cf, check_rpc=check_rpc, **kw)
         else:
-            result = run_cli_rpc(method_info['command'], list(args), config_path=cf, check_rpc=check_rpc)
+            result = run_cli_api(method_info['command'], list(args), config_path=cf, check_rpc=check_rpc)
 
         return result
 
@@ -265,26 +257,12 @@ def local_rpc_factory(method_info, config_path, check_rpc=True, include_kw=False
     return argwrapper
 
 
-# ping method
-def ping():
-    return True
-
-
 class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
     '''
-    Blockstack API endpoint.
-    * handle JSONRPC requests on POST
-    * handle app authentication
-    * serve app resources to authenticated applications
+    Blockstack RESTful API endpoint.
     '''
 
-    JSONRPC_PARSE_ERROR = -32700
-    JSONRPC_INVALID_REQUEST = -32600
-    JSONRPC_METHOD_NOT_FOUND = -32601
-    JSONRPC_INVALID_PARAMS = -32602
-    JSONRPC_INTERNAL_ERROR = -32603
-
-    JSONRPC_MAX_SIZE = 1024 * 1024      # 1 MB
+    JSONRPC_MAX_SIZE = 1024 * 1024
 
     def _send_headers(self, status_code=200, content_type='application/json'):
         """
@@ -294,82 +272,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self.send_header('content-type', content_type)
         self.send_header('Access-Control-Allow-Origin', '*')    # CORS
         self.end_headers()
-
-
-    def _send_redirect(self, redirect_url):
-        """
-        Generate and reply a redirect response
-        """
-        self.send_response(302)
-        self.send_header('Location', redirect_url)
-        self.end_headers()
-
-
-    def _make_jsonrpc_response(self, m_id, have_result=False, result=None, have_error=False, error=None):
-        """
-        Make a base JSON-RPC response
-        """
-        assert have_result or have_error, "Need result or error"
-
-        payload = {}
-        if have_result:
-            payload['result'] = result
-
-        if have_error:
-            payload['error'] = error
-
-        res = {'jsonrpc': '2.0', 'id': m_id}
-        res.update(payload)
-        return res
-
-
-    def _make_jsonrpc_error(self, code, message, data=None):
-        """
-        Make a JSON-RPC error message
-        """
-        error_msg = {}
-        error_msg['code'] = code
-        error_msg['message'] = message
-        if data:
-            error_msg['data'] = data
-
-        return error_msg
-
-
-    def _reply(self, resp):
-        """
-        Send a JSON response
-        """
-        jsonschema.validate(resp, JSONRPC_RESPONSE_SCHEMA)
-
-        resp_str = json.dumps(resp)
-        self.wfile.write(resp_str)
-        return
-
-
-    def _reply_error(self, m_id, code, message, data=None):
-        """
-        Generate and reply an error code
-        """
-        self._send_headers()
-
-        error_msg = self._make_jsonrpc_error( code, message, data=data )
-        resp = self._make_jsonrpc_response( m_id, have_error=True, error=error_msg )
-
-        self._reply(resp)
-        return
-
-
-    def _reply_result(self, m_id, result_payload):
-        """
-        Generate and reply a result
-        """
-        self._send_headers()
-
-        resp = self._make_jsonrpc_response( m_id, have_result=True, result=result_payload )
-
-        self._reply(resp)
-        return
 
 
     def _reply_json(self, json_payload, status_code=200):
@@ -446,136 +348,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return request
 
 
-    def JSONRPC_call(self, session, path_info ):
-        """
-        Handle one JSON-RPC request
-        """
-
-        qs_values = path_info['qs_values']
-        request = self._read_json(schema=JSONRPC_REQUEST_SCHEMA)
-        if request is None:
-            self._reply_error( None, self.JSONRPC_PARSE_ERROR, 'Parse error' )
-            return
-
-        # look up
-        rpc_id = request['id']
-        method_name = request['method']
-        method_params = request.get('params', [])
-        if method_name not in self.server.funcs:
-            self._reply_error( rpc_id, self.JSONRPC_METHOD_NOT_FOUND, 'No such method')
-            return
-
-        # must be allowed by the session.
-        # the only method allowed-by-default is 'ping'
-        log.debug("Call '{}'".format(method_name))
-        if method_name not in ['ping']:
-            if not request.has_key('blockstack_rpc_token') or request['blockstack_rpc_token'] != self.server.rpc_token:
-                # no RPC token, so need a session
-                if session is None:
-                        # must authenticate first
-                        return self.app_auth_begin(qs_values)
-
-                elif method_name not in session['methods']:
-                    # not allowed by session
-                    self._reply_error( rpc_id, self.JSONRPC_INVALID_REQUEST, "Method not allowed")
-                    return
-
-        # validate arguments
-        method = self.server.funcs[method_name]
-        try:
-            if isinstance(method_params, dict):
-                inspect.getcallargs(method, **method_params)
-            else:
-                inspect.getcallargs(method, *method_params)
-
-        except ValueError as ve:
-            if BLOCKSTACK_DEBUG:
-                log.exception(ve)
-
-            self._reply_error( rpc_id, self.JSONRPC_INVALID_PARAMS, "Invalid parameters")
-            return
-
-        # call
-        resp = None
-        try:
-            if isinstance(method_params, dict):
-                resp = method(**method_params)
-            else:
-                resp = method(*method_params)
-
-        except Exception, e:
-            if BLOCKSTACK_DEBUG:
-                log.exception(e)
-
-            msg = "Internal error"
-
-            if BLOCKSTACK_DEBUG:
-                trace = traceback.format_exc()
-                msg += "\nCaught exception\n{}".format(trace)
-
-            self._reply_error( rpc_id, self.JSONRPC_INTERNAL_ERROR, msg )
-            return
-
-        # return result
-        self._reply_result( rpc_id, resp )
-        return
-
-
-    def get_app_info(self, qs_values):
-        """
-        Get the app blockchain ID and appname information on request
-        Return {''app_fqu': ..., 'appname': ...} on success
-        Return {'error': ...} on error
-        """
-        # NOTE: the way we get the name and appname here is a place-holder until
-        # (1) we can get the appname from the Host: field reliably (i.e. need local DNS stub), and
-        # (2) we have a .app namespace, where the app name and the Blockstack ID are the same thing.
-        # application owner name is in the `name=` parameter, or `Host:` header
-        app_fqu = qs_values.get("name", None)
-        if app_fqu is None:
-            app_fqu = self.headers.get('host', None)
-            if app_fqu is None or app_fqu.startswith("localhost:") or app_fqu == "localhost":
-                log.error("No Host: header, and no name= query arg")
-                return {'error': 'Could not identify application owner'}
-
-        # application name should be in the query string under `appname=`;
-        # if not given, it falls back to the name of the app
-        appname = qs_values.get('appname', None)
-        if appname is None:
-            appname = app_fqu
-
-        return {'app_fqu': app_fqu, 'appname': appname}
-
-
-    def app_auth_begin(self, qs_values):
-        """
-        Begin application authentication.
-        Redirect the user with a URL to either sign in with an existing account
-        or create a new account.
-        """
-        app_info = self.get_app_info(qs_values)
-        if 'error' in app_info:
-            self._send_headers(status_code=401, content_type='text/plain')
-            return
-
-        app_fqu = app_info['app_fqu']
-        appname = app_info['appname']
-
-        name_payload = {
-            'name': app_fqu,
-            'appname': appname
-        }
-
-        url = app.app_auth_begin( app_fqu, appname, name_payload, self.server.master_data_privkey, config_path=self.server.config_path )
-        if url is None:
-            log.error("Failed to generate auth-begin URL")
-            self._send_headers(status_code=500, content_type='text/plain')
-            return
-
-        self._send_redirect( url )
-        return
-
-
     def parse_qs(self, qs):
         """
         Parse query string, but enforce one instance of each variable.
@@ -591,26 +363,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             ret[qs_var] = qs_value_list[0]
 
         return ret
-
-
-    def verify_url(self):
-        """
-        Reconstruct and authenticate the URL send to this handler.
-        Return True if verified
-        Return False if not
-        """
-        host = self.headers.get('host', None)
-        if host is None:
-            log.error("No Host: given")
-            return False
-
-        url = "http://{}{}".format(host, self.path)
-        res = app.app_verify_url( url, self.server.master_data_pubkey, config_path=self.server.config_path )
-        if res is None:
-            log.error("Failed to verify '{}'".format(url))
-            return False
-
-        return True
 
 
     def verify_session(self, qs_values):
@@ -657,9 +409,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Not 'basic' auth")
             return False
 
-        if auth_parts[1] != self.server.rpc_token:
+        if auth_parts[1] != self.server.api_pass:
             # wrong token
-            log.debug("Wrong auth token")
+            log.debug("Wrong API password")
             return False
 
         return True
@@ -740,41 +492,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
     def GET_auth( self, ses, path_info ):
         """
         Get a session token, given a signed request in the query string.
-        The authorization request must take the following format:
-        {
-            'name': str             # blockchain ID of the application developer
-            'appname': str          # name of the application
-            'user_id': str          # persona that owns the account for this app
-            'methods': [str]        # list of methods to allow
-        }
         Return 200 on success with {'token': token}
         Return 401 if the authRequest argument is missing
-        Return 404 if the
+        Return 404 if we failed to sign in
         """
-        token_schema = {
-            'type': 'object',
-            'properties': {
-                'name': {
-                    'type': 'string',
-                    'pattern': OP_NAME_PATTERN,
-                },
-                'appname': {
-                    'type': 'string',
-                    'pattern': OP_URLENCODED_PATTERN,
-                },
-                'user_id': {
-                    'type': 'string',
-                    'pattern': OP_URLENCODED_PATTERN,
-                },
-            },
-            'required': [
-                'name',
-                'appname',
-                'user_id',
-            ],
-            'additionalProperties': False,
-        }
-
+        
         token = path_info['qs_values'].get('authRequest')
         if token is None:
             log.debug("missing authRequest")
@@ -789,87 +511,28 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         try:
             assert isinstance(decoded_token, dict)
             assert decoded_token.has_key('payload')
-            jsonschema.validate(decoded_token['payload'], token_schema)
-        except Exception as ve:
+            jsonschema.validate(decoded_token['payload'], APP_AUTHREQUEST_SCHEMA )
+        except ValidationError as ve:
+            if BLOCKSTACK_TEST:
+                log.exception(ve)
+
             log.debug("Invalid token")
             return self._send_headers(status_code=401, content_type='text/plain')
 
-        payload = decoded_token['payload']
-        user_id = payload['user_id']
-        app_fqu = payload['name']
-        appname = payload['appname']
+        app_domain = str(decoded_token['payload']['app_domain'])
+        methods = [str(m) for m in decoded_token['payload']['methods']]
+        session_lifetime = DEFAULT_SESSION_LIFETIME
+        app_user_id = decoded_token['payload'].get('app_user_id', None)
+        if app_user_id is not None:
+            app_user_id = str(app_user_id)
 
         internal = self.server.get_internal_proxy()
-        res = internal.cli_app_signin( user_id, app_fqu, appname, self.server.master_data_privkey, config_path=self.server.config_path )
+        res = internal.cli_app_signin( app_domain, ",".join(methods), session_lifetime, app_user_id, config_path=self.server.config_path )
         if 'error' in res:
-            return self._reply_json(res, status_code=404)
+            log.error("Failed to sign in: {}".format(res['error']))
+            return self._reply_json({'error': res['error']}, status_code=404)
 
         return self._reply_json({'token': res['token']})
-
-
-    def POST_auth_accounts( self, ses, path_info ):
-        """
-        Create a new account for the given user.
-        Arguments: {'user_id': ..., 'name': ..., 'appname': ..., 'methods': ...}
-        Returns 200 on success with the newly-created account and datastore
-        Returns 401 on invalid args
-        Returns 404 on missing user ID
-        Returns 500 on other errors
-        """
-
-        request_schema = {
-            'type': 'object',
-            'properties': {
-                'user_id': {
-                    'type': 'string',
-                    'pattern': OP_URLENCODED_PATTERN,
-                },
-                'name': {
-                    'type': 'string',
-                    'pattern': OP_NAME_PATTERN,
-                },
-                'appname': {
-                    'type': 'string',
-                    'pattern': OP_URLENCODED_PATTERN,
-                },
-                'methods': {
-                    'type': 'array',
-                    'items': {
-                        'type': 'string',
-                        'pattern': OP_URLENCODED_PATTERN
-                    },
-                },
-            },
-            'required': [
-                'name',
-                'appname',
-                'user_id',
-            ],
-            'additionalProperties': False,
-        }
-
-        request = self._read_json(schema=request_schema)
-        if request is None:
-            return self._reply_json({"error": 'Invalid request'}, status_code=401)
-
-        user_id = request['user_id']
-        name = request['name']
-        appname = request['appname']
-        methods = ','.join(request['methods'])
-
-        # assume 7-day session
-        internal = self.server.get_internal_proxy()
-        res = internal.cli_app_create_account( user_id, name, appname, methods, 3600*24*7, self.server.master_data_privkey, config_path=self.server.config_path )
-        if 'error' in res:
-            log.debug("Failed to create account: {}".format(res['error']))
-            return self._reply_json(res, status_code=404)
-
-        return self._reply_json({'status': True, 'account': res['account'], 'datastore': res['datastore']})
-
-
-    def DELETE_auth_accounts( self, ses, path_info ):
-
-        pass
 
 
     def GET_names_owned_by_address( self, ses, path_info, address ):
@@ -897,6 +560,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
 
         # optional args: offset=..., count=...
+        qs_values = path_info['qs_values']
         offset = qs_values.get('offset')
         count = qs_values.get('count')
 
@@ -923,7 +587,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
     def POST_names( self, ses, path_info ):
         """
-        Register a name.
+        Register or renew a name.
         Takes {'name': name to register}
         Reply 202 with a txid on success
         Reply 401 for invalid payload
@@ -947,6 +611,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'min_confs': {
                     'type': 'integer'
                 },
+                'tx_fee': {
+                    'type': 'integer',
+                },
+                'cost_satoshis': {
+                    'type': 'integer',
+                },
             },
             'required': [
                 'name'
@@ -966,6 +636,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         zonefile_txt = request.get('zonefile', None)
         recipient_address = request.get('owner_address', None)
         min_confs = request.get('min_confs', TX_MIN_CONFIRMATIONS)
+        tx_fee = request.get('tx_fee', None)
+        cost_satoshis = request.get('cost_satoshis', None)
 
         if min_confs < 0:
             min_confs = 0
@@ -973,14 +645,45 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if min_confs != TX_MIN_CONFIRMATIONS:
             log.warning("Using payment UTXOs with as few as {} confirmations".format(min_confs))
 
-        res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs, interactive=False, force_data=True)
+        if tx_fee is not None:
+            if tx_fee > (5 * 1e5):
+                # this is a bug...
+                log.error("Absurd tx fee {}".format(tx_fee))
+                return self._reply_json({'error': 'Absurd transaction fee'}, status_code=401)
+        
+        # do we own this name already?
+        # i.e. do we need to renew?
+        res = proxy.get_names_owned_by_address( self.server.wallet_keys['owner_addresses'][0] )
+        if json_is_error(res):
+            log.error("Failed to get names owned by address")
+            self._reply_json({'error': 'Failed to list names by address'}, status_code=500)
+            return
+
+        op = None
+        if name in res:
+            # renew
+            for prop in request_schema['properties'].keys():
+                if prop in request.keys() and prop != 'name':
+                    # invalid argument 
+                    self._reply_json({'error': 'Invalid argument'}, status_code=401)
+
+            op = 'renew'
+            res = internal.cli_renew(name, interactive=False, cost_satoshis=cost_satoshis, tx_fee=tx_fee)
+
+        else:
+            # register
+            op = 'register'
+            res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs, interactive=False, force_data=True, cost_satoshis=cost_satoshis, tx_fee=tx_fee)
+
         if 'error' in res:
-            log.error("Failed to register {}".format(name))
-            self._reply_json({"error": "Failed to register name: {}".format(res['error'])}, status_code=500)
+            log.error("Failed to {} {}".format(op, name))
+            self._reply_json({"error": "Failed to {} name: {}".format(op, res['error'])}, status_code=500)
             return
 
         resp = {
-            'transaction_hash': res['transaction_hash']
+            'success': True,
+            'transaction_hash': res['transaction_hash'],
+            'message': 'Name queued for registration.  The process takes several hours.  You can check the status with `blockstack info`.',
         }
         self._reply_json(resp, status_code=202)
         return
@@ -1005,6 +708,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             for pending_entry in registrar_info[queue_type]:
                 if pending_entry['name'] == name:
                     # pending
+                    log.debug("{} is pending".format(name))
                     ret = {
                         'status': 'pending',
                         'operation': queue_type,
@@ -1044,12 +748,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             zonefile_txt = zonefile_res.pop("zonefile")
 
         status = 'revoked' if name_rec['revoked'] else 'registered'
+
+        log.debug("{} is {}".format(name, status))
         ret = {
             'status': status,
             'zonefile': zonefile_txt,
             'zonefile_hash': name_rec['value_hash'],
             'address': name_rec['address'],
             'last_txid': name_rec['txid'],
+            'blockchain': 'bitcoin',
+            'expire_block': name_rec['expire_block'],
         }
 
         self._reply_json(ret)
@@ -1092,7 +800,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def PATCH_name_transfer( self, ses, path_info, name ):
+    def PUT_name_transfer( self, ses, path_info, name ):
         """
         Transfer a name to a new owner
         Return 202 and a txid on success, with {'transaction_hash': txid}
@@ -1105,6 +813,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 "owner": {
                     'type': 'string',
                     'pattern': OP_ADDRESS_PATTERN
+                },
+                'tx_fee': {
+                    'type': 'integer',
                 },
             },
             'required': [
@@ -1128,20 +839,30 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({"error": 'Invalid owner address'}, status_code=401)
             return
 
-        res = internal.cli_transfer(name, recipient_address, interactive=False)
+        tx_fee = request.get('tx_fee', None)
+        if tx_fee is not None:
+            if tx_fee > (5 * 1e5):
+                # this is a bug...
+                log.error("Absurd tx fee {}".format(tx_fee))
+                return self._reply_json({'error': 'Absurd transaction fee'}, status_code=401)
+
+
+        res = internal.cli_transfer(name, recipient_address, interactive=False, tx_fee=tx_fee)
         if 'error' in res:
-            log.error("Failed to register {}".format(name))
+            log.error("Failed to transfer {}: {}".format(name, res['error']))
             self._reply_json({"error": "Failed to register name: {}".format(res['error'])}, status_code=500)
             return
 
         resp = {
-            'transaction_hash': res['transaction_hash']
+            'success': True,
+            'transaction_hash': res['transaction_hash'],
+            'message': 'Name queued for transfer.  The process takes ~1 hour.  You can check the status with `blockstack info`.',
         }
         self._reply_json(resp, status_code=202)
         return
 
 
-    def PATCH_name_zonefile( self, ses, path_info, name ):
+    def PUT_name_zonefile( self, ses, path_info, name ):
         """
         Set a new name zonefile
         Return 202 with a txid on success, with {'transaction_hash': txid}
@@ -1155,9 +876,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'type': 'string',
                     'maxLength': RPC_MAX_ZONEFILE_LEN,
                 },
+                'zonefile_b64': {
+                    'type': 'string',
+                    'maxLength': (RPC_MAX_ZONEFILE_LEN * 4) / 3 + 1,
+                },
                 'zonefile_hash': {
                     'type': 'string',
                     'pattern': OP_ZONEFILE_HASH_PATTERN,
+                },
+                'tx_fee': {
+                    'type': 'integer',
                 },
             },
             'additionalProperties': False,
@@ -1173,11 +901,31 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         zonefile_hash = request.get('zonefile_hash')
         zonefile_str = request.get('zonefile')
+        zonefile_str_b64 = request.get('zonefile_b64')
+        tx_fee = request.get('tx_fee', None)
+        
+        if tx_fee is not None:
+            if tx_fee > (5 * 1e5):
+                # this is a bug...
+                log.error("Absurd tx fee {}".format(tx_fee))
+                return self._reply_json({'error': 'Absurd transaction fee'}, status_code=401)
 
-        if zonefile_hash is None and zonefile_str is None:
+        if zonefile_hash is None and zonefile_str is None and zonefile_b64 is None:
             log.error("No zonefile or zonefile hash received")
             self._reply_json({'error': 'Invalid request'}, status_code=401)
             return
+
+        if zonefile_str is not None and zonefile_str_b64 is not None:
+            log.error("Got both 'zonefile' and 'zonefile_b64'")
+            self._reply_json({'error': 'Invalid request'}, status_code=401)
+            return 
+
+        if zonefile_str_b64 is not None:
+            try:
+                zonefile_str = base64.b64decode(zonefile_str_b64)
+            except:
+                self._reply_json({'error': 'Invalid base64-encoded zonefile'}, status_code=401)
+                return
 
         if zonefile_hash is not None and zonefile_str is not None:
             log.error("Got both zonefile and zonefile hash")
@@ -1186,10 +934,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         res = None
         if zonefile_str is not None:
-            res = internal.cli_update(name, str(zonefile_str), "false", interactive=False, nonstandard=True, force_data=True)
+            res = internal.cli_update(name, str(zonefile_str), "false", interactive=False, nonstandard=True, force_data=True, tx_fee=tx_fee)
 
         else:
-            res = internal.cli_set_zonefile_hash(name, str(zonefile_hash))
+            res = internal.cli_set_zonefile_hash(name, str(zonefile_hash), tx_fee=tx_fee)
 
         if 'error' in res:
             log.error("Failed to update {}: {}".format(name, res['error']))
@@ -1197,7 +945,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         resp = {
-            'transaction_hash': res['transaction_hash']
+            'success': True,
+            'transaction_hash': res['transaction_hash'],
+            'message': 'Name queued for update.  The process takes ~1 hour.  You can check the status with `blockstack info`.',
         }
         self._reply_json(resp, status_code=202)
         return
@@ -1213,12 +963,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         internal = self.server.get_internal_proxy()
         res = internal.cli_revoke(name, interactive=False)
         if 'error' in res:
-            log.error("Failed to revoke {}".format(name))
+            log.error("Failed to revoke {}: {}".format(name, res['error']))
             self._reply_json({"error": "Failed to revoke name: {}".format(res['error'])}, status_code=500)
             return
 
         resp = {
-            'transaction_hash': res['transaction_hash']
+            'success': True,
+            'transaction_hash': res['transaction_hash'],
+            'message': 'Name queued for revocation.  The process takes ~1 hour.  You can check the status with `blockstack info`.'
         }
         self._reply_json(resp, status_code=202)
         return
@@ -1284,32 +1036,18 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         ret = {
-            'transaction_hash': resp['transaction_hash']
+            'status': True,
+            'transaction_hash': resp['transaction_hash'],
+            'message': 'Name queued for update.  The process takes ~1 hour.  You can check the status with `blockstack info`.'
         }
 
         self._reply_json(ret)
         return
 
 
-    def GET_users( self, ses, path_info ):
-        """
-        Get all users
-        Reply the list of users on success (see USER_SCHEMA)
-        Return 500 on error
-        """
-        internal = self.server.get_internal_proxy()
-        resp = internal.cli_list_users()
-        if json_is_error(resp):
-            self._reply_json({'error': resp['error']}, status_code=500)
-            return
-
-        self._reply_json(resp)
-        return
-
-
     def POST_users( self, ses, path_info ):
         """
-        Create a user, given a user ID and a profile
+        Create a profile for a user, given the blockchain ID and profile
         Return 200 on success
         Return 500 on failure to create the user account
         Return 503 on failure to replicate the profile (the caller should try POST_user_profile to re-try uploading)
@@ -1317,19 +1055,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         upload_schema = {
             'type': 'object',
             'properties': {
-                'user_id': {
+                'blockchain_id': {
                     'type': 'string',
-                    'pattern': OP_USER_ID_PATTERN,
+                    'pattern': OP_NAME_PATTERN,
                 },
                 'profile': {
                     'type': 'object'
                 },
-                'local': {
-                    'type': 'boolean'
-                },
             },
             'required': [
-                'user_id',
+                'name',
                 'profile'
             ],
             'additionalProperties': False
@@ -1340,19 +1075,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': 'Invalid user ID or profile'}, status_code=401)
             return
 
-        user_id = user_profile_json['user_id']
+        name = user_profile_json['blockchain_id']
         user_profile = user_profile_json['profile']
-        local = user_profile_json.get('local', False)
-
-        internal = self.server.get_internal_proxy()
-        res = internal.cli_create_user( user_id, local )
-        if json_is_error(res):
-            self._reply_json({'error': 'Failed to create user: {}'.format(res['error'])}, status_code=500)
-            return
 
         # store profile
+        internal = self.server.get_internal_proxy()
         profile_str = json.dumps(user_profile)
-        res = internal.cli_put_user_profile( user_id, profile_str )
+        res = internal.cli_put_user_profile( name, profile_str, force_data=True )
         if json_is_error(res):
             self._reply_json({'error': 'Failed to store user profile: {}'.format(res['error'])}, status_code=503)
             return
@@ -1361,27 +1090,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def DELETE_user( self, ses, path_info, user_id ):
+    def DELETE_user_profile( self, ses, path_info, user_id ):
         """
-        Delete a user and its profile.
+        Delete a profile.
         Return 200 on success
-        Return 403 if the user ID does not match the session user ID
         Return 500 on failure to remove the local user information.
         Return 503 to delete the profile.  The caller should try this method again until it succeeds.
         """
-        if user_id != ses['user_id']:
-            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
-            return
-
         internal = self.server.get_internal_proxy()
-        res = internal.cli_delete_user_profile( user_id, wallet_keys=self.server.wallet_keys )
+        res = internal.cli_delete_profile( user_id, wallet_keys=self.server.wallet_keys )
         if json_is_error(res):
             self._reply_json({'error': 'Failed to delete user profile: {}'.format(res['error'])}, status_code=503)
-            return
-
-        res = internal.cli_delete_user( user_id, wallet_keys=self.server.wallet_keys )
-        if json_is_error(res):
-            self._reply_json({'error': 'Failed to delete user: {}'.format(res['error'])}, status_code=500)
             return
 
         self._reply_json({'status': True})
@@ -1393,27 +1112,21 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Get a user profile.
         Only works on the session user's profile
         Reply the profile on success
-        Return 403 on invalid user ID (must match the session user ID)
         Return 404 on failure to load
         """
-        if user_id != ses['user_id']:
-            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
-            return
-
         internal = self.server.get_internal_proxy()
-        resp = internal.cli_get_user_profile( user_id )
+        resp = internal.cli_lookup( user_id )
         if json_is_error(resp):
             self._reply_json({'error': resp['error']}, status_code=404)
             return
 
-        self._reply_json(resp)
+        self._reply_json(resp['profile'])
         return
 
 
     def PATCH_user_profile( self, ses, path_info, user_id ):
         """
         Patch a user profile.
-        Only works on the session user's profile
         Reply 200 on success
         Reply 401 if the data uploaded isn't valid JSON
         Reply 403 on invalid user ID (must match session user ID)
@@ -1432,17 +1145,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             'additionalProperties': False
         }
 
-        if user_id != ses['user_id']:
-            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
-            return
-
         profile_json = self._read_json(schema=upload_schema)
         if profile_json is None:
             self._reply_json({'error': 'Invalid profile'}, status_code=401)
             return
 
         internal = self.server.get_internal_proxy()
-        resp = internal.cli_put_user_profile( user_id, json.dumps(profile_json['profile']), force_data=True )
+        resp = internal.cli_put_profile( user_id, json.dumps(profile_json['profile']), wallet_keys=self.server.wallet_keys, force_data=True )
         if json_is_error(resp):
             self._reply_json({'error': resp['error']}, status_code=500)
             return
@@ -1451,99 +1160,76 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def GET_user_stores( self, ses, path_info, user_id ):
+    def GET_user_store( self, ses, path_info, app_user_id ):
         """
-        Get the user's list of stores
-        Only works on the session user's stores
+        Get the specific data store for this app user account
         Reply 200 on success
-        Reply 403 on invalid user ID
-        Reply 500 on failure to load
+        Reply 503 on failure to load
+        
+        # TODO see if we can load cached app user private key to auth request
         """
-        if user_id != ses['user_id']:
-            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
-            return
+        
+        if app_user_id != ses['app_user_id']:
+            return self._reply_json({'error': 'Invalid user'}, status=403)
 
         internal = self.server.get_internal_proxy()
-        user_datastore_list = internal.cli_list_datastores(user_id)
-        if json_is_error(user_datastore_list):
-            self._reply_json({'error': 'Failed to list datastores: {}'.format(user_datastore_list['error'])}, status_code=500)
-            return
+        internal = self.server.get_internal_proxy()
+        res = internal.cli_get_datastore(app_user_id, config_path=self.server.config_path)
+        if 'error' in res:
+            return self._reply_json({'error': res['error']}, status_code=503)
 
-        self._reply_json(user_datastore_list)
-        return
+        return self._reply_json(res)
 
 
-    def POST_user_stores( self, ses, path_info, user_id ):
+    def POST_user_store( self, ses, path_info, app_user_id ):
         """
-        Make a data store for the given user ID
-        Only works on this user's stores
+        Make a data store for the application identified by the session
         Reply 200 on success
-        Reply 403 on invalid user ID
         Reply 503 on failure to replicate
+
+        # TODO see if we can load cached app user private key
         """
-        upload_schema = {
-            'type': 'object',
-            'properties': {
-                'storeID': {
-                    'type': 'string',
-                    'pattern': OP_URLENCODED_PATTERN
-                },
-            },
-            'required': [
-                'storeID'
-            ],
-            'additionalProperties': False
-        }
+       
+        if app_user_id != ses['app_user_id']:
+            return self._reply_json({'error': 'Invalid user'}, status=403)
 
-        if user_id != ses['user_id']:
-            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
-            return
-
-        datastore_info = self._read_json(schema=upload_schema)
-        if datastore_info is None:
-            self._reply_json({'error': 'Invalid request'}, status_code=401)
-            return
-
-        datastore_id = datastore_info['storeID']
         internal = self.server.get_internal_proxy()
-        res = internal.cli_create_datastore(user_id, datastore_id, wallet_keys=self.server.wallet_keys)
+        res = internal.cli_create_datastore(app_domain, wallet_keys=self.server.wallet_keys, config_path=self.server.config_path)
         if json_is_error(res):
-            self.reply_json({'error': 'Failed to put datastore: {}'.format(res['error'])}, status_code=503)
-            return
+            return self.reply_json({'error': 'Failed to put datastore: {}'.format(res['error'])}, status_code=503)
 
-        self._reply_json({'status': True})
-        return
+        return self._reply_json({'status': True})
 
 
-    def PUT_user_stores( self, ses, path_info, user_id, store_id ):
+    def PUT_user_store( self, ses, path_info, user_id ):
         """
-        Update a user store.
+        Update a data store for the application identified by the session.
         """
-        if user_id != ses['user_id']:
-            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
-            return
-
+        
         pass
 
 
-    def DELETE_user_stores( self, ses, path_info, user_id, store_id ):
+    def DELETE_user_store( self, ses, path_info, app_user_id ):
         """
-        Delete a user store
-        Only works on the session's user ID
+        Delete the data store identified by the given session
         Reply 200 on success
         Reply 403 on invalid user ID
         Reply 503 on (partial) failure to delete all replicas
-        """
-        if user_id != ses['user_id']:
-            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
-            return
 
+        # TODO see if we can load cached app user private key
+        """
+        if app_user_id != ses['app_user_id']:
+            return self._reply_json({'error': 'Invalid user'}, status=403)
+
+        internal = self.server.get_internal_proxy()
         qs = path_info['qs_values']
         force = qs.get('force', "0")
         force = (force.lower() in ['1', 'true'])
 
+        app_domain = ses['app_domain']
+       
         internal = self.server.get_internal_proxy()
-        res = internal.cli_delete_datastore(user_id, store_id, force)
+        res = internal.cli_delete_datastore(app_domain, force)
         if json_is_error(res):
             self._reply_json({'error': 'Failed to delete datastore: {}'.format(res['error'])}, status_code=503)
             return
@@ -1552,7 +1238,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def GET_user_store_item( self, ses, path_info, user_id, store_id, inode_type ):
+    def GET_user_store_item( self, ses, path_info, app_user_id, inode_type ):
         """
         Get a store item
         Only works on the session's user ID
@@ -1561,10 +1247,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 403 on invalid user ID
         Reply 404 if the file/directory does not exist
         Reply 503 on failure to load data from storage providers
+        
+        # TODO see if we can load cached app user private key
         """
-        if user_id != ses['user_id']:
-            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
-            return
+        if app_user_id != ses['app_user_id']:
+            return self._reply_json({'error': 'Invalid user'}, status=403)
 
         if inode_type not in ['file', 'directory', 'inode']:
             self._reply_json({'error': 'Invalid request'}, status_code=401)
@@ -1580,11 +1267,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         res = None
 
         if inode_type == 'file':
-            res = internal.cli_datastore_getfile(user_id, store_id, path)
+            res = internal.cli_datastore_getfile(app_user_id, path, config_path=self.server.config_path, wallet_keys=self.server.wallet_keys)
         elif inode_type == 'directory':
-            res = internal.cli_datastore_listdir(user_id, store_id, path)
+            res = internal.cli_datastore_listdir(app_user_id, path, config_path=self.server.config_path, wallet_keys=self.server.wallet_keys)
         else:
-            res = internal.cli_datastore_stat(user_id, store_id, path)
+            res = internal.cli_datastore_stat(app_user_id, path, config_path=self.server.config_path, wallet_keys=self.server.wallet_keys)
 
         if json_is_error(res):
             if res['errno'] == errno.ENOENT:
@@ -1608,7 +1295,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def POST_user_store_item( self, ses, path_info, user_id, store_id, inode_type ):
+    def POST_user_store_item( self, ses, path_info, app_user_id, inode_type ):
         """
         Create a store item.
         Only works with the session's user ID.
@@ -1619,7 +1306,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 403 on invalid userID
         Reply 503 on failure to upload data to storage providers
         """
-        return self._create_or_update_store_item( ses, path_info, user_id, store_id, inode_type, create=True )
+        return self._create_or_update_store_item( ses, path_info, app_user_id, inode_type, create=True )
 
 
     def PUT_user_store_item(self, ses, path_info, user_id, store_id, inode_type ):
@@ -1635,15 +1322,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._create_or_update_store_item( ses, path_info, user_id, store_id, inode_type, create=False )
 
 
-    def _create_or_update_store_item( self, ses, path_info, user_id, store_id, inode_type, create=False ):
+    def _create_or_update_store_item( self, ses, path_info, app_user_id, inode_type, create=False ):
         """
         Create or update a file, or create a directory.
         Implements POST_user_store_item and PUT_user_store_item
+        
+        # TODO see if we can load cached app user private key
         """
-        if user_id != ses['user_id']:
-            log.debug("Invalid user ID")
-            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
-            return
+        
+        if app_user_id != ses['app_user_id']:
+            return self._reply_json({'error': 'Invalid user'}, status=403)
 
         if inode_type not in ['file', 'directory']:
             log.debug("Invalid request: unrecognized inode type")
@@ -1672,10 +1360,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             else:
                 do_create = "False"
 
-            res = internal.cli_datastore_putfile(user_id, store_id, path, data, do_create, force_data=True, wallet_keys=self.server.wallet_keys)
+            res = internal.cli_datastore_putfile(ses['app_domain'], path, data, do_create, force_data=True, wallet_keys=self.server.wallet_keys)
 
         elif create:
-            res = internal.cli_datastore_mkdir(user_id, store_id, path, wallet_keys=self.server.wallet_keys)
+            res = internal.cli_datastore_mkdir(ses['app_domain'], path, wallet_keys=self.server.wallet_keys)
 
         else:
             log.error("Invalid request: cannot update directory {}".format(path))
@@ -1691,7 +1379,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def DELETE_user_store_item( self, ses, path_info, user_id, store_id, inode_type ):
+    def DELETE_user_store_item( self, ses, path_info, app_user_id, inode_type ):
         """
         Delete a store item.
         Only works with the session's user ID.
@@ -1702,10 +1390,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 403 on invalid user ID
         Reply 404 if the file/directory does not exist
         Reply 503 on failure to contact remote storage providers
+        
+        # TODO see if we can load cached app user private key
         """
-        if user_id != ses['user_id']:
-            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
-            return
+        if app_user_id != ses['app_user_id']:
+            return self._reply_json({'error': 'Invalid user'}, status=403)
 
         if inode_type not in ['file', 'directory']:
             self._reply_json({'error': 'Invalid request'}, status_code=401)
@@ -1721,10 +1410,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         res = None
 
         if inode_type == 'file':
-            res = internal.cli_datastore_deletefile(user_id, store_id, path, wallet_keys=self.server.wallet_keys)
+            res = internal.cli_datastore_deletefile(ses['app_domain'], path, wallet_keys=self.server.wallet_keys)
 
         else:
-            res = internal.cli_datastore_rmdir(user_id, store_id, path, wallet_keys=self.server.wallet_keys)
+            res = internal.cli_datastore_rmdir(ses['app_domain'], path, wallet_keys=self.server.wallet_keys)
 
         if 'error' in res:
             log.error("Failed to remove {} {}: {}".format(inode_type, path, res['error']))
@@ -1745,10 +1434,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Get the list of collections
         Reply the list of collections on success.
         """
-        if user_id != ses['user_id']:
-            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
-            return
-
         pass
 
 
@@ -1756,10 +1441,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Create a new collection
         """
-        if user_id != ses['user_id']:
-            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
-            return
-
         pass
 
 
@@ -1769,10 +1450,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply the list of items on success
         Reply 404 on not found
         """
-        if user_id != ses['user_id']:
-            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
-            return
-
         pass
 
 
@@ -1783,10 +1460,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the collection doesn't exist
         Reply 404 if the item doesn't exist
         """
-        if user_id != ses['user_id']:
-            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
-            return
-
         pass
 
 
@@ -1794,10 +1467,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Add an item to a collection
         """
-        if user_id != ses['user_id']:
-            self._reply_json({'error': 'Invalid user ID'}, status_code=403)
-            return
-
         pass
 
 
@@ -2002,6 +1671,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
 
+    def GET_wallet_keys( self, ses, path_info ):
+        """
+        Get the decrypted wallet keys
+        Return 200 with wallet info on success
+        Return 404 if the wallet is not loaded
+        """
+        res = backend.registrar.get_wallet(config_path=self.server.config_path)
+        if 'error' in res:
+            return self._reply_json({'error': res['error']}, status_code=500)
+
+        else:
+            return self._reply_json(res)
+
+
     def GET_wallet_balance( self, ses, path_info ):
         """
         Get the wallet balance
@@ -2046,7 +1729,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         }
 
         request = self._read_json(schema=address_schema)
-        if 'error' in request:
+        if request is None:
             return self._reply_json({'error': 'Invalid request'}, status_code=401)
 
         address = str(request['address'])
@@ -2071,25 +1754,66 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json(res)
 
 
-    def PUT_wallet( self, ses, path_info ):
+    def PUT_wallet_keys( self, ses, path_info ):
         """
-        Upload a new wallet.
-        Requires the caller pass the RPC secret.
+        Set wallet keys
         Return 200 on success
-        Return 403 on wrong token
+        Return 500 on error
         """
-        pass
+        wallet = self._read_json(schema=WALLET_SCHEMA_CURRENT)
+        if request is None:
+            return self._reply_json({'error': 'Failed to validate keys'}, status_code=401)
+        
+        res = backend.registrar.set_wallet( (wallet['payment_addresses'][0], wallet['payment_privkey']),
+                                            (wallet['owner_addresses'][0], wallet['owner_privkey']),
+                                            (wallet['data_pubkeys'][0], wallet['data_privkey']), config_path=self.server.config_path )
+
+        if 'error' in res:
+            return self._reply_json({'error': 'Failed to set wallet: {}'.format(res['error'])}, status_code=500)
+       
+        self.server.wallet_keys = wallet
+        return self._reply_json({'status': True})
 
 
     def PUT_wallet_password( self, ses, path_info ):
         """
         Change the wallet password.
         Takes {'password': password, 'new_password': new password}
-        Requires the caller to pass the RPC secret
         Returns 200 on success
-        Returns 403 on wrong token
+        Returns 401 on invalid request
+        Returns 500 on failure to change the password
         """
-        pass
+        password_schema = {
+            'type': 'object',
+            'properties': {
+                'password': {
+                    'type': 'string'
+                },
+                'new_password': {
+                    'type': 'string',
+                },
+            },
+            'required': [
+                'password',
+                'new_password'
+            ],
+            'additionalProperties': False
+        }
+        
+        request = self._read_json(schema=password_schema)
+        if request is None:
+            return self._reply_json({'error': 'Invalid request'}, status_code=401)
+
+        password = str(request['password'])
+        new_password = str(request['password'])
+
+        internal = self.server.get_internal_proxy()
+        res = internal.cli_wallet_passwod(password, new_password, config_path=self.server.config_path, interactive=False)
+        if 'error' in res:
+            log.debug("Failed to change wallet password: {}".format(res['error']))
+            return self._reply_json({'error': 'Failed to change password: {}'.format(res['error'])}, status_code=500)
+
+        return self._reply_json({'status': True})
 
 
     def GET_ping( self, ses, path_info ):
@@ -2099,6 +1823,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         self._send_headers(status_code=200, content_type='text/plain')
         return
+
+    
+    def GET_registrar_state( self, ses, path_info ):
+        """
+        Handle GET /v1/node/registrar/state
+        Get registrar state 
+        Return 200 on success
+        """
+        res = backend.registrar.state()
+        return self._reply_json(res)
 
 
     def POST_reboot( self, ses, path_info ):
@@ -2199,7 +1933,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Handle GET /blockchain/:blockchainID/pending
         Reply the list of pending transactions from our internal registrar queue
-        Reply 404
+        Reply 401 if the blockchain is not known
+        Reply 404 if the name cannot be found.
         """
         if blockchain_name != 'bitcoin':
             # not supported
@@ -2211,7 +1946,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if json_is_error(res):
             # error
             status_code = None
-            if json_is_exception(info):
+            if json_is_exception(res):
                 status_code = 500
             else:
                 status_code = 404
@@ -2257,21 +1992,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 },
                 'need_data_key': False,
             },
-            r'^/v1/jsonrpc$': {
-                # JSONRPC endpoint (we handle our own auth)
-                'routes': {
-                    'POST': self.JSONRPC_call
-                },
-                'whitelist': {
-                    'POST': {
-                        'name': 'JSONRPC',
-                        'desc': 'full API access',
-                        'auth_session': False,
-                        'auth_pass': False,
-                        'need_data_key': False,
-                    },
-                },
-            },
             r'^/v1/auth$': {
                 'routes': {
                     'GET': self.GET_auth,
@@ -2281,28 +2001,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'name': 'auth',
                         'desc': 'get a session token',
                         'auth_session': False,
-                        'auth_pass': True,
-                        'need_data_key': True,
-                    },
-                },
-            },
-            r'^/v1/auth/accounts$': {
-                'routes': {
-                    'POST': self.POST_auth_accounts,
-                    'DELETE': self.DELETE_auth_accounts,
-                },
-                'whitelist': {
-                    'POST': {
-                        'name': 'auth',
-                        'desc': 'create an account for a user',
-                        'auth_session': False,
-                        'auth_pass': True,
-                        'need_data_key': True,
-                    },
-                    'DELETE': {
-                        'name': 'auth',
-                        'desc': 'delete an account',
-                        'auth_session': True,   # a session can delete itself
                         'auth_pass': True,
                         'need_data_key': True,
                     },
@@ -2438,10 +2136,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             },
             r'^/v1/names/({})/owner$'.format(NAME_CLASS): {
                 'routes': {
-                    'PATCH': self.PATCH_name_transfer,     # accepts: recipient address.  Returns: HTTP 202 with txid
+                    'PUT': self.PUT_name_transfer,     # accepts: recipient address.  Returns: HTTP 202 with txid
                 },
                 'whitelist': {
-                    'PATCH': {
+                    'PUT': {
                         'name': 'transfer',
                         'desc': 'transfer names to new addresses',
                         'auth_session': True,
@@ -2453,7 +2151,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             r'^/v1/names/({})/zonefile$'.format(NAME_CLASS): {
                 'routes': {
                     'GET': self.GET_name_zonefile,
-                    'PATCH': self.PATCH_name_zonefile,
+                    'PUT': self.PUT_name_zonefile,
                 },
                 'whitelist': {
                     'GET': {
@@ -2463,7 +2161,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'auth_pass': False,
                         'need_data_key': False,
                     },
-                    'PATCH': {
+                    'PUT': {
                         'name': 'update',
                         'desc': 'set name zonefiles',
                         'auth_session': True,
@@ -2588,8 +2286,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'wallet_read',
                         'desc': 'get the node wallet\'s payment address',
-                        'auth_session': False,
-                        'auth_pass': False,
+                        'auth_session': True,
+                        'auth_pass': True,
                         'need_data_key': False
                     },
                 },
@@ -2602,8 +2300,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'wallet_read',
                         'desc': 'get the node wallet\'s payment address',
-                        'auth_session': False,
-                        'auth_pass': False,
+                        'auth_session': True,
+                        'auth_pass': True,
                         'need_data_key': False
                     },
                 },
@@ -2638,21 +2336,29 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'PUT': {
                         'name': 'wallet_write',
                         'desc': 'Change the wallet password',
-                        'auth_session': True,
+                        'auth_session': False,
                         'auth_pass': True,
                         'need_data_key': False
                     },
                 },
             },
-            r'^/v1/wallet/private$': {
+            r'^/v1/wallet/keys$': {
                 'routes': {
-                    'PUT': self.PUT_wallet,
+                    'GET': self.GET_wallet_keys,
+                    'PUT': self.PUT_wallet_keys,
                 },
                 'whitelist': {
+                    'GET': {
+                        'name': 'wallet_read',
+                        'desc': 'Get the wallet\'s private keys',
+                        'auth_session': False,
+                        'auth_pass': True,
+                        'need_data_key': False,
+                    },
                     'PUT': {
                         'name': 'wallet_write',
                         'desc': 'Set the wallet\'s private keys',
-                        'auth_session': True,
+                        'auth_session': False,
                         'auth_pass': True,
                         'need_data_key': False
                     },
@@ -2669,6 +2375,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'auth_session': False,
                         'auth_pass': False,
                         'need_data_key': False
+                    },
+                },
+            },
+            r'^/v1/node/registrar/state$': {
+                'routes': {
+                    'GET': self.GET_registrar_state,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': '',
+                        'desc': 'Get internal registrar state',
+                        'auth_session': False,
+                        'auth_pass': True,
+                        'need_data_key': False,
                     },
                 },
             },
@@ -2717,17 +2437,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             },
             r'^/v1/users$': {
                 'routes': {
-                    'GET': self.GET_users,
                     'POST': self.POST_users,
                 },
                 'whitelist': {
-                    'GET': {
-                        'name': 'user_admin',
-                        'desc': 'list all users',
-                        'auth_session': True,
-                        'auth_pass': True,
-                        'need_data_key': True,
-                    },
                     'POST': {
                         'name': 'user_admin',
                         'desc': 'create new users',
@@ -2748,7 +2460,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'routes': {
                     'GET': self.GET_user_profile,
                     'PATCH': self.PATCH_user_profile,
-                    'DELETE': self.DELETE_user,
+                    'DELETE': self.DELETE_user_profile,
                 },
                 'whitelist': {
                     'GET': {
@@ -2832,51 +2544,45 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/v1/users/({})/stores$'.format(URLENCODING_CLASS): {
+            r'^/v1/users/({})/store$'.format(URLENCODING_CLASS): {
                 'routes': {
-                    'GET': self.GET_user_stores,
-                    'POST': self.POST_user_stores,
+                    'GET': self.GET_user_store,
+                    'POST': self.POST_user_store,
+                    'PUT': self.PUT_user_store,
+                    'DELETE': self.DELETE_user_store,
                 },
                 'whitelist': {
                     'GET': {
                         'name': 'store_admin',
-                        'desc': 'list a user\'s data stores',
+                        'desc': 'Get an app user\'s datastore metadata',
                         'auth_session': True,
                         'auth_pass': True,
                         'need_data_key': True,
                     },
                     'POST': {
-                        'name': 'store_admin',
-                        'desc': 'create a new data store',
-                        'auth_session': True,
+                        'name': 'store_write',
+                        'desc': 'create the datastore for the app user',
+                        'auth_session': False,  # need app_domain from session
                         'auth_pass': True,
                         'need_data_key': True,
                     },
-                },
-            },
-            r'^/v1/users/({})/stores/({})$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
-                'routes': {
-                    'PUT': self.PUT_user_stores,
-                    'DELETE': self.DELETE_user_stores,
-                },
-                'whitelist': {
                     'PUT': {
-                        'name': 'store_admin',
-                        'desc': 'update a user data store',
+                        'name': 'store_write',
+                        'desc': 'update the app user\'s datastore',
                         'auth_session': True,
                         'auth_pass': True,
                         'need_data_key': True,
                     },
                     'DELETE': {
-                        'name': 'store_admin',
-                        'desc': 'delete a user data store',
-                        'auth_session': True,
+                        'name': 'store_write',
+                        'desc': 'delete the app user\'s datastore',
+                        'auth_session': False,  # need app_domain from session
                         'auth_pass': True,
                         'need_data_key': True,
                     },
                 },
             },
-            r'^/v1/users/({})/stores/({})/(file|directory|inode)$'.format(URLENCODING_CLASS, URLENCODING_CLASS, URLENCODING_CLASS): {
+            r'^/v1/users/({})/store/(file|directory|inode)$'.format(URLENCODING_CLASS, URLENCODING_CLASS, URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_user_store_item,
                     'POST': self.POST_user_store_item,
@@ -2886,28 +2592,28 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'whitelist': {
                     'GET': {
                         'name': 'store_read',
-                        'desc': 'read files and list directories in a data store',
+                        'desc': 'read files and list directories in the app user\'s data store',
                         'auth_session': True,
                         'auth_pass': True,
                         'need_data_key': True,
                     },
                     'POST': {
                         'name': 'store_write',
-                        'desc': 'create files and make directories in a data store',
+                        'desc': 'create files and make directories in the app user\'s data store',
                         'auth_session': True,
                         'auth_pass': True,
                         'need_data_key': True,
                     },
                     'PUT': {
                         'name': 'store_write',
-                        'desc': 'write files and directories to a data store',
+                        'desc': 'write files and directories to the app user\'s data store',
                         'auth_session': True,
                         'auth_pass': True,
                         'need_data_key': True,
                     },
                     'DELETE': {
                         'name': 'store_write',
-                        'desc': 'delete files and directories in a data store',
+                        'desc': 'delete files and directories in the app user\'s data store',
                         'auth_session': True,
                         'auth_pass': True,
                         'need_data_key': True,
@@ -2965,11 +2671,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._send_headers(status_code=503, content_type='text/plain')
             return
 
-        if not self.server.authenticate:
-            # no auth needed
-            authorized = True
-
-        elif not use_session and not use_password:
+        if not use_session and not use_password:
             # no auth needed
             authorized = True
 
@@ -3000,7 +2702,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             # is this method allowed?
             if whitelist_info['name'] not in allowed_methods:
                 # this method is not allowed
-                log.info("Unauthorized method call to {} from {}/{}".format(path_info['path'], app_fqu, appname))
+                log.info("Unauthorized method call to {}".format(path_info['path']))
                 return self._send_headers(status_code=403, content_type='text/plain')
 
             authorized = True
@@ -3065,135 +2767,40 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 class BlockstackAPIEndpoint(SocketServer.TCPServer):
     """
     Lightweight API endpoint to Blockstack server:
-    exposes all of the client methods via an XMLRPC interface,
+    exposes all of the client methods via a RESTful interface,
     so other local programs (e.g. those that can't use the library)
     can access the Blockstack client functionality.
     """
-
-    RPC_SERVER_INST = None
 
     @classmethod
     def is_method(cls, method):
         return bool(callable(method) or getattr(method, '__call__', None))
 
 
-    def register_function(self, func_rpc, func_internal, name=None):
+    def register_function(self, func_internal, name=None):
         """
-        Register a function with the RPC server,
-        and also with the internal RPC container.
-        Optionall don't register on the server.
+        Register a CLI-wrapper function
         """
         name = func.__name__ if name is None else name
         assert name
 
         setattr(self.internal_proxy, name, func_internal)
-        self.funcs[name] = func_rpc
 
 
     def get_internal_proxy(self):
         return self.internal_proxy
 
 
-    def get_plugin_methods(self, plugin):
-        """
-        Get the set of methods in a module.
-        The module must have a RPC_METHODS attribute, which in turn must be
-        an array of callables to register.
-        """
-
-        methods = getattr(plugin, 'RPC_METHODS', [])
-
-        # there is a madness to these methods!
-        if methods:
-            return [method for method in methods if self.is_method(method)]
-
-        # assume all methods that don't start with '__'
-        for attr in dir(plugin):
-            method = getattr(plugin, attr, None)
-            if self.is_method(method):
-                methods.append(method)
-
-        return methods
-
-
-    def get_or_import_plugin_module(self, plugin_or_plugin_name):
-        """
-        Get a module.  The plugin_or_plugin_name argument can either
-        be a module (in which case it is simply returned), or a string
-        that can be imported as a module.
-
-        Returns a module on success
-        Returns None on error
-        """
-        if isinstance(plugin_or_plugin_name, ModuleType):
-            return plugin_or_plugin_name
-
-        try:
-            return __import__(plugin_or_plugin_name)
-        except ImportError as e:
-            msg = 'Skipping plugin "{}", since it cannot be imported'
-            log.error(msg.format(plugin_or_plugin_name))
-
-        return None
-
-
-    def register_plugin_methods(self, config_path, plugins):
-        """
-        Given the config path and a list of either modules or module strings,
-        load all of the modules' methods.
-
-        Each module must have an RPC_METHODS member and an RPC_PREFIX member.
-        The RPC_METHODS member must be an array of functions.
-        The RPC_PREFIX member must be a string; it will be used to namespace the methods.
-
-        The module may optionally have an RPC_INIT and RPC_SHUTDOWN member, which
-        must be callables that instantiate the plugin or destroy it.
-        """
-
-        for plugin_or_plugin_name in plugins:
-            mod_plugin = self.get_or_import_plugin_module(plugin_or_plugin_name)
-            if mod_plugin is None:
-                continue
-
-            plugin_prefix = getattr(mod_plugin, 'RPC_PREFIX', mod_plugin.__name__)
-            if plugin_prefix in self.plugin_prefixes:
-                log.error('Skipping conflicting plugin "{}"'.format(mod_plugin))
-                continue
-
-            plugin_init = getattr(mod_plugin, 'RPC_INIT', lambda: True)
-            plugin_shutdown = getattr(mod_plugin, 'RPC_SHUTDOWN', lambda: True)
-
-            methods = self.get_plugin_methods(mod_plugin)
-
-            for method in methods:
-                msg = 'Register plugin method "{}_{}"'
-                log.debug(msg.format(plugin_prefix, method.__name__))
-
-                name = '{}_{}'.format(plugin_prefix, method.__name__)
-                self.register_function(method, method, name=name)
-
-            # keep state around
-            self.plugin_prefixes.append(plugin_prefix)
-            self.plugin_mods.append(mod_plugin)
-            self.plugin_destructors.append(plugin_shutdown)
-
-            # initialize plugin
-            plugin_init(config_path=config_path)
-
-
-    def register_api_functions(self, config_path, plugins):
+    def register_api_functions(self, config_path):
         """
         Register all API functions.
         Do so for both the internal API proxy (for server-callers)
         and for the exteranl API (for RPC callers).
         """
 
-        # pinger
-        self.register_function(ping, ping, name='ping')
-
         # register the command-line methods (will all start with cli_)
         # methods will be named after their *action*
-        for command_name, method_info in list_rpc_cli_method_info().items():
+        for command_name, method_info in list_api_cli_method_info().items():
             method_name = 'cli_{}'.format(method_info['command'])
             method = method_info['method']
 
@@ -3201,12 +2808,9 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
             log.debug(msg.format(method.__name__, method_name))
 
             self.register_function(
-                local_rpc_factory(method_info, config_path, check_rpc=True),
-                local_rpc_factory(method_info, config_path, check_rpc=False, include_kw=True),
+                api_cli_wrapper(method_info, config_path, check_rpc=False, include_kw=True),
                 name=method_name,
             )
-
-        self.register_plugin_methods(config_path, plugins)
 
         return True
 
@@ -3225,15 +2829,12 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
         return self.app_configs.get("{}:{}".format(name, appname), None)
 
 
-    def __init__(self, wallet_keys, host='localhost', rpc_token=None, port=blockstack_constants.DEFAULT_API_PORT,
-                 plugins=None, handler=BlockstackAPIEndpointHandler,
-                 config_path=CONFIG_PATH, server=True):
+    def __init__(self, api_pass, wallet_keys, host='localhost', port=blockstack_constants.DEFAULT_API_PORT,
+                 handler=BlockstackAPIEndpointHandler, config_path=CONFIG_PATH, server=True):
 
         """
         wallet_keys is only needed if server=True
         """
-
-        plugins = [] if plugins is None else plugins
 
         if server:
             assert wallet_keys is not None
@@ -3256,20 +2857,10 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
         self.master_data_privkey = None
         self.master_data_pubkey = None
         self.port = port
+        self.api_pass = api_pass
         self.app_configs = {}   # cached app config state
-        self.rpc_token = rpc_token
-        self.authenticate = True
 
         conf = blockstack_config.get_config(path=config_path)
-
-        if self.rpc_token is None:
-            self.rpc_token = conf.get('rpc_token', None)
-            if self.rpc_token is None:
-                log.warning("Failed to load RPC token from {}".format(config_path))
-
-        if not conf.get('authenticate_api', True):
-            log.warn("Will NOT authenticate API calls with session tokens")
-            self.authenticate = False
 
         if wallet_keys is not None:
             assert wallet_keys.has_key('data_privkey')
@@ -3280,35 +2871,25 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
             if keylib.key_formatting.get_pubkey_format(self.master_data_pubkey) == 'hex_compressed':
                 self.master_data_pubkey = keylib.key_formatting.decompress(self.master_data_pubkey)
 
-        self.register_api_functions(config_path, plugins)
-
-
-    def shutdown_plugins(self):
-        """
-        Shut down each plugin
-        """
-        log.debug('RPC plugin shutdown')
-
-        for pd in self.plugin_destructors:
-            pd(config_path=self.config_path)
-
-        self.plugin_destructors = []
+        self.register_api_functions(config_path)
 
 
 class BlockstackAPIEndpointClient(object):
     """
-    JSONRPC client for blockstack's local RPC endpoint
+    Client for blockstack's local API endpoint.
+    Usable both by external clients and by the API server itself.
     """
-    def __init__(self, server, port, max_rpc_len=1024*1024, rpc_token=None,
+    def __init__(self, server, port, api_pass=None, session=None, config_path=CONFIG_PATH,
                  timeout=blockstack_constants.DEFAULT_TIMEOUT, debug_timeline=False, **kw):
 
-        self.url = 'http://{}:{}/v1/jsonrpc'.format(server, port)
         self.timeout = timeout
         self.server = server
         self.port = port
         self.debug_timeline = debug_timeline
-        self.max_rpc_len = max_rpc_len
-        self.rpc_token = rpc_token
+        self.api_pass = api_pass
+        self.session = session
+        self.config_path = config_path
+        self.config_dir = os.path.dirname(config_path)
 
 
     def log_debug_timeline(self, event, key, r=-1):
@@ -3319,61 +2900,214 @@ class BlockstackAPIEndpointClient(object):
         return r
 
 
-    def __getattr__(self, key):
+    def make_request_headers(self):
+        """
+        Make HTTP request headers
+        """
+
+        headers = {
+            'content-type': 'application/json'
+        }
+
+        if self.api_pass:
+            headers['Authorization'] = 'basic {}'.format(self.api_pass)
+        
+        elif self.session:
+            headers['Authorization'] = 'bearer {}'.format(self.session)
+
+        return headers
+
+    
+    def get_response(self, req):
+        """
+        Get the response
+        """
         try:
-            return object.__getattr__(self, key)
-        except AttributeError:
-            r = self.log_debug_timeline('begin', key)
+            resp = req.json()
+        except:
+            resp = {'error': 'No JSON response; HTTP status {}'.format(req.status_code)}
 
-            def inner(*args, **kw):
-                """
-                JSON-RPC call wrapper
-                """
-                assert len(args) == 0 or len(kw) == 0, "Cannot support both positional and keyword arguments"
+        return resp
 
-                jsonrpc_request = {
-                    'id': str(uuid.uuid4()),
-                    'jsonrpc': '2.0',
-                    'method': key
-                }
+    
+    def ping(self):
+        """
+        Ping the endpoint
+        """
+        assert not is_api_server(self.config_dir), 'API server should not call this method'
+        headers = self.make_request_headers()
+        req = requests.get( 'http://localhost:{}/v1/node/ping'.format(self.port), timeout=self.timeout, headers=headers)
+        return self.get_response(req)
 
-                if self.rpc_token is not None:
-                    jsonrpc_request['blockstack_rpc_token'] = self.rpc_token
-
-                if len(args) > 0:
-                    jsonrpc_request['params'] = args
-
-                if len(kw) > 0:
-                    jsonrpc_request['params'] = kw
-
-                req = requests.post(self.url, timeout=self.timeout, data=json.dumps(jsonrpc_request), headers={'content-type': 'application/json'}, stream=True)
-                if req.status_code != 200:
-                    raise RPCException("Request '{}' status {}".format(key, req.status_code))
-
-                raw_data = req.raw.read( self.max_rpc_len + 1, decode_content=True )
-                if len(raw_data) > self.max_rpc_len:
-                    # too big
-                    raise RPCException("Request '{}' replied too much data".format(key))
-
-                resp = json.loads(raw_data)
-                jsonschema.validate(resp, JSONRPC_RESPONSE_SCHEMA)
-                assert 'error' in resp or 'result' in resp
-
-                self.log_debug_timeline('end', key, r)
-
-                if 'error' in resp:
-                    raise RPCException(resp['error'])
-
-                return resp['result']
-
-            return inner
+    
+    def backend_set_wallet(self, wallet_keys):
+        """
+        Save wallet keys to memory
+        Return {'status': True} on success
+        Return {'error': ...} on error
+        """
+        assert not is_api_server(self.config_dir), 'API server should not call this method'
+        headers = self.make_request_headers()
+        req = requests.put( 'http://localhost:{}/v1/wallet/keys'.format(self.port), timeout=self.timeout, data=json.dumps(wallet), headers=headers )
+        return self.get_response(req)
 
 
-def get_default_plugins():
-    return [backend]
+    def backend_get_wallet(self):
+        """
+        Get the wallet from the API server
+        Return wallet data on success
+        Return {'error': ...} on error
+        """
+        assert not is_api_server(self.config_dir), 'API server should not call this method'
+        headers = self.make_request_headers()
+        req = requests.get( 'http://localhost:{}/v1/wallet/keys'.format(self.port), timeout=self.timeout, headers=headers )
+        return self.get_response(req)
 
 
-def make_local_rpc_server(portnum, wallet_keys, config_path=blockstack_constants.CONFIG_PATH, plugins=None):
+    def backend_state(self): 
+        """
+        Get the backend registrar state
+        Return the state on success
+        Return {'error': ...} on error
+        """
+        if is_api_server(self.config_dir):
+            # directly invoke 
+            return backend.registrar.state()
+
+        else:
+            # ask API server
+            headers = self.make_request_headers()
+            req = requests.get( 'http://localhost:{}/v1/node/registrar/state'.format(self.port), timeout=self.timeout, headers=headers)
+            return self.get_response(req)
+
+
+    def backend_preorder(self, fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs, tx_fee):
+        """
+        Queue up a name for registration.
+        """
+
+        if is_api_server(self.config_dir):
+            # directly invoke the registrar
+            return backend.registrar.preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs, tx_fee, config_path=self.config_path)
+
+        else:
+            # ask API server
+            data = {
+                'name': fqu,
+            }
+
+            if user_zonefile is not None:
+                data['zonefile'] = user_zonefile
+
+            if transfer_address is not None:
+                data['owner_address'] = transfer_address
+
+            if min_payment_confs is not None:
+                data['min_confs'] = min_payment_confs
+
+            if tx_fee is not None:
+                data['tx_fee'] = tx_fee
+
+            if cost_satoshis is not None:
+                data['cost_satoshis'] = cost_satoshis
+
+            headers = self.make_request_headers()
+            req = requests.post( 'http://localhost:{}/v1/names'.format(self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)
+            return self.get_response(req)
+
+    
+    def backend_update(self, fqu, zonefile_txt, profile, zonefile_hash, tx_fee):
+        """
+        Queue an update
+        """
+        if is_api_server(self.config_dir):
+            # directly invoke the registrar 
+            return backend.registrar.update(fqu, zonefile_txt,  profile, zonefile_hash, None, tx_fee, config_path=self.config_path)
+
+        else:
+            # ask the API server
+            headers = self.make_request_headers()
+            data = {}
+
+            if zonefile_txt is not None:
+                try:
+                    json.dumps(zonefile_txt)
+                    data['zonefile_txt'] = zonefile_txt
+                except:
+                    # non-standard
+                    data['zonefile_txt_b64'] = base64.b64encode(zonefile_txt)
+
+            if zonefile_hash is not None:
+                data['zoenfile_hash'] = zonefile_hash
+
+            if tx_fee is not None:
+                data['tx_fee'] = tx_fee
+
+            headers = self.make_request_headers()
+            req = requests.put( 'http://localhost:{}/v1/names/{}/zonefile'.format(self.port, fqu), data=json.dumps(data), timeout=self.timeout, headers=headers)
+            return self.get_response(req)
+
+
+    def backend_transfer(self, fqu, recipient_addr, tx_fee):
+        """
+        Queue a transfer
+        """
+        if is_api_server(self.config_dir):
+            # directly invoke the transfer
+            return backend.registrar.transfer(fqu, recipient_addr, tx_fee, config_path=self.config_path)
+        
+        else:
+            # ask the API server
+            data = {
+                'owner': recipient_addr
+            }
+
+            if tx_fee:
+                data['tx_fee'] = tx_fee
+
+            headers = self.make_request_headers()
+            req = requests.put( 'http://localhost:{}/v1/names/{}/owner'.format(self.port, fqu), data=json.dumps(data), timeout=self.timeout, headers=headers)
+            return self.get_response(req)
+
+
+    def backend_renew(self, fqu, renewal_fee, tx_fee):
+        """
+        Queue a renewal
+        """
+        if is_api_server(self.config_dir):
+            # directly invoke the renew 
+            return backend.registrar.renew(fqu, renewal_fee, tx_fee, config_path=self.config_path)
+
+        else:
+            # ask the API server
+            data = {
+                'name': fqu,
+            }
+
+            if tx_fee:
+                data['tx_fee'] = tx_fee
+
+            headers = self.make_request_headers()
+            req = requests.post( 'http://localhost:{}/v1/names'.format(self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)
+            return self.get_response(req)
+
+
+    def backend_revoke(self, fqu, tx_fee):
+        """
+        Queue a revoke
+        """
+        if is_api_server(self.config_dir):
+            # directly invoke the revoke 
+            return backend.registrar.revoke(fqu, tx_fee, config_path=self.config_path)
+
+        else:
+            # ask the API server
+            headers = self.make_request_headers()
+            req = requests.delete( 'http://localhost:{}/v1/names/{}'.format(self.port, fqu), timeout=self.timeout, headers=headers)
+            return self.get_response(req)
+
+
+def make_local_api_server(api_pass, portnum, wallet_keys, config_path=blockstack_constants.CONFIG_PATH, plugins=None):
     """
     Make a local RPC server instance.
     It will be derived from BaseHTTPServer.HTTPServer.
@@ -3382,31 +3116,28 @@ def make_local_rpc_server(portnum, wallet_keys, config_path=blockstack_constants
 
     Returns the global server instance on success.
     """
-    plugins = [] if plugins is None else plugins
-    plugins = get_default_plugins() + plugins
-    srv = BlockstackAPIEndpoint(wallet_keys, port=portnum, config_path=config_path, plugins=plugins)
-
+    srv = BlockstackAPIEndpoint(api_pass, wallet_keys, port=portnum, config_path=config_path)
     return srv
 
 
-def is_rpc_server(config_dir=blockstack_constants.CONFIG_DIR):
+def is_api_server(config_dir=blockstack_constants.CONFIG_DIR):
     """
     Is this process running an RPC server?
     Return True if so
     Return False if not
     """
-    rpc_pidpath = local_rpc_pidfile_path(config_dir=config_dir)
+    rpc_pidpath = local_api_pidfile_path(config_dir=config_dir)
     if not os.path.exists(rpc_pidpath):
         return False
 
-    rpc_pid = local_rpc_read_pidfile(rpc_pidpath)
+    rpc_pid = local_api_read_pidfile(rpc_pidpath)
     if rpc_pid != os.getpid():
         return False
 
     return True
 
 
-def local_rpc_server_run(srv):
+def local_api_server_run(srv):
     """
     Start running the RPC server, but in a separate thread.
     """
@@ -3417,22 +3148,24 @@ def local_rpc_server_run(srv):
         srv.handle_request()
 
 
-def local_rpc_server_stop(srv):
+def local_api_server_stop(srv):
     """
     Stop a running RPC server
     """
     log.debug("Server shutdown")
-    srv.shutdown_plugins()
     srv.socket.close()
 
+    # stop the registrar too
+    backend.registrar.registrar_shutdown(srv.config_path)    
 
-def local_rpc_connect(config_dir=blockstack_constants.CONFIG_DIR, api_port=None):
+
+def local_api_connect(api_pass=None, api_session=None, password=None, config_dir=blockstack_constants.CONFIG_DIR, api_port=None):
     """
-    Connect to a locally-running RPC server.
+    Connect to a locally-running API server.
     Return a server proxy object on success.
     Raise on error.
 
-    The RPC server can safely connect to itself using this method,
+    The API server can safely connect to itself using this method,
     since instead of opening a socket and doing the conventional RPC,
     it will instead use the proxy object to call the request method
     directly.
@@ -3440,25 +3173,34 @@ def local_rpc_connect(config_dir=blockstack_constants.CONFIG_DIR, api_port=None)
 
     config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
 
-    if is_rpc_server(config_dir=config_dir):
-        # this process is an RPC server.
+    '''
+    TODO: might not need this
+    if is_api_server(config_dir=config_dir):
+        # this process is an API server.
         # route the method directly.
-        log.debug("Caller is the RPC server. Short-circuiting.")
-        return get_rpc_internal_methods()
-
+        log.debug("Caller is the API server. Short-circuiting.")
+        return get_api_internal_methods()
+    '''
     conf = blockstack_config.get_config(config_path)
     if conf is None:
         raise Exception('Failed to read conf at "{}"'.format(config_path))
 
     api_port = conf['api_endpoint_port'] if api_port is None else api_port
-    rpc_token = conf['rpc_token']
+    
+    if api_pass is None:
+        # try environment
+        api_pass = os.environ.get('BLOCKSTACK_API_PASSWORD', None)
 
-    connect_msg = 'Connect to RPC at localhost:{}'
+    if api_pass is None:
+        # try config file
+        api_pass = conf.get('api_password', None)
+
+    connect_msg = 'Connect to API at localhost:{}'
     log.debug(connect_msg.format(api_port))
-    return BlockstackAPIEndpointClient('localhost', api_port, timeout=3000, config_path=config_path, rpc_token=rpc_token)
+    return BlockstackAPIEndpointClient('localhost', api_port, timeout=3000, config_path=config_path, session=api_session, api_pass=api_pass)
 
 
-def local_rpc_action(command, config_dir=blockstack_constants.CONFIG_DIR):
+def local_api_action(command, password=None, api_pass=None, config_dir=blockstack_constants.CONFIG_DIR):
     """
     Handle an API endpoint command:
     * start: start up an API endpoint
@@ -3466,11 +3208,15 @@ def local_rpc_action(command, config_dir=blockstack_constants.CONFIG_DIR):
     * status: see if there's an API endpoint running.
     * restart: stop and start the API endpoint
 
-    Return the exit status
+    Return True on success
+    Return False on error
     """
 
     if command not in ['start', 'start-foreground', 'stop', 'status', 'restart']:
         raise ValueError('Invalid command "{}"'.format(command))
+
+    if command in ['start', 'start-foreground', 'restart']:
+        assert api_pass, "Need API password for '{}'".format(command)
 
     config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
 
@@ -3478,50 +3224,49 @@ def local_rpc_action(command, config_dir=blockstack_constants.CONFIG_DIR):
     if conf is None:
         raise Exception('Failed to read conf at "{}"'.format(config_path))
 
-    api_port = conf['api_endpoint_port']
-
-    cmdline_fmt = '{} -m blockstack_client.rpc_runner {} {} "{}"'
-    cmdline = cmdline_fmt.format(sys.executable, command, api_port, config_dir)
-
-    rc = os.system(cmdline)
-
-    return 0 if rc is None else os.WEXITSTATUS(rc)
-
-
-def local_rpc_dispatch(port, method_name, *args, **kw):
-    """
-    Connect to the running endpoint, issue the command,
-    and return the result.
-    """
-    config_dir = kw.pop('config_dir', blockstack_constants.CONFIG_DIR)
-
-    client = local_rpc_connect(config_dir=config_dir, api_port=port)
+    api_port = None
     try:
-        method = getattr(client, method_name)
-        result = method(*args, **kw)
-        if isinstance(result, (str, unicode)):
-            result = json.loads(result)
-
-        return result
+        api_port = int(conf['api_endpoint_port'])
     except:
-        return {'error': traceback.format_exc()}
+        raise Exception("Invalid port number {}".format(conf['api_endpoint_port']))
+
+    argv = [sys.executable, '-m', 'blockstack_client.rpc_runner', str(command), str(api_port), str(config_dir)]
+
+    env = {}
+    env.update( os.environ )
+
+    if password:
+        env['BLOCKSTACK_CLIENT_WALLET_PASSWORD'] = password
+
+    if api_pass:
+        env['BLOCKSTACK_API_PASSWORD'] = api_pass
+
+    p = subprocess.Popen(argv, cwd=config_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, env=env)
+    out, err = p.communicate()
+    res = p.wait()
+    if res != 0:
+        log.error("Failed to {} API endpoint: exit code {}".format(command, res))
+        log.error("Error log:\n{}".format("\n".join(["  " + e for e in err.split('\n')])))
+        return False
+
+    return True
 
 
-def local_rpc_pidfile_path(config_dir=blockstack_constants.CONFIG_DIR):
+def local_api_pidfile_path(config_dir=blockstack_constants.CONFIG_DIR):
     """
     Where do we put the PID file?
     """
     return os.path.join(config_dir, 'api_endpoint.pid')
 
 
-def local_rpc_logfile_path(config_dir=blockstack_constants.CONFIG_DIR):
+def local_api_logfile_path(config_dir=blockstack_constants.CONFIG_DIR):
     """
     Where do we put logs?
     """
     return os.path.join(config_dir, 'api_endpoint.log')
 
 
-def local_rpc_read_pidfile(pidfile_path):
+def local_api_read_pidfile(pidfile_path):
     """
     Read a PID file
     Return None if unable
@@ -3534,7 +3279,7 @@ def local_rpc_read_pidfile(pidfile_path):
         return None
 
 
-def local_rpc_write_pidfile(pidfile_path):
+def local_api_write_pidfile(pidfile_path):
     """
     Write a PID file
     """
@@ -3546,7 +3291,7 @@ def local_rpc_write_pidfile(pidfile_path):
     return
 
 
-def local_rpc_unlink_pidfile(pidfile_path):
+def local_api_unlink_pidfile(pidfile_path):
     """
     Remove a PID file
     """
@@ -3556,24 +3301,70 @@ def local_rpc_unlink_pidfile(pidfile_path):
         pass
 
 
-def local_rpc_atexit():
+def local_api_atexit():
     """
     atexit: clean out PID file
     """
+    log.debug("Atexit handler invoked; shutting down")
+
     global rpc_pidpath, rpc_srv
-    local_rpc_unlink_pidfile(rpc_pidpath)
+    local_api_unlink_pidfile(rpc_pidpath)
     if rpc_srv is not None:
-        local_rpc_server_stop(rpc_srv)
+        local_api_server_stop(rpc_srv)
         rpc_srv = None
 
 
-def local_rpc_exit_handler(sig, frame):
+def local_api_exit_handler(sig, frame):
     """
     Fatal signal handler
     """
-    local_rpc_atexit()
-    log.debug('Local RPC exit')
+    local_api_atexit()
+    log.debug('Local API exit from signal {}'.format(sig))
     sys.exit(0)
+
+
+def local_api_start_wait( config_path=CONFIG_PATH ):
+    """
+    Wait for the API server to come up
+    Return True if we could ping it
+    Return False if not.
+
+    Used by the intermediate process when forking a daemon.
+    """
+
+    config_dir = os.path.dirname(config_path)
+
+    # ping it
+    running = False
+    for i in range(1, 4):
+        log.debug("Attempt {} to ping API server".format(i))
+        try:
+            local_proxy = local_api_connect(config_dir=config_dir)
+            local_proxy.ping()
+            running = True
+            break
+        except requests.ConnectionError as ie:
+            log.debug('API server is not responding; trying again in {} seconds'.format(i))
+            time.sleep(i)
+            continue
+
+        except (IOError, OSError) as ie:
+            if ie.errno == errno.ECONNREFUSED:
+                log.debug('API server not responding; try again in {} seconds'.format(i))
+                time.sleep(i)
+                continue
+            else:
+                log.exception(ie)
+                return False
+        
+        except Exception as e:
+            log.exception(e)
+            return False
+
+    if not running:
+        log.error("API endpoint did not initialize")
+
+    return running
 
 
 # used when running in a separate process
@@ -3581,7 +3372,7 @@ rpc_pidpath = None
 rpc_srv = None
 
 
-def local_rpc_start(portnum, config_dir=blockstack_constants.CONFIG_DIR, foreground=False, password=None):
+def local_api_start( port=None, config_dir=blockstack_constants.CONFIG_DIR, foreground=False, api_pass=None, password=None):
     """
     Start up an API endpoint
     Return True on success
@@ -3595,10 +3386,16 @@ def local_rpc_start(portnum, config_dir=blockstack_constants.CONFIG_DIR, foregro
     config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
     wallet_path = os.path.join(config_dir, blockstack_constants.WALLET_FILENAME)
 
+    if port is None:
+        conf = blockstack_client.get_config(config_path)
+        assert conf
+
+        port = int(conf['api_endpoint_port'])
+    
     # already running?
-    rpc_pidpath = local_rpc_pidfile_path(config_dir=config_dir)
+    rpc_pidpath = local_api_pidfile_path(config_dir=config_dir)
     if os.path.exists(rpc_pidpath):
-        pid = local_rpc_read_pidfile(rpc_pidpath)
+        pid = local_api_read_pidfile(rpc_pidpath)
         print("API endpoint already running (PID {}, {})".format(pid, rpc_pidpath), file=sys.stderr)
         return False
 
@@ -3606,11 +3403,9 @@ def local_rpc_start(portnum, config_dir=blockstack_constants.CONFIG_DIR, foregro
         print("No wallet found at {}".format(wallet_path), file=sys.stderr)
         return False
 
-    signal.signal(signal.SIGINT, local_rpc_exit_handler)
-    signal.signal(signal.SIGQUIT, local_rpc_exit_handler)
-    signal.signal(signal.SIGTERM, local_rpc_exit_handler)
-
-    atexit.register(local_rpc_atexit)
+    signal.signal(signal.SIGINT, local_api_exit_handler)
+    signal.signal(signal.SIGQUIT, local_api_exit_handler)
+    signal.signal(signal.SIGTERM, local_api_exit_handler)
 
     wallet = load_wallet(
         password=password, config_path=config_path,
@@ -3631,7 +3426,7 @@ def local_rpc_start(portnum, config_dir=blockstack_constants.CONFIG_DIR, foregro
     if not foreground:
         log.debug('Running in the background')
 
-        logpath = local_rpc_logfile_path(config_dir=config_dir)
+        logpath = local_api_logfile_path(config_dir=config_dir)
         logfile = open(logpath, 'a+')
         child_pid = os.fork()
 
@@ -3649,27 +3444,41 @@ def local_rpc_start(portnum, config_dir=blockstack_constants.CONFIG_DIR, foregro
 
             elif daemon_pid > 0:
                 # parent (intermediate child)
-                sys.exit(0)
+                # wait for child to fully initialize...
+                res = local_api_start_wait( config_path=config_path )
+                if res:
+                    sys.exit(0)
+                else:
+                    sys.exit(1)
 
             else:
                 # error
                 sys.exit(1)
 
         elif child_pid > 0:
-            # grand-parent
+            # grand-parent (caller)
             # wait for intermediate child
             pid, status = os.waitpid(child_pid, 0)
-            sys.exit(status)
+            if os.WEXITSTATUS(status) == 0:
+                log.debug("API server started")
+                return True
+            else:
+                log.error("API server exit status {}".format(status))
+                return False
+
+    # daemon now... 
+    atexit.register(local_api_atexit)
 
     # load up internal RPC methods
+    # TODO: might not need these
     log.debug('Loading RPC methods')
-    load_rpc_cli_method_info(blockstack_client)
-    load_rpc_internal_methods(config_path)
+    load_api_cli_method_info(blockstack_client)
+    load_api_internal_methods(config_path)
     log.debug('Finished loading RPC methods')
 
     # make server
     try:
-        rpc_srv = make_local_rpc_server(portnum, wallet, config_path=config_path)
+        rpc_srv = make_local_api_server(api_pass, port, wallet, config_path=config_path)
     except socket.error as se:
         if BLOCKSTACK_DEBUG is not None:
             log.exception(se)
@@ -3683,6 +3492,12 @@ def local_rpc_start(portnum, config_dir=blockstack_constants.CONFIG_DIR, foregro
             log.error(msg.format(se.errno))
             return False
 
+    log.debug("Initializing registrar...")
+    state = backend.registrar.set_registrar_state(config_path=config_path)
+    if state is None:
+        log.error("Failed to initialize registrar: {}".format(res['error']))
+        return False
+    
     log.debug("Setting wallet...")
 
     # NOTE: test that wallets without data keys still work
@@ -3693,29 +3508,30 @@ def local_rpc_start(portnum, config_dir=blockstack_constants.CONFIG_DIR, foregro
     assert wallet.has_key('data_pubkeys')
     assert wallet.has_key('data_privkey')
 
-    res = backend.set_wallet(
+    res = backend.registrar.set_wallet(
         (wallet['payment_addresses'][0], wallet['payment_privkey']),
         (wallet['owner_addresses'][0], wallet['owner_privkey']),
         (wallet['data_pubkeys'][0], wallet['data_privkey']),
         config_path=config_path
     )
+
     if 'error' in res:
         log.error("Failed to set wallet: {}".format(res['error']))
         return False
 
-    log.debug("Set wallet")
+    log.debug("Setup finished")
 
     running = True
-    local_rpc_write_pidfile(rpc_pidpath)
-    local_rpc_server_run(rpc_srv)
+    local_api_write_pidfile(rpc_pidpath)
+    local_api_server_run(rpc_srv)
 
-    local_rpc_unlink_pidfile(rpc_pidpath)
-    local_rpc_server_stop(rpc_srv)
+    local_api_unlink_pidfile(rpc_pidpath)
+    local_api_server_stop(rpc_srv)
 
     return True
 
 
-def rpc_kill(pidpath, pid, sig, unlink_pidfile=True):
+def api_kill(pidpath, pid, sig, unlink_pidfile=True):
     """
     Utility function to send signals
     Return True if signal actions were successful
@@ -3724,15 +3540,15 @@ def rpc_kill(pidpath, pid, sig, unlink_pidfile=True):
     try:
         os.kill(pid, sig)
         if sig == signal.SIGKILL:
-            local_rpc_unlink_pidfile(pidpath)
+            local_api_unlink_pidfile(pidpath)
 
         return True
     except OSError as oe:
         if oe.errno == errno.ESRCH:
             log.debug('Not running: {} ({})'.format(pid, pidpath))
             if unlink_pidfile:
-                local_rpc_unlink_pidfile(pidpath)
-            return False
+                local_api_unlink_pidfile(pidpath)
+            return True
         elif oe.errno == errno.EPERM:
             log.debug('Not our RPC daemon: {} ({})'.format(pid, pidpath))
             return False
@@ -3740,37 +3556,39 @@ def rpc_kill(pidpath, pid, sig, unlink_pidfile=True):
             raise
 
 
-def local_rpc_stop(config_dir=blockstack_constants.CONFIG_DIR):
+def local_api_stop(config_dir=blockstack_constants.CONFIG_DIR):
     """
     Shut down an API endpoint
     Return True if we stopped it
     Return False if it wasn't running, or we couldn't stop it
     """
     # already running?
-    pidpath = local_rpc_pidfile_path(config_dir=config_dir)
+    pidpath = local_api_pidfile_path(config_dir=config_dir)
     if not os.path.exists(pidpath):
         print('Not running ({})'.format(pidpath), file=sys.stderr)
         return False
 
-    pid = local_rpc_read_pidfile(pidpath)
+    pid = local_api_read_pidfile(pidpath)
     if pid is None:
         print('Failed to read "{}"'.format(pidpath), file=sys.stderr)
         return False
 
-    if not rpc_kill(pidpath, pid, 0):
+    if not api_kill(pidpath, pid, 0):
+        print('API server is not running', file=sys.stderr)
         return False
 
     # still running. try to terminate
     print('Sending SIGTERM to {}'.format(pid), file=sys.stderr)
 
-    if not rpc_kill(pidpath, pid, signal.SIGTERM):
+    if not api_kill(pidpath, pid, signal.SIGTERM):
+        print("Unable to send SIGTERM to {}".format(pid), file=sys.stderr)
         return False
 
     time.sleep(1)
 
     for i in xrange(0, 5):
         # still running?
-        if not rpc_kill(pidpath, pid, 0):
+        if not api_kill(pidpath, pid, 0):
             # dead
             return False
 
@@ -3780,27 +3598,27 @@ def local_rpc_stop(config_dir=blockstack_constants.CONFIG_DIR):
     print('Sending SIGKILL to {}'.format(pid), file=sys.stderr)
 
     # sigkill ensure process will die
-    return rpc_kill(pidpath, pid, signal.SIGKILL)
+    return api_kill(pidpath, pid, signal.SIGKILL)
 
 
-def local_rpc_status(config_dir=blockstack_constants.CONFIG_DIR):
+def local_api_status(config_dir=blockstack_constants.CONFIG_DIR):
     """
     Print the status of an instantiated API endpoint
     Return True if the daemon is running.
     Return False if not, or if unknown.
     """
     # see if it's running
-    pidpath = local_rpc_pidfile_path(config_dir=config_dir)
+    pidpath = local_api_pidfile_path(config_dir=config_dir)
     if not os.path.exists(pidpath):
         log.debug('No PID file {}'.format(pidpath))
         return False
 
-    pid = local_rpc_read_pidfile(pidpath)
+    pid = local_api_read_pidfile(pidpath)
     if pid is None:
         log.debug('Invalid PID file {}'.format(pidpath))
         return False
 
-    if not rpc_kill(pidpath, pid, 0, unlink_pidfile=False):
+    if not api_kill(pidpath, pid, 0, unlink_pidfile=False):
         return False
 
     log.debug('RPC running ({})'.format(pidpath))
@@ -3808,77 +3626,3 @@ def local_rpc_status(config_dir=blockstack_constants.CONFIG_DIR):
     return True
 
 
-def local_rpc_ensure_running(config_dir=blockstack_constants.CONFIG_DIR, password=None):
-    """
-    Ensure that the RPC daemon is running.
-    Start it if it is not.
-    Return True on success
-    Return False on failure
-    """
-    # if we're the RPC server, then we're running
-    if is_rpc_server(config_dir=config_dir):
-        return True
-
-    rc = local_rpc_status(config_dir)
-    if rc:
-        log.debug('RPC endpoint already running ({})'.format(config_dir))
-        return True
-
-    log.debug('Starting RPC endpoint ({})'.format(config_dir))
-
-    if password is not None and os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD', None) is None:
-        # pass password to local rpc daemon
-        os.environ['BLOCKSTACK_CLIENT_WALLET_PASSWORD'] = password
-
-    rc = local_rpc_action('start', config_dir=config_dir)
-
-    # we do not need the password anymore. so remove it from the environment
-    os.environ.pop('BLOCKSTACK_CLIENT_WALLET_PASSWORD', None)
-
-    if rc != 0:
-        log.error('Failed to start RPC endpoint; exit code was {}'.format(rc))
-        return False
-
-    # ping it
-    running = False
-    for i in range(1, 4):
-        try:
-            local_proxy = local_rpc_connect(config_dir=config_dir)
-            local_proxy.ping()
-            running = True
-            break
-        except requests.ConnectionError as ie:
-            log.debug('API server is not responding; trying again in {} seconds'.format(i))
-            time.sleep(i)
-            continue
-
-        except (IOError, OSError) as ie:
-            if ie.errno == errno.ECONNREFUSED:
-                msg = 'API server not responding; trying again in {} seconds'
-                log.debug(msg.format(i))
-                time.sleep(i)
-                continue
-            else:
-                raise
-
-    return running
-
-
-def start_rpc_endpoint(config_dir=blockstack_constants.CONFIG_DIR, password=None):
-    """
-    Ensure that the RPC endpoint is running.
-    Used in interactive mode due to its better error messages.
-    Raise on error
-    """
-
-    rc = local_rpc_ensure_running(config_dir, password=password)
-    if not rc:
-        msg = (
-            'Failed to start RPC endpoint (in working directory {}).\n'
-            'Please check your password, and verify that the working '
-            'directory exists and is writeable.'
-        )
-
-        return {'error': msg.format(config_dir)}
-
-    return {'status': True}
