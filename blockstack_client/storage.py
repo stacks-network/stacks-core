@@ -227,9 +227,10 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
 
     # shortcut: if hash is given, we're done 
     if data_hash is not None:
-        dh = hashlib.sha256(data_txt).hexdigest()
+        dh = hashlib.sha256(data_txt.encode('utf-8')).hexdigest()
         if dh == data_hash:
             # done!
+            log.debug("Verified with hash {}".format(data_hash))
             return json.loads(data_txt)
 
         else:
@@ -255,7 +256,7 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
 
         if given_pubkey_hex == pubk_hex:
             if verify_raw_data(data_txt, pubk_hex, sig_bin):
-                log.debug("Verified with {}".format(pubk_hex))
+                log.debug("Verified with public key {}".format(pubk_hex))
                 return json.loads(data_txt)
             else:
                 log.debug("Signature failed")
@@ -275,7 +276,7 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
 
         if keylib.public_key_to_address(pubk_hex) == pubkey_hash:
             if verify_raw_data(data_txt, pubk_hex, sig_bin):
-                log.debug("Verified with {} ({})".format(pubk_hex, pubkey_hash))
+                log.debug("Verified with public key hash {} ({})".format(pubk_hex, pubkey_hash))
                 return json.loads(data_txt)
             else:
                 log.debug("Signature failed with pubkey hash")
@@ -630,14 +631,14 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
             # parse it, if desired
             if decode:
                 data = None
-                if data_pubkey is not None or data_address is not None:
+                if data_pubkey is not None or data_address is not None or data_hash is not None:
                     data = parse_mutable_data(
                         data_txt, data_pubkey, public_key_hash=data_address, data_hash=data_hash
                     )
 
                 if data is None and owner_address is not None:
                     data = parse_mutable_data(
-                        data_txt, data_pubkey, public_key_hash=owner_address, data_hash=data_hash
+                        data_txt, None, public_key_hash=owner_address
                     )
 
                 if data is None:
