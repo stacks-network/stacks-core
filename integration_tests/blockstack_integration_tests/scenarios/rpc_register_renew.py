@@ -105,7 +105,7 @@ def scenario( wallets, **kw ):
 
     # send an update, changing the zonefile
     data_pubkey = wallet['data_pubkey']
-    zonefile = blockstack_client.user.make_empty_user_zonefile( "foo.test", data_pubkey )
+    zonefile = blockstack_client.zonefile.make_empty_zonefile( "foo.test", data_pubkey )
     blockstack_client.user.put_immutable_data_zonefile( zonefile, "testdata", blockstack_client.get_data_hash("testdata"), data_url="file:///testdata")
     zonefile_json = json.dumps(zonefile)
 
@@ -145,12 +145,47 @@ def scenario( wallets, **kw ):
     time.sleep(10)
 
     # wait for it to go through 
-    for i in xrange(0, 12):
+    for i in xrange(0, 6):
         # warn the serialization checker that this changes behavior from 0.13
         print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
         sys.stdout.flush()
         
         testlib.next_block( **kw )
+
+    # verify that it's in the queue
+    queue_state = testlib.blockstack_cli_info()
+    if 'error' in queue_state:
+        print json.dumps(queue_state)
+        return False
+    
+    if not queue_state.has_key('queues'):
+        print 'no queues'
+        print json.dumps(queue_state)
+        return False
+
+    if not queue_state['queues'].has_key('renew'):
+        print 'no renew queue'
+        print json.dumps(queue_state)
+        return False
+
+    if len(queue_state['queues']['renew']) != 1:
+        print 'wrong renew state'
+        print json.dumps(queue_state)
+        return False
+
+    if queue_state['queues']['renew'][0]['name'] != 'foo.test':
+        print 'wrong name'
+        print json.dumps(queue_state)
+        return False
+
+    # wait for it to go through 
+    for i in xrange(0, 6):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
+        testlib.next_block( **kw )
+
 
     proxy = testlib.make_proxy()
     res = blockstack_client.get_name_blockchain_record( "foo.test", proxy=proxy )
