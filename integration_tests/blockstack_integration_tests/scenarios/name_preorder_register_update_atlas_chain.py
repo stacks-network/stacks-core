@@ -26,6 +26,7 @@ import pybitcoin
 import json
 import time
 import blockstack_client
+import blockstack_zones
 import virtualchain
 import os
 import sys
@@ -62,18 +63,29 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
-    testlib.next_block( **kw )
-    
-    testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
-    testlib.next_block( **kw )
-
     # set up RPC daemon
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
     wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey, payment_privkey=wallets[5].privkey )
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] )
 
+    # register 10 names
+    for i in xrange(0, 10):
+        res = testlib.blockstack_name_preorder( "foo_{}.test".format(i), wallets[2].privkey, wallets[3].addr )
+        if 'error' in res:
+            print json.dumps(res)
+            return False
+
+    testlib.next_block( **kw )
+    
+    for i in xrange(0, 10):
+        res = testlib.blockstack_name_register( "foo_{}.test".format(i), wallets[2].privkey, wallets[3].addr )
+        if 'error' in res:
+            print json.dumps(res)
+            return False
+
+    testlib.next_block( **kw )
+    
     # start up an Atlas test network with 9 nodes: the main one doing the test, and 8 subordinate ones that treat it as a seed peer
     # organize nodes into a linear chain: node n is neighbor to n-1 and n+1, with the seed at one end.
     # nodes cannot talk to anyone else.
@@ -109,23 +121,26 @@ def scenario( wallets, **kw ):
 
     print "Waiting 25 seconds for the altas peers to catch up"
     time.sleep(25.0)
+ 
+    # make 10 empty zonefiles and propagate them 
+    for i in xrange(0, 10):
+        data_pubkey = virtualchain.BitcoinPrivateKey(wallet_keys['data_privkey']).public_key().to_hex()
+        empty_zonefile = blockstack_client.zonefile.make_empty_zonefile( "foo_{}.test".format(i), data_pubkey, urls=["file:///tmp/foo_{}.test".format(i)] )
+        empty_zonefile_str = blockstack_zones.make_zone_file( empty_zonefile )
+        value_hash = blockstack_client.hash_zonefile( empty_zonefile )
 
-    # make an empty zonefile
-    data_pubkey = virtualchain.BitcoinPrivateKey(wallet_keys['data_privkey']).public_key().to_hex()
-    empty_zonefile = blockstack_client.user.make_empty_user_zonefile( "foo.test", data_pubkey, urls=["file:///tmp/foo.test"] )
-    empty_zonefile_str = json.dumps(empty_zonefile) 
-    value_hash = blockstack_client.hash_zonefile( empty_zonefile )
+        res = testlib.blockstack_name_update( "foo_{}.test".format(i), value_hash, wallets[3].privkey )
+        if 'error' in res:
+            print json.dumps(res)
+            return False
 
-    # propagate the zonefile
-    res = testlib.blockstack_cli_update( "foo.test", empty_zonefile_str, "0123456789abcdef" )
-
-    for i in xrange(0, 12):
         testlib.next_block( **kw )
-        
-    print "Waiting for zonefile propagation"
-    sys.stdout.flush()
 
-    time.sleep(10.0)
+        # propagate 
+        res = testlib.blockstack_cli_sync_zonefile('foo_{}.test'.format(i), zonefile_string=empty_zonefile_str)
+        if 'error' in res:
+            print json.dumps(res)
+            return False
 
     # wait at most 30 seconds for atlas network to converge
     synchronized = False
@@ -171,26 +186,28 @@ def check( state_engine ):
         print "wrong namespace"
         return False 
 
-    # not preordered
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
-    if preorder is not None:
-        print "still have preorder"
-        return False
-    
-    # registered 
-    name_rec = state_engine.get_name( "foo.test" )
-    if name_rec is None:
-        print "name does not exist"
-        return False 
+    for i in xrange(0, 10):
+        name = 'foo_{}.test'.format(i)
+        # not preordered
+        preorder = state_engine.get_name_preorder( name, virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
+        if preorder is not None:
+            print "still have preorder"
+            return False
+        
+        # registered 
+        name_rec = state_engine.get_name( name )
+        if name_rec is None:
+            print "name does not exist"
+            return False 
 
-    # owned 
-    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
-        print "name has wrong owner"
-        return False 
+        # owned 
+        if name_rec['address'] != wallets[3].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[3].addr):
+            print "name has wrong owner"
+            return False 
 
-    # updated 
-    if name_rec['value_hash'] != value_hash:
-        print "wrong value hash: %s" % name_rec['value_hash']
-        return False 
+        # updated 
+        if name_rec['value_hash'] is None:
+            print "wrong value hash: %s" % name_rec['value_hash']
+            return False 
 
     return True
