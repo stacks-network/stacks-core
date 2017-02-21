@@ -148,7 +148,7 @@ def make_transaction(name, preorder_addr, register_addr, blockchain_client, tx_f
     
     change_inputs = tx_get_unspents( preorder_addr, blockchain_client )
     if safety:
-        assert len(change_inputs) > 0
+        assert len(change_inputs) > 0, "No UTXOs for {}".format(preorder_addr)
 
     if renewal_fee is not None:
         # will be subsidizing with a separate payment key
@@ -190,12 +190,12 @@ def get_fees( inputs, outputs ):
    
     # 1: reveal address 
     if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
-        log.debug("output[1] is not a p2pkh script")
+        log.debug("output[1] is not a p2pkh or p2sh script")
         return (None, None)
     
     # 2: change address 
     if virtualchain.script_hex_to_address( outputs[2]["script_hex"] ) is None:
-        log.debug("output[2] is not a p2pkh script")
+        log.debug("output[2] is not a p2pkh or p2sh script")
         return (None, None)
     
     # 3: burn address, if given 
