@@ -77,114 +77,7 @@ OP_ANY_TYPE_SCHEMA = [
     {
         'type': 'boolean'
     },
-]
-
-JSONRPC_ID_TYPES = [
-    {
-        'type': 'string',
-    },
-    {
-        'type': 'integer',
-    },
-    {
-        'type': 'null',
-    },
-]
-
-
-JSONRPC_REQUEST_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'jsonrpc': {
-            'type': 'string',
-            'pattern': r'^2.0$'
-        },
-        'method': {
-            'type': 'string',
-            'pattern': '.+'
-        },
-        'params': {
-            'anyOf': [
-                {
-                    'type': 'array',
-                },
-                {
-                    'type': 'object',
-                }
-            ],
-        },
-        'id': {
-            'anyOf': JSONRPC_ID_TYPES,
-        },
-        'blockstack_rpc_token': {
-            'type': 'string',
-            'pattern': OP_HEX_PATTERN,
-        },
-    },
-    'required': [
-        'jsonrpc',
-        'method',
-        'id'
-    ],
-    'additionalProperties': False,
-}
-
-JSONRPC_RESPONSE_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'id': {
-            'anyOf': JSONRPC_ID_TYPES,
-        },              
-        'jsonrpc': {
-            'type': 'string',
-            'pattern': '^2.0$'
-        },
-        'result': {
-            'anyOf': OP_ANY_TYPE_SCHEMA,
-        },
-        'error': {
-            'type': 'object',
-            'properties': {
-                'code': {
-                    'anyOf': [
-                        {
-                            'type': 'integer',
-                            'minimum': -32700,
-                            'maximum': -32700,
-                        },
-                        {
-                            'type': 'integer',
-                            'minimum': -32603,
-                            'maximum': -32600,
-                        },
-                        {
-                            'type': 'integer',
-                            'minimum': -32099,
-                            'maximum': -32000,
-                        },
-                    ],
-                },
-                'message': {
-                    'type': 'string',
-                },
-                'data': {
-                    'anyOf': OP_ANY_TYPE_SCHEMA
-                },
-            },
-            'required': [
-                'code',
-                'message'
-            ],
-            'additionalProperties': False,
-        },
-    },
-    'required': [
-        'jsonrpc',
-        'id'
-    ],
-    'additionalProperties': False,
-}
-                
+]                
 
 PRIVKEY_SINGLESIG_SCHEMA_WIF = {
     'type': 'string',
@@ -593,15 +486,7 @@ DATASTORE_SCHEMA = {
             'type': 'string',
             'pattern': r'([a-zA-Z0-9_]+)$',
         },
-        'datastore_name': {
-            'type': 'string',
-            'pattern': OP_URLENCODED_PATTERN
-        },
-        'user_id': {
-            'type': 'string',
-            'minLength': 1
-        },
-        'owner_pubkey': {
+        'pubkey': {
             'type': 'string',
             'pattern': OP_PUBKEY_PATTERN,
         },
@@ -625,12 +510,10 @@ DATASTORE_SCHEMA = {
     'additionalProperties': False,
     'required': [
         'type',
-        'owner_pubkey',
+        'pubkey',
         'root_uuid',
         'drivers',
-        'datastore_name',
         'device_ids',
-        'user_id'
     ]
 }
 
@@ -668,48 +551,9 @@ DATA_BLOB_SCHEMA = {
 }
 
 
-# user information stored locally (derived from a master data key)
-# user_id identifies the associated profile
-USER_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'public_key': {
-            'type': 'string',
-            'pattern': OP_PUBKEY_PATTERN,
-        },
-        'privkey_index': {
-            'type': 'integer',
-        },
-        'user_id': {
-            'type': 'string'
-        },
-        'global': {
-            'type': 'boolean',
-        },
-
-        # optional
-        'blockchain_id': {
-            'type': 'string',
-            'pattern': OP_NAME_PATTERN,
-        },
-    },
-    'required': [
-        'public_key',
-        'privkey_index',
-        'user_id',
-        'global'
-    ],
-    'additionalProperties': False,
-}
-
-
 # common properties to app sessions and app accounts
 APP_INFO_PROPERTIES = {
-    'name': {
-        'type': 'string',
-        'pattern': OP_NAME_PATTERN,
-    },
-    'appname': {
+    'app_domain': {
         'type': 'string',
         'pattern': OP_URLENCODED_PATTERN,
     },
@@ -720,31 +564,19 @@ APP_INFO_PROPERTIES = {
             'pattern': '^[a-zA-Z_][a-zA-Z0-9_.]+$'   # method name
         },
     },
-    'user_id': {
+    'app_user_id': {
         'type': 'string',
-        'minLength': 1
-    },
-    'public_key': {
-        'type': 'string',
-        'pattern': OP_HEX_PATTERN,
+        'pattern': OP_URLENCODED_PATTERN,
     },
 }
 
 APP_SESSION_PROPERTIES = APP_INFO_PROPERTIES.copy()
-APP_ACCOUNT_PROPERTIES = APP_INFO_PROPERTIES.copy()
-
-APP_ACCOUNT_PROPERTIES.update({
-    'privkey_index': {
-        'type': 'integer',
-    },
-    'session_lifetime': {
-        'type': 'integer'
-    },
-})
+APP_AUTHREQUEST_PROPERTIES = APP_INFO_PROPERTIES.copy()
 
 APP_SESSION_PROPERTIES.update({
-    'public_key': {
+    'app_user_id': {
         'type': 'string',
+        'pattern': OP_URLENCODED_PATTERN,
     },
     'timestamp': {
         'type': 'integer',
@@ -762,11 +594,11 @@ APP_SESSION_SCHEMA = {
     'additionalProperties': False
 }
 
-# application-specific, user-specific local state 
-APP_ACCOUNT_SCHEMA = {
+# authentication-request payload
+APP_AUTHREQUEST_SCHEMA = {
     'type': 'object',
-    'properties': APP_ACCOUNT_PROPERTIES,
-    'required': APP_ACCOUNT_PROPERTIES.keys(),
+    'properties': APP_INFO_PROPERTIES,
+    'required': list(set(APP_INFO_PROPERTIES.keys()) - set(['app_user_id'])),
     'additionalProperties': False
 }
 
@@ -777,6 +609,10 @@ APP_CONFIG_SCHEMA = {
         'index_uris': {
             'type': 'array',
             'items': URI_RECORD_SCHEMA,
+        },
+        'index_hash': {
+            'type': 'string',
+            'pattern': OP_HEX_PATTERN,
         },
         'driver_hints': {
             'type': 'array',
@@ -795,6 +631,7 @@ APP_CONFIG_SCHEMA = {
     'additionalProperties': False,
     'required': [
         'index_uris',
+        'index_hash',
         'api_methods',
     ],
 }
