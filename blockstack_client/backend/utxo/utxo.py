@@ -407,18 +407,3 @@ def connect_utxo_provider( utxo_opts ):
        raise Exception("Unrecognized UTXO provider '%s'" % utxo_provider )
 
 
-def get_utxo_provider_client(utxo_provider, config_file):
-   """
-   Get or instantiate our blockchain UTXO provider's client.
-   Return None if we were unable to connect
-   """
-
-   utxo_opts = default_utxo_provider_opts( utxo_provider, config_file )
-
-   try:
-       utxo_provider = connect_utxo_provider( utxo_opts )
-       return utxo_provider
-   except Exception, e:
-       traceback.print_exc()
-       return None
-
