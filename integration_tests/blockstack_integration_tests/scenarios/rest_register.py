@@ -54,59 +54,6 @@ error = False
 
 index_file_data = "<html><head></head><body>foo.test hello world</body></html>"
 resource_data = "hello world"
-
-def verify_in_queue( ses, name, queue_name, tx_hash, expected_length=1 ):
-
-    # verify that it's in the queue 
-    res = testlib.blockstack_REST_call('GET', '/v1/blockchains/bitcoin/pending', ses, name='foo.test', appname='register')
-    if 'error' in res:
-        res['test'] = 'Failed to get queues'
-        print json.dumps(res)
-        error = True
-        return False
-
-    res = res['response']
-
-    # needs to be in the queue 
-    if not res.has_key('queues'):
-        res['test'] = 'Missing queues'
-        print json.dumps(res)
-        error = True
-        return False
-
-    if not res['queues'].has_key(queue_name):
-        res['test'] = 'Missing {} queue'.format(queue_name)
-        print json.dumps(res)
-        error = True
-        return False
-    
-    if len(res['queues'][queue_name]) != expected_length:
-        res['test'] = 'invalid preorder queue'
-        print json.dumps(res)
-        error = True
-        return False
-
-    found = False
-    for queue_entry in res['queues'][queue_name]:
-        if queue_entry['name'] != name:
-            continue
-
-        found = True
-
-        if tx_hash is not None and queue_entry['tx_hash'] != tx_hash:
-            res['test'] = 'tx hash mismatch: expected {}'.format(tx_hash)
-            print json.dumps(res)
-            error = True
-            return False
-
-        break
-
-    if not found:
-        print "name {} not found in queues".format(name)
-        print json.dumps(res)
-        return False
-
-    return True
     
 
 def scenario( wallets, **kw ):
@@ -140,17 +87,6 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
-    # bootstrap storage for this wallet
-    res = testlib.blockstack_cli_setup_storage("foo.test", password="0123456789abcdef")
-    if 'error' in res:
-        print 'failed to bootstrap storage for foo.test'
-        print json.dumps(res, indent=4, sort_keys=True)
-        return False
-
-    if not blockstack_client.check_storage_setup():
-        print "storage is not set up"
-        return False
-
     # tell serialization-checker that value_hash can be ignored here
     print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
     sys.stdout.flush()
@@ -159,37 +95,17 @@ def scenario( wallets, **kw ):
 
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
 
-    # make an index file for a dumb app 
-    index_file_path = "/tmp/rest_register.index.html"
-    with open(index_file_path, "w") as f:
-        f.write(index_file_data)
-
-    # register an application under foo.test
-    res = testlib.blockstack_cli_app_publish("foo.test", "names,register,prices,user_read,user_write,user_admin,zonefiles,blockchain,node_read", index_file_path, appname="register", drivers="disk", password="0123456789abcdef" )
-    if 'error' in res:
-        res['test'] = 'Failed to register foo.test/register app'
-        print json.dumps(res, indent=4, sort_keys=True)
+    # make a session 
+    ses = testlib.blockstack_app_session( "register.app", ["names","register","prices","zonefiles","blockchain","node_read"], config_path=config_path )
+    if 'error' in ses:
+        ses['test'] = 'Failed to get app session'
+        print json.dumps(ses)
         return False
 
-    # make a user for bar.test (via the REST api)
-    res = testlib.blockstack_cli_create_user( "foo_user_id", password="0123456789abcdef" )
-    if 'error' in res:
-        res['test'] = 'Failed to create user'
-        print json.dumps(res)
-        return False
-
-    # make an account for bar_user_id (bar.test)
-    res = testlib.blockstack_app_create_account("foo_user_id", "foo.test", "register")
-    if 'error' in res:
-        res['test'] = 'Failed to create account: {}'.format(res['error'])
-        print json.dumps(res, indent=4, sort_keys=True)
-        return False 
-    
-    # get session
-    ses = res['ses']
+    ses = ses['ses']
 
     # for funsies, get the price of .test
-    res = testlib.blockstack_REST_call('GET', '/v1/prices/namespaces/test', ses, name="foo.test", appname="register")
+    res = testlib.blockstack_REST_call('GET', '/v1/prices/namespaces/test', ses )
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get price of .test'
         print json.dumps(res)
@@ -199,7 +115,7 @@ def scenario( wallets, **kw ):
     print '\n\n.test costed {} satoshis\n\n'.format(test_price)
 
     # get the price for bar.test
-    res = testlib.blockstack_REST_call('GET', '/v1/prices/names/bar.test', ses, name="foo.test", appname="register")
+    res = testlib.blockstack_REST_call('GET', '/v1/prices/names/bar.test', ses )
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get price of bar.test'
         print json.dumps(res)
@@ -207,66 +123,9 @@ def scenario( wallets, **kw ):
 
     bar_price = res['response']['total_estimated_cost']['satoshis']
     print "\n\nbar.test will cost {} satoshis\n\n".format(bar_price)
-  
-    # get all users (via the REST api)
-    res = testlib.blockstack_REST_call('GET', '/v1/users', ses, name="foo.test", appname="register")
-    if 'error' in res or res['http_status'] != 200:
-        res['test'] = 'Failed to get all users'
-        print json.dumps(res)
-        return False
 
-    # should have foo_user_id 
-    all_users = res['response']
-    if 'error' in all_users:
-        res['test'] = 'Failed to list users'
-        print json.dumps(res)
-        return False
-
-    print "\n\nall users:\n{}\n\n".format(json.dumps(all_users, indent=4, sort_keys=True))
-
-    if len(all_users) != 1 or all_users[0]['user_id'] != 'foo_user_id':
-        res['test'] = 'Got invalid users'
-        print json.dumps(res)
-        return False
-
-    # query wallet 
-    wallet_public = testlib.blockstack_REST_call('GET', '/v1/node/wallet/public', ses, name='foo.test', appname='register')
-    if wallet_public['http_status'] != 200:
-        wallet_public['test'] = 'failed to get wallet'
-        print json.dumps(wallet_public)
-        return False
-
-    print '\n\nwallet public info:\n{}\n\n'.format(json.dumps(wallet_public, indent=4, sort_keys=True))
-
-    # get the user (via the REST api)
-    # expect 404, since the user has no profile
-    res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id', ses, name="foo.test", appname="register")
-    if res['http_status'] != 404:
-        res['test'] = 'expected http 404'
-        print json.dumps(res)
-        return False
-
-    # change the user profile for foo_user_id
-    res = testlib.blockstack_REST_call('PATCH', '/v1/users/foo_user_id', ses, name="foo.test", appname="register", data={'profile': {'hello': 'world'}})
-    if 'error' in res or res['http_status'] != 200:
-        res['test'] = 'Failed to set profile'
-        print json.dumps(res)
-        return False
-
-    # get the profile. Should succeed
-    res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id', ses, name="foo.test", appname="register" )
-    if 'error' in res or res['http_status'] != 200:
-        res['test'] = 'Failed to get profile'
-        print json.dumps(res)
-        return False
-
-    if not res['response'].has_key('hello') or res['response']['hello'] != 'world' or not res['response'].has_key('timestamp'):
-        res['test'] = 'Failed to get the right profile'
-        print json.dumps(res)
-        return False
-
-    # register the name bar.test 
-    res = testlib.blockstack_REST_call('POST', '/v1/names', ses, name="foo.test", appname="register", data={'name': 'bar.test'})
+    # register the name bar.test. autogenerate the rest 
+    res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test'} )
     if 'error' in res:
         res['test'] = 'Failed to register user'
         print json.dumps(res)
@@ -280,7 +139,7 @@ def scenario( wallets, **kw ):
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
-    res = verify_in_queue(ses, 'bar.test', 'preorder', tx_hash )
+    res = testlib.verify_in_queue(ses, 'bar.test', 'preorder', tx_hash )
     if not res:
         return False
 
@@ -288,114 +147,50 @@ def scenario( wallets, **kw ):
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
-    in_preorder_queue = False
-
-    # wait for the poller to pick it up
-    print >> sys.stderr, "Waiting 10 seconds for the backend to submit the register"
-    for i in xrange(0, 10):
-        # poll
-        res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", ses, name="foo.test", appname="register")
-        if 'error' in res:
-            res['test'] = 'Failed to query name'
-            print json.dumps(res)
-            error = True
-            return False
-
-        if res['http_status'] != 200 and res['http_status'] != 404:
-            res['test'] = 'HTTP status {}, response = {}'.format(res['http_status'], res['response'])
-            print json.dumps(res)
-            error = True
-            return False
-
-        # should be in the preorder queue at some point 
-        if res['http_status'] == 200 and res['response']['operation'] == 'preorder':
-            in_preorder_queue = True
-
-        time.sleep(1)
-
-    # should have been preordered
-    if not in_preorder_queue:
-        print "Name was never preordered"
-        print json.dumps(res)
-        return False
-
-    # name should be in the 'register' queue now
-    if res['response']['operation'] != 'register':
-        print "Name not registered"
-        print json.dumps(res)
-        return False
+    # wait for register to go through 
+    print 'Wait for register to be submitted'
+    time.sleep(10)
 
     # wait for the register to get confirmed 
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
-    res = verify_in_queue(ses, 'bar.test', 'register', None )
+    res = testlib.verify_in_queue(ses, 'bar.test', 'register', None )
     if not res:
         return False
 
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
-    in_update_queue = False
-    print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
-    for i in xrange(0, 10):
-        # poll 
-        res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", ses, name="foo.test", appname="register")
-        if 'error' in res:
-            res['test'] = 'Failed to query name'
-            print json.dumps(res)
-            error = True
-            return False
-
-        if res['http_status'] != 200 and res['http_status'] != 404:
-            res['test'] = 'HTTP status {}, response = {}'.format(res['http_status'], res['response'])
-            print json.dumps(res)
-            error = True
-            return False
-
-        time.sleep(1)
+    print 'Wait for update to be submitted'
+    time.sleep(10)
 
     # wait for update to get confirmed 
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
-    res = verify_in_queue(ses, 'bar.test', 'update', None )
+    res = testlib.verify_in_queue(ses, 'bar.test', 'update', None )
     if not res:
         return False
 
     for i in xrange(0, 12):
         testlib.next_block( **kw )
+  
+    print 'Wait for update to be confirmed'
+    time.sleep(10)
 
-    print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
-    for i in xrange(0, 10):
-        # poll 
-        res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", ses, name="foo.test", appname="register")
-        if 'error' in res:
-            res['test'] = 'Failed to query name'
-            print json.dumps(res)
-            error = True
-            return False
-
-        if res['http_status'] != 200:
-            res['test'] = 'HTTP status {}, response = {}'.format(res['http_status'], res['response'])
-            print json.dumps(res)
-            error = True
-            return False
-
-        time.sleep(1)
-
-    # should now be registered 
-    if res['response']['status'] != 'registered':
-        print "register not complete"
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", ses)
+    if 'error' in res or res['http_status'] != 200:
+        res['test'] = 'Failed to get name bar.test'
         print json.dumps(res)
         return False
-   
+
     zonefile_hash = res['response']['zonefile_hash']
 
     # do we have the history for the name?
-    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/history", ses, name="foo.test", appname="register")
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/history", ses )
     if 'error' in res or res['http_status'] != 200:
-        res['test'] = "Failed to get name history for foo.test"
+        res['test'] = "Failed to get name history for bar.test"
         print json.dumps(res)
         return False
 
@@ -408,7 +203,7 @@ def scenario( wallets, **kw ):
         return False
 
     # get the zonefile
-    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile/{}".format(zonefile_hash), ses, name="foo.test", appname="register")
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile/{}".format(zonefile_hash), ses )
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get name zonefile'
         print json.dumps(res)
@@ -466,26 +261,5 @@ def check( state_engine ):
         if name_rec['address'] != wallets[wallet_owner].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[wallet_owner].addr):
             print "name {} has wrong owner".format(name)
             return False 
-
-    # get app config 
-    app_config = testlib.blockstack_cli_app_get_config( "foo.test", appname="register" )
-    if 'error' in app_config:
-        print "failed to get app config\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
-        return False
-
-    # inspect...
-    app_config = app_config['config']
-
-    if app_config['driver_hints'] != ['disk']:
-        print "Invalid driver hints\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
-        return False
-
-    if 'names' not in app_config['api_methods'] or 'register' not in app_config['api_methods']:
-        print "Invalid API list\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
-        return False
-
-    if len(app_config['index_uris']) != 1:
-        print "Invalid URI records\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
-        return False
 
     return True
