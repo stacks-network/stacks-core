@@ -142,7 +142,7 @@ def broadcast_tx(tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None):
 
     if BLOCKSTACK_TEST is not None:
         log.debug('Send {}'.format(tx_hex))
-
+    
     resp = {}
     try:
         resp = broadcast_transaction(tx_hex, tx_broadcaster)

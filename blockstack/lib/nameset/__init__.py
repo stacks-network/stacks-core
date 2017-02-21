@@ -421,3 +421,5 @@ from .namedb import BlockstackDB, DISPOSITION_RO, DISPOSITION_RW
 # this module is suitable to be a virtualchain state engine implementation 
 from .virtualchain_hooks import *
 
+from db import sqlite3_find_tool, sqlite3_backup
+

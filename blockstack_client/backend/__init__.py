@@ -18,7 +18,9 @@
     You should have received a copy of the GNU General Public License
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
-from registrar import *
+import registrar
+import safety
+
 from nameops import do_preorder, do_register, do_update, do_transfer, do_revoke, do_renewal, \
         do_namespace_preorder, do_namespace_reveal, do_namespace_ready, do_announce, do_name_import
 

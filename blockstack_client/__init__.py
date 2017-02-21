@@ -44,16 +44,14 @@ from proxy import getinfo, ping, get_name_cost, get_namespace_cost, get_all_name
 from keys import make_wallet_keys, get_owner_privkey_info, get_data_privkey_info, get_payment_privkey_info
 
 from cli import get_cli_methods
-from client import session, get_default_proxy, set_default_proxy, register_storage, load_storage, storage_setup, \
-        check_storage_setup
-
+from client import session, get_default_proxy, set_default_proxy, register_storage, load_storage
 from snv import snv_lookup, lookup_snv
 from data import get_immutable, get_immutable_by_name, get_mutable, put_immutable, put_mutable, delete_immutable, \
         delete_mutable, list_immutable_data, list_immutable_data_history, list_update_history, list_zonefile_history
 
 from data import set_data_pubkey
 from storage import get_announcement, put_announcement, verify_zonefile
-from profile import get_name_profile, get_user_profile
+from profile import get_profile, put_profile, delete_profile
 
 from config import get_logger, get_config, get_utxo_provider_client, get_tx_broadcaster, default_bitcoind_opts
 from constants import CONFIG_PATH, CONFIG_FILENAME, USER_ZONEFILE_TTL, DEFAULT_API_PORT
@@ -61,13 +59,12 @@ from constants import CONFIG_PATH, CONFIG_FILENAME, USER_ZONEFILE_TTL, DEFAULT_A
 from resolve import blockstack_mutable_data_url as make_mutable_data_url
 from resolve import blockstack_immutable_data_url as make_immutable_data_url 
 from resolve import blockstack_data_url_parse as parse_data_url
-from resolve import blockstack_data_url as make_data_url
 from resolve import BlockstackURLHandle, BlockstackHandler
 
 from storage import get_data_hash, get_blockchain_compat_hash, get_zonefile_data_hash
 from storage import get_storage_handlers, lookup_storage_handler, hash_zonefile
 from storage import parse_mutable_data as parse_signed_data
-from storage import sign_raw_data, verify_raw_data, sign_file_data, verify_file_data
+from keys import sign_raw_data, verify_raw_data, sign_digest, verify_digest 
 
 from wallet import get_payment_addresses_and_balances, get_owner_addresses_and_names, load_wallet, get_wallet
 
