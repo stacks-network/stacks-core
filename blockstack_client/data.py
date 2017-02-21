@@ -908,10 +908,11 @@ def put_mutable(data_id, data_payload, blockchain_id=None, data_privkey=None, pr
     result['status'] = True
     result['version'] = version
     result['fq_data_id'] = fq_data_id
+    result['timestamp'] = data_json['timestamp']
 
     if BLOCKSTACK_TEST is not None:
-        msg = 'Put "{}" to {} mutable data (version {})'
-        log.debug(msg.format(data_id, blockchain_id, version))
+        msg = 'Put "{}" mutable data (version {}) for blockchain ID {}'
+        log.debug(msg.format(data_id, version, blockchain_id))
 
     return result
 
@@ -1181,7 +1182,7 @@ def datastore_get_id( pubkey ):
     """
     Get the datastore ID
     """
-    return keylib.public_key_to_address( pubkey )
+    return keylib.public_key_to_address( str(pubkey) )
          
 
 def datastore_get_privkey( master_data_privkey, app_domain, config_path=CONFIG_PATH ):
@@ -1259,7 +1260,7 @@ def get_datastore( datastore_id, config_path=CONFIG_PATH, proxy=None):
     return {'status': True, 'datastore': datastore}
 
 
-def make_datastore( datastore_privkey_hex, driver_names=None, device_ids=None, config_path=CONFIG_PATH, datastore_type='datastore' ):
+def make_datastore( datastore_type, datastore_privkey_hex, driver_names=None, device_ids=None, config_path=CONFIG_PATH ):
     """
     Create a new datastore record with the given name, using the given account_info structure
     Return {'datastore': public datastore information, 'datastore_token': datastore JWT, 'root': root inode}
@@ -1272,7 +1273,7 @@ def make_datastore( datastore_privkey_hex, driver_names=None, device_ids=None, c
     if device_ids is None:
         device_ids = get_all_device_ids(config_path=config_path)
 
-    datastore_info = _make_datastore_info( datastore_privkey_hex, driver_names, device_ids, config_path=config_path)
+    datastore_info = _make_datastore_info( datastore_type, datastore_privkey_hex, driver_names, device_ids, config_path=config_path)
     return {'datastore': datastore_info['datastore'],  'datastore_token': datastore_info['datastore_token'], 'root': datastore_info['root']}
 
 
@@ -1425,7 +1426,6 @@ def _get_inode(datastore_id, inode_uuid, inode_type, data_pubkey_hex, drivers, d
 
     header_version = 0
     inode_header = None
-    successful_driver = None
     inode_info = None
     inode_version = None
 
@@ -1444,7 +1444,7 @@ def _get_inode(datastore_id, inode_uuid, inode_type, data_pubkey_hex, drivers, d
     data_id = '{}.{}'.format(datastore_id, inode_uuid)
     res = get_mutable(data_id, ver_min=header_version, data_hash=data_hash, storage_drivers=drivers_to_try, proxy=proxy, config_path=config_path)
     if 'error' in res:
-        log.error("Failed to get inode {} from {}: {}".format(inode_uuid, successful_driver, res['error']))
+        log.error("Failed to get inode {} from {}: {}".format(inode_uuid, ','.join(drivers_to_try), res['error']))
         return {'error': 'Failed to find fresh inode'}
 
     # success!
@@ -1618,9 +1618,18 @@ def _get_inode_header(datastore_id, inode_uuid, data_pubkey_hex, drivers, device
         log.error("Failed to get inode data {}: {}".format(inode_uuid, res['error']))
         return {'error': 'Failed to get inode data'}
 
+    # validate 
     inode_hdr = res['data']
     inode_hdr_version = res['version']
     inode_drivers = res['drivers']
+    
+    try:
+        jsonschema.validate(inode_hdr, MUTABLE_DATUM_INODE_HEADER_SCHEMA)
+    except ValidationError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        return {'error': "Invalid inode header"}
 
     # advance header version and inode version
     res = _put_inode_consistency_info(datastore_id, inode_uuid, max(inode_hdr_version, inode_version), device_ids, config_path=config_path)
@@ -1651,13 +1660,23 @@ def _put_inode(datastore_id, _inode, data_privkey, drivers, device_ids, config_p
 
     inode_version = res['version']
 
-    # store a metadata copy separately, for stat(2)
+    # make header
     inode_hdr = {}
-    for k in _inode.keys():
-        if k != 'idata':
-            inode_hdr[k] = copy.deepcopy(_inode[k])
+    for prop in MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.keys():
+        inode_hdr[prop] = copy.deepcopy(_inode[prop])
 
-    data_hdr_id = '{}.{}.hdr'.format(datastore_id, _inode['uuid'])
+    # what will get_mutable() return?
+    inode_payload = {
+        'data': _inode,
+        'version': inode_version,
+        'fq_data_id': res['fq_data_id'],
+        'timestamp': res['timestamp']
+    }
+
+    # put hash of inode payload
+    inode_hdr['data_hash'] = _mutable_data_inode_hash(inode_payload)
+
+    data_hdr_id = '{}.{}.hdr'.format(datastore_id, inode_hdr['uuid'])
     res = put_mutable(data_hdr_id, inode_hdr, data_privkey=data_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy, create=create )
     if 'error' in res:
         log.error("Failed to replicate inode header for {}: {}".format(inode['uuid'], res['error']))
@@ -1789,7 +1808,11 @@ def _resolve_path( datastore, path, data_pubkey, get_idata=True, config_path=CON
         child_dirent = cur_dir['idata'].get(name, None)
 
         if child_dirent is None:
-            log.debug('No child "{}" in "{}"\ninode:\n{}'.format(name, prefix, json.dumps(cur_dir, indent=4, sort_keys=True)))
+            if BLOCKSTACK_TEST:
+                log.debug('No child "{}" in "{}"\ninode:\n{}'.format(name, prefix, json.dumps(cur_dir, indent=4, sort_keys=True)))
+            else:
+                log.debug('No child "{}" in "{}"'.format(name, prefix))
+
             return {'error': 'No such file or directory', 'errno': errno.ENOENT}
        
         child_uuid = child_dirent['uuid']
@@ -1851,34 +1874,38 @@ def _resolve_path( datastore, path, data_pubkey, get_idata=True, config_path=CON
     return ret
 
 
-def _mutable_data_make_inode( inode_type, owner_address, inode_uuid, data_hash ):
+def _mutable_data_make_inode( inode_type, owner_address, inode_uuid, data_hash=None ):
     """
     Set up the basic properties of an inode.
     """
-    return {
+    ret = {
         'type':  inode_type,
         'owner': owner_address,
         'uuid': inode_uuid,
-        'data_hash': data_hash,
     }
 
+    if data_hash:
+        # meant for headers only
+        ret['data_hash'] = data_hash
 
-def _mutable_data_dir_hash( child_links ):
+    return ret
+
+
+def _mutable_data_inode_hash( inode_struct ):
     """
-    Calculate the idata hash for a directory's links
+    Calculate the inode hash
     """
-    d = json.dumps(child_links, sort_keys=True)
+    d = json.dumps(inode_struct, sort_keys=True)
     h = hashlib.sha256()
     h.update( d )
-    return h.hexdigest()
 
+    if BLOCKSTACK_TEST:
+        d_fmt = d
+        if len(d) > 100:
+            d_fmt = d[:100] + '...'
 
-def _mutable_data_file_hash( data_payload_utf8 ):
-    """
-    Calculate the idata hash for a file's data
-    """
-    h = hashlib.sha256()
-    h.update(data_payload_utf8)
+        log.debug("Hash is {} from '{}'".format(h.hexdigest(), d_fmt))
+
     return h.hexdigest()
 
 
@@ -1886,8 +1913,7 @@ def _mutable_data_make_dir( data_address, inode_uuid, child_links ):
     """
     Set up inode state for a directory
     """
-    data_hash = _mutable_data_dir_hash(child_links)
-    inode_state = _mutable_data_make_inode( MUTABLE_DATUM_DIR_TYPE, data_address, inode_uuid, data_hash )
+    inode_state = _mutable_data_make_inode( MUTABLE_DATUM_DIR_TYPE, data_address, inode_uuid )
     inode_state['idata'] = child_links
     return inode_state 
 
@@ -1896,8 +1922,7 @@ def _mutable_data_make_file( data_address, inode_uuid, data_payload ):
     """
     Set up inode state for a file
     """
-    data_hash = _mutable_data_file_hash(data_payload.encode('utf-8'))
-    inode_state = _mutable_data_make_inode( MUTABLE_DATUM_FILE_TYPE, data_address, inode_uuid, data_hash )
+    inode_state = _mutable_data_make_inode( MUTABLE_DATUM_FILE_TYPE, data_address, inode_uuid )
     inode_state['idata'] = data_payload.encode('utf-8')
     return inode_state
 
@@ -1924,7 +1949,6 @@ def _mutable_data_dir_link( parent_dir, child_type, child_name, child_uuid, chil
     }
 
     parent_dir['idata'][child_name] = new_dirent
-    parent_dir['data_hash'] = _mutable_data_dir_hash(parent_dir['idata'])
     return parent_dir, new_dirent
 
 
@@ -1937,7 +1961,6 @@ def _mutable_data_dir_unlink( parent_dir, child_name ):
     assert child_name in parent_dir['idata'].keys()
 
     del parent_dir['idata'][child_name]
-    parent_dir['data_hash'] = _mutable_data_dir_hash(parent_dir['idata'])
     return parent_dir
 
 
@@ -2018,7 +2041,7 @@ def datastore_mkdir(datastore, data_path, data_privkey_hex, config_path=CONFIG_P
     if DIR_CACHE is None:
         DIR_CACHE = InodeCache()
 
-    datastore_id = datastore['datastore_id']
+    datastore_id = datastore_get_id(datastore['pubkey'])
     path_info = _parse_data_path( data_path )
     parent_path = path_info['parent_path']
     data_path = path_info['data_path']
@@ -2086,7 +2109,7 @@ def datastore_rmdir(datastore, data_path, data_privkey_hex, config_path=CONFIG_P
     if DIR_CACHE is None:
         DIR_CACHE = InodeCache()
 
-    datastore_id = datastore['datastore_id']
+    datastore_id = datastore_get_id(datastore['pubkey'])
     path_info = _parse_data_path( data_path )
     data_path = path_info['data_path']
     name = path_info['iname']
@@ -2219,7 +2242,7 @@ def datastore_putfile(datastore, data_path, file_data, data_privkey_hex, create=
     if DIR_CACHE is None:
         DIR_CACHE = InodeCache()
 
-    datastore_id = datastore['datastore_id']
+    datastore_id = datastore_get_id(datastore['pubkey'])
     path_info = _parse_data_path( data_path )
     data_path = path_info['data_path']
     name = path_info['iname']
@@ -2286,7 +2309,7 @@ def datastore_deletefile(datastore, data_path, data_privkey_hex, config_path=CON
     if DIR_CACHE is None:
         DIR_CACHE = InodeCache()
 
-    datastore_id = datastore['datastore_id']
+    datastore_id = datastore_get_id(datastore['pubkey'])
     path_info = _parse_data_path( data_path )
     data_path = path_info['data_path']
     name = path_info['iname']
@@ -2374,7 +2397,7 @@ def datastore_rmtree(datastore, data_path, data_privkey_hex, config_path=CONFIG_
     if DIR_CACHE is None:
         DIR_CACHE = InodeCache()
 
-    datastore_id = datastore['datastore_id']
+    datastore_id = datastore_get_id(datastore['pubkey'])
     path_info = _parse_data_path( data_path )
     data_path = path_info['data_path']
     data_pubkey_hex = get_pubkey_hex(data_privkey_hex)
