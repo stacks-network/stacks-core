@@ -100,63 +100,6 @@ def load_legacy_user_profile(name, expected_hash):
     return new_profile
 
 
-def get_user_profile(user_id, user_data_pubkey=None, user_zonefile=None, data_address=None, owner_address=None,
-                      use_zonefile_urls=True, storage_drivers=None, decode=True, blockchain_id=None):
-    """
-    Fetch and load a user profile, given a zonefile.
-    Try to verify using the public key in the zonefile (if one
-    is present), and fall back to the user-address if need be
-    (it should be the hash of the profile JWT's public key).
-
-    user_id can be an arbitrary string.
-
-    At least one of the following is required:
-    * the public key
-    * the public key from the zonefile
-    * the data address
-    * the owner address
-
-    Return the user profile on success (either as a dict, or as a string if decode=False)
-    Return None on error
-    Raise on invalid arguments
-    """
-    # get user's data public key
-    if user_data_pubkey is None and user_zonefile is not None:
-        try:
-            user_data_pubkey = user_db.user_zonefile_data_pubkey(user_zonefile)
-        except ValueError as v:
-            # user decided to put multiple keys into the zonefile.
-            # so don't use them.
-            log.exception(v)
-            user_data_pubkey = None
-
-    if user_zonefile is None and use_zonefile_urls:
-        raise Exception("No zonefile given, but requested zonefile URLs")
-
-    if user_data_pubkey is None and data_address is None and owner_address is None:
-        raise Exception('Missing user data public key and address; cannot verify profile')
-
-    if user_data_pubkey is None:
-        msg = (
-            'No data public key set; falling back to hash of data '
-            'and/or owner public key for profile authentication'
-        )
-        log.warn(msg)
-
-    # get user's data public key from the zonefile
-    urls = None
-    if use_zonefile_urls and user_zonefile is not None:
-        urls = user_db.user_zonefile_urls(user_zonefile)
-
-    user_profile = storage.get_mutable_data(
-        user_id, user_data_pubkey,
-        data_address=data_address, owner_address=owner_address,
-        urls=urls, drivers=storage_drivers, decode=decode,
-        blockchain_id=blockchain_id
-    )
-
-    return user_profile
-
 
 def put_profile(name, new_profile, blockchain_id=None, user_data_privkey=None, user_zonefile=None,
                    proxy=None, wallet_keys=None, required_drivers=None, config_path=CONFIG_PATH):
@@ -212,8 +155,8 @@ def put_profile(name, new_profile, blockchain_id=None, user_data_privkey=None, u
     return ret
 
 
-def delete_profile(name, user_data_privkey=None, user_zonefile=None,
-                   proxy=None, wallet_keys=None, blockchain_id=None):
+def delete_profile(blockchain_id, user_data_privkey=None, user_zonefile=None,
+                   proxy=None, wallet_keys=None):
     """
     Delete profile data.  CLIENTS SHOULD NOT CALL THIS DIRECTLY
     Return {'status: True} on success
@@ -232,7 +175,7 @@ def delete_profile(name, user_data_privkey=None, user_zonefile=None,
             log.error("Failed to get data private key: {}".format(user_data_privkey['error']))
             return {'error': 'No data key defined'}
 
-    rc = storage.delete_mutable_data(name, user_data_privkey, blockchain_id=blockchain_id)
+    rc = storage.delete_mutable_data(blockchain_id, user_data_privkey)
     if rc:
         ret['status'] = True
     else:
@@ -241,17 +184,14 @@ def delete_profile(name, user_data_privkey=None, user_zonefile=None,
     return ret
 
 
-def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=None,
-                     proxy=None, user_zonefile=None, name_record=None,
-                     include_name_record=False, include_raw_zonefile=False, use_zonefile_urls=True,
-                     use_legacy=False, use_legacy_zonefile=True, decode_profile=True):
+def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=None,
+                proxy=None, user_zonefile=None, name_record=None,
+                include_name_record=False, include_raw_zonefile=False, use_zonefile_urls=True,
+                use_legacy=False, use_legacy_zonefile=True, decode_profile=True):
     """
     Given a name, look up an associated profile.
     Do so by first looking up the zonefile the name points to,
     and then loading the profile from that zonefile's public key.
-
-    This only works for *names on the blockchain*, where the profile's user ID is the name itself.
-    It *will not work* for arbitrary user_ids.  Use get_user_profile for that.
 
     Notes on backwards compatibility (activated if use_legacy=True and use_legacy_zonefile=True):
     
@@ -334,11 +274,15 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
         assert 'address' in name_record.keys(), json.dumps(name_record, indent=4, sort_keys=True)
         owner_address = name_record['address']
 
-        user_profile = get_user_profile(
-            name, user_zonefile=user_zonefile, data_address=data_address, owner_address=owner_address,
-            use_zonefile_urls=use_zonefile_urls,
-            storage_drivers=profile_storage_drivers,
-            decode=decode_profile, blockchain_id=name
+        # get user's data public key from the zonefile
+        urls = None
+        if use_zonefile_urls and user_zonefile is not None:
+            urls = user_db.user_zonefile_urls(user_zonefile)
+
+        user_profile = storage.get_mutable_data(
+            name, user_data_pubkey,
+            data_address=data_address, owner_address=owner_address,
+            urls=urls, drivers=profile_storage_drivers, decode=decode_profile,
         )
 
         if user_profile is None or json_is_error(user_profile):
