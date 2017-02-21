@@ -90,17 +90,6 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
-    # bootstrap storage for this wallet
-    res = testlib.blockstack_cli_setup_storage("foo.test", password="0123456789abcdef")
-    if 'error' in res:
-        print 'failed to bootstrap storage for foo.test'
-        print json.dumps(res, indent=4, sort_keys=True)
-        return False
-
-    if not blockstack_client.check_storage_setup():
-        print "storage is not set up"
-        return False
-
     # tell serialization-checker that value_hash can be ignored here
     print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
     sys.stdout.flush()
@@ -111,36 +100,16 @@ def scenario( wallets, **kw ):
     data_pub = wallets[-1].pubkey_hex
     
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
-
-    # make an index file for a dumb app 
-    index_file_path = "/tmp/rest_stores.index.html"
-    with open(index_file_path, "w") as f:
-        f.write(index_file_data)
-
-    # register an application under foo.test
-    res = testlib.blockstack_cli_app_publish("foo.test", "names,register,prices,user_read,user_write,user_admin,store_admin,store_read,store_write", index_file_path, appname="stores", drivers="disk", password="0123456789abcdef" )
-    if 'error' in res:
-        res['test'] = 'Failed to register foo.test/stores app'
-        print json.dumps(res, indent=4, sort_keys=True)
+ 
+    # make a session 
+    ses = testlib.blockstack_app_session( "register.app", ["names","register","prices","zonefiles","blockchain","store_admin","store_read","store_write"], config_path=config_path )
+    if 'error' in ses:
+        ses['test'] = 'Failed to get app session'
+        print json.dumps(ses)
         return False
 
-    # make a user for bar.test (via the REST api)
-    res = testlib.blockstack_cli_create_user( "foo_user_id", password="0123456789abcdef" )
-    if 'error' in res:
-        res['test'] = 'Failed to create user'
-        print json.dumps(res)
-        return False
+    ses = ses['ses']
 
-    # make an account for foo_user_id (foo.test/stores)
-    res = testlib.blockstack_app_create_account("foo_user_id", "foo.test", "stores")
-    if 'error' in res:
-        res['test'] = 'Failed to create account: {}'.format(res['error'])
-        print json.dumps(res, indent=4, sort_keys=True)
-        return False 
-    
-    # get session
-    ses = res['ses']
-    
     # get the data store name
     res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores', ses, name='foo.test', appname='stores')
     if 'error' in res:
@@ -164,7 +133,7 @@ def scenario( wallets, **kw ):
     # make directories
     for dpath in ['/dir1', '/dir2', '/dir1/dir3', '/dir1/dir3/dir4']:
         print 'mkdir {}'.format(dpath)
-        res = testlib.blockstack_REST_call('POST', '/v1/users/foo_user_id/stores/{}/directory'.format(datastore_name), ses, name='foo.test', appname='stores', path=dpath)
+        res = testlib.blockstack_REST_call('POST', '/v1/users/foo_user_id/stores/{}/directory'.format(datastore_name), ses, path=dpath)
         if 'error' in res or res['http_status'] != 200:
             print 'failed to mkdir {}: {}'.format(dpath, res['http_status'])
             return False
@@ -172,7 +141,7 @@ def scenario( wallets, **kw ):
     # stat directories 
     for dpath in ['/dir1', '/dir2', '/dir1/dir3', '/dir1/dir3/dir4']:
         print 'stat {}'.format(dpath)
-        res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores/{}/inode'.format(datastore_name), ses, name='foo.test', appname='stores', path=dpath)
+        res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores/{}/inode'.format(datastore_name), ses, path=dpath)
         if 'error' in res or res['http_status'] != 200:
             print 'failed to stat {}: {}'.format(dpath, res['http_status'])
             return False
@@ -185,7 +154,7 @@ def scenario( wallets, **kw ):
     # list directories 
     for dpath, expected in [('/', ['dir1', 'dir2']), ('/dir1', ['dir3']), ('/dir1/dir3', ['dir4']), ('/dir1/dir3/dir4', [])]:
         print 'listdir {}'.format(dpath)
-        res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores/{}/directory'.format(datastore_name), ses, name='foo.test', appname='stores', path=dpath)
+        res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores/{}/directory'.format(datastore_name), ses, path=dpath)
         if 'error' in res or res['http_status'] != 200:
             print 'failed to listdir {}: {}'.format(dpath, res['http_status'])
             return False
@@ -205,7 +174,7 @@ def scenario( wallets, **kw ):
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'putfile {}'.format(dpath)
         data = 'hello {}'.format(os.path.basename(dpath))
-        res = testlib.blockstack_REST_call('POST', '/v1/users/foo_user_id/stores/{}/file'.format(datastore_name), ses, name='foo.test', appname='stores', raw_data=data, path=dpath)
+        res = testlib.blockstack_REST_call('POST', '/v1/users/foo_user_id/stores/{}/file'.format(datastore_name), ses, raw_data=data, path=dpath)
         if 'error' in res or res['http_status'] != 200:
             print 'failed to putfile {}: {}'.format(dpath, res['http_status'])
             return False
@@ -213,7 +182,7 @@ def scenario( wallets, **kw ):
     # stat files
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'stat {}'.format(dpath)
-        res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores/{}/inode'.format(datastore_name), ses, name='foo.test', appname='stores', path=dpath)
+        res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores/{}/inode'.format(datastore_name), ses, path=dpath)
         if 'error' in res or res['http_status'] != 200:
             print 'failed to stat {}: {}'.format(dpath, res['http_status'])
             return False
@@ -226,7 +195,7 @@ def scenario( wallets, **kw ):
     # list directories again 
     for dpath, expected in [('/', ['dir1', 'dir2', 'file1', 'file2']), ('/dir1', ['dir3', 'file3']), ('/dir1/dir3', ['dir4', 'file4']), ('/dir1/dir3/dir4', ['file5'])]:
         print 'listdir {}'.format(dpath)
-        res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores/{}/directory'.format(datastore_name), ses, name='foo.test', appname='stores', path=dpath)
+        res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores/{}/directory'.format(datastore_name), ses, path=dpath)
         if 'error' in res or res['http_status'] != 200:
             print 'failed to listdir {}: {}'.format(dpath, res['http_status'])
             return False
@@ -244,7 +213,7 @@ def scenario( wallets, **kw ):
     # get files
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'getfile {}'.format(dpath)
-        res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores/{}/file'.format(datastore_name), ses, name='foo.test', appname='stores', path=dpath)
+        res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores/{}/file'.format(datastore_name), ses, path=dpath)
         if 'error' in res or res['http_status'] != 200:
             print 'failed to getfile {}: {}'.format(dpath, res['http_status'])
             return False
@@ -319,27 +288,5 @@ def check( state_engine ):
         if name_rec['address'] != wallets[wallet_owner].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[wallet_owner].addr):
             print "name {} has wrong owner".format(name)
             return False 
-
-    # get app config 
-    app_config = testlib.blockstack_cli_app_get_config( "foo.test", appname="stores" )
-    if 'error' in app_config:
-        print "failed to get app config\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
-        return False
-
-    # inspect...
-    app_config = app_config['config']
-
-    if app_config['driver_hints'] != ['disk']:
-        print "Invalid driver hints\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
-        return False
-
-    for api_family in "names,register,prices,user_read,user_write,user_admin,store_admin,store_read,store_write".split(','):
-        if api_family not in app_config['api_methods']:
-            print "Invalid API list\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
-            return False
-
-    if len(app_config['index_uris']) != 1:
-        print "Invalid URI records\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
-        return False
 
     return True
