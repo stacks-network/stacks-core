@@ -137,7 +137,7 @@ def make_transaction(name, destination_address, keepdata, consensus_hash, old_ow
     
     inputs = tx_get_unspents( old_owner_addr, blockchain_client )
     if safety:
-        assert len(inputs) > 0
+        assert len(inputs) > 0, "No UTXOs for {}".format(old_owner_addr)
     
     nulldata = build(name, keepdata, consensus_hash)
     outputs = make_outputs(nulldata, inputs, destination_address, old_owner_addr, tx_fee, pay_fee=pay_fee)
