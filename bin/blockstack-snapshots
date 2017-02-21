@@ -1,0 +1,288 @@
+#!/usr/bin/env python2
+# -*- coding: utf-8 -*-
+"""
+    Blockstack-client
+    ~~~~~
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016-2017 by Blockstack.org
+
+    This file is part of Blockstack-client.
+
+    Blockstack-client is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Blockstack-client is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Blockstack-client.  If not, see <http://www.gnu.org/licenses/>.
+"""
+import os
+import sys
+
+if sys.version_info.major != 2:
+    raise Exception("Python 3 is not supported")
+
+if sys.version_info.minor < 7:
+    raise Exception("Python 2.7 or greater is required")
+
+import traceback
+import json
+
+# Hack around absolute paths
+current_dir = os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../")
+
+import errno
+import socket
+import posixpath
+import SocketServer
+from SimpleHTTPServer import SimpleHTTPRequestHandler
+import re
+import jsonschema
+from jsonschema import ValidationError
+
+import keylib
+
+import blockstack_client.schemas as schemas
+
+class BlockstackSnapshotHandler(SimpleHTTPRequestHandler):
+    """
+    Snapshot server request handler.
+
+    Endpoints are:
+        POST /v1/snapshot       Sign a snapshot digest if it is signed by a trusted key
+
+    server variables:
+        self.server.trusted_public_key
+        self.server.private_key
+    """
+
+    def _send_headers(self, status_code=200, content_type='application/json'):
+        """
+        Generate and reply headers
+        """
+        self.send_response(status_code)
+        self.send_header('content-type', content_type)
+        self.send_header('Access-Control-Allow-Origin', '*')    # CORS
+        self.end_headers()
+
+
+    def _reply_json(self, json_payload, status_code=200):
+        """
+        Return a JSON-serializable data structure
+        """
+        self._send_headers(status_code=status_code)
+        json_str = json.dumps(json_payload)
+        self.wfile.write(json_str)
+
+
+    def _read_payload(self, maxlen=None):
+        """
+        Read raw uploaded data.
+        Return the data on success
+        Return None on I/O error, or if maxlen is not None and the number of bytes read is too big
+        """
+
+        client_address_str = "{}:{}".format(self.client_address[0], self.client_address[1])
+
+        # check length
+        read_len = self.headers.get('content-length', None)
+        if read_len is None:
+            log.error("No content-length given from {}".format(client_address_str))
+            return None
+
+        try:
+            read_len = int(read_len)
+        except:
+            log.error("Invalid content-length")
+            return None
+
+        if maxlen is not None and read_len >= maxlen:
+            log.error("Request from {} is too long ({} >= {})".format(client_address_str, read_len, maxlen))
+            return None
+
+        # get the payload
+        request_str = self.rfile.read(read_len)
+        return request_str
+
+
+    def _read_json(self, schema=None):
+        """
+        Read a JSON payload from the requester
+        Return the parsed payload on success
+        Return None on error
+        """
+        # JSON post?
+        request_type = self.headers.get('content-type', None)
+        client_address_str = "{}:{}".format(self.client_address[0], self.client_address[1])
+
+        if request_type != 'application/json':
+            log.error("Invalid request of type {} from {}".format(request_type, client_address_str))
+            return None
+
+        request_str = self._read_payload(maxlen=self.JSONRPC_MAX_SIZE)
+        if request_str is None:
+            log.error("Failed to read request")
+            return None
+
+        # parse the payload
+        request = None
+        try:
+            request = json.loads( request_str )
+            if schema is not None:
+                jsonschema.validate( request, schema )
+
+        except (TypeError, ValueError, ValidationError) as ve:
+            if BLOCKSTACK_DEBUG:
+                log.exception(ve)
+
+            return None
+
+        return request
+
+
+    def get_path_and_qs(self):
+        """
+        Parse and obtain the path and query values.
+        We don't care about fragments.
+
+        Return {'path': ..., 'qs_values': ...} on success
+        Return {'error': ...} on error
+        """
+        path_parts = self.path.split("?", 1)
+
+        if len(path_parts) > 1:
+            qs = path_parts[1].split("#", 1)[0]
+        else:
+            qs = ""
+
+        path = path_parts[0].split("#", 1)[0]
+        path = posixpath.normpath(urllib.unquote(path))
+
+        qs_values = self.parse_qs( qs )
+        if qs_values is None:
+            return {'error': 'Failed to parse query string'}
+
+        parts = path.strip('/').split('/')
+
+        return {'path': path, 'qs_values': qs_values, 'parts': parts}
+
+
+    def sign_snapshot( self ):
+        """
+        Read a snapshot digest, sign it, and return the signature.
+        Return 200 with {'sigb64': sigb64} on success
+        Return 401 on invalid request structure
+        Return 403 on invalid signature
+
+        TODO: if this server is colocated with a blockstack server, then
+        it should verify that independently calculated the same snapshot.
+        Use `block_height` for that.
+        """
+        snapshot_schema = {
+            'type': 'object',
+            'properties': {
+                'block_height': {
+                    'type': 'integer',
+                },
+                'file_hash': {
+                    'type': 'string',
+                    'pattern': schemas.OP_HEX_PATTERN,
+                },
+                'sigb64': {
+                    'type': 'string',
+                    'pattern': schemas.OP_BASE64_PATTERN,
+                },
+            },
+            'required': [
+                'file_hash',
+                'sigb64',
+            ],
+            'additionalProperties': False,
+        }
+
+        request = _read_json(schema=snapshot_schema)
+        if request is None:
+            return self._reply_json({'error': 'Invalid snapshot request'}, status_code=401)
+            
+        block_height = request['block_height']
+        hash_bin = request['file_hash'].decode('hex')
+        sigb64 = request['sigb64']
+
+        # TODO: check to see that we (1) have this snapshot, and (2) it has the given hash 
+
+        # did our trusted public key sign it?
+        valid = blockstack_client.storage.verify_raw_data( hash_bin, self.server.trusted_public_key, sigb64 )
+        if not valid:
+            return self._reply_json({'error': 'Invalid signature'}, status_code=403)
+
+        # can sign 
+        sigb64 = blockstack_client.storage.sign_raw_data( hash_bin, self.server.private_key )
+        assert sigb64
+
+        return self._reply_json({'sigb64': sigb64})
+
+
+    def do_POST(self):
+        """
+        Handle POST request
+        """
+        path_info = self.get_path_and_qs()
+        if 'error' in path_info:
+            return self._reply_json({'error': 'Invalid request'}, status_code=401)
+
+        path = path_info['path']
+        if path == '/v1/snapshots':
+            return self.sign_snapshot()
+        else:
+            return self._reply_json({'error': 'No such method'}, status_code=404)
+
+
+class BlockstackSnapshotServer(SocketServer.TCPServer):
+    """
+    Snapshot server implementation
+    """
+    def __init__(self, trusted_public_key, private_key ):
+        """
+        Set up a snapshot server
+        """
+        self.trusted_public_key = keylib.ECPublicKey(trusted_public_key).to_hex()
+        self.private_key = keylib.ECPrivateKey(private_key).to_hex()
+
+
+def usage():
+    print >> sys.stderr, "Usage: {} /path/to/private/key /path/to/trusted/public/key".format(sys.argv[0])
+    sys.exit(1)
+
+
+if __name__ == '__main__':
+    # usage: $0 /path/to/private/key /path/to/trusted/public/key
+    if len(sys.argv) != 3:
+        usage()
+
+    for path in sys.argv[1:]:
+        if not os.path.exists(path):
+            usage()
+
+    private_key = None
+    trusted_public_key = None
+
+    with open(sys.argv[1]) as f:
+        private_key = f.read().strip()
+
+    with open(sys.argv[2]) as f:
+        trusted_public_key = f.read().strip()
+
+    try:
+        keylib.ECPrivateKey(private_key)
+        keylib.ECPublicKey(trusted_public_key)
+    except:
+        print >> sys.stderr, "Invalid key data"
+        usage()
+
+    srv = BlocksatckSnapshotServer( trusted_public_key, private_key )
+    srv.serve_forever()
