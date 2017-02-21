@@ -1574,7 +1574,7 @@ def get_namespace_blockchain_record(namespace_id, proxy=None):
         ret = ret['record']
 
         # this isn't needed
-        ret['record'].pop('opcode', None)
+        ret.pop('opcode', None)
     except ValidationError as e:
         log.exception(e)
         ret = json_traceback(ret.get('error'))
@@ -1584,7 +1584,7 @@ def get_namespace_blockchain_record(namespace_id, proxy=None):
         resp = {'error': 'Failed to execute RPC method'}
         return resp
 
-    return ret['record']
+    return ret
 
 
 def is_name_registered(fqu, proxy=None):
