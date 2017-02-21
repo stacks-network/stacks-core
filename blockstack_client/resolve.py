@@ -53,276 +53,62 @@ B40_REGEX = '^{}*$'.format(B40_CLASS)
 URLENCODED_CLASS = '[a-zA-Z0-9\-_.~%]'
 URLENCODED_PATH_CLASS = '[a-zA-Z0-9\-_.~%/]'
 
-def _get_account_datastore_name(account_info):
+
+def get_datastore_creds( master_data_privkey=None, app_domain=None, app_user_privkey=None, config_path=CONFIG_PATH ):
     """
-    Get the name for an account datastore
+    Get datastore credentials
+    Return {'status': True, 'datastore_privkey': ..., 'datastore_id': ...} on success
+    Return {'error': ...} on error
     """
-    user_id = account_info['user_id']
-    app_fqu = account_info['name']
-    appname = account_info['appname']
 
-    datastore_name = app.app_account_datastore_name( app.app_account_name(user_id, app_fqu, appname) )
-    return datastore_name
+    assert app_user_privkey is not None or (master_data_privkey is not None and app_domain is not None), "Invalid creds: need app_domain and master_data_privkey, or app_user_privkey"
 
+    if app_user_privkey is None:
+        app_user_privkey = data.datastore_get_privkey( privkey_hex, app_domain, config_path=CONFIG_PATH )
+        if app_user_privkey is None:
+            return {'error': 'Failed to load app user private key'}
 
-def get_account_datastore_creds( account_info, account_privkey_hex, config_path=CONFIG_PATH ):
-    """
-    Get an account datastore's name and private key
-    """
-    datastore_privkey_hex = data.datastore_get_privkey( account_privkey_hex, config_path=CONFIG_PATH )
-    if datastore_privkey_hex is None:
-        return {'error': 'Failed to load datastore private key'}
+    app_user_pubkey = get_pubkey_hex(app_user_privkey)
+    datastore_id = data.datastore_get_id(app_user_pubkey)
 
-    user_id = account_info['user_id']
-    datastore_name = _get_account_datastore_name(account_info)
+    ret = {
+        'status': True,
+        'datastore_privkey': app_user_privkey,
+        'datastore_pubkey': app_user_pubkey,
+        'datastore_id': datastore_id
+    }
 
-    return {'user_id': user_id, 'datastore_name': datastore_name, 'datastore_privkey': datastore_privkey_hex}
-
-
-def get_account_datastore(account_info, account_privkey_hex, proxy=None, config_path=CONFIG_PATH ):
-    """
-    Get the datastore for the given account
-    @account_info is the account information
-    return {'status': True} on success
-    return {'error': ...} on failure
-    """
-    user_id = account_info['user_id']
-    datastore_name = _get_account_datastore_name(account_info)
-    datastore_privkey = data.datastore_get_privkey( account_privkey_hex, config_path=CONFIG_PATH )
-    if datastore_privkey is None:
-        return {'error': 'Failed to load datastore private key'}
-
-    datastore_pubkey = get_pubkey_hex(datastore_privkey)
-    log.debug("Get account datastore {}".format(datastore_name))
-    return data.get_datastore(user_id, datastore_name, datastore_pubkey, config_path=config_path, proxy=proxy ) 
+    return ret
 
 
-def get_user_datastore(user_info, datastore_name, proxy=None, config_path=CONFIG_PATH ):
-    """
-    Get the datastore for the given user
-    @account_info is the account information
-    return {'status': True} on success
-    return {'error': ...} on failure
-    """
-    user_id = user_info['user_id']
-    datastore_pubkey = str(user_info['public_key'])
-    log.debug("Get user datastore {}".format(datastore_name))
-    return data.get_datastore(user_id, datastore_name, datastore_pubkey, config_path=config_path, proxy=proxy ) 
-
-
-def get_account_datastore_info( master_data_privkey, user_id, app_fqu, app_name, config_path=CONFIG_PATH, proxy=None ):
+def get_datastore_info( datastore_id=None, app_user_privkey=None, master_data_privkey=None, app_domain=None, config_path=CONFIG_PATH, proxy=None ):
     """
     Get information about an account datastore.
     At least, get the user and account owner.
 
-    Return {'status': True, 'user': user, 'user_privkey': ..., 'account': account, 'account_privkey': ..., 'datastore': ..., 'datastore_privkey': ...} on success.
+    Return {'status': True, 'datastore': ..., ['datastore_privkey': ...}] on success.
 
     Return {'error': ...} on failure
     """
-  
-    master_data_pubkey = get_pubkey_hex(master_data_privkey)
 
-    # get user info
-    user_info = data.get_user(user_id, master_data_privkey, config_path=config_path)
-    if 'error' in user_info:
-        return user_info
-
-    if not user_info['owned']:
-        # we have to own this user, since this is an account-specific datastore
-        return {'error': 'This wallet does not own this user'}
-
-    user = user_info['user']
-
-    user_privkey_hex = user_db.user_get_privkey(master_data_privkey, user, config_path=config_path)
-    if user_privkey_hex is None:
-        return {'error': 'Failed to load user private key'}
+    datastore_privkey = None
     
-    res = app.app_load_account(user_id, app_fqu, app_name, user_privkey_hex, config_path=config_path)
+    if app_user_privkey is not None or (master_data_privkey is not None and app_domain is not None):
+        creds = get_datastore_creds(master_data_privkey, app_domain=app_domain, app_user_privkey=app_user_privkey, config_path=config_path)
+        if 'error' in creds:
+            return creds
+
+        datastore_privkey = creds['datastore_privkey']
+        datastore_id = creds['datastore_id']
+
+    res = data.get_datastore(datastore_id, config_path=config_path, proxy=proxy )
     if 'error' in res:
         return res
 
-    acct = res['account']
-    acct_privkey_hex = app.app_account_get_privkey(user_privkey_hex, acct, config_path=config_path) 
-    if acct_privkey_hex is None:
-        return {'error': 'Failed to load account private key'}
+    if datastore_privkey is not None:
+        res['datastore_privkey'] = datastore_privkey
 
-    res = get_account_datastore(acct, acct_privkey_hex, proxy=proxy, config_path=config_path)
-    if 'error' in res:
-        log.debug("Failed to get datastore for {}".format(user_id))
-        return res
-
-    datastore = res['datastore']
-    datastore_privkey_hex = data.datastore_get_privkey( acct_privkey_hex, config_path=config_path )
-    if datastore_privkey_hex is None:
-        return {'error': 'Failed to load datastore private key'}
-
-    ret = {
-        'user': user,
-        'account': acct,
-        'datastore': datastore,
-        'status': True
-    }
-
-    if user_privkey_hex is not None:
-        ret['user_privkey'] = user_privkey_hex
-
-    if datastore_privkey_hex is not None:
-        ret['datastore_privkey'] = datastore_privkey_hex
-
-    if acct_privkey_hex is not None:
-        ret['account_privkey'] = acct_privkey_hex
-
-    return ret
-
-
-def get_user_datastore_info( master_data_privkey, user_id, datastore_name, config_path=CONFIG_PATH, proxy=None ):
-    """
-    Get information about a datastore that belongs directly to a user (without an account)
-    If master_data_privkey is not None, then also get the datastore private key.
-
-    Return {'status': True, 'user': user, 'user_privkey': ..., 'datastore': ..., 'datastore_privkey': ...} on success.
-    If master_data_privkey is not given, then user_privkey and datastore_privkey will not be provided.
-
-    Return {'error': ...} on failure
-    """
-    
-    master_data_pubkey = get_pubkey_hex(master_data_privkey)
-
-    res = data.get_user(user_id, master_data_privkey, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    user = res['user']
-    user_pubkey = user['public_key']
-        
-    user_privkey_hex = user_db.user_get_privkey(master_data_privkey, user, config_path=config_path)
-    if user_privkey_hex is None:
-        return {'error': 'Failed to load user private key'}
-    
-    res = get_user_datastore(user, datastore_name, proxy=proxy, config_path=config_path)
-    if 'error' in res:
-        return res
-    
-    datastore = res['datastore']
-    datastore_privkey_hex = user_privkey_hex
-
-    ret = {
-        'user': user,
-        'datastore': datastore,
-        'status': True
-    }
-
-    if datastore_privkey_hex is not None:
-        ret['datastore_privkey'] = datastore_privkey_hex
-
-    return ret
-
-
-def get_datastore_name_info( user_id, datastore_id ):
-    """
-    Parse a datastore ID into an application blockchain ID and name, if 
-    the datastore ID refers to an account-owned datastore.
-    
-    Return {'app_fqu': app_fqu, 'appname': appname, 'datastore_name': datastore_name} on success
-    Return {'error': ...} on error
-    """
-    account_name_parts = app.app_account_parse_datastore_name(datastore_id)
-    app_fqu = None
-    appname = None
-    datastore_name = None
-
-    if account_name_parts is not None:
-        # this is an account-specific datastore
-        if user_id != account_name_parts['user_id']:
-            return {'error': 'Invalid user ID for given data store name'}
-
-        app_fqu = account_name_parts['app_blockchain_id']
-        appname = account_name_parts['app_name']
-    
-    else:
-        # this is a generic datastore
-        datastore_name = datastore_id
-
-    return {'app_fqu': app_fqu, 'appname': appname, 'datastore_name': datastore_name}    
-
-
-def get_datastore_info( user_id, datastore_id, wallet_keys, include_private=False, config_path=CONFIG_PATH, proxy=None, password=None ):
-    """
-    Get datastore information.  If the datastore information is not locally hosted, then user_id must be a blockchain ID that points to the
-    zone file with the master public key.
-
-    Returns {
-        'datastore': datastore record,
-        'datastore_privkey': datastore private key (if include_private is True and we have the ciphertext locally).  Hex-encoded
-        'app_fqu': name that points to owner of the application for which this datastore holds the user's data (if defined)
-        'appname': name of application for which this datastore holds the user's data the datastore (if defined)
-        'datastore_name': name of datastore
-        'master_data_pubkey': master data public key
-        'master_data_privkey': master data private key (only given if include_private is True)
-    }
-
-    Returns {'error': ...} on error
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    config_dir = os.path.dirname(config_path)
-
-    account_name_parts = app.app_account_parse_datastore_name(datastore_id)
-    app_fqu = None
-    appname = None
-    datastore_name = None
-    master_data_privkey = None
-    datastore_privkey_hex = None
-
-    name_info = get_datastore_name_info(user_id, datastore_id)
-    if 'error' in name_info:
-        # user ID mismatch
-        return name_info
-
-    app_fqu = name_info['app_fqu']
-    appname = name_info['appname']
-    datastore_name = name_info['datastore_name']
-
-    assert wallet_keys
-    assert wallet_keys.has_key('data_privkey')
-    master_data_privkey = wallet_keys['data_privkey']
-    master_data_pubkey = get_pubkey_hex(master_data_privkey)
-
-    datastore_info = None
-    datastore = None
-
-    if app_fqu is not None and appname is not None:
-        log.debug("Datastore {} is an account datastore".format(datastore_id))
-        datastore_info = get_account_datastore_info( master_data_privkey, user_id, app_fqu, appname, config_path=config_path, proxy=proxy )
-
-    else:
-        log.debug("Datastore {} is a user datastore".format(datastore_id))
-        datastore_info = get_user_datastore_info( master_data_privkey, user_id, datastore_name, config_path=config_path, proxy=proxy )
-
-    if 'error' in datastore_info:
-        log.error("Failed to get datastore information")
-        return datastore_info
-
-    datastore = datastore_info['datastore']
-    if include_private:
-        datastore_privkey_hex = datastore_info['datastore_privkey']
-        
-    ret = {
-        'datastore': datastore,
-        'datastore_info': datastore_info,
-        'app_fqu': app_fqu,
-        'appname': appname,
-        'datastore_name': datastore_name,
-        'master_data_pubkey': master_data_pubkey,
-    }
-    
-    if include_private:
-        ret['master_data_privkey'] = master_data_privkey
-        ret['datastore_privkey'] = datastore_privkey_hex
-
-    return ret
+    return res
 
 
 def blockstack_mutable_data_url(blockchain_id, data_id, version):
@@ -365,31 +151,35 @@ def blockstack_immutable_data_url(blockchain_id, data_id, data_hash):
     )
 
 
-def blockstack_datastore_url( user_id, datastore_id, path ):
+def blockstack_datastore_url( datastore_id, app_domain, path, version=None ):
     """
     Make a blockstack:// URL for a datastore record
     """
-    assert re.match(schemas.OP_URLENCODED_PATTERN, user_id)
     assert re.match(schemas.OP_URLENCODED_PATTERN, datastore_id)
+    assert re.match(schemas.OP_URLENCODED_PATTERN, app_domain)
+    assert '@' not in datastore_id
 
     path = '/'.join( [urllib.quote(p) for p in posixpath.normpath(path).split('/')] )
 
-    return 'blockstack://{}@{}/{}'.format(urllib.quote(datastore_id), urllib.quote(user_id), path)
+    if version is not None:
+        return 'blockstack://{}@{}/{}#{}'.format(urllib.quote(datastore_id), urllib.quote(app_domain), path, version)
+    else:
+        return 'blockstack://{}@{}/{}'.format(urllib.quote(datastore_id), urllib.quote(app_domain), path)
 
 
 def blockstack_mutable_data_url_parse(url):
     """
     Parse a blockstack:// URL for mutable data
-    Return (blockchain ID, data ID, data version, user ID, datastore ID) on success.
+    Return (blockchain ID, data ID, data version, datastore ID) on success.
     The data ID will be a path if user ID and datastore ID are given; if the path ends in '/', then a directory is specifically requested.
     The version may be None if not given (in which case, the latest value is requested).
     """
 
     url = str(url)
     mutable_url_data_regex = r'^blockstack://({}+)[/]+({}+)[/]*(#[0-9]+)?$'.format(B40_CLASS, URLENCODED_CLASS)
-    datastore_url_data_regex = r"^blockstack://({}+)@({}+)[/]+({}+)$".format(schemas.OP_DATASTORE_ID_CLASS, schemas.OP_USER_ID_CLASS, URLENCODED_PATH_CLASS)
+    datastore_url_data_regex = r"^blockstack://({}+)@({}+)[/]+({}+)[/]*(#[0-9]+)?$".format(URLENCODED_CLASS, URLENCODED_CLASS, URLENCODED_PATH_CLASS, URLENCODED_CLASS)
 
-    blockchain_id, data_id, version, user_id, datastore_id = None, None, None, None, None
+    blockchain_id, data_id, version, app_domain = None, None, None, None
     is_dir = False
 
     # mutable?
@@ -411,18 +201,23 @@ def blockstack_mutable_data_url_parse(url):
     m = re.match(datastore_url_data_regex, url)
     if m:
 
-        datastore_id, user_id, path = m.groups()
+        datastore_id, app_domain, path, version = m.groups()
         if path.endswith('/'):
             is_dir = True
         
+        # version?
+        if version is not None:
+            version = version.strip('#/')
+            version = int(version)
+
         # unquote 
         path = '/' + '/'.join([urllib.unquote(p) for p in posixpath.normpath(path).split('/')])
         if is_dir:
             path += '/'
 
-        return None, urllib.unquote(path), version, user_id, datastore_id
+        return urllib.unquote(datastore_id), urllib.unquote(path), version, urllib.unquote(app_domain)
 
-    return None, None, None, None, None
+    return None, None, None, None
 
 
 def blockstack_immutable_data_url_parse(url):
@@ -501,19 +296,20 @@ def blockstack_data_url_parse(url):
         log.debug("Not an immutable data URL: {}".format(url))
 
         try:
-            blockchain_id, data_id, version, user_id, datastore_id = (
+            blockchain_or_datastore_id, data_id, version, app_domain = (
                 blockstack_mutable_data_url_parse(url)
             )
 
             url_type = 'mutable'
-            assert (blockchain_id is None and user_id is not None and datastore_id is not None) or (blockchain_id is not None and user_id is None and datastore_id is None)
-
-            if blockchain_id is not None:
+            if version:
                 fields['version'] = version
 
+            if app_domain is not None:
+                fields['app_domain'] = app_domain
+                fields['datastore_id'] = blockchain_or_datastore_id
+
             else:
-                fields['datastore_id'] = datastore_id
-                fields['user_id'] = user_id
+                fields['blockchain_id'] = blockchain_or_datastore_id
 
             log.debug("Mutable data URL: {}".format(url))
 
@@ -534,35 +330,6 @@ def blockstack_data_url_parse(url):
     return ret
 
 
-def blockstack_data_url(field_dict):
-    """
-    Make a blockstack:// URL from constituent fields.
-    Takes the output of blockstack_data_url_parse
-    Return the URL on success
-    Raise on error
-    """
-    assert 'blockchain_id' in field_dict
-    assert 'type' in field_dict
-    assert field_dict['type'] in ['mutable', 'immutable']
-    assert 'data_id' in field_dict
-    assert 'fields' in field_dict
-    assert 'data_hash' in field_dict['fields'] or 'version' in field_dict['fields']
-
-    if field_dict['type'] == 'immutable':
-        return blockstack_immutable_data_url(
-            field_dict['blockchain_id'], field_dict['data_id'], field_dict['fields']['data_hash']
-        )
-
-    if field_dict['fields'].has_key('user_id') and field_dict['fields'].has_key('datastore_id'):
-        return blockstack_datastore_url(
-            field_dict['fields']['user_id'], field_dict['fields']['datastore_id'], field_dict['data_id']
-        )
-
-    return blockstack_mutable_data_url(
-        field_dict['blockchain_id'], field_dict['data_id'], field_dict['fields']['version']
-    )
-
-
 def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH, wallet_keys=None):
     """
     Given a blockstack:// url, fetch its data.
@@ -580,8 +347,6 @@ def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH, wallet_keys=N
     data_id = None
     version = None
     data_hash = None
-    user_id = None
-    datastore_id = None
     
     url_info = blockstack_data_url_parse(url)
     if url_info is None:
@@ -594,8 +359,7 @@ def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH, wallet_keys=N
 
     if url_type == 'mutable':
         version = fields.get('version')
-        user_id = fields.get('user_id')
-        datastore_id = fields.get('datastore_id')
+        app_domain = fields.get('app_domain')
         mutable = True
 
     else:
@@ -603,17 +367,19 @@ def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH, wallet_keys=N
         immutable = True
 
     if mutable:
-        if user_id is not None and datastore_id is not None:
+        if app_domain is not None:
             # get from datastore
             if wallet_keys is None:
                 raise PasswordRequiredException("need wallet keys to access data stores")
 
-            assert wallet_keys, "Need wallet keys to access data stores"
-            datastore_info = get_datastore_info(user_id, datastore_id, config_path=config_path, proxy=proxy, wallet_keys=wallet_keys)
+            data_privkey = wallet_keys['data_privkey']
+            datastore_info = get_datastore_info( master_data_privkey=str(data_privkey), app_domain=str(app_domain), config_path=config_path, proxy=proxy)
             if 'error' in datastore_info:
                 return datastore_info
 
             datastore = datastore_info['datastore']
+            if datastore_get_id(datastore['pubkey']) != datastore_id:
+                return {'error': 'Invalid datastore ID'}
 
             # file or directory?
             is_dir = data_id.endswith('/')
