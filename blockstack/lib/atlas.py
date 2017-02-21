@@ -1636,7 +1636,6 @@ def atlas_peer_getinfo( peer_hostport, timeout=None, peer_table=None ):
     return res
 
 
-
 def atlas_inventory_count_missing( inv1, inv2 ):
     """
     Find out how many bits are set in inv2 
@@ -3857,3 +3856,5 @@ def atlas_node_stop( atlas_state ):
         atlas_state[component].join()
 
     return True
+
+
