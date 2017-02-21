@@ -40,6 +40,7 @@ import base64
 import keylib
 import subprocess
 import urllib
+import hashlib
 
 import virtualchain
 import blockstack_client
@@ -62,67 +63,113 @@ from .storage import *
 from .nameset import *
 from .operations import *
 
-
-def sqlite3_backup( src_path, dest_path ):
+def snapshot_peek_number( fd, off ):
     """
-    Back up a sqlite3 database, while ensuring
-    that no ongoing queries are being executed.
+    Read the last 8 bytes of fd
+    and interpret it as an int.
+    """
+    # read number of 8 bytes 
+    fd.seek( off - 8, os.SEEK_SET )
+    value_hex = fd.read(8)
+    if len(value_hex) != 8:
+        return None
+    try:
+        value = int(value_hex, 16)
+    except ValueError:
+        return None
+
+    return value
+
+
+def snapshot_peek_sigb64( fd, off, bytelen ):
+    """
+    Read the last :bytelen bytes of
+    fd and interpret it as a base64-encoded
+    string
+    """
+    fd.seek( off - bytelen, os.SEEK_SET )
+    sigb64 = fd.read(bytelen)
+    if len(sigb64) != bytelen:
+        return None
+
+    try:
+        base64.b64decode(sigb64)
+    except:
+        return None
+
+    return sigb64
+
+
+def fast_sync_sign_snapshot( snapshot_path, private_key, first=False ):
+    """
+    Append a signature to the end of a snapshot path
+    with the given private key.
+
+    If first is True, then don't expect the signature trailer.
 
     Return True on success
-    Return False on error.
+    Return False on error
     """
-
-    # find sqlite3
-    path = os.environ.get("PATH", None)
-    if path is None:
-        path = "/usr/local/bin:/usr/bin:/bin"
-
-    sqlite3_path = None
-    dirs = path.split(":")
-    for pathdir in dirs:
-        if len(pathdir) == 0:
-            continue
-
-        sqlite3_path = os.path.join(pathdir, 'sqlite3')
-        if not os.path.exists(sqlite3_path):
-            continue
-
-        if not os.path.isfile(sqlite3_path):
-            continue
-
-        if not os.access(sqlite3_path, os.X_OK):
-            continue
-
-        break
-
-    if sqlite3_path is None:
-        log.error("Could not find sqlite3 binary")
+   
+    if not os.path.exists(snapshot_path):
+        log.error("No such file or directory: {}".format(snapshot_path))
         return False
 
-    sqlite3_cmd = [sqlite3_path, src_path, '.backup "{}"'.format(dest_path)]
-    rc = None
+    file_size = 0
+    payload_size = 0
+    write_offset = 0
     try:
-        log.debug("{}".format(" ".join(sqlite3_cmd)))
-        p = subprocess.Popen(sqlite3_cmd, shell=False, close_fds=True)
-        rc = p.wait()
-    except Exception, e:
+        sb = os.stat(snapshot_path)
+        file_size = sb.st_size
+        assert file_size > 8
+    except Exception as e:
         log.exception(e)
         return False
-
-    if not os.WIFEXITED(rc):
-        # bad exit 
-        log.error("{} exit code {:x}".format(sqlite3_path, rc))
-        return False
     
-    if os.WEXITSTATUS(rc) != 0:
-        # bad exit
-        log.error("{} exited {}".format(sqlite3_path, rc))
-        return False
+    num_sigs = 0
+    snapshot_hash = None
+    with open(snapshot_path, 'r+') as f:
+
+        if not first:
+            info = fast_sync_inspect(f)
+            if 'error' in info:
+                log.error("Failed to inspect {}: {}".format(snapshot_path, info['error']))
+                return False
+
+            num_sigs = len(info['signatures'])
+            write_offset = info['sig_append_offset']
+            payload_size = info['payload_size']
+ 
+        else:
+            # no one has signed yet.
+            write_offset = file_size
+            num_sigs = 0
+            payload_size = file_size
+
+        # hash the file and sign the (bin-encoded) hash
+        privkey_hex = keylib.ECPrivateKey(private_key).to_hex()
+        hash_hex = blockstack_client.storage.get_file_hash( f, hashlib.sha256, fd_len=payload_size )
+        sigb64 = blockstack_client.keys.sign_digest( hash_hex, privkey_hex, hashfunc=hashlib.sha256 )
+      
+        if os.environ.get("BLOCKSTACK_TEST") == "1":
+            log.debug("Signed {} with {} to make {}".format(hash_hex, keylib.ECPrivateKey(private_key).public_key().to_hex(), sigb64))
+
+        # append
+        f.seek(write_offset, os.SEEK_SET)
+        f.write(sigb64)
+        f.write('{:08x}'.format(len(sigb64)))
+
+        # append number of signatures
+        num_sigs += 1
+        f.write('{:08x}'.format(num_sigs))
+    
+        f.flush()
+        os.fsync(f.fileno())
 
     return True
 
 
-def fast_sync_snapshot( export_path, private_key, working_dir, block_number ):
+def fast_sync_snapshot( export_path, private_key, block_number ):
     """
     Export all the local state for fast-sync.
     If block_number is given, then the name database
@@ -199,9 +246,7 @@ def fast_sync_snapshot( export_path, private_key, working_dir, block_number ):
             log.error("'{}' command not found".format(tool))
             return False
 
-    if working_dir is None:
-        working_dir = virtualchain.get_working_dir() 
-
+    working_dir = virtualchain.get_working_dir() 
     if not os.path.exists(working_dir):
         log.error("No such directory {}".format(working_dir))
         return False
@@ -214,6 +259,8 @@ def fast_sync_snapshot( export_path, private_key, working_dir, block_number ):
             return False
 
         block_number = max(all_blocks)
+
+    log.debug("Snapshot from block {}".format(block_number))
 
     # use a backup database 
     db_paths = BlockstackDB.get_backup_paths( block_number, virtualchain_hooks )
@@ -272,17 +319,16 @@ def fast_sync_snapshot( export_path, private_key, working_dir, block_number ):
     log.debug("Compressing: {}".format(cmd))
     rc = os.system(cmd)
     if rc != 0:
-        log.exception("Failed to compress {}. Exit code {}. Command: \"{}\"".format(tmpdir, rc, cmd))
+        log.error("Failed to compress {}. Exit code {}. Command: \"{}\"".format(tmpdir, rc, cmd))
         _cleanup(tmpdir)
         return False
 
     log.debug("Wrote {} bytes".format(os.stat(export_path).st_size))
 
-    # sign the payload and append the signature
-    with open(export_path, 'a+') as f:
-        sigb64 = blockstack_client.sign_file_data(f, keylib.ECPrivateKey(private_key).to_hex())
-        f.write(sigb64)
-        f.write("{:08x}".format(len(sigb64)))
+    rc = fast_sync_sign_snapshot( export_path, private_key, first=True )
+    if not rc:
+        log.error("Failed to sign snapshot {}".format(export_path))
+        return False
 
     return True
 
@@ -311,11 +357,70 @@ def fast_sync_fetch( import_url ):
     return tmppath
 
 
-def fast_sync_import( working_dir, import_url, public_key=config.FAST_SYNC_PUBLIC_KEY ):
+def fast_sync_inspect( fd ):
+    """
+    Inspect a snapshot, given its file descriptor.
+    Get the signatures and payload size
+    Return {'status': True, 
+            'signatures': signatures,
+            'payload_size': payload size,
+            'sig_append_offset': offset} on success
+    Return {'error': ...} on error
+    """
+    sb = os.fstat(fd.fileno())
+    ptr = sb.st_size
+    if ptr < 8:
+        log.debug("fd is {} bytes".format(ptr))
+        return {'error': 'File is too small to be a snapshot'}
+
+    signatures = []
+    sig_append_offset = 0
+    
+    fd.seek(0, os.SEEK_SET)
+
+    # read number of signatures
+    num_signatures = snapshot_peek_number(fd, ptr)
+    if num_signatures is None or num_signatures > 256:
+        log.error("Unparseable num_signatures field")
+        return {'error': 'Unparseable num_signatures'}
+
+    # consumed
+    ptr -= 8
+
+    # future signatures get written here
+    sig_append_offset = ptr
+
+    # read signatures
+    for i in xrange(0, num_signatures):
+        sigb64_len = snapshot_peek_number(fd, ptr)
+        if sigb64_len is None or sigb64_len > 100:
+            log.error("Unparseable signature length field")
+            return {'error': 'Unparseable signature length'}
+
+        # consumed length
+        ptr -= 8
+
+        sigb64 = snapshot_peek_sigb64(fd, ptr, sigb64_len)
+        if sigb64 is None:
+            log.error("Unparseable signature")
+            return {'error': 'Unparseable signature'}
+
+        # consumed signature
+        ptr -= len(sigb64)
+
+        signatures.append( sigb64 )
+
+    return {'status': True, 'signatures': signatures, 'payload_size': ptr, 'sig_append_offset': sig_append_offset}
+
+
+def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBLIC_KEYS, num_required=len(config.FAST_SYNC_PUBLIC_KEYS) ):
     """
     Fast sync import.
     Verify the given fast-sync file from @import_path using @public_key, and then 
-    uncompress it into @working_dir
+    uncompress it into @working_dir.
+
+    Verify that at least `num_required` public keys in `public_keys` signed.
+    NOTE: `public_keys` needs to be in the same order as the private keys that signed.
     """
 
     # make sure we have the apppriate tools
@@ -339,7 +444,7 @@ def fast_sync_import( working_dir, import_url, public_key=config.FAST_SYNC_PUBLI
         log.error("Failed to fetch {}".format(import_url))
         return False
 
-    # format: <signed bz2 payload> <sigb64> <sigb64 length (8 bytes hex)>
+    # format: <signed bz2 payload> <sigb64> <sigb64 length (8 bytes hex)> ... <num signatures>
     file_size = 0
     try:
         sb = os.stat(import_path)
@@ -348,39 +453,43 @@ def fast_sync_import( working_dir, import_url, public_key=config.FAST_SYNC_PUBLI
         log.exception(e)
         return False
 
+    num_signatures = 0
+    ptr = file_size
+    signatures = []
+
     with open(import_path, 'r') as f:
-        f.seek(file_size - 8, os.SEEK_SET)
-        sigb64_len_hex = f.read(8)
-
-        try:
-            sigb64_len = int(sigb64_len_hex, 16)
-        except ValueError:
-            log.error("Unreasonable signature length field: {}".format(sigb64_len_hex))
+        info = fast_sync_inspect( f )
+        if 'error' in info:
+            log.error("Failed to inspect snapshot {}: {}".format(import_path, info['error']))
             return False
 
-        # reasonable?
-        if sigb64_len > 100 or sigb64_len < 0:
-            log.error("Unreasoanble signature length value {}".format(sigb64_len))
-            return False
+        signatures = info['signatures']
+        ptr = info['payload_size']
 
-        f.seek(file_size - 8 - sigb64_len, os.SEEK_SET)
-        sigb64 = f.read(sigb64_len)
+        # get the hash of the file 
+        hash_hex = blockstack_client.storage.get_file_hash(f, hashlib.sha256, fd_len=ptr)
         
-        if len(sigb64) != sigb64_len:
-            log.error("Invalid signature length {}".format(sigb64_len))
-            return False
+        # validate signatures over the hash
+        log.debug("Verify {} bytes".format(ptr))
+        key_idx = 0
+        num_match = 0
+        for next_pubkey in public_keys:
+            for sigb64 in signatures:
+                valid = blockstack_client.keys.verify_digest( hash_hex, keylib.ECPublicKey(next_pubkey).to_hex(), sigb64, hashfunc=hashlib.sha256 ) 
+                if valid:
+                    num_match += 1
+                    if num_match >= num_required:
+                        break
+                    
+                    log.debug("Public key {} matches {} ({})".format(next_pubkey, sigb64, hash_hex))
+                    signatures.remove(sigb64)
 
-        try:
-            base64.b64decode(sigb64)
-        except:
-            log.error("Invalid signature")
-            return False
+                elif os.environ.get("BLOCKSTACK_TEST") == "1":
+                    log.debug("Public key {} does NOT match {} ({})".format(next_pubkey, sigb64, hash_hex))
 
-        f.seek(0, os.SEEK_SET)
-
-        valid = blockstack_client.verify_file_data(f, keylib.ECPublicKey(public_key).to_hex(), sigb64, fd_len=(file_size - 8 - sigb64_len))
-        if not valid:
-            log.error("Unverifiable fast-sync data ({} bytes checked)".format(file_size - 8 - sigb64_len))
+        # enough signatures?
+        if num_match < num_required:
+            log.error("Not enough signatures match (required {}, found {})".format(num_required, num_match))
             return False
 
     # decompress
@@ -399,6 +508,7 @@ def fast_sync_import( working_dir, import_url, public_key=config.FAST_SYNC_PUBLI
         return False
 
     # success!
+    log.debug("Restored to {}".format(working_dir))
     return True
 
 
@@ -410,10 +520,19 @@ def blockstack_backup_restore( working_dir, block_number ):
     Return False on failure
     """
 
+    # TODO: this is pretty shady...
+    old_working_dir = os.environ.get('VIRTUALCHAIN_WORKING_DIR', None)
+    os.environ['VIRTUALCHAIN_WORKING_DIR'] = working_dir
+
     if block_number is None:
         all_blocks = BlockstackDB.get_backup_blocks( virtualchain_hooks )
         if len(all_blocks) == 0:
             log.error("No backups available")
+    
+            # TODO: this is pretty shady...
+            if old_working_dir:
+                os.environ['VIRTUALCHAIN_WORKING_DIR'] = old_working_dir
+
             return False
 
         block_number = max(all_blocks)
@@ -426,12 +545,28 @@ def blockstack_backup_restore( working_dir, block_number ):
             found = False
 
     if not found:
+
+        # TODO: this is pretty shady...
+        if old_working_dir:
+            os.environ['VIRTUALCHAIN_WORKING_DIR'] = old_working_dir
+
         return False 
 
     rc = BlockstackDB.backup_restore( block_number, virtualchain_hooks )
     if not rc:
         log.error("Failed to restore backup")
+
+        # TODO: this is pretty shady...
+        if old_working_dir:
+            os.environ['VIRTUALCHAIN_WORKING_DIR'] = old_working_dir
+            
         return False
+
+    log.debug("Restored backup from {}".format(block_number))
+
+    # TODO: this is pretty shady...
+    if old_working_dir:
+        os.environ['VIRTUALCHAIN_WORKING_DIR'] = old_working_dir
 
     return True
 
