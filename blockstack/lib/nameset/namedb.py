@@ -247,14 +247,14 @@ class BlockstackDB( virtualchain.StateEngine ):
     def export_db( self, path ):
         """
         Copy the database to the given location.
-        Used primarily for testing; production uses
+        Used primarily for testing; production users
         should just pull a backup db from ~/.blockstack-server/backups
         (or whatever the working directory is)
         """
         if self.db is not None:
             self.db.commit()
             
-        shutil.copyfile( self.get_db_path(), path )
+        sqlite3_backup( self.get_db_path(), path )
 
 
     @classmethod

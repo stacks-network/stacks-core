@@ -22,7 +22,7 @@
 """
 
 import sqlite3
-
+import subprocess
 import json
 import traceback
 import binascii
@@ -171,6 +171,96 @@ BLOCKSTACK_DB_SCRIPT += """
 -- turn on foreign key constraints 
 PRAGMA foreign_keys = ON;
 """
+
+
+def sqlite3_find_tool():
+    """
+    Find the sqlite3 binary
+    Return the path to the binary on success
+    Return None on error
+    """
+
+    # find sqlite3
+    path = os.environ.get("PATH", None)
+    if path is None:
+        path = "/usr/local/bin:/usr/bin:/bin"
+
+    sqlite3_path = None
+    dirs = path.split(":")
+    for pathdir in dirs:
+        if len(pathdir) == 0:
+            continue
+
+        sqlite3_path = os.path.join(pathdir, 'sqlite3')
+        if not os.path.exists(sqlite3_path):
+            continue
+
+        if not os.path.isfile(sqlite3_path):
+            continue
+
+        if not os.access(sqlite3_path, os.X_OK):
+            continue
+
+        break
+
+    if sqlite3_path is None:
+        log.error("Could not find sqlite3 binary")
+        return None
+
+    return sqlite3_path
+
+
+def sqlite3_backup( src_path, dest_path ):
+    """
+    Back up a sqlite3 database, while ensuring
+    that no ongoing queries are being executed.
+
+    Return True on success
+    Return False on error.
+    """
+
+    # find sqlite3
+    sqlite3_path = sqlite3_find_tool()
+    if sqlite3_path is None:
+        log.error("Failed to find sqlite3 tool")
+        return False
+
+    sqlite3_cmd = [sqlite3_path, src_path, '.backup "{}"'.format(dest_path)]
+    rc = None
+    backoff = 1.0
+
+    try:
+        while True:
+            log.debug("{}".format(" ".join(sqlite3_cmd)))
+            p = subprocess.Popen(sqlite3_cmd, shell=False, close_fds=True)
+            out, err = p.communicate()
+            rc = p.wait()
+
+            if os.WIFEXITED(rc) and os.WEXITSTATUS(rc) != 0 and "database is locked" in err.lower():
+                # try again
+                log.error("Database {} is locked; trying again in {} seconds".format(src_path, backoff))
+                time.sleep(backoff)
+                backoff += 2 * backoff + random.random() * random.randint(0, int(backoff))
+                continue
+
+            else:
+                break
+
+    except Exception, e:
+        log.exception(e)
+        return False
+
+    if not os.WIFEXITED(rc):
+        # bad exit 
+        log.error("{} exit code {:x}".format(sqlite3_path, rc))
+        return False
+    
+    if os.WEXITSTATUS(rc) != 0:
+        # bad exit
+        log.error("{} exited {}".format(sqlite3_path, rc))
+        return False
+
+    return True
 
 
 def namedb_create( path ):
@@ -2170,7 +2260,7 @@ def namedb_get_num_names( cur, current_block ):
 def namedb_get_all_names( cur, current_block, offset=None, count=None ):
     """
     Get a list of all names in the database, optionally
-    paginated with offset and count.  Exclude expired names.
+    paginated with offset and count.  Exclude expired names.  Include revoked names.
     """
 
     unexpired_query, unexpired_args = namedb_select_where_unexpired_names( current_block )
