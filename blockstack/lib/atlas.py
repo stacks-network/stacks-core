@@ -459,6 +459,15 @@ def atlasdb_path( impl=None ):
     return os.path.join(working_dir, "atlas.db")
 
 
+def atlasdb_format_query( query, values ):
+    """
+    Turn a query into a string for printing.
+    Useful for debugging.
+    """
+    return "".join( ["%s %s" % (frag, "'%s'" % val if type(val) in [str, unicode] else val) for (frag, val) in zip(query.split("?"), values + ("",))] )
+
+
+
 def atlasdb_query_execute( cur, query, values ):
     """
     Execute a query.  If it fails, exit.
@@ -498,7 +507,7 @@ def atlasdb_open( path ):
     return con
 
 
-def atlasdb_add_zonefile_info( name, zonefile_hash, txid, present, block_height, con=None, path=None ):
+def atlasdb_add_zonefile_info( name, zonefile_hash, txid, present, tried_storage, block_height, con=None, path=None ):
     """
     Add a zonefile to the database.
     Mark it as present or absent.
@@ -515,8 +524,18 @@ def atlasdb_add_zonefile_info( name, zonefile_hash, txid, present, block_height,
         con = atlasdb_open( path )
         assert con is not None
 
+    if present:
+        present = 1
+    else:
+        present = 0
+
+    if tried_storage:
+        tried_storage = 1
+    else:
+        tried_storage = 0
+
     sql = "UPDATE zonefiles SET name = ?, zonefile_hash = ?, txid = ?, present = ?, tried_storage = ?, block_height = ? WHERE txid = ?;"
-    args = (name, zonefile_hash, txid, present, 0, block_height, txid )
+    args = (name, zonefile_hash, txid, present, tried_storage, block_height, txid )
 
     cur = con.cursor()
     update_res = atlasdb_query_execute( cur, sql, args )
@@ -524,7 +543,7 @@ def atlasdb_add_zonefile_info( name, zonefile_hash, txid, present, block_height,
 
     if update_res.rowcount == 0:
         sql = "INSERT OR IGNORE INTO zonefiles (name, zonefile_hash, txid, present, tried_storage, block_height) VALUES (?,?,?,?,?,?);"
-        args = (name, zonefile_hash, txid, present, 0, block_height)
+        args = (name, zonefile_hash, txid, present, tried_storage, block_height)
     
         cur = con.cursor()
         atlasdb_query_execute( cur, sql, args )
@@ -826,11 +845,15 @@ def atlasdb_queue_zonefiles( con, db, start_block, zonefile_dir=None, validate=T
             name = str(name_txid_zfhash['name'])
             zfhash = str(name_txid_zfhash['value_hash'])
             txid = str(name_txid_zfhash['txid'])
+            tried_storage = 0
 
-            present = is_zonefile_cached( zfhash, zonefile_dir=zonefile_dir, validate=validate ) 
+            present = is_zonefile_cached( zfhash, zonefile_dir=zonefile_dir, validate=validate )
+            zfinfo = atlasdb_get_zonefile( zfhash, con=con )
+            if zfinfo is not None:
+                tried_storage = zfinfo['tried_storage']
 
-            log.debug("Add %s %s %s at %s (present: %s)" % (name, zfhash, txid, block_height, present) )
-            atlasdb_add_zonefile_info( name, zfhash, txid, present, block_height, con=con )
+            log.debug("Add %s %s %s at %s (present: %s, tried_storage: %s)" % (name, zfhash, txid, block_height, present, tried_storage) )
+            atlasdb_add_zonefile_info( name, zfhash, txid, present, tried_storage, block_height, con=con )
             total += 1
 
     log.debug("Queued %s zonefiles from %s-%s" % (total, start_block, db.lastblock))
