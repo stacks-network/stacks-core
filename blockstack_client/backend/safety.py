@@ -356,15 +356,16 @@ def interpret_operation_sanity_checks( name, operations, scatter_gather ):
         else:
             reply[res_key] = all_results[res_key]['status']
 
-    if len(errors) > 0:
-        return {'error': 'Operation sanity checks failed:\n\n{}'.format( '\n'.join(['  * ' + err for err in errors] ))}
-
     if 'get_balance' in reply:
         fees_reply = interpret_operation_fees( operations, sg, balance=reply['get_balance'] )
         if 'error' in fees_reply:
-            return {'error': 'Failed to get operation fees: {}'.format(fees_reply['error'])}
+            errors.append(fees_reply['error'])
+            del fees_reply['error']
 
         reply.update(fees_reply)
+
+    if len(errors) > 0:
+        reply['error'] = 'Operation sanity checks failed:\n\n{}'.format( '\n'.join(['  * ' + err for err in errors] ))
 
     return reply
 
@@ -741,11 +742,13 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
         balance = results['get_balance']['status']
         log.debug("Balance is {} satoshis".format(balance))
 
+    failed_tasks = []
     for task in operations:
         tx_fee_task = '{}_tx_fee'.format(task)
         task_res = results[tx_fee_task]
         if 'error' in task_res:
-            return task_res
+            failed_tasks.append(task)
+            continue
 
         assert 'insufficient' in task_res, "Invalid task res: {}".format(task_res)
         assert 'tx_fee' in task_res, "Invalid task res: {}".format(task_res)
@@ -780,6 +783,10 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
         reply.setdefault('warnings', [])
         reply['warnings'].append('Wallet not accessed; fees are rough estimates.')
 
+    if len(failed_tasks) > 0:
+        log.error("Some tasks failed: {}".format(','.format(failed_tasks)))
+        reply['error'] = 'Some tasks failed: {}'.format(','.join(failed_tasks))
+
     return reply
 
 
@@ -813,7 +820,7 @@ def check_operations( fqu, operations, owner_privkey_info, payment_privkey_info,
     opchecks = interpret_operation_sanity_checks( fqu, operations, sg )
     if 'error' in opchecks:
         log.error("Failed to interpret operation sanity checks")
-        return opchecks
+        return {'error': 'Failed to interpret operation sanity checks', 'opchecks': opchecks}
 
     failed_checks = []
     for res_name in required_checks + ['get_balance']:
@@ -826,14 +833,14 @@ def check_operations( fqu, operations, owner_privkey_info, payment_privkey_info,
             failed_checks.append(res_name)
 
     if len(failed_checks) > 0:
-        return {'error': 'Unable to {} name:\n{}'.format(','.join(operations), '\n'.join(['  * check "{}" failed'.format(reason) for reason in failed_checks]))}
+        return {'error': 'Unable to {} name:\n{}'.format(','.join(operations), '\n'.join(['  * check "{}" failed'.format(reason) for reason in failed_checks])), 'opchecks': opchecks}
 
     balance = sg.get_result('get_balance')['status']
 
     if balance < opchecks['total_estimated_cost']:
         msg = 'Address {} does not have enough balance (need {}, have {}).'
         msg = msg.format(payment_address, opchecks['total_estimated_cost'], balance)
-        return {'error': msg}
+        return {'error': msg, 'opchecks': opchecks}
 
     # checks pass!
     return {'status': True, 'opchecks': opchecks}
@@ -852,13 +859,17 @@ def _check_op(fqu, operation, required_checks, owner_privkey_info, payment_privk
     res = check_operations( fqu, [operation], owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs,
                             transfer_address=transfer_address, required_checks=required_checks, config_path=config_path, proxy=proxy )
 
+    opchecks = res.get('opchecks', None)
+    tx_fee = None
+
+    if opchecks:
+        tx_fee = opchecks.get('total_tx_fees', None)
+
     if 'error' in res:
-        return res
+        return {'error': res['error'], 'tx_fee': tx_fee, 'opchecks': opchecks}
 
-    opchecks = res['opchecks']
-    tx_fee = opchecks['total_tx_fees']
-
-    return {'status': True, 'tx_fee': tx_fee, 'opchecks': opchecks}
+    else:
+        return {'status': True, 'tx_fee': tx_fee, 'opchecks': opchecks}
 
 
 def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
@@ -877,15 +888,18 @@ def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info,
     res = check_operations( fqu, ['preorder'], owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs,
                             required_checks=required_checks, config_path=config_path, proxy=proxy )
 
-    if 'error' in res:
-        return res
+    opchecks = res.get('opchecks', None)
+    tx_fee = None
 
-    opchecks = res['opchecks']
-    tx_fee = opchecks['total_tx_fees']
+    if opchecks:
+        tx_fee = opchecks.get('total_tx_fees', None)
+
+    if 'error' in res:
+        return {'error': res['error'], 'opchecks': res.get('opchecks', None), 'tx_fee': res.get('opchecks', {}).get('total_tx_fees', None)}
 
     if cost_satoshis is not None:
         if opchecks['name_price'] > cost_satoshis:
-            return {'error': 'Invalid cost: expected {}, got {}'.format(opchecks['name_price'], cost_satoshis)}
+            return {'error': 'Invalid cost: expected {}, got {}'.format(opchecks['name_price'], cost_satoshis), 'tx_fee': tx_fee, 'opchecks': opchecks}
 
     return {'status': True, 'tx_fee': tx_fee, 'opchecks': opchecks}
 
@@ -926,15 +940,18 @@ def check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, mi
     res = check_operations( fqu, ['renewal'], owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs,
                             required_checks=required_checks, config_path=config_path, proxy=proxy )
 
-    if 'error' in res:
-        return res
+    opchecks = res.get('opchecks', None)
+    tx_fee = None
 
-    opchecks = res['opchecks']
-    tx_fee = opchecks['total_tx_fees']
+    if opchecks:
+        tx_fee = opchecks.get('total_tx_fees', None)
+
+    if 'error' in res:
+        return {'error': res['error'], 'opchecks': res.get('opchecks', None), 'tx_fee': res.get('opchecks', {}).get('total_tx_fees', None)}
 
     if renewal_fee is not None:
         if opchecks['name_price'] > renewal_fee:
-            return {'error': 'Invalid cost: expected {}, got {}'.format(opchecks['name_price'], renewal_fee)}
+            return {'error': 'Invalid cost: expected {}, got {}'.format(opchecks['name_price'], renewal_fee), 'tx_fee': tx_fee, 'opchecks': opchecks}
 
     return {'status': True, 'tx_fee': tx_fee, 'opchecks': opchecks}
 
