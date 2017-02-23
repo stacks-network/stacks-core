@@ -16,11 +16,22 @@ with data that follows structure of [blockstack IDs](https://github.com/blocksta
 
 # Installation
 
-- **Step 1:** Make sure you have Blockstack Core running locally (see [instructions](https://github.com/blockstack/blockstack-core/blob/master/README.md#quick-start)). We highly
+- **Step 1:** First, make sure you have [virtualenv installed](http://docs.python-guide.org/en/latest/dev/virtualenvs/). 
+Then, setup the search subsystem:
+``` 
+$ mkvirtualenv search
+$ git clone https://github.com/blockstack/blockstack-core.git
+$ cd blockstack-core/api/api/search/
+$ git checkout search
+$ cd blockstack-
+$ pip install -r requirements.txt
+$ python runserver.py
+```
+- **Step 2:** Make sure you have Blockstack Core running locally (see [instructions](https://github.com/blockstack/blockstack-core/blob/master/README.md#quick-start)). We highly
 recommend using a local node because the search subsystem issues thousands of calls to 
 Blockstack Core for re-indexing and remote nodes can slow down performance. 
 
-- **Step 2:** Fetch the data for the .id namespace and respective profiles:
+- **Step 3:** Fetch the data for the .id namespace and respective profiles:
 
 ```
 $ python -m search.fetch_data --fetch_namespace
@@ -28,7 +39,7 @@ $ python -m search.fetch_data --fetch_namespace
 $ python -m search.fetch_data --fetch_profiles
 ```
 
-- **Step 3:** Create the search index:
+- **Step 4:** Create the search index:
 
 ```
 python -m search.basic_index --refresh
