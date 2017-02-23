@@ -51,7 +51,8 @@ OP_NAMESPACE_PATTERN = r'^([a-z0-9\-_+]{{{},{}}})$'.format(1, LENGTH_MAX_NAMESPA
 OP_NAMESPACE_HASH_PATTERN = r'^([0-9a-fA-F]{16})$'
 OP_BASE64_PATTERN_SECTION = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
 OP_BASE64_PATTERN = r'^({})$'.format(OP_BASE64_PATTERN_SECTION)
-OP_URLENCODED_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'       # intentionally left out /
+OP_URLENCODED_NOSLASH_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'       # intentionally left out /
+OP_URLENCODED_PATTERN = r'^([a-zA-Z0-9\-_.~%/]+)$'
 OP_USER_ID_CLASS = r'[a-zA-Z0-9\-_.%]'
 OP_DATASTORE_ID_CLASS = r'[a-zA-Z0-9\-_.~%]'
 OP_USER_ID_PATTERN = r'^({}+)$'.format(OP_USER_ID_CLASS)
@@ -446,7 +447,7 @@ MUTABLE_DATUM_DIR_IDATA_SCHEMA = {
     'type': 'object',
     'patternProperties': {
         # maps name to UUID, links, and type
-        OP_URLENCODED_PATTERN: MUTABLE_DATUM_DIRENT_SCHEMA
+        OP_URLENCODED_NOSLASH_PATTERN: MUTABLE_DATUM_DIRENT_SCHEMA
     },
     'additionalProperties': False,
 }
@@ -565,6 +566,13 @@ DATA_BLOB_SCHEMA = {
 
 # common properties to app sessions and app accounts
 APP_INFO_PROPERTIES = {
+    'blockchain_ids': {
+        'type': 'array',
+        'items': {
+            'type': 'string',
+            'pattern': OP_NAME_PATTERN,
+        },
+    },
     'app_domain': {
         'type': 'string',
         'pattern': OP_URLENCODED_PATTERN,
@@ -578,7 +586,7 @@ APP_INFO_PROPERTIES = {
     },
     'app_user_id': {
         'type': 'string',
-        'pattern': OP_URLENCODED_PATTERN,
+        'pattern': OP_URLENCODED_NOSLASH_PATTERN,
     },
 }
 
@@ -588,7 +596,7 @@ APP_AUTHREQUEST_PROPERTIES = APP_INFO_PROPERTIES.copy()
 APP_SESSION_PROPERTIES.update({
     'app_user_id': {
         'type': 'string',
-        'pattern': OP_URLENCODED_PATTERN,
+        'pattern': OP_URLENCODED_NOSLASH_PATTERN,
     },
     'timestamp': {
         'type': 'integer',
@@ -602,7 +610,7 @@ APP_SESSION_PROPERTIES.update({
 APP_SESSION_SCHEMA = {
     'type': 'object',
     'properties': APP_SESSION_PROPERTIES,
-    'required': APP_SESSION_PROPERTIES.keys(),
+    'required': list(set(APP_SESSION_PROPERTIES.keys()) - set(['blockchain_ids'])),
     'additionalProperties': False
 }
 
@@ -610,7 +618,7 @@ APP_SESSION_SCHEMA = {
 APP_AUTHREQUEST_SCHEMA = {
     'type': 'object',
     'properties': APP_INFO_PROPERTIES,
-    'required': list(set(APP_INFO_PROPERTIES.keys()) - set(['app_user_id'])),
+    'required': list(set(APP_INFO_PROPERTIES.keys()) - set(['app_user_id','blockchain_ids'])),
     'additionalProperties': False
 }
 
@@ -618,13 +626,17 @@ APP_AUTHREQUEST_SCHEMA = {
 APP_CONFIG_SCHEMA = {
     'type': 'object',
     'properties': {
+        'blockchain_id': {
+            'type': 'string',
+            'pattern': OP_NAME_PATTERN,
+        },
+        'app_domain': {
+            'type': 'string',
+            'pattern': OP_URLENCODED_PATTERN,
+        },
         'index_uris': {
             'type': 'array',
             'items': URI_RECORD_SCHEMA,
-        },
-        'index_hash': {
-            'type': 'string',
-            'pattern': OP_HEX_PATTERN,
         },
         'driver_hints': {
             'type': 'array',
@@ -642,8 +654,9 @@ APP_CONFIG_SCHEMA = {
     },
     'additionalProperties': False,
     'required': [
+        'blockchain_id',
+        'app_domain',
         'index_uris',
-        'index_hash',
         'api_methods',
     ],
 }
