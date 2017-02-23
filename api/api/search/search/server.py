@@ -39,7 +39,7 @@ from .substring_search import search_people_by_name, search_people_by_twitter
 from .substring_search import search_people_by_username, search_people_by_bio
 from .substring_search import fetch_profiles
 
-from .proofs_index import search_proofs, validProofQuery
+from .attributes_index import search_proofs, validProofQuery
 
 
 app = Flask(__name__)
