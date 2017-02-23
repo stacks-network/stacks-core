@@ -225,7 +225,7 @@ def sqlite3_backup( src_path, dest_path ):
         log.error("Failed to find sqlite3 tool")
         return False
 
-    sqlite3_cmd = [sqlite3_path, src_path, '.backup "{}"'.format(dest_path)]
+    sqlite3_cmd = [sqlite3_path, '{}'.format(src_path), '.backup "{}"'.format(dest_path)]
     rc = None
     backoff = 1.0
 
