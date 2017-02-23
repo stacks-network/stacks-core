@@ -50,7 +50,7 @@ from .schemas import *
 from keys import HDWallet, get_pubkey_hex
 
 
-def app_make_session( app_domain, methods, master_data_privkey_hex, app_user_id=None, app_user_privkey=None, session_lifetime=None, config_path=CONFIG_PATH ):
+def app_make_session( app_domain, methods, master_data_privkey_hex, app_user_id=None, app_user_privkey=None, session_lifetime=None, blockchain_ids=None, config_path=CONFIG_PATH ):
     """
     Make a session JWT for this application.
     Verify with user private key
@@ -83,6 +83,9 @@ def app_make_session( app_domain, methods, master_data_privkey_hex, app_user_id=
         'timestamp': int(time.time()),
         'expires': int(time.time() + session_lifetime),
     }
+
+    if blockchain_ids is not None:
+        ses['blockchain_ids'] = blockchain_ids
 
     jsonschema.validate(ses, APP_SESSION_SCHEMA)
 
@@ -127,13 +130,11 @@ def app_verify_session( app_session_token, data_pubkey_hex, config_path=CONFIG_P
     return session
 
 
-def app_publish( name, appname, app_method_list, app_index_uris, app_index_file, app_driver_hints=[], data_privkey=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH ):
+def app_publish( dev_blockchain_id, app_domain, app_method_list, app_index_uris, app_index_file, app_driver_hints=[], data_privkey=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH ):
     """
     Instantiate an application.
     * replicate the (opaque) app index file to "index.html" to each URL in app_uris
     * replicate the list of URIs and the list of methods to ".blockstack" via each of the client's storage drivers.
-    * the index file will be located at "$name:$appname/index.html"
-    * the .blockstack file will be located at "$name:$appname/.blockstack"
 
     This succeeds even if the app already exists (in which case,
     it will be overwritten).  This method is idempotent, so it
@@ -142,7 +143,7 @@ def app_publish( name, appname, app_method_list, app_index_uris, app_index_file,
     data_privkey should be the publisher's private key (i.e. their data key)
     name should be the blockchain ID that points to data_pubkey
    
-    Return {'status': True, 'fq_data_id': index file's fully-qualified data ID} on success
+    Return {'status': True, 'config_fq_data_id': config's fully-qualified data ID, 'index_fq_data_id': index file's fully-qualified data ID} on success
     Return {'error': ...} on error
     """
 
@@ -150,6 +151,8 @@ def app_publish( name, appname, app_method_list, app_index_uris, app_index_file,
 
     # replicate configuration data (method list and app URIs)
     app_cfg = {
+        'blockchain_id': dev_blockchain_id,
+        'app_domain': app_domain,
         'index_uris': app_index_uris,
         'api_methods': app_method_list,
         'driver_hints': app_driver_hints,
@@ -157,9 +160,8 @@ def app_publish( name, appname, app_method_list, app_index_uris, app_index_file,
 
     jsonschema.validate(app_cfg, APP_CONFIG_SCHEMA)
 
-    config_data_id = '{}/.blockstack'.format(appname)
-    data_id = storage.make_fq_data_id(name, config_data_id)
-    res = data.put_mutable(data_id, app_cfg, blockchain_id=name, data_privkey=data_privkey, wallet_keys=wallet_keys, config_path=config_path, fully_qualified_data_id=True)
+    config_data_id = '{}/.blockstack'.format(app_domain)
+    res = data.put_mutable(config_data_id, app_cfg, blockchain_id=dev_blockchain_id, data_privkey=data_privkey, wallet_keys=wallet_keys, config_path=config_path, fully_qualified_data_id=True)
     if 'error' in res:
         log.error('Failed to replicate application configuration {}: {}'.format(config_data_id, res['error']))
         return {'error': 'Failed to replicate application config'}
@@ -173,20 +175,19 @@ def app_publish( name, appname, app_method_list, app_index_uris, app_index_file,
         driver_names += [d.__name__ for d in drivers]
 
     driver_names = list(set(driver_names))
-    index_data_id = "{}/index.html".format(appname)
+    index_data_id = "{}/index.html".format(app_domain)
     
     # replicate app index file (at least one must succeed)
     # NOTE: the publisher is free to use alternative URIs that are not supported; they'll just be ignored.
-    data_id = storage.make_fq_data_id(name, index_data_id)
-    res = data.put_mutable( data_id, app_index_file, blockchain_id=name, data_privkey=data_privkey, storage_drivers=driver_names, wallet_keys=wallet_keys, config_path=config_path, fully_qualified_data_id=True)
+    res = data.put_mutable( index_data_id, app_index_file, blockchain_id=dev_blockchain_id, data_privkey=data_privkey, storage_drivers=driver_names, wallet_keys=wallet_keys, config_path=config_path, fully_qualified_data_id=True)
     if 'error' in res:
         log.error("Failed to replicate application index file to {}: {}".format(",".join(urls), res['error']))
         return {'error': 'Failed to replicate index file'}
 
-    return {'status': True, 'fq_data_id': storage.make_fq_data_id(name, index_data_id)}
+    return {'status': True, 'config_fq_data_id': config_data_id, 'index_fq_data_id': index_data_id}
 
 
-def app_get_config( name, appname, data_pubkey=None, proxy=None, config_path=CONFIG_PATH ):
+def app_get_config( blockchain_id, app_domain, data_pubkey=None, proxy=None, config_path=CONFIG_PATH ):
     """
     Get application configuration bundle.
     
@@ -199,9 +200,8 @@ def app_get_config( name, appname, data_pubkey=None, proxy=None, config_path=CON
     proxy = get_default_proxy() if proxy is None else proxy
 
     # go get config 
-    config_data_id = '{}/.blockstack'.format(appname)
-    data_id = storage.make_fq_data_id(name, config_data_id)
-    res = data.get_mutable( data_id, data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, blockchain_id=name, fully_qualified_data_id=True )
+    config_data_id = '{}/.blockstack'.format(app_domain)
+    res = data.get_mutable( config_data_id, data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, blockchain_id=blockchain_id, fully_qualified_data_id=True )
     if 'error' in res:
         log.error("Failed to get application config file {}: {}".format(config_data_id, res['error']))
         return res
@@ -220,47 +220,7 @@ def app_get_config( name, appname, data_pubkey=None, proxy=None, config_path=CON
     return {'status': True, 'config': app_cfg}
 
 
-# TODO: check with hash, not signature
-def app_make_resource_data_id( name, appname, res_name ):
-    """
-    Make a fully-qualified application resource data ID
-    """
-    res_data_id = '{}/{}'.format(appname, res_name)
-    fq_res_data_id = storage.make_fq_data_id(name, res_data_id)
-    return fq_res_data_id
-
-
-# TODO: check with hash, not signature
-def app_get_index_file( name, appname, app_config=None, data_pubkey=None, proxy=None, config_path=CONFIG_PATH ):
-    """
-    Get the application's index file.
-    Follows the URLs in the app_config structure (from app_get_config)
-    Return {status': True, 'index_file': index_file_text} on success
-    Return {'error': ...} on error
-    """
-    proxy = get_default_proxy() if proxy is None else proxy
-    res_data_id = '{}/index.html'.format(appname)
-
-    if app_config is None:
-        app_config = app_get_config(name, appname, data_pubkey=data_pubkey, proxy=proxy, config_path=CONFIG_PATH )
-        if 'error' in app_config:
-            log.error("Failed to load application config: {}".format(app_config['error']))
-            return {'error': 'Failed to load app config'}
-
-        app_config = app_config['config']
-
-    urls = user_db.urls_from_uris( app_config['index_uris'] )
-    data_id = storage.make_fq_data_id(name, res_data_id)
-    res = data.get_mutable( data_id, data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, urls=urls, blockchain_id=name, fully_qualified_data_id=True )
-    if 'error' in res:
-        log.error("Failed to get index file: {}".format(res['error']))
-        return {'error': 'Failed to load index'}
-
-    return {'status': True, 'index_file': res['data']}
-
-
-# TODO: check with hash, not signature
-def app_get_resource( name, appname, res_name, app_config=None, data_pubkey=None, proxy=None, config_path=CONFIG_PATH ):
+def app_get_resource( blockchain_id, app_domain, res_name, app_config=None, data_pubkey=None, proxy=None, config_path=CONFIG_PATH ):
     """
     Get a named application resource from mutable storage
 
@@ -274,26 +234,23 @@ def app_get_resource( name, appname, res_name, app_config=None, data_pubkey=None
 
     proxy = get_default_proxy() if proxy is None else proxy
 
-    res_data_id = '{}/{}'.format(appname, res_name)
-    fq_res_data_id = storage.make_fq_data_id( name, res_data_id )
+    res_data_id = '{}/{}'.format(app_domain, res_name)
 
     urls = None
     if app_config is not None:
         # use driver hints
         driver_hints = app_config['driver_hints']
-        urls = storage.get_driver_urls( fq_res_data_id, storage.get_storage_handlers() )
+        urls = storage.get_driver_urls( res_data_id, storage.get_storage_handlers() )
 
-    data_id = storage.make_fq_data_id(name, res_data_id)
-    res = data.get_mutable( data_id, data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, urls=urls, blockchain_id=name, fully_qualified_data_id=True )
+    res = data.get_mutable( res_data_id, data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, urls=urls, blockchain_id=blockchain_id, fully_qualified_data_id=True )
     if 'error' in res:
-        log.error("Failed to get resource {}: {}".format(fq_res_data_id, res['error']))
+        log.error("Failed to get resource {}: {}".format(res_data_id, res['error']))
         return {'error': 'Failed to load resource'}
 
     return {'status': True, 'res': res['data']}
    
 
-# remove
-def app_put_resource( name, appname, res_name, res_data, app_config=None, data_privkey=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH ):
+def app_put_resource( blockchain_id, app_domain, res_name, res_data, app_config=None, data_privkey=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH ):
     """
     Store data to a named application resource in mutable storage.
 
@@ -308,24 +265,52 @@ def app_put_resource( name, appname, res_name, res_data, app_config=None, data_p
 
     proxy = get_default_proxy() if proxy is None else proxy
 
-    res_data_id = '{}/{}'.format(appname, res_name)
-    fq_res_data_id = storage.make_fq_data_id( name, res_data_id )
+    res_data_id = '{}/{}'.format(app_domain, res_name)
 
     driver_hints = None
     if app_config is not None:
         # use driver hints
         driver_hints = app_config['driver_hints']
 
-    data_id = storage.make_fq_data_id(name, res_data_id)
-    res = data.put_mutable(data_id, res_data, blockchain_id=name, data_privkey=data_privkey, proxy=proxy, storage_drivers=driver_hints, wallet_keys=wallet_keys, config_path=CONFIG_PATH, fully_qualified_data_id=True)
+    res = data.put_mutable(res_data_id, res_data, blockchain_id=blockchain_id, data_privkey=data_privkey, proxy=proxy, storage_drivers=driver_hints, wallet_keys=wallet_keys, config_path=config_path, fully_qualified_data_id=True)
     if 'error' in res:
-        log.error("Failed to store resource {}: {}".format(fq_res_data_id, res['error']))
+        log.error("Failed to store resource {}: {}".format(res_data_id, res['error']))
         return {'error': 'Failed to store resource'}
 
     return {'status': True, 'version': res['version']}
 
 
-def app_unpublish( name, appname, force=False, data_privkey=None, app_config=None, wallet_keys=None, proxy=None, config_path=CONFIG_PATH ):
+def app_delete_resource( blockchain_id, app_domain, res_name, app_config=None, data_privkey=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH ):
+    """
+    Remove data from a named application resource in mutable storage.
+
+    data_privkey should be the publisher's private key
+    name should be a blockchain ID that points to the public key
+
+    if app_config is not None, then the driver hints will be honored.
+
+    Return {'status': True, 'version': ...} on success
+    Return {'error': ...} on error
+    """
+
+    proxy = get_default_proxy() if proxy is None else proxy
+
+    res_data_id = '{}/{}'.format(app_domain, res_name)
+
+    driver_hints = None
+    if app_config is not None:
+        # use driver hints
+        driver_hints = app_config['driver_hints']
+
+    res = data.delete_mutable(res_data_id, blockchain_id=blockchain_id, data_privkey=data_privkey, proxy=proxy, storage_drivers=driver_hints, wallet_keys=wallet_keys, config_path=config_path, fully_qualified_data_id=True)
+    if 'error' in res:
+        log.error("Failed to delete resource {}: {}".format(res_data_id, res['error']))
+        return {'error': 'Failed to delete resource'}
+
+    return {'status': True}
+
+
+def app_unpublish( blockchain_id, app_domain, force=False, data_privkey=None, app_config=None, wallet_keys=None, proxy=None, config_path=CONFIG_PATH ):
     """
     Unpublish an application
     Deletes its config and index.
@@ -347,18 +332,18 @@ def app_unpublish( name, appname, force=False, data_privkey=None, app_config=Non
         if data_privkey is not None:
             data_pubkey = get_pubkey_hex(str(data_privkey))
 
-        app_config = app_get_config(name, appname, data_pubkey=data_pubkey, proxy=proxy, config_path=CONFIG_PATH )
+        app_config = app_get_config(blockchain_id, app_domain, data_pubkey=data_pubkey, proxy=proxy, config_path=CONFIG_PATH )
         if 'error' in app_config:
             if not force:
-                log.error("Failed to load app config for {}:{}".format(name, appname))
+                log.error("Failed to load app config for {}'s {}".format(blockchain_id, app_domain))
                 return {'error': 'Failed to load app config'}
             else:
                 # keep going 
                 app_config = None
                 log.warning("Failed to load app config, but proceeding at caller request")
 
-    config_data_id = '{}/.blockstack'.format(appname)
-    index_data_id = "{}/index.html".format(appname)
+    config_data_id = '{}/.blockstack'.format(app_domain)
+    index_data_id = "{}/index.html".format(app_domain)
 
     storage_drivers = None
     if app_config is not None:
@@ -375,16 +360,14 @@ def app_unpublish( name, appname, force=False, data_privkey=None, app_config=Non
     ret = {}
 
     # delete the index
-    data_id = '{}.{}'.format(name, index_data_id)
-    res = data.delete_mutable( data_id, data_privkey=data_privkey, proxy=proxy, wallet_keys=wallet_keys, delete_version=False, storage_drivers=storage_drivers )
+    res = data.delete_mutable( config_data_id, data_privkey=data_privkey, proxy=proxy, wallet_keys=wallet_keys, delete_version=False, storage_drivers=storage_drivers )
     if 'error' in res:
         log.warning("Failed to delete index file {}".format(index_data_id))
         ret['app_config'] = app_config
         ret['retry'] = True
 
     # delete the config 
-    data_id = '{}.{}'.format(name, config_data_id)
-    res = data.delete_mutable( data_id, data_privkey=data_privkey, proxy=proxy, wallet_keys=wallet_keys, delete_version=False )
+    res = data.delete_mutable( index_data_id, data_privkey=data_privkey, proxy=proxy, wallet_keys=wallet_keys, delete_version=False )
     if 'error' in res:
         log.warning("Failed to delete config file {}".format(config_data_id))
         if not ret.has_key('app_config'):
