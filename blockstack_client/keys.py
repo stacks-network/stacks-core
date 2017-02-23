@@ -61,7 +61,7 @@ from .constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
 log = get_logger()
 
 # deriving hardened keys is expensive, so cache them once derived.
-# maps hex_privkey --> {key_index: child_key}
+# maps hex_privkey:chaincode --> {key_index: child_key}
 KEY_CACHE = {}
 KEYCHAIN_CACHE = {}
 
@@ -88,19 +88,20 @@ class HDWallet(object):
         self.master_address = None
         self.child_addresses = None
 
-        keychain_key = str(self.hex_privkey) + ":" + str(chaincode.encode('hex'))
-        if KEYCHAIN_CACHE.has_key(keychain_key):
+        self.keychain_key = str(self.hex_privkey) + ":" + str(chaincode.encode('hex'))
+
+        if KEYCHAIN_CACHE.has_key(self.keychain_key):
             if BLOCKSTACK_TEST:
-                log.debug("{} keychain is cached".format(keychain_key))
+                log.debug("{} keychain is cached".format(self.keychain_key))
             
-            self.priv_keychain = KEYCHAIN_CACHE[keychain_key]
+            self.priv_keychain = KEYCHAIN_CACHE[self.keychain_key]
 
         else:
             if BLOCKSTACK_TEST:
-                log.debug("{} keychain is NOT cached".format(keychain_key))
+                log.debug("{} keychain is NOT cached".format(self.keychain_key))
 
             self.priv_keychain = self.get_priv_keychain(self.hex_privkey, chaincode)
-            KEYCHAIN_CACHE[keychain_key] = self.priv_keychain
+            KEYCHAIN_CACHE[self.keychain_key] = self.priv_keychain
 
         self.master_address = self.get_master_address()
 
@@ -126,38 +127,22 @@ class HDWallet(object):
         child privkey for given @index
         """
         global KEY_CACHE
-        if KEY_CACHE.has_key(self.hex_privkey) and KEY_CACHE[self.hex_privkey].has_key(index):
+        if KEY_CACHE.has_key(self.keychain_key) and KEY_CACHE[self.keychain_key].has_key(index):
             if BLOCKSTACK_TEST:
-                log.debug("Child {} of {} is cached".format(index, self.hex_privkey))
+                log.debug("Child {} of {} is cached".format(index, self.keychain_key))
 
-            return KEY_CACHE[self.hex_privkey][index]
+            return KEY_CACHE[self.keychain_key][index]
 
         # expensive...
         child = self.priv_keychain.hardened_child(index)
 
-        if not KEY_CACHE.has_key(self.hex_privkey):
-            KEY_CACHE[self.hex_privkey] = {}
+        if not KEY_CACHE.has_key(self.keychain_key):
+            KEY_CACHE[self.keychain_key] = {}
 
-        KEY_CACHE[self.hex_privkey][index] = child.private_key()
+        KEY_CACHE[self.keychain_key][index] = child.private_key()
 
         return child.private_key()
 
-
-    @classmethod
-    def get_privkey(cls, hex_privkey, index):
-        """
-        Get a child private key (static method)
-        """
-        global KEY_CACHE
-        if KEY_CACHE.has_key(hex_privkey) and KEY_CACHE[hex_privkey].has_key(index):
-            if BLOCKSTACK_TEST:
-                log.debug("Child {} of {} is cached".format(index, hex_privkey))
-
-            return KEY_CACHE[hex_privkey][index]
-
-        hdwallet = HDWallet(hex_privkey)
-        return hdwallet.get_child_privkey(index=index)
-        
 
     def get_master_address(self):
         if self.master_address is not None:
