@@ -134,8 +134,8 @@ from .tx import sign_tx, broadcast_tx
 from .zonefile import make_empty_zonefile, url_to_uri_record
 
 from .utils import exit_with_error, satoshis_to_btc
-from .app import app_publish, app_make_resource_data_id, app_get_config, app_get_resource, \
-        app_get_index_file, app_put_resource, app_make_session 
+from .app import app_publish, app_unpublish, app_get_config, app_get_resource, \
+        app_put_resource, app_delete_resource, app_make_session 
 
 from .data import datastore_mkdir, datastore_rmdir, make_datastore, get_datastore, put_datastore, delete_datastore, \
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir, datastore_stat, \
@@ -2326,9 +2326,10 @@ def cli_consensus(args, config_path=CONFIG_PATH):
         if 'error' in resp:
             return resp
 
-        if 'last_block_processed' in resp and 'consensus_hash' in resp:
-            return {'consensus': resp['consensns_hash'], 'block_height': resp['last_block_processed']}
+        if 'last_block_processed' in resp and 'consensus' in resp:
+            return {'consensus': resp['consensus'], 'block_height': resp['last_block_processed']}
         else:
+            log.debug("Resp is {}".format(resp))
             return {'error': 'Server is indexing.  Try again shortly.'}
 
     resp = get_consensus_at(int(args.block_height))
@@ -2556,16 +2557,6 @@ def cli_put_immutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     if 'error' in wallet_keys:
         return wallet_keys
 
-    owner_privkey_info = wallet_keys['owner_privkey']
-    payment_privkey_info = wallet_keys['payment_privkey']
-
-    res = operation_sanity_check(
-        fqu, payment_privkey_info, owner_privkey_info, config_path=config_path
-    )
-
-    if 'error' in res:
-        return res
-
     proxy = get_default_proxy() if proxy is None else proxy
 
     result = put_immutable(
@@ -2700,17 +2691,6 @@ def cli_delete_immutable(args, config_path=CONFIG_PATH, proxy=None, password=Non
     wallet_keys = get_wallet_keys(config_path, password)
     if 'error' in wallet_keys:
         return wallet_keys
-
-    owner_privkey_info = wallet_keys['owner_privkey']
-    payment_privkey_info = wallet_keys['payment_privkey']
-
-    res = operation_sanity_check(
-        fqu, payment_privkey_info,
-        owner_privkey_info, config_path=config_path
-    )
-
-    if 'error' in res:
-        return res
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -3244,20 +3224,22 @@ def get_app_name(appname):
     return appname if appname is not None else '_default'
 
 
-# TODO: revamp
 def cli_app_publish( args, config_path=CONFIG_PATH, interactive=False, password=None, proxy=None ):
     """
     command: app_publish advanced
     help: Publish a Blockstack application
-    arg: name (str) 'The name that will own the application'
+    arg: blockchain_id (str) 'The blockchain ID that will own the application'
+    arg: app_domain (str) 'The application domain name'
     arg: methods (str) 'A comma-separated list of API methods this application will call'
     arg: index_file (str) 'The path to the index file'
-    opt: appname (str) 'The name of the application, if different from name'
     opt: urls (str) 'A comma-separated list of URLs to publish the index file to'
     opt: drivers (str) 'A comma-separated list of storage drivers for clients to use'
     """
   
     password = get_default_password(password)
+
+    blockchain_id = str(args.blockchain_id)
+    app_domain = str(args.app_domain)
 
     config_dir = os.path.dirname(config_path)
     if proxy is None:
@@ -3273,106 +3255,83 @@ def cli_app_publish( args, config_path=CONFIG_PATH, interactive=False, password=
 
     methods = None
     if hasattr(args, 'methods') and args.methods is not None:
-        methods = args.methods.split(',')
+        methods = str(args.methods).split(',')
         # TODO: validate
         
     else:
         methods = []
 
-    appname = get_app_name( getattr(args, 'appname', None) )
     drivers = []
-    if hasattr(args, 'drivers'):
-        drivers = args.drivers.split(",")
+    if hasattr(args, 'drivers') and args.drivers is not None:
+        drivers = str(args.drivers).split(",")
 
-    fq_index_data_id = app_make_resource_data_id( args.name, appname, "index.html" )
     uris = []
+    index_data_id = '{}/index.html'.format(app_domain)
     if not hasattr(args, 'urls') or args.urls is not None:
-        urls = args.urls.split(',')
+        urls = str(args.urls).split(',')
     
     else:
-        urls = get_driver_urls( fq_index_data_id, get_storage_handlers() )
+        urls = get_driver_urls( index_data_id, get_storage_handlers() )
 
-    uris = [url_to_uri_record(u, datum_name=fq_index_data_id) for u in urls]
+    uris = [url_to_uri_record(u, datum_name=index_data_id) for u in urls]
 
     wallet_keys = get_wallet_keys(config_path, password)
     if 'error' in wallet_keys:
         return wallet_keys
 
-    res = app_publish( args.name, appname, methods, uris, index_file_data, app_driver_hints=drivers, wallet_keys=wallet_keys, proxy=proxy, config_path=config_path )
+    res = app_publish( blockchain_id, app_domain, methods, uris, index_file_data, app_driver_hints=drivers, wallet_keys=wallet_keys, proxy=proxy, config_path=config_path )
     if 'error' in res:
         return res
 
     return {'status': True}
 
 
-# TODO: revamp
 def cli_app_get_config( args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
     """
     command: app_get_config advanced
     help: Get the configuration structure for an application.
-    arg: name (str) 'The name that owns the app'
-    opt: appname (str) 'The name of the app, if different from the owning name'
+    arg: blockchain_id (str) 'The app owner blockchain ID'
+    arg: app_domain (str) 'The application domain name'
     """
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    name = args.name
-    appname = get_app_name( getattr(args, 'appname', None) )
+    blockchain_id = str(args.blockchain_id)
+    app_domain = str(args.app_domain)
 
-    app_config = app_get_config(name, appname, proxy=proxy, config_path=config_path )
+    app_config = app_get_config(blockchain_id, app_domain, proxy=proxy, config_path=config_path )
     return app_config
 
 
-# TODO: revamp
-def cli_app_get_index_file( args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
-    """
-    command: app_get_index_file advanced
-    help: Get an application's index file from mutable storage.
-    arg: name (str) 'The name that owns the app'
-    opt: appname (str) 'The name of the app, if different from the owning name'
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    name = args.name
-    appname = get_app_name( getattr(args, 'appname', None) )
-
-    res = app_get_index_file( name, appname, proxy=proxy, config_path=config_path )
-    return res
-
-
-# TODO: revamp
 def cli_app_get_resource( args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
     """
     command: app_get_resource advanced
     help: Get an application resource from mutable storage.
-    arg: name (str) 'The name that owns the app'
-    arg: resname (str) 'The name of the resource'
-    opt: appname (str) 'The name of the app, if different from the owning name'
+    arg: blockchain_id (str) 'The app owner blockchain ID'
+    arg: app_domain (str) 'The application domain name'
+    arg: res_path (str) 'The resource path'
     """
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    name = args.name
-    appname = get_app_name( getattr(args, 'appname', None) )
-    resname = args.resname
+    blockchain_id = str(args.blockchain_id)
+    app_domain = str(args.app_domain)
+    res_path = str(args.res_path)
 
-    res = app_get_resource( name, appname, resname, proxy=proxy, config_path=config_path )
+    res = app_get_resource( blockchain_id, app_domain, res_path, proxy=proxy, config_path=config_path )
     return res
 
 
-# TODO: revamp
 def cli_app_put_resource( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None ):
     """
     command: app_put_resource advanced
-    help: Get an application resource from mutable storage.
-    arg: name (str) 'The name that owns the app'
-    arg: resname (str) 'The name of the resource'
-    arg: res_file (str) 'The file with the resource data'
-    opt: appname (str) 'The name of the app, if different from the owning name'
+    help: Store an application resource from mutable storage.
+    arg: blockchain_id (str) 'The app owner blockchain ID'
+    arg: app_domain (str) 'The application domain name'
+    arg: res_path (str) 'The location to which to store this resource'
+    arg: res_file (str) 'The path on disk to the resource to upload'
     """
 
     if proxy is None:
@@ -3380,15 +3339,16 @@ def cli_app_put_resource( args, config_path=CONFIG_PATH, interactive=False, prox
 
     password = get_default_password(password)
 
-    name = args.name
-    appname = get_app_name( getattr(args, 'appname', None) )
-    resname = args.resname
+    blockchain_id = str(args.blockchain_id)
+    app_domain = str(args.app_domain)
+    res_path = str(args.res_path)
+    res_file_path = str(args.res_file)
 
     resdata = None
-    if not os.path.exists(args.res_file):
+    if not os.path.exists(res_file_path):
         return {'error': 'No such file or directory'}
 
-    with open(args.res_file, "r") as f:
+    with open(res_file_path, "r") as f:
         resdata = f.read()
 
     config_dir = os.path.dirname(config_path)
@@ -3396,23 +3356,52 @@ def cli_app_put_resource( args, config_path=CONFIG_PATH, interactive=False, prox
     if 'error' in wallet_keys:
         return wallet_keys
 
-    res = app_put_resource( name, appname, resname, resdata, proxy=proxy, wallet_keys=wallet_keys, config_path=config_path )
+    res = app_put_resource( blockchain_id, app_domain, res_path, resdata, proxy=proxy, wallet_keys=wallet_keys, config_path=config_path )
     return res
 
 
-def cli_app_signin(args, config_path=CONFIG_PATH, password=None):
+def cli_app_delete_resource( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None ):
+    """
+    command: app_delete_resource advanced
+    help: Delete an application resource from mutable storage.
+    arg: blockchain_id (str) 'The app owner blockchain ID'
+    arg: app_domain (str) 'The application domain name'
+    arg: res_path (str) 'The location to which to store this resource'
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    password = get_default_password(password)
+
+    blockchain_id = str(args.blockchain_id)
+    app_domain = str(args.app_domain)
+    res_path = str(args.res_path)
+
+    config_dir = os.path.dirname(config_path)
+    wallet_keys = get_wallet_keys(config_path, password)
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    res = app_delete_resource( blockchain_id, app_domain, res_path, proxy=proxy, wallet_keys=wallet_keys, config_path=config_path )
+    return res
+
+
+def cli_app_signin(args, config_path=CONFIG_PATH, password=None, interactive=True, wallet_keys=None):
     """
     command: app_signin advanced
     help: Create a session token for the RESTful API for a given application
     arg: app_domain (str) 'The application domain'
     arg: api_methods (str) 'A CSV of requested methods to call'
     opt: session_lifetime (int) 'The lifetime of this token, in seconds'
+    opt: blockchain_ids (str) 'A CSV of blockchain IDs to use to authenticate content'
     opt: app_user_id (str) 'The application user ID to use'
     """
 
     app_domain = str(args.app_domain)
     api_methods = str(args.api_methods)
     session_lifetime = getattr(args, 'session_lifetime', None)
+    blockchain_ids = getattr(args, 'blockchain_ids', None)
     app_user_id = getattr(args, 'app_user_id', None)
 
     if session_lifetime is None:
@@ -3421,6 +3410,9 @@ def cli_app_signin(args, config_path=CONFIG_PATH, password=None):
     if app_user_id is not None:
         app_user_id = str(app_user_id)
         
+    if blockchain_ids is not None:
+        blockchain_ids = blockchain_ids.split(',')
+
     api_methods = api_methods.split(',')
 
     # TODO: validate API methods
@@ -3430,13 +3422,14 @@ def cli_app_signin(args, config_path=CONFIG_PATH, password=None):
     config_dir = os.path.dirname(config_path)
     
     # RPC daemon must be running
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        log.error("Failed to get wallet keys: {}".format(wallet_keys['error']))
-        return wallet_keys
+    if wallet_keys is None:
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            log.error("Failed to get wallet keys: {}".format(wallet_keys['error']))
+            return wallet_keys
 
-    master_data_privkey = wallet_keys['data_privkey']
-    res = app_make_session( app_domain, api_methods, master_data_privkey, session_lifetime=session_lifetime, config_path=config_path )
+    master_data_privkey = str(wallet_keys['data_privkey'])
+    res = app_make_session( app_domain, api_methods, master_data_privkey, blockchain_ids=blockchain_ids, session_lifetime=session_lifetime, config_path=config_path )
     if 'error' in res:
         log.error("Failed to make session: {}".format(wallet_keys['error']))
         return res
@@ -3569,17 +3562,19 @@ def _remove_datastore(datastore, datastore_privkey, rmtree=True, force=False, co
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-    # clear the datastore 
-    if rmtree:
-        log.debug("Clear user datastore {}".format(datastore_name))
-        res = datastore_rmtree(datastore, '/', datastore_privkey, config_path=config_path, proxy=proxy)
-        if 'error' in res and not force:
-            log.error("Failed to rmtree datastore {}".format(datastore_name))
-            return {'error': 'Failed to remove all files and directories'}
-
-    # delete the datastore record
+    
     datastore_pubkey = get_pubkey_hex(datastore_privkey)
     datastore_id = datastore_get_id(datastore_pubkey)
+
+    # clear the datastore 
+    if rmtree:
+        log.debug("Clear datastore {}".format(datastore_id))
+        res = datastore_rmtree(datastore, '/', datastore_privkey, config_path=config_path, proxy=proxy)
+        if 'error' in res and not force:
+            log.error("Failed to rmtree datastore {}".format(datastore_id))
+            return {'error': 'Failed to remove all files and directories', 'errno': errno.ENOTEMPTY}
+
+    # delete the datastore record
     log.debug("Delete datastore {}".format(datastore_id))
     return delete_datastore(datastore_privkey, force=force, config_path=config_path, proxy=proxy )
 
@@ -3597,6 +3592,7 @@ def get_datastore_privkey_info( app_domain, wallet_keys, app_user_privkey=None, 
             password = get_default_password(password)
             wallet_keys = get_wallet_keys(config_path, password)
             if 'error' in wallet_keys:
+                wallet_keys['errno'] = errno.EPERM
                 return wallet_keys
 
         master_data_privkey = wallet_keys['data_privkey']
@@ -3622,6 +3618,7 @@ def create_datastore_by_type( datastore_type, app_domain, proxy=None, config_pat
         # RPC daemon must be running 
         wallet_keys = get_wallet_keys(config_path, password)
         if 'error' in wallet_keys:
+            wallet_keys['errno'] = errno.EPERM
             return wallet_keys
 
     assert 'data_privkey' in wallet_keys, str(wallet_keys)
@@ -3632,7 +3629,7 @@ def create_datastore_by_type( datastore_type, app_domain, proxy=None, config_pat
     res = get_datastore_info( master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy )
     if 'error' not in res:
         # already exists
-        return {'error': 'Datastore exists'}
+        return {'error': 'Datastore exists', 'errno': errno.EEXIST}
 
     datastore_privkey = datastore_get_privkey( master_data_privkey, app_domain, config_path=config_path ) 
     datastore_info = make_datastore( datastore_type, datastore_privkey, config_path=CONFIG_PATH)
@@ -3680,7 +3677,7 @@ def delete_datastore_by_type( datastore_type, app_domain, app_user_privkey=None,
     config_dir = os.path.dirname(config_path)
 
     datastore_info = get_datastore_privkey_info( app_domain, wallet_keys, app_user_privkey=app_user_privkey, config_path=config_path, proxy=proxy )
-    if 'error 'in datastore_info:
+    if 'error' in datastore_info:
         return datastore_info
 
     datastore = datastore_info['datastore']
@@ -3709,7 +3706,9 @@ def datastore_file_get(datastore_type, datastore_id, path, proxy=None, config_pa
 
     datastore_info = get_datastore_info( datastore_id=datastore_id, config_path=config_path, proxy=proxy)
     if 'error' in datastore_info:
-        datastore_info['errno'] = errno.EPERM
+        if 'errno' not in datastore_info:
+            datastore_info['errno'] = errno.EPERM
+
         return datastore_info
 
     datastore = datastore_info['datastore']
@@ -3745,13 +3744,17 @@ def datastore_file_put(datastore_type, datastore_privkey, path, data, create=Tru
             return {'error': 'Failed to read "{}"'.format(data)}
 
     datastore_info = get_datastore_privkey_info( app_domain, wallet_keys, app_user_privkey=datastore_privkey, config_path=config_path, proxy=proxy )
-    if 'error 'in datastore_info:
+    if 'error' in datastore_info:
         datastore_info['errno'] = errno.EPERM
         return datastore_info
     
     datastore = datastore_info['datastore']
     datastore_privkey = datastore_info['datastore_privkey']
     datastore_id = datastore_info['datastore_id']
+
+    assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey))
+
+    log.debug("putfile {} to {} (for {})".format(path, datastore_id, app_domain))
 
     res = datastore_putfile( datastore, path, data, datastore_privkey, create=create, config_path=config_path, proxy=proxy )
     if 'error' in res:
@@ -3778,17 +3781,19 @@ def datastore_dir_list(datastore_type, datastore_id, path, config_path=CONFIG_PA
 
     datastore_info = get_datastore_info(datastore_id=datastore_id, config_path=config_path, proxy=proxy)
     if 'error' in datastore_info:
-        datastore_info['errno'] = errno.EPERM
+        if 'errno' not in datastore_info:
+            datastore_info['errno'] = errno.EPERM
+
         return datastore_info
 
     datastore = datastore_info['datastore']
     if datastore['type'] != datastore_type:
-        return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
+        return {'error': '{} is a {}'.format(datastore_id, datastore['type']), 'errno': errno.EINVAL}
 
     if datastore_type == 'collection':
         # can only be '/'
         if path != '/':
-            return {'error': 'Invalid argument: collections do not have directories'}
+            return {'error': 'Invalid argument: collections do not have directories', 'errno': errno.EINVAL}
 
     res = datastore_listdir( datastore, path, config_path=config_path, proxy=proxy )
     return res
@@ -3825,8 +3830,8 @@ def cli_get_datastore( args, config_path=CONFIG_PATH, proxy=None ):
     """
     if proxy is None:
         proxy = get_default_proxy(config_path)
-
-    datastore_id = str(app_user_id)    
+    
+    datastore_id = str(args.app_user_id)    
     return get_datastore_by_type('datastore', datastore_id, config_path=config_path, proxy=proxy )
 
 
@@ -3861,7 +3866,11 @@ def cli_delete_datastore( args, config_path=CONFIG_PATH, proxy=None, password=No
 
     config_dir = os.path.dirname(config_path)
     app_domain = str(args.app_domain)
-    force = (str(args.force).lower() in ['1', 'true', 'force', 'yes'])
+
+    force = False
+    if hasattr(args, 'force'):
+        force = (str(args.force).lower() in ['1', 'true', 'force', 'yes'])
+
     app_user_privkey = getattr(args, 'app_user_privkey', None)
     if app_user_privkey is not None:
         app_user_privkey = str(app_user_privkey)
@@ -3896,6 +3905,7 @@ def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy
         if wallet_keys is None:
             wallet_keys = get_wallet_keys(config_path, password)
             if 'error' in wallet_keys:
+                wallet_keys['errno'] = errno.EPERM
                 return wallet_keys
 
         master_data_privkey = wallet_keys['data_privkey']
@@ -3904,8 +3914,11 @@ def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy
     if 'error' in datastore_info:
         return datastore_info
 
+    datastore_id = datastore_info['datastore_id']
     datastore = datastore_info['datastore']
     datastore_privkey_hex = datastore_info['datastore_privkey']
+
+    assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
 
     res = datastore_mkdir(datastore, path, datastore_privkey_hex, config_path=config_path, proxy=proxy)
     if 'error' in res:
@@ -3915,8 +3928,7 @@ def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy
     if not path.endswith('/'):
         path += '/'
 
-    datastore_id = datastore_get_id( get_pubkey_hex(datastore_privkey_hex) )
-    url = blockstack_datastore_url( datastore_id, datastore_id, path )
+    url = blockstack_datastore_url( datastore_id, app_domain, path )
     res['url'] = url
     return res
 
@@ -3947,6 +3959,7 @@ def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False, proxy
         if wallet_keys is None:
             wallet_keys = get_wallet_keys(config_path, password)
             if 'error' in wallet_keys:
+                wallet_keys['errno'] = errno.EPERM
                 return wallet_keys
 
         master_data_privkey = wallet_keys['data_privkey']
@@ -3955,8 +3968,11 @@ def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False, proxy
     if 'error' in datastore_info:
         return datastore_info
 
+    datastore_id = datastore_info['datastore_id']
     datastore = datastore_info['datastore']
     datastore_privkey_hex = datastore_info['datastore_privkey']
+
+    assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
 
     res = datastore_rmdir(datastore, path, datastore_privkey_hex, config_path=config_path, proxy=proxy )
     return res
@@ -4069,6 +4085,7 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False, p
         if wallet_keys is None:
             wallet_keys = get_wallet_keys(config_path, password)
             if 'error' in wallet_keys:
+                wallet_keys['errno'] = errno.EPERM
                 return wallet_keys
 
         master_data_privkey = wallet_keys['data_privkey']
@@ -4078,8 +4095,11 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False, p
         datastore_info['errno'] = errno.EPERM
         return datastore_info
 
+    datastore_id = datastore_info['datastore_id']
     datastore = datastore_info['datastore']
     datastore_privkey_hex = datastore_info['datastore_privkey']
+
+    assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
 
     res = datastore_deletefile( datastore, path, datastore_privkey_hex, config_path=config_path, proxy=proxy )
     return res
