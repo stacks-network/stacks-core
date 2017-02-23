@@ -936,7 +936,7 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     if proxy is None:
         proxy = get_default_proxy()
 
-    if dry_run or not safety_checks:
+    if dry_run:
         assert tx_fee, "invalid argument: tx_fee is required on dry-run"
         assert cost_satoshis, 'invalid argument: cost_satoshis is required on dry-run'
         safety_checks = False
@@ -959,7 +959,7 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     if not dry_run and (safety_checks or (cost_satoshis is None or tx_fee is None)):
         # find tx fee, and do sanity checks
         res = check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
-        if 'error' in res:
+        if 'error' in res and safety_checks:
             log.error("Failed to check preorder: {}".format(res['error']))
             return res
 
@@ -968,6 +968,9 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
 
         if cost_satoshis is None:
             cost_satoshis = res['name_price']
+        
+        assert tx_fee, "Missing tx fee"
+        assert cost_satoshis, "Missing name cost"
 
     if consensus_hash is None:
         consensus_hash_res = get_consensus_hash( proxy, config_path=config_path )
@@ -1013,7 +1016,7 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
     fqu = str(fqu)
     resp = {}
 
-    if dry_run or not safety_checks:
+    if dry_run:
         assert tx_fee, "Missing tx fee on dry-run"
         safety_checks = False
 
@@ -1034,12 +1037,14 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
     if not dry_run and (safety_checks or tx_fee is None):
         # find tx fee, and do sanity checks
         res = check_register(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
-        if 'error' in res:
+        if 'error' in res and safety_checks:
             log.error("Failed to check register: {}".format(res['error']))
             return res
 
         if tx_fee is None:
             tx_fee = res['tx_fee']
+
+        assert tx_fee, "Missing tx fee"
 
     log.debug("Registering (%s, %s, %s), tx_fee = %s" % (fqu, payment_address, owner_address, tx_fee))
 
@@ -1074,7 +1079,7 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
     if proxy is None:
         proxy = get_default_proxy()
 
-    if dry_run or not safety_checks:
+    if dry_run:
         assert tx_fee, 'dry run needs tx fee'
         safety_checks = False
 
@@ -1103,12 +1108,14 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
     if not dry_run and (safety_checks or tx_fee is None):
         # find tx fee, and do sanity checks
         res = check_update(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
-        if 'error' in res:
+        if 'error' in res and safety_checks:
             log.error("Failed to check update: {}".format(res['error']))
             return res
 
         if tx_fee is None:
             tx_fee = res['tx_fee']
+
+        assert tx_fee, "Missing tx fee"
 
     # get consensus hash
     if consensus_hash is None:
@@ -1175,7 +1182,7 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
     if proxy is None:
         proxy = get_default_proxy()
 
-    if dry_run or not safety_checks:
+    if dry_run:
         assert tx_fee is not None, 'Need tx fee for dry run'
         safety_checks = False
 
@@ -1186,12 +1193,14 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
     if not dry_run and (safety_checks or tx_fee is None):
         # find tx fee, and do sanity checks
         res = check_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
-        if 'error' in res:
+        if 'error' in res and safety_checks:
             log.error("Failed to check transfer: {}".format(res['error']))
             return res
 
         if tx_fee is None:
             tx_fee = res['tx_fee']
+
+        assert tx_fee, "Missing tx fee"
 
     # get consensus hash
     if consensus_hash is None:
@@ -1238,7 +1247,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     if proxy is None:
         proxy = get_default_proxy()
 
-    if dry_run or not safety_checks:
+    if dry_run:
         assert tx_fee, 'Need tx fee for dry run'
         assert renewal_fee, 'Need renewal fee for dry run'
         safety_checks = False
@@ -1251,7 +1260,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     if not dry_run and (safety_checks or (renewal_fee is None or tx_fee is None)):
         # find tx fee, and do sanity checks
         res = check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
-        if 'error' in res:
+        if 'error' in res and safety_checks:
             log.error("Failed to check renewal: {}".format(res['error']))
             return res
 
@@ -1260,6 +1269,9 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
 
         if renewal_fee is None:
             renewal_fee = res['name_price']
+
+        assert tx_fee, "Missing tx fee"
+        assert renewal_fee, "Missing renewal fee"
 
     log.debug("Renewing (%s, %s, %s), tx_fee = %s, renewal_fee = %s" % (fqu, payment_address, owner_address, tx_fee, renewal_fee))
 
@@ -1295,7 +1307,7 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
     if proxy is None:
         proxy = get_default_proxy()
 
-    if dry_run or not safety_checks:
+    if dry_run:
         assert tx_fee, "need tx fee for dry run"
         safety_checks = False
 
@@ -1305,12 +1317,14 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
 
     if not dry_run and (safety_checks or tx_fee is None):
         res = check_revoke(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
-        if 'error' in res:
+        if 'error' in res and safety_checks:
             log.error("Failed to check revoke: {}".format(res['error']))
             return res
 
         if tx_fee is None:
             tx_fee = res['tx_fee']
+
+        assert tx_fee, "Missing tx fee"
 
     subsidized_tx = None
     try:
