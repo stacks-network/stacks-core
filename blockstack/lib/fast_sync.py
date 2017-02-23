@@ -189,8 +189,7 @@ def fast_sync_snapshot( export_path, private_key, block_number ):
 
     def _cleanup(path):
         try:
-            # shutil.rmtree(path)
-            print 'rm -rf {}'.format(path)
+            shutil.rmtree(path)
         except Exception, e:
             log.exception(e)
             log.error("Failed to clear directory {}".format(path))
@@ -411,6 +410,26 @@ def fast_sync_inspect( fd ):
         signatures.append( sigb64 )
 
     return {'status': True, 'signatures': signatures, 'payload_size': ptr, 'sig_append_offset': sig_append_offset}
+
+
+def fast_sync_inspect_snapshot( snapshot_path ):
+    """
+    Inspect a snapshot
+    Return useful information
+    Return {'status': True, 'signatures': ..., 'payload_size': ..., 'sig_append_offset': ..., 'hash': ...} on success
+    Return {'error': ...} on error
+    """
+    with open(snapshot_path, 'r') as f:
+        info = fast_sync_inspect( f )
+        if 'error' in info:
+            log.error("Failed to inspect snapshot {}: {}".format(import_path, info['error']))
+            return {'error': 'Failed to inspect snapshot'}
+
+        # get the hash of the file 
+        hash_hex = blockstack_client.storage.get_file_hash(f, hashlib.sha256, fd_len=ptr)
+        info['hash'] = hash_hex
+
+    return info
 
 
 def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBLIC_KEYS, num_required=len(config.FAST_SYNC_PUBLIC_KEYS) ):
