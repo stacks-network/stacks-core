@@ -896,12 +896,14 @@ def put_mutable(data_id, data_payload, blockchain_id=None, data_privkey=None, pr
     log.debug("put_mutable({}, blockchain_id={}, lookup_privkey={}, version={}, storage_drivers={})".format(fq_data_id, blockchain_id, lookup, version, ','.join(storage_drivers)))
     rc = storage.put_mutable_data(fq_data_id, data_json, data_privkey, blockchain_id=blockchain_id, required=storage_drivers)
     if not rc:
+        log.error("failed to put mutable data {}".format(fq_data_id))
         result['error'] = 'Failed to store mutable data'
         return result
 
     # remember which version this was
     rc = store_mutable_data_version(conf, device_id, data_id, version, config_path=config_path)
     if not rc:
+        log.error("failed to put mutable data version {}.{}".format(data_id, version))
         result['error'] = 'Failed to store mutable data version'
         return result
 
@@ -1052,6 +1054,9 @@ def delete_mutable(data_id, data_privkey=None, proxy=None, storage_drivers=None,
     else:
         fq_data_ids = [data_id]
 
+    if storage_drivers is None:
+        storage_drivers = get_write_storage_drivers(config_path)
+
     if data_privkey is None:
         data_privkey_info = load_user_data_privkey( blockchain_id, storage_drivers=storage_drivers, proxy=proxy, config_path=config_path, wallet_keys=wallet_keys )
         if 'error' in data_privkey_info:
@@ -1061,6 +1066,10 @@ def delete_mutable(data_id, data_privkey=None, proxy=None, storage_drivers=None,
         data_privkey = data_privkey_info['privkey']
 
     worst_rc = True
+
+    log.debug("delete_mutable({}, blockchain_id={}, storage_drivers={}, delete_version={})".format(
+        data_id, blockchain_id, ','.join(storage_drivers), delete_version
+    ))
 
     # remove the data itself
     for fq_data_id in fq_data_ids:
@@ -1244,7 +1253,7 @@ def get_datastore( datastore_id, config_path=CONFIG_PATH, proxy=None):
     datastore_info = get_mutable(data_id, data_address=datastore_id, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
     if 'error' in datastore_info:
         log.error("Failed to load public datastore information: {}".format(datastore_info['error']))
-        return {'error': 'Failed to load public datastore record'}
+        return {'error': 'Failed to load public datastore record', 'errno': errno.ENOENT}
 
     datastore = datastore_info['data']
 
@@ -1255,7 +1264,7 @@ def get_datastore( datastore_id, config_path=CONFIG_PATH, proxy=None):
             log.exception(ve)
         
         log.error("Invalid datastore record")
-        return {'error': 'Invalid public datastore record'}
+        return {'error': 'Invalid public datastore record', 'errno': errno.EIO}
 
     return {'status': True, 'datastore': datastore}
 
@@ -1301,7 +1310,7 @@ def put_datastore(datastore_info, datastore_privkey, proxy=None, config_path=CON
     res = _put_inode(datastore_id, root, datastore_privkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=proxy, create=True )
     if 'error' in res:
         log.error("Failed to put root inode for datastore {}".format(datastore_id))
-        return {'error': 'Failed to replicate datastore metadata'}
+        return {'error': 'Failed to replicate datastore metadata', 'errno': errno.EREMOTEIO}
 
     # replicate public datastore record
     data_id = '{}.datastore'.format(datastore_id)
@@ -1314,7 +1323,7 @@ def put_datastore(datastore_info, datastore_privkey, proxy=None, config_path=CON
         if 'error' in res:
             log.error("Failed to clean up root inode {}".format(root['uuid']))
 
-        return {'error': 'Failed to replicate datastore metadata'}
+        return {'error': 'Failed to replicate datastore metadata', 'errno': errno.EREMOTEIO}
 
     datastore_rec_version = res['version']
 
@@ -1322,6 +1331,7 @@ def put_datastore(datastore_info, datastore_privkey, proxy=None, config_path=CON
     res = _put_mutable_data_versions(data_id, datastore_rec_version, all_device_ids, config_path=config_path)
     if 'error' in res:
         log.error("Failed to advance consistency data for datastore record")
+        res['errno'] = errno.EIO
         return res
 
     return {'status': True}
@@ -1351,7 +1361,7 @@ def delete_datastore( datastore_privkey, force=False, config_path=CONFIG_PATH, p
     datastore_info = get_datastore(datastore_id, config_path=config_path, proxy=proxy )
     if 'error' in datastore_info:
         log.error("Failed to look up datastore information for {}".format(datastore_id))
-        return {'error': 'Failed to look up datastore'}
+        return {'error': 'Failed to look up datastore', 'errno': errno.ENOENT}
     
     datastore = datastore_info['datastore']
 
@@ -1360,25 +1370,25 @@ def delete_datastore( datastore_privkey, force=False, config_path=CONFIG_PATH, p
     if 'error' in res:
         if not force:
             log.error("Failed to list /")
-            return {'error': 'Failed to check if datastore is empty'}
+            return {'error': 'Failed to check if datastore is empty', 'errno': errno.EREMOTEIO}
         else:
             log.warn("Failed to list /, but forced to remove it anyway")
 
     if not force and len(res['dir']['idata']) != 0:
         log.error("Datastore not empty\n{}\n".format(json.dumps(res['dir']['idata'], indent=4, sort_keys=True)))
-        return {'error': 'Datastore not empty'}
+        return {'error': 'Datastore not empty', 'errno': errno.ENOTEMPTY}
 
     res = _delete_inode(datastore_id, datastore['root_uuid'], datastore_privkey, datastore['drivers'], datastore['device_ids'], proxy=proxy, config_path=config_path, cache=DIR_CACHE) 
     if 'error' in res:
         log.error("Failed to delete root inode {}".format(datastore['root_uuid']))
-        return {'error': res['error']}
+        return {'error': res['error'], 'errno': errno.EREMOTEIO}
 
     # remove public datastore record
     data_id = '{}.datastore'.format(datastore_id)
     res = delete_mutable(data_id, data_privkey=datastore_privkey, proxy=proxy, config_path=config_path, delete_version=False )
     if 'error' in res:
         log.error("Failed to delete public datastore record: {}".format(res['error']))
-        return {'error': 'Failed to delete public datastore record'}
+        return {'error': 'Failed to delete public datastore record', 'errno': errno.EREMOTEIO}
 
     return {'status': True}
 
@@ -1718,7 +1728,7 @@ def _delete_inode(datastore_id, inode_uuid, data_privkey, drivers, device_ids, c
 
     # delete inode 
     data_id = '{}.{}'.format(datastore_id, inode_uuid)
-    res = delete_mutable(idata_id, data_privkey=data_privkey, proxy=proxy, storage_drivers=drivers, device_ids=device_ids, delete_version=False, config_path=config_path )
+    res = delete_mutable(data_id, data_privkey=data_privkey, proxy=proxy, storage_drivers=drivers, device_ids=device_ids, delete_version=False, config_path=config_path )
     if 'error' in res:
         log.error("Failed to delete inode {}: {}".format(inode_uuid, res['error']))
         return res
