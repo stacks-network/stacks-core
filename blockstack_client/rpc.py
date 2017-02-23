@@ -264,6 +264,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
     JSONRPC_MAX_SIZE = 1024 * 1024
 
+    http_errors = {
+        errno.ENOENT: 404,
+        errno.EINVAL: 401,
+        errno.EPERM: 400,
+        errno.EACCES: 403
+    }
+
     def _send_headers(self, status_code=200, content_type='application/json'):
         """
         Generate and reply headers
@@ -523,11 +530,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         methods = [str(m) for m in decoded_token['payload']['methods']]
         session_lifetime = DEFAULT_SESSION_LIFETIME
         app_user_id = decoded_token['payload'].get('app_user_id', None)
+        blockchain_ids = decoded_token['payload'].get('blockchain_ids', None)
+
         if app_user_id is not None:
             app_user_id = str(app_user_id)
 
+        if blockchain_ids is not None:
+            blockchain_ids = ",".join(blockchain_ids)
+
         internal = self.server.get_internal_proxy()
-        res = internal.cli_app_signin( app_domain, ",".join(methods), session_lifetime, app_user_id, config_path=self.server.config_path )
+        res = internal.cli_app_signin( app_domain, ",".join(methods), session_lifetime, blockchain_ids, app_user_id, config_path=self.server.config_path )
         if 'error' in res:
             log.error("Failed to sign in: {}".format(res['error']))
             return self._reply_json({'error': res['error']}, status_code=404)
@@ -1160,24 +1172,38 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def GET_store( self, ses, path_info, app_user_id ):
+    def GET_store( self, ses, path_info, app_user_id_or_app_domain ):
         """
-        Get the specific data store for this app user account
+        Get the specific data store for this app user account or app domain
         Reply 200 on success
         Reply 503 on failure to load
         
         # TODO see if we can load cached app user private key to auth request
         """
         
-        if app_user_id != ses['app_user_id']:
-            return self._reply_json({'error': 'Invalid user'}, status=403)
-
         internal = self.server.get_internal_proxy()
+
+        app_user_id = None
+        if app_user_id_or_app_domain == ses['app_user_id']:
+            app_user_id = app_user_id_or_app_domain
+
+        else:
+            # must be the app domain 
+            app_user_id_res = internal.cli_datastore_get_id( app_user_id_or_app_domain, config_path=self.server.config_path, wallet_keys=self.server.wallet_keys )
+            if 'error' in app_user_id_res:
+                return self._reply_json({'error': 'Unrecognized datastore identifier'}, status_code=404)
+
+            app_user_id = app_user_id_res['datastore_id']
+
+        if app_user_id != ses['app_user_id']:
+            return self._reply_json({'error': 'Invalid datastore ID'}, status=403)
+
         internal = self.server.get_internal_proxy()
         res = internal.cli_get_datastore(app_user_id, config_path=self.server.config_path)
         if 'error' in res:
             return self._reply_json({'error': res['error']}, status_code=503)
 
+        res['datastore_id'] = app_user_id
         return self._reply_json(res)
 
 
@@ -1189,7 +1215,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         # TODO see if we can load cached app user private key
         """
-       
+        
+        app_domain = ses['app_domain']
         internal = self.server.get_internal_proxy()
         res = internal.cli_create_datastore(app_domain, wallet_keys=self.server.wallet_keys, config_path=self.server.config_path)
         if json_is_error(res):
@@ -1239,7 +1266,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 200 on succes, with the raw data (as application/octet-stream for files, and as application/json for directories and inodes)
         Reply 401 if no path is given
         Reply 403 on invalid user ID
-        Reply 404 if the file/directory does not exist
+        Reply 404 if the file/directory/datastore does not exist
+        Reply 500 if we fail to load the datastore record for some other reason than the above
         Reply 503 on failure to load data from storage providers
         
         # TODO see if we can load cached app user private key
@@ -1261,20 +1289,21 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         res = None
 
         if inode_type == 'files':
-            res = internal.cli_datastore_getfile(app_user_id, path, config_path=self.server.config_path, wallet_keys=self.server.wallet_keys)
+            res = internal.cli_datastore_getfile(app_user_id, path, config_path=self.server.config_path)
         elif inode_type == 'directories':
-            res = internal.cli_datastore_listdir(app_user_id, path, config_path=self.server.config_path, wallet_keys=self.server.wallet_keys)
+            res = internal.cli_datastore_listdir(app_user_id, path, config_path=self.server.config_path)
         else:
-            res = internal.cli_datastore_stat(app_user_id, path, config_path=self.server.config_path, wallet_keys=self.server.wallet_keys)
+            res = internal.cli_datastore_stat(app_user_id, path, config_path=self.server.config_path)
 
         if json_is_error(res):
-            if res['errno'] == errno.ENOENT:
-                self._send_headers(status_code=404, content_type='text/plain')
-                return
-
-            else:
-                self.reply_json({'error': 'Failed to read {}: {}'.format(inode_type, res['error'])})
-                return
+            if res.has_key('errno'):
+                # propagate an error code, if possible
+                if res['errno'] in self.http_errors:
+                    return self._send_headers(status_code=http_errors[res['errno']], content_type='text/plain')
+            
+            err = {'error': 'Failed to read {}: {}'.format(inode_type, res['error'])}
+            self._reply_json(err, status_code=500)
+            return
 
         if inode_type == 'files':
             self._send_headers(status_code=200, content_type='application/octet-stream')
@@ -1342,7 +1371,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         res = None
 
-        if inode_type == 'file':
+        if inode_type == 'files':
             data = self._read_payload()
             if data is None:
                 self._reply_json({'error': 'Failed to read file data'}, status_code=401)
@@ -1420,6 +1449,44 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 return
 
         self._reply_json({'status': True})
+        return
+
+
+    def GET_app_resource( self, ses, path_info, blockchain_id, app_domain ):
+        """
+        Get a signed application resource
+        qs includes `name=...` for the resource name
+        Return 200 on success with `application/octet-stream`
+        Return 401 if no path is given
+        Return 403 if the session has a whitelist of blockchain IDs, and the given one is not present
+        Return 404 on not found
+        Return 503 on failure to load
+        """
+
+        if ses is not None:
+            if ses['app_domain'] != app_domain:
+                return self._reply_json({'error': 'Unauthorized app domain'}, status_code=403)
+
+            blockchain_ids = ses.get('blockchain_ids', None)
+            if blockchain_ids is not None and blockchain_id not in blockchain_ids:
+                return self._reply_json({'error': 'Unauthorized blockchain ID'}, status_code=403)
+
+        qs = path_info['qs_values']
+        internal = self.server.get_internal_proxy()
+        res_path = qs.get('name', None)
+        if res_path is None:
+            return self._reply_json({'error': 'No resource name given'}, status_code=401)
+        
+        res = internal.cli_app_get_resource(blockchain_id, app_domain, res_path, config_path=self.server.config_path)
+        if 'error' in res:
+            if res.has_key('errno') and res['errno'] in self.http_errors:
+                return self._send_headers(status_code=self.http_errors[res['errno']], content_type='text/plain')
+
+            else:
+                return self._reply_json({'error': 'Failed to load resource'}, status_code=503)
+
+        self._send_headers(status_code=200, content_type='application/octet-stream')
+        self.wfile.write(res['res'])
         return
 
 
@@ -2548,22 +2615,22 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'POST': {
                         'name': 'store_write',
                         'desc': 'create the datastore for the app user',
-                        'auth_session': False,  # need app_domain from session
-                        'auth_pass': True,
+                        'auth_session': True,
+                        'auth_pass': False,     # need app_domain from session
                         'need_data_key': True,
                     },
                     'PUT': {
                         'name': 'store_write',
                         'desc': 'update the app user\'s datastore',
                         'auth_session': True,
-                        'auth_pass': True,
+                        'auth_pass': False,     # need app_domain from session
                         'need_data_key': True,
                     },
                     'DELETE': {
                         'name': 'store_write',
                         'desc': 'delete the app user\'s datastore',
-                        'auth_session': False,  # need app_domain from session
-                        'auth_pass': True,
+                        'auth_session': True,
+                        'auth_pass': False,     # need app_domain from session
                         'need_data_key': True,
                     },
                 },
@@ -2620,6 +2687,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
+            r'^/v1/resources/({})/({})$'.format(NAME_CLASS, URLENCODING_CLASS): {
+                'routes': {
+                    'GET': self.GET_app_resource,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'app',
+                        'desc': 'get an application resource',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
+                    },
+                },
+            },
             r'^/v1/.*$': {
                 'routes': {
                     'OPTIONS': self.OPTIONS_preflight,
@@ -2673,10 +2754,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if not use_session and not use_password:
             # no auth needed
+            log.debug("No authentication needed")
             authorized = True
 
         elif have_password and use_password:
             # password allowed
+            log.debug("Authenticated with password")
             authorized = True
 
         elif session is not None and use_session:
@@ -2706,9 +2789,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 return self._send_headers(status_code=403, content_type='text/plain')
 
             authorized = True
+            log.debug("Authenticated with session")
 
         if not authorized:
             log.info("Failed to authenticate caller")
+            if BLOCKSTACK_TEST:
+                log.debug("Session was: {}".format(session))
+
             return self._send_headers(status_code=403, content_type='text/plain')
 
         # good to go!
@@ -3586,7 +3673,7 @@ def local_api_stop(config_dir=blockstack_constants.CONFIG_DIR):
 
     time.sleep(1)
 
-    for i in xrange(0, 5):
+    for i in xrange(0, 2):
         # still running?
         if not api_kill(pidpath, pid, 0):
             # dead
