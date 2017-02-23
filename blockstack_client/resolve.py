@@ -28,6 +28,7 @@ import urllib
 import urllib2
 import base64
 import posixpath
+import errno
 
 import data
 from keys import get_pubkey_hex
@@ -66,7 +67,7 @@ def get_datastore_creds( master_data_privkey=None, app_domain=None, app_user_pri
     if app_user_privkey is None:
         app_user_privkey = data.datastore_get_privkey( master_data_privkey, app_domain, config_path=CONFIG_PATH )
         if app_user_privkey is None:
-            return {'error': 'Failed to load app user private key'}
+            return {'error': 'Failed to load app user private key', 'errno': errno.EPERM}
 
     app_user_pubkey = get_pubkey_hex(app_user_privkey)
     datastore_id = data.datastore_get_id(app_user_pubkey)
@@ -116,7 +117,7 @@ def get_datastore_info( datastore_id=None, app_user_privkey=None, master_data_pr
     if datastore_id is not None:
         res['datastore_id'] = datastore_id
     else:
-        res['datastore_id'] = datastore_get_id(res['datastore']['pubkey'])
+        res['datastore_id'] = data.datastore_get_id(res['datastore']['pubkey'])
 
     return res
 
@@ -205,7 +206,7 @@ def blockstack_mutable_data_url_parse(url):
             version = version.strip('#/')
             version = int(version)
 
-        return urllib.unquote(blockchain_id), data_id, version, None, None
+        return urllib.unquote(blockchain_id), data_id, version, None
 
     # datastore?
     m = re.match(datastore_url_data_regex, url)
@@ -319,6 +320,7 @@ def blockstack_data_url_parse(url):
                 fields['datastore_id'] = blockchain_or_datastore_id
 
             else:
+                blockchain_id = blockchain_or_datastore_id
                 fields['blockchain_id'] = blockchain_or_datastore_id
 
             log.debug("Mutable data URL: {}".format(url))
@@ -368,6 +370,7 @@ def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH, wallet_keys=N
     fields = url_info['fields']
 
     if url_type == 'mutable':
+        datastore_id = fields.get('datastore_id')
         version = fields.get('version')
         app_domain = fields.get('app_domain')
         mutable = True
@@ -379,16 +382,12 @@ def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH, wallet_keys=N
     if mutable:
         if app_domain is not None:
             # get from datastore
-            if wallet_keys is None:
-                raise PasswordRequiredException("need wallet keys to access data stores")
-
-            data_privkey = wallet_keys['data_privkey']
-            datastore_info = get_datastore_info( master_data_privkey=str(data_privkey), app_domain=str(app_domain), config_path=config_path, proxy=proxy)
+            datastore_info = get_datastore_info( datastore_id=datastore_id, config_path=config_path, proxy=proxy)
             if 'error' in datastore_info:
                 return datastore_info
 
             datastore = datastore_info['datastore']
-            if datastore_get_id(datastore['pubkey']) != datastore_id:
+            if data.datastore_get_id(datastore['pubkey']) != datastore_id:
                 return {'error': 'Invalid datastore ID'}
 
             # file or directory?
