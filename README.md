@@ -20,16 +20,19 @@ For more info on Blockstack see: http://github.com/blockstack/blockstack
 
 ## Quick Start
 
-The fastest way to get started with Blockstack is with pip:
+The fastest way to get started with Blockstack is with pip.
+
+For Debian & Ubuntu:
 
 ```
-sudo pip install blockstack
+$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools
+$ sudo pip install blockstack-server
 ```
 
 After installation, you can start Blockstack Core and index the blockchain:
 
 ```bash
-$ blockstack-server start
+$ blockstack-server --debug start --foreground
 ```
 
 Next, visit the [basic usage docs](https://blockstack.org/docs/basic-usage) and [extended usage docs](https://blockstack.org/docs/basic-usage) to learn how to register names of your own, as well as transfer them and associate data with them.
@@ -65,18 +68,13 @@ If you have high-level questions about Blockstack, try [searching our forum](htt
 We welcome any small or big contributions! Please take a moment to
 [review the guidelines for contributing to open source](https://guides.github.com/activities/contributing-to-open-source/) in order to make the contribution process easy and effective for everyone involved.
 
-**Developers**:  You can try out Blockstack Core in a local sandbox using our [integration test framework](https://github.com/blockstack/blockstack-integration-tests/tree/rc-0.14.0).
+**Developers**:  You can try out Blockstack Core in a local sandbox using our [integration test framework](https://github.com/blockstack/blockstack-integration-tests/tree/rc-0.14.1b).
 
-#### Main Authors
-
-- **[Jude Nelson](http://onename.com/judecn)** ([@jcnelson](https://github.com/jcnelson))
-- **[Muneeb Ali](http://onename.com/muneeb)** ([@muneeb-ali](https://github.com/muneeb-ali))
-- **[Ryan Shea](http://onename.com/ryan)** ([@ryaneshea](https://github.com/shea256))
-
-#### All Code Contributors
-
-- [Contributor Graph](../../graphs/contributors)
-- [Code Overview](https://github.com/blockstack/blockstack/blob/master/overview.md)
+You can install the latest release candidate by:
+```bash
+$ git clone https://github.com/blockstack/blockstack-core.git
+$ blockstack-core/images/scripts/debian-release-candidate.sh
+```
 
 ## Community
 
