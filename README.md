@@ -68,7 +68,7 @@ If you have high-level questions about Blockstack, try [searching our forum](htt
 We welcome any small or big contributions! Please take a moment to
 [review the guidelines for contributing to open source](https://guides.github.com/activities/contributing-to-open-source/) in order to make the contribution process easy and effective for everyone involved.
 
-**Developers**:  You can try out Blockstack Core in a local sandbox using our [integration test framework](https://github.com/blockstack/blockstack-integration-tests/tree/rc-0.14.1b).
+**Developers**:  You can try out Blockstack Core in a local sandbox using our [integration test framework](https://github.com/blockstack/blockstack-integration-tests).
 
 You can install the latest release candidate by:
 ```bash
