@@ -19,7 +19,7 @@ with data that follows structure of [blockstack IDs](https://github.com/blocksta
 - **Step 1:** First, make sure you have [virtualenv installed](http://docs.python-guide.org/en/latest/dev/virtualenvs/). 
 Then, setup the search subsystem:
 ``` 
-$ mkvirtualenv search
+$ virtualenv search
 $ git clone https://github.com/blockstack/blockstack-core.git
 $ cd blockstack-core/api/api/search/
 $ git checkout search
