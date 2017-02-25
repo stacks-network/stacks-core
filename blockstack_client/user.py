@@ -247,8 +247,9 @@ def put_immutable_data_zonefile(user_zonefile, data_id, data_hash, data_url=None
     assert scripts.is_valid_hash(data_hash)
 
     k = get_immutable_data_hashes(user_zonefile, data_id)
-    if k is not None:
+    if k is not None and len(k) > 0:
         # exists or name collision
+        log.debug("collision on {} ({})".format(data_id, k))
         return k[0] == data_hash
 
     txtrec = '#{}'.format(data_hash)
