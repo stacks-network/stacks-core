@@ -297,7 +297,7 @@ def get_immutable(name, data_hash, data_id=None, config_path=CONFIG_PATH, proxy=
             # one hash), but that doesn't preclude the user from doing
             # this with other tools.
             if data_hash is not None and data_hash not in h:
-                return {'error': 'Data ID/hash mismatch'}
+                return {'error': 'Data ID/hash mismatch: {} not in {} (possibly due to invalid zonefile)'.format(data_hash, h)}
             else:
                 msg = 'Multiple matches for "{}": {}'
                 return {'error': msg.format(data_id, ','.join(h))}
@@ -305,7 +305,7 @@ def get_immutable(name, data_hash, data_id=None, config_path=CONFIG_PATH, proxy=
         h = hs[0]
         if data_hash is not None:
             if h != data_hash:
-                return {'error': 'Data ID/hash mismatch'}
+                return {'error': 'Data ID/hash mismatch: {} != {}'.format(data_hash, h)}
         else:
             data_hash = h
 
@@ -705,7 +705,7 @@ def put_immutable(blockchain_id, data_id, data_json, data_url=None, txid=None, p
 
     # insert into user zonefile, overwriting if need be
     if user_db.has_immutable_data_id(user_zonefile, data_id):
-        log.debug('WARN: overwriting old "{}"'.format(data_id))
+        log.debug('WARN: overwriting old "{}" with {}'.format(data_id, data_hash))
         old_hashes = user_db.get_immutable_data_hashes(user_zonefile, data_id)
 
         # NOTE: can be a list, if the name matches multiple hashes.
@@ -958,6 +958,7 @@ def delete_immutable(blockchain_id, data_key, data_id=None, proxy=None, txid=Non
             msg = 'Multiple hashes for "{}": {}'
             return {'error': msg.format(data_id, ','.join(data_key))}
 
+        data_key = data_keys[0]
         if data_key is None:
             return {'error': 'No hash for "{}"'.format(data_id)}
 
@@ -1011,8 +1012,8 @@ def delete_immutable(blockchain_id, data_key, data_id=None, proxy=None, txid=Non
     if json_is_error(data_privkey):
         return {'error': data_privkey['error']}
     else:
-        data_privkey = data_privkey['privatekey']
         assert data_privkey is not None
+        assert type(data_privkey) in [str, unicode]
 
     rc = storage.delete_immutable_data(data_key, txid, data_privkey)
     if not rc:
