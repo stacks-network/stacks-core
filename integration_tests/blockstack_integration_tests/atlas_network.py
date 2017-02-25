@@ -809,7 +809,7 @@ def atlas_print_network_state( network_des ):
                 except socket.timeout:
                     log.error("Failed to connect to peer localhost:%s" % peer_infos[i]['port'])
                     traceback.print_exc()
-                    os.abort()
+                    # os.abort()
                 except:
                     log.error("Skipping peer localhost:%s" % peer_infos[i]['port'])
                     break
