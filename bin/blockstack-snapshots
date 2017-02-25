@@ -22,6 +22,7 @@
 """
 import os
 import sys
+import atexit
 
 if sys.version_info.major != 2:
     raise Exception("Python 3 is not supported")
@@ -40,6 +41,7 @@ parent_dir = os.path.abspath(current_dir + "/../")
 import time
 import thread
 import errno
+import signal
 import socket
 import posixpath
 import urllib
@@ -583,14 +585,17 @@ def server_wait(snapshots_conf):
     delay = 1.0
     up = False
     for i in xrange(0, 5):
-        url = 'http://localhost:{}/v1/ping'.format(snapshots_conf['port'])
-        req = requests.get(url)
-        if req.http_status == 200:
+        try:
+            url = 'http://localhost:{}/v1/ping'.format(snapshots_conf['port'])
+            req = requests.get(url)
+            assert req.status_code == 200
+            
             up = True
             break
 
-        else:
-            log.debug("Failed to ping {}.  Try again in {}".format(url, delay))
+        except Exception, e:
+            log.exception(e)
+            log.debug("Failed to ping {}. Try again in {}".format(url, delay))
             time.sleep(delay)
             delay = delay * 2 + random.random() * delay
 
@@ -654,10 +659,26 @@ def remove_pid_file(config_path=SNAPSHOTS_CONFIG_PATH):
     return True
 
 
+def atexit_cleanup(config_path=SNAPSHOTS_CONFIG_PATH):
+    """
+    Clean up at exit
+    """
+    log.debug("Atexit called for {}".format(os.getpid()))
+    remove_pid_file(config_path)
+
+
+def signal_exit(ignored_1, ignored_2):
+    """
+    Signal handler cleanup
+    """
+    sys.exit(0)
+
+
 if __name__ == '__main__':
 
     virtualchain.setup_virtualchain( virtualchain_hooks )
     working_dir = virtualchain.get_working_dir( impl=virtualchain_hooks )
+    config_path = SNAPSHOTS_CONFIG_PATH
 
     argparser = argparse.ArgumentParser(description="blockstack-snapshots version {}".format(blockstack.VERSION))
     subparsers = argparser.add_subparsers(
@@ -671,6 +692,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--debug', action='store_true',
         help='activate debug output')
+
+    parser.add_argument(
+        '--config_file', action='store',
+        help='path to the config file (Default is {})'.format(config_path))
 
     parser.add_argument(
         '--snapshots', action='store',
@@ -702,6 +727,10 @@ if __name__ == '__main__':
         help='stop the snapshot daemon')
 
     parser.add_argument(
+        '--config_file', action='store',
+        help='path to the config file (Default is {})'.format(config_path))
+
+    parser.add_argument(
         '--debug', action='store_true',
         help='activate debug output')
 
@@ -709,6 +738,10 @@ if __name__ == '__main__':
     parser = subparsers.add_parser(
         'snapshot',
         help='make a snapshot for each backup')
+
+    parser.add_argument(
+        '--config_file', action='store',
+        help='path to the config file (Default is {})'.format(config_path))
 
     parser.add_argument(
         '--snapshots', action='store',
@@ -734,7 +767,9 @@ if __name__ == '__main__':
 
         os.execv(sys.argv[0], new_argv)
 
-    conf = read_config()
+    config_path = getattr(args, 'config_path', config_path)
+
+    conf = read_config(config_path=config_path)
     conf = merge_config_args(conf, args)
 
     snapshots_conf = conf['blockstack-snapshots']
@@ -793,7 +828,7 @@ if __name__ == '__main__':
         
         if not args.foreground:
             # is another daemon running?
-            existing_pid = get_pid_from_file()
+            existing_pid = get_pid_from_file(config_path=config_path)
             if existing_pid is not None:
                 # is it actually running?
                 try:
@@ -804,7 +839,7 @@ if __name__ == '__main__':
                 except OSError as oe:
                     if oe.errno == errno.ESRCH:
                         print >> sys.stderr, "Removing stale PID file"
-                        remove_pid_file()
+                        remove_pid_file(config_path=config_path)
 
                     else:
                         log.exception(oe)
@@ -816,16 +851,28 @@ if __name__ == '__main__':
 
             # daemonize
             res = blockstack_client.daemonize( log_file, child_wait=lambda: server_wait(snapshots_conf) )
-            if not res:
+            if res < 0:
                 print >> sys.stderr, "Failed to start server"
                 sys.exit(1)
 
+            if res > 0:
+                log.debug("Parent {} forked intermediate child {}".format(os.getpid(), res))
+                sys.exit(0)
+
+            # daemon child
             # put PID file 
-            res = put_pid_file()
+            res = put_pid_file(config_path=config_path)
             if not res:
                 print >> sys.stderr, "Failed to write PID file"
                 sys.exit(1)
 
+
+        atexit.register( atexit_cleanup, config_path )
+        signal.signal(signal.SIGINT, signal_exit )
+        signal.signal(signal.SIGQUIT, signal_exit )
+        signal.signal(signal.SIGTERM, signal_exit )
+
+        # daemon child continues here
         # start snapshotter thread
         thr = thread.start_new_thread( snapshotter_thread_main, (working_dir, snapshots_path, private_key, is_running) )
 
@@ -843,15 +890,16 @@ if __name__ == '__main__':
 
     elif args.action == 'stop':
         # stop running snapshot server
-        existing_pid = get_pid_from_file()
+        existing_pid = get_pid_from_file(config_path=config_path)
         if existing_pid is not None:
             # is it running?
             try:
+                log.debug("Send SIGTERM to {}".format(existing_pid))
                 os.kill(existing_pid, signal.SIGTERM)
             except OSError as oe:
                 if oe.errno == errno.ESRCH:
                     print >> sys.stderr, "No such process"
-                    remove_pid_file()
+                    remove_pid_file(config_path=config_path)
                     sys.exit(0)
 
                 else:
