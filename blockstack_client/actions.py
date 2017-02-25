@@ -125,7 +125,7 @@ from .wallet import *
 from .keys import *
 from .proxy import *
 from .client import analytics_event 
-from .scripts import UTXOException, is_name_valid
+from .scripts import UTXOException, is_name_valid, is_valid_hash
 from .user import add_user_zonefile_url, remove_user_zonefile_url, user_zonefile_urls, \
         make_empty_user_profile
 
@@ -1338,7 +1338,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
     try:
         # NOTE: already did safety checks
-        resp = rpc.backend_update(fqu, user_data_txt, None, user_data_hash, tx_fee )
+        resp = rpc.backend_update(fqu, user_data_txt, None, None, tx_fee )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1352,6 +1352,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
     analytics_event('Update name', {})
 
+    resp['zonefile_hash'] = user_data_hash
     return resp
 
 
@@ -1675,12 +1676,13 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
         return {'error': res['error']}
 
     zonefile_txt = blockstack_zones.make_zone_file(user_zonefile)
+    zonefile_hash = storage.get_zonefile_data_hash(zonefile_txt) 
 
     rpc = local_api_connect(config_dir=config_dir)
     assert rpc
 
     try:
-        resp = rpc.backend_update(fqu, zonefile_txt, user_profile, None, None, tx_fee)
+        resp = rpc.backend_update(fqu, zonefile_txt, user_profile, None, tx_fee)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1693,7 +1695,8 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
         return {'error': resp['message']}
 
     analytics_event('Migrate name', {})
-
+    
+    resp['zonefile_hash'] = zonefile_hash
     return resp
 
 
@@ -2677,7 +2680,7 @@ def cli_delete_immutable(args, config_path=CONFIG_PATH, proxy=None, password=Non
     command: delete_immutable advanced
     help: Delete an immutable datum from a zonefile.
     arg: name (str) 'The name that owns the data'
-    arg: hash (str) 'The SHA256 of the data to remove'
+    arg: data_id (str) 'The SHA256 of the data to remove, or the data ID'
     """
 
     password = get_default_password(password)
@@ -2695,10 +2698,17 @@ def cli_delete_immutable(args, config_path=CONFIG_PATH, proxy=None, password=Non
     if proxy is None:
         proxy = get_default_proxy()
 
-    result = delete_immutable(
-        str(args.name), str(args.hash),
-        proxy=proxy, wallet_keys=wallet_keys
-    )
+    result = None
+    if is_valid_hash(str(args.data_id)):
+        result = delete_immutable(
+            str(args.name), str(args.data_id),
+            proxy=proxy, wallet_keys=wallet_keys
+        )
+    else:
+        result = delete_immutable(
+            str(args.name), None, data_id=str(args.data_id),
+            proxy=proxy, wallet_keys=wallet_keys
+        )
 
     return result
 
@@ -2939,6 +2949,7 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None, tx_fee=N
 
     analytics_event('Set zonefile hash', {})
 
+    result['zonefile_hash'] = zonefile_hash
     return result
 
 
@@ -3187,7 +3198,7 @@ def cli_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, interactive=Tru
         log.error('Failed to replicate zonefile: {}'.format(res['error']))
         return res
 
-    return {'status': True, 'value_hash': zonefile_hash}
+    return {'status': True, 'zonefile_hash': zonefile_hash}
 
 
 def cli_convert_legacy_profile(args, config_path=CONFIG_PATH):
