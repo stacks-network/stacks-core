@@ -42,6 +42,7 @@ import urllib
 import urllib2
 import re
 import base58
+import base64
 import jsonschema
 import jsontokens
 import subprocess
@@ -69,6 +70,7 @@ import resolve
 import zonefile
 import wallet
 import user as user_db
+from utils import daemonize 
 
 log = blockstack_config.get_logger()
 
@@ -922,7 +924,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 log.error("Absurd tx fee {}".format(tx_fee))
                 return self._reply_json({'error': 'Absurd transaction fee'}, status_code=401)
 
-        if zonefile_hash is None and zonefile_str is None and zonefile_b64 is None:
+        if zonefile_hash is None and zonefile_str is None and zonefile_str_b64 is None:
             log.error("No zonefile or zonefile hash received")
             self._reply_json({'error': 'Invalid request'}, status_code=401)
             return
@@ -958,6 +960,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         resp = {
             'success': True,
+            'zonefile_hash': res['zonefile_hash'],
             'transaction_hash': res['transaction_hash'],
             'message': 'Name queued for update.  The process takes ~1 hour.  You can check the status with `blockstack info`.',
         }
@@ -3119,13 +3122,13 @@ class BlockstackAPIEndpointClient(object):
             if zonefile_txt is not None:
                 try:
                     json.dumps(zonefile_txt)
-                    data['zonefile_txt'] = zonefile_txt
+                    data['zonefile'] = zonefile_txt
                 except:
                     # non-standard
-                    data['zonefile_txt_b64'] = base64.b64encode(zonefile_txt)
+                    data['zonefile_b64'] = base64.b64encode(zonefile_txt)
 
             if zonefile_hash is not None:
-                data['zoenfile_hash'] = zonefile_hash
+                data['zonefile_hash'] = zonefile_hash
 
             if tx_fee is not None:
                 data['tx_fee'] = tx_fee
@@ -3514,44 +3517,11 @@ def local_api_start( port=None, config_dir=blockstack_constants.CONFIG_DIR, fore
         log.debug('Running in the background')
 
         logpath = local_api_logfile_path(config_dir=config_dir)
-        logfile = open(logpath, 'a+')
-        child_pid = os.fork()
 
-        if child_pid == 0:
-            # child!
-            sys.stdin.close()
-            os.dup2(logfile.fileno(), sys.stdout.fileno())
-            os.dup2(logfile.fileno(), sys.stderr.fileno())
-            os.setsid()
-
-            daemon_pid = os.fork()
-            if daemon_pid == 0:
-                # daemon!
-                os.chdir('/')
-
-            elif daemon_pid > 0:
-                # parent (intermediate child)
-                # wait for child to fully initialize...
-                res = local_api_start_wait( config_path=config_path )
-                if res:
-                    sys.exit(0)
-                else:
-                    sys.exit(1)
-
-            else:
-                # error
-                sys.exit(1)
-
-        elif child_pid > 0:
-            # grand-parent (caller)
-            # wait for intermediate child
-            pid, status = os.waitpid(child_pid, 0)
-            if os.WEXITSTATUS(status) == 0:
-                log.debug("API server started")
-                return True
-            else:
-                log.error("API server exit status {}".format(status))
-                return False
+        res = daemonize(logpath, child_wait=lambda: local_api_start_wait(config_path=config_path))
+        if not res:
+            log.error("API server failed to start")
+            return False
 
     # daemon now... 
     atexit.register(local_api_atexit)

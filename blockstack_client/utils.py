@@ -93,3 +93,54 @@ def btc_to_satoshis(btc):
 
     return int(btc / 0.00000001)
 
+
+def daemonize( logpath, child_wait=None ):
+    """
+    Double-fork and make a daemon.
+    Have the intermediate child call child_wait()
+    to block its exit until the child is "ready"
+    (i.e. child_wait() returns)
+
+    Return True on success
+    Return False on error
+    """
+    logfile = open(logpath, 'a+')
+
+    child_pid = os.fork()
+
+    if child_pid == 0:
+        # child!
+        sys.stdin.close()
+        os.dup2(logfile.fileno(), sys.stdout.fileno())
+        os.dup2(logfile.fileno(), sys.stderr.fileno())
+        os.setsid()
+
+        daemon_pid = os.fork()
+        if daemon_pid == 0:
+            # daemon!
+            os.chdir('/')
+
+        elif daemon_pid > 0:
+            # parent (intermediate child)
+            # wait for child to fully initialize...
+            res = child_wait()
+            if res:
+                sys.exit(0)
+            else:
+                sys.exit(1)
+
+        else:
+            # error
+            sys.exit(1)
+
+    elif child_pid > 0:
+        # grand-parent (caller)
+        # wait for intermediate child
+        pid, status = os.waitpid(child_pid, 0)
+        if os.WEXITSTATUS(status) == 0:
+            return True
+        else:
+            log.error("Child exit status {}".format(status))
+            return False
+
+    return True
