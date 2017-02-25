@@ -204,7 +204,7 @@ def fast_sync_snapshot( export_path, private_key, block_number ):
             log.error("Failed to stat {}".format(path))
             return False
 
-        log.debug("Back up {} ({} bytes)".format(path, sb.st_size))
+        log.debug("Copy {} ({} bytes)".format(path, sb.st_size))
 
 
     def _copy_paths(src_paths, dest_dir):
@@ -426,7 +426,7 @@ def fast_sync_inspect_snapshot( snapshot_path ):
             return {'error': 'Failed to inspect snapshot'}
 
         # get the hash of the file 
-        hash_hex = blockstack_client.storage.get_file_hash(f, hashlib.sha256, fd_len=ptr)
+        hash_hex = blockstack_client.storage.get_file_hash(f, hashlib.sha256, fd_len=info['payload_size'])
         info['hash'] = hash_hex
 
     return info
@@ -535,13 +535,20 @@ def blockstack_backup_restore( working_dir, block_number ):
     """
     Restore the database from a backup in the backups/ directory.
     If block_number is None, then use the latest backup.
+
+    NOT THREAD SAFE
+
     Return True on success
     Return False on failure
     """
 
     # TODO: this is pretty shady...
-    old_working_dir = os.environ.get('VIRTUALCHAIN_WORKING_DIR', None)
-    os.environ['VIRTUALCHAIN_WORKING_DIR'] = working_dir
+    def _set_working_dir(wd):
+        old_working_dir = os.environ.get('VIRTUALCHAIN_WORKING_DIR', None)
+        os.environ['VIRTUALCHAIN_WORKING_DIR'] = wd
+        return old_working_dir
+
+    old_working_dir = _set_working_dir(working_dir)
 
     if block_number is None:
         all_blocks = BlockstackDB.get_backup_blocks( virtualchain_hooks )
@@ -549,9 +556,7 @@ def blockstack_backup_restore( working_dir, block_number ):
             log.error("No backups available")
     
             # TODO: this is pretty shady...
-            if old_working_dir:
-                os.environ['VIRTUALCHAIN_WORKING_DIR'] = old_working_dir
-
+            _set_working_dir(old_working_dir)
             return False
 
         block_number = max(all_blocks)
@@ -566,9 +571,7 @@ def blockstack_backup_restore( working_dir, block_number ):
     if not found:
 
         # TODO: this is pretty shady...
-        if old_working_dir:
-            os.environ['VIRTUALCHAIN_WORKING_DIR'] = old_working_dir
-
+        _set_working_dir(old_working_dir)
         return False 
 
     rc = BlockstackDB.backup_restore( block_number, virtualchain_hooks )
@@ -576,16 +579,13 @@ def blockstack_backup_restore( working_dir, block_number ):
         log.error("Failed to restore backup")
 
         # TODO: this is pretty shady...
-        if old_working_dir:
-            os.environ['VIRTUALCHAIN_WORKING_DIR'] = old_working_dir
-            
+        _set_working_dir(old_working_dir)
         return False
 
     log.debug("Restored backup from {}".format(block_number))
 
     # TODO: this is pretty shady...
-    if old_working_dir:
-        os.environ['VIRTUALCHAIN_WORKING_DIR'] = old_working_dir
+    _set_working_dir(old_working_dir)
 
     return True
 
