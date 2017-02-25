@@ -74,11 +74,11 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr, safety_checks=False )
     testlib.next_block( **kw )
 
     # should fail
-    testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr, safety_checks=False )
     testlib.next_block( **kw )
 
     failed_first_block = testlib.get_current_block( **kw )
@@ -100,7 +100,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     # should work
-    testlib.blockstack_name_preorder( "foo.test", wallets[3].privkey, wallets[4].addr )
+    testlib.blockstack_name_preorder( "foo.test", wallets[3].privkey, wallets[4].addr, safety_checks=False )
     testlib.next_block( **kw )
 
     testlib.blockstack_name_register( "foo.test", wallets[3].privkey, wallets[4].addr )

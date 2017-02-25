@@ -74,7 +74,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # preorder, register, update, expire (multiple times)
-    for i in xrange(2, 11):
+    for i in xrange(2, 5):
         resp = testlib.blockstack_name_preorder( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr, consensus_hash=consensus_hash )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
@@ -119,7 +119,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
         testlib.next_block( **kw )
 
-        if i == 10:
+        if i == 4:
             break
 
         testlib.next_block( **kw )
@@ -162,12 +162,12 @@ def check( state_engine ):
         return False 
 
     # updated 
-    if name_rec['value_hash'] != '0a' * 20:
+    if name_rec['value_hash'] != '04' * 20:
         print "invalid value hash"
         return False 
 
     # transferred
-    if name_rec['address'] != wallets[10].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[10].addr):
+    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[4].addr):
         print json.dumps(name_rec, indent=4 )
         return False
 

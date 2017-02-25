@@ -73,20 +73,20 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # preorder, register, update, expire (multiple times)
-    for i in xrange(2, 11):
-        resp = testlib.blockstack_name_preorder( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr )
+    for i in xrange(2, 5):
+        resp = testlib.blockstack_name_preorder( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
         testlib.next_block( **kw )
    
-        resp = testlib.blockstack_name_register( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr )
+        resp = testlib.blockstack_name_register( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
         testlib.next_block( **kw )
 
-        resp = testlib.blockstack_name_update( "foo.test", ("%02x" % i) * 20, wallets[(i+1)%11].privkey )
+        resp = testlib.blockstack_name_update( "foo.test", ("%02x" % i) * 20, wallets[(i+1)%11].privkey, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
@@ -95,7 +95,7 @@ def scenario( wallets, **kw ):
         update_blocks.append( testlib.get_current_block( **kw )) 
         update_hashes.append( ("%02x" % i) * 20 )
 
-        resp = testlib.blockstack_name_transfer( "foo.test", wallets[i].addr, True, wallets[(i+1)%11].privkey )
+        resp = testlib.blockstack_name_transfer( "foo.test", wallets[i].addr, True, wallets[(i+1)%11].privkey, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
@@ -104,7 +104,7 @@ def scenario( wallets, **kw ):
         transfer_blocks.append( testlib.get_current_block( **kw ) )
         transfer_recipients.append( wallets[i].addr )
 
-        resp = testlib.blockstack_name_renew( "foo.test", wallets[i].privkey )
+        resp = testlib.blockstack_name_renew( "foo.test", wallets[i].privkey, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
@@ -116,7 +116,7 @@ def scenario( wallets, **kw ):
         for j in xrange(0, 2 * NAMESPACE_LIFETIME_MULTIPLIER - 1 ):
             testlib.next_block( **kw )
 
-        if i == 10:
+        if i == 4:
             break
 
         testlib.next_block( **kw )
@@ -151,12 +151,12 @@ def check( state_engine ):
         return False 
 
     # updated 
-    if name_rec['value_hash'] != '0a' * 20:
+    if name_rec['value_hash'] != '04' * 20:
         print "invalid value hash"
         return False 
 
     # transferred
-    if name_rec['address'] != wallets[10].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[10].addr):
+    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[4].addr):
         print json.dumps(name_rec, indent=4 )
         return False
 

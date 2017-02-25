@@ -96,9 +96,6 @@ def scenario( wallets, **kw ):
     
     testlib.next_block( **kw )
 
-    data_pk = wallets[-1].privkey
-    data_pub = wallets[-1].pubkey_hex
-    
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
  
     # make a session 
@@ -110,15 +107,17 @@ def scenario( wallets, **kw ):
 
     ses = ses['ses']
 
-    # get the data store name
-    res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores', ses, name='foo.test', appname='stores')
-    if 'error' in res:
-        print 'failed to list stores for foo_user_id'
+    # make a datastore 
+    res = testlib.blockstack_REST_call('POST', '/v1/stores', ses )
+    if 'error' in res or res['http_status'] != 200:
+        print 'failed to create datastore'
         print json.dumps(res, indent=4, sort_keys=True)
         return False
 
-    if len(res['response']) != 1:
-        print 'wrong number of datastores'
+    # get the data store id
+    res = testlib.blockstack_REST_call('GET', '/v1/stores/register.app', ses)
+    if 'error' in res or res['http_status'] != 200:
+        print 'failed to get store'
         print json.dumps(res, indent=4, sort_keys=True)
         return False
 
@@ -127,13 +126,28 @@ def scenario( wallets, **kw ):
         print json.dumps(res, indent=4, sort_keys=True)
         return False
 
-    datastore_info = res['response'][0]
-    datastore_name = datastore_info['datastore_name']
+    datastore_info = res['response']
+    datastore_name = datastore_info['datastore_id']
+
+    # get the data store name
+    res = testlib.blockstack_REST_call('GET', '/v1/stores/register.app', ses)
+    if 'error' in res or res['http_status'] != 200:
+        print 'failed to get datastore'
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False
+
+    if 'error' in res['response']:
+        print 'failed to get datastore'
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False
+
+    datastore_info = res['response']
+    datastore_name = datastore_info['datastore_id']
 
     # make directories
     for dpath in ['/dir1', '/dir2', '/dir1/dir3', '/dir1/dir3/dir4']:
         print 'mkdir {}'.format(dpath)
-        res = testlib.blockstack_REST_call('POST', '/v1/users/foo_user_id/stores/{}/directory'.format(datastore_name), ses, path=dpath)
+        res = testlib.blockstack_REST_call('POST', '/v1/stores/{}/directories'.format(datastore_name), ses, path=dpath)
         if 'error' in res or res['http_status'] != 200:
             print 'failed to mkdir {}: {}'.format(dpath, res['http_status'])
             return False
@@ -141,7 +155,7 @@ def scenario( wallets, **kw ):
     # stat directories 
     for dpath in ['/dir1', '/dir2', '/dir1/dir3', '/dir1/dir3/dir4']:
         print 'stat {}'.format(dpath)
-        res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores/{}/inode'.format(datastore_name), ses, path=dpath)
+        res = testlib.blockstack_REST_call('GET', '/v1/stores/{}/inodes'.format(datastore_name), ses, path=dpath)
         if 'error' in res or res['http_status'] != 200:
             print 'failed to stat {}: {}'.format(dpath, res['http_status'])
             return False
@@ -154,7 +168,7 @@ def scenario( wallets, **kw ):
     # list directories 
     for dpath, expected in [('/', ['dir1', 'dir2']), ('/dir1', ['dir3']), ('/dir1/dir3', ['dir4']), ('/dir1/dir3/dir4', [])]:
         print 'listdir {}'.format(dpath)
-        res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores/{}/directory'.format(datastore_name), ses, path=dpath)
+        res = testlib.blockstack_REST_call('GET', '/v1/stores/{}/directories'.format(datastore_name), ses, path=dpath)
         if 'error' in res or res['http_status'] != 200:
             print 'failed to listdir {}: {}'.format(dpath, res['http_status'])
             return False
@@ -174,7 +188,7 @@ def scenario( wallets, **kw ):
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'putfile {}'.format(dpath)
         data = 'hello {}'.format(os.path.basename(dpath))
-        res = testlib.blockstack_REST_call('POST', '/v1/users/foo_user_id/stores/{}/file'.format(datastore_name), ses, raw_data=data, path=dpath)
+        res = testlib.blockstack_REST_call('POST', '/v1/stores/{}/files'.format(datastore_name), ses, raw_data=data, path=dpath)
         if 'error' in res or res['http_status'] != 200:
             print 'failed to putfile {}: {}'.format(dpath, res['http_status'])
             return False
@@ -182,7 +196,7 @@ def scenario( wallets, **kw ):
     # stat files
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'stat {}'.format(dpath)
-        res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores/{}/inode'.format(datastore_name), ses, path=dpath)
+        res = testlib.blockstack_REST_call('GET', '/v1/stores/{}/inodes'.format(datastore_name), ses, path=dpath)
         if 'error' in res or res['http_status'] != 200:
             print 'failed to stat {}: {}'.format(dpath, res['http_status'])
             return False
@@ -195,7 +209,7 @@ def scenario( wallets, **kw ):
     # list directories again 
     for dpath, expected in [('/', ['dir1', 'dir2', 'file1', 'file2']), ('/dir1', ['dir3', 'file3']), ('/dir1/dir3', ['dir4', 'file4']), ('/dir1/dir3/dir4', ['file5'])]:
         print 'listdir {}'.format(dpath)
-        res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores/{}/directory'.format(datastore_name), ses, path=dpath)
+        res = testlib.blockstack_REST_call('GET', '/v1/stores/{}/directories'.format(datastore_name), ses, path=dpath)
         if 'error' in res or res['http_status'] != 200:
             print 'failed to listdir {}: {}'.format(dpath, res['http_status'])
             return False
@@ -213,7 +227,7 @@ def scenario( wallets, **kw ):
     # get files
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'getfile {}'.format(dpath)
-        res = testlib.blockstack_REST_call('GET', '/v1/users/foo_user_id/stores/{}/file'.format(datastore_name), ses, path=dpath)
+        res = testlib.blockstack_REST_call('GET', '/v1/stores/{}/files'.format(datastore_name), ses, path=dpath)
         if 'error' in res or res['http_status'] != 200:
             print 'failed to getfile {}: {}'.format(dpath, res['http_status'])
             return False
@@ -223,15 +237,17 @@ def scenario( wallets, **kw ):
             print 'failed to read {}: got "{}"'.format(dpath, filedata)
             return False
 
-    # delete account. Should delete everything
-    res = testlib.blockstack_REST_call('DELETE', '/v1/users/foo_user_id', ses, name='foo.test', appname='stores')
-    if 'error' in res:
-        print 'failed to delete account'
+    # delete datastore
+    res = testlib.blockstack_REST_call("DELETE", "/v1/stores", ses)
+    if res['http_status'] != 200:
+        print 'failed to delete datastore'
         print json.dumps(res)
         return False
 
-    if res['http_status'] != 200:
-        print 'failed to delete account: {}'.format(res['http_status'])
+    # nothing should be here
+    res = testlib.blockstack_REST_call('GET', '/v1/stores/{}/directories'.format(datastore_name), ses, path='/')
+    if res['http_status'] != 404:
+        print 'got HTTP {} on getting deleted store'.format(res['http_status'])
         print json.dumps(res)
         return False
 

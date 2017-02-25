@@ -43,7 +43,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # can't import once ready
-    resp = testlib.blockstack_name_import( "foo.test", wallets[1].addr, "11" * 20, wallets[0].privkey )
+    resp = testlib.blockstack_name_import( "foo.test", wallets[1].addr, "11" * 20, wallets[0].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 

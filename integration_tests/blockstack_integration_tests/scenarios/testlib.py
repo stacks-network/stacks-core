@@ -856,21 +856,6 @@ def blockstack_cli_setup_wallet( password, config_path=None):
     return cli_setup_wallet(args, config_path=config_path, password=password )
 
 
-def blockstack_cli_setup_storage( name, password=None, wallet_keys=None, config_path=CONFIG_PATH):
-    """
-    Upgrade storage
-    """
-    test_proxy = make_proxy(password=password, config_path=config_path)
-    blockstack_client.set_default_proxy(test_proxy)
-    config_path = test_proxy.config_path if config_path is None else config_path
-
-    args = CLIArgs()
-    
-    args.name = name
-    
-    return cli_setup_storage(args, config_path=config_path, password=password, wallet_keys=wallet_keys, interactive=False)
-
-
 def blockstack_cli_list_accounts( name, config_path=None):
     """
     list a name's accounts
@@ -1094,8 +1079,21 @@ def blockstack_cli_put_immutable( name, data_id, data_json_str, password=None, c
 
     assert 'url' in res, "Missing URL"
     assert 'hash' in res, "Missing hash"
-
+    
     url = res['url']
+    up = urlparse.urlparse(url)
+
+    # process overwrite
+    for did in data_ids.keys():
+        if data_ids[did] == url:
+            del data_ids[did]
+
+    for u in data_urls.keys():
+        p = urlparse.urlparse(u)
+        if p.netloc == up.netloc:
+            # overwriting data 
+            del data_urls[u]
+
     data_urls[url] = data_json_str
     data_ids[data_id] = url
     data_ids[res['hash']] = url
@@ -1209,7 +1207,7 @@ def blockstack_cli_delete_immutable( name, hash_str, config_path=CONFIG_PATH, pa
     args = CLIArgs()
 
     args.name = name
-    args.hash = hash_str
+    args.data_id = hash_str
     res = cli_delete_immutable( args, config_path=config_path, password=password )
     if 'error' in res:
         return res
@@ -1492,7 +1490,7 @@ def blockstack_cli_convert_legacy_profile( path, config_path=CONFIG_PATH):
     return cli_convert_legacy_profile( args, config_path=config_path )
 
 
-def blockstack_cli_app_publish( name, methods, index_file, appname=None, urls=None, drivers=None, interactive=False, password=None, config_path=None):
+def blockstack_cli_app_publish( blockchain_id, app_domain, methods, index_file, urls=None, drivers=None, interactive=False, password=None, config_path=None):
     """
     publish a blockstack application
     """
@@ -1502,17 +1500,17 @@ def blockstack_cli_app_publish( name, methods, index_file, appname=None, urls=No
 
     args = CLIArgs()
 
-    args.name = name
+    args.blockchain_id = blockchain_id
+    args.app_domain = app_domain
     args.methods = methods
     args.index_file = index_file
-    args.appname = appname
     args.urls = urls
     args.drivers = drivers
     
     return cli_app_publish( args, config_path=config_path, interactive=interactive, password=password, proxy=test_proxy )
 
 
-def blockstack_cli_app_get_config( name, appname=None, interactive=False, config_path=None):
+def blockstack_cli_app_get_config( blockchain_id, app_domain, interactive=False, config_path=None):
     """
     get app config
     """
@@ -1522,29 +1520,13 @@ def blockstack_cli_app_get_config( name, appname=None, interactive=False, config
 
     args = CLIArgs()
 
-    args.name = name
-    args.appname = appname
+    args.blockchain_id = blockchain_id
+    args.app_domain = app_domain 
 
     return cli_app_get_config( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
-
-
-def blockstack_cli_app_get_index_file( name, appname, interactive=False, config_path=None):
-    """
-    Get application index file
-    """
-    test_proxy = make_proxy(config_path=config_path)
-    blockstack_client.set_default_proxy( test_proxy )
-    config_path = test_proxy.config_path if config_path is None else config_path
-
-    args = CLIArgs()
-
-    args.name = name
-    args.appname = appname
-
-    return cli_app_get_index_file( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
     
 
-def blockstack_cli_app_get_resource( name, appname, resname, interactive=False, config_path=None):
+def blockstack_cli_app_get_resource( blockchain_id, app_domain, res_path, interactive=False, config_path=None):
     """
     Get application resource
     """
@@ -1554,14 +1536,14 @@ def blockstack_cli_app_get_resource( name, appname, resname, interactive=False, 
 
     args = CLIArgs()
 
-    args.name = name
-    args.appname = appname
-    args.resname = resname
+    args.blockchain_id = blockchain_id
+    args.app_domain = app_domain
+    args.res_path = res_path
 
     return cli_app_get_resource( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
 
 
-def blockstack_cli_app_put_resource( name, appname, resname, respath, interactive=False, password=None, config_path=None):
+def blockstack_cli_app_put_resource( blockchain_id, app_domain, res_path, res_file_path, interactive=False, password=None, config_path=None):
     """
     Get application resource
     """
@@ -1571,15 +1553,15 @@ def blockstack_cli_app_put_resource( name, appname, resname, respath, interactiv
 
     args = CLIArgs()
 
-    args.name = name
-    args.appname = appname
-    args.res_file = respath
-    args.resname = resname
+    args.blockchain_id = blockchain_id
+    args.app_domain = app_domain
+    args.res_path = res_path
+    args.res_file = res_file_path
 
     return cli_app_put_resource( args, config_path=config_path, interactive=interactive, password=password, proxy=test_proxy )
 
 
-def blockstack_cli_app_signin( user_id, app_fqu, appname, config_path=None, password=None, wallet_keys=None ):
+def blockstack_cli_app_signin( app_domain, api_methods, session_lifetime=None, app_user_id=None, config_path=None, password=None, wallet_keys=None ):
     """
     sign in and get a token
     """
@@ -1589,9 +1571,10 @@ def blockstack_cli_app_signin( user_id, app_fqu, appname, config_path=None, pass
 
     args = CLIArgs()
 
-    args.app_blockchain_id = app_fqu
-    args.app_name = appname
-    args.user_id = user_id
+    args.app_domain = app_domain
+    args.api_methods = api_methods
+    args.session_lifetime = session_lifetime
+    args.app_user_id = app_user_id
 
     return cli_app_signin( args, config_path=config_path, password=password, wallet_keys=wallet_keys )
 
@@ -2077,6 +2060,21 @@ def list_wallet_backups():
     backup_paths = [os.path.join(config_dir, fn) for fn in filter(lambda x: x.startswith("wallet.json."), files)]
     return backup_paths
 
+
+def start_api(password):
+    """
+    Start the API server
+    """
+    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
+    assert config_path is not None
+
+    conf = blockstack_client.get_config(config_path)
+    port = int(conf['api_endpoint_port'])
+    api_pass = conf['api_password']
+
+    blockstack_client.rpc.local_api_start(api_pass=api_pass, port=port, config_dir=os.path.dirname(config_path), password="0123456789abcdef")
+    return
+
     
 def instantiate_wallet():
     """
@@ -2092,7 +2090,7 @@ def instantiate_wallet():
     port = int(conf['api_endpoint_port'])
     api_pass = conf['api_password']
 
-    blockstack_client.rpc.local_api_start(api_pass=api_password, port=port, config_dir=os.path.dirname(config_path), password="0123456789abcdef")
+    blockstack_client.rpc.local_api_start(api_pass=api_pass, port=port, config_dir=os.path.dirname(config_path), password="0123456789abcdef")
 
     wallet_info = blockstack_client.actions.get_wallet_with_backoff(config_path)
     if 'error' in wallet_info:
@@ -2522,12 +2520,12 @@ def check_data_urls():
             return False
 
         if data['data'] != expected_data:
-            log.error("Wrong data for {}: {} ({}) != {} ({})".format(data_url, expected_data, type(expected_data), data, type(data)))
+            log.error("Wrong data for {}: {} ({}) != {} ({})".format(data_url, expected_data, type(expected_data), data['data'], type(data['data'])))
             return False
 
     for data_url in deleted_urls:
         log.debug("Verify deleted URL {}".format(data_url))
-        data = blockstack_cli_get_data(url)
+        data = blockstack_cli_get_data(data_url)
         if 'error' not in data:
             log.error("Succeeded in getting deleted data {}".format(data_url))
             return False
@@ -2693,12 +2691,13 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
         user_zonefile_txt = res['zonefile']
 
         try:
-            user_zonefile_json = json.loads(user_profile_txt)
+            user_zonefile_json = json.loads(user_zonefile_txt)
             if blockstack_profiles.is_profile_in_legacy_format(user_zonefile_json):
                 user_profile = blockstack_profiles.get_person_from_legacy_format(user_zonefile_json)
                 
             user_zonefile = blockstack_client.zonefile.make_empty_zonefile(name, wallet_keys['data_pubkey'])
-        except:
+        except Exception as e:
+            log.exception(e)
             user_zonefile = blockstack_zones.parse_zone_file(user_zonefile_txt)
 
     if not zonefile_has_data_key:
@@ -2711,6 +2710,8 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
     data_privkey_info = blockstack_client.get_data_privkey_info( user_zonefile, wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
 
     assert data_privkey_info is not None
+    assert 'error' not in data_privkey_info, str(data_privkey_info)
+
     assert blockstack_client.keys.is_singlesig(data_privkey_info)
 
     user_zonefile_hash = blockstack_client.hash_zonefile( user_zonefile )

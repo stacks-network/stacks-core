@@ -75,6 +75,8 @@ def scenario( wallets, **kw ):
         print "still have {} after import".format(wallet_files)
         return False
 
+    testlib.start_api("0123456789abcdef")
+
     # register
     resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef" )
     if 'error' in resp:

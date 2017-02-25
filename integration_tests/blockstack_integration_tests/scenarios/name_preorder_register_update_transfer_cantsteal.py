@@ -56,12 +56,12 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # should fail--can't give a name to yourself
-    testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[4].privkey ) 
+    testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[4].privkey, safety_checks=False ) 
     testlib.next_block( **kw )
     testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
     
     # should fail--can't steal a name
-    testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[0].privkey ) 
+    testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[0].privkey, safety_checks=False ) 
     testlib.next_block( **kw )
     testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 

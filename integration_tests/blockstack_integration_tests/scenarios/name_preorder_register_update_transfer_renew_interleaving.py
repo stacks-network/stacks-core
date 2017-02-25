@@ -60,20 +60,20 @@ def do_interleaving( name, namerecs, order ):
         if op == 'r':
             # renew
             print "\nrenew '%s' with %s\n" % (name, pybitcoin.make_pay_to_address_script( namerecs[name][0].addr ))
-            resp = testlib.blockstack_name_renew( name, namerecs[name][0].privkey, register_addr=namerecs[name][0].addr )
+            resp = testlib.blockstack_name_renew( name, namerecs[name][0].privkey, register_addr=namerecs[name][0].addr, safety_checks=False )
             if 'error' in resp:
                 print json.dumps( resp, indent=4 )
 
         elif op == 'u':
             # update
-            resp = testlib.blockstack_name_update( name, ("%s%s" % (i, i)) * 20, namerecs[name][0].privkey )
+            resp = testlib.blockstack_name_update( name, ("%s%s" % (i, i)) * 20, namerecs[name][0].privkey, safety_checks=False )
             if 'error' in resp:
                 print json.dumps( resp, indent=4 )
 
         elif op == 't':
             # transfer and exchange wallets 
             print "\ntransfer '%s' from %s to %s" % (name, pybitcoin.make_pay_to_address_script( namerecs[name][0].addr ), pybitcoin.make_pay_to_address_script( namerecs[name][1].addr ))
-            resp = testlib.blockstack_name_transfer( name, namerecs[name][1].addr, True, namerecs[name][0].privkey )
+            resp = testlib.blockstack_name_transfer( name, namerecs[name][1].addr, True, namerecs[name][0].privkey, safety_checks=False )
             if 'error' in resp:
                 print json.dumps( resp, indent=4 )
 

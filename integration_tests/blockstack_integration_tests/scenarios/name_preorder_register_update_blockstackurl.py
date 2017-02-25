@@ -220,50 +220,27 @@ def scenario( wallets, **kw ):
     sys.stdout.flush()
     
     testlib.next_block( **kw )
+       
+    datastore_id_res = testlib.blockstack_cli_datastore_get_id( "foo-app.com" )
+    datastore_name = datastore_id_res['datastore_id']
 
-    # make an index file 
-    index_file_path = "/tmp/name_preorder_register_update_blockstackurl.foo.test.index.html"
-    index_file_data = "<html><head></head><body>foo.test hello world</body></html>"
-    with open(index_file_path, "w") as f:
-        f.write(index_file_data)
-
-    # make an application
-    log.debug("app publish")
-    res = testlib.blockstack_cli_app_publish("foo.test", "get_mutable,put_mutable,delete_mutable", index_file_path, appname="bar", drivers="disk", password="0123456789abcdef" )
+    # make datastore 
+    res = testlib.blockstack_cli_create_datastore( "foo-app.com" )
     if 'error' in res:
-        print "failed to create foo.test/bar"
-        print json.dumps(res, indent=4, sort_keys=True)
+        print "failed to create datastore: {}".format(res['error'])
         return False
 
-    # make a user 
-    log.debug("create user")
-    res = testlib.blockstack_cli_create_user( "foo_id", password="0123456789abcdef" )
-    if 'error' in res:
-        print 'failed to create user foo_id'
-        print json.dumps(res, indent=4, sort_keys=True)
-        return False
-
-    # make an app user account 
-    log.debug("put account")
-    res = testlib.blockstack_cli_app_create_account( "foo_id", "foo.test", "bar", "get_mutable", session_lifetime=3600 )
-    if 'error' in res:
-        print "failed to create account for foo_id in foo.test/bar"
-        print json.dumps(res, indent=4, sort_keys=True)
-        return False
-
-    datastore_name = res['datastore']['datastore_name']
-    
     # put a file into the datastore
     data = 'hello datastore'
     log.debug("putfile")
-    res = testlib.blockstack_cli_datastore_putfile( 'foo_id', "foo.test", "bar", '/hello_datastore', data )
+    res = testlib.blockstack_cli_datastore_putfile( "foo-app.com", '/hello_datastore', data )
     if 'error' in res:
         print 'failed to putfile /hello_datastore: {}'.format(res['error'])
         return False
 
     # make a directory 
     log.debug("mkdir")
-    res = testlib.blockstack_cli_datastore_mkdir( 'foo_id', "foo.test", "bar", '/hello_dir' )
+    res = testlib.blockstack_cli_datastore_mkdir( "foo-app.com",  '/hello_dir' )
     if 'error' in res:
         print 'failed to mkdir /hello_dir: {}'.format(res['error'])
         return False
@@ -271,7 +248,7 @@ def scenario( wallets, **kw ):
     # put a file into the directory
     data = 'hello dir datastore'
     log.debug("putfile in dir")
-    res = testlib.blockstack_cli_datastore_putfile( 'foo_id', "foo.test", "bar", '/hello_dir/hello_dir_datastore', data )
+    res = testlib.blockstack_cli_datastore_putfile( 'foo-app.com', '/hello_dir/hello_dir_datastore', data )
     if 'error' in res:
         print 'failed to putfile /hello_dir/hello_dir_datastore: {}'.format(res['error'])
         return False
@@ -360,7 +337,7 @@ def check( state_engine ):
             return False
 
         # still have all the right info 
-        user_profile = blockstack_client.get_name_profile(name, user_zonefile=user_zonefile)
+        user_profile = blockstack_client.get_profile(name, user_zonefile=user_zonefile)
         if user_profile is None:
             print "Unable to load user profile for %s (%s)" % (name, wallets[wallet_data_pubkey].pubkey_hex)
             return False
@@ -484,21 +461,21 @@ def check( state_engine ):
         return False
 
     # can fetch files and directories
-    mutable_data = get_data( "blockstack://{}@foo_id/hello_datastore".format(datastore_name) )
+    mutable_data = get_data( "blockstack://{}@foo-app.com/hello_datastore".format(datastore_name) )
     if 'error' in mutable_data or 'file' not in mutable_data or mutable_data['file']['idata'] != 'hello datastore':
-        print 'Failed to get blockstack://{}@foo_id/hello_datastore'.format(datastore_name)
+        print 'Failed to get blockstack://{}@foo-app.com/hello_datastore'.format(datastore_name)
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False
 
-    mutable_data = get_data( "blockstack://{}@foo_id/hello_dir/".format(datastore_name) )
+    mutable_data = get_data( "blockstack://{}@foo-app.com/hello_dir/".format(datastore_name) )
     if 'error' in mutable_data or 'dir' not in mutable_data or 'hello_dir_datastore' not in mutable_data['dir']['idata'].keys():
-        print 'Failed to get blockstack://{}@foo_id/hello_dir/'.format(datastore_name)
+        print 'Failed to get blockstack://{}@foo-app.com/hello_dir/'.format(datastore_name)
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False
 
-    mutable_data = get_data( "blockstack://{}@foo_id/hello_dir/hello_dir_datastore".format(datastore_name) )
+    mutable_data = get_data( "blockstack://{}@foo-app.com/hello_dir/hello_dir_datastore".format(datastore_name) )
     if 'error' in mutable_data or 'file' not in mutable_data or mutable_data['file']['idata'] != 'hello dir datastore':
-        print 'Failed to get blockstack://{}@foo_id/hello_dir/hello_dir_datastore'.format(datastore_name)
+        print 'Failed to get blockstack://{}@foo-app.com/hello_dir/hello_dir_datastore'.format(datastore_name)
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False
       

@@ -83,7 +83,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # should fail
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey ) 
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey, safety_checks=False ) 
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 

@@ -48,133 +48,133 @@ def scenario( wallets, **kw ):
 
     global debug
 
-    resp = testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
+    resp = testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
+    resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_name_import( "foo.test", wallets[3].addr, "11" * 20, wallets[1].privkey )
+    resp = testlib.blockstack_name_import( "foo.test", wallets[3].addr, "11" * 20, wallets[1].privkey)
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
+    resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
     # ping-ping a bit... 3 --> 4 --> 5 --> 4 --> 5 --> 4
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey ) 
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey, safety_checks=False) 
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[5].addr, True, wallets[4].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[5].addr, True, wallets[4].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[5].addr, True, wallets[4].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[5].addr, True, wallets[4].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
     # update (4)
-    resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[4].privkey )
+    resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[4].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     # ping-ping a bit... 4 --> 5 --> 4 --> 5 --> 4 --> 5
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[5].addr, True, wallets[4].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[5].addr, True, wallets[4].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[5].addr, True, wallets[4].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[5].addr, True, wallets[4].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
     
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[5].addr, True, wallets[4].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[5].addr, True, wallets[4].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     # now update (5)
-    resp = testlib.blockstack_name_update( "foo.test", "22" * 20, wallets[5].privkey )
+    resp = testlib.blockstack_name_update( "foo.test", "22" * 20, wallets[5].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
     # update transfer
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_update( "foo.test", "33" * 20, wallets[4].privkey )
+    resp = testlib.blockstack_name_update( "foo.test", "33" * 20, wallets[4].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
     # update --> transfer --> transfer --> update
-    resp = testlib.blockstack_name_update( "foo.test", "44" * 20, wallets[4].privkey )
+    resp = testlib.blockstack_name_update( "foo.test", "44" * 20, wallets[4].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[5].addr, True, wallets[4].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[5].addr, True, wallets[4].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_update( "foo.test", "55" * 20, wallets[4].privkey )
+    resp = testlib.blockstack_name_update( "foo.test", "55" * 20, wallets[4].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
     # update --> transfer --> update --> transfer
-    resp = testlib.blockstack_name_update( "foo.test", "66" * 20, wallets[4].privkey )
+    resp = testlib.blockstack_name_update( "foo.test", "66" * 20, wallets[4].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[5].addr, True, wallets[4].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[5].addr, True, wallets[4].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[5].privkey )
+    resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[5].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
     # transfer
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey, safety_checks=False)
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 

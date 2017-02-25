@@ -67,7 +67,7 @@ def scenario( wallets, **kw ):
 
     # try to exceed quota (currently 25): order 26, and try to update one of them (and try to transfer one too).
     for i in xrange(0, 26):
-        resp = testlib.blockstack_name_import( "bar%s.test" % i, wallets[4].addr, "33" * 20, wallets[1].privkey )
+        resp = testlib.blockstack_name_import( "bar%s.test" % i, wallets[4].addr, "33" * 20, wallets[1].privkey, safety_checks=False )
         if 'error' in resp:
             print json.dumps(resp, indent=4 )
             return False
@@ -109,7 +109,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # should fail (exceeded quota)
-    resp = testlib.blockstack_name_register( "barfail.test", wallets[4].privkey, wallets[2].addr )
+    resp = testlib.blockstack_name_register( "barfail.test", wallets[4].privkey, wallets[2].addr, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
@@ -117,7 +117,7 @@ def scenario( wallets, **kw ):
     testlib.expect_snv_fail_at( "barfail.test", testlib.get_current_block(**kw))
 
     # should fail (exceeded quota--have to revoke or give names away)
-    resp = testlib.blockstack_name_update( "bar0.test", '44' * 20, wallets[4].privkey )
+    resp = testlib.blockstack_name_update( "bar0.test", '44' * 20, wallets[4].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
@@ -132,7 +132,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # should fail (exceeded quota--have to revoke or give names away)
-    resp = testlib.blockstack_name_update( "bar0.test", '44' * 20, wallets[4].privkey )
+    resp = testlib.blockstack_name_update( "bar0.test", '44' * 20, wallets[4].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 

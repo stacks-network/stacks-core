@@ -96,25 +96,23 @@ def scenario( wallets, **kw ):
     with open(index_file_path, "w") as f:
         f.write(index_file_data)
 
-    # register an application 
-    res = testlib.blockstack_cli_app_publish("foo.test", "get_mutable,put_mutable,delete_mutable", index_file_path, appname="bar", drivers="disk", password="0123456789abcdef" )
+    # register an application under foo.test
+    res = testlib.blockstack_cli_app_publish("foo.test", "ping.app", "node_read", index_file_path, password="0123456789abcdef" )
     if 'error' in res:
         res['test'] = 'Failed to register foo.test/bar app'
         print json.dumps(res, indent=4, sort_keys=True)
-        error = True
-        return 
+        return False
 
     # put mutable data, to be accessed as a resource
     resource_file_path = "/tmp/name_preorder_register_update_app_publish.foo.test.resource"
     with open(resource_file_path, "w") as f:
         f.write(resource_data)
 
-    res = testlib.blockstack_cli_app_put_resource("foo.test", "bar", "hello_world", resource_file_path, password="0123456789abcdef" )
+    res = testlib.blockstack_cli_app_put_resource("foo.test", "ping.app", "hello_world", resource_file_path, password="0123456789abcdef" )
     if 'error' in res:
         res['test'] = 'Failed to store app resource'
         print json.dumps(res, indent=4, sort_keys=True)
-        error = True
-        return 
+        return False
 
     testlib.next_block( **kw )
 
@@ -172,7 +170,7 @@ def check( state_engine ):
             return False 
 
         # get app config 
-        app_config = testlib.blockstack_cli_app_get_config( "foo.test", appname="bar" )
+        app_config = testlib.blockstack_cli_app_get_config( "foo.test", "ping.app" )
         if 'error' in app_config:
             print "failed to get app config\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
             return False
@@ -180,11 +178,11 @@ def check( state_engine ):
         # inspect...
         app_config = app_config['config']
 
-        if app_config['driver_hints'] != ['disk']:
+        if app_config['driver_hints'] != []:
             print "Invalid driver hints\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
             return False
 
-        if app_config['api_methods'] != ['get_mutable', 'put_mutable', 'delete_mutable']:
+        if app_config['api_methods'] != ['node_read']:
             print "Invalid API list\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
             return False
 
@@ -192,18 +190,22 @@ def check( state_engine ):
             print "Invalid URI records\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
             return False
 
+        if app_config['blockchain_id'] != 'foo.test':
+            print "invalid blockchain ID\n{}\n".format(app_config)
+            return False
+
         # get index file 
-        index_file = testlib.blockstack_cli_app_get_index_file("foo.test", "bar")
+        index_file = testlib.blockstack_cli_app_get_resource("foo.test", "ping.app", "index.html")
         if 'error' in index_file:
             print "failed to get index file\n{}\n".format(json.dumps(index_file, indent=4, sort_keys=True))
             return False
         
-        if index_file['index_file'] != index_file_data:
+        if index_file['res'] != index_file_data:
             print "got wrong index file:\n{}\n".format(index_file['index_file'])
             return False
 
         # get resource 
-        resource_data_res = testlib.blockstack_cli_app_get_resource("foo.test", "bar", "hello_world")
+        resource_data_res = testlib.blockstack_cli_app_get_resource("foo.test", "ping.app", "hello_world")
         if 'error' in resource_data_res:
             print "failed to get resource hello_world\n{}\n".format(json.dumps(resource_data, indent=4, sort_keys=True))
             return False

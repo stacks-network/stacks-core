@@ -63,7 +63,7 @@ def scenario( wallets, **kw ):
 
     # update with stale consensus hash (should fail)
     print "\n\nsend update with consensus hash %s\n\n" % consensus_hash
-    testlib.blockstack_name_update( "foo.test", "22" * 20, wallets[3].privkey, consensus_hash=consensus_hash )
+    testlib.blockstack_name_update( "foo.test", "22" * 20, wallets[3].privkey, consensus_hash=consensus_hash, safety_checks=False )
     testlib.next_block( **kw )
 
 

@@ -71,7 +71,8 @@ def scenario( wallets, **kw ):
 
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
-    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, payment_privkey=wallets[5].privkey )
+    wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, None )
+
 
     # migrate profile
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
@@ -89,19 +90,22 @@ def scenario( wallets, **kw ):
     
     testlib.next_block( **kw )
 
-    put_result = blockstack_client.put_mutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_1", json.dumps(datasets[0], sort_keys=True), password="0123456789abcdef")
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
 
     testlib.next_block( **kw )
 
-    put_result = blockstack_client.put_mutable( "foo.test", "hello_world_2", datasets[1], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_2", json.dumps(datasets[1], sort_keys=True), password="0123456789abcdef")
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
 
-    put_result = blockstack_client.put_mutable( "foo.test", "hello_world_3", datasets[2], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_3", json.dumps(datasets[2], sort_keys=True), password="0123456789abcdef")
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
 
     # increment version too
     datasets[0]['buf'] = []
@@ -109,15 +113,17 @@ def scenario( wallets, **kw ):
         datasets[0]["dataset_change"] = dataset_change
         datasets[0]['buf'].append(i)
 
-        put_result = blockstack_client.put_mutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
+        put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_1", json.dumps(datasets[0], sort_keys=True), password="0123456789abcdef")
         if 'error' in put_result:
             print json.dumps(put_result, indent=4, sort_keys=True )
+            return False
 
     # now delete everything 
     for i in xrange(0, len(datasets)):
-        delete_result = blockstack_client.delete_mutable( "foo.test", "hello_world_%s" % (i+1), wallet_keys=wallet_keys)
+        delete_result = testlib.blockstack_cli_delete_mutable("foo.test", "hello_world_%s" % (i+1), password="0123456789abcdef")
         if 'error' in delete_result:
             print json.dumps(delete_result, indent=4, sort_keys=True)
+            return False
 
     testlib.next_block( **kw )
 
@@ -169,13 +175,13 @@ def check( state_engine ):
 
     for i in xrange(0, len(datasets)):
         print "get hello_world_%s" % (i+1)
-        dat = blockstack_client.get_mutable( "foo.test", "hello_world_%s" % (i+1) )
+        dat = testlib.blockstack_cli_get_mutable( "foo.test", "hello_world_%s" % (i+1) )
         if dat is not None and 'error' not in dat:
             print "still have '%s'\n%s" % ("hello_world_%s" % (i+1), json.dumps(dat,indent=4,sort_keys=True))
             return False
 
-        if 'error' in dat and dat['error'] != 'No such mutable datum':
+        if 'error' in dat and dat['error'] != 'Failed to look up mutable datum':
             print json.dumps(dat, indent=4, sort_keys=True)
             return False
-    
+
     return True

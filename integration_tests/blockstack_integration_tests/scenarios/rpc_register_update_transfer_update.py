@@ -103,7 +103,7 @@ def scenario( wallets, **kw ):
         print >> sys.stderr, "update error: %s" % resp['error']
         return False
 
-    zonefile_hash = resp['value_hash']
+    zonefile_hash = resp['zonefile_hash']
     
     # wait for it to go through 
     for i in xrange(0, 12):
@@ -149,7 +149,7 @@ def scenario( wallets, **kw ):
         print >> sys.stderr, "update error: %s" % resp['error']
         return False
 
-    zonefile_hash = resp['value_hash']
+    zonefile_hash = resp['zonefile_hash']
     
     # wait for it to go through 
     for i in xrange(0, 12):

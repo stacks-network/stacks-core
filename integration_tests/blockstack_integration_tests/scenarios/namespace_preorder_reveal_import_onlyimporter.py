@@ -42,9 +42,9 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # will all be rejected trivially, since the first import must come from the importer's address
-    testlib.blockstack_name_import( "foo.test", wallets[4].addr, "11" * 20, wallets[2].privkey )
-    testlib.blockstack_name_import( "bar.test", wallets[2].addr, "22" * 20, wallets[3].privkey )
-    testlib.blockstack_name_import( "baz.test", wallets[3].addr, "33" * 20, wallets[4].privkey )
+    testlib.blockstack_name_import( "foo.test", wallets[4].addr, "11" * 20, wallets[2].privkey, safety_checks=False )
+    testlib.blockstack_name_import( "bar.test", wallets[2].addr, "22" * 20, wallets[3].privkey, safety_checks=False )
+    testlib.blockstack_name_import( "baz.test", wallets[3].addr, "33" * 20, wallets[4].privkey, safety_checks=False)
     
     testlib.next_block( **kw )
    
@@ -52,9 +52,9 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_import( "goo.test", wallets[2].addr, "11" * 20, wallets[1].privkey )
     
     # will all be rejected because they weren't sent from a importer-derived key
-    testlib.blockstack_name_import( "foo.test", wallets[4].addr, "11" * 20, wallets[2].privkey )
-    testlib.blockstack_name_import( "bar.test", wallets[2].addr, "22" * 20, wallets[3].privkey )
-    testlib.blockstack_name_import( "baz.test", wallets[3].addr, "33" * 20, wallets[4].privkey )
+    testlib.blockstack_name_import( "foo.test", wallets[4].addr, "11" * 20, wallets[2].privkey, safety_checks=False )
+    testlib.blockstack_name_import( "bar.test", wallets[2].addr, "22" * 20, wallets[3].privkey, safety_checks=False )
+    testlib.blockstack_name_import( "baz.test", wallets[3].addr, "33" * 20, wallets[4].privkey, safety_checks=False )
 
     testlib.next_block( **kw )
 

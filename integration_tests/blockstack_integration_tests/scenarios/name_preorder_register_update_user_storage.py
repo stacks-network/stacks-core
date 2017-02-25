@@ -274,7 +274,7 @@ def check( state_engine ):
             print "Mismatch %s: %s %s != %s %s" % (i, dat['data'], type(dat['data']), datasets[i], type(datasets[i]))
             return False
    
-    profile, zonefile = blockstack_client.get_name_profile('foo.test')
+    profile, zonefile = blockstack_client.get_profile('foo.test')
     if profile is None:
         print 'No profile'
         return False

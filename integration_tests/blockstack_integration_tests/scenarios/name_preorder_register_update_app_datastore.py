@@ -137,7 +137,7 @@ def scenario( wallets, **kw ):
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'putfile {}'.format(dpath)
         data = 'hello {}'.format(os.path.basename(dpath))
-        res = testlib.blockstack_cli_datastore_putfile( datastore_id, dpath, data )
+        res = testlib.blockstack_cli_datastore_putfile( 'foo-app.com', dpath, data )
         if 'error' in res:
             print 'failed to putfile {}: {}'.format(dpath, res['error'])
             return False
@@ -277,6 +277,20 @@ def scenario( wallets, **kw ):
     res = res['dir']
     if len(res['idata'].keys()) > 0:
         print 'root still has children: {}'.format(res['idata'].keys())
+        return False
+
+    # delete datastore 
+    print 'delete datastore'
+    res = testlib.blockstack_cli_delete_datastore( 'foo-app.com' )
+    if 'error' in res:
+        print 'failed to delete foo-app.com datastore'
+        print json.dumps(res)
+        return False
+
+    # no more data in disk driver 
+    names = os.listdir("/tmp/blockstack-disk/mutable")
+    if names != ['foo.test']:
+        print 'improper cleanup'
         return False
 
     testlib.next_block( **kw )

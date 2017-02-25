@@ -62,13 +62,13 @@ def scenario( wallets, **kw ):
 
     # preorder, register, update, expire (twice; should fail the second time)
     for i in xrange(2, 4):
-        resp = testlib.blockstack_name_preorder( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr )
+        resp = testlib.blockstack_name_preorder( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
         testlib.next_block( **kw )
    
-        resp = testlib.blockstack_name_register( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr )
+        resp = testlib.blockstack_name_register( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
@@ -77,7 +77,7 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
 
-        resp = testlib.blockstack_name_update( "foo.test", ("%02x" % i) * 20, wallets[(i+1)%11].privkey )
+        resp = testlib.blockstack_name_update( "foo.test", ("%02x" % i) * 20, wallets[(i+1)%11].privkey, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
@@ -86,7 +86,7 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
 
-        resp = testlib.blockstack_name_transfer( "foo.test", wallets[i].addr, True, wallets[(i+1)%11].privkey )
+        resp = testlib.blockstack_name_transfer( "foo.test", wallets[i].addr, True, wallets[(i+1)%11].privkey, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
@@ -95,7 +95,7 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
        
-        resp = testlib.blockstack_name_renew( "foo.test", wallets[i].privkey )
+        resp = testlib.blockstack_name_renew( "foo.test", wallets[i].privkey, safety_checks=False)
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
@@ -107,7 +107,7 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
 
-        # without the namespace lifetime multipler added in 0.0.14,
+        # without the namespace lifetime multipler added in 0.14,
         # the name should not yet have expired (despite a lifetime of 2)
 
 

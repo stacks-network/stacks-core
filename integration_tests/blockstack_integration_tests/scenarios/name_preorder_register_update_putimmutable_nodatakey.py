@@ -54,7 +54,7 @@ def scenario( wallets, **kw ):
 
     global datasets, immutable_data_hashes, put_result, last_hash
 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[3].privkey, wallets[5].privkey, None )
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, None )
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
     wallet_keys = wallet
@@ -88,7 +88,7 @@ def scenario( wallets, **kw ):
     
     testlib.next_block( **kw )
     
-    put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_1", json.dumps(datasets[0]), password='0123456789abcdef')
+    put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_1", json.dumps(datasets[0], sort_keys=True), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
@@ -105,7 +105,7 @@ def scenario( wallets, **kw ):
     print "waiting for confirmation"
     time.sleep(10)
 
-    put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_2", json.dumps(datasets[1]), password='0123456789abcdef')
+    put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_2", json.dumps(datasets[1], sort_keys=True), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
@@ -121,7 +121,7 @@ def scenario( wallets, **kw ):
     print "waiting for confirmation"
     time.sleep(10)
 
-    put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_3", json.dumps(datasets[2]), password='0123456789abcdef')
+    put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_3", json.dumps(datasets[2], sort_keys=True), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
@@ -140,7 +140,7 @@ def scenario( wallets, **kw ):
 
     # should succeed (name collision)
     datasets[0][u'newdata'] = u"asdf"
-    put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_1", json.dumps(datasets[0]), password='0123456789abcdef')
+    put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_1", json.dumps(datasets[0], sort_keys=True), password='0123456789abcdef')
     if 'error' not in put_result:
         immutable_data_hashes[0] = put_result['immutable_data_hash']
     else:

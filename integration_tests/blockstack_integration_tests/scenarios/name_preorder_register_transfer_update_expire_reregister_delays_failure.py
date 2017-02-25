@@ -69,7 +69,7 @@ def scenario( wallets, **kw ):
 
     # preorder, register, update, expire (twice, with incorrect assumption about namespace lifetime)
     for i in xrange(2, 4):
-        resp = testlib.blockstack_name_preorder( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr, consensus_hash=consensus_hash )
+        resp = testlib.blockstack_name_preorder( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr, consensus_hash=consensus_hash, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
@@ -78,7 +78,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
         testlib.next_block( **kw )
    
-        resp = testlib.blockstack_name_register( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr )
+        resp = testlib.blockstack_name_register( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr, safety_checks=False )
         testlib.next_block( **kw )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
@@ -90,7 +90,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
         testlib.next_block( **kw )
 
-        resp = testlib.blockstack_name_transfer( "foo.test", wallets[i].addr, True, wallets[(i+1)%11].privkey, consensus_hash=consensus_hash )
+        resp = testlib.blockstack_name_transfer( "foo.test", wallets[i].addr, True, wallets[(i+1)%11].privkey, consensus_hash=consensus_hash, safety_checks=False )
         testlib.next_block( **kw )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
@@ -102,7 +102,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
         testlib.next_block( **kw )
         
-        resp = testlib.blockstack_name_update( "foo.test", ("%02x" % i) * 20, wallets[i].privkey, consensus_hash=consensus_hash )
+        resp = testlib.blockstack_name_update( "foo.test", ("%02x" % i) * 20, wallets[i].privkey, consensus_hash=consensus_hash, safety_checks=False )
         testlib.next_block( **kw )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )

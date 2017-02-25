@@ -89,7 +89,7 @@ def scenario( wallets, **kw ):
     log.debug("put immutable 1 with owner key")
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None ) 
     
-    put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_1_immutable", json.dumps(datasets[0]), password='0123456789abcdef')
+    put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_1_immutable", json.dumps(datasets[0], sort_keys=True), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
         return False
@@ -108,7 +108,7 @@ def scenario( wallets, **kw ):
     
     # put immutable (with owner key)
     log.debug("put immutable 2 with owner key")
-    testlib.blockstack_cli_put_immutable("foo.test", "hello_world_2_immutable", json.dumps(datasets[1]), password='0123456789abcdef')
+    testlib.blockstack_cli_put_immutable("foo.test", "hello_world_2_immutable", json.dumps(datasets[1], sort_keys=True), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
         return False
@@ -127,14 +127,14 @@ def scenario( wallets, **kw ):
 
     # put mutable (with owner key)
     log.debug("put mutable 1 with owner key")
-    put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_1_mutable", json.dumps(datasets[0]), password='0123456789abcdef')
+    put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_1_mutable", json.dumps(datasets[0], sort_keys=True), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
         return False
 
     # put mutable (with owner key)
     log.debug("put mutable 2 with owner key")
-    put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_2_mutable", json.dumps(datasets[1]), password='0123456789abcdef')
+    put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_2_mutable", json.dumps(datasets[1], sort_keys=True), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
         return False
@@ -166,7 +166,7 @@ def scenario( wallets, **kw ):
     wallet_keys = testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
 
     # put immutable
-    put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_3_immutable", json.dumps(datasets[2]), password='0123456789abcdef')
+    put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_3_immutable", json.dumps(datasets[2], sort_keys=True), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
         return False
@@ -185,7 +185,7 @@ def scenario( wallets, **kw ):
 
     # put mutable (with new key)
     log.debug("put mutable with new key")
-    put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_3_mutable", json.dumps(datasets[2]), password='0123456789abcdef')
+    put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_3_mutable", json.dumps(datasets[2], sort_keys=True), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
         return False
@@ -213,7 +213,7 @@ def scenario( wallets, **kw ):
 
     # delete mutable (new key)
     log.debug("delete mutable with new key")
-    result = testlib.blockstack_cli_delete_mutable("foo.test", "hello_world-1_mutable", password='0123456789abcdef')
+    result = testlib.blockstack_cli_delete_mutable("foo.test", "hello_world_1_mutable", password='0123456789abcdef')
     if 'error' in result:
         print json.dumps(result, indent=4, sort_keys=True)
         return False

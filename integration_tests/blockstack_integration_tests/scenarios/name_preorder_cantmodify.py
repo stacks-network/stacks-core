@@ -53,21 +53,21 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # no name operations should work on this name, except register
-    resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[3].privkey )
+    resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[3].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps(resp)
 
     testlib.next_block( **kw )
     testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
-    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey )
+    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps(resp)
 
     testlib.next_block( **kw )
     testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps(resp)
 
@@ -75,14 +75,14 @@ def scenario( wallets, **kw ):
     testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # try both addresses (should both fail)
-    resp = testlib.blockstack_name_revoke( "foo.test", wallets[4].privkey )
+    resp = testlib.blockstack_name_revoke( "foo.test", wallets[4].privkey, safety_checks=False)
     if 'error' in resp:
         print json.dumps(resp)
 
     testlib.next_block( **kw )
     testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
-    resp = testlib.blockstack_name_revoke( "foo.test", wallets[3].privkey )
+    resp = testlib.blockstack_name_revoke( "foo.test", wallets[3].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps(resp)
    

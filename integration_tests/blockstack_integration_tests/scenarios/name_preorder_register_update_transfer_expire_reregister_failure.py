@@ -62,15 +62,15 @@ def scenario( wallets, **kw ):
 
     # preorder, register, update, expire (multiple times)
     # only the first round should succeed, due to the namespace lifetime multipler 
-    # introduced in 0.0.14
+    # introduced in 0.14
     for i in xrange(2, 4):
-        resp = testlib.blockstack_name_preorder( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr )
+        resp = testlib.blockstack_name_preorder( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
         testlib.next_block( **kw )
    
-        resp = testlib.blockstack_name_register( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr )
+        resp = testlib.blockstack_name_register( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
@@ -79,7 +79,7 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
 
-        resp = testlib.blockstack_name_update( "foo.test", ("%02x" % i) * 20, wallets[(i+1)%11].privkey )
+        resp = testlib.blockstack_name_update( "foo.test", ("%02x" % i) * 20, wallets[(i+1)%11].privkey, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
@@ -88,7 +88,7 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
 
-        resp = testlib.blockstack_name_transfer( "foo.test", wallets[i].addr, True, wallets[(i+1)%11].privkey )
+        resp = testlib.blockstack_name_transfer( "foo.test", wallets[i].addr, True, wallets[(i+1)%11].privkey, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 

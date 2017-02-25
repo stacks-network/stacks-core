@@ -57,7 +57,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     # has to be the same key that registered...
-    resp = testlib.blockstack_name_renew( "foo.test", wallets[4].privkey )
+    resp = testlib.blockstack_name_renew( "foo.test", wallets[4].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 

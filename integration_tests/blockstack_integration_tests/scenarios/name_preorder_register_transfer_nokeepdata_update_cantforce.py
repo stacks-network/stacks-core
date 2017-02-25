@@ -77,7 +77,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # original owner *can't* update
-    resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[3].privkey )
+    resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[3].privkey, safety_checks=False )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 

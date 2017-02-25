@@ -248,7 +248,7 @@ def check( state_engine ):
             return False
 
         # still have all the right info 
-        user_profile = blockstack_client.profile.get_name_profile( name, user_zonefile=user_zonefile )
+        user_profile = blockstack_client.profile.get_profile( name, user_zonefile=user_zonefile )
         if user_profile is None or 'error' in user_profile:
             if user_profile is not None:
                 print json.dumps(user_profile, indent=4, sort_keys=True)

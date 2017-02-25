@@ -57,7 +57,7 @@ def scenario( wallets, **kw ):
 
     # preorder, register, expire (multiple times)
     for i in xrange(2, 5):
-        resp = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
+        resp = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
@@ -66,7 +66,7 @@ def scenario( wallets, **kw ):
         if first_preorder is None:
             first_preorder = testlib.get_current_block( **kw )
 
-        resp = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
+        resp = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 

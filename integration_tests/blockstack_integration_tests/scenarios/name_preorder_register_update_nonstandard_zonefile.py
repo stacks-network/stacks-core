@@ -161,7 +161,7 @@ def scenario( wallets, **kw ):
             print json.dumps(resp, indent=4, sort_keys=True)
             return False
 
-        testlib.expect_atlas_zonefile(resp['value_hash'])
+        testlib.expect_atlas_zonefile(resp['zonefile_hash'])
 
         # wait for it to take effect
         for i in xrange(0, 12):
@@ -327,7 +327,7 @@ def check( state_engine ):
         return False
 
     # still have a profile with data
-    user_profile = blockstack_client.profile.get_name_profile( name, user_zonefile=user_zonefile )
+    user_profile = blockstack_client.profile.get_profile( name, user_zonefile=user_zonefile )
     if user_profile is None or 'error' in user_profile:
         if user_profile is not None:
             print json.dumps(user_profile, indent=4, sort_keys=True)

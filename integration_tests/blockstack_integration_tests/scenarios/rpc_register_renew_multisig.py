@@ -124,7 +124,7 @@ def scenario( wallets, **kw ):
         error = True
         return False
 
-    zonefile_hash = resp['value_hash']
+    zonefile_hash = resp['zonefile_hash']
     
     # wait for it to go through 
     for i in xrange(0, 12):

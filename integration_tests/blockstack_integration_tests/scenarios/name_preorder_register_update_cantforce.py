@@ -52,8 +52,8 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
-    testlib.blockstack_name_update( "foo.test", "22" * 20, wallets[4].privkey ) 
-    testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[3].privkey )
+    testlib.blockstack_name_update( "foo.test", "22" * 20, wallets[4].privkey, safety_checks=False ) 
+    testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[3].privkey, safety_checks=False )
     testlib.next_block( **kw )
 
 

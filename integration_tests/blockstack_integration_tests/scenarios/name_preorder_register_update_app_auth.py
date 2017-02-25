@@ -114,7 +114,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
 
     # register an application under foo.test
-    res = testlib.blockstack_cli_app_publish("foo.test", "ping", index_file_path, appname="bar", drivers="disk", password="0123456789abcdef" )
+    res = testlib.blockstack_cli_app_publish("foo.test", "ping.app", "node_read", index_file_path, password="0123456789abcdef" )
     if 'error' in res:
         res['test'] = 'Failed to register foo.test/bar app'
         print json.dumps(res, indent=4, sort_keys=True)
@@ -124,46 +124,17 @@ def scenario( wallets, **kw ):
     # activate bar.test
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[9].privkey, wallets[7].privkey, wallets[8].privkey )
 
-    # make a user for bar.test 
-    res = testlib.blockstack_cli_create_user( "bar_user_id", blockchain_id='bar.test', password="0123456789abcdef" )
-    if 'error' in res:
-        res['test'] = 'Failed to create user'
-        print json.dumps(res)
-        error = True
-        return False
-
-    # make an account for bar_user_id (bar.test)
-    res = testlib.blockstack_app_create_account("bar_user_id", "foo.test", "bar")
-    if 'error' in res:
-        res['test'] = 'Failed to create account: {}'.format(res['error'])
-        print json.dumps(res, indent=4, sort_keys=True)
-        error = True
-        return 
-
-    if res['index_file'] != index_file_data:
-        res['test'] = 'Failed to get index file: {}'.format(res['error'])
-        print json.dumps(res, indent=4, sort_keys=True)
-        error = True
-        return 
-
     # sign in 
-    res = testlib.blockstack_app_signin("bar_user_id", "foo.test", "bar")
+    res = testlib.blockstack_cli_app_signin("ping.app", "node_read")
     if 'error' in res:
         res['test'] = 'Failed to signin: {}'.format(res['error'])
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
         return 
 
-    if res['index_file'] != index_file_data:
-        res['test'] = 'Failed to get index file on sign in: {}'.format(res['error'])
-        print json.dumps(res, indent=4, sort_keys=True)
-        error = True
-        return 
+    ses = res['token']
 
-    # try to access the URL 
-    ses = res['ses']
-
-    res = testlib.blockstack_REST_call("GET", "/api/v1/ping", ses, name="foo.test", appname="bar")
+    res = testlib.blockstack_REST_call("GET", "/v1/ping", ses)
     if res['http_status'] != 200:
         print "failed to GET /api/v1/ping"
         print json.dumps(res, indent=4, sort_keys=True)
@@ -175,7 +146,21 @@ def scenario( wallets, **kw ):
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
         return False
-    
+   
+    # access index.html 
+    res = testlib.blockstack_REST_call("GET", "/v1/resources/foo.test/ping.app?name=index.html", ses)
+    if 'error' in res or res['http_status'] != 200:
+        print 'failed to GET /v1/resources?name=/index.html'
+        print json.dumps(res)
+        error = True
+        return False
+
+    if res['raw'] != index_file_data:
+        print 'expected {}\ngot {}\n'.format(index_file_data, res['raw'])
+        print json.dumps(res)
+        error = True
+        return False
+
     testlib.next_block( **kw )
 
 
@@ -235,19 +220,20 @@ def check( state_engine ):
             return False 
 
     # get app config 
-    app_config = testlib.blockstack_cli_app_get_config( "foo.test", appname="bar" )
+    app_config = testlib.blockstack_cli_app_get_config( "foo.test", "ping.app" )
     if 'error' in app_config:
         print "failed to get app config\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
         return False
 
     # inspect...
     app_config = app_config['config']
+    print json.dumps(app_config, indent=4, sort_keys=True)
 
-    if app_config['driver_hints'] != ['disk']:
+    if app_config['driver_hints'] != []:
         print "Invalid driver hints\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
         return False
 
-    if app_config['api_methods'] != ['ping']:
+    if app_config['api_methods'] != ['node_read']:
         print "Invalid API list\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
         return False
 
@@ -255,37 +241,8 @@ def check( state_engine ):
         print "Invalid URI records\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
         return False
 
-    # get index file 
-    index_file = testlib.blockstack_cli_app_get_index_file("foo_user_id", "foo.test", "bar")
-    if 'error' in index_file:
-        print "failed to get index file\n{}\n".format(json.dumps(index_file, indent=4, sort_keys=True))
-        return False
-    
-    if index_file['index_file'] != index_file_data:
-        print "got wrong index file:\n{}\n".format(index_file['index_file'])
-        return False
-
-    # verify user exists 
-    bar_data_key = wallets[8]
-    bar_user_info = blockstack_client.user.user_load("bar_user_id", bar_data_key.pubkey_hex, config_path=config_path)
-    if 'error' in bar_user_info:
-        print "no user bar_user_id"
-        print bar_user_info
-        return False
-
-    # verify user private key can be found
-    bar_user = bar_user_info['user']
-    bar_privkey = blockstack_client.user.user_get_privkey(ECPrivateKey(bar_data_key.privkey).to_hex(), bar_user)
-    if bar_privkey is None:
-        print "failed to load bar private key"
-        return False
-
-    bar_pubkey = ECPrivateKey(bar_privkey).public_key().to_hex()
-
-    # verify account exists and is valid
-    bar_account_info = blockstack_client.app.app_load_account("bar_user_id", "foo.test", "bar", bar_pubkey, config_path=config_path)
-    if 'error' in bar_account_info:
-        print "failed to load bar account"
+    if app_config['blockchain_id'] != 'foo.test':
+        print "invalid blockchain ID\n{}\n".format(app_config)
         return False
 
     return True

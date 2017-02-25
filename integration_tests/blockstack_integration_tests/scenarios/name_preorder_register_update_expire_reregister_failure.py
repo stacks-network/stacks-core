@@ -63,13 +63,13 @@ def scenario( wallets, **kw ):
     # preorder, register, update, expire (multiple times)
     # do NOT take into account the new namespace lifetime multipler
     for i in xrange(2, 4):
-        resp = testlib.blockstack_name_preorder( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr )
+        resp = testlib.blockstack_name_preorder( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
         testlib.next_block( **kw )
    
-        resp = testlib.blockstack_name_register( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr )
+        resp = testlib.blockstack_name_register( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
     
@@ -81,7 +81,7 @@ def scenario( wallets, **kw ):
         if i == 3:
             break
 
-        resp = testlib.blockstack_name_update( "foo.test", ("%02x" % i) * 20, wallets[(i+1)%11].privkey )
+        resp = testlib.blockstack_name_update( "foo.test", ("%02x" % i) * 20, wallets[(i+1)%11].privkey, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
         

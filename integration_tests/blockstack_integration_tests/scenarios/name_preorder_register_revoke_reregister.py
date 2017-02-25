@@ -68,7 +68,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # can't do anything with the name for another 10 blocks
-    resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[3].privkey )
+    resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[3].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
