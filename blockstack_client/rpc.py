@@ -3519,11 +3519,16 @@ def local_api_start( port=None, config_dir=blockstack_constants.CONFIG_DIR, fore
         logpath = local_api_logfile_path(config_dir=config_dir)
 
         res = daemonize(logpath, child_wait=lambda: local_api_start_wait(config_path=config_path))
-        if not res:
+        if res < 0:
             log.error("API server failed to start")
             return False
 
-    # daemon now... 
+        if res > 0:
+            # parent 
+            log.debug("Parent {} forked intermediate child {}".format(os.getpid(), res))
+            return True
+        
+    # daemon child takes this path...
     atexit.register(local_api_atexit)
 
     # load up internal RPC methods

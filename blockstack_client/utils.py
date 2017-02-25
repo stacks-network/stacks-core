@@ -23,9 +23,11 @@
 
 import json
 import sys
+import os
+import signal
 
 from config import get_logger
-log = get_logger()
+log = get_logger('blockstack-client')
 
 def exit_with_error(error_message, help_message=None):
 
@@ -101,8 +103,8 @@ def daemonize( logpath, child_wait=None ):
     to block its exit until the child is "ready"
     (i.e. child_wait() returns)
 
-    Return True on success
-    Return False on error
+    Return 0 if we're the daemon child
+    Return >0 if we're the parent
     """
     logfile = open(logpath, 'a+')
 
@@ -117,13 +119,17 @@ def daemonize( logpath, child_wait=None ):
 
         daemon_pid = os.fork()
         if daemon_pid == 0:
-            # daemon!
+            # daemon! chdir and return
             os.chdir('/')
+            return 0
 
         elif daemon_pid > 0:
             # parent (intermediate child)
             # wait for child to fully initialize...
-            res = child_wait()
+            res = True
+            if child_wait is not None:
+                res = child_wait()
+
             if res:
                 sys.exit(0)
             else:
@@ -138,9 +144,14 @@ def daemonize( logpath, child_wait=None ):
         # wait for intermediate child
         pid, status = os.waitpid(child_pid, 0)
         if os.WEXITSTATUS(status) == 0:
-            return True
+            return child_pid
         else:
             log.error("Child exit status {}".format(status))
-            return False
+            return -1
+    
+    else:
+        # failed to fork 
+        log.error("Failed to fork")
+        return -1
 
-    return True
+    return 0
