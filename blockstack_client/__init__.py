@@ -77,5 +77,7 @@ from backend.nameops import *
 
 from scripts import UTXOException, is_name_valid 
 
+from utils import daemonize
+
 # legacy compatibility
 from virtualchain import SPVClient
