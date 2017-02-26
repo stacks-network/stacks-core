@@ -429,9 +429,9 @@ class RegistrarWorker(threading.Thread):
             log.info("Replicate profile data for %s to %s" % (name_data['fqu'], ",".join(storage_drivers)))
             
             profile_payload = copy.deepcopy(name_data['profile'])
-            profile_hash = hashlib.sha256(json.dumps(profile_payload, sort_keys=True)).hexdigest()
+            profile_hash = hashlib.sha256(name_data['fqu'] + zonefile_hash + json.dumps(profile_payload, sort_keys=True)).hexdigest()
 
-            # did we replicate this profile already?
+            # did we replicate this profile for this name and zonefile already?
             if profile_hash in replicated_profile_hashes:
                 # already replicated
                 log.debug("Already replicated profile for {}".format(name_data['fqu']))
