@@ -130,7 +130,7 @@ def scenario( wallets, **kw ):
     balance_before = testlib.get_balance(wallets[3].addr)
 
     # can we move the funds?
-    res = testlib.blockstack_REST_call('POST', '/v1/wallet/balance', None, api_pass=api_pass, data={'address': wallets[5].addr} )
+    res = testlib.blockstack_REST_call('POST', '/v1/wallet/balance', None, api_pass=api_pass, data={'address': wallets[3].addr} )
     if res['http_status'] != 200:
         res['test'] = 'failed to transfer funds'
         print json.dumps(res)
@@ -152,8 +152,8 @@ def scenario( wallets, **kw ):
         print 'new balance of {} is {}'.format(wallets[5].addr, new_balance)
         return False
 
-    if abs(balance_before + wallet_balance - balance_after) > 5500:
-        print "{} + {} != {}".format(balance_before, wallet_balance, balance_after)
+    if abs(balance_before + wallet_balance - balance_after) > 10000:
+        print "{} + {} !~= {}".format(balance_before, wallet_balance, balance_after)
         return False
     
 
