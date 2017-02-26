@@ -25,6 +25,8 @@ import testlib
 import json
 import pybitcoin
 import base58
+import keychain
+import virtualchain
 
 def testnet_encode( pk_wif ):
     s = pybitcoin.b58check_decode(pk_wif )
@@ -35,8 +37,6 @@ def testnet_encode( pk_wif ):
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
-    testlib.Wallet( testnet_encode("KwEaiBYPRnbSYf1QWrytMjw8BSjeGd2rUu61k7bzQHjU2aZvqBA1"), 100000000000 ),  # NOTE: derived from wallets[1].privkey (first child)
-    testlib.Wallet( testnet_encode("KyHBQKCDF5jRaAL1LNvDEvYAp5UKJpyqp591uXJX9z881StZWhCE"), 100000000000 ),   # NOTE: derived from wallets[1].privkey (second child)
     testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 )
 ]
 
@@ -57,19 +57,35 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
     testlib.next_block( **kw )
 
+    # derive importer keys and do imports
+    # NOTE: breaks consensus trace from 0.14.0
+    private_keychain = keychain.PrivateKeychain.from_private_key( wallets[1].privkey )
+    private_keys = [wallets[1].privkey]     # NOTE: always start with the reveal key, then use children
+    for i in xrange(0, 3):
+        import_key = private_keychain.child(i).private_key()
+
+        print "fund {} (child {})".format(import_key, i)
+        res = testlib.send_funds( wallets[1].privkey, 100000000, virtualchain.BitcoinPrivateKey(import_key).public_key().address() )
+        if 'error' in res:
+            print json.dumps(res, indent=4, sort_keys=True)
+            return False
+
+        testlib.next_block(**kw)
+        private_keys.append(import_key)
+
     resp = testlib.blockstack_name_import( "foo.test", addr_reencode("1BKufFedDrueBBFBXtiATB2PSdsBGZxf3N"), "11" * 20, wallets[1].privkey )    # master
     if 'error' in resp:
         print json.dumps(resp, indent=4 )
 
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_name_import( "foo.test", addr_reencode("1ARVjrtKnUVWt2GNrpuFLnNCL2WGUhKdkW"), "33" * 20, wallets[3].privkey )    # derived child 2
+    resp = testlib.blockstack_name_import( "foo.test", addr_reencode("1ARVjrtKnUVWt2GNrpuFLnNCL2WGUhKdkW"), "33" * 20, private_keys[2] )    # derived child 2
     if 'error' in resp:
         print json.dumps(resp, indent=4 )
 
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_name_import( "foo.test", addr_reencode("1PYu4vKB3g2QLDFdurxqYSJ9aJSed7tne1"), "22" * 20, wallets[2].privkey )    # derived child 1
+    resp = testlib.blockstack_name_import( "foo.test", addr_reencode("1PYu4vKB3g2QLDFdurxqYSJ9aJSed7tne1"), "22" * 20, private_keys[1] )    # derived child 1
     if 'error' in resp:
         print json.dumps(resp, indent=4 )
 
