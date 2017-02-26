@@ -643,8 +643,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         request = self._read_json(schema=request_schema)
         if request is None:
-            self._reply_json({"error": 'Invalid request'}, status_code=401)
-            return
+            return self._reply_json({"error": 'Invalid request'}, status_code=401)
 
         name = request['name']
         zonefile_txt = request.get('zonefile', None)
@@ -677,9 +676,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if name in res:
             # renew
             for prop in request_schema['properties'].keys():
-                if prop in request.keys() and prop != 'name':
+                if prop in request.keys() and prop not in ['name', 'tx_fee']:
                     # invalid argument 
-                    self._reply_json({'error': 'Invalid argument'}, status_code=401)
+                    log.debug("Invalid argument {}".format(prop))
+                    return self._reply_json({'error': 'Invalid argument'}, status_code=401)
 
             op = 'renew'
             res = internal.cli_renew(name, interactive=False, cost_satoshis=cost_satoshis, tx_fee=tx_fee)
@@ -691,16 +691,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if 'error' in res:
             log.error("Failed to {} {}".format(op, name))
-            self._reply_json({"error": "Failed to {} name: {}".format(op, res['error'])}, status_code=500)
-            return
+            return self._reply_json({"error": "Failed to {} name: {}".format(op, res['error'])}, status_code=500)
 
         resp = {
             'success': True,
             'transaction_hash': res['transaction_hash'],
             'message': 'Name queued for registration.  The process takes several hours.  You can check the status with `blockstack info`.',
         }
-        self._reply_json(resp, status_code=202)
-        return
+        return self._reply_json(resp, status_code=202)
 
 
     def GET_name_info( self, ses, path_info, name ):
@@ -1302,7 +1300,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if res.has_key('errno'):
                 # propagate an error code, if possible
                 if res['errno'] in self.http_errors:
-                    return self._send_headers(status_code=http_errors[res['errno']], content_type='text/plain')
+                    return self._send_headers(status_code=self.http_errors[res['errno']], content_type='text/plain')
             
             err = {'error': 'Failed to read {}: {}'.format(inode_type, res['error'])}
             self._reply_json(err, status_code=500)
