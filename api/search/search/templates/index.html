@@ -29,132 +29,63 @@
 	<meta property="og:site_name" content='{{ site_name }}'/>
 	<meta property="og:description" content="{description}" />
 
+	<!-- Place favicon.ico and apple-touch-icon.png in the root directory -->
+	<link rel="shortcut icon" href="/favicon.ico?v=2">
+	<link rel="apple-touch-icon" sizes="29x29" href="/images/apple-touch-icons/29.png" />
+	<link rel="apple-touch-icon" sizes="40x40" href="/images/apple-touch-icons/40.png" />
+	<link rel="apple-touch-icon" sizes="58x58" href="/images/apple-touch-icons/58.png" />
+	<link rel="apple-touch-icon" sizes="60x60" href="/images/apple-touch-icons/60.png" />
+	<link rel="apple-touch-icon" sizes="76x76" href="/images/apple-touch-icons/76.png" />
+	<link rel="apple-touch-icon" sizes="80x80" href="/images/apple-touch-icons/80.png" />
+	<link rel="apple-touch-icon" sizes="120x120" href="/images/apple-touch-icons/120.png" />
+	<link rel="apple-touch-icon" sizes="152x152" href="/images/apple-touch-icons/152.png" />
+	<link rel="apple-touch-icon" sizes="167x167" href="/images/apple-touch-icons/167.png" />
+	<link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icons/180.png" />
+	<link rel="apple-touch-icon" href="/images/apple-touch-icons/touch-icon-iphone.png" />
 
-
-
-
-<!-- Place favicon.ico and apple-touch-icon.png in the root directory -->
-<link rel="shortcut icon" href="/favicon.ico?v=2">
-<link rel="apple-touch-icon" sizes="29x29" href="/images/apple-touch-icons/29.png" />
-<link rel="apple-touch-icon" sizes="40x40" href="/images/apple-touch-icons/40.png" />
-<link rel="apple-touch-icon" sizes="58x58" href="/images/apple-touch-icons/58.png" />
-<link rel="apple-touch-icon" sizes="60x60" href="/images/apple-touch-icons/60.png" />
-<link rel="apple-touch-icon" sizes="76x76" href="/images/apple-touch-icons/76.png" />
-<link rel="apple-touch-icon" sizes="80x80" href="/images/apple-touch-icons/80.png" />
-<link rel="apple-touch-icon" sizes="120x120" href="/images/apple-touch-icons/120.png" />
-<link rel="apple-touch-icon" sizes="152x152" href="/images/apple-touch-icons/152.png" />
-<link rel="apple-touch-icon" sizes="167x167" href="/images/apple-touch-icons/167.png" />
-<link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icons/180.png" />
-<link rel="apple-touch-icon" href="/images/apple-touch-icons/touch-icon-iphone.png" />
-
-<link href='https://fonts.googleapis.com/css?family=Raleway:400,100,100italic,200italic,200,300,300italic,400italic,800italic,800,700italic,700,600,600italic,500italic,500' rel='stylesheet' type='text/css'>
-<link href="https://fonts.googleapis.com/css?family=Source+Code+Pro:300,400,500,600,700" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css?family=Lato:300,300i,400,400i,700,700i" rel="stylesheet">
-<link rel="stylesheet" href="/css/bootstrap.min.css" />
-<link rel="stylesheet" href="/css/font-awesome.min.css" />
-<link rel="stylesheet" href="/css/sunburst.css" />
-<link rel="stylesheet" href="/css/main.css" />
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-	<link href="{{ url_for('static', filename='css/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
-	<link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
-
-	<link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon" />
+	<link href="https://fonts.googleapis.com/css?family=Source+Code+Pro:300,400,500,600,700" rel="stylesheet">
+	<link href="https://fonts.googleapis.com/css?family=Lato:300,300i,400,400i,700,700i" rel="stylesheet">
+	<link rel="stylesheet" href="/static/css/bootstrap/bootstrap.min.css" />
+	<link rel="stylesheet" href="/static/css/font-awesome.min.css" />
+	<link rel="stylesheet" href="/static/css/sunburst.css" />
+	<link rel="stylesheet" href="/static/css/styles.css" />
 
 	<!-- SUPPORT FOR IE6-8 OF HTML5 ELEMENTS -->
 	<!--[if lt IE 9]>
 		  <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
 	<![endif]-->
 
-	{% block scripts %}
-		<script src="{{ url_for('static', filename='js/bootstrap/bootstrap.min.js') }}"></script>
-	{% endblock %}
-	{% endblock %}
-  </head>
-  <body>
-
-	<div class="navbar navbar-fixed-top">
-		<div class="pull-left navbar-default navbar-subtle hidden-xs hidden-sm">
-			<div class="navbar-header">
-				<a class="navbar-brand" href="/">
-					{{ logo() }}
-				</a>
-				<a class="tagline" href="/">api</a>
-			</div>
-		</div>
-	{% endblock %}
-	</div>
-	<div class="navbar navbar-fixed-top navbar-default navbar-subtle visible-xs visible-sm">
-	{% block mobile_navbar %}
-		<div class="container-fluid">
-			<div class="navbar-header">
-				<button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
-					<span class="icon-bar"></span>
-					<span class="icon-bar"></span>
-					<span class="icon-bar"></span>
-				</button>
-				<a class="navbar-brand" href="/docs">
-					{{ logo() }}
-				</a>
-				<a class="tagline" href="/#getstarted">api</a>
-			</div>
-			<!-- mobile .navbar-collapse - changes here need to reflect on sidebar nav -->
-			<div class="navbar-collapse collapse">
-			  <ul class="nav navbar-nav navbar-right visible-xs visible-sm">
-					<li>
-					  <a href="/#get-started">Getting Started</a>
-					</li>
-					<li>
-						<h5 class="navheader">Users</h5>
-					</li>
-					<li>
-					  <a href="/#lookup_users">Lookup users</a>
-					</li>
-					<li>
-					  <a href="/#register_user">Register a user</a>
-					</li>
-					<li>
-						<a href="/#search_users">Search for a user</a>
-					</li>
-					<li>
-						<a href="/#userbase_stats">Get userbase stats</a>
-					</li>
-					<li>
-						<h5 class="navheader">Transactions</h5>
-					</li>
-					<li>
-						<a href="/#broadcast_transaction">Broadcast a transaction</a>
-					</li>
-					<li>
-						<h5 class="navheader">Addresses</h5>
-					</li>
-					<li>
-						<a href="/#lookup_address">Lookup an address</a>
-					</li>
-					<li>
-					  <a href="/signup">Sign up</a>
-					</li>
-			  </ul>
-			</div><!--/.navbar-collapse -->
-		</div>
-	{% endblock %}
-	</div>
-
-	{% block content %}
-	{% endblock %}
+	<script src="/static/js/bootstrap/bootstrap.min.js"></script>
+</head>
+<body>
+	<div class="navbar-fixed-top bg-primary">
+		<header class="container nav-header">
+      <nav class="navbar navbar-toggleable-md">          
+        <a href="/" class="navbar-brand brand-bug">
+          <img src="/static/images/blockstack-bug-rev.svg">
+        </a>
+        <a href="/" class="navbar-brand">
+        	<img src="/static/images/blockstack-logo-landscape-rev.svg">
+        </a>
+        <ul class="navbar-nav">
+          <li class="nav-item">
+            <a href="/" class="nav-link">Intro</a>
+          </li>
+          <li class="nav-item">
+            <a href="/" class="nav-link">Docs</a>
+          </li>
+          <li class="nav-item">
+            <a href="/" class="nav-link">Blog</a>
+          </li>
+          <li class="nav-item">
+            <a href="/" class="nav-link">Papers</a>
+          </li>
+          <li class="nav-item">
+            <a href="/" class="nav-link">Videos</a>
+          </li>
+        </ul>
+      </nav>
+    </header>
+  </div>
 </body>
 </html>
