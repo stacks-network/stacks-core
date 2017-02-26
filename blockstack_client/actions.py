@@ -920,7 +920,7 @@ def cli_whois(args, config_path=CONFIG_PATH):
     if update_heights:
         result['last_transaction_height'] = update_heights[-1]
 
-    expire_block = record.get('expired_block', None)
+    expire_block = record.get('expire_block', None)
     if expire_block is not None:
         result['expire_block'] = expire_block
 
@@ -2936,21 +2936,17 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None, tx_fee=N
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
 
-    if 'success' in resp and resp['success']:
-        result = resp
-        analytics_event('Set zonefile hash', {})
-        return result
-
     if 'error' in resp:
+        log.debug('RPC error: {}'.format(resp['error']))
         return resp
 
-    if 'message' in resp:
+    if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
 
     analytics_event('Set zonefile hash', {})
 
-    result['zonefile_hash'] = zonefile_hash
-    return result
+    resp['zonefile_hash'] = zonefile_hash
+    return resp
 
 
 def cli_unqueue(args, config_path=CONFIG_PATH):
