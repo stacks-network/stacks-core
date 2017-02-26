@@ -116,7 +116,7 @@ def scenario( wallets, **kw ):
         return False
 
     # register the name bar.test 
-    res = testlib.blockstack_REST_call('POST', '/v1/names', None, api_pass=api_pass )
+    res = testlib.blockstack_REST_call('POST', '/v1/names', None, api_pass=api_pass, data={'name': 'bar.test'} )
     if 'error' in res:
         res['test'] = 'Failed to register user'
         print json.dumps(res)
