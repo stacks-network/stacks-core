@@ -103,7 +103,7 @@ def scenario( wallets, **kw ):
 
     # send an update, changing the zonefile
     data_pubkey = wallet['data_pubkey']
-    zonefile = blockstack_client.user.make_empty_user_zonefile( "foo.test", data_pubkey )
+    zonefile = blockstack_client.zonefile.make_empty_zonefile( "foo.test", data_pubkey )
     blockstack_client.user.put_immutable_data_zonefile( zonefile, "testdata", blockstack_client.get_data_hash("testdata"), data_url="file:///testdata")
     zonefile_json = json.dumps(zonefile)
 

@@ -95,6 +95,17 @@ def scenario( wallets, **kw ):
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
     time.sleep(10)
+    
+    # wait for zonefile posting
+    for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
+        testlib.next_block( **kw )
+
+    print >> sys.stderr, "Waiting 10 seconds for the backend to send zonefile"
+    time.sleep(10)
 
     # what's the name's renewal block?
     proxy = testlib.make_proxy()
@@ -107,7 +118,7 @@ def scenario( wallets, **kw ):
 
     # send an update, changing the zonefile
     data_pubkey = wallet['data_pubkey']
-    zonefile = blockstack_client.user.make_empty_user_zonefile( "foo.test", data_pubkey )
+    zonefile = blockstack_client.zonefile.make_empty_zonefile( "foo.test", data_pubkey )
     blockstack_client.user.put_immutable_data_zonefile( zonefile, "testdata", blockstack_client.get_data_hash("testdata"), data_url="file:///testdata")
     zonefile_json = json.dumps(zonefile)
 

@@ -94,7 +94,7 @@ def scenario( wallets, **kw ):
     
     # store a new zonefile
     data_pubkey = wallet['data_pubkey']
-    zonefile = blockstack_client.user.make_empty_user_zonefile( "foo.test", data_pubkey )
+    zonefile = blockstack_client.zonefile.make_empty_zonefile( "foo.test", data_pubkey )
     assert blockstack_client.user.put_immutable_data_zonefile( zonefile, "testdata", blockstack_client.get_data_hash("testdata") )
 
     zonefile_txt = blockstack_zones.make_zone_file( zonefile )
@@ -145,18 +145,17 @@ def scenario( wallets, **kw ):
     blockstack_client.backend.queue.queuedb_remove("update", "foo.test", txhash, path=queuedb_path )
 
     print >> sys.stderr, "\nstarting RPC daemon\n"
-    blockstack_client.actions.start_rpc_endpoint(config_dir, password="0123456789abcdef")
-    time.sleep(3)
+    testlib.start_api("0123456789abcdef")
 
     # store a new zonefile
-    zonefile = blockstack_client.user.make_empty_user_zonefile( "foo.test", data_pubkey )
+    zonefile = blockstack_client.zonefile.make_empty_zonefile( "foo.test", data_pubkey )
     blockstack_client.user.put_immutable_data_zonefile( zonefile, "testdata2", blockstack_client.get_data_hash("testdata") )
 
     zonefile_txt = blockstack_zones.make_zone_file( zonefile )
     zonefile_hash = blockstack_client.storage.get_zonefile_data_hash( zonefile_txt )
 
     # store locally 
-    res = blockstack_client.profile.store_name_zonefile("foo.test", zonefile, None, storage_drivers=['disk'])
+    res = blockstack_client.zonefile.store_name_zonefile("foo.test", zonefile, None, storage_drivers=['disk'])
     if 'error' in res:
         print >> sys.stderr, "\nFailed to store zonefile: %s\n" % res
         return False
