@@ -222,12 +222,12 @@ def check( state_engine ):
 
     # check queue operations 
     for queue_type, queue_state in [("preorder", preorder_info), ("register", register_info), ("update", update_info)]:
-        if not queue_state.has_key('queue'):
+        if not queue_state.has_key('queues'):
             print "missing queues:\n%s" % json.dumps(queue_state, indent=4, sort_keys=True)
             return False
 
         for k in ['name', 'confirmations', 'tx_hash']:
-            for q in queue_state['queue'][queue_type]:
+            for q in queue_state['queues'][queue_type]:
                 if not q.has_key(k):
                     print "missing key %s\n%s" % (k, json.dumps(queue_state, indent=4, sort_keys=True))
                     return False
@@ -381,9 +381,9 @@ def check( state_engine ):
         print "invalid immutable_data: %s" % immutable_data
         return False 
 
-    if immutable_data['data'] != {'hello': 'world'}:
+    if json.loads(immutable_data['data']) != {'hello': 'world'}:
         print "failed to get immutable data"
-        print 'exected %s, got %s' % ({'hello', 'world'}, immutable_data['data'])
+        print 'exected %s, got %s' % ({'hello': 'world'}, immutable_data['data'])
         return False
 
     return True
