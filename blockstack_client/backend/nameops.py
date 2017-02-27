@@ -1658,16 +1658,18 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, tx_fee=N
         return {'error': 'Failed to sign and broadcast preorder transaction'}
 
     if 'transaction_hash' in resp:
-        # watch this preorder, and register it when it gets queued
-        queue_append("preorder", fqu, resp['transaction_hash'],
-                     payment_address=payment_address,
-                     owner_address=owner_address,
-                     transfer_address=name_data.get('transfer_address'),
-                     zonefile_data=name_data.get('zonefile'),
-                     profile=name_data.get('profile'),
-                     config_path=config_path,
-                     path=queue_path)
+        if not BLOCKSTACK_DRY_RUN:
+            # watch this preorder, and register it when it gets queued
+            queue_append("preorder", fqu, resp['transaction_hash'],
+                         payment_address=payment_address,
+                         owner_address=owner_address,
+                         transfer_address=name_data.get('transfer_address'),
+                         zonefile_data=name_data.get('zonefile'),
+                         profile=name_data.get('profile'),
+                         config_path=config_path,
+                         path=queue_path)
     else:
+        assert 'error' in resp
         log.error("Error preordering: %s with %s for %s" % (fqu, payment_address, owner_address))
         log.error("Error below\n%s" % json.dumps(resp, indent=4, sort_keys=True))
         return {'error': 'Failed to preorder: %s' % resp['error']}
@@ -1731,21 +1733,23 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, tx_fee=None, n
         return {'error': 'Failed to sign and broadcast registration transaction'}
 
     if 'transaction_hash' in resp:
-        queue_append("register", fqu, resp['transaction_hash'],
-                     payment_address=payment_address,
-                     owner_address=owner_address,
-                     transfer_address=name_data.get('transfer_address'),
-                     zonefile_data=name_data.get('zonefile'),
-                     profile=name_data.get('profile'),
-                     config_path=config_path,
-                     path=queue_path)
+        if not BLOCKSTACK_DRY_RUN:
+            queue_append("register", fqu, resp['transaction_hash'],
+                         payment_address=payment_address,
+                         owner_address=owner_address,
+                         transfer_address=name_data.get('transfer_address'),
+                         zonefile_data=name_data.get('zonefile'),
+                         profile=name_data.get('profile'),
+                         config_path=config_path,
+                         path=queue_path)
 
         return resp
 
     else:
+        assert 'error' in resp
         log.error("Error registering: %s" % fqu)
-        log.error(pprint(resp))
-        return {'error': 'Failed to send registration'}
+        log.error(resp)
+        return {'error': 'Failed to send registration: {}'.format(resp['error'])}
 
 
 def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privkey_info,
@@ -1808,22 +1812,24 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
         return {'error': 'Failed to sign and broadcast update transaction'}
 
     if 'transaction_hash' in resp:
-        queue_append("update", fqu, resp['transaction_hash'],
-                     zonefile_data=zonefile_data,
-                     profile=profile,
-                     zonefile_hash=zonefile_hash,
-                     owner_address=owner_address,
-                     transfer_address=name_data.get('transfer_address'),
-                     config_path=config_path,
-                     path=queue_path)
+        if not BLOCKSTACK_DRY_RUN:
+            queue_append("update", fqu, resp['transaction_hash'],
+                         zonefile_data=zonefile_data,
+                         profile=profile,
+                         zonefile_hash=zonefile_hash,
+                         owner_address=owner_address,
+                         transfer_address=name_data.get('transfer_address'),
+                         config_path=config_path,
+                         path=queue_path)
 
         resp['zonefile_hash'] = zonefile_hash
         return resp
 
     else:
+        assert 'error' in resp
         log.error("Error updating: %s" % fqu)
-        log.error("Full response: %s" % json.dumps(resp))
-        return {'error': 'Failed to broadcast update transaction'}
+        log.error(resp)
+        return {'error': 'Failed to broadcast update transaction: {}'.format(resp['error'])}
 
 
 def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_info, 
@@ -1861,15 +1867,17 @@ def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
         return {'error': 'Failed to sign and broadcast transfer transaction'}
 
     if 'transaction_hash' in resp:
-        queue_append("transfer", fqu, resp['transaction_hash'],
-                     owner_address=owner_address,
-                     transfer_address=transfer_address,
-                     config_path=config_path,
-                     path=queue_path)
+        if not BLOCKSTACK_DRY_RUN:
+            queue_append("transfer", fqu, resp['transaction_hash'],
+                         owner_address=owner_address,
+                         transfer_address=transfer_address,
+                         config_path=config_path,
+                         path=queue_path)
     else:
+        assert 'error' in resp
         log.error("Error transferring: %s" % fqu)
         log.error(resp)
-        return {'error': 'Failed to broadcast transfer transaction'}
+        return {'error': 'Failed to broadcast transfer transaction: {}'.format(resp['error'])}
 
     return resp
 
@@ -1907,14 +1915,15 @@ def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee,
     if 'error' in resp or 'transaction_hash' not in resp:
         log.error("Error renewing: %s" % fqu)
         log.error(resp)
-        return {'error': 'Failed to send renewal'}
+        return {'error': 'Failed to send renewal: {}'.format(resp['error'])}
 
     else:
         if 'transaction_hash' in resp:
-            queue_append("renew", fqu, resp['transaction_hash'],
-                         owner_address=owner_address,
-                         config_path=config_path,
-                         path=queue_path)
+            if not BLOCKSTACK_DRY_RUN:
+                queue_append("renew", fqu, resp['transaction_hash'],
+                             owner_address=owner_address,
+                             config_path=config_path,
+                             path=queue_path)
         return resp
 
 
@@ -1952,13 +1961,14 @@ def async_revoke(fqu, owner_privkey_info, payment_privkey_info,
     if 'error' in resp or 'transaction_hash' not in resp:
         log.error("Error revoking: %s" % fqu)
         log.error(resp)
-        return {'error': 'Failed to send revoke'}
+        return {'error': 'Failed to send revoke: {}'.format(resp['error'])}
 
     else:
         if 'transaction_hash' in resp:
-            queue_append("revoke", fqu, resp['transaction_hash'],
-                         owner_address=owner_address,
-                         config_path=config_path,
-                         path=queue_path)
+            if not BLOCKSTACK_DRY_RUN:
+                queue_append("revoke", fqu, resp['transaction_hash'],
+                             owner_address=owner_address,
+                             config_path=config_path,
+                             path=queue_path)
 
         return resp
