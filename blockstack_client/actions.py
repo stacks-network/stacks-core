@@ -982,7 +982,7 @@ def get_wallet_keys(config_path, password):
 
     status = local_api_status(config_dir=os.path.dirname(config_path))
     if not status:
-        return {'error': 'API endpoint not running. Please start it with `api start`'}
+        return {'error': 'API endpoint not running. Please start it with `blockstack api start`'}
     
     if not is_wallet_unlocked(config_dir=config_dir):
         log.debug('unlocking wallet ({})'.format(config_dir))
@@ -1055,13 +1055,17 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
     opt: recipient (str) 'The recipient address, if not this wallet'
     opt: min_confs (int) 'The minimum number of confirmations on the initial preorder'
     """
+
+    config_dir = os.path.dirname(config_path)
+    if not local_api_status(config_dir=config_dir):
+        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
+
     proxy = get_default_proxy(config_path) if proxy is None else proxy
     password = get_default_password(password)
 
     conf = config.get_config(config_path)
     assert conf 
 
-    config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
@@ -1187,7 +1191,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
                 'times.\n\n'
                 'Continue? (y/N): '
             )
-            input_prompt = input_prompt.format(fqu, satoshis_to_btc(cost))
+            input_prompt = input_prompt.format(fqu, cost['btc'])
             user_input = raw_input(input_prompt)
             user_input = user_input.lower()
 
@@ -1239,6 +1243,10 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     opt: nonstandard (str) 'If true, then do not validate or parse the zonefile.'
     """
 
+    config_dir = os.path.dirname(config_path)
+    if not local_api_status(config_dir=config_dir):
+        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
+
     if not interactive and getattr(args, 'data', None) is None:
         return {'error': 'Zone file data required in non-interactive mode'}
 
@@ -1252,7 +1260,6 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     conf = config.get_config(config_path)
     assert conf
 
-    config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
@@ -1365,12 +1372,15 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     arg: address (str) 'The address to receive the name'
     """
 
+    config_dir = os.path.dirname(config_path)
+    if not local_api_status(config_dir=config_dir):
+        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
+
     proxy = get_default_proxy() if proxy is None else proxy
     password = get_default_password(password)
     conf = config.get_config(config_path)
     assert conf
 
-    config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
@@ -1416,6 +1426,10 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     arg: name (str) 'The name to renew'
     """
 
+    config_dir = os.path.dirname(config_path)
+    if not local_api_status(config_dir=config_dir):
+        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
@@ -1424,7 +1438,6 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     conf = config.get_config(config_path)
     assert conf
 
-    config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
@@ -1514,6 +1527,10 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
     arg: name (str) 'The name to revoke'
     """
 
+    config_dir = os.path.dirname(config_path)
+    if not local_api_status(config_dir=config_dir):
+        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
@@ -1522,7 +1539,6 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
     conf = config.get_config(config_path)
     assert conf
 
-    config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
@@ -1583,11 +1599,14 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     opt: force (str) 'Reset the zone file no matter what.'
     """
 
+    config_dir = os.path.dirname(config_path)
+    if not local_api_status(config_dir=config_dir):
+        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
+
     password = get_default_password(password)
     conf = config.get_config(config_path)
     assert conf
 
-    config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
         return res
@@ -2181,7 +2200,7 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
     if not local_api_status(config_dir=config_dir):
         return {'status': True}
 
-    # load into RPC daemon 
+    # load into RPC daemon, if it is running
     rpc = local_api_connect(config_dir=config_dir)
     if rpc is None:
         log.error("Failed to connect to API endpoint. Trying to shut it down...")
@@ -2417,6 +2436,11 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH):
     arg: privatekey (str) 'The private key to send and pay for the preorder'
     opt: reveal_addr (str) 'The address of the keypair that will import names (automatically generated if not given)'
     """
+
+    config_dir = os.path.dirname(config_path)
+    if not local_api_status(config_dir=config_dir):
+        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
+
     # BROKEN
     reveal_addr = None
     if args.address is not None:
@@ -2445,6 +2469,11 @@ def cli_namespace_reveal(args, config_path=CONFIG_PATH):
     arg: no_vowel_discount (int) 'The denominator that defines the discount for names without vowels.'
     arg: privatekey (str) 'The private key of the import keypair (whose address is `addr` above).'
     """
+
+    config_dir = os.path.dirname(config_path)
+    if not local_api_status(config_dir=config_dir):
+        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
+
     # BROKEN
     bucket_exponents = args.bucket_exponents.split(',')
     if len(bucket_exponents) != 16:
@@ -2486,6 +2515,10 @@ def cli_namespace_ready(args, config_path=CONFIG_PATH):
     arg: namespace_id (str) 'The namespace ID'
     arg: privatekey (str) 'The private key of the keypair that imports names'
     """
+    config_dir = os.path.dirname(config_path)
+    if not local_api_status(config_dir=config_dir):
+        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
+
     # BROKEN
     result = namespace_ready(
         str(args.namespace_id),
