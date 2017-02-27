@@ -832,20 +832,27 @@ def check_operations( fqu, operations, owner_privkey_info, payment_privkey_info,
     opchecks = interpret_operation_sanity_checks( fqu, operations, sg )
     if 'error' in opchecks:
         log.error("Failed to interpret operation sanity checks")
-        return {'error': 'Failed to interpret operation sanity checks', 'opchecks': opchecks}
+        return {'error': 'Failed operation sanity checks:\n{}'.format(opchecks['error']), 'opchecks': opchecks}
 
     failed_checks = []
+    failed_check_errors = {}
     for res_name in required_checks + ['get_balance']:
         if 'error' in sg.get_result(res_name):
             log.debug("Task '{}' reports error: {}".format(res_name, sg.get_result(res_name)['error']))
-            return sg.get_result(res_name)
+            failed_checks.append(res_name)
+            failed_check_errors[res_name] = 'Reason: {}'.format(sg.get_result(res_name)['error'])
 
         if not sg.get_result(res_name)['status']:
             log.debug("Task '{}' did not succeed".format(res_name))
             failed_checks.append(res_name)
+            failed_check_errors[res_name] = ''
 
     if len(failed_checks) > 0:
-        return {'error': 'Unable to {} name:\n{}'.format(','.join(operations), '\n'.join(['  * check "{}" failed'.format(reason) for reason in failed_checks])), 'opchecks': opchecks}
+        return {'error': 'Unable to {} name:\n{}'.format(
+                    ','.join(operations),
+                    '\n'.join(['  * check "{}" failed.  {}'.format(check, failed_check_errors.get(res_name, "")) for check in failed_checks])
+                ),
+                'opchecks': opchecks}
 
     balance = sg.get_result('get_balance')['status']
 
