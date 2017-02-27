@@ -562,7 +562,8 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
     # get results 
     fees = interpret_operation_fees(operations, sg)
     if 'error' in fees:
-        return fees
+        log.error("Failed to get operation fees: {}".format(fees['error']))
+        return {'error': 'Failed to get some operation fees: {}.  Try again with `--debug` for details.'.format(fees['error'])}
 
     analytics_event('Name price', {})
 
