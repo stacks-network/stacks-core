@@ -179,6 +179,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     cli_config_argv = False
     cli_default_yes = False
     cli_api_pass = None
+    cli_dry_run = False
 
     if '-v' in argv or '--version' in argv:
         print(VERSION)
@@ -227,7 +228,9 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         sys.exit(1)
 
     if cli_default_yes or os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES") == "1":
-        print("Assume YES to all interactive prompts", file=sys.stderr)
+        if cli_debug:
+            print("Assume YES to all interactive prompts", file=sys.stderr)
+
         os.environ["BLOCKSTACK_CLIENT_INTERACTIVE_YES"] = '1'
 
     # API password?
@@ -240,9 +243,23 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     if cli_api_pass:
         os.environ['BLOCKSTACK_API_PASSWORD'] = cli_api_pass
 
-    if cli_config_argv or cli_debug:
+    # dry-run?
+    new_argv, cli_dry_run = find_arg(argv, False, '-n', '--dry-run')
+    if new_argv is None:
+        # invalid
+        sys.exit(1)
+
+    if cli_dry_run or os.environ.get("BLOCKSTACK_DRY_RUN") == "1":
+        if cli_debug:
+            print('Dry-run; no transactions will be sent', file=sys.stderr)
+
+        os.environ['BLOCKSTACK_DRY_RUN'] = "1"
+
+    if cli_config_argv or cli_debug or cli_dry_run:
         # re-exec to reset variables
-        print("Re-exec {} with {}".format(argv[0], argv))
+        if cli_debug:
+            print("Re-exec {} with {}".format(argv[0], argv))
+
         os.execv( argv[0], argv )
 
     # do one-time opt-in request
