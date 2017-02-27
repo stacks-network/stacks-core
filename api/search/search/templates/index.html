@@ -58,25 +58,48 @@
 	<script src="/static/js/bootstrap/bootstrap.min.js"></script>
 </head>
 <body>
-	<div class="navbar-fixed-top bg-primary">
-		<header class="container nav-header">
-      <nav class="navbar navbar-toggleable-md">          
-        <a href="/" class="navbar-brand brand-bug">
-          <img src="/static/images/blockstack-bug-rev.svg">
-        </a>
-        <a href="/" class="navbar-brand">
-        	<img src="/static/images/blockstack-logo-landscape-rev.svg">
-        </a>
-        <ul class="navbar-nav">
-          <li class="nav-item">
-            <a href="/" class="nav-link"></a>
-          </li>
-          <li class="nav-item">
-            <a href="/" class="nav-link">Blockstack Search</a>
-          </li>
-        </ul>
-      </nav>
-    </header>
+	<div class="wrapper">
+		<div class="navbar-fixed-top bg-primary">
+			<header class="container nav-header">
+  	    <nav class="navbar navbar-toggleable-md">          
+  	      <a href="/" class="navbar-brand brand-bug">
+  	        <img src="/static/images/blockstack-bug-rev.svg">
+  	      </a>
+  	      <a href="/" class="navbar-brand">
+  	      	<img src="/static/images/blockstack-logo-landscape-rev.svg">
+  	      </a>
+  	      <ul class="navbar-nav">
+  	        <li class="nav-item">
+  	          <a href="/" class="nav-link"></a>
+  	        </li>
+  	        <li class="nav-item">
+  	          <a href="/" class="nav-link">Blockstack Search</a>
+  	        </li>
+  	      </ul>
+  	    </nav>
+  	  </header>
+  	</div>
+  	<div class="container-fluid">
+  	  <div class="container">
+				<section class="hero">
+  	      <div class="col-sm-12 col-md-6">
+  	      	<h1 class="hero-head">
+              Blockstack Search
+            </h1>
+            <p class="lead hero-lead block">
+              The search subsystem for Blockstack Core creates a search index for data associated with names registered on Blockstack. The search subsystem currently indexes the .id namespace but can be easily expanded to include other namespaces.
+            </p>
+            <p class="lead hero-lead block">
+            	You can query this node by sending queries like: <br /><br />
+            	https://search.blockstack.org/search?query=wenger
+            </p>
+            <p class="lead hero-lead block">
+            	You can deploy your own search node by following the instructions on <a href="https://github.com/blockstack/blockstack-core/tree/search/api/search">this Github repo</a>. The search subsystem is part of Blockstack Core, which is released as open-source software.
+            </p>
+  	      </div>
+				</section>
+  	  </div>
+  	</div>
   </div>
 </body>
 </html>

@@ -7,7 +7,7 @@
 
 /* Base structure */
 html, body {-webkit-overflow-scrolling:touch;}
-body{padding-top:0;padding-bottom:0;}
+body{padding-top:0;padding-bottom:0;background-color:#270F34!important;}
 
 /* Spacing */
 .m-t-0{margin-top:0px;}
@@ -96,6 +96,7 @@ a{font-weight:500;}
 .col-centered{float:none;margin:0 auto;}
 .no-padding{padding-right:0;padding-left:0;}
 .bg-primary{background-color:#270F34!important;}
+.hero{color:#fff;margin-top:18%;}
 
 /* Spacing */
 
@@ -124,6 +125,9 @@ body,html,#app,.app-landing{height:100%;}
 .spacing-container{padding-top:102px;padding-bottom:50px;background-color:rgba(248,249,251,1);}
 .foot-feature{margin:0;padding-top:150px;padding-bottom:150px;background-color:#270F34;color:rgba(255,255,255,1);text-align:center;}
 h2.action-title{margin-bottom:35px;font-size:30px;line-height:42px;font-weight:300;}
+.app-center{display:flex;align-items:center;justify-content:center;}
+.app-wrap{width:940px;display:flex;align-items:center;justify-content:center;}
+.app-container{display:flex;align-items:center;justify-content:center;}
 
 
 /* Media queries */
