@@ -571,6 +571,17 @@ class RegistrarWorker(threading.Thread):
             return {'error': 'Failed to contact atlas peer'}
             
         servers = list(set([str(hp) for hp in servers]))
+
+        # if this is empty or contains only `localhost`, then include `node.blockstack.org` for safety 
+        if len(servers) == 0:
+            servers.append('node.blockstack.org:6264')
+
+        elif len(servers) == 1:
+            h, p = url_to_host_port(servers[0])
+            if h in ['localhost', socket.gethostname(), '127.0.0.1', '::1']:
+                log.warning("Also including node.blockstack.org for Atlas zone file dissimination")
+                servers.append("node.blockstack.org:6264")
+
         log.debug("Servers: {}".format(servers))
 
         return [url_to_host_port(hp) for hp in servers]
@@ -1098,6 +1109,9 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
         data['message'] = "Couldn't broadcast transaction. You can try again."
         data['error'] = resp['error']
 
+    if 'tx' in resp:
+        data['tx'] = resp['tx']
+
     return data
 
 
@@ -1172,6 +1186,9 @@ def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, tx_fee,
     if replication_error is not None:
         data['warning'] = "Failed to replicate the zonefile ('%s')" % replication_error
 
+    if 'tx' in resp:
+        data['tx'] = resp['tx']
+
     return data
 
 
@@ -1218,7 +1235,11 @@ def transfer(fqu, transfer_address, tx_fee, config_path=CONFIG_PATH, proxy=None 
         data['transaction_hash'] = resp['transaction_hash']
     else:
         data['success'] = False
-        data['error'] = "Couldn't broadcast transaction. You can try again."
+        data['error'] = resp['error']
+
+    if 'tx' in resp:
+        data['tx'] = resp['tx']
+
     return data
 
 
@@ -1268,6 +1289,8 @@ def renew( fqu, renewal_fee, tx_fee, config_path=CONFIG_PATH, proxy=None ):
         data['message'] = "Couldn't broadcast transaction. You can try again."
         data['error'] = resp['error']
 
+    if 'tx' in resp:
+        data['tx'] = resp['tx']
 
     return data
 
@@ -1318,6 +1341,8 @@ def revoke( fqu, tx_fee, config_path=CONFIG_PATH, proxy=None ):
         data['message'] = "Couldn't broadcast transaction. You can try again."
         data['error'] = resp['error']
 
+    if 'tx' in resp:
+        data['tx'] = resp['tx']
 
     return data
 
