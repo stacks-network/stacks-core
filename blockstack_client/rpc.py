@@ -677,27 +677,32 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             # renew
             for prop in request_schema['properties'].keys():
                 if prop in request.keys() and prop not in ['name', 'tx_fee']:
-                    # invalid argument 
                     log.debug("Invalid argument {}".format(prop))
-                    return self._reply_json({'error': 'Invalid argument'}, status_code=401)
+                    return self._reply_json({'error': 'Name already owned by this wallet'}, status_code=401)
 
             op = 'renew'
+            log.debug("renew {}".format(name))
             res = internal.cli_renew(name, interactive=False, cost_satoshis=cost_satoshis, tx_fee=tx_fee)
 
         else:
             # register
             op = 'register'
+            log.debug("register {}".format(name))
             res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs, interactive=False, force_data=True, cost_satoshis=cost_satoshis, tx_fee=tx_fee)
 
         if 'error' in res:
             log.error("Failed to {} {}".format(op, name))
-            return self._reply_json({"error": "Failed to {} name: {}".format(op, res['error'])}, status_code=500)
+            return self._reply_json({"error": "{} failed.\n{}".format(op, res['error'])}, status_code=500)
 
         resp = {
             'success': True,
             'transaction_hash': res['transaction_hash'],
             'message': 'Name queued for registration.  The process takes several hours.  You can check the status with `blockstack info`.',
         }
+
+        if 'tx' in res:
+            resp['tx'] = res['tx']
+
         return self._reply_json(resp, status_code=202)
 
 
@@ -862,7 +867,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         res = internal.cli_transfer(name, recipient_address, interactive=False, tx_fee=tx_fee)
         if 'error' in res:
             log.error("Failed to transfer {}: {}".format(name, res['error']))
-            self._reply_json({"error": "Failed to register name: {}".format(res['error'])}, status_code=500)
+            self._reply_json({"error": 'Transfer failed.\n{}'.format(res['error'])}, status_code=500)
             return
 
         resp = {
@@ -870,6 +875,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             'transaction_hash': res['transaction_hash'],
             'message': 'Name queued for transfer.  The process takes ~1 hour.  You can check the status with `blockstack info`.',
         }
+        
+        if 'tx' in res:
+            resp['tx'] = res['tx']
+
         self._reply_json(resp, status_code=202)
         return
 
@@ -953,7 +962,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if 'error' in res:
             log.error("Failed to update {}: {}".format(name, res['error']))
-            self._reply_json({"error": "Failed to update: {}".format(res['error'])}, status_code=503)
+            self._reply_json({"error": "Update failed.\n{}".format(res['error'])}, status_code=503)
             return
 
         resp = {
@@ -962,6 +971,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             'transaction_hash': res['transaction_hash'],
             'message': 'Name queued for update.  The process takes ~1 hour.  You can check the status with `blockstack info`.',
         }
+
+        if 'tx' in res:
+            resp['tx'] = res['tx']
+
         self._reply_json(resp, status_code=202)
         return
 
@@ -977,7 +990,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         res = internal.cli_revoke(name, interactive=False)
         if 'error' in res:
             log.error("Failed to revoke {}: {}".format(name, res['error']))
-            self._reply_json({"error": "Failed to revoke name: {}".format(res['error'])}, status_code=500)
+            self._reply_json({"error": "Revoke failed.\n{}".format(res['error'])}, status_code=500)
             return
 
         resp = {
@@ -985,6 +998,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             'transaction_hash': res['transaction_hash'],
             'message': 'Name queued for revocation.  The process takes ~1 hour.  You can check the status with `blockstack info`.'
         }
+
+        if 'tx' in res:
+            resp['tx'] = res['tx']
+
         self._reply_json(resp, status_code=202)
         return
 
@@ -1053,6 +1070,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             'transaction_hash': resp['transaction_hash'],
             'message': 'Name queued for update.  The process takes ~1 hour.  You can check the status with `blockstack info`.'
         }
+
+        if 'tx' in res:
+            ret['tx'] = res['tx']
 
         self._reply_json(ret)
         return
