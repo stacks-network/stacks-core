@@ -505,7 +505,7 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
     operations = getattr(args, 'operations', None)
 
     if transfer_address is not None:
-        transfer_address = str(transfer_addrss)
+        transfer_address = str(transfer_address)
 
     if operations is not None:
         operations = operations.split(',')
@@ -1183,7 +1183,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
             cost = costs['total_estimated_cost']
             input_prompt = (
                 'Registering {} will cost about {} BTC.\n'
-                'Use `blockstack price` for a cost breakdown\n'
+                'Use `blockstack price {}` for a cost breakdown\n'
                 '\n'
                 'The entire process takes 48 confirmations, or about 5 hours.\n'
                 'You need to have Internet access during this time period, so\n'
@@ -1191,7 +1191,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
                 'times.\n\n'
                 'Continue? (y/N): '
             )
-            input_prompt = input_prompt.format(fqu, cost['btc'])
+            input_prompt = input_prompt.format(fqu, cost['btc'], fqu)
             user_input = raw_input(input_prompt)
             user_input = user_input.lower()
 
@@ -1470,12 +1470,24 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     
     if tx_fee is None:
         tx_fee = costs['renewal_tx_fee']['satoshis']
+    
+    if not local_rpc.is_api_server(config_dir=config_dir):
+        # also verify that we own the name
+        _, owner_address, _ = get_addresses_from_file(config_dir=config_dir)
+        assert owner_address
+
+        res = get_names_owned_by_address( owner_address, proxy=proxy )
+        if 'error' in res:
+            return res
+
+        if fqu not in res:
+            return {'error': 'This wallet does not own this name'}
 
     if interactive and os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
         try:
             input_prompt = (
                 'Renewing {} will cost about {} BTC.\n'
-                'Use `blockstack price "" renewal` for a cost breakdown\n'
+                'Use `blockstack price {} "" renewal` for a cost breakdown\n'
                 '\n'
                 'The entire process takes 12 confirmations, or about 2 hours.\n'
                 'You need to have Internet access during this time period, so\n'
@@ -1483,7 +1495,7 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
                 'times.\n\n'
                 'Continue? (y/N): '
             )
-            input_prompt = input_prompt.format(fqu, satoshis_to_btc(cost))
+            input_prompt = input_prompt.format(fqu, cost['btc'], fqu)
             user_input = raw_input(input_prompt)
             user_input = user_input.lower()
 
