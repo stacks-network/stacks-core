@@ -448,6 +448,9 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
         name_cost = None
         try:
             res = get_name_cost(name, proxy=proxy)
+            if 'error' in res:
+                return {'error': 'Failed to get name cost'}
+
             name_cost = res['satoshis']
         except Exception as e:
             log.exception(e)
@@ -739,8 +742,13 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
     if balance is None:
         # extract from running operation sanity checks
         assert 'get_balance' in results
-        balance = results['get_balance']['status']
-        log.debug("Balance is {} satoshis".format(balance))
+        balance = 0
+        if 'error' in results['get_balance'].keys():
+            log.error("Failed to get balance")
+        
+        else:
+            balance = results['get_balance']['status']
+            log.debug("Balance is {} satoshis".format(balance))
 
     failed_tasks = []
     for task in operations:
@@ -753,6 +761,11 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
         assert 'insufficient' in task_res, "Invalid task res: {}".format(task_res)
         assert 'tx_fee' in task_res, "Invalid task res: {}".format(task_res)
 
+        if task_res['tx_fee'] is None:
+            log.error("Task {} failed to get tx fee".format(task))
+            failed_tasks.append(task)
+            continue
+
         insufficient_funds = insufficient_funds or task_res['insufficient']
         estimate = estimate or task_res.get('estimate', False)
 
@@ -763,7 +776,6 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
         total_cost += int(task_res['tx_fee'])
 
         if 'name_cost' in task_res.keys():
-
             log.debug("{} +{} satoshis (name cost)".format(tx_fee_task, int(task_res['name_cost'])))
             total_cost += int(task_res['name_cost'])
             reply['name_price'] = int(task_res['name_cost'])
@@ -784,8 +796,8 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
         reply['warnings'].append('Wallet not accessed; fees are rough estimates.')
 
     if len(failed_tasks) > 0:
-        log.error("Some tasks failed: {}".format(','.format(failed_tasks)))
-        reply['error'] = 'Some tasks failed: {}'.format(','.join(failed_tasks))
+        log.error("Some fee-query tasks failed: {}".format(','.format(failed_tasks)))
+        reply['error'] = 'Some fee-query tasks failed: {}'.format(','.join(failed_tasks))
 
     return reply
 
