@@ -38,9 +38,6 @@ DEFAULT_LIMIT = 50
 MEMCACHED_TIMEOUT = 6 * 60 * 60
 
 
-RESOLVER_URL = 'http://resolver.onename.com'
-ALL_USERS_ENDPOINT = '/v2/users'
-
 BLOCKCHAIN_DATA_FILENAME = "data/blockchain_data.json"
 PROFILE_DATA_FILENAME = "data/profile_data.json"
 
