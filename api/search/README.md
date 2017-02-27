@@ -19,11 +19,14 @@ with data that follows structure of [blockstack IDs](https://github.com/blocksta
 - **Step 1:** First, make sure you have [virtualenv installed](http://docs.python-guide.org/en/latest/dev/virtualenvs/). 
 Then, setup the search subsystem:
 ``` 
+$ sudo apt-get install -y mongodb memcached python-dev libmemcached-dev zlib1g-dev nginx
+$ sudo service memcached start
+$ sudo service mongodb start
+$ sudo pip install uwsgi
 $ virtualenv search
 $ git clone https://github.com/blockstack/blockstack-core.git
-$ cd blockstack-core/api/api/search/
 $ git checkout search
-$ cd blockstack-
+$ cd blockstack-core/api/search/
 $ pip install -r requirements.txt
 $ python runserver.py
 ```
