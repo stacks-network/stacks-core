@@ -28,7 +28,7 @@ import pybitcoin
 from pybitcoin import broadcast_transaction
 
 from .operations import *
-from .constants import CONFIG_PATH, BLOCKSTACK_TEST
+from .constants import CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DRY_RUN
 from .config import get_tx_broadcaster, get_logger
 
 from .scripts import tx_sign_all_unsigned_inputs
@@ -145,11 +145,21 @@ def broadcast_tx(tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None):
     
     resp = {}
     try:
-        resp = broadcast_transaction(tx_hex, tx_broadcaster)
-        if 'tx_hash' not in resp or 'error' in resp:
-            log.error('Failed to send {}'.format(tx_hex))
-            resp['error'] = 'Failed to broadcast transaction: {}'.format(tx_hex)
+        if BLOCKSTACK_DRY_RUN:
+            resp = {
+                'tx': tx_hex,
+                'transaction_hash': virtualchain.tx_get_hash(tx_hex),
+                'status': True
+            }
             return resp
+
+        else:
+            resp = broadcast_transaction(tx_hex, tx_broadcaster)
+            if 'tx_hash' not in resp or 'error' in resp:
+                log.error('Failed to send {}'.format(tx_hex))
+                resp['error'] = 'Failed to broadcast transaction: {}'.format(tx_hex)
+                return resp
+
     except Exception as e:
         log.exception(e)
         resp['error'] = 'Failed to broadcast transaction: {}'.format(tx_hex)
