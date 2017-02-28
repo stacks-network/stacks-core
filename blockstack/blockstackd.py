@@ -56,7 +56,7 @@ from defusedxml import xmlrpc
 xmlrpc.monkey_patch()
 
 import virtualchain
-log = virtualchain.get_logger("blockstack-server")
+log = virtualchain.get_logger("blockstack-core")
 
 import blockstack_client
 
@@ -2422,7 +2422,7 @@ def setup( working_dir=None, return_parser=False ):
         print >> sys.stderr, "Please use the stable release from PyPI, which you"
         print >> sys.stderr, "can install with:"
         print >> sys.stderr, ""
-        print >> sys.stderr, "     $ pip install --upgrade blockstack-server"
+        print >> sys.stderr, "     $ pip install --upgrade blockstack-core"
         print >> sys.stderr, ""
 
     if return_parser:
