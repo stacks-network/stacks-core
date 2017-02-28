@@ -564,7 +564,50 @@ def write_config_field(config_path, section_name, field_name, field_value):
     parser = SafeConfigParser()
     parser.read(config_path)
 
+    if not parser.has_section(section_name):
+        parser.add_section(section_name)
+        
     parser.set(section_name, field_name, '{}'.format(field_value))
+    with open(config_path, 'w') as fout:
+        os.fchmod(fout.fileno(), 0600)
+        parser.write(fout)
+
+    return True
+
+
+def delete_config_field(config_path, section_name, field_name ):
+    """
+    Delete a config field
+    Return True on success
+    Return False on error
+    """
+    if not os.path.exists(config_path):
+        return False
+
+    parser = SafeConfigParser()
+    parser.read(config_path)
+
+    parser.remove_option(section_name, field_name)
+    with open(config_path, 'w') as fout:
+        os.fchmod(fout.fileno(), 0600)
+        parser.write(fout)
+
+    return True
+
+
+def delete_config_section(config_path, section_name):
+    """
+    Delete a config section
+    Return True on success
+    Return False on error
+    """
+    if not os.path.exists(config_path):
+        return False
+
+    parser = SafeConfigParser()
+    parser.read(config_path)
+
+    parser.remove_section(section_name)
     with open(config_path, 'w') as fout:
         os.fchmod(fout.fileno(), 0600)
         parser.write(fout)
@@ -670,7 +713,6 @@ def read_config_file(path=CONFIG_PATH):
         parser.set('blockstack-client', 'api_endpoint_port', str(DEFAULT_API_PORT))
         parser.set('blockstack-client', 'queue_path', str(DEFAULT_QUEUE_PATH))
         parser.set('blockstack-client', 'poll_interval', str(DEFAULT_POLL_INTERVAL))
-        parser.set('blockstack-client', 'rpc_detach', 'True')
         parser.set('blockstack-client', 'blockchain_reader', DEFAULT_BLOCKCHAIN_READER)
         parser.set('blockstack-client', 'blockchain_writer', DEFAULT_BLOCKCHAIN_WRITER)
         parser.set('blockstack-client', 'anonymous_statistics', 'True')
@@ -720,7 +762,6 @@ def read_config_file(path=CONFIG_PATH):
     bool_values = {
         'blockstack-client': [
             'advanced_mode',
-            'rpc_detach',
             'anonymous_statistics',
             'authenticate_api',
         ]
@@ -740,6 +781,26 @@ def read_config_file(path=CONFIG_PATH):
     if 'advanced_mode' not in ret.get('blockstack-client', {}):
         ret['blockstack-client']['advanced_mode'] = False
 
+    # convert field names
+    renamed_fields_014_1 = {
+        'blockstack-client': {
+            'rpc_token': 'api_pass',        # renamed in 0.14.1
+        },
+    }
+
+    renamed_fields = [renamed_fields_014_1]
+
+    for renamed_field_set in renamed_fields:
+        for sec in renamed_field_set.keys():
+            if ret.has_key(sec):
+                for old_field_name in renamed_field_set[sec].keys():
+                    if ret[sec].has_key( old_field_name ):
+                        new_field_name = renamed_field_set[sec][old_field_name]
+
+                        value = ret[sec][old_field_name]
+                        del ret[sec][old_field_name]
+                        ret[sec][new_field_name] = value
+    
     ret['path'] = path
     ret['dir'] = os.path.dirname(path)
 
@@ -846,7 +907,7 @@ def backup_config_file(config_path=CONFIG_PATH):
     return legacy_path
 
 
-def configure_zonefile(name, zonefile, data_pubkey=None):
+def configure_zonefile(name, zonefile, data_pubkey ):
     """
     Given a name and zonefile, help the user configure the
     zonefile information to store (just URLs for now).
@@ -858,6 +919,8 @@ def configure_zonefile(name, zonefile, data_pubkey=None):
     """
 
     from .zonefile import make_empty_zonefile
+    from .user import user_zonefile_data_pubkey, user_zonefile_urls, add_user_zonefile_url, remove_user_zonefile_url, swap_user_zonefile_urls
+    from .storage import get_drivers_for_url
 
     if zonefile is None:
         print('WARNING: No zonefile could be found.')
@@ -901,17 +964,18 @@ def configure_zonefile(name, zonefile, data_pubkey=None):
             for i in xrange(0, len(urls)):
                 url = urls[i]
                 drivers = get_drivers_for_url(url)
-                print('({}) [{}] at {}'.format(i+1, ','.join([d.__name__ for d in drivers]), url))
+                print('({}) {}\n    Handled by drivers: [{}]'.format(i+1, url, ','.join([d.__name__ for d in drivers])))
 
         else:
             print('(none)')
 
         print('')
         print('What would you like to do?')
-        print('(a) Add URL')
-        print('(b) Remove URL')
-        print('(c) Save zonefile')
-        print('(d) Do not save zonefile')
+        print('(a) Add profile URL')
+        print('(b) Remove profile URL')
+        print('(c) Swap URL order')
+        print('(d) Save zonefile')
+        print('(e) Do not save zonefile')
         print('')
 
         selection = raw_input('Selection: ').lower()
@@ -927,7 +991,7 @@ def configure_zonefile(name, zonefile, data_pubkey=None):
                     new_url = raw_input('Enter the new profile URL: ')
                 except KeyboardInterrupt:
                     print('Keyboard interrupt')
-                    break
+                    return None
 
                 new_url = new_url.strip()
 
@@ -954,23 +1018,25 @@ def configure_zonefile(name, zonefile, data_pubkey=None):
             url_to_remove = None
             while True:
                 try:
-                    url_to_remove = raw_input('Which URL do you want to remove? ({}-{}): '.format(1, len(urls)+1))
+                    url_to_remove = raw_input('Which URL do you want to remove? ({}-{}): '.format(1, len(urls)))
                     try:
                         url_to_remove = int(url_to_remove)
-                        assert 1 <= url_to_remove and url_to_remove <= len(urls)+1
+                        assert 1 <= url_to_remove and url_to_remove <= len(urls)
                     except:
                         print('Bad selection')
                         continue
 
-                    break
                 except KeyboardInterrupt:
                     running = False
                     print('Keyboard interrupt')
-                    break
+                    return None
 
                 if url_to_remove is not None:
                     # remove this URL 
                     url = urls[url_to_remove-1]
+                    
+                    log.debug("Remove '{}'".format(url))
+
                     new_zonefile = remove_user_zonefile_url( zonefile, url )
                     if new_zonefile is None:
                         print('BUG: failed to remove url "{}" from zonefile\n{}\n'.format(url, json.dumps(zonefile, indent=4, sort_keys=True)))
@@ -980,14 +1046,51 @@ def configure_zonefile(name, zonefile, data_pubkey=None):
                         zonefile = new_zonefile
                         break
 
+                else:
+                    print("Bad selection")
+
         elif selection == 'c':
+            while True:
+                # swap order
+                try:
+                    url_1 = raw_input('Which URL do you want to move? ({}-{}): '.format(1, len(urls)))
+                    url_2 = raw_input('Where do you want to move it?  ({}-{}): '.format(1, len(urls)))
+                except KeyboardInterrupt:
+                    running = False
+                    print('Keyboard interrupt')
+                    return None
+
+                try:
+                    url_1 = int(url_1)
+                    url_2 = int(url_2)
+
+                    assert 1 <= url_1 <= len(urls)
+                    assert 1 <= url_2 <= len(urls)
+                    assert url_1 != url_2
+
+                except:
+                    print("Bad selection")
+                    continue
+                
+                new_zonefile = swap_user_zonefile_urls( zonefile, url_1-1, url_2-1 )
+                if new_zonefile is None:
+                    print('BUG: failed to remove url "{}" from zonefile\n{}\n'.format(url, json.dumps(zonefile, indent=4, sort_keys=True)))
+                    os.abort()
+
+                else:
+                    zonefile = new_zonefile
+                    break
+
+                print("Bad selection")
+
+        elif selection == 'd':
             # save zonefile
             break
 
-    # did the zonefile change?
-    if zonefile == old_zonefile:
-        # no changes
-        return None
-    else:
-        return zonefile
+        elif selection == 'e':
+            # do not save zonefile 
+            return None
 
+        log.debug("zonefile is now:\n{}".format(json.dumps(zonefile, indent=4, sort_keys=True)))
+
+    return zonefile
