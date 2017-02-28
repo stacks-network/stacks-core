@@ -74,7 +74,7 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
         if metadata_dir is None:
             metadata_dir = conf['metadata']
         if spv_headers_path is None:
-            spv_headers_path = conf['bitcoind_spv_path']
+            spv_headers_path = conf['blockchain_headers']
 
     if storage_drivers is None:
         msg = ('No storage driver(s) defined in the config file. '
