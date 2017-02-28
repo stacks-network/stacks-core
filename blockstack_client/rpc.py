@@ -1250,8 +1250,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Update a data store for the application identified by the session.
         """
-        
-        pass
+        return self._reply_json({'error': 'Not implemented'}, status_code=501) 
 
 
     def DELETE_store( self, ses, path_info ):
@@ -1516,14 +1515,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Get the list of collections
         Reply the list of collections on success.
         """
-        pass
+        return self._reply_json({'error': 'Not implemented'}, status_code=501) 
 
 
     def POST_collections( self, ses, path_info, user_id ):
         """
         Create a new collection
         """
-        pass
+        return self._reply_json({'error': 'Not implemented'}, status_code=501) 
 
 
     def GET_collection_info( self, ses, path_info, user_id, collection_id ):
@@ -1532,7 +1531,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply the list of items on success
         Reply 404 on not found
         """
-        pass
+        return self._reply_json({'error': 'Not implemented'}, status_code=501) 
 
 
     def GET_collection_item( self, ses, path_info, user_id, collection_id, item_id ):
@@ -1542,14 +1541,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the collection doesn't exist
         Reply 404 if the item doesn't exist
         """
-        pass
+        return self._reply_json({'error': 'Not implemented'}, status_code=501) 
 
 
     def POST_collection_item( self, ses, path_info, user_id, collection_id ):
         """
         Add an item to a collection
         """
-        pass
+        return self._reply_json({'error': 'Not implemented'}, status_code=501) 
 
 
     def GET_prices_namespace( self, ses, path_info, namespace_id ):
@@ -1661,8 +1660,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Launch a namespace; mark it as ready.
         Not implemented
         """
-        self._reply_json({"error": "Unimplemented"}, status_code=405)
-        return
+        return self._reply_json({'error': 'Not implemented'}, status_code=501) 
 
 
     def GET_namespace_names( self, ses, path_info, namespace_id ):
@@ -1698,8 +1696,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Import a name.
         Not implemented
         """
-        self._reply_json({'error': 'Unimplemented'}, status_code=405)
-        return
+        return self._reply_json({'error': 'Not implemented'}, status_code=501) 
 
 
     def PUT_namespace_name_import( self, ses, path_info, namespace_id ):
@@ -1707,8 +1704,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Re-import a name
         Not implemented
         """
-        self._reply_json({'error': 'Unimplemented'}, status_code=405)
-        return
+        return self._reply_json({'error': 'Not implemented'}, status_code=501) 
 
 
     def GET_wallet_payment_address( self, ses, path_info ):
@@ -1751,6 +1747,24 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             self._reply_json({'error': 'Failed to read wallet file'}, status_code=500)
             return
+
+    
+    def GET_wallet_data_pubkey( self, ses, path_info ):
+        """
+        Get the data public key
+        Return 200 with {'public_key': ...} on success
+        Return 500 on failure to read the wallet
+        """
+        wallet_path = os.path.join( os.path.dirname(self.server.config_path), WALLET_FILENAME )
+        if not os.path.exists(wallet_path):
+            return self._reply_json({'error': 'No such wallet'}, status_code=500)
+
+        try:
+            payment_address, owner_address, data_pubkey = wallet.get_addresses_from_file(wallet_path=wallet_path)
+            return self._reply_json({'public_key': data_pubkey})
+
+        except Exception as e:
+            return self._reply_json({'error': 'Failed to read wallet file'}, status_code=500)
 
 
     def GET_wallet_keys( self, ses, path_info ):
@@ -1924,7 +1938,75 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Does not return on success
         Return 403 on failure
         """
-        pass
+        return self._reply_json({'error': 'Not implemented'}, status_code=501) 
+
+
+    def GET_node_config( self, ses, path_info ):
+        """
+        Get node configuration
+        Return 200 on success
+        Return 500 on failure to read
+        """
+        conf = None
+        try:
+            conf = blockstack_config.read_config_file(self.server.config_path)
+            assert conf
+        except Exception as e:
+            log.exception(e)
+            return self._reply_json({'error': 'Failed to read config'}, status_code=500)
+
+        for unneeded_field in ['path', 'dir']:
+            if conf.has_key(unneeded_field):
+                del conf[unneeded_field]
+
+        return self._reply_json(conf)
+
+
+    def POST_node_config( self, ses, path_info, section ):
+        """
+        Set node configuration items (as {name}={value} in the query string)
+        Return 200 on success
+        Return 500 on failure to write
+        """
+        conf_items = path_info['qs_values']
+        for conf_item_name, conf_item_value in conf_items.items():
+            field_name = str(conf_item_name)
+            field_value = str(conf_item_value)
+            
+            res = blockstack_config.write_config_field( self.server.config_path, sec_name, field_name, field_value )
+            if not res:
+                log.debug("Failed to set {}.{} = {}".format(sec_name, field_name, field_value))
+                return self._reply_json({'error': 'Failed to write config field'}, status=500)
+
+        return self._reply_json({'status': True})
+
+
+    def DELETE_node_config_section( self, ses, path_info, section ):
+        """
+        Remove a config file section
+        Return 200 on success
+        Return 500 on failure
+        """
+        res = blockstack_config.delete_config_section(self.server.config_path, section)
+        if not res:
+            return self._reply_json({'error': 'Failed to delete section'}, status_code=500)
+
+        else:
+            return self._reply_json({'status': True})
+
+
+    def DELETE_node_config_field( self, ses, path_info, section, field ):
+        """
+        Delete a specific config item
+        Return 200 on success
+        Return 500 on failure
+        """
+        res = blockstack_config.delete_config_field(self.server.config_path, section, field)
+        if not res:
+            return self._reply_json({'error': 'Failed to delete field'}, status_code=500)
+        
+        else:
+            return self._reply_json({'status': True})
 
 
     def GET_blockchain_ops( self, ses, path_info, blockchain_name, blockheight ):
@@ -2388,6 +2470,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
+            r'^/v1/wallet/data_pubkey$': {
+                'routes': {
+                    'GET': self.GET_wallet_data_pubkey,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'wallet_read',
+                        'desc': 'get the node wallet\'s data public key',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': True,
+                    },
+                },
+            },
             r'^/v1/wallet/balance$': {
                 'routes': {
                     'GET': self.GET_wallet_balance,
@@ -2485,6 +2581,56 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'auth_session': False,
                         'auth_pass': True,
                         'need_data_key': False
+                    },
+                },
+            },
+            r'^/v1/node/config$': {
+                'routes': {
+                    'GET': self.GET_node_config,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': '',
+                        'desc': 'get the node config',
+                        'auth_session': False,
+                        'auth_pass': True,
+                        'need_data_key': False,
+                    },
+                },
+            },
+            r'^/v1/node/config/({})$'.format(URLENCODING_CLASS): {
+                'routes': {
+                    'POST': self.POST_node_config,
+                    'DELETE': self.DELETE_node_config_section,
+                },
+                'whitelist': {
+                    'POST': {
+                        'name': '',
+                        'desc': 'set node section fields',
+                        'auth_session': False,
+                        'auth_pass': True,
+                        'need_data_key': False,
+                    },
+                    'DELETE': {
+                        'name': '',
+                        'desc': 'delete a config section',
+                        'auth_session': False,
+                        'auth_pass': True,
+                        'need_data_key': False,
+                    },
+                },
+            },
+            r'^/v1/node/config/({})/({})$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
+                'routes': {
+                    'DELETE': self.DELETE_node_config_field,
+                },
+                'whitelist': {
+                    'DELETE': {
+                        'name': '',
+                        'desc': 'delete a config section field',
+                        'auth_session': False,
+                        'auth_pass': True,
+                        'need_data_key': False,
                     },
                 },
             },
@@ -2969,6 +3115,7 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
         self.app_configs = {}   # cached app config state
 
         conf = blockstack_config.get_config(path=config_path)
+        assert conf
 
         if wallet_keys is not None:
             assert wallet_keys.has_key('data_privkey')
@@ -3471,6 +3618,8 @@ def local_api_start_wait( config_path=CONFIG_PATH ):
 
     if not running:
         log.error("API endpoint did not initialize")
+    else:
+        log.debug("API endpoint is running")
 
     return running
 
