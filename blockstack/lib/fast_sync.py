@@ -544,8 +544,8 @@ def blockstack_backup_restore( working_dir, block_number ):
 
     # TODO: this is pretty shady...
     def _set_working_dir(wd):
+        old_working_dir = os.environ.get('VIRTUALCHAIN_WORKING_DIR', None)
         if wd is not None:
-            old_working_dir = os.environ.get('VIRTUALCHAIN_WORKING_DIR', None)
             os.environ['VIRTUALCHAIN_WORKING_DIR'] = wd
 
         return old_working_dir
