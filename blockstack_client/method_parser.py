@@ -72,7 +72,7 @@ def parse_methods(method_list):
 
     error_msg = 'Method {}: {} string "{}"'
 
-    supported_pragmas = ['', 'rpc', 'advanced', 'check_storage']
+    supported_pragmas = ['', 'rpc', 'advanced', 'check_storage', 'raw']
 
     for method in method_list:
         method_name = method.__name__
