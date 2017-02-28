@@ -60,6 +60,7 @@ import base64
 import jsonschema
 import threading
 from decimal import Decimal
+import uuid
 
 requests.packages.urllib3.disable_warnings()
 
@@ -127,7 +128,7 @@ from .proxy import *
 from .client import analytics_event 
 from .scripts import UTXOException, is_name_valid, is_valid_hash
 from .user import add_user_zonefile_url, remove_user_zonefile_url, user_zonefile_urls, \
-        make_empty_user_profile
+        make_empty_user_profile, user_zonefile_data_pubkey
 
 from .resolve import *
 from .tx import sign_tx, broadcast_tx
@@ -139,7 +140,8 @@ from .app import app_publish, app_unpublish, app_get_config, app_get_resource, \
 
 from .data import datastore_mkdir, datastore_rmdir, make_datastore, get_datastore, put_datastore, delete_datastore, \
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir, datastore_stat, \
-        datastore_rmtree, datastore_get_id, datastore_get_privkey
+        datastore_rmtree, datastore_get_id, datastore_get_privkey, _mutable_data_make_file, data_blob_serialize, \
+        data_blob_parse
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
 
@@ -1239,7 +1241,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     command: update
     help: Set the zone file for a name
     arg: name (str) 'The name to update'
-    arg: data (str) 'A zone file string, or a path to a file with the data.'
+    opt: data (str) 'A zone file string, or a path to a file with the data.'
     opt: nonstandard (str) 'If true, then do not validate or parse the zonefile.'
     """
 
@@ -1271,8 +1273,21 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         return {'error': error}
 
     zonefile_data = None
+    downloaded = False
     if getattr(args, 'data', None) is not None:
         zonefile_data = str(args.data)
+ 
+    if not local_rpc.is_api_server(config_dir=config_dir):
+        # verify that we own the name before trying to edit its zonefile
+        _, owner_address, _ = get_addresses_from_file(config_dir=config_dir)
+        assert owner_address
+
+        res = get_names_owned_by_address( owner_address, proxy=proxy )
+        if 'error' in res:
+            return res
+
+        if fqu not in res:
+            return {'error': 'This wallet does not own this name'}
 
     # is this a path?
     zonefile_data_exists = is_valid_path(zonefile_data) and os.path.exists(zonefile_data) and not force_data
@@ -1293,19 +1308,22 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         else:
             log.warning('Failed to fetch zonefile: {}'.format(zonefile_data_res['error']))
 
+        downloaded = True
+
     # load zonefile, if given
     user_data_txt, user_data_hash, user_zonefile_dict = None, None, {}
 
     user_data_res = load_zonefile_from_string(fqu, zonefile_data)
-    if 'error' not in user_data_res:
+    if 'error' not in user_data_res or ('identical' in user_data_res and downloaded):
         user_data_txt = user_data_res['zonefile']
         user_data_hash = storage.get_zonefile_data_hash(user_data_res['zonefile'])
         user_zonefile_dict = blockstack_zones.parse_zone_file(user_data_res['zonefile'])
 
     else:
         if 'identical' in user_data_res:
+            # given the same zonefile on the CLI
             return {'error': 'Zonefile matches the current name hash; not updating.'}
-
+        
         if not interactive:
             if zonefile_data is None or nonstandard:
                 log.warning('Using non-zonefile data')
@@ -1313,7 +1331,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
             else:
                 return {'error': 'Zone file not updated (invalid)'}
 
-        #  not a well-formed zonefile (but maybe that's okay! ask the user)
+        # not a well-formed zonefile (but maybe that's okay! ask the user)
         if zonefile_data is not None and interactive:
             # something invalid here.  prompt overwrite
             proceed = prompt_invalid_zonefile()
@@ -1326,18 +1344,27 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
             user_data_hash = storage.get_zonefile_data_hash(zonefile_data)
 
 
-    '''
     # open the zonefile editor
     _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
+    
+    if data_pubkey is None:
+        return {'error': 'No data public key set in the wallet.  Please use `blockstack setup_wallet` to fix this.'}
 
-    if interactive:
+    if interactive and not nonstandard:
+        if user_zonefile_dict is None:
+            user_zonefile_dict = make_empty_zonefile(fqu, data_pubkey)
+
         new_zonefile = configure_zonefile(
-            fqu, user_zonefile_dict, data_pubkey=data_pubkey
+            fqu, user_zonefile_dict, data_pubkey
         )
+
         if new_zonefile is None:
             # zonefile did not change; nothing to do
             return {'error': 'Zonefile did not change.  No update sent.'}
-    '''
+
+        user_zonefile_dict = new_zonefile
+        user_data_txt = blockstack_zones.make_zone_file(user_zonefile_dict)
+        user_data_hash = storage.get_zonefile_data_hash(user_data_txt)
 
     # forward along to RESTful server (or registrar)
     log.debug("Update {}, zonefile={}, zonefile_hash={} tx_fee={}".format(fqu, user_data_txt, user_data_hash, tx_fee))
@@ -3492,10 +3519,10 @@ def cli_app_signin(args, config_path=CONFIG_PATH, password=None, interactive=Tru
 
 def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, interactive=False ):
     """
-    command: sign_profile advanced
+    command: sign_profile advanced raw
     help: Sign a JSON file to be used as a profile.
     arg: path (str) 'The path to the profile data on disk.'
-    opt: privkey (str) 'The optional private key to sign it with (defaults to the master data private key in your wallet)'
+    opt: privkey (str) 'The optional private key to sign it with (defaults to the data private key in your wallet)'
     """
 
     if proxy is None:
@@ -3539,9 +3566,193 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
     if res is None:
         return {'error': 'Failed to sign and serialize profile'}
 
-    # sanity check 
-    assert storage.parse_mutable_data(res, pubkey)
-    return json.loads(res) 
+    if BLOCKSTACK_DEBUG:
+        # sanity check 
+        assert storage.parse_mutable_data(res, pubkey)
+
+    return res
+
+
+def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=False ):
+    """
+    command: verify_profile advanced
+    help: Verify a profile JWT and deserialize it into a profile object.
+    arg: name (str) 'The name that points to the public key to use to verify.'
+    arg: path (str) 'The path to the profile data on disk'
+    opt: pubkey (str) 'The public key to use to verify. Overrides `name`.'
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+
+    name = str(args.name)
+    path = str(args.path)
+    pubkey = None
+
+    if not os.path.exists(path):
+        return {'error': 'No such file or directory'}
+
+    if hasattr(args, 'pubkey'):
+        pubkey = str(args.pubkey)
+        try:
+            pubkey = ECPublicKey(pubkey).to_hex()
+        except:
+            return {'error': 'Invalid public key'}
+
+    if pubkey is None:
+        zonefile_data = None
+
+        # get the pubkey 
+        zonefile_data_res = get_name_zonefile(
+            name, proxy=proxy, raw_zonefile=True
+        )
+        if 'error' not in zonefile_data_res:
+            zonefile_data = zonefile_data_res['zonefile']
+        else:
+            return {'error': "Failed to get zonefile data: {}".format(name)}
+
+        # parse 
+        zonefile_dict = None
+        try:
+            zonefile_dict = blockstack_zones.parse_zone_file(zonefile_data)
+        except:
+            return {'error': 'Nonstandard zone file'}
+
+        pubkey = user_zonefile_data_pubkey(zonefile_dict)
+        if pubkey is None:
+            return {'error': 'No data public key in zone file'}
+
+    profile_data = None
+    try:
+        with open(path, 'r') as f:
+            profile_data = f.read()
+    except:
+        return {'error': 'Failed to read profile file'}
+
+    res = storage.parse_mutable_data(profile_data, pubkey)
+    if res is None:
+        return {'error': 'Failed to verify profile'}
+
+    return res
+
+
+def cli_sign_data( args, config_path=CONFIG_PATH, proxy=None, password=None, interactive=False ):
+    """
+    command: sign_data advanced raw
+    help: Sign data to be used in a data store.
+    arg: path (str) 'The path to the profile data on disk.'
+    opt: privkey (str) 'The optional private key to sign it with (defaults to the data private key in your wallet)'
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+    
+    password = get_default_password(password)
+
+    config_dir = os.path.dirname(config_path)
+    path = str(args.path)
+    data = None
+    try:
+        with open(path, 'r') as f:
+            data = f.read()
+            data = data_blob_serialize(data)
+
+    except Exception as e:
+        if os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(e)
+
+        log.error("Failed to load {}".format(path))
+        return {'error': 'Failed to load {}'.format(path)}
+
+    privkey = None
+    if hasattr(args, "privkey") and args.privkey:
+        privkey = str(args.privkey)
+
+    else:
+        wallet_keys = get_wallet_keys( config_path, password )
+        if 'error' in wallet_keys:
+            return wallet_keys
+
+        if not wallet_keys.has_key('data_privkey'):
+            log.error("No data private key in the wallet.  You may need to explicitly select a private key.")
+            return {'error': 'No data private key set.\nTry passing your owner private key.'}
+
+        privkey = wallet_keys['data_privkey']
+
+    privkey = ECPrivateKey(privkey).to_hex()
+    pubkey = get_pubkey_hex(privkey)
+
+    res = storage.serialize_mutable_data(data, privkey, pubkey)
+    if res is None:
+        return {'error': 'Failed to sign and serialize data'}
+
+    # sanity check
+    if BLOCKSTACK_DEBUG:
+        assert storage.parse_mutable_data(res, pubkey)
+
+    return res
+
+
+def cli_verify_data( args, config_path=CONFIG_PATH, proxy=None, interactive=True ):
+    """
+    command: verify_data advanced raw
+    help: Verify signed data and return the payload.
+    arg: name (str) 'The name that points to the public key to use to verify.'
+    arg: path (str) 'The path to the profile data on disk'
+    opt: pubkey (str) 'The public key to use to verify. Overrides `name`.'
+    """
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+
+    name = str(args.name)
+    path = str(args.path)
+    pubkey = None
+
+    if not os.path.exists(path):
+        return {'error': 'No such file or directory'}
+
+    if hasattr(args, 'pubkey') and args.pubkey is not None:
+        pubkey = str(args.pubkey)
+        try:
+            pubkey = ECPublicKey(pubkey).to_hex()
+        except:
+            return {'error': 'Invalid public key'}
+
+    if pubkey is None:
+        zonefile_data = None
+
+        # get the pubkey 
+        zonefile_data_res = get_name_zonefile(
+            name, proxy=proxy, raw_zonefile=True
+        )
+        if 'error' not in zonefile_data_res:
+            zonefile_data = zonefile_data_res['zonefile']
+        else:
+            return {'error': "Failed to get zonefile data: {}".format(name)}
+
+        # parse 
+        zonefile_dict = None
+        try:
+            zonefile_dict = blockstack_zones.parse_zone_file(zonefile_data)
+        except:
+            return {'error': 'Nonstandard zone file'}
+
+        pubkey = user_zonefile_data_pubkey(zonefile_dict)
+        if pubkey is None:
+            return {'error': 'No data public key in zone file'}
+
+    data = None
+    try:
+        with open(path, 'r') as f:
+            data = f.read().strip()
+    except:
+        return {'error': 'Failed to read file'}
+
+    res = storage.parse_mutable_data(data, pubkey)
+    if res is None:
+        return {'error': 'Failed to verify data'}
+
+    return data_blob_parse(res)
 
 
 def cli_list_device_ids( args, config_path=CONFIG_PATH, proxy=None ):
