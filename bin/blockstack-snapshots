@@ -341,6 +341,7 @@ def make_snapshot(snapshots_dir, private_key, block_number):
 
     try:
         res = blockstack.fast_sync_snapshot( tmp_snapshot_path, private_key, block_number )
+        assert res
     except Exception as e:
         log.exception(e)
         try:
@@ -452,7 +453,7 @@ def snapshotter_thread_main(working_dir, snapshots_dir, private_key, check_runni
         # find out which block numbers are represented in the backups directory
 
         cur_block_numbers = find_backup_blocks(working_dir)
-        
+
         log.debug("snapshot blocks: {}".format(",".join(['{}'.format(b) for b in block_numbers])))
         log.debug("backup blocks:   {}".format(",".join(['{}'.format(b) for b in cur_block_numbers])))
 
@@ -470,8 +471,9 @@ def snapshotter_thread_main(working_dir, snapshots_dir, private_key, check_runni
 
             continue
 
-        # have new snapshots to make 
-        for new_block in sorted(new_block_numbers):
+        # have new snapshots to make.
+        # start with the most recent
+        for new_block in reversed(sorted(new_block_numbers)):
             res = make_snapshot( snapshots_dir, private_key, new_block )
             if 'error' in res:
                 log.error("Failed to make snapshot for {}: {}".format(new_block, res['error']))
@@ -794,7 +796,7 @@ if __name__ == '__main__':
         trusted_public_keys = []
         
         if not os.path.exists(snapshots_path) or not os.path.isdir(snapshots_path):
-            print >> sys.stderr, "{} does not exist or is not a directory"
+            print >> sys.stderr, "{} does not exist or is not a directory".format(snapshots_path)
             sys.exit(1)
 
         if not os.path.exists(private_key_path):
