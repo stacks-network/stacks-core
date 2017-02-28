@@ -43,15 +43,15 @@ Upgrade Notes
 
 If you are upgrading from a previous installation of Blockstack:
 
-    * In `~/.blockstack/client.ini`, you should change `rpc_token=...` to
-    `api_password=...`.
+* In `~/.blockstack/client.ini`  you should change `rpc_token=...` to
+`api_password=...`.
 
-    * You should upgrade your wallet to the latest supported format.  This can
-      be done with `blockstack setup_wallet`.  Be sure to back up your wallet
-      first, for safety (the wallet file is at `~/.blockstack/wallet.json`).
+* You should upgrade your wallet to the latest supported format.  This can
+  be done with `blockstack setup_wallet`.  Be sure to back up your wallet
+  first, for safety (the wallet file is at `~/.blockstack/wallet.json`).
 
-    * You must start the API server before carrying out name operations.  This can be done
-      with `blockstack api start`.
+* You must start the API server before carrying out name operations.  This can be done
+  with `blockstack api start`.
 
 Selected Bugfixes and Fixes
 ---------------------------
