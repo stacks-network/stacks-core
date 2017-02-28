@@ -53,8 +53,13 @@ if __name__ == '__main__':
         if isinstance(result, dict) and 'error' in result:
             print >> sys.stderr, result['error']
             sys.exit(1)
-        else:
-            print json.dumps(result, indent=4, sort_keys=True)
+        elif isinstance(result, dict):
+            if 'raw' in result['pragmas']:
+                print result['result']
+
+            else:
+                print json.dumps(result['result'], indent=4, sort_keys=True)
+
             sys.exit(0)
 
     except Exception as e:
