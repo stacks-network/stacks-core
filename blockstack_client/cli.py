@@ -114,12 +114,12 @@ def prompt_args(arginfolist, prompt_func):
                     parsed_arg = prompt_func(help, name)
                     break
                 except ValueError:
-                    print('Invalid args. Please try again. {}:{}'.format(name, help))
+                    print('Invalid args. Please try again. {}:{}'.format(name, help), file=sys.stderr)
                     continue
 
             parsed_args.append(parsed_arg)
         except KeyboardInterrupt:
-            print('Keyboard interrupt')
+            print('Keyboard interrupt', file=sys.stderr)
             return None
         except Exception as e:
             log.exception(e)
@@ -258,7 +258,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     if cli_config_argv or cli_debug or cli_dry_run:
         # re-exec to reset variables
         if cli_debug:
-            print("Re-exec {} with {}".format(argv[0], argv))
+            print("Re-exec {} with {}".format(argv[0], argv), file=sys.stderr)
 
         os.execv( argv[0], argv )
 
@@ -318,7 +318,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     # Print default help message, if no argument is given
     if len(argv) == 1 or '-h' in argv or '--help' in argv:
         parser.print_help()
-        return {}
+        sys.exit(0)
 
     interactive, args, directive = False, None, None
 
@@ -396,7 +396,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
                 return {'error': 'Invalid arguments.  Please try again.'}
 
         result = method(args, config_path=config_path)
-        return result
+        return {'status': True, 'result': result, 'pragmas': pragmas}
 
     # not found
     return {'error': 'No such command "{}"'.format(args.action)}
@@ -407,5 +407,10 @@ if __name__ == '__main__':
     if 'error' in result:
         exit_with_error(result['error'])
     else:
-        print_result(result)
+        if 'raw' in result['pragmas']:
+            print(result['result'])
+
+        else:
+            print_result(result['result'])
+
         sys.exit(0)
