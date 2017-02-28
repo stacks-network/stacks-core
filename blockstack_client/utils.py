@@ -35,7 +35,7 @@ def exit_with_error(error_message, help_message=None):
 
     if help_message is not None:
         result['help'] = help_message
-    print_result(result)
+    print_result(result, file=sys.stderr)
     sys.exit(0)
 
 
@@ -79,11 +79,11 @@ def pretty_print(data):
     print pretty_dump(data)
 
 
-def print_result(json_str):
+def print_result(json_str, file=sys.stdout):
     data = pretty_dump(json_str)
 
     if data != "{}":
-        print data
+        print >> file, data
 
 
 def satoshis_to_btc(satoshis):
