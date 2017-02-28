@@ -545,7 +545,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
     """
     Low-level call to get mutable data, given a fully-qualified data name.
     
-    if decode is False, then data_pubkey, data_address, and owner_addres are not needed and raw bytes will be returned.
+    if decode is False, then data_pubkey, data_address, and owner_address are not needed and raw bytes will be returned.
 
     Return a mutable data dict on success (or raw bytes if decode=False)
     Return None on error
@@ -747,13 +747,11 @@ def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required
     return None if successes == 0 else data_hash
 
 
-def put_mutable_data(fq_data_id, data_json, privatekey_hex, data_text=None, profile=False, blockchain_id=None, required=None, skip=None):
+def put_mutable_data(fq_data_id, data_text_or_json, privatekey_hex, profile=False, blockchain_id=None, required=None, skip=None):
     """
     Given the unserialized data, store it into our mutable data stores.
     Do so in a best-effort way.  This method fails if all storage providers fail,
     or if a storage provider in required fails.
-
-    If data_text is given, then privatekey_hex and data_json are not needed 
 
     Return True on success
     Return False on error
@@ -769,17 +767,14 @@ def put_mutable_data(fq_data_id, data_json, privatekey_hex, data_text=None, prof
     if blockchain_id is not None:
         fqu = blockchain_id
 
-    serialized_data = data_text
-    if serialized_data is None:
+    # sanity check: only support single-sig private keys
+    if not is_singlesig_hex(privatekey_hex):
+        log.error('Only single-signature data private keys are supported')
+        return False
 
-        # sanity check: only support single-sig private keys
-        if not is_singlesig_hex(privatekey_hex):
-            log.error('Only single-signature data private keys are supported')
-            return False
-
-        assert privatekey_hex is not None
-        pubkey_hex = get_pubkey_hex( privatekey_hex )
-        serialized_data = serialize_mutable_data(data_json, privatekey_hex, pubkey_hex, profile=profile)
+    assert privatekey_hex is not None
+    pubkey_hex = get_pubkey_hex( privatekey_hex )
+    serialized_data = serialize_mutable_data(data_text_or_json, privatekey_hex, pubkey_hex, profile=profile)
     
     successes = 0
 
