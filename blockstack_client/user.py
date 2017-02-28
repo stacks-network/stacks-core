@@ -184,6 +184,8 @@ def add_user_zonefile_url(user_zonefile, url):
     Return the new zonefile on success
     Return None on error or on duplicate URL
     """
+    from .zonefile import url_to_uri_record
+
     assert is_user_zonefile(user_zonefile)
 
     user_zonefile.setdefault('uri', [])
@@ -216,6 +218,31 @@ def remove_user_zonefile_url(user_zonefile, url):
         target = urirec.get('target', '')
         if target.strip('"') == url:
             user_zonefile['uri'].remove(urirec)
+
+    return user_zonefile
+
+
+def swap_user_zonefile_urls(user_zonefile, url_1, url_2):
+    """
+    Swap the locations of the URLs in a zonefile
+    Return the new zonefile on success
+    Return None on error
+    """
+
+    assert is_user_zonefile(user_zonefile)
+
+    if 'uri' not in user_zonefile:
+        return None
+
+    if len(user_zonefile['uri']) <= url_1:
+        return None
+
+    if len(user_zonefile['uri']) <= url_2:
+        return None
+
+    tmp = user_zonefile['uri'][url_2]
+    user_zonefile['uri'][url_2] = user_zonefile['uri'][url_1]
+    user_zonefile['uri'][url_1] = tmp
 
     return user_zonefile
 
