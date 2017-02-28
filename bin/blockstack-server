@@ -2,4 +2,5 @@
 
 echo "This command is DEPRECATED.  Please use \`blockstack-core\` in the future."
 
+shift 1
 exec blockstack-core $@
