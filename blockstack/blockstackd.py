@@ -2915,11 +2915,16 @@ def run_blockstackd():
       if args.num_required:
           num_required = int(args.num_required)
 
+      print "Synchronizing from snapshot.  This will take about 10-15 minutes."
+
       rc = fast_sync_import(working_dir, url, public_keys=public_keys, num_required=num_required)
       if not rc:
           print 'fast_sync failed'
           sys.exit(1)
 
+      print "Node synchronized!  Node state written to {}".format(working_dir)
+      print "Start your node with `blockstack-core start`"
+      print "Pass `--debug` for extra output."
 
 if __name__ == '__main__':
 
