@@ -345,6 +345,8 @@ def fast_sync_fetch( import_url ):
         log.exception(e)
         return None
     
+    log.debug("Fetch {} to {}...".format(import_url, tmppath))
+
     try:
         path, headers = urllib.urlretrieve(import_url, tmppath)
     except Exception, e:
