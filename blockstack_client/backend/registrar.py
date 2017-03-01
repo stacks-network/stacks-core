@@ -438,7 +438,7 @@ class RegistrarWorker(threading.Thread):
                 return {'status': True}
 
             profile_payload = set_profile_timestamp(profile_payload)
-
+            
             rc = put_mutable_data( name_data['fqu'], profile_payload, data_privkey, required=storage_drivers, profile=True, blockchain_id=name_data['fqu'] )
             if not rc:
                 log.info("Failed to replicate profile for %s" % (name_data['fqu']))
@@ -572,15 +572,9 @@ class RegistrarWorker(threading.Thread):
             
         servers = list(set([str(hp) for hp in servers]))
 
-        # if this is empty or contains only `localhost`, then include `node.blockstack.org` for safety 
-        if len(servers) == 0:
-            servers.append('node.blockstack.org:6264')
-
-        elif len(servers) == 1:
-            h, p = url_to_host_port(servers[0])
-            if h in ['localhost', socket.gethostname(), '127.0.0.1', '::1']:
-                log.warning("Also including node.blockstack.org for Atlas zone file dissimination")
-                servers.append("node.blockstack.org:6264")
+        if 'node.blockstack.org:6264' not in servers:
+            log.warning("Also including node.blockstack.org:6264 for Atlas zone file dissimination")
+            servers.append("node.blockstack.org:6264")
 
         log.debug("Servers: {}".format(servers))
 
