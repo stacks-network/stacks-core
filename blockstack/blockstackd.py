@@ -188,15 +188,18 @@ def get_index_range():
 
     first_block = None
     last_block = None
-    while last_block is None:
+    wait = 1.0
+    while last_block is None and is_running():
 
         first_block, last_block = virtualchain.get_index_range( bitcoind_session )
 
         if last_block is None:
 
             # try to reconnnect
-            time.sleep(1)
-            log.error("Reconnect to bitcoind")
+            log.error("Reconnect to bitcoind in {} seconds".format(wait))
+            time.sleep(wait)
+            wait = min(wait * 2.0 + random.random() * wait, 60)
+
             bitcoind_session = get_bitcoind( new=True )
             continue
 
@@ -2168,6 +2171,7 @@ def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
     # this is a recovery path--shouldn't be necessary unless
     # we're starting from a lack of atlas.db state (i.e. an older
     # version of the server, or a removed/corrupted atlas.db file).
+    # TODO: this is racy--we also do this in virtualchain-hooks
     blockstack_opts = get_blockstack_opts()
     if blockstack_opts.get('atlas', False):
         db = get_db_state()
@@ -2392,38 +2396,6 @@ def setup( working_dir=None, return_parser=False ):
     # store options
     set_bitcoin_opts( bitcoin_opts )
     set_blockstack_opts( blockstack_opts )
-
-    # do activation check
-    # This server uses a new transaction format that will not be recognized
-    # by 0.13.  This fail-safe prevents the client from doing anything until
-    # F-day 2016, the day in which 0.14's hard-fork logic activates.  This
-    # will be the day block #436363 gets mined.
-    # 
-    # Delete this fail-safe at your own risk.  We are not responsible
-    # for your lost names and lost Bitcoins.
-    # 
-    # You have been warned.
-
-    btc = get_bitcoind()
-    curr_height = 0
-    try:
-        curr_height = btc.getblockcount()
-    except:
-        print >> sys.stderr, "Failed to connect to bitcoind"
-        os.abort()
-
-    if curr_height <= config.EPOCH_MINIMUM and os.environ.get("BLOCKSTACK_TEST", None) != "1":
-        print >> sys.stderr, ""
-        print >> sys.stderr, "This is a development version of Blockstack Core."
-        print >> sys.stderr, "It it not suitable for production use at this time,"
-        print >> sys.stderr, "and is not compatible with the production Blockstack"
-        print >> sys.stderr, "servers."
-        print >> sys.stderr, ""
-        print >> sys.stderr, "Please use the stable release from PyPI, which you"
-        print >> sys.stderr, "can install with:"
-        print >> sys.stderr, ""
-        print >> sys.stderr, "     $ pip install --upgrade blockstack-core"
-        print >> sys.stderr, ""
 
     if return_parser:
         return argparser
