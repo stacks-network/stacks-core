@@ -755,7 +755,7 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
         tx_fee_task = '{}_tx_fee'.format(task)
         task_res = results[tx_fee_task]
         if 'error' in task_res:
-            failed_tasks.append(task)
+            failed_tasks.append(tx_fee_task)
             continue
 
         assert 'insufficient' in task_res, "Invalid task res: {}".format(task_res)
@@ -763,7 +763,7 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
 
         if task_res['tx_fee'] is None:
             log.error("Task {} failed to get tx fee".format(task))
-            failed_tasks.append(task)
+            failed_tasks.append(tx_fee_task)
             continue
 
         insufficient_funds = insufficient_funds or task_res['insufficient']
@@ -796,7 +796,7 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
         reply['warnings'].append('Wallet not accessed; fees are rough estimates.')
 
     if len(failed_tasks) > 0:
-        log.error("Some fee-query tasks failed: {}".format(','.format(failed_tasks)))
+        log.error("Some fee-query tasks failed: {}".format(','.join(failed_tasks)))
         reply['error'] = 'Some fee-query tasks failed: {}'.format(','.join(failed_tasks))
 
     return reply
