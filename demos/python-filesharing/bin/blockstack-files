@@ -20,8 +20,12 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from blockstack_files.main import main
+from blockstack_files.main import run_cli 
 
 if __name__ == '__main__':
-    main(sys.argv)
+    res = run_cli(sys.argv)
+    if res:
+        sys.exit(0)
+    else:
+        sys.exit(1)
 
