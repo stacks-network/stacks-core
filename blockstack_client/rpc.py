@@ -2007,9 +2007,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             field_name = str(conf_item_name)
             field_value = str(conf_item_value)
             
-            res = blockstack_config.write_config_field( self.server.config_path, sec_name, field_name, field_value )
+            res = blockstack_config.write_config_field( self.server.config_path, section, field_name, field_value )
             if not res:
-                log.debug("Failed to set {}.{} = {}".format(sec_name, field_name, field_value))
+                log.debug("Failed to set {}.{} = {}".format(section, field_name, field_value))
                 return self._reply_json({'error': 'Failed to write config field'}, status=500)
 
         return self._reply_json({'status': True})
