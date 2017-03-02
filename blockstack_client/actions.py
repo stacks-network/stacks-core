@@ -564,7 +564,7 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
     # get results 
     fees = interpret_operation_fees(operations, sg)
     if 'error' in fees:
-        log.error("Failed to get operation fees: {}".format(fees['error']))
+        log.error("Failed to get all operation fees: {}".format(fees['error']))
         return {'error': 'Failed to get some operation fees: {}.  Try again with `--debug` for details.'.format(fees['error'])}
 
     analytics_event('Name price', {})
@@ -2440,7 +2440,11 @@ def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
             api_pass = conf.get('api_password', None)
 
     if api_pass is None:
-        return {'error': 'Need --api-password= on the CLI, or `api_password=` set in your config file ({})'.format(config_path)}
+        return {'error': 'Need --api-password on the CLI, or `api_password=` set in your config file ({})'.format(config_path)}
+
+    # sanity check: wallet must exist 
+    if str(args.command) == 'start' and not wallet_exists(config_path=config_path):
+        return {'error': 'Wallet does not exist.  Please create one with `blockstack setup`'}
 
     rc = local_rpc.local_api_action(str(args.command), config_dir=config_dir, password=password, api_pass=api_pass)
     if not rc:
