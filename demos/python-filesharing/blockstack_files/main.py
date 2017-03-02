@@ -5,364 +5,218 @@ This code is public domain.
 Used as a demo for Bockstack.
 """
 
-import requests
-import urllib
-import os
 import sys
+import os
+import json
+import argparse
+import traceback
 
-# need to pip install these
-import blockstack_client as bsk
-import jsontokens
-import keylib
+from .bsk import *
+from .version import __version__
 
-# application domain name (identifies the specific data store)
-APPLICATION_NAME = 'files.blockstack.org'
+CONFIG_PATH = os.path.expanduser('~/.blockstack_files.conf')
+DRIVERS = ['disk']
 
-# list of API families
-APPLICATION_METHODS = [
-    'store_read',
-    'store_write',
-    'store_admin',
-]
-
-# ECDSA private key (different each time)
-APPLICATION_KEY = keylib.ECPrivateKey().to_hex()
-
-def bsk_get_url( path, port=6270 ):
+def load_datastore_info( config_path=CONFIG_PATH ):
     """
-    Make a URL to the local blockstack node 
-    """
-    return 'http://localhost:{}{}'.format(port, path)
-
-
-def bsk_auth_headers( session ):
-    """
-    Make authorization headers from a session token
-    """
-    return {'Authorization': 'bearer {}'.format(session)}
-
-
-def bsk_get_session( api_password, port=6270 ):
-    """
-    Connect to the local blockstack node.
-    Get back a session.
-
-    Return the session (a JWT string) on success
-    Raise on error
-    """
-
-    # will call `GET http://localhost:{port}/v1/auth?authRequest={auth JWT}`
-    # will get back a session JWT
-
-    # request permission to access the API 
-    auth_request = {
-        'app_domain': APPLICATION_NAME,
-        'methods': APPLICATION_METHODS,
+    Get our config.
+    Returns {
+        'session': session,
+        'datastore_id': datastore ID
     }
 
-    # authentication: basic {password}
-    headers = {
-        'Authorization': 'basic {}'.format(api_password)
-    }
-
-    # make the authentication token
-    signer = jsontokens.TokenSigner()
-    auth_token = signer.sign(auth_request, APPLICATION_KEY)
-
-    # ask for a session token
-    url = bsk_get_url('/v1/auth?authRequest={}'.format(auth_token), port=port)
-    req = requests.get(url, headers=headers )
-
-    if req.status_code == 200:
-        # good to go!
-        # expect {'session': ses token} JSON response
-        payload = req.json()
-        session = payload['token']
-        return session
-
-    else:
-        # whoops!
-        raise Exception("HTTP status {} from Blockstack on {}".format(req.status_code, url))
-
-
-def bsk_make_datastore( session, drivers=None, port=6270 ):
+    Or, returns None if there's no such file.
+    Raise on exception.
     """
-    Make our data store.  The data store will be specific
-    to this application's name (APPLICATION_NAME)
 
-    Return the datastore ID on success (even if it already exists)
+    if not os.path.exists(config_path):
+        return None
+
+    with open(config_path, 'r') as f:
+        dat = f.read().strip()
+        conf = json.loads(dat)
+        return conf
+
+
+def store_datastore_info( session, datastore_id, config_path=CONFIG_PATH ):
+    """
+    Store our config.
+    Return True on success
     Raise on error
     """
+    conf = {
+        'session': session,
+        'datastore_id': datastore_id
+    }
+
+    with open(config_path, 'w') as f:
+        f.write( json.dumps(conf) )
+
+    return True
+
+
+def login( api_password=None, drivers=DRIVERS, config_path=CONFIG_PATH ):
+    """
+    Authenticate to Blockstack,
+    get a session, and create the 
+    datastore if it doesn't exist already.
+
+    Store the session and datastore ID to disk.
+
+    Returns {'session': session, 'datastore_id': ...} on success
+    Returns None on error
+    """
+
+    creds = load_datastore_info( config_path=config_path )
+    if creds is not None:
+        return creds
+
+    assert api_password, 'API password required'
     
-    # create a datastore with `POST http://localhost:{port}/v1/stores?drivers={drivers}`
-    # get back {'status': True, 'app_user_id': datastore ID}
-    
-    # does this data store already exist?
-    auth_headers = bsk_auth_headers(session)
-    url = bsk_get_url('/v1/stores/{}'.format(APPLICATION_NAME), port=port)
-    req = requests.get(url, headers=auth_headers)
+    # first-time signing in
+    session = bsk_get_session( api_password )
+    datastore_id = bsk_make_datastore( session, drivers=drivers )
 
-    if req.status_code == 200:
-        # the data store already exists.  Give back it's ID
-        datastore_info = req.json()
-        datastore_id = datastore_info['datastore_id']
-        return datastore_id
+    store_datastore_info( session, datastore_id, config_path=config_path )
 
-    elif req.status_code != 404:
-        # some other error
-        raise Exception("HTTP status {} from Blockstack on {}".format(req.status_code, url))
+    return {'session': session, 'datastore_id': datastore_id}
 
-    # doesn't exist yet.  Go create it.
-    url = bsk_get_url('/v1/stores', port=port)
-    
-    if drivers is not None:
-        # include requested drivers
-        url += '?drivers={}'.format( urllib.quote(','.join(drivers)) )
 
-    req = requests.post(url, headers=auth_headers)
+def logout( config_path=CONFIG_PATH ):
+    """
+    Remove our cached credentials.
+    Return True on success
+    Raise on error
+    """
+    if os.path.exists(config_path):
+        os.unlink(config_path)
 
-    if req.status_code == 200:
-        # succeeded!
-        # get back the ID 
-        datastore_res = req.json()
-        datastore_id = datastore_res['datastore_id']
-        return datastore_id
+    return True
 
-    else:
-        # something broke! 
-        raise Exception("HTTP status {} from Blockstack on {}".format(req.status_code, url))
+
+def run_cli( argv ):
+    """
+    Run the CLI.
+    Return True on success
+    Return False on error
+    """
+    argparser = argparse.ArgumentParser(description="blockstack-files version {}".format(__version__))
+    subparsers = argparser.add_subparsers(
+        dest='action', help='the action to be taken')
+
+    # ---------------------------
+    subparser = subparsers.add_parser(
+        'login', help='authenticate and log into your Blockstack node')
+
+    subparser.add_argument(
+        'api_password', action='store', help='Blockstack API password')
+
+    # ---------------------------
+    subparser = subparsers.add_parser(
+        'logout', help='log out of your Blockstack node')
+
+    # ---------------------------
+    subparser = subparsers.add_parser(
+        'ls', help='list a given directory')
+
+    subparser.add_argument(
+        'path', action='store', help='the path to the directory to list')
+
+    # ---------------------------
+    subparser = subparsers.add_parser(
+        'cat', help='cat a file to stdout')
+
+    subparser.add_argument(
+        'path', action='store', help='the path to the file to read')
+
+    # ---------------------------
+    subparser = subparsers.add_parser(
+        'mkdir', help='make a directory')
+
+    subparser.add_argument(
+        'path', action='store', help='the path to the directory to create')
+
+    # ---------------------------
+    subparser = subparsers.add_parser(
+        'put', help='store a file')
+
+    subparser.add_argument(
+        'local_path', action='store', help='the path to the local data on disk')
+
+    subparser.add_argument(
+        'path', action='store', help='the path in the data store to host this data')
+
+    # ---------------------------
+    subparser = subparsers.add_parser(
+        'rm', help='remove a file')
+
+    subparser.add_argument(
+        'path', action='store', help='the path to the file to delete')
+
+    # ---------------------------
+    subparser = subparsers.add_parser(
+        'rmdir', help='remove a directory')
+
+    subparser.add_argument(
+        'path', action='store', help='the path to the directory to remove.')
+
+
+    # act on it
+    args = argparser.parse_args()
    
+    try:
+        # authenticate, or get credentials
+        if args.action == 'login':
+            creds = login( args.api_password )
 
-def bsk_delete_datastore( session, port=6270 ):
-    """
-    Delete our data store.
+        else:
+            try:
+                creds = login()
+            except:
+                print >> sys.stderr, 'Unable to log in.  Try `{} login`'.format(argv[0])
+                return False
 
-    Return True on success
-    Raise on error
-    """
+        # bsk paths must be absolute 
+        path = getattr(args, 'path', None)
+        if path:
+            if not path.startswith('/'):
+                print >> sys.stderr, "Error: {} is not absolute".format(path)
+                return False
 
-    # delete datastore with `DELETE http://localhost:{port}/v1/stores`
+        session = creds['session']
+        datastore_id = creds['datastore_id']
 
-    auth_headers = bsk_auth_headers(session)
-    url = bsk_get_url('/v1/stores', port=port)
-    req = requests.delete(url, headers=auth_headers)
+        if args.action == 'ls':
+            res = bsk_stat( session, datastore_id, path )
+            if res['type'] == 2:
+                bsk_listdir( session, datastore_id, path )
+            else:
+                print os.path.basename(path)
 
-    if req.status_code == 200:
-        # success!
+        elif args.action == 'cat':
+            bsk_get_file( session, datastore_id, path )
+
+        elif args.action == 'mkdir':
+            bsk_mkdir( session, datastore_id, path )
+
+        elif args.action == 'put':
+            bsk_put_file( session, datastore_id, args.local_path, path )
+
+        elif args.action == 'rm':
+            bsk_delete_file( session, datastore_id, path )
+
+        elif args.action == 'rmdir':
+            bsk_rmdir( session, datastore_id, path )
+
+        elif args.action == 'logout':
+            logout()
+
+        else:
+            return False
+
         return True
 
-    else:
-        raise Exception("HTTP status {} from Blockstack on {}".format(req.status_code, url))
-
-
-def bsk_put_file( session, datastore_id, local_path, bsk_path, port=6270 ):
-    """
-    Put the file data pointed to by {local_path} into
-    {bsk_path}
-
-    Return True on success
-    Raise on error
-    """
-
-    # put the file with `POST http://localhost:{port}/v1/stores/{store ID}/files?path={bsk_path}`
-    # get back {'status': True}
-
-    # get data from disk 
-    with open(local_path, 'r') as f:
-        data = f.read()
-
-    # issue the request to store
-    auth_headers = bsk_auth_headers(session)
-    url = bsk_get_url('/v1/stores/{}/files?path={}'.format(datastore_id, urllib.quote(bsk_path)), port=port)
-    req = requests.post(url, headers=auth_headers, data=data)
-
-    if req.status_code == 200:
-        # success!
-        return True
-
-    else:
-        raise Exception("HTTP status {} from Blockstack on {}".format(req.status_code, url))
-
-
-def bsk_get_file( session, datastore_id, bsk_path, port=6270, file=sys.stdout ):
-    """
-    Get the file data pointed to by {bsk_path} from the data store.
-    Write it to stdout by default (override with file=)
-
-    Return True on success
-    Raise on error
-    """
-
-    # get the file with `GET http://localhost:{port}/v1/stores/{store ID}/files?path={bsk_path}`
-    # get back raw data (application/octet-stream)
-    
-    # issue the request to fetch 
-    auth_headers = bsk_auth_headers(session)
-    url = bsk_get_url('/v1/stores/{}/files?path={}'.format(datastore_id, urllib.quote(bsk_path)), port=port)
-    req = requests.get(url, headers=auth_headers)
-
-    if req.status_code == 200:
-        # success!
-        print >> file, req.content
-        return True
-
-    else:
-        raise Exception("HTTP status {} from Blockstack on {}".format(req.status_code, url))
-
-
-def bsk_delete_file( session, datastore_id, bsk_path, port=6270 ):
-    """
-    Delete the file data pointed to by {bsk_path} from the data store.
-    
-    Return True on success
-    Raise on error
-    """
-    
-    # delete with `DELETE http://localhost:{port}/v1/stores/{store ID}/files?path={bsk_path)`
-    # get back {'status': True}
-
-    # issue the request 
-    auth_headers = bsk_auth_headers(session)
-    url = bsk_get_url('/v1/stores/{}/files?path={}'.format(datastore_id, urllib.quote(bsk_path)), port=port)
-    req = requests.delete(url, headers=auth_headers)
-
-    if req.status_code == 200:
-        # success!
-        return True
-
-    else:
-        raise Exception("HTTP status {} from Blockstack on {}".format(req.status_code, url))
-
-
-def bsk_mkdir( session, datastore_id, bsk_path, port=6270 ):
-    """
-    Make a directory at {bsk_path} in the given data store
-
-    Return True on success
-    Raise on error
-    """
-
-    # make the directory with `POST http://localhost:{port}/v1/stores/{store ID}/directories?path={bsk_path}`
-    # get back {'status': True} (http 200)
-
-    # issue the request to fetch 
-    auth_headers = bsk_auth_headers(session)
-    url = bsk_get_url('/v1/stores/{}/directories?path={}'.format(datastore_id, urllib.quote(bsk_path)), port=port)
-    req = requests.post(url, headers=auth_headers)
-
-    if req.status_code == 200:
-        # success!
-        return True
-
-    else:
-        raise Exception("HTTP status {} from Blockstack on {}".format(req.status_code, url))
-
-
-def bsk_listdir( session, datastore_id, bsk_path, port=6270, file=sys.stdout ):
-    """
-    List a directory at {bsk_path} in the given data store.
-    Write the listing to stdout.
-
-    Return True on success
-    Raise on error
-    """
-
-    # list the directory with `GET http://localhost:{port}/v1/stores/{store ID}/directories?path={bsk_path}`
-    # get back the structured inode of the directory.
-    # iterate through the inode's children and print their names and types (i.e. append '/' to directories)
-
-    # issue the request to fetch
-    auth_headers = bsk_auth_headers(session)
-    url = bsk_get_url('/v1/stores/{}/directories?path={}'.format(datastore_id, urllib.quote(bsk_path)), port=port)
-    req = requests.get(url, headers=auth_headers)
-
-    if req.status_code == 200:
-        # success!
-        dir_listing = req.json()
-        
-        # extract names and types
-        names = []
-        for name in dir_listing.keys():
-            dirent = dir_listing[name]
-            if dirent['type'] == 2:    # this is a file
-                name += '/'
-
-            names.append(name)
-
-        names.sort()
-        print >> file, '\n'.join(names)
-        return True
-
-    else:
-        raise Exception("HTTP status {} from Blockstack on {}".format(req.status_code, url))
-
-
-def bsk_rmdir( session, datastore_id, bsk_path, port=6270 ):
-    """
-    Remove a directory at {bsk_path} in the given data store.
-    
-    Return True on success
-    Raise on error
-    """
-
-    # delete the directory with `DELETE http://localhost:{port}/v1/stores/{store ID}/directories?path={bsk_path}`
-    
-    # issue the request 
-    auth_headers = bsk_auth_headers(session)
-    url = bsk_get_url('/v1/stores/{}/directories?path={}'.format(datastore_id, urllib.quote(bsk_path)), port=port)
-    req = requests.delete(url, headers=auth_headers)
-
-    if req.status_code == 200:
-        # success!
-        return True
-
-    else:
-        raise Exception("HTTP status {} from Blockstack on {}".format(req.status_code, url))
-
-
-if __name__ == '__main__':
-    # unit tests!
-    import StringIO
-
-    api_password = sys.argv[1]
-    ses = bsk_get_session(api_password)
-    assert ses, "Failed to authentcate"
-
-    datastore_id = bsk_make_datastore(ses, ['disk'])
-    assert datastore_id, "Failed to make datastore"
-
-    # load something 
-    with open("/tmp/.footest", 'w') as f:
-        f.write("hello world\x00\x01\x02\x03\x04")
-
-    res = bsk_put_file(ses, datastore_id, "/tmp/.footest", "/foo")
-    assert res, "Failed to put file"
-
-    # get it back 
-    sb = StringIO.StringIO()
-    res = bsk_get_file(ses, datastore_id, "/foo", file=sb)
-    assert res, "Failed to get file"
-    assert sb.getvalue() == "hello world\x00\x01\x02\x03\x04\n", "Got wrong data ({})".format(sb.getvalue())
-
-    # make a directory 
-    res = bsk_mkdir(ses, datastore_id, "/bar")
-    assert res, "Failed to mkdir"
-
-    # list directory 
-    sb = StringIO.StringIO()
-    res = bsk_listdir(ses, datastore_id, "/", file=sb)
-    assert res, "Failed to listdir"
-    assert sb.getvalue() == "bar/\nfoo\n", "Got wrong dir ({})".format(sb.getvalue())
-
-    # delete file 
-    res = bsk_delete_file(ses, datastore_id, '/foo')
-    assert res
-
-    # delete directory 
-    res = bsk_rmdir(ses, datastore_id, '/bar')
-    assert res
-
-    # delete datastore
-    res = bsk_delete_datastore(ses)
-    assert res
+    except Exception as e:
+        traceback.print_exc()
+        return False
 
