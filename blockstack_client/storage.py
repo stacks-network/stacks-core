@@ -747,7 +747,7 @@ def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required
     return None if successes == 0 else data_hash
 
 
-def put_mutable_data(fq_data_id, data_text_or_json, privatekey_hex, profile=False, blockchain_id=None, required=None, skip=None):
+def put_mutable_data(fq_data_id, data_text_or_json, privatekey_hex, profile=False, blockchain_id=None, required=None, skip=None, required_exclusive=False):
     """
     Given the unserialized data, store it into our mutable data stores.
     Do so in a best-effort way.  This method fails if all storage providers fail,
@@ -778,7 +778,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, privatekey_hex, profile=Fals
     
     successes = 0
 
-    log.debug('put_mutable_data({}), required={}, skip={}'.format(fq_data_id, ','.join(required), ','.join(skip)))
+    log.debug('put_mutable_data({}), required={}, skip={} required_exclusive={}'.format(fq_data_id, ','.join(required), ','.join(skip), required_exclusive))
     if BLOCKSTACK_TEST:
         log.debug("data: {}".format(serialized_data))
 
@@ -795,6 +795,10 @@ def put_mutable_data(fq_data_id, data_text_or_json, privatekey_hex, profile=Fals
 
             log.debug("Storage provider {} does not implement mutable storage".format(handler.__name__))
             return None
+
+        if required_exclusive and handler.__name__ not in required:
+            log.debug("Skipping non-required driver {}".format(handler.__name__))
+            continue
 
         rc = False
 
@@ -856,7 +860,7 @@ def delete_immutable_data(data_hash, txid, privkey):
     return True
 
 
-def delete_mutable_data(fq_data_id, privatekey, skip=None, blockchain_id=None, profile=False):
+def delete_mutable_data(fq_data_id, privatekey, required=None, required_exclusive=False, skip=None, blockchain_id=None, profile=False):
     """
     Given the data ID and private key of a user,
     go and delete the associated mutable data.
@@ -866,6 +870,7 @@ def delete_mutable_data(fq_data_id, privatekey, skip=None, blockchain_id=None, p
 
     global storage_handlers
 
+    required = [] if required is None else required
     skip = [] if skip is None else skip
 
     # fully-qualified username hint
@@ -890,10 +895,19 @@ def delete_mutable_data(fq_data_id, privatekey, skip=None, blockchain_id=None, p
         if not getattr(handler, 'delete_mutable_handler', None):
             continue
 
+        if required_exclusive and handler.__name__ not in required:
+            log.debug("Skipping non-required driver {}".format(handler.__name__))
+            continue
+
+        rc = False
         try:
-            handler.delete_mutable_handler(fq_data_id, sigb64, fqu=fqu, profile=profile)
+            rc = handler.delete_mutable_handler(fq_data_id, sigb64, fqu=fqu, profile=profile)
         except Exception as e:
             log.exception(e)
+            rc = False
+
+        if not rc and handler.__name__ in required:
+            log.error("Failed to delete from required storage driver {}".format(handler.__name__))
             return False
 
     return True
