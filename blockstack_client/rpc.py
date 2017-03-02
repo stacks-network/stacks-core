@@ -270,7 +270,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         errno.ENOENT: 404,
         errno.EINVAL: 401,
         errno.EPERM: 400,
-        errno.EACCES: 403
+        errno.EACCES: 403,
+        errno.EEXIST: 409,
     }
 
     def _send_headers(self, status_code=200, content_type='application/json'):
@@ -1222,6 +1223,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         internal = self.server.get_internal_proxy()
         res = internal.cli_get_datastore(app_user_id, config_path=self.server.config_path)
         if 'error' in res:
+            if res.has_key('errno'):
+                # propagate an error code, if possible
+                if res['errno'] in self.http_errors:
+                    return self._send_headers(status_code=self.http_errors[res['errno']], content_type='text/plain')
+            
             return self._reply_json({'error': res['error']}, status_code=503)
 
         res['datastore_id'] = app_user_id
@@ -1233,17 +1239,34 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Make a data store for the application identified by the session
         Reply 200 on success
         Reply 503 on failure to replicate
+        
+        Takes optional "drivers={driver,driver,driver}" qs argument.
 
         # TODO see if we can load cached app user private key
         """
         
+        qs = path_info['qs_values']
+        drivers = qs.get('drivers', None)
         app_domain = ses['app_domain']
         internal = self.server.get_internal_proxy()
-        res = internal.cli_create_datastore(app_domain, wallet_keys=self.server.wallet_keys, config_path=self.server.config_path)
-        if json_is_error(res):
-            return self.reply_json({'error': 'Failed to put datastore: {}'.format(res['error'])}, status_code=503)
 
-        return self._reply_json({'status': True})
+        # does it exist?
+        res = internal.cli_create_datastore(app_domain, drivers, wallet_keys=self.server.wallet_keys, config_path=self.server.config_path)
+        if json_is_error(res):
+            if res.has_key('errno'):
+                # propagate an error code, if possible
+                if res['errno'] in self.http_errors:
+                    return self._send_headers(status_code=self.http_errors[res['errno']], content_type='text/plain')
+            
+            return self._reply_json({'error': 'Failed to put datastore: {}'.format(res['error'])}, status_code=503)
+        
+        # must be the app domain 
+        app_user_id_res = internal.cli_datastore_get_id( app_domain, config_path=self.server.config_path, wallet_keys=self.server.wallet_keys )
+        if 'error' in app_user_id_res:
+            return self._reply_json({'error': 'Unrecognized datastore identifier'}, status_code=404)
+
+        app_user_id = app_user_id_res['datastore_id']
+        return self._reply_json({'status': True, 'datastore_id': app_user_id})
 
 
     def PUT_store( self, ses, path_info, user_id ):
@@ -1272,6 +1295,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         internal = self.server.get_internal_proxy()
         res = internal.cli_delete_datastore(app_domain, force)
         if json_is_error(res):
+            if res.has_key('errno'):
+                # propagate an error code, if possible
+                if res['errno'] in self.http_errors:
+                    return self._send_headers(status_code=self.http_errors[res['errno']], content_type='text/plain')
+
             self._reply_json({'error': 'Failed to delete datastore: {}'.format(res['error'])}, status_code=503)
             return
 
@@ -1414,6 +1442,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         if 'error' in res:
+            if res.has_key('errno'):
+                # propagate an error code, if possible
+                if res['errno'] in self.http_errors:
+                    return self._send_headers(status_code=self.http_errors[res['errno']], content_type='text/plain')
+            
             log.error("Failed to make {} {}: {}".format(inode_type, path, res['error']))
             self._reply_json({'error': 'Failed to store item'}, status_code=503)
             return
@@ -1460,9 +1493,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if 'error' in res:
             log.error("Failed to remove {} {}: {}".format(inode_type, path, res['error']))
-            if res['errno'] == errno.ENOENT:
-                self._send_headers(status_code=404, content_type='text/plain')
-                return
+            if res.has_key('errno'):
+                # propagate an error code, if possible
+                if res['errno'] in self.http_errors:
+                    return self._send_headers(status_code=self.http_errors[res['errno']], content_type='text/plain')
 
             else:
                 self._reply_json({'error': 'Failed to remove item'}, status_code=503)
