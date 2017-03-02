@@ -3865,7 +3865,7 @@ def get_datastore_privkey_info( app_domain, wallet_keys, app_user_privkey=None, 
     return res
 
 
-def create_datastore_by_type( datastore_type, app_domain, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None ):
+def create_datastore_by_type( datastore_type, app_domain, drivers=None, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None ):
     """
     Create a datastore or a collection for the given user with the given name.
     Return {'status': True} on success
@@ -3893,13 +3893,15 @@ def create_datastore_by_type( datastore_type, app_domain, proxy=None, config_pat
     res = get_datastore_info( master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy )
     if 'error' not in res:
         # already exists
+        log.error("Datastore for {} exists".format(app_domain))
         return {'error': 'Datastore exists', 'errno': errno.EEXIST}
 
     datastore_privkey = datastore_get_privkey( master_data_privkey, app_domain, config_path=config_path ) 
-    datastore_info = make_datastore( datastore_type, datastore_privkey, config_path=CONFIG_PATH)
+    datastore_info = make_datastore( datastore_type, datastore_privkey, driver_names=drivers, config_path=CONFIG_PATH)
     if 'error' in datastore_info:
         return datastore_info
-    
+   
+    # can put
     res = put_datastore(datastore_info, datastore_privkey, proxy=proxy, config_path=config_path)
     if 'error' in res:
         return res
@@ -4104,14 +4106,18 @@ def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None, password=No
     command: create_datastore advanced 
     help: Make a new datastore for a given app user account.
     arg: app_domain (str) 'The domain name of the application.'
+    opt: drivers (str) 'A CSV of drivers to use.'
     """
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
     password = get_default_password(password)
+    drivers = getattr(args, 'drivers', None)
+    if drivers:
+        drivers = drivers.split(',')
 
-    return create_datastore_by_type('datastore', str(args.app_domain), proxy=proxy, config_path=config_path, password=password, wallet_keys=wallet_keys )
+    return create_datastore_by_type('datastore', str(args.app_domain), drivers=drivers, proxy=proxy, config_path=config_path, password=password, wallet_keys=wallet_keys )
 
 
 def cli_delete_datastore( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
