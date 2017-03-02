@@ -998,6 +998,7 @@ def put_mutable(data_id, data_payload, blockchain_id=None, data_privkey=None, pr
 
     proxy = get_default_proxy(config_path) if proxy is None else proxy
     conf = get_config(path=config_path)
+    assert conf
    
     fq_data_id = None
     device_id = ''
@@ -1458,6 +1459,10 @@ def put_datastore(datastore_info, datastore_privkey, proxy=None, config_path=CON
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    conf = get_config(path=config_path)
+    assert conf
+    device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
+
     datastore = datastore_info['datastore']
     datastore_id = datastore_get_id( datastore['pubkey'] )
     datastore_token = datastore_info['datastore_token']
@@ -1465,6 +1470,13 @@ def put_datastore(datastore_info, datastore_privkey, proxy=None, config_path=CON
     drivers = datastore['drivers']
     device_ids = datastore['device_ids']
     all_device_ids = get_all_device_ids(config_path=config_path)
+    data_id = '{}.datastore'.format(datastore_id)
+
+    # this datastore must not exist
+    old_datastore_version = load_mutable_data_version(conf, device_id, data_id, config_path=config_path)
+    if old_datastore_version is not None:
+        log.error("Already exists: {}".format(data_id))
+        return {'error': 'Datastore already exists', 'errno': errno.EEXIST}
 
     # replicate root inode
     res = _put_inode(datastore_id, root, datastore_privkey, drivers, device_ids, config_path=CONFIG_PATH, proxy=proxy, create=True )
@@ -1473,7 +1485,6 @@ def put_datastore(datastore_info, datastore_privkey, proxy=None, config_path=CON
         return {'error': 'Failed to replicate datastore metadata', 'errno': errno.EREMOTEIO}
 
     # replicate public datastore record
-    data_id = '{}.datastore'.format(datastore_id)
     res = put_mutable( data_id, datastore, data_privkey=datastore_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy )
     if 'error' in res:
         log.error("Failed to put datastore metadata for {}".format(datastore_fq_id))
@@ -1545,7 +1556,7 @@ def delete_datastore( datastore_privkey, force=False, config_path=CONFIG_PATH, p
 
     # remove public datastore record
     data_id = '{}.datastore'.format(datastore_id)
-    res = delete_mutable(data_id, data_privkey=datastore_privkey, proxy=proxy, config_path=config_path, delete_version=False )
+    res = delete_mutable(data_id, data_privkey=datastore_privkey, proxy=proxy, config_path=config_path )
     if 'error' in res:
         log.error("Failed to delete public datastore record: {}".format(res['error']))
         return {'error': 'Failed to delete public datastore record', 'errno': errno.EREMOTEIO}
@@ -1900,14 +1911,14 @@ def _delete_inode(datastore_id, inode_uuid, data_privkey, drivers, device_ids, c
     # delete inode header
     idata_id = '{}.hdr'.format(inode_uuid)
     hdata_id = '{}.{}'.format(datastore_id, idata_id)
-    res = delete_mutable(hdata_id, data_privkey=data_privkey, proxy=proxy, storage_drivers=drivers, device_ids=device_ids, delete_version=False, config_path=config_path)
+    res = delete_mutable(hdata_id, data_privkey=data_privkey, proxy=proxy, storage_drivers=drivers, device_ids=device_ids, config_path=config_path)
     if 'error' in res:
         log.error("Faled to delete idata for {}: {}".format(inode_uuid, res['error']))
         return res
 
     # delete inode 
     data_id = '{}.{}'.format(datastore_id, inode_uuid)
-    res = delete_mutable(data_id, data_privkey=data_privkey, proxy=proxy, storage_drivers=drivers, device_ids=device_ids, delete_version=False, config_path=config_path )
+    res = delete_mutable(data_id, data_privkey=data_privkey, proxy=proxy, storage_drivers=drivers, device_ids=device_ids, config_path=config_path )
     if 'error' in res:
         log.error("Failed to delete inode {}: {}".format(inode_uuid, res['error']))
         return res
@@ -2080,18 +2091,17 @@ def _mutable_data_make_inode( inode_type, owner_address, inode_uuid, data_hash=N
     return ret
 
 
-def _mutable_data_inode_hash( inode_struct ):
+def _mutable_data_inode_hash( inode_str ):
     """
     Calculate the inode hash
     """
-    d = json.dumps(inode_struct, sort_keys=True)
     h = hashlib.sha256()
-    h.update( d )
+    h.update( inode_str )
 
     if BLOCKSTACK_TEST:
-        d_fmt = d
-        if len(d) > 100:
-            d_fmt = d[:100] + '...'
+        d_fmt = inode_str
+        if len(inode_str) > 100:
+            d_fmt = inode_str[:100] + '...'
 
         log.debug("Hash is {} from '{}'".format(h.hexdigest(), d_fmt))
 
