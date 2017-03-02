@@ -5,11 +5,17 @@ CLI program for loading and storing files with Blockstack's RESTful API.
 
 Sample usage, once completed:
 
-```bash
+```
 $ pwd
 python-filesharing
 $ ls
-README.md                  bin                        blockstack_files           blockstack_files.egg-info  build                      dist                       setup.py
+README.md
+bin
+blockstack_files
+blockstack_files.egg-info
+build
+dist
+setup.py
 $ blockstack-files login PASSWORD
 $ blockstack-files ls /
 
