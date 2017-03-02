@@ -865,8 +865,8 @@ def default_blockstack_opts( config_file=None, virtualchain_impl=None ):
    contact_email = None
    announcers = "judecn.id,muneeb.id,shea256.id"
    announcements = None
-   backup_frequency = 1008  # once a week; 10 minute block time
-   backup_max_age = 12096   # 12 weeks
+   backup_frequency = 144   # once a day; 10 minute block time
+   backup_max_age = 1008    # one week
    rpc_port = RPC_SERVER_PORT 
    serve_zonefiles = True
    serve_profiles = False
