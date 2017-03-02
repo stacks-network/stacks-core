@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 This code is public domain.
-Used as a demo for Bockstack.
+Used as a demo for Blockstack.
 """
 
 import sys
