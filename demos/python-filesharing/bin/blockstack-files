@@ -1,0 +1,27 @@
+#!/usr/bin/env python2
+# -*- coding: utf-8 -*-
+"""
+This code is public domain.
+Used as a demo for Bockstack.
+"""
+
+import os
+import sys
+
+if sys.version_info.major != 2:
+    raise Exception("Python 3 is not supported")
+
+if sys.version_info.minor < 7:
+    raise Exception("Python 2.7 or greater is required")
+
+# Hack around absolute paths
+current_dir = os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../")
+
+sys.path.insert(0, parent_dir)
+
+from blockstack_files.main import main
+
+if __name__ == '__main__':
+    main(sys.argv)
+
