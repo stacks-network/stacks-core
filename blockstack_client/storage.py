@@ -167,7 +167,7 @@ def make_mutable_data_urls(data_id, use_only=None):
     return urls
 
 
-def serialize_mutable_data(data_json, privatekey_hex, pubkey_hex, profile=False):
+def serialize_mutable_data(data_text_or_json, privatekey_hex, pubkey_hex, profile=False):
     """
     Generate a serialized mutable data record from the given information.
     Sign it with privatekey.
@@ -178,7 +178,7 @@ def serialize_mutable_data(data_json, privatekey_hex, pubkey_hex, profile=False)
     if profile:
         # profiles must conform to a particular standard format
         tokenized_data = blockstack_profiles.sign_token_records(
-            [data_json], privatekey_hex
+            [data_text_or_json], privatekey_hex
         )
 
         del tokenized_data[0]['decodedToken']
@@ -188,12 +188,12 @@ def serialize_mutable_data(data_json, privatekey_hex, pubkey_hex, profile=False)
     
     else:
         # version 2 format for mutable data
-        data_txt = json.dumps(data_json, sort_keys=True)
-        data_sig = sign_raw_data(data_txt, privatekey_hex)
+        data_text_or_json = str(data_text_or_json)
+        data_sig = sign_raw_data(data_text_or_json, privatekey_hex)
 
         # make sure it's compressed
         pubkey_hex_compressed = keylib.key_formatting.compress(pubkey_hex)
-        res = "bsk2.{}.{}.{}".format(pubkey_hex_compressed, base64.b64encode(data_sig), data_txt)
+        res = "bsk2.{}.{}.{}".format(pubkey_hex_compressed, base64.b64encode(data_sig), data_text_or_json)
 
         return res
 
@@ -231,7 +231,7 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
         if dh == data_hash:
             # done!
             log.debug("Verified with hash {}".format(data_hash))
-            return json.loads(data_txt)
+            return data_txt
 
         else:
             log.debug("Hash mismatch: expected {}, got {}".format(data_hash, dh))
@@ -257,7 +257,7 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
         if given_pubkey_hex == pubk_hex:
             if verify_raw_data(data_txt, pubk_hex, sig_bin):
                 log.debug("Verified with public key {}".format(pubk_hex))
-                return json.loads(data_txt)
+                return data_txt
             else:
                 log.debug("Signature failed")
 
@@ -277,7 +277,7 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
         if keylib.public_key_to_address(pubk_hex) == pubkey_hash:
             if verify_raw_data(data_txt, pubk_hex, sig_bin):
                 log.debug("Verified with public key hash {} ({})".format(pubk_hex, pubkey_hash))
-                return json.loads(data_txt)
+                return data_txt
             else:
                 log.debug("Signature failed with pubkey hash")
 
