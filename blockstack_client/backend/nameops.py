@@ -258,7 +258,7 @@ def estimate_preorder_tx_fee( name, name_cost, owner_address, payment_addr, utxo
     try:
         unsigned_tx = preorder_tx( name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client, min_payment_confs=min_payment_confs )
         assert unsigned_tx
-    except ValueError:
+    except (ValueError, AssertionError) as e:
         # unfunded payment addr
         unsigned_tx = preorder_tx( name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client, safety=False, subsidize=True, min_payment_confs=min_payment_confs )
         assert unsigned_tx
@@ -303,7 +303,7 @@ def estimate_register_tx_fee( name, owner_addr, payment_addr, utxo_client, owner
     try:
         unsigned_tx = register_tx( name, payment_addr, owner_addr, utxo_client, subsidized=True )
         assert unsigned_tx
-    except ValueError:
+    except (ValueError, AssertionError) as e:
         # no UTXOs for this owner address.  Try again and add padding for one
         unsigned_tx = register_tx( name, payment_addr, owner_addr, utxo_client, subsidized=True, safety=False )
         assert unsigned_tx
