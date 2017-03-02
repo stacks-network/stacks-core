@@ -329,6 +329,7 @@ def fast_sync_snapshot( export_path, private_key, block_number ):
         log.error("Failed to sign snapshot {}".format(export_path))
         return False
 
+    _cleanup(tmpdir)
     return True
 
 
