@@ -2204,6 +2204,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
+            # TODO: change to /v1/addresses/{blockchain}/{address}
             r'^/v1/addresses/({})$'.format(BASE58CHECK_CLASS): {
                 'routes': {
                     'GET': self.GET_names_owned_by_address,
@@ -2967,21 +2968,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             # session required, but we have one
             # validate session
             allowed_methods = session['methods']
-
-            '''
-            # TODO: I don't think this is necessary any longer for what we're ultimately going to do
-            # must match requested application and application name
-            appname = session['appname']
-            app_fqu = session['name']
-            app_info = self.get_app_info(qs_values)
-            if 'error' in app_info:
-                log.debug("Could not determine application")
-                return self._send_headers(status_code=401, content_type='text/plain')
-
-            if app_info['appname'] != appname or app_info['app_fqu'] != app_fqu:
-                log.debug("Session for {}/{} does not match requested {}/{}".format(appname, app_fqu, app_info['appname'], app_info['app_fqu']))
-                return self._send_headers(status_code=403, content_type='text/plain')
-            '''
 
             # is this method allowed?
             if whitelist_info['name'] not in allowed_methods:
