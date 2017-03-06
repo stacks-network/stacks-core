@@ -686,6 +686,15 @@ def read_config_file(path=CONFIG_PATH):
     """
     global CONFIG_PATH, BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT
 
+    BLOCKSTACK_CLI_SERVER_HOST = os.environ.get('BLOCKSTACK_CLI_SERVER_HOST', None)     # overrides config file
+    BLOCKSTACK_CLI_SERVER_PORT = os.environ.get('BLOCKSTACK_CLI_SERVER_PORT', None)     # overrides config file
+
+    if BLOCKSTACK_CLI_SERVER_PORT is not None:
+        try:
+            BLOCKSTACK_CLI_SERVER_PORT = int(BLOCKSTACK_CLI_SERVER_PORT)
+        except:
+            raise Exception("Invalid server port")
+
     # try to create
     if path is not None:
         dirname = os.path.dirname(path)
@@ -788,6 +797,7 @@ def read_config_file(path=CONFIG_PATH):
         },
     }
 
+    # grow this list with future releases...
     renamed_fields = [renamed_fields_014_1]
 
     for renamed_field_set in renamed_fields:
@@ -796,11 +806,30 @@ def read_config_file(path=CONFIG_PATH):
                 for old_field_name in renamed_field_set[sec].keys():
                     if ret[sec].has_key( old_field_name ):
                         new_field_name = renamed_field_set[sec][old_field_name]
-
                         value = ret[sec][old_field_name]
+
+                        log.debug("Migrate {}.{} to {}.{}".format(sec, old_field_name, sec, new_field_name))
+
                         del ret[sec][old_field_name]
                         ret[sec][new_field_name] = value
-    
+   
+    # overrides from the environment
+    env_overrides = {
+        'blockstack-client': {
+            'server': BLOCKSTACK_CLI_SERVER_HOST,
+            'port': BLOCKSTACK_CLI_SERVER_PORT,
+        },
+    }
+
+    for sec in env_overrides.keys():
+        if ret.has_key(sec):
+            for field_name in env_overrides[sec].keys():
+                new_value = env_overrides[sec][field_name]
+                if new_value is not None:
+                    log.debug("Override {}.{} from {} to {}".format(sec, field_name, ret[sec][field_name], new_value))
+                    ret[sec][field_name] = new_value
+
+
     ret['path'] = path
     ret['dir'] = os.path.dirname(path)
 
