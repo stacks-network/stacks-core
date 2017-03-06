@@ -4,8 +4,8 @@
     Search
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2017 by Blockstack Inc.
+    copyright: (c) 2017 by Blockstack.org
 
 This file is part of Search.
 
@@ -27,13 +27,19 @@ This file is part of Search.
     usage: './substring_search --create_cache --search <query>'
 """
 
+import os
 import sys
 import json
 
-from .db import search_db, search_profiles
-from .db import search_cache
 
-from .config import DEFAULT_LIMIT
+current_dir =  os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../")
+sys.path.insert(0, parent_dir)
+
+from search.db import search_db, search_profiles
+from search.db import search_cache
+
+from search.config import DEFAULT_LIMIT
 
 
 def anyword_substring_search_inner(query_word, target_words):

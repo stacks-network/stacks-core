@@ -37,7 +37,6 @@ from .db import search_db
 from .db import namespace
 from .db import twitter_index, facebook_index
 from .db import github_index, domain_index
-from .db import btc_address_index
 from .db import proofs_cache
 
 from .config import SUPPORTED_PROOFS
