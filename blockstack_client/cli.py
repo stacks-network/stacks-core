@@ -165,6 +165,40 @@ def find_arg(argv, has_arg, short_opt, long_opt):
     return (argv, arg)
 
 
+def parse_args(arg_defs, argv, config_path=CONFIG_PATH):
+    """
+    Given arg definitions, parse argv.
+    Return {'status': True, 'new_argv': [...], 'args': {'argname': 'argvalue', ...}, 'envs': {'ENVAR': 'value', ...}, 're-exec': True/False}
+    """
+    ret = {}
+    envs = {}
+    re_exec = False
+    for arg_name in arg_defs.keys():
+        short_opt = arg_defs[arg_name]['short']
+        long_opt = arg_defs[arg_name]['long']
+
+        new_argv, arg_val = find_arg( argv, arg_defs[arg_name]['has_arg'], short_opt, long_opt )
+        if new_argv is None:
+            return {'error': 'Invalid argument {}/{}'.format(short_opt, long_opt)}
+
+        ret[arg_name] = arg_val
+        re_exec = re_exec or arg_defs[arg_name]['re-exec']
+
+        if arg_defs[arg_name].has_key('env'):
+            env_val = None
+            if arg_val in (True, False) and arg_val:
+                env_val = "1"
+            else:
+                env_val = arg_val
+
+            if env_val:
+                envs[ arg_defs[arg_name]['env'] ] = env_val
+
+        argv = new_argv
+
+    return {'status': True, 'new_argv': argv, 'args': ret, 'envs': envs, 're-exec': re_exec}
+
+
 def run_cli(argv=None, config_path=CONFIG_PATH):
     """
     Run a CLI command from arguments (defaults to sys.argv)
@@ -175,93 +209,102 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     if argv is None:
         argv = sys.argv
 
-    cli_debug = False
-    cli_config_argv = False
-    cli_default_yes = False
-    cli_api_pass = None
-    cli_dry_run = False
+    global_cli_args = {
+        'debug': {
+            'short': '-d',
+            'long': '--debug',
+            'has_arg': False,
+            're-exec': True,
+            'env': 'BLOCKSTACK_DEBUG',
+            'help': 'Enable global debugging messages'
+        },
+        'config': {
+            'short': '-c',
+            'long': '--config',
+            'has_arg': True,
+            're-exec': True,
+            'env': 'BLOCKSTACK_CLIENT_CONFIG',
+            'help': 'Path to alternative configuration file and associated state'
+        },
+        'default_yes': {
+            'short': '-y',
+            'long': '--yes',
+            'has_arg': False,
+            're-exec': False,
+            'env': 'BLOCKSTACK_CLIENT_INTERACTIVE_YES',
+            'help': 'Assume default/yes response to all queries',
+        },
+        'api_pass': {
+            'short': '-a',
+            'long': '--api_password',
+            'has_arg': True,
+            're-exec': False,
+            'env': 'BLOCKSTACK_API_PASSWORD',
+            'help': 'API password to use',
+        },
+        'dry_run': {
+            'short': '-n',
+            'long': '--dry_run',
+            'has_arg': False,
+            're-exec': True,
+            'env': 'BLOCKSTACK_DRY_RUN',
+            'help': 'Do not send transactions. Return the signed transaction instead.'
+        },
+        'wallet_password': {
+            'short': '-p',
+            'long': '--password',
+            'has_arg': True,
+            're-exec': False,
+            'env': 'BLOCKSTACK_CLIENT_WALLET_PASSWORD',
+            'help': 'Wallet decryption password',
+        },
+        'indexer_host': {
+            'short': '-H',
+            'long': '--host',
+            'has_arg': True,
+            're-exec': False,
+            'env': 'BLOCKSTACK_CLI_SERVER_HOST',
+            'help': 'Hostname or IP address of the Blockstack blockchain indexer',
+        },
+        'indexer_port': {
+            'short': '-P',
+            'long': '--port',
+            'has_arg': True,
+            're-exec': False,
+            'env': 'BLOCKSTACK_CLI_SERVER_PORT',
+            'help': 'Port number of the Blockstack blockchain indexer',
+        },
+    }
 
     if '-v' in argv or '--version' in argv:
         print(VERSION)
         sys.exit(0)
 
-    # debug?
-    new_argv, cli_debug = find_arg(argv, False, '-d', '--debug')
-    if new_argv is None:
-        # invalid 
+    arg_info = parse_args( global_cli_args, argv, config_path=config_path )
+    if 'error' in arg_info:
+        print("Failed to parse global CLI arguments: {}".format(arg_info['error']), file=sys.stderr)
+        print("Global CLI arguments:\n{}\n".format( "\n".join( ["\t{}/{}\n\t\t{}".format(cliarg['short'], cliarg['long'], cliarg['help']) for cliarg in global_cli_args] )), file=sys.stderr)
         sys.exit(1)
+
+    cli_debug = arg_info['args']['debug']
+    cli_config_argv = (arg_info['args'].has_key('config'))
+
+    # set environment variables
+    for envar, enval in arg_info['envs'].items():
+        if os.environ.get(envar) is None:
+            if cli_debug:
+                print("Set {} to {}".format(envar, enval), file=sys.stderr)
+
+            os.environ[envar] = enval
     
-    if cli_debug:
-        os.environ['BLOCKSTACK_DEBUG'] = '1'
-        log.setLevel(logging.DEBUG)
-        log.debug("Activated debugging")
+    # re-exec?
+    if arg_info['re-exec']:
+        if cli_debug:
+            new_argv = arg_info['new_argv']
+            print("Re-exec as `{}`".format( " ".join(new_argv)), file=sys.stderr)
 
-    # alternative config path?
-    new_argv, cli_config_path = find_arg(argv, True, '-c', '--config')
-    if new_argv is None:
-        # invalid
-        sys.exit(1)
-   
-    argv = new_argv
-    if cli_config_path:
-        cli_config_argv = True
-        config_path = cli_config_path
-        log.debug('Use config file {}'.format(config_path))
+            os.execv( new_argv[0], new_argv )
     
-    os.environ['BLOCKSTACK_CLIENT_CONFIG'] = config_path
-
-    # CLI-given password?
-    new_argv, cli_password = find_arg(argv, True, '-p', '--password')
-    if new_argv is None:
-        # invalid
-        sys.exit(1)
-
-    argv = new_argv
-    if cli_password and os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD') is None:
-        log.debug("Use CLI password")
-        os.environ["BLOCKSTACK_CLIENT_WALLET_PASSWORD"] = cli_password
-
-    # assume YES to all prompts?
-    new_argv, cli_default_yes = find_arg(argv, False, '-y', '--yes')
-    if new_argv is None:
-        # invalid
-        sys.exit(1)
-
-    if cli_default_yes or os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES") == "1":
-        if cli_debug:
-            print("Assume YES to all interactive prompts", file=sys.stderr)
-
-        os.environ["BLOCKSTACK_CLIENT_INTERACTIVE_YES"] = '1'
-
-    # API password?
-    new_argv, cli_api_pass = find_arg(argv, True, '-a', '--api_password')
-    if new_argv is None:
-        # invalid
-        sys.exit(1)
-
-    argv = new_argv
-    if cli_api_pass:
-        os.environ['BLOCKSTACK_API_PASSWORD'] = cli_api_pass
-
-    # dry-run?
-    new_argv, cli_dry_run = find_arg(argv, False, '-n', '--dry-run')
-    if new_argv is None:
-        # invalid
-        sys.exit(1)
-
-    if cli_dry_run or os.environ.get("BLOCKSTACK_DRY_RUN") == "1":
-        if cli_debug:
-            print('Dry-run; no transactions will be sent', file=sys.stderr)
-
-        os.environ['BLOCKSTACK_DRY_RUN'] = "1"
-
-    if cli_config_argv or cli_debug or cli_dry_run:
-        # re-exec to reset variables
-        if cli_debug:
-            print("Re-exec {} with {}".format(argv[0], argv), file=sys.stderr)
-
-        os.execv( argv[0], argv )
-
     # do one-time opt-in request
     uuid_path = client_uuid_path(config_dir=os.path.dirname(config_path))
     first_time = False
