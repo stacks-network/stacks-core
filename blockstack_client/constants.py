@@ -53,10 +53,10 @@ if os.environ.get("BLOCKSTACK_TEST", None) is not None:
 VERSION = __version__
 SERIES_VERSION = "{}.{}.{}".format(__version_major__, __version_minor__, __version_patch__)
 
-DEFAULT_BLOCKSTACKD_PORT = 6264  # blockstackd port
+DEFAULT_BLOCKSTACKD_PORT = 6264  # blockstack indexer port
 DEFAULT_BLOCKSTACKD_SERVER = 'node.blockstack.org'
 
-DEFAULT_API_PORT = 6270  # RPC endpoint port
+DEFAULT_API_PORT = 6270  # API endpoint port
 
 # initialize to default settings
 BLOCKSTACKD_SERVER = DEFAULT_BLOCKSTACKD_SERVER
