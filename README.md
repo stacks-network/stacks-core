@@ -25,14 +25,15 @@ The fastest way to get started with Blockstack is with pip.
 For Debian & Ubuntu:
 
 ```
-$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools
-$ sudo pip install blockstack-server
+$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools libgmp3-dev
+$ sudo pip install blockstack
 ```
 
 After installation, you can start Blockstack Core and index the blockchain:
 
 ```bash
-$ blockstack-server --debug start --foreground
+$ blockstack-core --debug start
+$ tail -f ~/.blockstack-server/blockstack-server.log
 ```
 
 Next, visit the [basic usage docs](https://blockstack.org/docs/basic-usage) and [extended usage docs](https://blockstack.org/docs/basic-usage) to learn how to register names of your own, as well as transfer them and associate data with them.
