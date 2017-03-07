@@ -43,7 +43,7 @@ which should display the last block processed and the latest consensus hash.
 After installation, you can start Blockstack Core and index the blockchain:
 ```bash
 $ blockstack-core --debug start
-$ tail -f ~/.blockstack-server/blockstack-server.logexit
+$ tail -f ~/.blockstack-server/blockstack-server.log
 ```
 
 Next, visit the [basic usage docs](https://blockstack.org/docs/basic-usage) and [extended usage docs](https://blockstack.org/docs/basic-usage) to learn how to register names of your own, as well as transfer them and associate data with them.
