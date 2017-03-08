@@ -42,6 +42,15 @@ import fastecdsa
 import fastecdsa.curve
 import fastecdsa.keys
 import fastecdsa.ecdsa
+
+OLD_FASTECDSA = False
+try:
+    import fastecdsa.point
+except:
+    # older fastecdsa library
+    OLD_FASTECDSA = True
+    pass 
+
 from fastecdsa import _ecdsa
 from fastecdsa.util import RFC6979
 import hmac
@@ -761,6 +770,8 @@ def get_pubkey_hex( privatekey_hex ):
     Get the uncompressed hex form of a private key
     """
 
+    global OLD_FASTECDSA
+
     if len(privatekey_hex) > 64:
         assert privatekey_hex[-2:] == '01'
         privatekey_hex = privatekey_hex[:64]
@@ -768,7 +779,27 @@ def get_pubkey_hex( privatekey_hex ):
     # get hex public key
     privatekey_int = int(privatekey_hex, 16)
     pubkey_parts = fastecdsa.keys.get_public_key( privatekey_int, curve=fastecdsa.curve.secp256k1 )
-    pubkey_hex = "04{:064x}{:064x}".format(pubkey_parts[0], pubkey_parts[1])
+    x = None
+    y = None
+
+    if isinstance(pubkey_parts, (list, tuple)):
+        # older fastecdsa 
+        x = pubkey_parts[0]
+        y = pubkey_parts[1]
+
+    elif not OLD_FASTECDSA:
+        if isinstance(pubkey_parts, fastecdsa.point.Point):
+            # newer fastecdsa interface uses a Point class instead of a tuple
+            x = pubkey_parts.x
+            y = pubkey_parts.y
+        
+        else:
+            raise Exception("Incompatible fastecdsa library")
+
+    else:
+        raise Exception("Incompatible fastecdsa library")
+
+    pubkey_hex = "04{:064x}{:064x}".format(x, y)
     return pubkey_hex
 
 
