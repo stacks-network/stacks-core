@@ -100,7 +100,6 @@ rpc_detach = True
 blockchain_reader = bitcoind_utxo
 blockchain_writer = bitcoind_utxo
 anonymous_statistics = False
-blockchain_headers = @CLIENT_BLOCKCHAIN_HEADERS@
 
 [blockchain-reader]
 utxo_provider = bitcoind_utxo
@@ -125,7 +124,7 @@ port = 18332
 use_https = False
 user = blockstack
 regtest = True
-spv_path = /tmp/blockstack-test-scenario-spv.dat
+spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
 """ % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT)
 
 
