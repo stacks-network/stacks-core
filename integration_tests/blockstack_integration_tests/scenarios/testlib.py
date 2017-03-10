@@ -494,10 +494,7 @@ def blockstack_client_initialize_wallet( password, payment_privkey, owner_privke
 
     print "\nstopping API daemon\n"
 
-    res = blockstack_client.rpc.local_api_stop(config_dir=config_dir)
-    if not res:
-        if exception:
-            raise Exception("Failed to stop API daemon")
+    blockstack_client.rpc.local_api_stop(config_dir=config_dir)
 
     print "\nstarting API daemon\n"
 
