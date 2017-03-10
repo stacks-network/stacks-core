@@ -438,11 +438,6 @@ MUTABLE_DATUM_DIRENT_SCHEMA = {
     ],
 }
 
-MUTABLE_DATUM_FILE_IDATA_SCHEMA = {
-    'type': 'string'
-}
-
-
 MUTABLE_DATUM_DIR_IDATA_SCHEMA = {
     'type': 'object',
     'patternProperties': {
