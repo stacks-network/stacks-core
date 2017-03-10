@@ -550,12 +550,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'token': res['token']})
 
 
-    def GET_names_owned_by_address( self, ses, path_info, address ):
+    def GET_names_owned_by_address( self, ses, path_info, blockchain, address ):
         """
         Get all names owned by an address
         Returns the list on success
+        Return 401 on unsupported blockchain
         Returns 500 on failure to get names
         """
+        if blockchain != 'bitcoin': 
+            return self._reply_json({'error': 'Invalid blockchain'}, status_code=401)
+
         res = proxy.get_names_owned_by_address(address)
         if json_is_error(res):
             log.error("Failed to get names owned by address")
@@ -1199,8 +1203,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Get the specific data store for this app user account or app domain
         Reply 200 on success
         Reply 503 on failure to load
-        
-        # TODO see if we can load cached app user private key to auth request
         """
         
         internal = self.server.get_internal_proxy()
@@ -1234,6 +1236,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json(res)
 
 
+    def GET_store_info( self, ses, path_info ):
+        """
+        Construct a data store record from the given query string.
+        Reply 200 on success with application/octet-stream.
+        """
+        
+
     def POST_store( self, ses, path_info ):
         """
         Make a data store for the application identified by the session
@@ -1241,8 +1250,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 503 on failure to replicate
         
         Takes optional "drivers={driver,driver,driver}" qs argument.
-
-        # TODO see if we can load cached app user private key
+        Takes serialized datastore payload and signature
         """
         
         qs = path_info['qs_values']
@@ -1282,8 +1290,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 200 on success
         Reply 403 on invalid user ID
         Reply 503 on (partial) failure to delete all replicas
-
-        # TODO see if we can load cached app user private key
         """
         internal = self.server.get_internal_proxy()
         qs = path_info['qs_values']
@@ -1317,8 +1323,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the file/directory/datastore does not exist
         Reply 500 if we fail to load the datastore record for some other reason than the above
         Reply 503 on failure to load data from storage providers
-        
-        # TODO see if we can load cached app user private key
         """
         if app_user_id != ses['app_user_id']:
             return self._reply_json({'error': 'Invalid user'}, status=403)
@@ -1420,6 +1424,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         res = None
 
         if inode_type == 'files':
+            # expect sig=... in query string
             data = self._read_payload()
             if data is None:
                 self._reply_json({'error': 'Failed to read file data'}, status_code=401)
@@ -1955,6 +1960,38 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
     
+    def POST_serialize( self, ses, path_info ):
+        """
+        Serialize a JSON payload into a string
+        Return 200 with application/octet-stream with the data
+        """
+        request = self._read_json()
+        if request is None:
+            return self._reply_json({'error': 'Invalid request'}, status_code=401)
+
+        blob_str = data.data_blob_serialize(request)
+        self._send_headers(status_code=200, content_type='application/octet-stream')
+        self.wfile.write(blob_str)
+        return
+   
+
+    def POST_deserialize( self, ses, path_info ):
+        """
+        Deserialize a data blob into a JSON document
+        Return 200 with application/json with the data
+        """
+        request_str = self._read_payload(maxlen=self.JSONRPC_MAX_SIZE)
+        if request_str is None:
+            return self._reply_json({'error': 'Invalid request'}, status_code=401)
+       
+        try:
+            request = data.data_blob_deserialize(request_str)
+            return self._reply_json(request)
+        except:
+            log.debug("Failed to parse payload")
+            return self._reply_json({'error': 'Unparseable data'}, status_code=401)
+
+
     def GET_registrar_state( self, ses, path_info ):
         """
         Handle GET /v1/node/registrar/state
@@ -2204,8 +2241,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            # TODO: change to /v1/addresses/{blockchain}/{address}
-            r'^/v1/addresses/({})$'.format(BASE58CHECK_CLASS): {
+            r'^/v1/addresses/({})/({})$'.format(URLENCODING_CLASS, BASE58CHECK_CLASS): {
                 'routes': {
                     'GET': self.GET_names_owned_by_address,
                 },
@@ -2588,6 +2624,34 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'auth_session': False,
                         'auth_pass': False,
                         'need_data_key': False
+                    },
+                },
+            },
+            r'^/v1/node/lib/serialize$': {
+                'routes': {
+                    'POST': self.POST_serialize,
+                },
+                'whitelist': {
+                    'POST': {
+                        'name': '',
+                        'desc': 'Serialize an application/json string into a data payload to sign.',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
+                    },
+                },
+            },
+            r'^/v1/node/lib/deserialize$': {
+                'routes': {
+                    'POST': self.POST_deserialize,
+                },
+                'whitelist': {
+                    'POST': {
+                        'name': '',
+                        'desc': 'Deserialize a payload string into an application/json document.',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                 },
             },
