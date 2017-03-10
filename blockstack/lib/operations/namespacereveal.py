@@ -166,6 +166,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     if namespace_preorder['sender'] != sender:
        # not sent by the preorderer
        log.debug("Namespace '%s' is not preordered by '%s'" % (namespace_id, sender))
+       return False
 
     # must be a version we support
     if int(nameop['version']) != BLOCKSTACK_VERSION:
