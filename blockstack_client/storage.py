@@ -167,18 +167,156 @@ def make_mutable_data_urls(data_id, use_only=None):
     return urls
 
 
-def serialize_mutable_data(data_text_or_json, privatekey_hex, pubkey_hex, profile=False):
+def serialize_data_payload( data_payload ):
+    """
+    Make a data payload (i.e. a netstring)
+    """
+    data_txt = str(data_payload)
+    return '{}:{},'.format(len(data_txt), data_txt)
+
+
+def parse_data_payload( data_txt ):
+    """
+    Parse a data payload into the string it contains.
+    The txt is a netstring
+    """
+    parts = data_txt.split(":", 1)
+    if len(parts) != 2:
+        log.debug("Invalid netstring: no ':'")
+        return None
+
+    try:
+        payload_len = int(parts[0])
+        data_txt = parts[1]
+    except ValueError:
+        # invalid
+        log.debug("Invalid netstring: not a number")
+        return None
+
+    if data_txt[-1] != ',':
+        # not a netstring
+        log.debug("Invalid netstring: no ',' delimiter")
+        return None
+
+    data_txt = data_txt[:-1]
+    if len(data_txt) != payload_len:
+        # not a valid netstring
+        log.debug("Invalid netstring: {} != {}".format(len(data_txt), payload_len))
+        return None
+
+    return data_txt
+
+
+def sign_data_payload( data_payload, data_privkey ):
+    """
+    Sign a netstring representation of the data payload.
+    Return the signature (base64-encoded)
+    """
+    data_txt = serialize_data_payload(data_payload)
+    data_sigb64 = sign_raw_data(data_txt, data_privkey)
+    return data_sigb64
+
+
+def verify_data_payload( data_payload, data_pubkey, sigb64 ):
+    """
+    Given a payload, verify that the signature covers
+    its netstring representation (i.e. 'len(data_payload):data_payload,')
+    """
+    data_txt = serialize_data_payload(data_payload)
+    res = verify_raw_data( data_txt, data_pubkey, sigb64 )
+    return res
+   
+
+def hash_data_payload( data_payload ):
+    """
+    Given a payload, verify that the hash covers
+    its netstring representation (i.e. hash(len(data_payload):data_payload,))
+    """
+    data_txt = serialize_data_payload(data_payload)
+    dh = hashlib.sha256(data_txt)
+    return dh.hexdigest()
+
+
+def sign_data_tombstone( tombstone_data, data_privkey ):
+    """
+    Make a data tombstone, and return the tombstone with
+    an appended signature (base64)
+    """
+    sigb64 = sign_raw_data(tombstone_data, data_privkey)
+    return '{}:{}'.format(tombstone_data, sigb64)
+
+
+def verify_data_tombstone( signed_tombstone, data_pubkey ):
+    """
+    Verify the authenticity of a data tombstone
+    """
+    parts = signed_tombstone.rsplit(":", 1)
+    if len(parts) != 2:
+        return False
+
+    tombstone_data, sigb64 = parts[0], parts[1]
+    return verify_raw_data( tombstone_data, data_pubkey, sigb64 )
+
+
+def make_data_tombstone( tombstone_data ):
+    """
+    Make a serialized tombstone.
+    """
+    return 'delete:{}'.format(tombstone_data)
+
+
+def parse_signed_data_tombstone( tombstone_data ):
+    """
+    extract the data ID and signature from a signed tombstone
+    return {'id': data ID, 'signature': sig} on success
+    Return None on error
+    """
+    parts1 = tombstone_data.split(":", 1)
+    if len(parts1) != 2:
+        return None
+
+    if parts1[0] != 'delete':
+        return None
+
+    parts2 = parts1[1].rsplit(":", 1)
+    if len(parts2) != 2:
+        return None 
+
+    return {'id': parts2[0], 'signature': parts2[1]}
+
+
+def make_mutable_data_tombstone( fq_data_id, data_privkey ):
+    """
+    Make a mutable data tombstone
+    """
+    return make_data_tombstone( fq_data_id, data_privkey )
+
+
+def make_immutable_data_tombstone( data_hash, txid, data_privkey ):
+    """
+    Make an immutable data tombstone
+    """
+    return make_data_tombstone( data_hash + txid, data_privkey )
+
+
+def serialize_mutable_data(data_text_or_json, data_privkey=None, data_pubkey=None, data_signature=None, profile=False):
     """
     Generate a serialized mutable data record from the given information.
     Sign it with privatekey.
+
+    The signature will be generated over the netstring "len(payload):payload,".
+    If given, the signature must be signed this way (i.e. via sign_data_payload)
 
     Return the serialized data (as a string) on success
     """
   
     if profile:
+        # private key required to generate signature
+        assert data_privkey is not None
+
         # profiles must conform to a particular standard format
         tokenized_data = blockstack_profiles.sign_token_records(
-            [data_text_or_json], privatekey_hex
+            [data_text_or_json], data_privkey
         )
 
         del tokenized_data[0]['decodedToken']
@@ -188,12 +326,16 @@ def serialize_mutable_data(data_text_or_json, privatekey_hex, pubkey_hex, profil
     
     else:
         # version 2 format for mutable data
-        data_text_or_json = str(data_text_or_json)
-        data_sig = sign_raw_data(data_text_or_json, privatekey_hex)
+        assert data_privkey or (data_pubkey and data_signature)
+
+        if data_signature is None:
+            data_text_or_json = str(data_text_or_json)
+            data_signature = sign_data_payload( data_text_or_json, data_privkey )
 
         # make sure it's compressed
-        pubkey_hex_compressed = keylib.key_formatting.compress(pubkey_hex)
-        res = "bsk2.{}.{}.{}".format(pubkey_hex_compressed, base64.b64encode(data_sig), data_text_or_json)
+        pubkey_hex_compressed = keylib.key_formatting.compress(data_pubkey)
+        data_payload = serialize_data_payload( data_text_or_json )
+        res = "bsk2.{}.{}.{}".format(pubkey_hex_compressed, data_signature, data_payload)
 
         return res
 
@@ -208,15 +350,20 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
     Return None on error
     """
 
-    parts = mutable_data_json_txt.split(".", 2)
-    if len(parts) != 3:
+    parts = mutable_data_json_txt.split(".", 3)
+    if len(parts) != 4:
         log.debug("Malformed data: {}".format(mutable_data_json_txt))
         return None 
+    
+    if parts[0] != 'bsk2':
+        log.debug("Not v2 data")
+        return None
 
-    pubk_hex = str(parts[0])
-    sig_b64 = str(parts[1])
-    data_txt = str(parts[2])
+    pubk_hex = str(parts[1])
+    sig_b64 = str(parts[2])
+    data_txt = str(parts[3])
 
+    # basic sanity checks
     if not re.match('^[0-9a-fA-F]+$', pubk_hex):
         log.debug("Not a v2 mutable datum: Invalid public key")
         return None 
@@ -225,9 +372,22 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
         log.debug("Not a v2 mutable datum: Invalid signature data")
         return None
 
+    try:
+        sig_bin = base64.b64decode(sig_b64)
+    except:
+        log.error("Incorrect base64-encoding")
+        return None
+
+    # data_txt must be a netstring (format: 'len(payload):payload,')
+    serialized_len = len(data_txt)
+    data_txt = parse_data_payload(data_txt)
+    if data_txt is None:
+        log.debug("Invalid data payload of {} bytes".format(serialized_len))
+        return None
+
     # shortcut: if hash is given, we're done 
     if data_hash is not None:
-        dh = hashlib.sha256(data_txt.encode('utf-8')).hexdigest()
+        dh = hash_data_payload( data_txt )
         if dh == data_hash:
             # done!
             log.debug("Verified with hash {}".format(data_hash))
@@ -240,12 +400,6 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
     if keylib.key_formatting.get_pubkey_format(pubk_hex) == 'hex_compressed':
         pubk_hex = keylib.key_formatting.decompress(pubk_hex)
 
-    try:
-        sig_bin = base64.b64decode(sig_b64)
-    except:
-        log.error("Incorrect base64-encoding")
-        return None
-
     if public_key_hex is not None:
         # make sure uncompressed
         given_pubkey_hex = str(public_key_hex)
@@ -255,8 +409,8 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
         log.debug("Try verify with {}".format(pubk_hex))
 
         if given_pubkey_hex == pubk_hex:
-            if verify_raw_data(data_txt, pubk_hex, sig_bin):
-                log.debug("Verified with public key {}".format(pubk_hex))
+            if verify_data_payload( data_txt, pubk_hex, sig_b64 ):
+                log.debug("Verified payload with public key {}".format(pubk_hex))
                 return data_txt
             else:
                 log.debug("Signature failed")
@@ -275,8 +429,8 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
         log.debug("Try verify with {}".format(pubkey_hash))
 
         if keylib.public_key_to_address(pubk_hex) == pubkey_hash:
-            if verify_raw_data(data_txt, pubk_hex, sig_bin):
-                log.debug("Verified with public key hash {} ({})".format(pubk_hex, pubkey_hash))
+            if verify_data_payload( data_txt, pubk_hex, sig_b64 ):
+                log.debug("Verified payload with public key hash {} ({})".format(pubk_hex, pubkey_hash))
                 return data_txt
             else:
                 log.debug("Signature failed with pubkey hash")
@@ -302,7 +456,6 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, 
     
     # newer version?
     if mutable_data_json_txt.startswith("bsk2."):
-        mutable_data_json_txt = mutable_data_json_txt[len("bsk2."):]
         return parse_mutable_data_v2(mutable_data_json_txt, public_key, public_key_hash=public_key_hash, data_hash=data_hash)
         
     # legacy parser
@@ -654,7 +807,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
 
             else:
                 data = data_txt
-                msg = 'Fetched (but did not decode) "{}" with "{}"'
+                msg = 'Fetched (but did not decode or verify) "{}" with "{}"'
                 log.debug(msg.format(url, storage_handler.__name__))
 
             return data
@@ -747,7 +900,7 @@ def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required
     return None if successes == 0 else data_hash
 
 
-def put_mutable_data(fq_data_id, data_text_or_json, privatekey_hex, profile=False, blockchain_id=None, required=None, skip=None, required_exclusive=False):
+def put_mutable_data(fq_data_id, data_text_or_json, data_privkey=None, data_pubkey=None, data_signature=None, profile=False, blockchain_id=None, required=None, skip=None, required_exclusive=False):
     """
     Given the unserialized data, store it into our mutable data stores.
     Do so in a best-effort way.  This method fails if all storage providers fail,
@@ -768,13 +921,18 @@ def put_mutable_data(fq_data_id, data_text_or_json, privatekey_hex, profile=Fals
         fqu = blockchain_id
 
     # sanity check: only support single-sig private keys
-    if not is_singlesig_hex(privatekey_hex):
-        log.error('Only single-signature data private keys are supported')
-        return False
+    if data_privkey is not None:
+        if not is_singlesig_hex(data_privkey):
+            log.error('Only single-signature data private keys are supported')
+            return False
 
-    assert privatekey_hex is not None
-    pubkey_hex = get_pubkey_hex( privatekey_hex )
-    serialized_data = serialize_mutable_data(data_text_or_json, privatekey_hex, pubkey_hex, profile=profile)
+        data_pubkey = get_pubkey_hex( data_privkey )
+
+    else:
+        assert data_pubkey is not None
+        assert data_signature is not None
+
+    serialized_data = serialize_mutable_data(data_text_or_json, data_privkey=data_privkey, data_pubkey=data_pubkey, data_signature=data_signature, profile=profile)
     
     successes = 0
 
@@ -829,7 +987,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, privatekey_hex, profile=Fals
     return (successes > 0)
 
 
-def delete_immutable_data(data_hash, txid, privkey):
+def delete_immutable_data(data_hash, txid, privkey=None, signed_data_tombstone=None):
     """
     Given the hash of the data, the private key of the user,
     and the txid that deleted the data's hash from the blockchain,
@@ -843,16 +1001,20 @@ def delete_immutable_data(data_hash, txid, privkey):
         log.error('Only single-signature data private keys are supported')
         return False
 
-    data_hash = str(data_hash)
-    txid = str(txid)
-    sigb64 = sign_raw_data("delete:" + data_hash + txid, privkey)
+    if signed_data_tombstone is None:
+        assert privkey
+        data_hash = str(data_hash)
+        txid = str(txid)
 
+        ts = make_immutable_data_tombstone(data_hash, txid)
+        signed_data_tombstone = sign_data_tombstone( ts, privkey )
+        
     for handler in storage_handlers:
         if not getattr(handler, 'delete_immutable_handler', None):
             continue
 
         try:
-            handler.delete_immutable_handler(data_hash, txid, sigb64)
+            handler.delete_immutable_handler(data_hash, txid, signed_data_tombstone)
         except Exception as e:
             log.exception(e)
             return False
@@ -860,7 +1022,7 @@ def delete_immutable_data(data_hash, txid, privkey):
     return True
 
 
-def delete_mutable_data(fq_data_id, privatekey, required=None, required_exclusive=False, skip=None, blockchain_id=None, profile=False):
+def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None, required=None, required_exclusive=False, skip=None, blockchain_id=None, profile=False):
     """
     Given the data ID and private key of a user,
     go and delete the associated mutable data.
@@ -869,6 +1031,8 @@ def delete_mutable_data(fq_data_id, privatekey, required=None, required_exclusiv
     """
 
     global storage_handlers
+    
+    assert privatekey or signed_data_tombstone
 
     required = [] if required is None else required
     skip = [] if skip is None else skip
@@ -879,12 +1043,15 @@ def delete_mutable_data(fq_data_id, privatekey, required=None, required_exclusiv
         fqu = blockchain_id
 
     # sanity check
-    if not is_singlesig_hex(privatekey):
+    if privatekey is not None and not is_singlesig_hex(privatekey):
         log.error('Only single-signature data private keys are supported')
         return False
 
     fq_data_id = str(fq_data_id)
-    sigb64 = sign_raw_data("delete:" + fq_data_id, privatekey)
+    if signed_data_tombstone is None:
+        assert privatekey
+        ts = make_mutable_data_tombstone(fq_data_id)
+        signed_data_tombstone = sign_data_tombstone(ts, privatekey)
 
     # remove data
     for handler in storage_handlers:
@@ -901,7 +1068,7 @@ def delete_mutable_data(fq_data_id, privatekey, required=None, required_exclusiv
 
         rc = False
         try:
-            rc = handler.delete_mutable_handler(fq_data_id, sigb64, fqu=fqu, profile=profile)
+            rc = handler.delete_mutable_handler(fq_data_id, signed_data_tombstone, fqu=fqu, profile=profile)
         except Exception as e:
             log.exception(e)
             rc = False
