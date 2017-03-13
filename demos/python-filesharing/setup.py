@@ -20,7 +20,7 @@ setup(
     include_package_data=True,
     scripts=['bin/blockstack-files'],
     install_requires=[
-        'blockstack>=0.14.1',
+        'blockstack>=0.14.2',
         'pyelliptic>=1.5.7',
     ],
     classifiers=[
