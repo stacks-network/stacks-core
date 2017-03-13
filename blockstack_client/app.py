@@ -45,12 +45,12 @@ import user as user_db
 from .proxy import *
 
 from config import get_config
-from .constants import CONFIG_PATH, BLOCKSTACK_TEST, LENGTH_MAX_NAME, ACCOUNT_SIGNING_KEY_INDEX
+from .constants import CONFIG_PATH, BLOCKSTACK_TEST, LENGTH_MAX_NAME
 from .schemas import *
 from keys import HDWallet, get_pubkey_hex
 
 
-def app_make_session( app_domain, methods, master_data_privkey_hex, app_user_id=None, app_user_privkey=None, session_lifetime=None, blockchain_ids=None, config_path=CONFIG_PATH ):
+def app_make_session( app_domain, methods, app_public_key, master_data_privkey_hex, app_user_id=None, session_lifetime=None, blockchain_ids=None, config_path=CONFIG_PATH ):
     """
     Make a session JWT for this application.
     Verify with user private key
@@ -64,22 +64,13 @@ def app_make_session( app_domain, methods, master_data_privkey_hex, app_user_id=
         session_lifetime = conf.get('default_session_lifetime', 1e80)
 
     if app_user_id is None:
-        if app_user_privkey is None:
-            if master_data_privkey_hex is not None:
-                assert app_domain is not None, "need app domain to derive app key"
-                app_user_privkey = data.datastore_get_privkey(master_data_privkey_hex, app_domain, config_path=config_path)
-
-            else:
-                # TODO: load from disk
-                raise NotImplemented("Local app user private keys are not supported at this time")
-
-        app_user_pubkey = get_pubkey_hex(app_user_privkey)
-        app_user_id = data.datastore_get_id(app_user_pubkey)
+        app_user_id = data.datastore_get_id(app_public_key)
 
     ses = {
         'app_domain': app_domain,
         'methods': methods,
         'app_user_id': app_user_id,
+        'app_public_key': app_public_key,
         'timestamp': int(time.time()),
         'expires': int(time.time() + session_lifetime),
     }
