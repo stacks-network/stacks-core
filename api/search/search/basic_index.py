@@ -4,23 +4,23 @@
     Search
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2017 by Blockstack Inc.
+    copyright: (c) 2017 by Blockstack.org
 
-This file is part of Search.
+This file is part of Blockstack.
 
-    Search is free software: you can redistribute it and/or modify
+    Blockstack is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Search is distributed in the hope that it will be useful,
+    Blockstack is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    along with Search. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
 import sys
@@ -32,8 +32,7 @@ from pymongo import MongoClient
 from .utils import validUsername
 from .utils import get_json, config_log
 
-from .config import RESOLVER_URL, ALL_USERS_ENDPOINT
-from .config import BLOCKCHAIN_STATE_FILE, DHT_STATE_FILE
+from .config import BLOCKCHAIN_DATA_FILE, PROFILE_DATA_FILE
 
 from .db import namespace, profile_data
 from .db import search_profiles
@@ -45,36 +44,25 @@ from .db import people_cache, twitter_cache, username_cache
 log = config_log(__name__)
 
 
-def get_namespace_from_resolver(url=RESOLVER_URL, endpoint=ALL_USERS_ENDPOINT):
-
-    full_url = url + endpoint
-
-    headers = {'Content-type': 'application/json'}
-
-    r = requests.get(full_url, headers=headers)
-
-    return r.json()['results']
-
-
-def fetch_dht_state_from_file():
-    """ takes dht state from file and saves in profile_data DB
+def fetch_profile_data_from_file():
+    """ takes profile data from file and saves in the profile_data DB
     """
 
-    dht_file = open(DHT_STATE_FILE, 'r')
+    profile_data_file = open(PROFILE_DATA_FILE, 'r')
 
-    dht_state = dht_file.read()
-    dht_state = json.loads(dht_state)
+    profiles = profile_data_file.read()
+    profiles = json.loads(profiles)
 
     counter = 0
 
     log.debug("-" * 5)
-    log.debug("Fetching DHT state from file")
+    log.debug("Fetching profile data from file")
 
-    for entry in dht_state:
+    for entry in profiles:
 
         new_entry = {}
-        new_entry['key'] = entry['key']
-        new_entry['value'] = entry['value']
+        new_entry['key'] = entry['fqu']
+        new_entry['value'] = entry['profile']
 
         profile_data.save(new_entry)
 
@@ -83,7 +71,7 @@ def fetch_dht_state_from_file():
         if counter % 1000 == 0:
             log.debug("Processed entries: %s" % counter)
 
-    dht_file.close()
+    profile_data_file.close()
 
     profile_data.ensure_index('key')
 
@@ -92,7 +80,7 @@ def fetch_dht_state_from_file():
 
 def fetch_namespace_from_file():
 
-    blockchain_file = open(BLOCKCHAIN_STATE_FILE, 'r')
+    blockchain_file = open(BLOCKCHAIN_DATA_FILE, 'r')
 
     blockchain_state = blockchain_file.read()
     blockchain_state = json.loads(blockchain_state)
@@ -106,16 +94,15 @@ def fetch_namespace_from_file():
 
         new_entry = {}
 
-        username = entry['fqu'].rstrip('id')
+        username = entry.rstrip('id')
         username = username.rstrip('.')
 
-        key = entry['value_hash']
-
+        key = entry
         check_entry = profile_data.find_one({"key": key})
 
         if check_entry is None:
 
-            # data not in DHT, skip
+            # profile data not available, skip
             continue
 
         new_entry['username'] = username
@@ -259,9 +246,9 @@ if __name__ == "__main__":
         # Step 0
         flush_db()
 
-    elif(option == '--create_namespace'):
+    elif(option == '--create_db'):
         # Step 2
-        fetch_dht_state_from_file()
+        #fetch_profile_data_from_file()
         fetch_namespace_from_file()
 
     elif(option == '--create_index'):
@@ -273,7 +260,7 @@ if __name__ == "__main__":
 
     elif(option == '--refresh'):
         flush_db()
-        fetch_dht_state_from_file()
+        fetch_profile_data_from_file()
         fetch_namespace_from_file()
         create_search_index()
 

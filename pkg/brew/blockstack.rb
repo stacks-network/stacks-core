@@ -8,13 +8,18 @@
 class Blockstack < Formula
   desc "Blockstack command-line client"
   homepage "https://blockstack.org"
-  url null
-  sha256 null
+  url "https://files.pythonhosted.org/packages/8d/37/db5313cb8087a64fc1e783052c97d42ffa976e54d83b3181034c32fb428b/blockstack-0.14.1.1.tar.gz"
+  sha256 "3c32edfcd702fb2db1e2e10e8d6b3c70e6aa68a8cddcaf0443d6b5c33a38fa54"
 
   # NOTE: must be added manually, after using `poet`
   depends_on :python if MacOS.version <= :snow_leopard
   depends_on "openssl"
   depends_on "libffi"
+
+  resource "appdirs" do
+    url "https://files.pythonhosted.org/packages/48/69/d87c60746b393309ca30761f8e2b49473d43450b150cb08f3c6df5c11be5/appdirs-1.4.3.tar.gz"
+    sha256 "9e5896d1372858f8dd3344faf4e5014d21849c756c8d5701f78f8a103b372d92"
+  end
 
   resource "base58" do
     url "https://files.pythonhosted.org/packages/98/7f/41aba6037e8d578e0518b431ae7d2880eeee59f79265bddc554d0e504d66/base58-0.2.4.tar.gz"
@@ -37,23 +42,23 @@ class Blockstack < Formula
   end
 
   resource "blockstack" do
-    url "https://files.pythonhosted.org/packages/bc/3d/bddcad2005a8b2b7dd0352a4d44e59e6ceac0e0537645aaebbd10b1e7d47/blockstack-0.14.0.4.tar.gz"
-    sha256 "52c4fffaef757d0cf21e7a2cd0a09f5775335707211a276316c7cc2f8a07a49a"
+    url "https://files.pythonhosted.org/packages/8d/37/db5313cb8087a64fc1e783052c97d42ffa976e54d83b3181034c32fb428b/blockstack-0.14.1.1.tar.gz"
+    sha256 "3c32edfcd702fb2db1e2e10e8d6b3c70e6aa68a8cddcaf0443d6b5c33a38fa54"
   end
 
   resource "blockstack-profiles" do
-    url "https://files.pythonhosted.org/packages/0f/5c/adcddc6ab396cb8be6d60a90f26782f480f1f0fdd32bfcce05739bdda5d1/blockstack-profiles-0.14.0.tar.gz"
-    sha256 "f3ca680e6dd2e0cab79adfd08447bc09c0d3c3c8ddb18ca23086ae69b63c22b5"
+    url "https://files.pythonhosted.org/packages/a7/72/04d52473b1960730d2a1c32183701d2e23322b762b9c4bc151a2ed890243/blockstack-profiles-0.14.1.tar.gz"
+    sha256 "1c50cdf6e42a1cb058d39f9533903a30060bdc84f4c87de6275db7e1a928f72c"
   end
 
   resource "blockstack-zones" do
-    url "https://files.pythonhosted.org/packages/72/d6/2784d9f70d230c09c9ca2aeb6b30b6776a1219677412219356192a6e7ad4/blockstack-zones-0.14.0.tar.gz"
-    sha256 "dd90d78479ae2bdc8eaa2c42813d498d4e73986b34bf5f808127f7459812d3a2"
+    url "https://files.pythonhosted.org/packages/df/c0/3ce945dda86c0d3df188f0196a2210957a0e257c03453a60b7f40e871ce1/blockstack-zones-0.14.1.tar.gz"
+    sha256 "f84042ef7ad86f560ae01ca4a85d6c24571241f1ec54855c175cf6ca908f8276"
   end
 
   resource "boto" do
-    url "https://files.pythonhosted.org/packages/68/4a/48b302989cbc3e6c64a16da5ec807bb7b36d8e8d3428579addde2eb1f671/boto-2.43.0.tar.gz"
-    sha256 "de4449cdc671939ecea6121c05587b25e73ac0c057bf1278a44bbc1974d5fd94"
+    url "https://files.pythonhosted.org/packages/b1/f9/cf8fa9a4a48e651294fc88446edee96f8b965f1d3ca044befc5dd7c9449b/boto-2.46.1.tar.gz"
+    sha256 "d24a68d97276445d1b5baee6537bc565ab7070afcd449a72f2541b1da1328ed4"
   end
 
   resource "cachetools" do
@@ -72,13 +77,18 @@ class Blockstack < Formula
   end
 
   resource "cryptography" do
-    url "https://files.pythonhosted.org/packages/d7/a2/b90736c37fd720db425c5e48d69da75a6eff6609b22d2123762f1ae8c5f5/cryptography-1.6.tar.gz"
-    sha256 "4d0d86d2c8d3fc89133c3fa0d164a688a458b6663ab6fa965c80d6c2cdaf9b3f"
+    url "https://files.pythonhosted.org/packages/99/df/71c7260003f5c469cec3db4c547115df39e9ce6c719a99e067ba0e78fd8a/cryptography-1.7.2.tar.gz"
+    sha256 "878cb68b3da3d493ffd68f36db11c29deee623671d3287c3f8d685117ffda9a9"
   end
 
   resource "defusedxml" do
-    url "https://files.pythonhosted.org/packages/09/3b/b1afa9649f48517d027e99413fec54f387f648c90156b3cf6451c8cd45f9/defusedxml-0.4.1.tar.gz"
-    sha256 "cd551d5a518b745407635bb85116eb813818ecaf182e773c35b36239fc3f2478"
+    url "https://files.pythonhosted.org/packages/74/ba/4ba4e89e21b5a2e267d80736ea674609a0a33cc4435a6d748ef04f1f9374/defusedxml-0.5.0.tar.gz"
+    sha256 "24d7f2f94f7f3cb6061acb215685e5125fbcdc40a857eff9de22518820b0a4f4"
+  end
+
+  resource "dropbox" do
+    url "https://files.pythonhosted.org/packages/39/89/5e494728d66645cefa5ef21ac104fc0be12e512fe623e5c37bac1243fb88/dropbox-7.2.1.tar.gz"
+    sha256 "acb85a33b4f977de11facb7516b4e0c9d5325920e71a2a26d39df383d34fefec"
   end
 
   resource "ecdsa" do
@@ -91,24 +101,39 @@ class Blockstack < Formula
     sha256 "8ad8c4783bf61ded74527bffb48ed9b54166685e4230386a9ed9b1279e2df5b1"
   end
 
+  resource "fastecdsa" do
+    url "https://files.pythonhosted.org/packages/35/2f/e476d9c4f902df5da29d7011f3f73c8f47cc65332f3773cf7f35afbee98a/fastecdsa-1.4.1.tar.gz"
+    sha256 "60bebe1e9a7c7ab4a2199c3d2bfd88fd130529efd32778202f1bed56d564ed38"
+  end
+
   resource "functools32" do
     url "https://files.pythonhosted.org/packages/c5/60/6ac26ad05857c601308d8fb9e87fa36d0ebf889423f47c3502ef034365db/functools32-3.2.3-2.tar.gz"
     sha256 "f6253dfbe0538ad2e387bd8fdfd9293c925d63553f5813c4e587745416501e6d"
   end
 
   resource "idna" do
-    url "https://files.pythonhosted.org/packages/fb/84/8c27516fbaa8147acd2e431086b473c453c428e24e8fb99a1d89ce381851/idna-2.1.tar.gz"
-    sha256 "ed36f281aebf3cd0797f163bb165d84c31507cedd15928b095b1675e2d04c676"
+    url "https://files.pythonhosted.org/packages/a3/06/40cb383eaea6e97047666db51abc2f2b32046f3e2a6e5ab2b946630f6062/idna-2.4.tar.gz"
+    sha256 "2a07165f6288f4b920aa8ab4357c1e59073c5d62e048a400510982769e039bd9"
   end
 
   resource "ipaddress" do
-    url "https://files.pythonhosted.org/packages/bb/26/3b64955ff73f9e3155079b9ed31812afdfa5333b5c76387454d651ef593a/ipaddress-1.0.17.tar.gz"
-    sha256 "3a21c5a15f433710aaa26f1ae174b615973a25182006ae7f9c26de151cd51716"
+    url "https://files.pythonhosted.org/packages/4e/13/774faf38b445d0b3a844b65747175b2e0500164b7c28d78e34987a5bfe06/ipaddress-1.0.18.tar.gz"
+    sha256 "5d8534c8e185f2d8a1fda1ef73f2c8f4b23264e8e30063feeb9511d492a413e1"
+  end
+
+  resource "jsonpatch" do
+    url "https://files.pythonhosted.org/packages/be/c1/947048a839120acefc13a614280be3289db404901d1a2d49b6310c6d5757/jsonpatch-1.15.tar.gz"
+    sha256 "ae23cd08b2f7246f8f2475363501e740c4ef93f08f2a3b7b9bcfac0cc37fceb1"
+  end
+
+  resource "jsonpointer" do
+    url "https://files.pythonhosted.org/packages/f6/36/6bdd302303e8bc7c25102dbc1eabb3e3d97f57b0f8f414f4da7ea7ab9dd8/jsonpointer-1.10.tar.gz"
+    sha256 "9fa5dcac35eefd53e25d6cd4c310d963c9f0b897641772cd6e5e7b89df7ee0b1"
   end
 
   resource "jsonschema" do
-    url "https://files.pythonhosted.org/packages/58/0d/c816f5ea5adaf1293a1d81d32e4cdfdaf8496973aa5049786d7fdb14e7e7/jsonschema-2.5.1.tar.gz"
-    sha256 "36673ac378feed3daa5956276a829699056523d7961027911f064b52255ead41"
+    url "https://files.pythonhosted.org/packages/58/b9/171dbb07e18c6346090a37f03c7e74410a1a56123f847efed59af260a298/jsonschema-2.6.0.tar.gz"
+    sha256 "6ff5f3180870836cae40f06fa10419f557208175f13ad7bc26caa77beb1f6e02"
   end
 
   resource "jsontokens" do
@@ -122,13 +147,18 @@ class Blockstack < Formula
   end
 
   resource "keylib" do
-    url "https://files.pythonhosted.org/packages/e0/8e/aac128d5facaac09109f147aaf02d77a6a0617a7724456264d9250723990/keylib-0.0.5.tar.gz"
-    sha256 "e52878439862f8da9add6547d3fb81f7f9ecf0bb3012799738b98194dbe8862e"
+    url "https://files.pythonhosted.org/packages/f1/14/04eb21ac61aae10971fbc550ca981dc91abb5c340a17ff7497c356e54654/keylib-0.1.0.tar.gz"
+    sha256 "62133b85d465ed6eda7c9dec0ff293da822508efa2772ef8f0504381e29189ef"
   end
 
   resource "mixpanel" do
-    url "https://files.pythonhosted.org/packages/3b/32/ab8eae3015cb3cb1285d128854357c579e4f6c6e5df174704f750f258e7a/mixpanel-4.3.1.tar.gz"
-    sha256 "5647dc18ef2a34daae56bc8838bf1f72d0be184fc4bdc0dba6e4c8d00519aa22"
+    url "https://files.pythonhosted.org/packages/bf/03/4413160bbe55ee64f0676cba2b787408b3c78d14ba4db52ba8334e39dfaf/mixpanel-4.3.2.tar.gz"
+    sha256 "86e3fc54a496d009f6dee4f05598acd0afc6e81ccee8901fc3ca6c5194c29e44"
+  end
+
+  resource "packaging" do
+    url "https://files.pythonhosted.org/packages/c6/70/bb32913de251017e266c5114d0a645f262fb10ebc9bf6de894966d124e35/packaging-16.8.tar.gz"
+    sha256 "5d50835fdf0a7edf0b55e311b7c887786504efea1177abd7e69329a8e5ea619e"
   end
 
   resource "protocoin" do
@@ -137,8 +167,8 @@ class Blockstack < Formula
   end
 
   resource "pyasn1" do
-    url "https://files.pythonhosted.org/packages/f7/83/377e3dd2e95f9020dbd0dfd3c47aaa7deebe3c68d3857a4e51917146ae8b/pyasn1-0.1.9.tar.gz"
-    sha256 "853cacd96d1f701ddd67aa03ecc05f51890135b7262e922710112f12a2ed2a7f"
+    url "https://files.pythonhosted.org/packages/69/17/eec927b7604d2663fef82204578a0056e11e0fc08d485fdb3b6199d9b590/pyasn1-0.2.3.tar.gz"
+    sha256 "738c4ebd88a718e700ee35c8d129acce2286542daa80a82823a7073644f706ad"
   end
 
   resource "pybitcoin" do
@@ -156,14 +186,19 @@ class Blockstack < Formula
     sha256 "f2ce1e989b272cfcb677616763e0a2e7ec659effa67a88aa92b3a65528f60a3c"
   end
 
+  resource "pyparsing" do
+    url "https://files.pythonhosted.org/packages/3c/ec/a94f8cf7274ea60b5413df054f82a8980523efd712ec55a59e7c3357cf7c/pyparsing-2.2.0.tar.gz"
+    sha256 "0832bcf47acd283788593e7a0f542407bd9550a55a8a8435214a1960e04bcb04"
+  end
+
   resource "python-bitcoinrpc" do
     url "https://files.pythonhosted.org/packages/2b/bd/54ce6bb445330df0938a91bc2bcac472142a5c57e3e0b329958992a352c4/python-bitcoinrpc-0.1.tar.gz"
     sha256 "6306ab38bb73d7399f2a037c53e2f63f4445ba336f85a8e4055f005f3bf3a97f"
   end
 
   resource "requests" do
-    url "https://files.pythonhosted.org/packages/6e/40/7434b2d9fe24107ada25ec90a1fc646e97f346130a2c51aa6a2b1aba28de/requests-2.12.1.tar.gz"
-    sha256 "2109ecea94df90980be040490ff1d879971b024861539abb00054062388b612e"
+    url "https://files.pythonhosted.org/packages/16/09/37b69de7c924d318e51ece1c4ceb679bf93be9d05973bb30c35babd596e2/requests-2.13.0.tar.gz"
+    sha256 "5722cd09762faa01276230270ff16af7acf7c5c45d623868d9ba116f15791ce8"
   end
 
   resource "simplejson" do
@@ -176,14 +211,29 @@ class Blockstack < Formula
     sha256 "105f8d68616f8248e24bf0e9372ef04d3cc10104f1980f54d57b2ce73a5ad56a"
   end
 
+  resource "typing" do
+    url "https://files.pythonhosted.org/packages/b6/0c/53c42edca789378b8c05a5496e689f44e5dd82bc6861d1ae5a926ee51b84/typing-3.5.3.0.tar.gz"
+    sha256 "ca2daac7e393e8ee86e9140cd0cf0172ff6bb50ebdf0b06281770f98f31bff21"
+  end
+
+  resource "urllib3" do
+    url "https://files.pythonhosted.org/packages/20/56/a6aa403b0998f857b474a538343ee483f5c02491bd1aebf61d42a3f60f77/urllib3-1.20.tar.gz"
+    sha256 "97ef2b6e2878d84c0126b9f4e608e37a951ca7848e4855a7f7f4437d5c34a72f"
+  end
+
   resource "utilitybelt" do
     url "https://files.pythonhosted.org/packages/ab/31/343ef1df18ffe822f02b4ca879d1f406275d3187040ac724bcf9158e4669/utilitybelt-0.2.6.tar.gz"
     sha256 "dafdb6a2dbb32e71d67a9cd35afd7c2e4993ec094e7ddb547df4cf46788770a4"
   end
 
   resource "virtualchain" do
-    url "https://files.pythonhosted.org/packages/7d/1a/cca9e6d30b82c708a2139cb5b410169bd2ae7d4a18e8b418ae5038fbb0d1/virtualchain-0.14.0.tar.gz"
-    sha256 "c798818b4f31f015b658a61d53edb59bac88c3c478e17a20a23f4d83bccde2db"
+    url "https://files.pythonhosted.org/packages/a7/a4/2ae10e651520d184a94c9c2d1a93c44f65f64747302a4ac79a58358f7eca/virtualchain-0.14.1.tar.gz"
+    sha256 "a26000ff5006a995b0ad9f0b58e19065634a6ace3a6971dfdc219828d183ed6c"
+  end
+
+  resource "warlock" do
+    url "https://files.pythonhosted.org/packages/2d/40/9f01a5e1574dab946598793351d59c86f58209d182d229aaa545abb98894/warlock-1.3.0.tar.gz"
+    sha256 "d7403f728fce67ee2f22f3d7fa09c9de0bc95c3e7bcf6005b9c1962b77976a06"
   end
 
 
