@@ -44,19 +44,6 @@ from .utils import zone_file_is_too_big
 from .s3 import s3_upload_file
 from .resolver.server import get_users
 
-from .settings import (
-    RESOLVER_URL, SEARCH_URL,
-    BLOCKCYPHER_TOKEN,
-    BLOCKSTORED_IP, BLOCKSTORED_PORT,
-    BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
-    BITCOIND_PASSWD, BITCOIND_USE_HTTPS,
-    DEFAULT_NAMESPACE, PAYMENT_PRIVKEY,
-    SECRET_KEY, USE_DEFAULT_PAYMENT
-)
-
-bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
-                          BITCOIND_PASSWD, BITCOIND_USE_HTTPS)
-
 from blockstore_client import client as bs_client
 
 # start session using blockstore_client
@@ -443,28 +430,6 @@ def get_dkim_pubkey(domain):
         raise DKIMPubkeyError()
 
     resp = public_key_data
-
-    return jsonify(resp), 200
-
-
-@app.route('/v1/upload', methods=['POST'])
-@parameters_required(['key', 'value'])
-@crossdomain(origin='*')
-def upload_data():
-    data = json.loads(request.data)
-
-    file_url = s3_upload_file(
-        'blockstack', data['value'], 'staging/' + data['key'], public=True)
-
-    if file_url is not None:
-        resp = {
-            "success": True,
-            "url": file_url
-        }
-    else:
-        resp = {
-            "success": False
-        }
 
     return jsonify(resp), 200
 
