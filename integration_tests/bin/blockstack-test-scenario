@@ -313,6 +313,7 @@ def network_start( blockstack_opts, db ):
     """
     Start RPC services
     """
+    blockstackd.gc_start()
     atlas_state = None
     try:
         atlas_state = blockstackd.atlas_start( blockstack_opts, db, TEST_RPC_PORT )
@@ -338,7 +339,7 @@ def network_stop():
     Stop RPC services
     """
     blockstackd.rpc_stop()
-
+    blockstackd.gc_stop()
 
 def atlas_stop( atlas_state ):
     try:
@@ -675,6 +676,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
         log.info("Atlas zonefile checks pass!")
 
+    """
     # verify data URLs 
     rc = testlib.check_data_urls()
     if not rc:
@@ -686,6 +688,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         return rc
 
     log.info("Data URL check pass!")
+    """
 
     network_stop()
     storage_stop()
