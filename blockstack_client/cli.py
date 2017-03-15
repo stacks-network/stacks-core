@@ -242,6 +242,14 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             'env': 'BLOCKSTACK_API_PASSWORD',
             'help': 'API password to use',
         },
+        'api_session': {
+            'short': '-A',
+            'long': '--api_session',
+            'has_arg': True,
+            're-exec': False,
+            'env': 'BLOCKSTACK_API_SESSION',
+            'help': 'API session token to use',
+        },
         'dry_run': {
             'short': '-n',
             'long': '--dry_run',
