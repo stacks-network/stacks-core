@@ -69,6 +69,7 @@ import data
 import resolve
 import zonefile
 import wallet
+import keys
 import user as user_db
 from utils import daemonize 
 
@@ -550,13 +551,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Invalid token: wrong signature")
             return self._send_headers(status_code=401, content_type='text/plain')
 
-        internal = self.server.get_internal_proxy()
-        res = internal.cli_app_signin( app_domain, ",".join(methods), app_public_key, session_lifetime, blockchain_ids, config_path=self.server.config_path )
+        # make the token 
+        res = app.app_make_session( app_public_key, app_domain, methods, self.server.master_data_privkey, blockchain_ids=blockchain_ids, config_path=self.server.config_path)
         if 'error' in res:
-            log.error("Failed to sign in: {}".format(res['error']))
-            return self._reply_json({'error': res['error']}, status_code=404)
+            return self._reply_json({'error': 'Failed to create session: {}'.format(res['error'])}, status_code=500)
 
-        return self._reply_json({'token': res['token']})
+        return self._reply_json({'token': res['session_token']})
 
 
     def GET_names_owned_by_address( self, ses, path_info, blockchain, address ):
@@ -1207,7 +1207,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def GET_store( self, ses, path_info, app_user_id ):
+    def GET_store( self, ses, path_info, datastore_id ):
         """
         Get the specific data store for this app user account or app domain
         Reply 200 on success with
@@ -1215,12 +1215,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 503 on failure to load
         """
         
-        if app_user_id != ses['app_user_id']:
-            log.debug("Invalid datastore ID: {} != {}".format(app_user_id, ses['app_user_id']))
+        if datastore_id != ses['app_user_id']:
+            log.debug("Invalid datastore ID: {} != {}".format(datastore_id, ses['app_user_id']))
             return self._reply_json({'error': 'Invalid datastore ID'}, status_code=403)
 
         internal = self.server.get_internal_proxy()
-        res = internal.cli_get_datastore(app_user_id, config_path=self.server.config_path)
+        res = internal.cli_get_datastore(datastore_id, config_path=self.server.config_path)
         if 'error' in res:
             log.debug("Failed to get datastore: {}".format(res['error']))
             if res.has_key('errno'):
@@ -1230,8 +1230,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             
             return self._reply_json({'error': res['error']}, status_code=503)
 
-        res['datastore_id'] = app_user_id
-        return self._reply_json(res)
+        ret = {
+            'datastore': res
+        }
+        return self._reply_json(ret)
        
 
     def _store_signed_datastore( self, ses, path_info, datastore_sigs_info ):
@@ -1337,29 +1339,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         else:
             return self._reply_json({'error': 'Missing signed datastore info', 'errno': errno.EINVAL}, status_code=401)
 
-        '''
-        drivers = qs.get('drivers', None)
-
-        # creating with internal wallet
-        # does it exist?
-        res = internal.cli_create_datastore(app_domain, drivers, wallet_keys=self.server.wallet_keys, config_path=self.server.config_path)
-        if json_is_error(res):
-            if res.has_key('errno'):
-                # propagate an error code, if possible
-                if res['errno'] in self.http_errors:
-                    return self._send_headers(status_code=self.http_errors[res['errno']], content_type='text/plain')
-            
-            return self._reply_json({'error': 'Failed to put datastore: {}'.format(res['error'])}, status_code=503)
-        
-        # must be the app domain 
-        app_user_id_res = internal.cli_datastore_get_id( app_domain, config_path=self.server.config_path, wallet_keys=self.server.wallet_keys )
-        if 'error' in app_user_id_res:
-            return self._reply_json({'error': 'Unrecognized datastore identifier'}, status_code=404)
-
-        app_user_id = app_user_id_res['datastore_id']
-        return self._reply_json({'status': True, 'datastore_id': app_user_id})
-        '''
-
 
     def PUT_store( self, ses, path_info, app_user_id ):
         """
@@ -1445,25 +1424,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
        
         else:
             return self._reply_json({'error': 'Missing signed datastore info', 'errno': errno.EINVAL}, status_code=401)
-        
-        '''
-        # deleting from internal wallet key
-        internal = self.server.get_internal_proxy()
-        res = internal.cli_delete_datastore(app_domain, force)
-        if json_is_error(res):
-            if res.has_key('errno'):
-                # propagate an error code, if possible
-                if res['errno'] in self.http_errors:
-                    return self._send_headers(status_code=self.http_errors[res['errno']], content_type='text/plain')
+      
 
-            self._reply_json({'error': 'Failed to delete datastore: {}'.format(res['error'])}, status_code=503)
-            return
-
-        self._reply_json({'status': True})
-        return
-        '''
-
-    def GET_store_item( self, ses, path_info, app_user_id, inode_type ):
+    def GET_store_item( self, ses, path_info, datastore_id, inode_type ):
         """
         Get a store item
         Only works on the session's user ID
@@ -1474,7 +1437,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 500 if we fail to load the datastore record for some other reason than the above
         Reply 503 on failure to load data from storage providers
         """
-        if app_user_id != ses['app_user_id']:
+        if datastore_id != ses['app_user_id']:
             return self._reply_json({'error': 'Invalid user', 'errno': errno.EINVAL}, status=403)
 
         if inode_type not in ['files', 'directories', 'inodes']:
@@ -1498,22 +1461,22 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if inode_type == 'files':
             if path is not None:
-                res = internal.cli_datastore_getfile(app_user_id, path, '0', config_path=self.server.config_path)
+                res = internal.cli_datastore_getfile(datastore_id, path, '0', config_path=self.server.config_path)
             else:
-                res = internal.cli_datastore_getinode(app_user_id, inode_uuid, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, config_path=self.server.config_path)
 
         elif inode_type == 'directories':
             # path requred 
             if path is not None:
-                res = internal.cli_datastore_listdir(app_user_id, path, include_extended, config_path=self.server.config_path)
+                res = internal.cli_datastore_listdir(datastore_id, path, include_extended, config_path=self.server.config_path)
             else:
-                res = internal.cli_datastore_getinode(app_user_id, inode_uuid, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, config_path=self.server.config_path)
 
         else:
             if path is not None:
-                res = internal.cli_datastore_stat(app_user_id, path, include_extended, config_path=self.server.config_path)
+                res = internal.cli_datastore_stat(datastore_id, path, include_extended, config_path=self.server.config_path)
             else:
-                res = internal.cli_datastore_getinode(app_user_id, inode_uuid, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, config_path=self.server.config_path)
 
         if json_is_error(res):
             err = {'error': 'Failed to read {}: {}'.format(inode_type, res['error']), 'errno': res.get('errno', errno.EPERM)}
@@ -1660,14 +1623,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'status': True})
 
 
-    def _create_or_update_store_item( self, ses, path_info, app_user_id, inode_type, create=False ):
+    def _create_or_update_store_item( self, ses, path_info, datastore_id, inode_type, create=False ):
         """
         Create or update a file, or create a directory.
         Implements POST_store_item and PUT_store_item
         """
         
-        if app_user_id != ses['app_user_id']:
-            return self._reply_json({'error': 'Invalid user'}, status=403)
+        if datastore_id != ses['app_user_id']:
+            return self._reply_json({'error': 'Invalid datastore ID'}, status=403)
 
         if inode_type not in ['files', 'directories']:
             log.debug("Invalid request: unrecognized inode type")
@@ -1694,54 +1657,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         else:
             return self._reply_json({'error': 'Missing signed inode data'}, status_code=401)
 
-        """
-        # use internal wallet
-        internal = self.server.get_internal_proxy()
-        if path is None:
-            log.debug("Invalid request: no path given")
-            self._reply_json({'error': 'No path given'}, status_code=401)
-            return
 
-        res = None
-
-        if inode_type == 'files':
-            data = self._read_payload()
-            if data is None:
-                self._reply_json({'error': 'Failed to read file data'}, status_code=401)
-                return
-
-            do_create = None
-            if create:
-                do_create = "True"
-            else:
-                do_create = "False"
-
-            res = internal.cli_datastore_putfile(ses['app_domain'], path, data, do_create, force_data=True, wallet_keys=self.server.wallet_keys)
-
-        elif create:
-            res = internal.cli_datastore_mkdir(ses['app_domain'], path, wallet_keys=self.server.wallet_keys)
-
-        else:
-            log.error("Invalid request: cannot update directory {}".format(path))
-            self._reply_json({'error': 'Invalid request'}, status_code=401)
-            return
-
-        if 'error' in res:
-            if res.has_key('errno'):
-                # propagate an error code, if possible
-                if res['errno'] in self.http_errors:
-                    return self._send_headers(status_code=self.http_errors[res['errno']], content_type='text/plain')
-            
-            log.error("Failed to make {} {}: {}".format(inode_type, path, res['error']))
-            self._reply_json({'error': 'Failed to store item'}, status_code=503)
-            return
-
-        self._reply_json({'status': True})
-        return
-        """
-
-
-    def DELETE_store_item( self, ses, path_info, app_user_id, inode_type ):
+    def DELETE_store_item( self, ses, path_info, datastore_id, inode_type ):
         """
         Delete a store item.
         Only works with the session's user ID.
@@ -1752,10 +1669,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 403 on invalid user ID
         Reply 404 if the file/directory does not exist
         Reply 503 on failure to contact remote storage providers
-        
-        # TODO see if we can load cached app user private key
         """
-        if app_user_id != ses['app_user_id']:
+        if datastore_id != ses['app_user_id']:
             return self._reply_json({'error': 'Invalid user', 'errno': errno.EACCES}, status=403)
 
         if inode_type not in ['files', 'directories', 'inodes']:
@@ -1789,37 +1704,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         else:
             return self._reply_json({'error': 'Missing signed inode data'}, status_code=401)
-
-        """
-        qs = path_info['qs_values']
-        internal = self.server.get_internal_proxy()
-        path = qs.get('path', None)
-        if path is None:
-            self._reply_json({'error': 'No path given'}, status_code=401)
-            return
-
-        res = None
-
-        if inode_type == 'files':
-            res = internal.cli_datastore_deletefile(ses['app_domain'], path, wallet_keys=self.server.wallet_keys)
-
-        else:
-            res = internal.cli_datastore_rmdir(ses['app_domain'], path, wallet_keys=self.server.wallet_keys)
-
-        if 'error' in res:
-            log.error("Failed to remove {} {}: {}".format(inode_type, path, res['error']))
-            if res.has_key('errno'):
-                # propagate an error code, if possible
-                if res['errno'] in self.http_errors:
-                    return self._send_headers(status_code=self.http_errors[res['errno']], content_type='text/plain')
-
-            else:
-                self._reply_json({'error': 'Failed to remove item'}, status_code=503)
-                return
-
-        self._reply_json({'status': True})
-        return
-        """
 
 
     def GET_app_resource( self, ses, path_info, blockchain_id, app_domain ):
@@ -3762,6 +3646,33 @@ class BlockstackAPIEndpointClient(object):
             req = requests.delete( 'http://localhost:{}/v1/names/{}'.format(self.port, fqu), timeout=self.timeout, headers=headers)
             return self.get_response(req)
         
+
+    def backend_signin(self, app_privkey, app_domain, app_methods, api_password=None):
+        """
+        Sign in and set the session token.
+        Cannot be used by the server (nonsensical)
+        """
+        assert not is_api_server(self.config_dir)
+        if api_password:
+            self.api_pass = api_password
+
+        headers = self.make_request_headers() 
+        request = {
+            'app_domain': app_domain,
+            'app_public_key': keys.get_pubkey_hex(app_privkey),
+            'methods': app_methods,
+        }
+        signer = jsontokens.TokenSigner()
+        authreq = signer.sign(request, app_privkey)
+
+        req = requests.get('http://localhost:{}/v1/auth?authRequest={}'.format(self.port, authreq), timeout=self.timeout, headers=headers)
+        res = self.get_response(req)
+        if 'error' in res:
+            return res
+
+        self.session = res['token']
+        return res
+
     
     def backend_datastore_create(self, datastore_info, datastore_sigs ):
         """
@@ -4066,6 +3977,10 @@ def local_api_connect(api_pass=None, api_session=None, password=None, config_pat
         # try config file
         api_pass = conf.get('api_password', None)
 
+    if api_session is None:
+        # try environment 
+        api_session = os.environ.get('BLOCKSTACK_API_SESSION', None)
+
     connect_msg = 'Connect to API at localhost:{}'
     log.debug(connect_msg.format(api_port))
     return BlockstackAPIEndpointClient('localhost', api_port, timeout=3000, config_path=config_path, session=api_session, api_pass=api_pass)
@@ -4254,6 +4169,7 @@ def local_api_start( port=None, config_dir=blockstack_constants.CONFIG_DIR, fore
 
     import blockstack_client
     from blockstack_client.wallet import load_wallet
+    from blockstack_client.client import session
 
     global rpc_pidpath, rpc_srv, running
     config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
@@ -4279,6 +4195,9 @@ def local_api_start( port=None, config_dir=blockstack_constants.CONFIG_DIR, fore
     signal.signal(signal.SIGINT, local_api_exit_handler)
     signal.signal(signal.SIGQUIT, local_api_exit_handler)
     signal.signal(signal.SIGTERM, local_api_exit_handler)
+
+    conf = blockstack_config.get_config(config_path)
+    assert conf
 
     wallet = load_wallet(
         password=password, config_path=config_path,
@@ -4320,6 +4239,11 @@ def local_api_start( port=None, config_dir=blockstack_constants.CONFIG_DIR, fore
     load_api_cli_method_info(blockstack_client)
     load_api_internal_methods(config_path)
     log.debug('Finished loading RPC methods')
+
+    # load drivers 
+    log.debug("Loading drivers")
+    session(conf=conf)
+    log.debug("Loaded drivers")
 
     # make server
     try:
