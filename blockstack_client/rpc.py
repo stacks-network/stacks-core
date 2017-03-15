@@ -532,17 +532,26 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         app_domain = str(decoded_token['payload']['app_domain'])
         methods = [str(m) for m in decoded_token['payload']['methods']]
         session_lifetime = DEFAULT_SESSION_LIFETIME
-        app_user_id = decoded_token['payload'].get('app_user_id', None)
+        app_public_key = str(decoded_token['payload']['app_public_key'])
         blockchain_ids = decoded_token['payload'].get('blockchain_ids', None)
-
-        if app_user_id is not None:
-            app_user_id = str(app_user_id)
 
         if blockchain_ids is not None:
             blockchain_ids = ",".join(blockchain_ids)
 
+        # it needs to be at least self-signed 
+        try:
+            verifier = jsontokens.TokenVerifier()
+            log.debug("Verify with {}".format(app_public_key))
+            assert verifier.verify(token, app_public_key)
+        except AssertionError as ae:
+            if BLOCKSTACK_TEST:
+                log.exception(ae)
+
+            log.debug("Invalid token: wrong signature")
+            return self._send_headers(status_code=401, content_type='text/plain')
+
         internal = self.server.get_internal_proxy()
-        res = internal.cli_app_signin( app_domain, ",".join(methods), session_lifetime, blockchain_ids, app_user_id, config_path=self.server.config_path )
+        res = internal.cli_app_signin( app_domain, ",".join(methods), app_public_key, session_lifetime, blockchain_ids, config_path=self.server.config_path )
         if 'error' in res:
             log.error("Failed to sign in: {}".format(res['error']))
             return self._reply_json({'error': res['error']}, status_code=404)
@@ -1198,33 +1207,22 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def GET_store( self, ses, path_info, app_user_id_or_app_domain ):
+    def GET_store( self, ses, path_info, app_user_id ):
         """
         Get the specific data store for this app user account or app domain
-        Reply 200 on success
+        Reply 200 on success with
+        
         Reply 503 on failure to load
         """
         
-        internal = self.server.get_internal_proxy()
-
-        app_user_id = None
-        if app_user_id_or_app_domain == ses['app_user_id']:
-            app_user_id = app_user_id_or_app_domain
-
-        else:
-            # must be the app domain 
-            app_user_id_res = internal.cli_datastore_get_id( app_user_id_or_app_domain, config_path=self.server.config_path, wallet_keys=self.server.wallet_keys )
-            if 'error' in app_user_id_res:
-                return self._reply_json({'error': 'Unrecognized datastore identifier'}, status_code=404)
-
-            app_user_id = app_user_id_res['datastore_id']
-
         if app_user_id != ses['app_user_id']:
-            return self._reply_json({'error': 'Invalid datastore ID'}, status=403)
+            log.debug("Invalid datastore ID: {} != {}".format(app_user_id, ses['app_user_id']))
+            return self._reply_json({'error': 'Invalid datastore ID'}, status_code=403)
 
         internal = self.server.get_internal_proxy()
         res = internal.cli_get_datastore(app_user_id, config_path=self.server.config_path)
         if 'error' in res:
+            log.debug("Failed to get datastore: {}".format(res['error']))
             if res.has_key('errno'):
                 # propagate an error code, if possible
                 if res['errno'] in self.http_errors:
@@ -1234,30 +1232,115 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         res['datastore_id'] = app_user_id
         return self._reply_json(res)
+       
 
+    def _store_signed_datastore( self, ses, path_info, datastore_sigs_info ):
+        """
+        Upload signed datastore information, if it is well-formed
+        and signed with the session key.
+        Return 200 on success
+        Return 403 on invalid signature
+        Return 503 on failure to store
+        """
+        # given signed information?
+        datastore_info_schema = {
+            'type': 'object',
+            'properties': {
+                'datastore_blob': {
+                    'type': 'string',
+                },
+                'root_blob': {
+                    'type': 'string',
+                },
+            },
+            'additionalProperties': False,
+            'required': [
+                'datastore_blob',
+                'root_blob',
+            ],
+        }
 
-    def GET_store_info( self, ses, path_info ):
-        """
-        Construct a data store record from the given query string.
-        Reply 200 on success with application/octet-stream.
-        """
-        
+        sigs_schema = {
+            'type': 'object',
+            'properties': {
+                'datastore_sig': {
+                    'type': 'string',
+                },
+                'root_sig': {
+                    'type': 'string',
+                },
+            },
+            'additionalProperties': False,
+            'required': [
+                'datastore_sig',
+                'root_sig',
+            ],
+        }
+
+        datastore_sigs_info_schema = {
+            'type': 'object',
+            'properties': {
+                'datastore_info': datastore_info_schema,
+                'datastore_sigs': sigs_schema,
+            },
+            'additionalProperties': False,
+            'required': [
+                'datastore_info',
+                'datastore_sigs'
+            ],
+        }
+
+        try:
+            jsonschema.validate(datastore_sigs_info_schema, datastore_sigs_info)
+        except ValidationError as ve:
+            if BLOCKSTACK_DEBUG:
+                log.exception(ve)
+
+            log.error("Invalid datastore and sig info")
+            return False
+
+        datastore_info = datastore_sigs_info['datastore_info']
+        sigs_info = datastore_sigs_info['datastore_sigs']
+        datastore_pubkey_hex = ses['app_public_key']
+         
+        res = data.verify_datastore_info( datastore_info, sigs_info, datastore_pubkey_hex )
+        if not res:
+            return self._reply_json({'error': 'Unable to verify datastore info'}, status_code=403)
+
+        res = data.put_datastore_info( datastore_info, sigs_info, config_path=self.server.config_path )
+        if 'error' in res:
+            return self._reply_json({'error': 'Failed to store datastore info'}, status_code=503)
+
+        return self._reply_json({'status': True})
+
 
     def POST_store( self, ses, path_info ):
         """
         Make a data store for the application identified by the session
         Reply 200 on success
+        Reply 401 on invalid request
+        Reply 403 on signature verification failure
         Reply 503 on failure to replicate
         
-        Takes optional "drivers={driver,driver,driver}" qs argument.
+        Takes a payload describing the datastore and signatures.
         Takes serialized datastore payload and signature
         """
         
         qs = path_info['qs_values']
-        drivers = qs.get('drivers', None)
         app_domain = ses['app_domain']
         internal = self.server.get_internal_proxy()
+       
+        # maybe storing signed datastore?
+        request = self._read_json()
+        if request:
+            return self._store_signed_datastore(ses, path_info, request)
+        else:
+            return self._reply_json({'error': 'Missing signed datastore info', 'errno': errno.EINVAL}, status_code=401)
 
+        '''
+        drivers = qs.get('drivers', None)
+
+        # creating with internal wallet
         # does it exist?
         res = internal.cli_create_datastore(app_domain, drivers, wallet_keys=self.server.wallet_keys, config_path=self.server.config_path)
         if json_is_error(res):
@@ -1275,20 +1358,77 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         app_user_id = app_user_id_res['datastore_id']
         return self._reply_json({'status': True, 'datastore_id': app_user_id})
+        '''
 
 
-    def PUT_store( self, ses, path_info, user_id ):
+    def PUT_store( self, ses, path_info, app_user_id ):
         """
         Update a data store for the application identified by the session.
         """
         return self._reply_json({'error': 'Not implemented'}, status_code=501) 
 
 
+    def _delete_signed_datastore( self, ses, path_info, tombstone_info ):
+        """
+        Given a set of sigend tombstones, go delete the datastore.
+        """
+        request_schema = {
+            'type': 'object',
+            'properties': {
+                'datastore_tombstones': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'string',
+                    },
+                },
+                'root_tombstones': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'string',
+                    },
+                },
+            },
+            'additionalProperties': False,
+            'required': [
+                'datastore_tombstones',
+                'root_tombstones',
+            ],
+        }
+
+        try:
+            jsonschema.validate(request_schema, tombstone_info)
+        except ValidationError as ve:
+            if BLOCKSTACK_DEBUG:
+                log.exception(ve)
+
+            return self._reply_json({'error': 'Invalid tombstone info', 'errno': errno.EINVAL}, status_code=401)
+
+        # authenticate
+        datastore_pubkey = ses['app_public_key']
+        datastore_id = ses['app_user_id']
+        res = data.verify_mutable_data_tombstones( tombstone_info['datastore_tombstones'], datastore_pubkey )
+        if not res:
+            return self._reply_json({'error': 'Invalid datastore tombstone', 'errno': errno.EINVAL}, status_code=401)
+
+        res = data.verify_mutable_data_tombstones( tombstone_info['root_tombstones'], datastore_pubkey )
+        if not res:
+            return self._reply_json({'error': 'Invalid root tombstone', 'errno': errno.EINVAL}, status_code=401)
+
+        # delete 
+        res = data.delete_datastore_info( datastore_id, tombstone_info['datastore_tombstones'], tombstone_info['root_tombstones'], config_path=self.server.config_path )
+        if 'error' in res:
+            return self._reply_json({'error': 'Failed to delete datastore info: {}'.format(res['error']), 'errno': res['errno']}, status_code=503)
+
+        return self._reply_json({'status': True})
+
+
     def DELETE_store( self, ses, path_info ):
         """
         Delete the data store identified by the given session
+        Takes a signed payload describing the inode and datastore tombstones.
+
         Reply 200 on success
-        Reply 403 on invalid user ID
+        Reply 403 on invalid user ID or invalid signatures
         Reply 503 on (partial) failure to delete all replicas
         """
         internal = self.server.get_internal_proxy()
@@ -1297,7 +1437,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         force = (force.lower() in ['1', 'true'])
 
         app_domain = ses['app_domain']
+
+        # deleting from signed tombstones?
+        request = self._read_json()
+        if request:
+            return self._delete_signed_datastore( ses, path_info, request )
        
+        else:
+            return self._reply_json({'error': 'Missing signed datastore info', 'errno': errno.EINVAL}, status_code=401)
+        
+        '''
+        # deleting from internal wallet key
         internal = self.server.get_internal_proxy()
         res = internal.cli_delete_datastore(app_domain, force)
         if json_is_error(res):
@@ -1311,7 +1461,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         self._reply_json({'status': True})
         return
-
+        '''
 
     def GET_store_item( self, ses, path_info, app_user_id, inode_type ):
         """
@@ -1325,52 +1475,76 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 503 on failure to load data from storage providers
         """
         if app_user_id != ses['app_user_id']:
-            return self._reply_json({'error': 'Invalid user'}, status=403)
+            return self._reply_json({'error': 'Invalid user', 'errno': errno.EINVAL}, status=403)
 
         if inode_type not in ['files', 'directories', 'inodes']:
-            self._reply_json({'error': 'Invalid request'}, status_code=401)
+            self._reply_json({'error': 'Invalid request', 'errno': errno.EINVAL}, status_code=401)
             return
 
         qs = path_info['qs_values']
+        pubkey = ses['app_public_key']
+
+        # include extended information
+        include_extended = qs.get('extended', '0')
+
         internal = self.server.get_internal_proxy()
         path = qs.get('path', None)
-        if path is None:
-            self._reply_json({'error': 'No path given'}, status_code=401)
+        inode_uuid = qs.get('inode', None)
+        if path is None and inode_uuid is None:
+            self._reply_json({'error': 'No path or inode ID given', 'errno': errno.EINVAL}, status_code=401)
             return
 
         res = None
 
         if inode_type == 'files':
-            res = internal.cli_datastore_getfile(app_user_id, path, config_path=self.server.config_path)
+            if path is not None:
+                res = internal.cli_datastore_getfile(app_user_id, path, '0', config_path=self.server.config_path)
+            else:
+                res = internal.cli_datastore_getinode(app_user_id, inode_uuid, config_path=self.server.config_path)
+
         elif inode_type == 'directories':
-            res = internal.cli_datastore_listdir(app_user_id, path, config_path=self.server.config_path)
+            # path requred 
+            if path is not None:
+                res = internal.cli_datastore_listdir(app_user_id, path, include_extended, config_path=self.server.config_path)
+            else:
+                res = internal.cli_datastore_getinode(app_user_id, inode_uuid, config_path=self.server.config_path)
+
         else:
-            res = internal.cli_datastore_stat(app_user_id, path, config_path=self.server.config_path)
+            if path is not None:
+                res = internal.cli_datastore_stat(app_user_id, path, include_extended, config_path=self.server.config_path)
+            else:
+                res = internal.cli_datastore_getinode(app_user_id, inode_uuid, config_path=self.server.config_path)
 
         if json_is_error(res):
-            if res.has_key('errno'):
-                # propagate an error code, if possible
-                if res['errno'] in self.http_errors:
-                    return self._send_headers(status_code=self.http_errors[res['errno']], content_type='text/plain')
-            
-            err = {'error': 'Failed to read {}: {}'.format(inode_type, res['error'])}
+            err = {'error': 'Failed to read {}: {}'.format(inode_type, res['error']), 'errno': res.get('errno', errno.EPERM)}
             self._reply_json(err, status_code=500)
             return
 
         if inode_type == 'files':
+
             self._send_headers(status_code=200, content_type='application/octet-stream')
-            self.wfile.write(res['file']['idata'])
+            self.wfile.write(res)
 
         elif inode_type == 'directories':
-            self._reply_json(res['dir']['idata'])
+
+            if include_extended == '1':
+                self._reply_json(res)
+
+            else:
+                self._reply_json(res['dir']['idata'])
 
         else:
-            self._reply_json(res['inode'])
+            
+            if include_extended == '1':
+                self._reply_json(res)
+
+            else:
+                self._reply_json(res['inode'])
 
         return
 
 
-    def POST_store_item( self, ses, path_info, app_user_id, inode_type ):
+    def POST_store_item( self, ses, path_info, store_id, inode_type ):
         """
         Create a store item.
         Only works with the session's user ID.
@@ -1381,10 +1555,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 403 on invalid userID
         Reply 503 on failure to upload data to storage providers
         """
-        return self._create_or_update_store_item( ses, path_info, app_user_id, inode_type, create=True )
+        return self._create_or_update_store_item( ses, path_info, store_id, inode_type, create=True )
 
 
-    def PUT_store_item(self, ses, path_info, user_id, store_id, inode_type ):
+    def PUT_store_item(self, ses, path_info, store_id, inode_type ):
         """
         Update a store item.
         Only works with the session's user ID.
@@ -1394,15 +1568,102 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 403 on invalid userID
         Reply 503 on failre to upload data to storage providers
         """
-        return self._create_or_update_store_item( ses, path_info, user_id, store_id, inode_type, create=False )
+        return self._create_or_update_store_item( ses, path_info, store_id, inode_type, create=False )
+
+    
+    def _patch_from_signed_inodes( self, ses, path_info, operation, data_path, inode_info ):
+        """
+        Given signed inode information, store it and act on it.
+        Verify that the data is consistent with local versioning information.
+        """
+        inode_info_schema = {
+            'type': 'object',
+            'properties': {
+                'inodes': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'string',
+                    },
+                },
+                'payloads': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'string',
+                    },
+                },
+                'signatures': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'string',
+                    },
+                },
+                'tombstones': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'string',
+                    },
+                },
+                'datastore': DATASTORE_SCHEMA, 
+            },
+            'additionalProperties': False,
+            'required': [
+                'inodes',
+                'paylaods',
+                'signatures',
+                'tombstones',
+                'datastore',
+            ],
+        }
+
+        try:
+            jsonschema.validate(inode_info_schema, inode_info)
+        except ValidationError as ve:
+            if BLOCKSTACK_DEBUG:
+                log.exception(ve)
+
+            return self._reply_json({'error': 'Invalid request'}, status_code=401)
+
+        datastore_pubkey = ses['app_public_key']
+        datastore = inode_info['datastore']
+        if datastore['pubkey'] != datastore_pubkey:
+            # wrong datastore 
+            return self._reply_json({'error': 'Invalid datastore in request'}, status_code=401)
+
+        if operation == 'mkdir':
+            res = data.datastore_mkdir_put_inodes( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_info['signatures'], inode_info['tombstones'], config_path=self.server.config_path )
+
+        elif operation == 'putfile':
+            res = data.datastore_putfile_put_inodes( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_info['signatures'], inode_info['tombstones'], config_path=self.server.config_path )
+
+        elif operation == 'rmdir':
+            res = data.datastore_rmdir_put_inodes( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_info['signatures'], inode_info['tombstones'], config_path=self.server.config_path )
+
+        elif operation == 'deletefile':
+            res = data.datastore_deletefile_put_inodes( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_info['signatures'], inode_info['tombstones'], config_path=self.server.config_path )
+
+        elif operation == 'rmtree':
+            res = data.datastore_rmtree_put_inodes( datastore, inode_info['inodes'], inode_info['payloads'], inode_info['signatures'], inode_info['tombstones'], config_path=self.server.config_path )
+            
+        else:
+            return self._reply_json({'error': 'Unrecognized operation'}, status_code=500)
+
+        if 'error' in res:
+            log.debug("Failed to patch datastore with {}: {}".format(operation, res['error']))
+
+            status_code = 401
+            if res['errno'] in self.http_errors:
+                status_code = self.http_errors[res['errno']]
+
+            return self._reply_json({'error': res['error'], 'errno': res['errno']}, status_code=status_code)
+
+        # good to go!
+        return self._reply_json({'status': True})
 
 
     def _create_or_update_store_item( self, ses, path_info, app_user_id, inode_type, create=False ):
         """
         Create or update a file, or create a directory.
         Implements POST_store_item and PUT_store_item
-        
-        # TODO see if we can load cached app user private key
         """
         
         if app_user_id != ses['app_user_id']:
@@ -1414,8 +1675,28 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         qs = path_info['qs_values']
-        internal = self.server.get_internal_proxy()
         path = qs.get('path', None)
+        if path is None:
+            log.debug("No path given")
+            return self._reply_json({'error': 'Invalid request: missing path'}, status_code=401)
+
+        request = self._read_json()
+        if request:
+            # sent externally-signed data
+            operation = None
+            if inode_type == 'files':
+                operation = 'putfile'
+            else:
+                operation = 'mkdir'
+
+            return self._patch_from_signed_inodes( ses, path_info, operation, path, request )
+
+        else:
+            return self._reply_json({'error': 'Missing signed inode data'}, status_code=401)
+
+        """
+        # use internal wallet
+        internal = self.server.get_internal_proxy()
         if path is None:
             log.debug("Invalid request: no path given")
             self._reply_json({'error': 'No path given'}, status_code=401)
@@ -1424,7 +1705,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         res = None
 
         if inode_type == 'files':
-            # expect sig=... in query string
             data = self._read_payload()
             if data is None:
                 self._reply_json({'error': 'Failed to read file data'}, status_code=401)
@@ -1458,6 +1738,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         self._reply_json({'status': True})
         return
+        """
 
 
     def DELETE_store_item( self, ses, path_info, app_user_id, inode_type ):
@@ -1475,12 +1756,41 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         # TODO see if we can load cached app user private key
         """
         if app_user_id != ses['app_user_id']:
-            return self._reply_json({'error': 'Invalid user'}, status=403)
+            return self._reply_json({'error': 'Invalid user', 'errno': errno.EACCES}, status=403)
 
-        if inode_type not in ['files', 'directories']:
-            self._reply_json({'error': 'Invalid request'}, status_code=401)
+        if inode_type not in ['files', 'directories', 'inodes']:
+            self._reply_json({'error': 'Invalid request', 'errno': errno.EINVAL}, status_code=401)
             return
 
+        qs = path_info['qs_values']
+        path = qs.get('path', None)
+        rmtree = qs.get('rmtree', '0')
+        if path is None and rmtree == '0':
+            log.debug("No path given")
+            return self._reply_json({'error': 'Invalid request: missing path', 'errno': errno.EINVAL}, status_code=401)
+
+        rmtree = (rmtree == '1')
+        if rmtree:
+            if inode_type != 'inodes':
+                return self._reply_json({'error': 'Invalid request: rmtree is for inodes', 'errno': errno.EINVAL}, status_code=401)
+
+        request = self._read_json()
+        if request:
+            # sent externally-signed data
+            operation = None
+            if rmtree:
+                operation = 'rmtree'
+            elif inode_type == 'files':
+                operation = 'deletefile'
+            else:
+                operation = 'rmdir'
+
+            return self._patch_from_signed_inodes( ses, path_info, operation, path, request )
+
+        else:
+            return self._reply_json({'error': 'Missing signed inode data'}, status_code=401)
+
+        """
         qs = path_info['qs_values']
         internal = self.server.get_internal_proxy()
         path = qs.get('path', None)
@@ -1509,6 +1819,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         self._reply_json({'status': True})
         return
+        """
 
 
     def GET_app_resource( self, ses, path_info, blockchain_id, app_domain ):
@@ -2915,7 +3226,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/v1/stores/({})/(files|directories|inodes)$'.format(URLENCODING_CLASS, URLENCODING_CLASS, URLENCODING_CLASS): {
+            r'^/v1/stores/({})/(files|directories|inodes)$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_store_item,
                     'POST': self.POST_store_item,
@@ -3239,7 +3550,7 @@ class BlockstackAPIEndpointClient(object):
         return r
 
 
-    def make_request_headers(self):
+    def make_request_headers(self, need_session=False):
         """
         Make HTTP request headers
         """
@@ -3248,11 +3559,17 @@ class BlockstackAPIEndpointClient(object):
             'content-type': 'application/json'
         }
 
-        if self.api_pass:
-            headers['Authorization'] = 'basic {}'.format(self.api_pass)
-        
-        elif self.session:
+        assert not need_session or self.session
+
+        if need_session:
             headers['Authorization'] = 'bearer {}'.format(self.session)
+
+        else:
+            if self.api_pass:
+                headers['Authorization'] = 'basic {}'.format(self.api_pass)
+        
+            elif self.session:
+                headers['Authorization'] = 'bearer {}'.format(self.session)
 
         return headers
 
@@ -3444,6 +3761,231 @@ class BlockstackAPIEndpointClient(object):
             headers = self.make_request_headers()
             req = requests.delete( 'http://localhost:{}/v1/names/{}'.format(self.port, fqu), timeout=self.timeout, headers=headers)
             return self.get_response(req)
+        
+    
+    def backend_datastore_create(self, datastore_info, datastore_sigs ):
+        """
+        Store signed datastore record and root inode.
+        Return {'status': True} on success
+        Return {'error': ..., 'errno': ...} on error
+        """
+        if is_api_server(self.config_dir):
+            # directly do this 
+            return data.put_datastore_info(datastore_info, datastore_sigs, config_path=self.config_path)
+
+        else:
+            # ask the API server 
+            headers = self.make_request_headers(need_session=True)
+            request = {
+                'datastore_info': datastore_info,
+                'datastore_sigs': datastore_sigs,
+            }
+            req = requests.post( 'http://localhost:{}/v1/stores'.format(self.port), timeout=self.timeout, data=json.dumps(request), headers=headers)
+            return self.get_response(req)
+
+
+    def backend_datastore_get( self, datastore_id ):
+        """
+        Get a datastore from the backend
+        Return {'status': True, 'datastore': ...} on success
+        Return {'error': ..., 'errno': ...} on error
+        """
+        if is_api_server(self.config_dir):
+            # directly do this 
+            return data.get_datastore(datastore_id, config_path=self.config_path)
+
+        else:
+            # ask the API server 
+            headers = self.make_request_headers(need_session=True)
+            req = requests.get('http://localhost:{}/v1/stores/{}'.format(self.port, datastore_id), timeout=self.timeout, headers=headers)
+            return self.get_response(req)
+
+
+    def backend_datastore_delete(self, datastore_id, datastore_tombstones, root_tombstones):
+        """
+        Delete a datastore.
+        Return {'status': True} on success
+        Return {'error': ..., 'errno': ...} on error
+        """
+        if is_api_server(self.config_dir):
+            # directly do this 
+            # do not do `rm -rf`, since we're the server
+            return data.delete_datastore_info(datastore_id, datastore_tombstones, root_tombstones, force=False, config_path=self.config_path )
+
+        else:
+            # ask the API server 
+            headers = self.make_request_headers(need_session=True)
+            request = {
+                'datastore_tombstones': datastore_tombstones,
+                'root_tombstones': root_tombstones,
+            }
+            req = requests.delete( 'http://localhost:{}/v1/stores'.format(self.port), data=json.dumps(request), timeout=self.timeout, headers=headers)
+            return self.get_response(req)
+
+
+    def backend_datastore_lookup(self, datastore, path, data_pubkey, get_idata=True, extended=False):
+        """
+        Look up a path and its inodes
+        Return {'status': True, 'inode_info': ...} on success.
+        * If extended is True, then also return 'path_info': ...
+
+        Return {'error': ...} on failure.
+        """
+        if is_api_server(self.config_dir):
+            # directly do the lookup 
+            return data.inode_path_lookup(datastore, path, data_pubkey, get_idata=get_idata, config_path=self.config_path )
+
+        else:
+            # ask the API server 
+            headers = self.make_request_headers(need_session=True)
+            datastore_id = data.datastore_get_id(data_pubkey)
+            req = requests.get( 'http://localhost:{}/v1/stores/{}/inodes?path={}&extended={}'.format(self.port, datastore_id, urllib.quote(path), '1' if extended else '0'), timeout=self.timeout, headers=headers)
+            return self.get_response(req)
+
+
+    def backend_datastore_getinode(self, datastore, inode_uuid, data_pubkey, extended=False ):
+        """
+        Get a raw inode
+        Return {'status': True, 'inode_indo': ...} on success
+        Return {'error': ...} on failure
+        """
+        if is_api_server(self.config_dir):
+            # directly get the inode 
+            return data.get_inode_data(data.datastore_get_id(datastore['pubkey']), inode_uuid, 0, datastore['pubkey'], datastore['drivers'], datastore['device_ids'], config_path=self.config_path )
+
+        else:
+            # ask the API server 
+            headers = self.make_request_headers(need_session=True)
+            datastore_id = data.datastore_get_id(data_pubkey)
+            req = requests.get('http://localhost:{}/v1/stores/{}/inodes?inode={}&extended={}'.format(self.port, datastore_id, inode_uuid, '1' if extended else '0'), timeout=self.timeout, headers=headers)
+            return self.get_response(req)
+
+
+    def backend_datastore_mkdir(self, datastore, path, inodes, payloads, signatures, tombstones ):
+        """
+        Send signed inodes, payloads, and tombstones for a mkdir.
+        Return {'status': True} on success
+        Return {'error': ..., 'errno': ...} on failure
+        """
+        if is_api_server(self.config_dir):
+            # directly put the data 
+            return data.datastore_mkdir_put_inodes( datastore, path, inodes, payloads, signatures, tombstones, config_path=self.config_path )
+    
+        else:
+            # ask the API server 
+            headers = self.make_request_headers(need_session=True)
+            request = {
+                'datastore': datastore,
+                'inodes': inodes,
+                'payloads': payloads,
+                'signatures': signatures,
+                'tombstones': tombstones,
+            }
+            datastore_id = data.datastore_get_id(datastore['pubkey'])
+            req = requests.post( 'http://localhost:{}/v1/stores/{}/directories?path={}'.format(self.port, datastore_id, urllib.quote(path)), data=json.dumps(request), timeout=self.timeout, headers=headers)
+            return self.get_response(req)
+
+    
+    def backend_datastore_putfile(self, datastore, path, inodes, payloads, signatures, tombstones ):
+        """
+        Send signed inodes, payloads, and tombstones for a putfile.
+        Return {'status': True} on success
+        Return {'error': ..., 'errno': ...} on failure
+        """
+        if is_api_server(self.config_dir):
+            # file put the data 
+            return data.datastore_putfile_put_inodes( datastore, path, inodes, payloads, signatures, tombstones, config_path=self.config_path )
+
+        else:
+            # ask the API server 
+            headers = self.make_request_headers(need_session=True)
+            request = {
+                'datastore': datastore,
+                'inodes': inodes,
+                'payloads': payloads,
+                'signatures': signatures,
+                'tombstones': tombstones,
+            }
+            datastore_id = data.datastore_get_id(datastore['pubkey'])
+            req = requests.put( 'http://localhost:{}/v1/stores/{}/files?path={}'.format(self.port, datastore_id, urllib.quote(path)), data=json.dumps(request), timeout=self.timeout, headers=headers)
+            return self.get_response(req)
+
+
+    def backend_datastore_rmdir(self, datastore, path, inodes, payloads, signatures, tombstones ):
+        """
+        Send signed inodes, payloads, and tombstones for a rmdir.
+        Return {'status': True} on success
+        Return {'error': ..., 'errno': ...} on failure
+        """
+        if is_api_server(self.config_dir):
+            # direct rmdir
+            return data.datastore_rmdir_put_inodes( datastore, path, inodes, payloads, signatures, tombstones, config_path=self.config_path )
+
+        else:
+            # ask the API server 
+            headers = self.make_request_headers(need_session=True)
+            request = {
+                'datastore': datastore,
+                'inodes': inodes,
+                'payloads': payloads,
+                'signatures': signatures,
+                'tombstones': tombstones
+            }
+            datastore_id = data.datastore_get_id(datastore['pubkey'])
+            req = requests.delete( 'http://localhost:{}/v1/stores/{}/directories?path={}'.format(self.port, datastore_id, urllib.quote(path)), data=json.dumps(request), timeout=self.timeout, headers=headers)
+            return self.get_response(req)
+
+
+    def backend_datastore_deletefile(self, datastore, path, inodes, payloads, signatures, tombstones ):
+        """
+        Send signed inodes, payloads, and tombstones for a deletefile
+        Return {'status': True} on success
+        Return {'error': ..., 'errno': ...} on failure
+        """
+        if is_api_server(self.config_dir):
+            # direct deletefile 
+            return data.datastore_deletefile_put_inodes( datastore, path, inodes, payloads, signatures, tombstones, config_path=self.config_path )
+
+        else:
+            # ask the API server 
+            headers = self.make_request_headers(need_session=True)
+            request = {
+                'datastore': datastore,
+                'inodes': inodes,
+                'payloads': payloads,
+                'signatures': signatures,
+                'tombstones': tombstones,
+            }
+            datastore_id = data.datastore_get_id(datastore['pubkey'])
+            req = requests.delete( 'http://localhost:{}/v1/stores/{}/files?path={}'.format(self.port, datastore_id, urllib.quote(path)), data=json.dumps(request), timeout=self.timeout, headers=headers)
+            return self.get_response(req)
+
+
+    def backend_datastore_rmtree(self, datastore, inodes, payloads, signatures, tombstones ):
+        """
+        Delete data as part of an rmtree
+        Return {'status': True} on success
+        Return {'error': ..., 'errno': ...} on failure
+        """
+        if is_api_server(self.config_dir):
+            # delete 
+            return data.datastore_rmtree_put_inodes( datastore, inoes, payloads, signatures, tombstones, config_path=self.config_path )
+
+        else:
+            # ask the API server 
+            headers = self.make_request_headers(need_session=True)
+            request = {
+                'datastore': datastore,
+                'inodes': inodes,
+                'payloads': payloads,
+                'signatures': signatures,
+                'tombstones': tombstones,
+            }
+
+            datastore_id = data.datastore_get_id(datastore['pubkey'])
+            req = requests.delete('http://localhost:{}/v1/stores/{}/inodes?rmtree=1'.format(self.port, datastore_id), data=json.dumps(request), timeout=self.timeout, headers=headers)
+            return self.get_response(req)
+
 
 
 def make_local_api_server(api_pass, portnum, wallet_keys, config_path=blockstack_constants.CONFIG_PATH, plugins=None):
@@ -3498,7 +4040,7 @@ def local_api_server_stop(srv):
     backend.registrar.registrar_shutdown(srv.config_path)    
 
 
-def local_api_connect(api_pass=None, api_session=None, password=None, config_dir=blockstack_constants.CONFIG_DIR, api_port=None):
+def local_api_connect(api_pass=None, api_session=None, password=None, config_path=blockstack_constants.CONFIG_PATH, api_port=None):
     """
     Connect to a locally-running API server.
     Return a server proxy object on success.
@@ -3510,16 +4052,6 @@ def local_api_connect(api_pass=None, api_session=None, password=None, config_dir
     directly.
     """
 
-    config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
-
-    '''
-    TODO: might not need this
-    if is_api_server(config_dir=config_dir):
-        # this process is an API server.
-        # route the method directly.
-        log.debug("Caller is the API server. Short-circuiting.")
-        return get_api_internal_methods()
-    '''
     conf = blockstack_config.get_config(config_path)
     if conf is None:
         raise Exception('Failed to read conf at "{}"'.format(config_path))
@@ -3678,7 +4210,7 @@ def local_api_start_wait( config_path=CONFIG_PATH ):
     for i in range(1, 4):
         log.debug("Attempt {} to ping API server".format(i))
         try:
-            local_proxy = local_api_connect(config_dir=config_dir)
+            local_proxy = local_api_connect(config_path=config_path)
             local_proxy.ping()
             running = True
             break

@@ -140,8 +140,8 @@ from .app import app_publish, app_unpublish, app_get_config, app_get_resource, \
 
 from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, get_datastore, put_datastore, delete_datastore, \
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir, datastore_stat, \
-        datastore_rmtree, datastore_get_id, datastore_get_privkey, _mutable_data_make_file, data_blob_serialize, \
-        data_blob_parse
+        datastore_rmtree, datastore_get_id, datastore_get_privkey, _mutable_data_make_file, \
+        verify_datastore_info, put_datastore_info, datastore_getinode 
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
 
@@ -665,7 +665,7 @@ def cli_get_registrar_info(args, config_path=CONFIG_PATH, queues=None):
     config_dir = os.path.dirname(config_path)
     conf = config.get_config(config_path)
     
-    rpc = local_api_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_path=config_path)
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
@@ -1207,7 +1207,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
 
     # forward along to RESTful server (or if we're the RESTful server, call the registrar method)
     log.debug("Preorder {}, zonefile={}, profile={}, recipient={} min_confs={} tx_fee={}".format(fqu, user_zonefile, user_profile, transfer_address, min_payment_confs, tx_fee))
-    rpc = local_api_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     try:
@@ -1368,7 +1368,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
     # forward along to RESTful server (or registrar)
     log.debug("Update {}, zonefile={}, zonefile_hash={} tx_fee={}".format(fqu, user_data_txt, user_data_hash, tx_fee))
-    rpc = local_api_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     try:
@@ -1425,7 +1425,7 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
             return {'error': 'Transfer cancelled.'}
 
     # do the name transfer via the RESTful server (or registrar)
-    rpc = local_api_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     try:
@@ -1535,7 +1535,7 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
             exit(0)
 
     
-    rpc = local_api_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     log.debug("Renew {} for {} BTC".format(fqu, cost_satoshis))
@@ -1607,7 +1607,7 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
             print('\nExiting.')
             exit(0)
 
-    rpc = local_api_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     log.debug("Revoke {}".format(fqu))
@@ -1737,7 +1737,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     zonefile_txt = blockstack_zones.make_zone_file(user_zonefile)
     zonefile_hash = storage.get_zonefile_data_hash(zonefile_txt) 
 
-    rpc = local_api_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     try:
@@ -2240,7 +2240,7 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
         return {'status': True}
 
     # load into RPC daemon, if it is running
-    rpc = local_api_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_path=config_path)
     if rpc is None:
         log.error("Failed to connect to API endpoint. Trying to shut it down...")
         rc = local_rpc.local_api_action('stop', config_dir=config_dir)
@@ -3004,7 +3004,7 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None, tx_fee=N
 
     # forward along to RESTful server (or registrar)
     log.debug("Update {}, zonefile_hash={} tx_fee={}".format(fqu, zonefile_hash, tx_fee))
-    rpc = local_api_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     try:
@@ -3477,23 +3477,21 @@ def cli_app_signin(args, config_path=CONFIG_PATH, password=None, interactive=Tru
     help: Create a session token for the RESTful API for a given application
     arg: app_domain (str) 'The application domain'
     arg: api_methods (str) 'A CSV of requested methods to call'
+    arg: app_public_key (str) 'The public key for the application to use'
     opt: session_lifetime (int) 'The lifetime of this token, in seconds'
     opt: blockchain_ids (str) 'A CSV of blockchain IDs to use to authenticate content'
-    opt: app_user_id (str) 'The application user ID to use'
     """
 
     app_domain = str(args.app_domain)
     api_methods = str(args.api_methods)
+    app_public_key = str(args.app_public_key)
+
     session_lifetime = getattr(args, 'session_lifetime', None)
     blockchain_ids = getattr(args, 'blockchain_ids', None)
-    app_user_id = getattr(args, 'app_user_id', None)
 
     if session_lifetime is None:
         session_lifetime = DEFAULT_SESSION_LIFETIME
 
-    if app_user_id is not None:
-        app_user_id = str(app_user_id)
-        
     if blockchain_ids is not None:
         blockchain_ids = blockchain_ids.split(',')
 
@@ -3513,7 +3511,7 @@ def cli_app_signin(args, config_path=CONFIG_PATH, password=None, interactive=Tru
             return wallet_keys
 
     master_data_privkey = str(wallet_keys['data_privkey'])
-    res = app_make_session( app_domain, api_methods, master_data_privkey, blockchain_ids=blockchain_ids, session_lifetime=session_lifetime, config_path=config_path )
+    res = app_make_session( app_domain, api_methods, app_public_key, master_data_privkey, blockchain_ids=blockchain_ids, session_lifetime=session_lifetime, config_path=config_path )
     if 'error' in res:
         log.error("Failed to make session: {}".format(wallet_keys['error']))
         return res
@@ -3834,42 +3832,24 @@ def _remove_datastore(datastore, datastore_privkey, rmtree=True, force=False, co
     datastore_pubkey = get_pubkey_hex(datastore_privkey)
     datastore_id = datastore_get_id(datastore_pubkey)
 
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
+
     # clear the datastore 
     if rmtree:
         log.debug("Clear datastore {}".format(datastore_id))
-        res = datastore_rmtree(datastore, '/', datastore_privkey, config_path=config_path, proxy=proxy)
+        res = datastore_rmtree(rpc, datastore, '/', datastore_privkey, config_path=config_path, proxy=proxy)
         if 'error' in res and not force:
             log.error("Failed to rmtree datastore {}".format(datastore_id))
             return {'error': 'Failed to remove all files and directories', 'errno': errno.ENOTEMPTY}
 
     # delete the datastore record
     log.debug("Delete datastore {}".format(datastore_id))
-    return delete_datastore(datastore_privkey, force=force, config_path=config_path, proxy=proxy )
+    return delete_datastore(rpc, datastore, datastore_privkey, config_path=config_path, proxy=proxy )
 
 
-def get_datastore_privkey_info( app_domain, master_data_privkey=None, app_user_privkey=None, password=None, config_path=CONFIG_PATH, proxy=None ):
-    """
-    Get the application datastore private key info
-    Return {'status': True, 'datastore': ..., 'datastore_privkey': ..., 'datastore_id': ...} on success
-    Return {'error': ...} on error
-    """
-    master_data_privkey = None
-
-    if app_user_privkey is None:
-        if master_data_privkey is None:
-            password = get_default_password(password)
-            wallet_keys = get_wallet_keys(config_path, password)
-            if 'error' in wallet_keys:
-                wallet_keys['errno'] = errno.EPERM
-                return wallet_keys
-
-            master_data_privkey = wallet_keys['data_privkey']
-
-    res = get_datastore_info( app_user_privkey=app_user_privkey, master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy )
-    return res
-
-
-def create_datastore_by_type( datastore_type, app_domain, drivers=None, proxy=None, config_path=CONFIG_PATH, password=None, master_data_privkey=None ):
+def create_datastore_by_type( datastore_type, datastore_privkey, drivers=None, proxy=None, config_path=CONFIG_PATH ):
     """
     Create a datastore or a collection for the given user with the given name.
     Return {'status': True} on success
@@ -3879,35 +3859,25 @@ def create_datastore_by_type( datastore_type, app_domain, drivers=None, proxy=No
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
-    password = get_default_password(password)
-    config_dir = os.path.dirname(config_path)
+    datastore_pubkey = get_pubkey_hex(datastore_privkey)
+    datastore_id = datastore_get_id(datastore_pubkey)
 
-    if master_data_privkey is None:
-        # RPC daemon must be running 
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            wallet_keys['errno'] = errno.EPERM
-            return wallet_keys
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-        assert 'data_privkey' in wallet_keys, str(wallet_keys)
-
-        master_data_privkey = wallet_keys['data_privkey']
-        assert master_data_privkey is not None and app_domain is not None
-
-    res = get_datastore_info( master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy )
+    res = rpc.backend_datastore_get(datastore_id)
     if 'error' not in res:
         # already exists
         log.error("Datastore for {} exists".format(app_domain))
         return {'error': 'Datastore exists', 'errno': errno.EEXIST}
 
-    datastore_privkey = datastore_get_privkey( master_data_privkey, app_domain, config_path=config_path ) 
-    datastore_pubkey = get_pubkey_hex(datastore_privkey)
     datastore_info = make_datastore_info( datastore_type, datastore_pubkey, driver_names=drivers, config_path=config_path)
     if 'error' in datastore_info:
         return datastore_info
    
     # can put
-    res = put_datastore(datastore_info, datastore_privkey, proxy=proxy, config_path=config_path)
+    res = put_datastore(rpc, datastore_info, datastore_privkey, proxy=proxy, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -3918,13 +3888,17 @@ def get_datastore_by_type( datastore_type, datastore_id, config_path=CONFIG_PATH
     """
     Get a datastore or collection.
     Requires datastore_id, or app_domain and wallet keys (from config_path and password)
-    Return the datastore object on success, optionally with private key information.
+    Return the datastore object on success
     Return {'error': ...} on error
     """
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    datastore_info = get_datastore_info( datastore_id=datastore_id, config_path=config_path, proxy=proxy )
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
+
+    datastore_info = rpc.backend_datastore_get(datastore_id)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -3935,7 +3909,7 @@ def get_datastore_by_type( datastore_type, datastore_id, config_path=CONFIG_PATH
     return datastore
 
 
-def delete_datastore_by_type( datastore_type, app_domain, app_user_privkey=None, force=False, config_path=CONFIG_PATH, proxy=None, password=None, master_data_privkey=None ):
+def delete_datastore_by_type( datastore_type, datastore_id, force=False, config_path=CONFIG_PATH, proxy=None ):
     """
     Delete a datastore or collection.
     Return {'status': True} on success
@@ -3944,10 +3918,11 @@ def delete_datastore_by_type( datastore_type, app_domain, app_user_privkey=None,
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    password = get_default_password(password)
-    config_dir = os.path.dirname(config_path)
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = get_datastore_privkey_info( app_domain, master_data_privkey=master_data_privkey, app_user_privkey=app_user_privkey, config_path=config_path, proxy=proxy )
+    datastore_info = rpc.backend_datastore_get(datastore_id)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -3963,7 +3938,7 @@ def delete_datastore_by_type( datastore_type, app_domain, app_user_privkey=None,
     return {'status': True}
 
 
-def datastore_file_get(datastore_type, datastore_id, path, proxy=None, config_path=CONFIG_PATH ):
+def datastore_file_get(datastore_type, datastore_id, path, extended=False, proxy=None, config_path=CONFIG_PATH ):
     """
     Get a file from a datastore or collection.
     Return {'status': True, 'file': ...} on success
@@ -3973,9 +3948,12 @@ def datastore_file_get(datastore_type, datastore_id, path, proxy=None, config_pa
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    config_dir = os.path.dirname(config_path)
+    # connect 
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = get_datastore_info( datastore_id=datastore_id, config_path=config_path, proxy=proxy)
+    datastore_info = rpc.backend_datastore_get(datastore_id)
     if 'error' in datastore_info:
         if 'errno' not in datastore_info:
             datastore_info['errno'] = errno.EPERM
@@ -3986,11 +3964,11 @@ def datastore_file_get(datastore_type, datastore_id, path, proxy=None, config_pa
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_getfile( datastore, path, config_path=config_path, proxy=proxy )
+    res = datastore_getfile( rpc, datastore, path, extended=extended, config_path=config_path )
     return res
 
 
-def datastore_file_put(datastore_type, datastore_privkey, path, data, create=True, app_domain=None, force_data=False, proxy=None, password=None, master_data_privkey=None, config_path=CONFIG_PATH ):
+def datastore_file_put(datastore_type, datastore_privkey, path, data, create=True, app_domain=None, force_data=False, proxy=None, config_path=CONFIG_PATH ):
     """
     Put a file int oa datastore or collection.
     need either datastore_id, or access to the wallet and the app_domain
@@ -4003,7 +3981,7 @@ def datastore_file_put(datastore_type, datastore_privkey, path, data, create=Tru
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    config_dir = os.path.dirname(config_path)
+    datastore_id = datastore_get_id(get_pubkey_hex(datastore_privkey))
 
     # is this a path, and are we allowed to take paths?
     if is_valid_path(data) and os.path.exists(data) and not force_data:
@@ -4013,21 +3991,18 @@ def datastore_file_put(datastore_type, datastore_privkey, path, data, create=Tru
                 data = f.read()
         except:
             return {'error': 'Failed to read "{}"'.format(data)}
-
-    datastore_info = get_datastore_privkey_info( app_domain, master_data_privkey=master_data_privkey, app_user_privkey=datastore_privkey, config_path=config_path, proxy=proxy )
-    if 'error' in datastore_info:
-        datastore_info['errno'] = errno.EPERM
-        return datastore_info
     
-    datastore = datastore_info['datastore']
-    datastore_privkey = datastore_info['datastore_privkey']
-    datastore_id = datastore_info['datastore_id']
+    # connect 
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
+    datastore_info = rpc.backend_datastore_get(datastore_id)
     assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey))
 
     log.debug("putfile {} to {} (for {})".format(path, datastore_id, app_domain))
 
-    res = datastore_putfile( datastore, path, data, datastore_privkey, config_path=config_path, proxy=proxy )
+    res = datastore_putfile( rpc, datastore, path, data, datastore_privkey, config_path=config_path, proxy=proxy )
     if 'error' in res:
         return res
 
@@ -4038,7 +4013,7 @@ def datastore_file_put(datastore_type, datastore_privkey, path, data, create=Tru
     return res
 
 
-def datastore_dir_list(datastore_type, datastore_id, path, config_path=CONFIG_PATH, proxy=None ):
+def datastore_dir_list(datastore_type, datastore_id, path, extended=False, config_path=CONFIG_PATH, proxy=None ):
     """
     List a directory in a datastore or collection
     Return {'status': True, 'dir': ...} on success
@@ -4048,9 +4023,12 @@ def datastore_dir_list(datastore_type, datastore_id, path, config_path=CONFIG_PA
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    config_dir = os.path.dirname(config_path)
+    # connect 
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = get_datastore_info(datastore_id=datastore_id, config_path=config_path, proxy=proxy)
+    datastore_info = rpc.backend_datastore_get(datastore_id)
     if 'error' in datastore_info:
         if 'errno' not in datastore_info:
             datastore_info['errno'] = errno.EPERM
@@ -4066,11 +4044,11 @@ def datastore_dir_list(datastore_type, datastore_id, path, config_path=CONFIG_PA
         if path != '/':
             return {'error': 'Invalid argument: collections do not have directories', 'errno': errno.EINVAL}
 
-    res = datastore_listdir( datastore, path, config_path=config_path, proxy=proxy )
+    res = datastore_listdir( rpc, datastore, path, extended=extended, config_path=config_path )
     return res
 
 
-def datastore_path_stat(datastore_type, datastore_id, path, proxy=None, config_path=CONFIG_PATH ):
+def datastore_path_stat(datastore_type, datastore_id, path, extended=False, proxy=None, config_path=CONFIG_PATH ):
     """
     Stat a path in a datastore or collection
     Return {'status': True, 'inode': ...} on success
@@ -4079,9 +4057,12 @@ def datastore_path_stat(datastore_type, datastore_id, path, proxy=None, config_p
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
-    config_dir = os.path.dirname(config_path)
+    # connect 
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = get_datastore_info(datastore_id=datastore_id, config_path=config_path, proxy=proxy)
+    datastore_info = rpc.backend_datastore_get(datastore_id)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -4089,7 +4070,33 @@ def datastore_path_stat(datastore_type, datastore_id, path, proxy=None, config_p
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_stat( datastore, path, config_path=config_path, proxy=proxy )
+    res = datastore_stat( rpc, datastore, path, extended=extended, config_path=config_path )
+    return res
+
+
+def datastore_inode_getinode(datastore_type, datastore_id, inode_uuid, proxy=None, config_path=CONFIG_PATH ):
+    """
+    Get an inode in a datastore or collection
+    Return {'status': True, 'inode': ...} on success
+    Return {'error': ...} on error
+    """
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+    
+    # connect 
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
+
+    datastore_info = rpc.backend_datastore_get(datastore_id)
+    if 'error' in datastore_info:
+        return datastore_info
+
+    datastore = datastore_info['datastore']
+    if datastore['type'] != datastore_type:
+        return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
+
+    res = datastore_getinode( rpc, datastore, inode_uuid, config_path=config_path )
     return res
 
 
@@ -4097,12 +4104,12 @@ def cli_get_datastore( args, config_path=CONFIG_PATH, proxy=None ):
     """
     command: get_datastore advanced
     help: Get a datastore record
-    arg: app_user_id (str) 'The application user ID that owns the datastore'
+    arg: datastore_id (str) 'The application datastore ID'
     """
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
-    datastore_id = str(args.app_user_id)    
+    datastore_id = str(args.datastore_id)    
     return get_datastore_by_type('datastore', datastore_id, config_path=config_path, proxy=proxy )
 
 
@@ -4139,7 +4146,6 @@ def cli_delete_datastore( args, config_path=CONFIG_PATH, proxy=None, password=No
 
     password = get_default_password(password)
 
-    config_dir = os.path.dirname(config_path)
     app_domain = str(args.app_domain)
 
     force = False
@@ -4153,49 +4159,35 @@ def cli_delete_datastore( args, config_path=CONFIG_PATH, proxy=None, password=No
     return delete_datastore_by_type('datastore', app_domain, master_data_privkey=master_data_privkey, app_user_privkey=app_user_privkey, force=force, config_path=config_path, proxy=proxy, password=password)
 
 
-def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, wallet_keys=None ):
+def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
     """
     command: datastore_mkdir advanced 
     help: Make a directory in a datastore.
-    arg: app_domain (str) 'The application domain of this datastore'
     arg: path (str) 'The path to the directory to remove'
-    opt: app_user_privkey (str) 'The app-specific private key'
+    arg: privkey (str) 'The app-specific private key'
     """
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    password = get_default_password(password)
-
-    app_domain = str(args.app_domain)
-    config_dir = os.path.dirname(config_path)
     path = str(args.path)
+    datastore_privkey_hex = str(args.privkey)
+    datastore_pubkey_hex = get_pubkey_hex(datastore_privkey_hex)
+    datastore_id = datastore_get_id(datastore_pubkey_hex)
 
-    app_user_privkey = getattr(args, 'app_user_privkey', None)
-    if app_user_privkey is not None:
-        app_user_privkey = str(app_user_privkey)
+    # connect 
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    master_data_privkey = None
-    if app_user_privkey is None:
-        if wallet_keys is None:
-            wallet_keys = get_wallet_keys(config_path, password)
-            if 'error' in wallet_keys:
-                wallet_keys['errno'] = errno.EPERM
-                return wallet_keys
-
-        master_data_privkey = wallet_keys['data_privkey']
-
-    datastore_info = get_datastore_info(app_user_privkey=app_user_privkey, master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy)
+    datastore_info = rpc.backend_datastore_get(datastore_id)
     if 'error' in datastore_info:
         return datastore_info
 
-    datastore_id = datastore_info['datastore_id']
     datastore = datastore_info['datastore']
-    datastore_privkey_hex = datastore_info['datastore_privkey']
-
     assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
 
-    res = datastore_mkdir(datastore, path, datastore_privkey_hex, config_path=config_path, proxy=proxy)
+    res = datastore_mkdir(rpc, datastore, path, datastore_privkey_hex, config_path=config_path, proxy=proxy)
     if 'error' in res:
         return res
 
@@ -4208,45 +4200,32 @@ def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy
     return res
 
     
-def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, master_data_privkey=None ):
+def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False, proxy=None):
     """
     command: datastore_rmdir advanced 
     help: Remove a directory in a datastore.
-    arg: app_domain (str) 'The application domain for this data store'
     arg: path (str) 'The path to the directory to remove'
-    opt: app_user_privkey (str) 'The app-specific user private key'
+    arg: privkey (str) 'The app-specific data private key'
     """
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    password = get_default_password(password)
-
-    app_domain = str(args.app_domain)
     path = str(args.path)
+    datastore_privkey_hex = str(args.privkey)
+    datastore_pubkey_hex = get_pubkey_hex(datastore_privkey_hex)
+    datastore_id = datastore_get_id(datastore_pubkey_hex)
 
-    app_user_privkey = getattr(args, 'app_user_privkey', None)
-    if app_user_privkey is not None:
-        app_user_privkey = str(app_user_privkey)
+    # connect 
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    master_data_privkey = None
-    if app_user_privkey is None:
-        if master_data_privkey is None:
-            wallet_keys = get_wallet_keys(config_path, password)
-            if 'error' in wallet_keys:
-                wallet_keys['errno'] = errno.EPERM
-                return wallet_keys
-
-            master_data_privkey = wallet_keys['data_privkey']
-
-    datastore_info = get_datastore_info(app_user_privkey=app_user_privkey, master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy)
+    datastore_info = rpc.backend_datastore_get(datastore_id)
     if 'error' in datastore_info:
         return datastore_info
 
-    datastore_id = datastore_info['datastore_id']
     datastore = datastore_info['datastore']
-    datastore_privkey_hex = datastore_info['datastore_privkey']
-
     assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
 
     res = datastore_rmdir(datastore, path, datastore_privkey_hex, config_path=config_path, proxy=proxy )
@@ -4257,62 +4236,91 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False, pro
     """
     command: datastore_getfile advanced
     help: Get a file from a datastore.
-    arg: app_user_id (str) 'The ID of the application user'
+    arg: datastore_id (str) 'The ID of the application datastore'
     arg: path (str) 'The path to the file to load'
+    opt: extended (str) 'If True, then include the full inode and parent information as well.'
     """
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
-    app_user_id = str(args.app_user_id)
+    datastore_id = str(args.datastore_id)
     path = str(args.path)
+    extended = False
+    if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
+        extended = True
 
-    return datastore_file_get('datastore', app_user_id, path, config_path=config_path, proxy=proxy)
+    return datastore_file_get('datastore', datastore_id, path, extended=extended, config_path=config_path, proxy=proxy)
 
 
 def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
     """
     command: datastore_listdir advanced
     help: List a directory in the datastore.
-    arg: app_user_id (str) 'The ID of the application user'
+    arg: datastore_id (str) 'The ID of the application datastore'
     arg: path (str) 'The path to the directory to list'
+    opt: extended (str) 'If True, then include the full inode and parent information as well.'
     """
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    app_user_id = str(args.app_user_id)
+    datastore_id = str(args.datastore_id)
     path = str(args.path)
+    extended = False
+    if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
+        extended = True
 
-    return datastore_dir_list('datastore', app_user_id, path, config_path=config_path, proxy=proxy)
+    return datastore_dir_list('datastore', datastore_id, path, extended=extended, config_path=config_path, proxy=proxy)
 
 
 def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False, proxy=None):
     """
     command: datastore_stat advanced
     help: Stat a file or directory in the datastore
-    arg: app_user_id (str) 'The ID of the application user'
+    arg: datastore_id (str) 'The datastore ID'
     arg: path (str) 'The path to the file or directory to stat'
+    opt: extended (str) 'If True, then include the full inode and parent information as well.'
     """
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
     path = str(args.path)
-    app_user_id = str(args.app_user_id)
+    datastore_id = str(args.datastore_id)
+    path = str(args.path)
+    extended = False
+    if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
+        extended = True
 
-    return datastore_path_stat('datastore', app_user_id, path, proxy=proxy, config_path=config_path) 
+    return datastore_path_stat('datastore', datastore_id, path, extended=extended, proxy=proxy, config_path=config_path) 
 
 
-def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, force_data=False, master_data_privkey=None ):
+def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False, proxy=None):
+    """
+    command: datastore_getinode advanced
+    help: Get a raw inode from a datastore
+    arg: datastore_id (str) 'The ID of the application user'
+    arg: inode_uuid (str) 'The inode UUID'
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    datastore_id = str(args.datastore_id)
+    inode_uuid = str(args.inode_uuid)
+
+    return datastore_inode_getinode('datastore', datastore_id, inode_uuid, proxy=proxy, config_path=config_path) 
+
+
+def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, proxy=None, force_data=False ):
     """
     command: datastore_putfile advanced 
     help: Put a file into the datastore at the given path.
     arg: app_domain (str) 'The application for this datastore'
     arg: path (str) 'The path to the new file'
     arg: data (str) 'The data to store, or a path to a file with the data'
-    opt: create (str) 'If True, then only succeed if the file does not exist already'
-    opt: app_user_privkey (str) 'If given, then this is the application user private key'
+    arg: privkey (str) 'The app-specific data private key'
     """
 
     if proxy is None:
@@ -4320,59 +4328,42 @@ def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, prox
 
     password = get_default_password(password)
 
-    config_dir = os.path.dirname(config_path)
     app_domain = str(args.app_domain)
     path = str(args.path)
     data = args.data
+    privkey = str(args.privkey)
     create = (str(getattr(args, "create", "")).lower() in ['1', 'create', 'true'])
-    app_user_privkey = getattr(args, 'app_user_privkey', None)
-    if app_user_privkey is not None:
-        app_user_privkey = str(app_user_privkey)
 
     return datastore_file_put('datastore', app_user_privkey, path, data, create=create, app_domain=app_domain, master_data_privkey=master_data_privkey, password=password, force_data=force_data, proxy=proxy, config_path=config_path )
 
 
-def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, master_data_privkey=None):
+def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False, proxy=None):
     """
     command: datastore_deletefile advanced
     help: Delete a file from the datastore.
-    arg: app_domain (str) 'The application domain of this data store'
+    arg: datastore_id (str) 'The application datastore ID'
     arg: path (str) 'The path to the file to delete'
-    opt: app_user_privkey (str) 'If given, then this is the application user private key'
+    opt: privkey (str) 'If given, then this is the application user private key'
     """
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    password = get_default_password(password)
-
-    config_dir = os.path.dirname(config_path)
-    app_domain = str(args.app_domain)
+    datastore_id = str(args.datastore_id)
     path = str(args.path)
-    app_user_privkey = getattr(args, 'app_user_privkey', None)
-    if app_user_privkey is not None:
-        app_user_privkey = str(app_user_privkey)
+    privkey = str(args.privkey)
     
-    datastore_info = None 
-    master_data_privkey = None
+    # connect 
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    if app_user_privkey is None:
-        if master_data_privkey is None:
-            wallet_keys = get_wallet_keys(config_path, password)
-            if 'error' in wallet_keys:
-                wallet_keys['errno'] = errno.EPERM
-                return wallet_keys
-
-            master_data_privkey = wallet_keys['data_privkey']
-
-    datastore_info = get_datastore_info(app_user_privkey=app_user_privkey, master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy)
+    datastore_info = rpc.backend_datastore_get(datastore_id)
     if 'error' in datastore_info:
         datastore_info['errno'] = errno.EPERM
         return datastore_info
 
-    datastore_id = datastore_info['datastore_id']
     datastore = datastore_info['datastore']
-    datastore_privkey_hex = datastore_info['datastore_privkey']
 
     assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
 
@@ -4380,33 +4371,21 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False, p
     return res
 
 
-def cli_datastore_get_id(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, master_data_privkey=None ):
+def cli_datastore_get_id(args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
     """
     command: datastore_get_id advanced
     help: Get the ID of an application data store
-    arg: app_domain (str) 'The application domain of this data store'
-    opt: app_user_privkey (str) 'If given, then this is the application user private key'
+    arg: datastore_id (str) 'The application datastore ID'
+    arg: privkey (str) 'If given, then this is the application user private key'
     """
-    password = get_default_password(password)
 
-    config_dir = os.path.dirname(config_path)
-    app_domain = str(args.app_domain)
-    
-    app_user_privkey = getattr(args, 'app_user_privkey', None)
-    if app_user_privkey is not None:
-        app_user_privkey = str(app_user_privkey)
-    
-    else:
-        if master_data_privkey is None:
-            wallet_keys = get_wallet_keys(config_path, password)
-            if 'error' in wallet_keys:
-                return wallet_keys
+    datastore_id = str(args.datastore_id)
+    privkey = str(args.privkey)
 
-            master_data_privkey = wallet_keys['data_privkey']
-
-        app_user_privkey = datastore_get_privkey( master_data_privkey, app_domain, config_path=config_path )
-        if app_user_privkey is None:
-            return {'error': 'Failed to generate app private key'}
+    # connect 
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
     app_pubkey = get_pubkey_hex(app_user_privkey)
     datastore_id = datastore_get_id( app_pubkey )
@@ -4524,7 +4503,6 @@ def cli_collection_putitem(args, config_path=CONFIG_PATH, interactive=False, pro
 
     password = get_default_password(password)
 
-    config_dir = os.path.dirname(config_path)
     collection_domain = str(args.collection_domain)
     item_id = str(args.item_id)
     data = args.data

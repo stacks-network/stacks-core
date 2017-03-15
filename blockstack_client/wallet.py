@@ -817,7 +817,7 @@ def is_wallet_unlocked(config_dir=CONFIG_DIR):
     Do so by asking the local RPC backend daemon
     """
     config_path = os.path.join(config_dir, CONFIG_FILENAME)
-    local_proxy = local_api_connect(config_dir=config_dir)
+    local_proxy = local_api_connect(config_path=config_path)
     conf = config.get_config(config_path)
 
     if not local_proxy:
@@ -843,7 +843,7 @@ def get_wallet(config_path=CONFIG_PATH):
     Returns the wallet data on success
     Returns None on error
     """
-    local_proxy = local_api_connect(config_dir=os.path.dirname(config_path))
+    local_proxy = local_api_connect(config_path=config_path)
     conf = config.get_config(config_path)
 
     if not local_proxy:
@@ -889,8 +889,7 @@ def save_keys_to_memory( wallet_keys, config_path=CONFIG_PATH ):
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-    config_dir = os.path.dirname(config_path)
-    proxy = local_api_connect(config_dir=config_dir)
+    proxy = local_api_connect(config_path=config_path)
 
     log.debug('Saving keys to memory')
     try:

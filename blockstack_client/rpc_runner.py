@@ -28,7 +28,7 @@ import os
 import sys
 import traceback
 import config as blockstack_config
-from rpc import local_api_start, local_api_stop, local_api_status, local_api_connect
+from rpc import local_api_start, local_api_stop, local_api_status
 
 
 if __name__ == '__main__':

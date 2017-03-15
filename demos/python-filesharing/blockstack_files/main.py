@@ -22,7 +22,7 @@ def load_datastore_info( config_path=CONFIG_PATH ):
     Get our config.
     Returns {
         'session': session,
-        'datastore_id': datastore ID
+        'datastore': datastore
     }
 
     Or, returns None if there's no such file.
@@ -38,7 +38,7 @@ def load_datastore_info( config_path=CONFIG_PATH ):
         return conf
 
 
-def store_datastore_info( session, datastore_id, config_path=CONFIG_PATH ):
+def store_datastore_info( session, datastore, config_path=CONFIG_PATH ):
     """
     Store our config.
     Return True on success
@@ -46,7 +46,7 @@ def store_datastore_info( session, datastore_id, config_path=CONFIG_PATH ):
     """
     conf = {
         'session': session,
-        'datastore_id': datastore_id
+        'datastore': datastore
     }
 
     with open(config_path, 'w') as f:
@@ -63,7 +63,7 @@ def login( api_password=None, drivers=DRIVERS, config_path=CONFIG_PATH ):
 
     Store the session and datastore ID to disk.
 
-    Returns {'session': session, 'datastore_id': ...} on success
+    Returns {'session': session, 'datastore': ...} on success
     Returns None on error
     """
 
@@ -75,11 +75,12 @@ def login( api_password=None, drivers=DRIVERS, config_path=CONFIG_PATH ):
     
     # first-time signing in
     session = bsk_get_session( api_password )
-    datastore_id = bsk_make_datastore( session, drivers=drivers )
+    datastore_res = bsk_make_datastore( session, drivers=drivers )
+    assert 'error' not in datastore_res
 
-    store_datastore_info( session, datastore_id, config_path=config_path )
+    store_datastore_info( session, datastore_res['datastore'], config_path=config_path )
 
-    return {'session': session, 'datastore_id': datastore_id}
+    return {'session': session, 'datastore': datastore_res['datastore']}
 
 
 def logout( config_path=CONFIG_PATH ):
@@ -184,29 +185,29 @@ def run_cli( argv ):
                 return False
 
         session = creds['session']
-        datastore_id = creds['datastore_id']
+        datastore = creds['datastore']
 
         if args.action == 'ls':
-            res = bsk_stat( session, datastore_id, path )
+            res = bsk_stat( session, datastore, path )
             if res['type'] == 2:
-                bsk_listdir( session, datastore_id, path )
+                bsk_listdir( session, datastore, path )
             else:
                 print os.path.basename(path)
 
         elif args.action == 'cat':
-            bsk_get_file( session, datastore_id, path )
+            bsk_get_file( session, datastore, path )
 
         elif args.action == 'mkdir':
-            bsk_mkdir( session, datastore_id, path )
+            bsk_mkdir( session, datastore, path )
 
         elif args.action == 'put':
-            bsk_put_file( session, datastore_id, args.local_path, path )
+            bsk_put_file( session, datastore, args.local_path, path )
 
         elif args.action == 'rm':
-            bsk_delete_file( session, datastore_id, path )
+            bsk_delete_file( session, datastore, path )
 
         elif args.action == 'rmdir':
-            bsk_rmdir( session, datastore_id, path )
+            bsk_rmdir( session, datastore, path )
 
         elif args.action == 'logout':
             logout()

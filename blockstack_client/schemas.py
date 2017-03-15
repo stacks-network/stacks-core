@@ -425,16 +425,11 @@ MUTABLE_DATUM_DIRENT_SCHEMA = {
             'type': 'string',
             'pattern': OP_UUID_PATTERN
         },
-        'links': {
-            'type': 'array',
-            'items': URI_RECORD_SCHEMA
-        },
     },
     'additionalProperties': False,
     'required': [
         'type',
-        'uuid',
-        'links'
+        'uuid'
     ],
 }
 
@@ -559,7 +554,7 @@ DATA_BLOB_SCHEMA = {
 }
 
 
-# common properties to app sessions and app accounts
+# common properties to app sessions and auth requests
 APP_INFO_PROPERTIES = {
     'blockchain_ids': {
         'type': 'array',
@@ -579,9 +574,9 @@ APP_INFO_PROPERTIES = {
             'pattern': '^[a-zA-Z_][a-zA-Z0-9_.]+$'   # method name
         },
     },
-    'app_user_id': {
+    'app_public_key': {
         'type': 'string',
-        'pattern': OP_URLENCODED_NOSLASH_PATTERN,
+        'pattern': OP_HEX_PATTERN,
     },
 }
 
