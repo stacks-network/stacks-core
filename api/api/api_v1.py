@@ -16,7 +16,6 @@ from requests.exceptions import Timeout as RequestsTimeout
 from flask import request, jsonify
 from flask_crossdomain import crossdomain
 
-from basicrpc import Proxy
 from pybitcoin import get_unspents, BlockcypherClient
 from pybitcoin.rpc import BitcoindClient
 from pybitcoin import is_b58check_address, BitcoinPrivateKey
