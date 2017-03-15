@@ -1405,6 +1405,7 @@ def put_datastore_info( datastore_info, datastore_sigs, config_path=CONFIG_PATH,
     datastore_version = datastore_mutable_data['version']
 
     datastore = data_blob_parse(datastore_mutable_data['data'])
+    datastore_id = datastore_get_id(datastore['pubkey'])
     
     root_idata = data_blob_serialize({})
     root_tombstones = datastore_sigs['root_tombstones']
@@ -1431,7 +1432,7 @@ def put_datastore_info( datastore_info, datastore_sigs, config_path=CONFIG_PATH,
     return {'status': True}
 
 
-def put_datastore(api_client, datastore_info, datastore_privkey, proxy=None, config_path=CONFIG_PATH):
+def put_datastore(api_client, datastore_info, datastore_privkey, config_path=CONFIG_PATH):
     """
     Given datastore information from make_datastore_info(), sign and put it.
     This is a client-side method
@@ -1506,7 +1507,7 @@ def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, 
     return {'status': True}
 
 
-def delete_datastore(api_client, datastore, datastore_privkey, config_path=CONFIG_PATH, proxy=None):
+def delete_datastore(api_client, datastore, datastore_privkey, config_path=CONFIG_PATH):
     """
     Delete a datastore.
 
@@ -2502,7 +2503,7 @@ def datastore_mkdir_put_inodes( datastore, data_path, header_blobs, payloads, si
     return datastore_do_inode_operation( datastore, header_blobs, payloads, signatures, tombstones, config_path=config_path, proxy=proxy )
 
 
-def datastore_mkdir(api_client, datastore, data_path, data_privkey_hex, parent_dir=None, config_path=CONFIG_PATH, proxy=None):
+def datastore_mkdir(api_client, datastore, data_path, data_privkey_hex, parent_dir=None, config_path=CONFIG_PATH):
     """
     Method to make a directory.
     * generate the directory inodes
@@ -2649,7 +2650,7 @@ def datastore_rmdir_put_inodes( datastore, data_path, header_blobs, payloads, si
     return datastore_do_inode_operation( datastore, header_blobs, payloads, signatures, tombstones, config_path=config_path, proxy=proxy )
 
 
-def datastore_rmdir(api_client, datastore, data_path, data_privkey_hex, config_path=CONFIG_PATH, proxy=None):
+def datastore_rmdir(api_client, datastore, data_path, data_privkey_hex, config_path=CONFIG_PATH):
     """
     Client-side method to removing a directory.
     * generate the directory inodes
@@ -2868,7 +2869,7 @@ def datastore_putfile_put_inodes( datastore, data_path, header_blobs, payloads, 
     return datastore_do_inode_operation( datastore, header_blobs, payloads, signatures, tombstones, config_path=config_path, proxy=proxy )
 
 
-def datastore_putfile(api_client, datastore, data_path, file_data, data_privkey_hex, config_path=CONFIG_PATH, proxy=None):
+def datastore_putfile(api_client, datastore, data_path, file_data, data_privkey_hex, create=False, config_path=CONFIG_PATH):
     """
     Client-side method to store a file.  MEANT FOR TESTING PURPOSES
     * generate the directory inodes
@@ -2885,7 +2886,7 @@ def datastore_putfile(api_client, datastore, data_path, file_data, data_privkey_
     
     file_hash = storage.hash_data_payload(file_data)
 
-    inode_info = datastore_putfile_make_inodes( api_client, datastore, data_path, file_hash, data_pubkey, config_path=config_path )
+    inode_info = datastore_putfile_make_inodes( api_client, datastore, data_path, file_hash, data_pubkey, create=create, config_path=config_path )
     if 'error' in inode_info:
         return inode_info
 
@@ -3006,7 +3007,7 @@ def datastore_deletefile_put_inodes( datastore, data_path, header_blobs, payload
     return datastore_do_inode_operation( datastore, header_blobs, payloads, signatures, tombstones, config_path=config_path, proxy=proxy )
 
 
-def datastore_deletefile(api_client, datastore, data_path, data_privkey_hex, config_path=CONFIG_PATH, proxy=None):
+def datastore_deletefile(api_client, datastore, data_path, data_privkey_hex, config_path=CONFIG_PATH):
     """
     Client-side method to removing a file.  MEANT FOR TESTING PURPOSES
     * generate the directory inodes
@@ -3061,11 +3062,12 @@ def datastore_stat(api_client, datastore, data_path, extended=False, config_path
     
     ret = {
         'status': True,
-        'inode_info': inode_info['inode_info'],
+        'inode': inode_info['inode_info']['inode'],
     }
 
     if extended:
         ret['path_info'] = inode_info['path_info']
+        ret['inode_info'] = inode_info['inode_info']
 
     return ret
 
@@ -3287,7 +3289,7 @@ def datastore_rmtree_put_inodes( datastore, header_blobs, payloads, signatures, 
     return datastore_do_inode_operation( datastore, header_blobs, payloads, signatures, tombstones, config_path=config_path, proxy=proxy )
 
 
-def datastore_rmtree(api_client, datastore, data_path, data_privkey_hex, config_path=CONFIG_PATH, proxy=None):
+def datastore_rmtree(api_client, datastore, data_path, data_privkey_hex, config_path=CONFIG_PATH):
     """
     Client-side method to removing a directory tree.
     * generate the directory inodes and tombstones
