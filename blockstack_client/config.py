@@ -520,12 +520,21 @@ def write_config_file(opts, config_file):
     Raise on error
     """
 
+    # these can sometimes be left over from older clients' calls to configure().
     if 'blockstack-client' in opts:
-        assert 'path' not in opts['blockstack-client']
-        assert 'dir' not in opts['blockstack-client']
+        if 'path' in opts['blockstack-client']:
+            del opts['blockstack-client']['path']
 
-    assert 'path' not in opts
-    assert 'dir' not in opts
+        if 'dir' in opts['blockstack-client']:
+            del opts['blockstack-client']['dir']
+
+    
+    # these can sometimes be left over from older clients' calls to configure().
+    if 'path' in opts:
+        del opts['path']
+
+    if 'dir' in opts:
+        del opts['dir']
 
     parser = SafeConfigParser()
 
