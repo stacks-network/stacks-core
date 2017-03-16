@@ -652,6 +652,55 @@ APP_CONFIG_SCHEMA = {
     ],
 }
 
+
+CREATE_DATASTORE_INFO_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'datastore_blob': {
+            'type': 'string',
+        },
+        'root_blob': {
+            'type': 'string',
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'datastore_blob',
+        'root_blob',
+    ],
+}
+
+CREATE_DATASTORE_SIGS_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'datastore_sig': {
+            'type': 'string',
+        },
+        'root_sig': {
+            'type': 'string',
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'datastore_sig',
+        'root_sig',
+    ],
+}
+
+CREATE_DATASTORE_REQUEST_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'datastore_info': CREATE_DATASTORE_INFO_SCHEMA,
+        'datastore_sigs': CREATE_DATASTORE_SIGS_SCHEMA,
+    },
+    'additionalProperties': False,
+    'required': [
+        'datastore_info',
+        'datastore_sigs'
+    ],
+}
+
+
 OP_HISTORY_SCHEMA = {
     'type': 'object',
     'properties': {
