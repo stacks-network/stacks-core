@@ -3852,7 +3852,7 @@ class BlockstackAPIEndpointClient(object):
 
 
 
-def make_local_api_server(api_pass, portnum, wallet_keys, config_path=blockstack_constants.CONFIG_PATH, plugins=None):
+def make_local_api_server(api_pass, portnum, wallet_keys, api_bind=None, config_path=blockstack_constants.CONFIG_PATH, plugins=None):
     """
     Make a local RPC server instance.
     It will be derived from BaseHTTPServer.HTTPServer.
@@ -3861,7 +3861,12 @@ def make_local_api_server(api_pass, portnum, wallet_keys, config_path=blockstack
 
     Returns the global server instance on success.
     """
-    srv = BlockstackAPIEndpoint(api_pass, wallet_keys, port=portnum, config_path=config_path)
+    conf = blockstack_config.get_config(config_path)
+    assert conf
+
+    api_host = conf.get('api_endpoint_bind', 'localhost') if api_host is None else api_host
+
+    srv = BlockstackAPIEndpoint(api_pass, wallet_keys, host=api_host, port=portnum, config_path=config_path)
     return srv
 
 
