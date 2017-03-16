@@ -250,6 +250,14 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             'env': 'BLOCKSTACK_API_SESSION',
             'help': 'API session token to use',
         },
+        'api_bind': {
+            'short': '-b',
+            'long': '--bind',
+            'has_arg': True,
+            're-exec': False,
+            'env': 'BLOCKSTACK_API_BIND',
+            'help': 'Address or hostname to bind the API server',
+        },
         'dry_run': {
             'short': '-n',
             'long': '--dry_run',

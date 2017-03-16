@@ -3840,8 +3840,12 @@ def make_local_api_server(api_pass, portnum, wallet_keys, api_bind=None, config_
     """
     conf = blockstack_config.get_config(config_path)
     assert conf
-
-    api_bind = conf.get('api_endpoint_bind', 'localhost') if api_bind is None else api_bind
+    
+    # arg --> envar --> config
+    if api_bind is None:
+        api_bind = os.environ.get("BLOCKSTACK_API_BIND", None)
+        if api_bind is None:
+            api_bind = conf.get('api_endpoint_bind', 'localhost') if api_bind is None else api_bind
 
     srv = BlockstackAPIEndpoint(api_pass, wallet_keys, host=api_bind, port=portnum, config_path=config_path)
     return srv
