@@ -202,6 +202,28 @@ def scenario( wallets, **kw ):
             print 'failed to read {}'.format(dpath)
             return False
 
+    # put files again! 
+    for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
+        print 'putfile {}'.format(dpath)
+        data = '{} hello 2 {}'.format(file_data, dpath)
+        res = testlib.blockstack_cli_datastore_putfile( datastore_pk, dpath, data )
+        if 'error' in res:
+            print 'failed to putfile {}: {}'.format(dpath, res['error'])
+            return False
+
+    # get files again!
+    for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
+        print 'getfile {}'.format(dpath)
+        res = testlib.blockstack_cli_datastore_getfile( datastore_id, dpath )
+        if 'error' in res:
+            print 'failed to getfile {}: {}'.format(dpath, res['error'])
+            return False
+
+        res = res['file']
+        if res['idata'] != '{} hello 2 {}'.format(file_data, dpath):
+            print 'failed to read {}'.format(dpath)
+            return False
+
     # remove files
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'deletefile {}'.format(dpath)
