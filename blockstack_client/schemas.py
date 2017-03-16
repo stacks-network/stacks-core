@@ -701,6 +701,30 @@ CREATE_DATASTORE_REQUEST_SCHEMA = {
 }
 
 
+DELETE_DATASTORE_REQUEST_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'datastore_tombstones': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+            },
+        },
+        'root_tombstones': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+            },
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'datastore_tombstones',
+        'root_tombstones',
+    ],
+}
+
+
 OP_HISTORY_SCHEMA = {
     'type': 'object',
     'properties': {

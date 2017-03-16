@@ -1304,31 +1304,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Given a set of sigend tombstones, go delete the datastore.
         """
-        request_schema = {
-            'type': 'object',
-            'properties': {
-                'datastore_tombstones': {
-                    'type': 'array',
-                    'items': {
-                        'type': 'string',
-                    },
-                },
-                'root_tombstones': {
-                    'type': 'array',
-                    'items': {
-                        'type': 'string',
-                    },
-                },
-            },
-            'additionalProperties': False,
-            'required': [
-                'datastore_tombstones',
-                'root_tombstones',
-            ],
-        }
-
         try:
-            jsonschema.validate(request_schema, tombstone_info)
+            jsonschema.validate(DELETE_DATASTORE_REQUEST_SCHEMA, tombstone_info)
         except ValidationError as ve:
             if BLOCKSTACK_DEBUG:
                 log.exception(ve)
@@ -3864,9 +3841,9 @@ def make_local_api_server(api_pass, portnum, wallet_keys, api_bind=None, config_
     conf = blockstack_config.get_config(config_path)
     assert conf
 
-    api_host = conf.get('api_endpoint_bind', 'localhost') if api_host is None else api_host
+    api_bind = conf.get('api_endpoint_bind', 'localhost') if api_bind is None else api_bind
 
-    srv = BlockstackAPIEndpoint(api_pass, wallet_keys, host=api_host, port=portnum, config_path=config_path)
+    srv = BlockstackAPIEndpoint(api_pass, wallet_keys, host=api_bind, port=portnum, config_path=config_path)
     return srv
 
 
