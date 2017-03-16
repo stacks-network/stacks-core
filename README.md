@@ -3,8 +3,9 @@
 [![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack-server/)
 [![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
-Blockstack is a new decentralized web, where users own their data and apps run on user devices without the need for hosting. Developers can build
-serverless apps without the need to trust any centralized services or infrastructure.
+Blockstack is a new decentralized internet where you own your data and your apps run locally without remote servers. 
+
+Blockstack provides decentralized services for naming/DNS, identity, authentication and storage. Developers can use JavaScript libraries to build serverless apps and they don't need to worry about managing infrastructure.
 
 For more info on Blockstack see: http://github.com/blockstack/blockstack
 
@@ -25,13 +26,13 @@ The fastest way to get started with Blockstack is with pip.
 For Debian & Ubuntu:
 ```
 $ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools libgmp3-dev
-$ sudo pip install blockstack
+$ sudo pip install blockstack --upgrade
 ```
 For macOS: 
 ```
 $ brew install gmp libffi openssl
 $ sudo pip install --upgrade pip
-$ sudo pip install blockstack
+$ sudo pip install blockstack --upgrade
 ```
 
 You can test your installation by trying:
