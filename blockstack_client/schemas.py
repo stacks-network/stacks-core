@@ -444,8 +444,9 @@ MUTABLE_DATUM_DIR_IDATA_SCHEMA = {
 
 MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.update({
     'idata': {
-        # raw data
+        # raw data as b64
         'type': 'string',
+        'pattern': OP_BASE64_PATTERN,
     },
 })
 
