@@ -4177,6 +4177,35 @@ def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False ):
     return res
 
 
+def cli_datastore_rmtree( args, config_path=CONFIG_PATH, interactive=False ):
+    """
+    command: datastore_rmtree advanced
+    help: Remove a directory and all its children from a datastore.
+    arg: privkey (str) 'The app-specific data private key'
+    arg: path (str) 'The path to the directory tree to remove'
+    """
+
+    path = str(args.path)
+    datastore_privkey_hex = str(args.privkey)
+    datastore_pubkey_hex = get_pubkey_hex(datastore_privkey_hex)
+    datastore_id = datastore_get_id(datastore_pubkey_hex)
+
+    # connect 
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
+
+    datastore_info = rpc.backend_datastore_get(datastore_id)
+    if 'error' in datastore_info:
+        return datastore_info
+
+    datastore = datastore_info['datastore']
+    assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
+
+    res = datastore_rmtree(rpc, datastore, path, datastore_privkey_hex, config_path=config_path )
+    return res
+
+
 def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: datastore_getfile advanced
