@@ -786,7 +786,7 @@ def unlock_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None):
         wallet = wallet_info['wallet']
         if wallet_info['migrated']:
             # need to have the user migrate the wallet first
-            return {'error': 'Wallet is in legacy format.  Please migrate it with the `migrate_wallet` command.', 'legacy': True}
+            return {'error': 'Wallet is in legacy format.  Please migrate it with the `setup_wallet` command.', 'legacy': True}
 
         # save to RPC daemon
         try:
