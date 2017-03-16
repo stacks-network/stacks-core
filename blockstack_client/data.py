@@ -1456,7 +1456,7 @@ def make_datastore_tombstones( datastore_id, device_ids ):
     """
     Make datastore tombstones
     """
-    datastore_tombstones = make_mutable_data_tombstones( device_ids, datastore_id )
+    datastore_tombstones = make_mutable_data_tombstones( device_ids, '{}.datastore'.format(datastore_id) )
     return datastore_tombstones
 
 
@@ -2808,11 +2808,18 @@ def datastore_putfile_make_inodes(api_client, datastore, data_path, file_data_ha
         log.error('Already exists: {}'.format(data_path))
         return {'error': 'Already exists', 'errno': errno.EEXIST}
 
-    # make a file!
-    child_uuid = str(uuid.uuid4())
+    child_uuid = None
 
-    # update parent 
-    parent_dir_inode, child_dirent = _mutable_data_dir_link( parent_dir_inode, MUTABLE_DATUM_FILE_TYPE, name, child_uuid )
+    # exists?
+    if name in parent_dir_inode['idata'].keys():
+        child_uuid = parent_dir_inode['idata'][name]['uuid']
+
+    else:
+        # make a file!
+        child_uuid = str(uuid.uuid4())
+
+        # update parent (may be idempotent) 
+        parent_dir_inode, child_dirent = _mutable_data_dir_link( parent_dir_inode, MUTABLE_DATUM_FILE_TYPE, name, child_uuid )
     
     # make the new inode info
     child_file_info = make_file_inode_data( datastore_id, datastore_id, child_uuid, file_data_hash, device_ids, config_path=config_path, create=create )
