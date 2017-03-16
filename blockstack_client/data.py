@@ -37,6 +37,7 @@ import errno
 import hashlib
 import jsontokens
 import collections
+import base64
 from keylib import *
 
 from .keys import *
@@ -2714,6 +2715,9 @@ def datastore_getfile(api_client, datastore, data_path, extended=False, config_p
         'file': file_info['inode_info']['inode'],
     }
 
+    # decode
+    ret['file']['idata'] = base64.b64decode(str(ret['file']['idata']))
+    
     if extended:
         ret['path_info'] = file_info['path_info']
 
@@ -2869,7 +2873,7 @@ def datastore_putfile_put_inodes( datastore, data_path, header_blobs, payloads, 
     return datastore_do_inode_operation( datastore, header_blobs, payloads, signatures, tombstones, config_path=config_path, proxy=proxy )
 
 
-def datastore_putfile(api_client, datastore, data_path, file_data, data_privkey_hex, create=False, config_path=CONFIG_PATH):
+def datastore_putfile(api_client, datastore, data_path, file_data_bin, data_privkey_hex, create=False, config_path=CONFIG_PATH):
     """
     Client-side method to store a file.  MEANT FOR TESTING PURPOSES
     * generate the directory inodes
@@ -2883,8 +2887,9 @@ def datastore_putfile(api_client, datastore, data_path, file_data, data_privkey_
     datastore_id = datastore_get_id(data_pubkey)
     device_ids = datastore['device_ids']
     drivers = datastore['drivers']
-    
-    file_hash = storage.hash_data_payload(file_data)
+   
+    file_data_b64 = base64.b64encode(file_data_bin)
+    file_hash = storage.hash_data_payload(file_data_b64)
 
     inode_info = datastore_putfile_make_inodes( api_client, datastore, data_path, file_hash, data_pubkey, create=create, config_path=config_path )
     if 'error' in inode_info:
@@ -2896,7 +2901,7 @@ def datastore_putfile(api_client, datastore, data_path, file_data, data_privkey_
         inode_signatures.append( signature )
 
     assert inode_info['payloads'][0] is None
-    inode_info['payloads'][0] = file_data
+    inode_info['payloads'][0] = file_data_b64
 
     res = api_client.backend_datastore_putfile( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_signatures, inode_info['tombstones'] )
     if 'error' in res:
