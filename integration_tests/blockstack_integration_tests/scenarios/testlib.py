@@ -495,9 +495,6 @@ def blockstack_client_initialize_wallet( password, payment_privkey, owner_privke
     print "\nstopping API daemon\n"
 
     res = blockstack_client.rpc.local_api_stop(config_dir=config_dir)
-    if not res:
-        if exception:
-            raise Exception("Failed to stop API daemon")
 
     print "\nstarting API daemon\n"
 
@@ -1044,8 +1041,9 @@ def blockstack_cli_put_mutable( name, data_id, data_json_str, password=None, con
     if 'error' in res:
         return res
 
+    """
     assert 'url' in res, "Missing URL"
-    
+   
     url = res['url']
 
     # overwrite data
@@ -1063,6 +1061,7 @@ def blockstack_cli_put_mutable( name, data_id, data_json_str, password=None, con
 
     data_urls[url] = data_json_str
     data_ids[data_id] = url
+    """
     return res
 
 
@@ -1087,6 +1086,7 @@ def blockstack_cli_put_immutable( name, data_id, data_json_str, password=None, c
     if 'error' in res:
         return res
 
+    """
     assert 'url' in res, "Missing URL"
     assert 'hash' in res, "Missing hash"
     
@@ -1107,7 +1107,7 @@ def blockstack_cli_put_immutable( name, data_id, data_json_str, password=None, c
     data_urls[url] = data_json_str
     data_ids[data_id] = url
     data_ids[res['hash']] = url
-
+    """
     return res
 
 
@@ -1571,133 +1571,160 @@ def blockstack_cli_app_put_resource( blockchain_id, app_domain, res_path, res_fi
     return cli_app_put_resource( args, config_path=config_path, interactive=interactive, password=password, proxy=test_proxy )
 
 
-def blockstack_cli_app_signin( app_domain, api_methods, session_lifetime=None, app_user_id=None, config_path=None, password=None, wallet_keys=None ):
+def blockstack_cli_app_signin( app_privkey, app_domain, api_methods, config_path=None ):
     """
     sign in and get a token
     """
-    test_proxy = make_proxy(config_path=config_path)
-    blockstack_client.set_default_proxy( test_proxy )
-    config_path = test_proxy.config_path if config_path is None else config_path
+    if config_path is None:
+        test_proxy = make_proxy(config_path=config_path)
+        blockstack_client.set_default_proxy( test_proxy )
+        config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
 
     args.app_domain = app_domain
-    args.api_methods = api_methods
-    args.session_lifetime = session_lifetime
-    args.app_user_id = app_user_id
+    args.api_methods = ','.join(api_methods)
+    args.privkey = app_privkey
 
-    return cli_app_signin( args, config_path=config_path, password=password, wallet_keys=wallet_keys )
+    return cli_app_signin( args, config_path=config_path )
 
 
-def blockstack_cli_create_datastore(app_domain, config_path=None, password=None):
+def blockstack_cli_create_datastore(datastore_privkey, drivers, config_path=None):
     """
     create_datastore
     """
-    test_proxy = make_proxy(password=password, config_path=config_path)
-    blockstack_client.set_default_proxy( test_proxy )
-    config_path = test_proxy.config_path if config_path is None else config_path
+    if config_path is None:
+        test_proxy = make_proxy(config_path=config_path)
+        blockstack_client.set_default_proxy( test_proxy )
+        config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
 
-    args.app_domain = app_domain
+    args.privkey = datastore_privkey
+    args.drivers = ",".join(drivers)
 
-    return cli_create_datastore( args, config_path=config_path, password=password, proxy=test_proxy )
+    return cli_create_datastore( args, config_path=config_path)
 
 
-def blockstack_cli_delete_datastore(app_domain, config_path=None, password=None):
+def blockstack_cli_delete_datastore(datastore_privkey, force=False, config_path=None):
     """
     delete datastore
     """
-    test_proxy = make_proxy(password=password, config_path=config_path)
-    blockstack_client.set_default_proxy( test_proxy )
-    config_path = test_proxy.config_path if config_path is None else config_path
+    if config_path is None:
+        test_proxy = make_proxy(config_path=config_path)
+        blockstack_client.set_default_proxy( test_proxy )
+        config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
-    args.app_domain = app_domain
+    args.privkey = datastore_privkey
+    args.force = '1' if force else '0'
 
-    return cli_delete_datastore( args, config_path=config_path, password=password, proxy=test_proxy )
+    return cli_delete_datastore( args, config_path=config_path )
 
 
-def blockstack_cli_datastore_mkdir( app_domain, path, config_path=None, interactive=False, proxy=None):
+def blockstack_cli_datastore_mkdir(datastore_privkey, path, config_path=None, interactive=False ):
     """
     mkdir
     """
-    test_proxy = make_proxy(config_path=config_path)
-    blockstack_client.set_default_proxy( test_proxy )
-    config_path = test_proxy.config_path if config_path is None else config_path
+    if config_path is None:
+        test_proxy = make_proxy(config_path=config_path)
+        blockstack_client.set_default_proxy( test_proxy )
+        config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
 
-    args.app_domain = app_domain
-    args.path = path 
+    args.path = path
+    args.privkey = datastore_privkey
 
-    return cli_datastore_mkdir( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
+    return cli_datastore_mkdir( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_rmdir( app_domain, path, config_path=None, interactive=False, proxy=None):
+def blockstack_cli_datastore_rmdir( datastore_privkey, path, config_path=None, interactive=False ):
     """
     rmdir
     """
-    test_proxy = make_proxy(config_path=config_path)
-    blockstack_client.set_default_proxy( test_proxy )
-    config_path = test_proxy.config_path if config_path is None else config_path
+    if config_path is None:
+        test_proxy = make_proxy(config_path=config_path)
+        blockstack_client.set_default_proxy( test_proxy )
+        config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
-    args.app_domain = app_domain
-    args.path = path 
 
-    return cli_datastore_rmdir( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
+    args.path = path
+    args.privkey = datastore_privkey
+
+    return cli_datastore_rmdir( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_listdir( app_user_id, path, config_path=None, interactive=False, proxy=None):
+def blockstack_cli_datastore_rmtree( datastore_privkey, path, config_path=None, interactive=False ):
+    """
+    rmtree
+    """
+    if config_path is None:
+        test_proxy = make_proxy(config_path=config_path)
+        blockstack_client.set_default_proxy( test_proxy )
+        config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+
+    args.path = path
+    args.privkey = datastore_privkey
+
+    return cli_datastore_rmtree( args, config_path=config_path, interactive=interactive )
+
+
+def blockstack_cli_datastore_listdir(datastore_id, path, config_path=None, interactive=False ):
     """
     listdir
     """
-    test_proxy = make_proxy(config_path=config_path)
-    blockstack_client.set_default_proxy( test_proxy )
-    config_path = test_proxy.config_path if config_path is None else config_path
+    if config_path is None:
+        test_proxy = make_proxy(config_path=config_path)
+        blockstack_client.set_default_proxy( test_proxy )
+        config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
-
-    args.app_user_id = app_user_id
+    
+    args.datastore_id = datastore_id
     args.path = path 
 
-    return cli_datastore_listdir( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
+    return cli_datastore_listdir( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_stat( app_user_id, path, config_path=None, interactive=False, proxy=None):
+def blockstack_cli_datastore_stat( datastore_id, path, config_path=None, interactive=False ):
     """
     stat
     """
-    test_proxy = make_proxy(config_path=config_path)
-    blockstack_client.set_default_proxy( test_proxy )
-    config_path = test_proxy.config_path if config_path is None else config_path
+    if config_path is None:
+        test_proxy = make_proxy(config_path=config_path)
+        blockstack_client.set_default_proxy( test_proxy )
+        config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
     
-    args.app_user_id = app_user_id
+    args.datastore_id = datastore_id
     args.path = path 
 
-    return cli_datastore_stat( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
+    return cli_datastore_stat( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_getfile( app_user_id, path, config_path=None, interactive=False, proxy=None):
+def blockstack_cli_datastore_getfile( datastore_id, path, config_path=None, interactive=False ):
     """
     getfile
     """
-    test_proxy = make_proxy(config_path=config_path)
-    blockstack_client.set_default_proxy( test_proxy )
-    config_path = test_proxy.config_path if config_path is None else config_path
+    if config_path is None:
+        test_proxy = make_proxy(config_path=config_path)
+        blockstack_client.set_default_proxy( test_proxy )
+        config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
     
-    args.app_user_id = app_user_id
-    args.path = path 
+    args.datastore_id = datastore_id
+    args.path = path
 
-    return cli_datastore_getfile( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
+    return cli_datastore_getfile( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_putfile( app_domain, path, data, data_path=None, interactive=False, proxy=None, config_path=None):
+def blockstack_cli_datastore_putfile( datastore_privkey, path, data, data_path=None, interactive=False, proxy=None, config_path=None):
     """
     putfile
     """
@@ -1706,16 +1733,16 @@ def blockstack_cli_datastore_putfile( app_domain, path, data, data_path=None, in
     config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
-
-    args.app_domain = app_domain
+    
+    args.privkey = datastore_privkey
     args.path = path 
     args.data = data
     args.data_path = data_path 
 
-    return cli_datastore_putfile( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
+    return cli_datastore_putfile( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_deletefile( app_domain, path, interactive=False, proxy=None, config_path=None):
+def blockstack_cli_datastore_deletefile( datastore_privkey, path, interactive=False, proxy=None, config_path=None):
     """
     deletefile
     """
@@ -1725,13 +1752,13 @@ def blockstack_cli_datastore_deletefile( app_domain, path, interactive=False, pr
 
     args = CLIArgs()
     
-    args.app_domain = app_domain
+    args.privkey = datastore_privkey
     args.path = path 
 
-    return cli_datastore_deletefile( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
+    return cli_datastore_deletefile( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_get_id( app_domain, interactive=False, proxy=None, config_path=None ):
+def blockstack_cli_datastore_get_id( datastore_privkey, interactive=False, proxy=None, config_path=None ):
     """
     get datastore ID
     """
@@ -1740,9 +1767,8 @@ def blockstack_cli_datastore_get_id( app_domain, interactive=False, proxy=None, 
     config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
-    
-    args.app_domain = app_domain
-    return cli_datastore_get_id( args, config_path=config_path, interactive=interactive, proxy=test_proxy )
+    args.datastore_privkey = datastore_privkey 
+    return cli_datastore_get_id( args, config_path=config_path, interactive=interactive )
     
 
 def blockstack_cli_list_device_ids( config_path=None ):
