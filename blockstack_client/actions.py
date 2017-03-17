@@ -4024,7 +4024,7 @@ def datastore_dir_list(datastore_type, datastore_id, path, extended=False, force
     return res
 
 
-def datastore_path_stat(datastore_type, datastore_id, path, extended=False, force=False, config_path=CONFIG_PATH ):
+def datastore_path_stat(datastore_type, datastore_id, path, extended=False, force=False, idata=False, config_path=CONFIG_PATH ):
     """
     Stat a path in a datastore or collection
     Return {'status': True, 'inode': ...} on success
@@ -4043,11 +4043,11 @@ def datastore_path_stat(datastore_type, datastore_id, path, extended=False, forc
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_stat( rpc, datastore, path, extended=extended, force=force, config_path=config_path )
+    res = datastore_stat( rpc, datastore, path, extended=extended, force=force, idata=idata, config_path=config_path )
     return res
 
 
-def datastore_inode_getinode(datastore_type, datastore_id, inode_uuid, config_path=CONFIG_PATH ):
+def datastore_inode_getinode(datastore_type, datastore_id, inode_uuid, idata=False, config_path=CONFIG_PATH ):
     """
     Get an inode in a datastore or collection
     Return {'status': True, 'inode': ...} on success
@@ -4066,7 +4066,7 @@ def datastore_inode_getinode(datastore_type, datastore_id, inode_uuid, config_pa
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_getinode( rpc, datastore, inode_uuid, config_path=config_path )
+    res = datastore_getinode( rpc, datastore, inode_uuid, idata=idata, config_path=config_path )
     return res
 
 
@@ -4263,7 +4263,8 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     help: Stat a file or directory in the datastore
     arg: datastore_id (str) 'The datastore ID'
     arg: path (str) 'The path to the file or directory to stat'
-    opt: extended (str) 'If True, then include the full inode and parent information as well.'
+    opt: extended (str) 'If True, then include the path information as well'
+    opt: idata (str) 'If True, then include the inode data as well'
     opt: force (str) 'If True, then tolerate stale inode data.'
     """
 
@@ -4272,6 +4273,7 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     path = str(args.path)
     extended = False
     force = False
+    idata = False
 
     if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
         extended = True
@@ -4279,7 +4281,10 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
 
-    return datastore_path_stat('datastore', datastore_id, path, extended=extended, force=force, config_path=config_path) 
+    if hasattr(args, 'idata') and args.idata.lower() in ['1', 'true']:
+        idata = True
+
+    return datastore_path_stat('datastore', datastore_id, path, extended=extended, force=force, idata=idata, config_path=config_path) 
 
 
 def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
@@ -4288,16 +4293,23 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
     help: Get a raw inode from a datastore
     arg: datastore_id (str) 'The ID of the application user'
     arg: inode_uuid (str) 'The inode UUID'
+    opt: idata (str) 'If True, then include the inode payload as well.'
     opt: force (str) 'If True, then tolerate stale inode data.'
     """
 
     datastore_id = str(args.datastore_id)
     inode_uuid = str(args.inode_uuid)
+    
+    force = False
+    idata = False
 
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
 
-    return datastore_inode_getinode('datastore', datastore_id, inode_uuid, force=force, config_path=config_path) 
+    if hasattr(args, 'idata') and args.idata.lower() in ['1', 'true']:
+        idata = True
+
+    return datastore_inode_getinode('datastore', datastore_id, inode_uuid, force=force, idata=idata, config_path=config_path) 
 
 
 def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, force_data=False ):
