@@ -52,6 +52,8 @@ OP_NAMESPACE_HASH_PATTERN = r'^([0-9a-fA-F]{16})$'
 OP_BASE64_PATTERN_SECTION = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
 OP_BASE64_PATTERN = r'^({})$'.format(OP_BASE64_PATTERN_SECTION)
 OP_URLENCODED_NOSLASH_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'       # intentionally left out /
+OP_URLENCODED_NOSLASH_OR_EMPTY_PATTERN = r'^([a-zA-Z0-9\-_.~%]*)$'       # intentionally left out /, allow empty
+OP_URLENCODED_OR_EMPTY_PATTERN = r'^([a-zA-Z0-9\-_.~%/]*)$'
 OP_URLENCODED_PATTERN = r'^([a-zA-Z0-9\-_.~%/]+)$'
 OP_USER_ID_CLASS = r'[a-zA-Z0-9\-_.%]'
 OP_DATASTORE_ID_CLASS = r'[a-zA-Z0-9\-_.~%]'
@@ -736,6 +738,110 @@ DELETE_DATASTORE_REQUEST_SCHEMA = {
     ],
 }
 
+
+DATASTORE_LOOKUP_PATH_ENTRY_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'name': {
+            'type': 'string',
+            'pattern': OP_URLENCODED_NOSLASH_OR_EMPTY_PATTERN,
+        },
+        'uuid': {
+            'type': 'string',
+            'pattern': OP_UUID_PATTERN,
+        },
+        'parent': {
+            'type': 'string',
+            'pattern': OP_URLENCODED_OR_EMPTY_PATTERN,
+        },
+        'inode': MUTABLE_DATUM_DIR_SCHEMA,
+    },
+    'required': [
+        'name',
+        'uuid',
+        'parent',
+        'inode',
+    ],
+    'additionalProperties': False,
+}
+
+
+DATASTORE_LOOKUP_INODE_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'name': {
+            'type': 'string',
+            'pattern': OP_URLENCODED_NOSLASH_OR_EMPTY_PATTERN,
+        },
+        'uuid': {
+            'type': 'string',
+            'pattern': OP_UUID_PATTERN,
+        },
+        'parent': {
+            'type': 'string',
+            'pattern': OP_URLENCODED_OR_EMPTY_PATTERN,
+        },
+        'inode': {
+            'anyOf': [
+                MUTABLE_DATUM_DIR_SCHEMA,
+                MUTABLE_DATUM_FILE_SCHEMA,
+                MUTABLE_DATUM_INODE_HEADER_SCHEMA,
+            ],
+        },
+    },
+    'required': [
+        'name',
+        'uuid',
+        'parent',
+        'inode',
+    ],
+    'additionalProperties': False,
+}
+
+
+DATASTORE_LOOKUP_RESPONSE_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'inode': {
+            'anyOf': [
+                MUTABLE_DATUM_DIR_SCHEMA,
+                MUTABLE_DATUM_FILE_SCHEMA,
+                MUTABLE_DATUM_INODE_HEADER_SCHEMA,
+            ],
+        },
+        'status': {
+            'type': 'boolean',
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'inode_info',
+        'status',
+    ],
+}
+
+
+DATASTORE_LOOKUP_EXTENDED_RESPONSE_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'path_info': {
+            'type': 'object',
+            'patternProperties': {
+                OP_URLENCODED_OR_EMPTY_PATTERN: DATASTORE_LOOKUP_INODE_SCHEMA,
+            },
+        },
+        'inode_info': DATASTORE_LOOKUP_INODE_SCHEMA,
+        'status': {
+            'type': 'boolean',
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'inode_info',
+        'path_info',
+        'status',
+    ],
+}
 
 OP_HISTORY_SCHEMA = {
     'type': 'object',
