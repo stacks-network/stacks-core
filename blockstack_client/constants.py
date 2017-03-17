@@ -302,10 +302,6 @@ WALLET_PATH = os.path.join(CONFIG_DIR, 'wallet.json')
 DEFAULT_QUEUE_PATH = os.path.join(CONFIG_DIR, 'queues.db')
 
 METADATA_DIRNAME = 'metadata'
-APP_ACCOUNT_DIRNAME = 'accounts'
-USER_DIRNAME = 'accounts'
-DATASTORE_DIRNAME = 'datastores'
-LOCAL_PRIVKEY_INDEX_NAME = 'local_privkey.idx'
 
 BLOCKCHAIN_ID_MAGIC = 'id'
 
@@ -340,6 +336,9 @@ APPROX_TX_OUT_P2SH_LEN = 40
 # hardened children indexes
 ACCOUNT_SIGNING_KEY_INDEX = 0
 DATASTORE_SIGNING_KEY_INDEX = 0
+
+# version of the storage protocol 
+BLOCKSTACK_STORAGE_PROTO_VERSION = 1
 
 # session lifetime
 DEFAULT_SESSION_LIFETIME = 3600 * 24 * 7    # 1 week
