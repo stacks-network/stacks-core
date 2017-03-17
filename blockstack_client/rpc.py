@@ -1380,6 +1380,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         # include extended information
         include_extended = qs.get('extended', '0')
         force = qs.get('force', '0')
+        idata = qs.get('idata', '0')
 
         internal = self.server.get_internal_proxy()
         path = qs.get('path', None)
@@ -1394,20 +1395,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if path is not None:
                 res = internal.cli_datastore_getfile(datastore_id, path, '0', force, config_path=self.server.config_path)
             else:
-                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, force, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, idata, force, config_path=self.server.config_path)
 
         elif inode_type == 'directories':
             # path requred 
             if path is not None:
                 res = internal.cli_datastore_listdir(datastore_id, path, include_extended, force, config_path=self.server.config_path)
             else:
-                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, force, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, idata, force, config_path=self.server.config_path)
 
         else:
             if path is not None:
-                res = internal.cli_datastore_stat(datastore_id, path, include_extended, force, config_path=self.server.config_path)
+                res = internal.cli_datastore_stat(datastore_id, path, include_extended, idata, force, config_path=self.server.config_path)
             else:
-                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, force, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, idata, force, config_path=self.server.config_path)
 
         if json_is_error(res):
             err = {'error': 'Failed to read {}: {}'.format(inode_type, res['error']), 'errno': res.get('errno', errno.EPERM)}
@@ -3665,7 +3666,7 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_datastore_lookup(self, datastore, path, data_pubkey, get_idata=True, force=False, extended=False):
+    def backend_datastore_lookup(self, datastore, path, data_pubkey, idata=True, force=False, extended=False):
         """
         Look up a path and its inodes
         Return {'status': True, 'inode_info': ...} on success.
@@ -3674,23 +3675,31 @@ class BlockstackAPIEndpointClient(object):
         Return {'error': ...} on failure.
         """
         if is_api_server(self.config_dir):
-            # directly do the lookup 
-            return data.inode_path_lookup(datastore, path, data_pubkey, get_idata=get_idata, force=force, config_path=self.config_path )
+            # directly do the lookup
+            return data.inode_path_lookup(datastore, path, data_pubkey, get_idata=idata, force=force, config_path=self.config_path )
 
         else:
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             datastore_id = data.datastore_get_id(data_pubkey)
-            url = 'http://{}:{}/v1/stores/{}/inodes?path={}&extended={}&force={}'.format(
-                    self.server, self.port, datastore_id, urllib.quote(path), '1' if extended else '0', '1' if force else '0'
+            url = 'http://{}:{}/v1/stores/{}/inodes?path={}&extended={}&force={}&idata={}'.format(
+                    self.server, self.port, datastore_id, urllib.quote(path), '1' if extended else '0', '1' if force else '0', '1' if idata else '0',
             )
 
             log.debug("lookup: {}".format(url))
             req = requests.get( url, timeout=self.timeout, headers=headers)
-            return self.get_response(req)
+            res = self.get_response(req)
+
+            if not json_is_error(res):
+                if extended:
+                    jsonschema.validate(res, DATASTORE_LOOKUP_EXTENDED_RESPONSE_SCHEMA)
+                else:
+                    jsonschema.validate(res, DATASTORE_LOOKUP_RESPONSE_SCHEMA)
+
+            return res
 
 
-    def backend_datastore_getinode(self, datastore, inode_uuid, data_pubkey, extended=False, force=False ):
+    def backend_datastore_getinode(self, datastore, inode_uuid, data_pubkey, extended=False, force=False, idata=False ):
         """
         Get a raw inode
         Return {'status': True, 'inode_indo': ...} on success
@@ -3698,14 +3707,14 @@ class BlockstackAPIEndpointClient(object):
         """
         if is_api_server(self.config_dir):
             # directly get the inode 
-            return data.get_inode_data(data.datastore_get_id(datastore['pubkey']), inode_uuid, 0, datastore['pubkey'], datastore['drivers'], datastore['device_ids'], config_path=self.config_path )
+            return data.get_inode_data(data.datastore_get_id(datastore['pubkey']), inode_uuid, 0, datastore['pubkey'], datastore['drivers'], datastore['device_ids'], idata=idata, config_path=self.config_path )
 
         else:
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             datastore_id = data.datastore_get_id(data_pubkey)
-            url = 'http://{}:{}/v1/stores/{}/inodes?inode={}&extended={}'.format(
-                    self.server, self.port, datastore_id, inode_uuid, '1' if extended else '0', '1' if force else '0'
+            url = 'http://{}:{}/v1/stores/{}/inodes?inode={}&extended={}&idata={}'.format(
+                    self.server, self.port, datastore_id, inode_uuid, '1' if extended else '0', '1' if force else '0', '1' if idata else '0'
             )
             req = requests.get(url, timeout=self.timeout, headers=headers)
             return self.get_response(req)
