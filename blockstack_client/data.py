@@ -1541,7 +1541,7 @@ def delete_datastore(api_client, datastore, datastore_privkey, config_path=CONFI
     return {'status': True}
 
 
-def get_inode_data(datastore_id, inode_uuid, inode_type, data_pubkey_hex, drivers, device_ids, config_path=CONFIG_PATH, force=False, proxy=None ):
+def get_inode_data(datastore_id, inode_uuid, inode_type, data_pubkey_hex, drivers, device_ids, config_path=CONFIG_PATH, force=False, idata=True, proxy=None ):
     """
     Get an inode from non-local mutable storage.  Verify that it has an
     equal or later version number than the one we have locally.
@@ -1566,6 +1566,8 @@ def get_inode_data(datastore_id, inode_uuid, inode_type, data_pubkey_hex, driver
     inode_info = None
     inode_version = None
 
+    log.debug("Get inode header for {}.{}".format(datastore_id, inode_uuid))
+
     # get latest header from all drivers 
     res = get_inode_header(datastore_id, inode_uuid, data_pubkey_hex, drivers, device_ids, force=force, config_path=config_path, proxy=proxy )
     if 'error' in res:
@@ -1580,6 +1582,12 @@ def get_inode_data(datastore_id, inode_uuid, inode_type, data_pubkey_hex, driver
     if inode_uuid != inode_header['uuid']:
         log.error("Got invalid inode header with wrong UUID")
         return {'error': 'Invalid inode header', 'errno': errno.EIO}
+
+    if not idata:
+        # only wanted header 
+        return {'status': True, 'inode': inode_header, 'version': header_version}
+
+    log.debug("Get inode data for {}.{}".format(datastore_id, inode_uuid))
 
     # get inode from only the driver(s) that gave back fresh information.
     # expect raw data.  It will either be idata (for a file), or a dir listing (for a directory)
@@ -2285,6 +2293,8 @@ def inode_path_lookup(datastore, data_path, data_pubkey, get_idata=True, force=F
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    log.debug("Lookup {}:{} (idata: {})".format(datastore_get_id(datastore['pubkey']), data_path, get_idata))
+
     info = _parse_data_path( data_path )
 
     name = info['iname']
@@ -2747,7 +2757,7 @@ def datastore_getfile(api_client, datastore, data_path, extended=False, force=Fa
     
     log.debug("getfile {}:{}".format(datastore_id, data_path))
 
-    file_info = api_client.backend_datastore_lookup(datastore, data_path, datastore['pubkey'], force=force, extended=True )
+    file_info = api_client.backend_datastore_lookup(datastore, data_path, datastore['pubkey'], force=force, extended=True, idata=True )
     if 'error' in file_info:
         log.error("Failed to resolve {}".format(data_path))
         return file_info
@@ -2988,7 +2998,7 @@ def datastore_deletefile_make_inodes(api_client, datastore, data_path, data_pubk
     parent_dir_uuid = None
 
     if parent_dir is None:
-        file_path_info = api_client.backend_datastore_lookup(datastore, data_path, data_pubkey, get_idata=False, force=force, extended=True )
+        file_path_info = api_client.backend_datastore_lookup(datastore, data_path, data_pubkey, idata=False, force=force, extended=True )
         if 'error' in file_path_info:
             log.error('Failed to resolve {}'.format(data_path))
             return file_path_info
@@ -3101,7 +3111,7 @@ def datastore_deletefile(api_client, datastore, data_path, data_privkey_hex, for
     return {'status': True}
 
 
-def datastore_stat(api_client, datastore, data_path, extended=False, force=False, config_path=CONFIG_PATH):
+def datastore_stat(api_client, datastore, data_path, extended=False, force=False, idata=False, config_path=CONFIG_PATH):
     """
     Stat a file or directory.  Get just the inode metadata.
     Return {'status': True, 'inode': inode info} on success
@@ -3115,24 +3125,26 @@ def datastore_stat(api_client, datastore, data_path, extended=False, force=False
     
     log.debug("stat {}:{}".format(datastore_id, data_path))
 
-    inode_info = api_client.backend_datastore_lookup(datastore, data_path, datastore['pubkey'], extended=True, force=force, get_idata=extended )
+    inode_info = api_client.backend_datastore_lookup(datastore, data_path, datastore['pubkey'], extended=True, force=force, idata=idata )
     if 'error' in inode_info:
         log.error("Failed to resolve {}".format(data_path))
         return inode_info
     
     ret = {
         'status': True,
-        'inode': inode_info['inode_info']['inode'],
     }
 
     if extended:
         ret['path_info'] = inode_info['path_info']
         ret['inode_info'] = inode_info['inode_info']
+    
+    else:
+        ret['inode'] = inode_info['inode_info']['inode']
 
     return ret
 
 
-def datastore_getinode(api_client, datastore, inode_uuid, extended=False, force=False, config_path=CONFIG_PATH ):
+def datastore_getinode(api_client, datastore, inode_uuid, extended=False, force=False, idata=False, config_path=CONFIG_PATH ):
     """
     Get an inode directly
     Return {'status': True, 'inode': ...}
@@ -3144,7 +3156,7 @@ def datastore_getinode(api_client, datastore, inode_uuid, extended=False, force=
     
     log.debug("getinode {}:{}".format(datastore_id, inode_uuid))
 
-    inode_info = api_client.backend_datastore_getinode(datastore, inode_uuid, datastore['pubkey'], extended=extended, force=force)
+    inode_info = api_client.backend_datastore_getinode(datastore, inode_uuid, datastore['pubkey'], extended=extended, force=force, idata=idata)
     if 'error' in inode_info:
         log.error("Failed to resolve {}".format(inode_uuid))
         return inode_info
@@ -3186,7 +3198,7 @@ def datastore_rmtree_make_inodes(api_client, datastore, data_path, data_pubkey_h
     dir_uuid = None
 
     if root_dir is None:
-        dir_path_info = api_client.backend_datastore_lookup(datastore, data_path, datastore['pubkey'], get_idata=False, force=force, extended=True )
+        dir_path_info = api_client.backend_datastore_lookup(datastore, data_path, datastore['pubkey'], idata=False, force=force, extended=True )
         if 'error' in dir_path_info:
             log.error('Failed to resolve {}'.format(data_path))
             return dir_path_info
