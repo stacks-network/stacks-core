@@ -1639,7 +1639,7 @@ def blockstack_cli_datastore_mkdir(datastore_privkey, path, config_path=None, in
     return cli_datastore_mkdir( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_rmdir( datastore_privkey, path, config_path=None, interactive=False ):
+def blockstack_cli_datastore_rmdir( datastore_privkey, path, config_path=None, force=False, interactive=False ):
     """
     rmdir
     """
@@ -1652,6 +1652,7 @@ def blockstack_cli_datastore_rmdir( datastore_privkey, path, config_path=None, i
 
     args.path = path
     args.privkey = datastore_privkey
+    args.force = '1' if force else '0'
 
     return cli_datastore_rmdir( args, config_path=config_path, interactive=interactive )
 
@@ -1673,7 +1674,7 @@ def blockstack_cli_datastore_rmtree( datastore_privkey, path, config_path=None, 
     return cli_datastore_rmtree( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_listdir(datastore_id, path, config_path=None, interactive=False ):
+def blockstack_cli_datastore_listdir(datastore_id, path, config_path=None, force=False, interactive=False ):
     """
     listdir
     """
@@ -1686,11 +1687,12 @@ def blockstack_cli_datastore_listdir(datastore_id, path, config_path=None, inter
     
     args.datastore_id = datastore_id
     args.path = path 
+    args.force = '1' if force else '0'
 
     return cli_datastore_listdir( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_stat( datastore_id, path, config_path=None, interactive=False ):
+def blockstack_cli_datastore_stat( datastore_id, path, config_path=None, force=False, interactive=False ):
     """
     stat
     """
@@ -1703,11 +1705,12 @@ def blockstack_cli_datastore_stat( datastore_id, path, config_path=None, interac
     
     args.datastore_id = datastore_id
     args.path = path 
+    args.force = '1' if force else '0'
 
     return cli_datastore_stat( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_getfile( datastore_id, path, config_path=None, interactive=False ):
+def blockstack_cli_datastore_getfile( datastore_id, path, config_path=None, force=False, interactive=False ):
     """
     getfile
     """
@@ -1720,11 +1723,12 @@ def blockstack_cli_datastore_getfile( datastore_id, path, config_path=None, inte
     
     args.datastore_id = datastore_id
     args.path = path
+    args.force = '1' if force else '0'
 
     return cli_datastore_getfile( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_putfile( datastore_privkey, path, data, data_path=None, interactive=False, proxy=None, config_path=None):
+def blockstack_cli_datastore_putfile( datastore_privkey, path, data, data_path=None, interactive=False, force=False, proxy=None, config_path=None):
     """
     putfile
     """
@@ -1737,12 +1741,13 @@ def blockstack_cli_datastore_putfile( datastore_privkey, path, data, data_path=N
     args.privkey = datastore_privkey
     args.path = path 
     args.data = data
-    args.data_path = data_path 
+    args.data_path = data_path
+    args.force = '1' if force else '0'
 
     return cli_datastore_putfile( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_deletefile( datastore_privkey, path, interactive=False, proxy=None, config_path=None):
+def blockstack_cli_datastore_deletefile( datastore_privkey, path, interactive=False, force=False, proxy=None, config_path=None):
     """
     deletefile
     """
@@ -1754,6 +1759,7 @@ def blockstack_cli_datastore_deletefile( datastore_privkey, path, interactive=Fa
     
     args.privkey = datastore_privkey
     args.path = path 
+    args.force = '1' if force else '0'
 
     return cli_datastore_deletefile( args, config_path=config_path, interactive=interactive )
 
