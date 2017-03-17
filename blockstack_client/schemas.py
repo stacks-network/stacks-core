@@ -398,6 +398,14 @@ MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES = {
         'type': 'string',
         'pattern': OP_UUID_PATTERN
     },
+    'version': {
+        # inode version
+        'type': 'integer'
+    },
+    'proto_version': {
+        # version of the protocol
+        'type': 'integer'
+    },
 }
 
 # header contains hash of payload
@@ -425,11 +433,15 @@ MUTABLE_DATUM_DIRENT_SCHEMA = {
             'type': 'string',
             'pattern': OP_UUID_PATTERN
         },
+        'version': {
+            'type': 'integer',
+        },
     },
     'additionalProperties': False,
     'required': [
         'type',
-        'uuid'
+        'uuid',
+        'version',
     ],
 }
 
