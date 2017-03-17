@@ -1226,7 +1226,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if res.has_key('errno'):
                 # propagate an error code, if possible
                 if res['errno'] in self.http_errors:
-                    return self._send_headers(status_code=self.http_errors[res['errno']], content_type='text/plain')
+                    return self._reply_json(res, status_code=self.http_errors[res['errno']])
             
             return self._reply_json({'error': res['error']}, status_code=503)
 
@@ -1379,6 +1379,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         # include extended information
         include_extended = qs.get('extended', '0')
+        force = qs.get('force', '0')
 
         internal = self.server.get_internal_proxy()
         path = qs.get('path', None)
@@ -1391,22 +1392,22 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if inode_type == 'files':
             if path is not None:
-                res = internal.cli_datastore_getfile(datastore_id, path, '0', config_path=self.server.config_path)
+                res = internal.cli_datastore_getfile(datastore_id, path, '0', force, config_path=self.server.config_path)
             else:
-                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, force, config_path=self.server.config_path)
 
         elif inode_type == 'directories':
             # path requred 
             if path is not None:
-                res = internal.cli_datastore_listdir(datastore_id, path, include_extended, config_path=self.server.config_path)
+                res = internal.cli_datastore_listdir(datastore_id, path, include_extended, force, config_path=self.server.config_path)
             else:
-                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, force, config_path=self.server.config_path)
 
         else:
             if path is not None:
-                res = internal.cli_datastore_stat(datastore_id, path, include_extended, config_path=self.server.config_path)
+                res = internal.cli_datastore_stat(datastore_id, path, include_extended, force, config_path=self.server.config_path)
             else:
-                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, force, config_path=self.server.config_path)
 
         if json_is_error(res):
             err = {'error': 'Failed to read {}: {}'.format(inode_type, res['error']), 'errno': res.get('errno', errno.EPERM)}
@@ -3664,7 +3665,7 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_datastore_lookup(self, datastore, path, data_pubkey, get_idata=True, extended=False):
+    def backend_datastore_lookup(self, datastore, path, data_pubkey, get_idata=True, force=False, extended=False):
         """
         Look up a path and its inodes
         Return {'status': True, 'inode_info': ...} on success.
@@ -3674,17 +3675,22 @@ class BlockstackAPIEndpointClient(object):
         """
         if is_api_server(self.config_dir):
             # directly do the lookup 
-            return data.inode_path_lookup(datastore, path, data_pubkey, get_idata=get_idata, config_path=self.config_path )
+            return data.inode_path_lookup(datastore, path, data_pubkey, get_idata=get_idata, force=force, config_path=self.config_path )
 
         else:
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             datastore_id = data.datastore_get_id(data_pubkey)
-            req = requests.get( 'http://{}:{}/v1/stores/{}/inodes?path={}&extended={}'.format(self.server, self.port, datastore_id, urllib.quote(path), '1' if extended else '0'), timeout=self.timeout, headers=headers)
+            url = 'http://{}:{}/v1/stores/{}/inodes?path={}&extended={}&force={}'.format(
+                    self.server, self.port, datastore_id, urllib.quote(path), '1' if extended else '0', '1' if force else '0'
+            )
+
+            log.debug("lookup: {}".format(url))
+            req = requests.get( url, timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
-    def backend_datastore_getinode(self, datastore, inode_uuid, data_pubkey, extended=False ):
+    def backend_datastore_getinode(self, datastore, inode_uuid, data_pubkey, extended=False, force=False ):
         """
         Get a raw inode
         Return {'status': True, 'inode_indo': ...} on success
@@ -3698,7 +3704,10 @@ class BlockstackAPIEndpointClient(object):
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             datastore_id = data.datastore_get_id(data_pubkey)
-            req = requests.get('http://{}:{}/v1/stores/{}/inodes?inode={}&extended={}'.format(self.server, self.port, datastore_id, inode_uuid, '1' if extended else '0'), timeout=self.timeout, headers=headers)
+            url = 'http://{}:{}/v1/stores/{}/inodes?inode={}&extended={}'.format(
+                    self.server, self.port, datastore_id, inode_uuid, '1' if extended else '0', '1' if force else '0'
+            )
+            req = requests.get(url, timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
@@ -3785,7 +3794,7 @@ class BlockstackAPIEndpointClient(object):
         """
         if is_api_server(self.config_dir):
             # direct deletefile 
-            return data.datastore_deletefile_put_inodes( datastore, path, inodes, payloads, signatures, tombstones, config_path=self.config_path )
+            return data.datastore_deletefile_put_inodes( datastore, path, inodes, payloads, signatures, tombstones, config_path=self.config_path, force=force )
 
         else:
             # ask the API server 
@@ -4050,7 +4059,7 @@ def local_api_exit_handler(sig, frame):
     sys.exit(0)
 
 
-def local_api_start_wait( config_path=CONFIG_PATH ):
+def local_api_start_wait( api_host='localhost', api_port=DEFAULT_API_PORT, config_path=CONFIG_PATH ):
     """
     Wait for the API server to come up
     Return True if we could ping it
@@ -4066,7 +4075,7 @@ def local_api_start_wait( config_path=CONFIG_PATH ):
     for i in range(1, 4):
         log.debug("Attempt {} to ping API server".format(i))
         try:
-            local_proxy = local_api_connect(config_path=config_path)
+            local_proxy = local_api_connect(api_host=api_host, api_port=api_port, config_path=config_path)
             local_proxy.ping()
             running = True
             break
@@ -4101,7 +4110,7 @@ rpc_pidpath = None
 rpc_srv = None
 
 
-def local_api_start( port=None, config_dir=blockstack_constants.CONFIG_DIR, foreground=False, api_pass=None, password=None):
+def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFIG_DIR, foreground=False, api_pass=None, password=None):
     """
     Start up an API endpoint
     Return True on success
@@ -4121,6 +4130,12 @@ def local_api_start( port=None, config_dir=blockstack_constants.CONFIG_DIR, fore
         assert conf
 
         port = int(conf['api_endpoint_port'])
+
+    if host is None:
+        conf = blockstack_client.get_config(config_path)
+        assert conf
+
+        host = conf.get('api_endpoint_host', 'localhost')
     
     # already running?
     rpc_pidpath = local_api_pidfile_path(config_dir=config_dir)
@@ -4161,7 +4176,7 @@ def local_api_start( port=None, config_dir=blockstack_constants.CONFIG_DIR, fore
 
         logpath = local_api_logfile_path(config_dir=config_dir)
 
-        res = daemonize(logpath, child_wait=lambda: local_api_start_wait(config_path=config_path))
+        res = daemonize(logpath, child_wait=lambda: local_api_start_wait(api_port=port, api_host=host, config_path=config_path))
         if res < 0:
             log.error("API server failed to start")
             return False
