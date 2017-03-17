@@ -3926,7 +3926,7 @@ def delete_datastore_by_type( datastore_type, datastore_privkey, force=False, co
     return {'status': True}
 
 
-def datastore_file_get(datastore_type, datastore_id, path, extended=False, config_path=CONFIG_PATH ):
+def datastore_file_get(datastore_type, datastore_id, path, extended=False, force=False, config_path=CONFIG_PATH ):
     """
     Get a file from a datastore or collection.
     Return {'status': True, 'file': ...} on success
@@ -3948,11 +3948,11 @@ def datastore_file_get(datastore_type, datastore_id, path, extended=False, confi
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_getfile( rpc, datastore, path, extended=extended, config_path=config_path )
+    res = datastore_getfile( rpc, datastore, path, extended=extended, force=force, config_path=config_path )
     return res
 
 
-def datastore_file_put(datastore_type, datastore_privkey, path, data, create=False, force_data=False, config_path=CONFIG_PATH ):
+def datastore_file_put(datastore_type, datastore_privkey, path, data, create=False, force_data=False, force=False, config_path=CONFIG_PATH ):
     """
     Put a file int oa datastore or collection.
     Return {'status': True} on success
@@ -3992,7 +3992,7 @@ def datastore_file_put(datastore_type, datastore_privkey, path, data, create=Fal
     return res
 
 
-def datastore_dir_list(datastore_type, datastore_id, path, extended=False, config_path=CONFIG_PATH ):
+def datastore_dir_list(datastore_type, datastore_id, path, extended=False, force=False, config_path=CONFIG_PATH ):
     """
     List a directory in a datastore or collection
     Return {'status': True, 'dir': ...} on success
@@ -4020,11 +4020,11 @@ def datastore_dir_list(datastore_type, datastore_id, path, extended=False, confi
         if path != '/':
             return {'error': 'Invalid argument: collections do not have directories', 'errno': errno.EINVAL}
 
-    res = datastore_listdir( rpc, datastore, path, extended=extended, config_path=config_path )
+    res = datastore_listdir( rpc, datastore, path, extended=extended, force=force, config_path=config_path )
     return res
 
 
-def datastore_path_stat(datastore_type, datastore_id, path, extended=False, config_path=CONFIG_PATH ):
+def datastore_path_stat(datastore_type, datastore_id, path, extended=False, force=False, config_path=CONFIG_PATH ):
     """
     Stat a path in a datastore or collection
     Return {'status': True, 'inode': ...} on success
@@ -4043,7 +4043,7 @@ def datastore_path_stat(datastore_type, datastore_id, path, extended=False, conf
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_stat( rpc, datastore, path, extended=extended, config_path=config_path )
+    res = datastore_stat( rpc, datastore, path, extended=extended, force=force, config_path=config_path )
     return res
 
 
@@ -4154,12 +4154,14 @@ def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False ):
     help: Remove a directory in a datastore.
     arg: privkey (str) 'The app-specific data private key'
     arg: path (str) 'The path to the directory to remove'
+    opt: force (str) 'If True, then ignore stale inode errors'
     """
 
     path = str(args.path)
     datastore_privkey_hex = str(args.privkey)
     datastore_pubkey_hex = get_pubkey_hex(datastore_privkey_hex)
     datastore_id = datastore_get_id(datastore_pubkey_hex)
+    force = (str(getattr(args, 'force', '').lower()) in ['1', 'true'])
 
     # connect 
     rpc = local_api_connect(config_path=config_path)
@@ -4173,7 +4175,8 @@ def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False ):
     datastore = datastore_info['datastore']
     assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
 
-    res = datastore_rmdir(rpc, datastore, path, datastore_privkey_hex, config_path=config_path )
+    print('rmdir {} force={} ({})'.format(path, force, type(force)))
+    res = datastore_rmdir(rpc, datastore, path, datastore_privkey_hex, force=force, config_path=config_path )
     return res
 
 
@@ -4213,15 +4216,21 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False ):
     arg: datastore_id (str) 'The ID of the application datastore'
     arg: path (str) 'The path to the file to load'
     opt: extended (str) 'If True, then include the full inode and parent information as well.'
+    opt: force (str) 'If True, then tolerate stale data faults.'
     """
 
     datastore_id = str(args.datastore_id)
     path = str(args.path)
     extended = False
+    force = False
+
     if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
         extended = True
 
-    return datastore_file_get('datastore', datastore_id, path, extended=extended, config_path=config_path)
+    if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
+        force = True
+
+    return datastore_file_get('datastore', datastore_id, path, extended=extended, force=force, config_path=config_path)
 
 
 def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
@@ -4231,15 +4240,21 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
     arg: datastore_id (str) 'The ID of the application datastore'
     arg: path (str) 'The path to the directory to list'
     opt: extended (str) 'If True, then include the full inode and parent information as well.'
+    opt: force (str) 'If True, then tolerate stale data faults.'
     """
 
     datastore_id = str(args.datastore_id)
     path = str(args.path)
     extended = False
+    force = False
+
     if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
         extended = True
 
-    return datastore_dir_list('datastore', datastore_id, path, extended=extended, config_path=config_path )
+    if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
+        force = True
+
+    return datastore_dir_list('datastore', datastore_id, path, extended=extended, force=force, config_path=config_path )
 
 
 def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
@@ -4249,16 +4264,22 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     arg: datastore_id (str) 'The datastore ID'
     arg: path (str) 'The path to the file or directory to stat'
     opt: extended (str) 'If True, then include the full inode and parent information as well.'
+    opt: force (str) 'If True, then tolerate stale inode data.'
     """
 
     path = str(args.path)
     datastore_id = str(args.datastore_id)
     path = str(args.path)
     extended = False
+    force = False
+
     if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
         extended = True
 
-    return datastore_path_stat('datastore', datastore_id, path, extended=extended, config_path=config_path) 
+    if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
+        force = True
+
+    return datastore_path_stat('datastore', datastore_id, path, extended=extended, force=force, config_path=config_path) 
 
 
 def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
@@ -4267,12 +4288,16 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
     help: Get a raw inode from a datastore
     arg: datastore_id (str) 'The ID of the application user'
     arg: inode_uuid (str) 'The inode UUID'
+    opt: force (str) 'If True, then tolerate stale inode data.'
     """
 
     datastore_id = str(args.datastore_id)
     inode_uuid = str(args.inode_uuid)
 
-    return datastore_inode_getinode('datastore', datastore_id, inode_uuid, config_path=config_path) 
+    if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
+        force = True
+
+    return datastore_inode_getinode('datastore', datastore_id, inode_uuid, force=force, config_path=config_path) 
 
 
 def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, force_data=False ):
@@ -4283,12 +4308,14 @@ def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, forc
     arg: path (str) 'The path to the new file'
     arg: data (str) 'The data to store, or a path to a file with the data'
     opt: create (str) 'If True, then succeed only if the file has never before existed.'
+    opt: force (str) 'If True, then tolerate stale inode data.'
     """
 
     path = str(args.path)
     data = str(args.data)
     privkey = str(args.privkey)
     create = (str(getattr(args, "create", "")).lower() in ['1', 'create', 'true'])
+    force = (str(getattr(args, 'force', '')).lower() in ['1', 'true'])
 
     return datastore_file_put('datastore', privkey, path, data, create=create, force_data=force_data, config_path=config_path )
 
@@ -4299,12 +4326,14 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False ):
     help: Delete a file from the datastore.
     arg: privkey (str) 'The datastore private key'
     arg: path (str) 'The path to the file to delete'
+    opt: force (str) 'If True, then tolerate stale inode data.'
     """
 
     path = str(args.path)
     privkey = str(args.privkey)
     datastore_id = datastore_get_id(get_pubkey_hex(privkey))
-    
+    force = (str(getattr(args, 'force', '')).lower() in ['1', 'true'])
+
     # connect 
     rpc = local_api_connect(config_path=config_path)
     if rpc is None:
@@ -4317,7 +4346,7 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False ):
 
     datastore = datastore_info['datastore']
 
-    res = datastore_deletefile( rpc, datastore, path, privkey, config_path=config_path )
+    res = datastore_deletefile( rpc, datastore, path, privkey, force=force, config_path=config_path )
     return res
 
 
