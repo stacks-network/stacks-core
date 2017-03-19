@@ -1,9 +1,30 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Onename API
-    Copyright 2016 Halfmoon Labs, Inc.
+    Search
     ~~~~~
+
+    copyright: (c) 2014-2017 by Blockstack Inc.
+    copyright: (c) 2017 by Blockstack.org
+
+This file is part of Blockstack.
+
+    Blockstack is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Blockstack is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
+
+import sys
+import os
 
 import re
 import ssl
@@ -20,12 +41,6 @@ from pybitcoin import get_unspents, BlockcypherClient
 from pybitcoin.rpc import BitcoindClient
 from pybitcoin import is_b58check_address, BitcoinPrivateKey
 
-from registrar.wallet import HDWallet
-from registrar.crypto import aes_decrypt, get_address_from_pubkey
-from registrar.utils import get_hash
-from registrar.utils import pretty_print as pprint
-from registrar.config import DEFAULT_CHILD_ADDRESSES
-
 from . import app
 from .errors import (
     InvalidProfileDataError, UsernameTakenError,
@@ -41,14 +56,16 @@ from .errors import (
 from .parameters import parameters_required
 from .dkim import dns_resolver, parse_pubkey_from_data, DKIM_RECORD_PREFIX
 from .utils import zone_file_is_too_big
-from .s3 import s3_upload_file
-from .resolver.server import get_users
 
-from blockstore_client import client as bs_client
+# hack around absolute paths
+current_dir = os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../")
 
-# start session using blockstore_client
-bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT)
+sys.path.insert(0, parent_dir)
 
+from resolver.server import get_users
+
+from blockstack_client.proxy import get_name_blockchain_record
 
 @app.route('/v1/users/<usernames>', methods=['GET'])
 @crossdomain(origin='*')
