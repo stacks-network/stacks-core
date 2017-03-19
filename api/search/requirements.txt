@@ -10,7 +10,7 @@ itsdangerous==0.24
 proofchecker==0.0.2
 pybitcoin==0.9.5
 pybitcointools==1.1.15
-pylibmc==1.5.0
+pylibmc==1.5.2
 pymongo==3.0.3
 python-bitcoinrpc==0.1
 requests==2.8.1

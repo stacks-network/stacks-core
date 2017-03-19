@@ -32,7 +32,7 @@ from .utils import get_json, config_log
 from .config import BLOCKCHAIN_DATA_FILE, PROFILE_DATA_FILE
 
 from blockstack_client.proxy import get_all_names
-from blockstack_client.profile import get_name_profile
+from blockstack_client.profile import get_profile
 
 log = config_log(__name__)
 
@@ -77,7 +77,7 @@ def fetch_profiles():
         resp['fqu'] = fqu
 
         try:
-            resp['profile'] = get_name_profile(fqu)[0]
+            resp['profile'] = get_profile(fqu)[0]
             all_profiles.append(resp)
         except:
             pass
