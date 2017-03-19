@@ -25,8 +25,10 @@ $ sudo service mongodb start
 $ sudo pip install uwsgi
 $ virtualenv search
 $ git clone https://github.com/blockstack/blockstack-core.git
+$ cd blockstack-core/
 $ git checkout search
-$ cd blockstack-core/api/search/
+$ cd api/search/
+$ mkdir data
 $ pip install -r requirements.txt
 $ python runserver.py
 ```
