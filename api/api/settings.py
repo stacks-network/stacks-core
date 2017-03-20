@@ -24,6 +24,10 @@ EMAIL_REGREX = r'[^@]+@[^@]+\.[^@]+'
 DEFAULT_NAMESPACE = "id"
 USE_DEFAULT_PAYMENT = False
 
+PUBLIC_NODE = True
+BASE_API_URL = "http://localhost:6270"
+SERVER_URL = 'https://core.blockstack.org'
+
 try:
     PAYMENT_PRIVKEY = os.environ['PAYMENT_PRIVKEY']
 except:
