@@ -27,6 +27,7 @@ USE_DEFAULT_PAYMENT = False
 PUBLIC_NODE = True
 BASE_API_URL = "http://localhost:6270"
 SERVER_URL = 'https://core.blockstack.org'
+SEARCH_URL = 'https://search.blockstack.org'
 
 try:
     PAYMENT_PRIVKEY = os.environ['PAYMENT_PRIVKEY']

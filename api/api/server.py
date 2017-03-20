@@ -28,12 +28,14 @@ import os
 import requests
 import json
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_crossdomain import crossdomain
 from flask import render_template, send_from_directory
 
+from .parameters import parameters_required
 from .utils import get_api_calls
 from .settings import PUBLIC_NODE, SERVER_URL, BASE_API_URL
+from .settings import SEARCH_URL
 
 app = Flask(__name__)
 
@@ -82,6 +84,26 @@ def api_names(name):
 
     return jsonify(resp.json()), 200
 
+
+@app.route('/v1/search', methods=['GET'])
+@parameters_required(parameters=['query'])
+@crossdomain(origin='*')
+def search_people():
+
+    search_url = SEARCH_URL + '/search'
+
+    name = request.values['query']
+
+    try:
+        resp = requests.get(url=search_url, params={'query': name})
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        raise InternalProcessingError()
+
+    data = resp.json()
+    if not ('results' in data and isinstance(data['results'], list)):
+        data = {'results': []}
+
+    return jsonify(data), 200
 
 @app.route('/<path:path>', methods=['GET'])
 def catch_all_get(path):
