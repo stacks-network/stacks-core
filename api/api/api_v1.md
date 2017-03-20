@@ -1,5 +1,118 @@
 # API Documentation
 
+## Ping the node
+
+#### anchor_tag:
+node_ping
+
+#### description:
+Ping the node to check if the node is alive.
+
+#### response_description:
+Returns the status of the node.
+
+#### method:
+GET
+
+#### path_template:
+/v1/node/ping
+
+#### tryit_pathname:
+/v1/node/ping
+
+#### example_request_bash:
+/v1/node/ping
+
+#### example_response:
+{
+  "status": "alive"
+}
+
+_end_
+
+## Get name info
+
+#### anchor_tag:
+naming_name_info
+
+#### description:
+Get the latest blockchain registration record of a name.
+
+#### response_description:
+Returns the owner address, status, expiry block and other name info.
+
+#### method:
+GET
+
+#### path_template:
+/v1/names/muneeb.id
+
+#### tryit_pathname:
+/v1/names/muneeb.id
+
+#### example_request_bash:
+/v1/names/muneeb.id
+
+#### example_response:
+{
+  "address": "1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP", 
+  "blockchain": "bitcoin", 
+  "expire_block": 489247, 
+  "last_txid": "1edfa419f7b83f33e00830bc9409210da6c6d1db60f99eda10c835aa339cad6b", 
+  "status": "registered", 
+  "zonefile": "$ORIGIN muneeb.id\n$TTL 3600\n_http._tcp IN URI 10 1 \"https://blockstack.s3.amazonaws.com/muneeb.id\"\n", 
+  "zonefile_hash": "b100a68235244b012854a95f9114695679002af9"
+}
+
+_end_
+
+## Get name history
+
+#### anchor_tag:
+naming_name_history
+
+#### description:
+Get a history of all blockchain records of a registered name.
+
+#### response_description:
+Returns the owner address, status, expiry block and other name info.
+
+#### method:
+GET
+
+#### path_template:
+/v1/names/muneeb.id/history
+
+#### tryit_pathname:
+/v1/names/muneeb.id/history
+
+#### example_request_bash:
+/v1/names/muneeb.id/history
+
+#### example_response:
+{
+  "373821": [
+    {
+      "address": "1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP", 
+      "block_number": 373821, 
+      "consensus_hash": null, 
+      "first_registered": 373821, 
+      "importer": "76a9143e2b5fdd12db7580fb4d3434b31d4fe9124bd9f088ac", 
+      "importer_address": "16firc3qZU97D1pWkyL6ZYwPX5UVnWc82V", 
+      "last_creation_op": ";", 
+      "last_renewed": 373821, 
+      "name": "muneeb.id", 
+      "name_hash128": "deb7fe99776122b77925cbf0a24ab6f8", 
+      "namespace_block_number": 373601, 
+      "namespace_id": "id", 
+      "op": ";", 
+      "op_fee": 100000.0, 
+      "opcode": "NAME_IMPORT", 
+      "preorder_block_number": 373821,
+      ...
+
+_end_
+
 ## Lookup users
 
 #### anchor_tag:
@@ -328,86 +441,6 @@ curl https://api.onename.com/v1/users \
 
 _end_
 
-## Broadcast transactions
-
-#### anchor_tag:
-broadcast_transaction
-
-#### description:
-Takes in a signed transaction (in hex format) and broadcasts it to the network. If the transaction is successfully broadcasted, the transaction hash is returned in the response.
-
-#### response_description:
-Returns an object with a status that is either "success" or "error".
-
-#### method:
-POST
-
-#### path_template:
-/transactions
-
-#### parameters[]:
-{"name": "signed_hex", "description": "A signed transaction in hex format."}
-
-#### example_request_bash:
-curl https://api.onename.com/v1/transactions \
-    -u 'YOUR-API-ID:YOUR-API-SECRET' \
-    -d '{"signed_hex": "00710000015e98119922f0b"}' \
-    -H 'Content-Type: application/json' \
-    -X POST
-
-#### example_response:
-{
-    "status": "success"
-}
-
-_end_
-
-## Get unspent outputs
-
-#### anchor_tag:
-unspent_outputs
-
-#### description:
-Retrieves the unspent outputs for a given address so they can be used for building transactions.
-
-#### response_description:
-Returns an array of unspent outputs for a provided address.
-
-#### method:
-GET
-
-#### path_template:
-/addresses/{address}/unspents
-
-#### tryit_pathname:
-/v1/addresses/19bXfGsGEXewR6TyAV3b89cSHBtFFewXt6/unspents?app-id=demo-1234&app-secret=demo-1234
-
-#### example_request_bash:
-curl https://api.onename.com/v1/addresses/19bXfGsGEXewR6TyAV3b89cSHBtFFewXt6/unspents \
-    -u 'YOUR-API-ID:YOUR-API-SECRET'
-
-#### example_response:
-{
-  "unspents": [
-    {
-      "confirmations": 6715, 
-      "output_index": 1, 
-      "script_hex": "76a9145e48be183fbb5c3990e29aedd3b44367c28a5e4388ac", 
-      "transaction_hash": "97a2dc2270be32f322c4e9fdf4de9754136a0c9a83abe0d655a6edc19cf01e15", 
-      "value": 5500
-    }, 
-    {
-      "confirmations": 7523, 
-      "output_index": 1, 
-      "script_hex": "76a9145e48be183fbb5c3990e29aedd3b44367c28a5e4388ac", 
-      "transaction_hash": "d4d5a583a229409af3c9c29e8f9cb5b40b8c655509307ad0396a0d38fd7df906", 
-      "value": 5500
-    }
-  ]
-}
-
-_end_
-
 ## Get names owned
 
 #### anchor_tag:
@@ -441,68 +474,3 @@ curl https://api.onename.com/v1/addresses/1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP/nam
 
 _end_
 
-## Get DKIM public key
-
-#### anchor_tag:
-dkim_pubkey
-
-#### description:
-Retrieves a DKIM public key for given domain, using the "blockchainid._domainkey" subdomain DNS record.
-
-#### response_description:
-Returns a DKIM public key.
-
-#### method:
-GET
-
-#### path_template:
-/domains/{domain}/dkim
-
-#### tryit_pathname:
-/v1/domains/onename.com/dkim?app-id=demo-1234&app-secret=demo-1234
-
-#### example_request_bash:
-curl https://api.onename.com/v1/domains/onename.com/dkim \
-    -u 'YOUR-API-ID:YOUR-API-SECRET'
-
-#### example_response:
-{
-  "key_curve": "secp256k1", 
-  "key_type": "ecdsa", 
-  "public_key": "MFYwEAYHKoZIzj0CAQYFK4EEAAoDQgAE3s0qMljBNrC6mmfMLQp1B+v8haqeOswDV4r0p6HogXA7JT0bOt4nIom6IQeE+TQRzdn4fz+VWBxIBkL9nAXIRQ=="
-}
-
-_end_
-
-## Get user stats
-
-#### anchor_tag:
-user_stats
-
-#### description:
-Gets all user stats.
-
-#### response_description:
-Returns an object with "stats".
-
-#### method:
-GET
-
-#### path_template:
-/stats/users
-
-#### tryit_pathname:
-/v1/stats/users?app-id=demo-1234&app-secret=demo-1234
-
-#### example_request_bash:
-curl https://api.onename.com/v1/stats/users \
-    -u 'YOUR-API-ID:YOUR-API-SECRET'
-
-#### example_response:
-{
-  "stats": {
-    "registrations": "31804"
-  }
-}
-
-_end_
