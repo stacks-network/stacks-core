@@ -32,6 +32,13 @@
     <div class="pull-left sidebar hidden-xs hidden-sm">
         <div class="list-group">
             <a href="/#" class="list-group-item">Getting Started</a>
+            <h5 class="navheader">Node</h5>
+            <a href="/#node_ping" class="list-group-item">Ping the node</a>
+            
+            <h5 class="navheader">Naming</h5>
+            <a href="/#naming_name_info" class="list-group-item">Get name info</a>
+            <a href="/#naming_name_history" class="list-group-item">Get name history</a>
+            
             <h5 class="navheader">Users</h5>
             <a href="/#lookup_users" class="list-group-item">Lookup users</a>
             <a href="/#search_users" class="list-group-item">Search users</a>
@@ -61,19 +68,41 @@
                         <div class="seg-zone-wrap">
                             <h3>Getting Started</h3>
                             <p>
-                                Welcome to this deployment of Blockstack Core. You can read the documentation and make RESTful calls
-                                to this node.</p>
+                                Welcome to this deployment of Blockstack Core v{{server_info.server_version}}. You can read the documentation and make RESTful calls to this node.
+                            </p>
+
+                            <p> 
+                            <table>
+                            <tr>
+                            <td>Consensus hash</td>
+                            <td>{{server_info.consensus}}</td>
+                            </tr>
+
+                            <tr>
+                            <td>Last block seen</td>
+                            <td>{{server_info.last_block_seen}}</td>
+                            </tr>
+
+                            <tr>
+                            <td style="padding:0px 20px 0px 0px;">Last block processed</td>
+                            <td>{{server_info.last_block_processed}}</td>
+                            </tr>
+                            
+                            </table>
+
+                            </p>
+
                             <p>
                                 Blockstack Core is free software released under a GPLv3 license. More details are <a href="https://github.com/blockstack/blockstack-core">here</a>.
                             </p>
-                            
+
                         </div>
                     </div>
                 </div>
             </section>
         </div>
         {% for api_call in api_calls %}
-            {{ docsection(api_call) }}
+            {{ docsection(api_call, server_url) }}
         {% endfor %}
     </div>
 

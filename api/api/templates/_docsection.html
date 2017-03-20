@@ -1,4 +1,4 @@
-{% macro docsection(api_call) %}
+{% macro docsection(api_call, server_url) %}
 <div>
 <section>
     <div class="container pull-left col-sm-12 segment-wrapper" id="{{ api_call.anchor_tag }}">
@@ -36,10 +36,10 @@
         <div class="segment-code" id="identifier">
             <div class="seg-code-wrap">
                 <h4>Definition</h4>
-                <pre><code class="http">{{ api_call.method }} https://api.onename.com/v1{{ api_call.path_template }}</code></pre>
+                <pre><code class="http">{{ api_call.method }} {{ server_url }}{{ api_call.path_template }}</code></pre>
 
                 <h4>Example Request</h4>
-                <pre><code class="bash">{{ api_call.example_request_bash }}</code></pre>
+                <pre><code class="bash">curl {{ server_url}}{{ api_call.example_request_bash }}</code></pre>
 
                 <h4>Example Response</h4>
                 <pre><code class="json">{{ api_call.example_response }}</code></pre>
