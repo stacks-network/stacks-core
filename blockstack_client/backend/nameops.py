@@ -39,8 +39,6 @@ from .blockchain import is_address_usable
 from .blockchain import can_receive_name, get_balance, get_tx_fee, get_utxos
 from .blockchain import get_block_height
 
-from crypto.utils import get_address_from_privkey, get_pubkey_from_privkey
-
 from ..utils import pretty_print as pprint
 from ..utils import pretty_dump
 
