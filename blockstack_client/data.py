@@ -1837,7 +1837,6 @@ def make_dir_inode_data( datastore_id, owner, inode_uuid, dir_listing, device_id
     Return {'status': True, 'header': serialized inode header} on success.  The caller should sign this, and replicate it and the signature.
     Return {'error': ...} on error
     """
-
     idata_payload = data_blob_serialize(dir_listing)
     data_hash = storage.hash_data_payload(idata_payload)
     header_blob = make_inode_header_blob( datastore_id, MUTABLE_DATUM_DIR_TYPE, owner, inode_uuid, data_hash, device_ids, config_path=config_path, min_version=min_version, create=create )
@@ -2244,6 +2243,9 @@ def _mutable_data_dir_link( parent_dir, child_type, child_name, child_uuid, exis
         'type': child_type, 
         'version': 1,
     }
+
+    if parent_dir['idata'].has_key(child_name):
+        new_dirent['version'] = parent_dir['idata'][child_name]['version'] + 1
 
     parent_dir['idata'][child_name] = new_dirent
     parent_dir['version'] += 1
