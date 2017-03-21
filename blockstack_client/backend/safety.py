@@ -71,8 +71,8 @@ def check_valid_name(fqu):
     if not is_b40(name):
         msg = (
             'The name specified is invalid. '
-            'Names may only contain alphanumeric characters, '
-            'dashes, and underscores.'
+            'Names may only contain alphanumeric characters '
+            'and underscores.'
         )
 
         return msg
