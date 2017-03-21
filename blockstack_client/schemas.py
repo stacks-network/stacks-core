@@ -214,21 +214,7 @@ ENCRYPTED_WALLET_SCHEMA_PROPERTIES = {
     },
 }
 
-ENCRYPTED_WALLET_SCHEMA_CURRENT = {
-    'type': 'object',
-    'properties': ENCRYPTED_WALLET_SCHEMA_PROPERTIES,
-    'required': [
-        'data_pubkey',
-        'data_pubkeys',
-        'encrypted_data_privkey',
-        'encrypted_owner_privkey',
-        'encrypted_payment_privkey',
-        'owner_addresses',
-        'payment_addresses',
-        'version'
-    ],
-}
-
+# pre-0.13 wallet
 ENCRYPTED_WALLET_SCHEMA_LEGACY = {
     'type': 'object',
     'properties': ENCRYPTED_WALLET_SCHEMA_PROPERTIES,
@@ -244,10 +230,85 @@ ENCRYPTED_WALLET_SCHEMA_LEGACY_013 = {
     'required': [
         'encrypted_owner_privkey',
         'encrypted_payment_privkey',
+        'owner_addresses',
+        'payment_addresses',
     ],
 }
 
+# in 0.14.0 and 0.14.1, we encrypted lots of fields separately
+ENCRYPTED_WALLET_SCHEMA_LEGACY_014 = {
+    'type': 'object',
+    'properties': ENCRYPTED_WALLET_SCHEMA_PROPERTIES,
+    'required': [
+        'data_pubkey',
+        'data_pubkeys',
+        'encrypted_data_privkey',
+        'encrypted_owner_privkey',
+        'encrypted_payment_privkey',
+        'owner_addresses',
+        'payment_addresses',
+        'version'
+    ],
+}
 
+# in 0.14.2 and on, we encrypt the secret fields as one unit 
+ENCRYPTED_WALLET_SCHEMA_CURRENT = {
+    'type': 'object',
+    'properties': {
+        # unencrypted fields
+        'data_pubkey': {
+            'type': 'string',
+            'pattern': OP_PUBKEY_PATTERN
+        },
+        'data_pubkeys': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': OP_PUBKEY_PATTERN,
+                'minItems': 1,
+                'maxItems': 1
+            },
+        },
+        'owner_addresses': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': OP_ADDRESS_PATTERN,
+                'minItems': 1,
+                'maxItems': 1
+            },
+        },
+        'payment_addresses': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': OP_ADDRESS_PATTERN,
+                'minItems': 1,
+                'maxItems': 1
+            },
+        },
+        'version': {
+            'type': 'string'
+        },
+
+        # encrypted fields 
+        'enc': {
+            'type': 'string',
+            'pattern': OP_BASE64_PATTERN,
+        },
+    },
+    'required': [
+        'data_pubkey',
+        'data_pubkeys',
+        'owner_addresses',
+        'payment_addresses',
+        'version', 
+        'enc'
+    ],
+    'additionalProperties': False,
+}
+
+# fully-decrypted wallet schema
 WALLET_SCHEMA_PROPERTIES = {
     'data_pubkey': {
         'type': 'string',
