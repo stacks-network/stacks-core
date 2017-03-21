@@ -2409,7 +2409,7 @@ def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
     """
     command: api
     help: Control the RESTful API endpoint
-    arg: command (str) '"start", "stop", or "status"'
+    arg: command (str) '"start", "start-foreground", "stop", or "status"'
     opt: wallet_password (str) 'The wallet password. Will prompt if required.'
     """
 
@@ -2419,7 +2419,7 @@ def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
 
     command = str(args.command)
     password = get_default_password(password)
-    if password is None and command == 'start':
+    if password is None and command in ['start', 'start-foreground']:
         password = getattr(args, 'wallet_password', None)
         if password is None:
             if not interactive:
