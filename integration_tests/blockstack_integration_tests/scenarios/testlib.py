@@ -2050,7 +2050,7 @@ def tx_sign_all_unsigned_inputs( tx_hex, privkey ):
 
 def make_legacy_wallet( master_private_key, password ):
     """
-    make a legacy wallet with a single master private key
+    make a legacy pre-0.13 wallet with a single master private key
     """
     master_private_key = virtualchain.BitcoinPrivateKey(master_private_key).to_hex()
     hex_password = binascii.hexlify(password)
@@ -2060,6 +2060,45 @@ def make_legacy_wallet( master_private_key, password ):
     }
 
     return legacy_wallet
+
+
+def make_legacy_013_wallet( owner_privkey, payment_privkey, password ):
+    """
+    make a legacy 0.13 wallet with an owner and payment private key
+    """
+    assert blockstack_client.keys.is_singlesig(owner_privkey)
+    assert blockstack_client.keys.is_singlesig(payment_privkey)
+
+    decrypted_legacy_wallet = blockstack_client.keys.make_wallet_keys(owner_privkey=owner_privkey, payment_privkey=payment_privkey)
+    encrypted_legacy_wallet = {
+        'owner_addresses': decrypted_legacy_wallet['owner_addresses'],
+        'encrypted_owner_privkey': blockstack_client.keys.encrypt_private_key_info(owner_privkey, password)['encrypted_private_key_info']['private_key_info'],
+        'payment_addresses': decrypted_legacy_wallet['payment_addresses'],
+        'encrypted_payment_privkey': blockstack_client.keys.encrypt_private_key_info(payment_privkey, password)['encrypted_private_key_info']['private_key_info'],
+    }
+    return encrypted_legacy_wallet
+
+
+def make_legacy_014_wallet( owner_privkey, payment_privkey, data_privkey, password ):
+    """
+    make a legacy 0.14 wallet with the owner, payment, and data keys
+    """
+    assert blockstack_client.keys.is_singlesig(owner_privkey)
+    assert blockstack_client.keys.is_singlesig(payment_privkey)
+    assert blockstack_client.keys.is_singlesig(data_privkey)
+
+    decrypted_legacy_wallet = blockstack_client.keys.make_wallet_keys(data_privkey=data_privkey, owner_privkey=owner_privkey, payment_privkey=payment_privkey)
+    encrypted_legacy_wallet = {
+        'data_pubkey': ECPrivateKey(data_privkey).public_key().to_hex(),
+        'data_pubkeys': [ECPrivateKey(data_privkey).public_key().to_hex()],
+        'data_privkey': blockstack_client.keys.encrypt_private_key_info(data_privkey, password)['encrypted_private_key_info']['private_key_info'],
+        'owner_addresses': decrypted_legacy_wallet['owner_addresses'],
+        'encrypted_owner_privkey': blockstack_client.keys.encrypt_private_key_info(owner_privkey, password)['encrypted_private_key_info']['private_key_info'],
+        'payment_addresses': decrypted_legacy_wallet['payment_addresses'],
+        'encrypted_payment_privkey': blockstack_client.keys.encrypt_private_key_info(payment_privkey, password)['encrypted_private_key_info']['private_key_info'],
+        'version': '0.14.0'
+    }
+    return encrypted_legacy_wallet
 
 
 def store_wallet( wallet_dict ):
@@ -2149,7 +2188,15 @@ def instantiate_wallet():
 
     # also track owner address outputs 
     bitcoind = get_bitcoind()
-    bitcoind.importaddress(owner_address, "", True)
+    try:
+        bitcoind.importaddress(owner_address, "", True)
+    except virtualchain.JSONRPCException, je:
+        if je.code == -4:
+            # key already loaded; this isn't a problem 
+            pass
+        else:
+            raise
+
     return {'owner_address': owner_address, 'payment_address': payment_address}
 
 
@@ -2172,7 +2219,15 @@ def send_funds( privkey, satoshis, payment_addr ):
     log.debug("Send {} to {}".format(satoshis, payment_addr))
 
     bitcoind = get_bitcoind()
-    bitcoind.importaddress(payment_addr, "", True)
+
+    try:
+        bitcoind.importaddress(payment_addr, "", True)
+    except virtualchain.JSONRPCException, je:
+        if je.code == -4:
+            # key already loaded
+            pass
+        else:
+            raise
 
     send_addr = virtualchain.BitcoinPrivateKey(privkey).public_key().address()
     
