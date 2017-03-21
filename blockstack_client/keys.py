@@ -395,9 +395,7 @@ def encrypt_multisig_info(multisig_info, password):
         pk_ciphertext = aes_encrypt(pk, hex_password)
         enc_info['encrypted_private_keys'].append(pk_ciphertext)
 
-    enc_info['encrypted_redeem_script'] = aes_encrypt(
-        multisig_info['redeem_script'], hex_password
-    )
+    enc_info['encrypted_redeem_script'] = aes_encrypt(multisig_info['redeem_script'], hex_password)
 
     # preserve any other fields
     for k, v in multisig_info.items():
@@ -431,7 +429,7 @@ def decrypt_multisig_info(enc_multisig_info, password):
             pk = aes_decrypt(enc_pk, hex_password)
             virtualchain.BitcoinPrivateKey(pk)
         except Exception as e:
-            if BLOCKSTACK_TEST:
+            if BLOCKSTACK_TEST or BLOCKSTACK_DEBUG:
                 log.exception(e)
 
             return {'error': 'Invalid password; failed to decrypt private key in multisig wallet'}
@@ -443,7 +441,7 @@ def decrypt_multisig_info(enc_multisig_info, password):
     try:
         redeem_script = aes_decrypt(enc_redeem_script, hex_password)
     except Exception as e:
-        if BLOCKSTACK_TEST:
+        if BLOCKSTACK_TEST or BLOCKSTACK_DEBUG:
             log.exception(e)
 
         return {'error': 'Invalid password; failed to decrypt redeem script in multisig wallet'}
@@ -465,8 +463,6 @@ def encrypt_private_key_info(privkey_info, password):
     Returns {'error': ...} on error
     """
 
-    hex_password = hexlify(password)
-
     ret = {}
     if is_multisig(privkey_info):
         ret['address'] = virtualchain.make_multisig_address(
@@ -479,8 +475,9 @@ def encrypt_private_key_info(privkey_info, password):
         return {'status': True, 'encrypted_private_key_info': ret}
 
     if is_singlesig(privkey_info):
-        ret['address'] = virtualchain.BitcoinPrivateKey(
-            privkey_info).public_key().address()
+        ret['address'] = virtualchain.BitcoinPrivateKey(privkey_info).public_key().address()
+
+        hex_password = hexlify(password)
         ret['private_key_info'] = aes_encrypt(privkey_info, hex_password)
 
         return {'status': True, 'encrypted_private_key_info': ret}
@@ -495,7 +492,6 @@ def decrypt_private_key_info(privkey_info, password):
     Return {'address': ..., 'private_key_info': ...} on success.
     Return {'error': ...} on error.
     """
-    hex_password = hexlify(password)
 
     ret = {}
     if is_encrypted_multisig(privkey_info):
@@ -515,6 +511,7 @@ def decrypt_private_key_info(privkey_info, password):
 
     if is_encrypted_singlesig(privkey_info):
         try:
+            hex_password = hexlify(password)
             pk = aes_decrypt(privkey_info, hex_password)
             pk = ECPrivateKey(pk).to_hex()
         except Exception as e:
