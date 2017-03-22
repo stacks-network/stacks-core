@@ -3877,7 +3877,7 @@ def create_datastore_by_type( datastore_type, datastore_privkey, drivers=None, c
     return {'status': True}
 
 
-def get_datastore_by_type( datastore_type, datastore_id, config_path=CONFIG_PATH ):
+def get_datastore_by_type( datastore_type, datastore_id, config_path=CONFIG_PATH, device_ids=None ):
     """
     Get a datastore or collection.
     Return the datastore object on success
@@ -3887,7 +3887,7 @@ def get_datastore_by_type( datastore_type, datastore_id, config_path=CONFIG_PATH
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id)
+    datastore_info = rpc.backend_datastore_get(datastore_id, device_ids=device_ids)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -3926,7 +3926,7 @@ def delete_datastore_by_type( datastore_type, datastore_privkey, force=False, co
     return {'status': True}
 
 
-def datastore_file_get(datastore_type, datastore_id, path, extended=False, force=False, config_path=CONFIG_PATH ):
+def datastore_file_get(datastore_type, datastore_id, path, extended=False, force=False, device_ids=None, config_path=CONFIG_PATH ):
     """
     Get a file from a datastore or collection.
     Return {'status': True, 'file': ...} on success
@@ -3937,7 +3937,7 @@ def datastore_file_get(datastore_type, datastore_id, path, extended=False, force
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id)
+    datastore_info = rpc.backend_datastore_get(datastore_id, device_ids=device_ids)
     if 'error' in datastore_info:
         if 'errno' not in datastore_info:
             datastore_info['errno'] = errno.EPERM
@@ -3952,7 +3952,7 @@ def datastore_file_get(datastore_type, datastore_id, path, extended=False, force
     return res
 
 
-def datastore_file_put(datastore_type, datastore_privkey, path, data, create=False, force_data=False, force=False, config_path=CONFIG_PATH ):
+def datastore_file_put(datastore_type, datastore_privkey, path, data, create=False, force_data=False, force=False, device_ids=None, config_path=CONFIG_PATH ):
     """
     Put a file int oa datastore or collection.
     Return {'status': True} on success
@@ -3977,7 +3977,7 @@ def datastore_file_put(datastore_type, datastore_privkey, path, data, create=Fal
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id)
+    datastore_info = rpc.backend_datastore_get(datastore_id, device_ids=device_ids)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -3992,7 +3992,7 @@ def datastore_file_put(datastore_type, datastore_privkey, path, data, create=Fal
     return res
 
 
-def datastore_dir_list(datastore_type, datastore_id, path, extended=False, force=False, config_path=CONFIG_PATH ):
+def datastore_dir_list(datastore_type, datastore_id, path, extended=False, force=False, device_ids=None, config_path=CONFIG_PATH ):
     """
     List a directory in a datastore or collection
     Return {'status': True, 'dir': ...} on success
@@ -4004,7 +4004,7 @@ def datastore_dir_list(datastore_type, datastore_id, path, extended=False, force
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id)
+    datastore_info = rpc.backend_datastore_get(datastore_id, device_ids=device_ids)
     if 'error' in datastore_info:
         if 'errno' not in datastore_info:
             datastore_info['errno'] = errno.EPERM
@@ -4024,7 +4024,7 @@ def datastore_dir_list(datastore_type, datastore_id, path, extended=False, force
     return res
 
 
-def datastore_path_stat(datastore_type, datastore_id, path, extended=False, force=False, idata=False, config_path=CONFIG_PATH ):
+def datastore_path_stat(datastore_type, datastore_id, path, extended=False, force=False, idata=False, device_ids=None, config_path=CONFIG_PATH ):
     """
     Stat a path in a datastore or collection
     Return {'status': True, 'inode': ...} on success
@@ -4035,7 +4035,7 @@ def datastore_path_stat(datastore_type, datastore_id, path, extended=False, forc
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id)
+    datastore_info = rpc.backend_datastore_get(datastore_id, device_ids=device_ids)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -4047,7 +4047,7 @@ def datastore_path_stat(datastore_type, datastore_id, path, extended=False, forc
     return res
 
 
-def datastore_inode_getinode(datastore_type, datastore_id, inode_uuid, idata=False, config_path=CONFIG_PATH ):
+def datastore_inode_getinode(datastore_type, datastore_id, inode_uuid, idata=False, device_ids=None, config_path=CONFIG_PATH ):
     """
     Get an inode in a datastore or collection
     Return {'status': True, 'inode': ...} on success
@@ -4058,7 +4058,7 @@ def datastore_inode_getinode(datastore_type, datastore_id, inode_uuid, idata=Fal
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id)
+    datastore_info = rpc.backend_datastore_get(datastore_id, device_ids=device_ids)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -4075,9 +4075,14 @@ def cli_get_datastore( args, config_path=CONFIG_PATH ):
     command: get_datastore advanced
     help: Get a datastore record
     arg: datastore_id (str) 'The application datastore ID'
+    opt: device_ids (str) 'The CSV of device IDs to consider'
     """
     datastore_id = str(args.datastore_id)    
-    return get_datastore_by_type('datastore', datastore_id, config_path=config_path )
+    device_ids = []
+    if hasattr(args, 'device_ids') and args.device_ids:
+        device_ids = args.device_ids.split(',')
+
+    return get_datastore_by_type('datastore', datastore_id, device_ids=device_ids, config_path=config_path )
 
 
 def cli_create_datastore( args, config_path=CONFIG_PATH ):
@@ -4217,12 +4222,14 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False ):
     arg: path (str) 'The path to the file to load'
     opt: extended (str) 'If True, then include the full inode and parent information as well.'
     opt: force (str) 'If True, then tolerate stale data faults.'
+    opt: device_ids (str) 'CSV of device IDs, if different from what is loaded'
     """
 
     datastore_id = str(args.datastore_id)
     path = str(args.path)
     extended = False
     force = False
+    device_ids = None
 
     if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
         extended = True
@@ -4230,7 +4237,10 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False ):
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
 
-    return datastore_file_get('datastore', datastore_id, path, extended=extended, force=force, config_path=config_path)
+    if hasattr(args, 'device_ids') and args.device_ids:
+        device_ids = args.device_ids.split(',')
+
+    return datastore_file_get('datastore', datastore_id, path, extended=extended, force=force, device_ids=device_ids, config_path=config_path)
 
 
 def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
@@ -4241,12 +4251,14 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
     arg: path (str) 'The path to the directory to list'
     opt: extended (str) 'If True, then include the full inode and parent information as well.'
     opt: force (str) 'If True, then tolerate stale data faults.'
+    opt: device_ids (str) 'CSV of device IDs, if different from what is loaded'
     """
 
     datastore_id = str(args.datastore_id)
     path = str(args.path)
     extended = False
     force = False
+    device_ids = None
 
     if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
         extended = True
@@ -4254,7 +4266,10 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
 
-    return datastore_dir_list('datastore', datastore_id, path, extended=extended, force=force, config_path=config_path )
+    if hasattr(args, 'device_ids') and args.device_ids:
+        device_ids = args.device_ids.split(',')
+
+    return datastore_dir_list('datastore', datastore_id, path, extended=extended, force=force, device_ids=device_ids, config_path=config_path )
 
 
 def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
@@ -4266,6 +4281,7 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     opt: extended (str) 'If True, then include the path information as well'
     opt: idata (str) 'If True, then include the inode data as well'
     opt: force (str) 'If True, then tolerate stale inode data.'
+    opt: device_ids (str) 'CSV of device IDs, if different from what is loaded'
     """
 
     path = str(args.path)
@@ -4274,6 +4290,7 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     extended = False
     force = False
     idata = False
+    device_ids = None
 
     if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
         extended = True
@@ -4284,7 +4301,10 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     if hasattr(args, 'idata') and args.idata.lower() in ['1', 'true']:
         idata = True
 
-    return datastore_path_stat('datastore', datastore_id, path, extended=extended, force=force, idata=idata, config_path=config_path) 
+    if hasattr(args, 'device_ids') and args.device_ids:
+        device_ids = args.device_ids.split(',')
+
+    return datastore_path_stat('datastore', datastore_id, path, extended=extended, force=force, idata=idata, device_ids=device_ids, config_path=config_path) 
 
 
 def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
@@ -4302,6 +4322,7 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
     
     force = False
     idata = False
+    device_ids = None
 
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
@@ -4309,7 +4330,10 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
     if hasattr(args, 'idata') and args.idata.lower() in ['1', 'true']:
         idata = True
 
-    return datastore_inode_getinode('datastore', datastore_id, inode_uuid, force=force, idata=idata, config_path=config_path) 
+    if hasattr(args, 'device_ids') and args.device_ids:
+        device_ids = device_ids.split(',')
+
+    return datastore_inode_getinode('datastore', datastore_id, inode_uuid, force=force, idata=idata, device_ids=device_ids, config_path=config_path) 
 
 
 def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, force_data=False ):
@@ -4321,6 +4345,7 @@ def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, forc
     arg: data (str) 'The data to store, or a path to a file with the data'
     opt: create (str) 'If True, then succeed only if the file has never before existed.'
     opt: force (str) 'If True, then tolerate stale inode data.'
+    opt: device_ids (str) 'CSV of device IDs, if different from what is loaded locally'
     """
 
     path = str(args.path)
@@ -4329,7 +4354,12 @@ def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, forc
     create = (str(getattr(args, "create", "")).lower() in ['1', 'create', 'true'])
     force = (str(getattr(args, 'force', '')).lower() in ['1', 'true'])
 
-    return datastore_file_put('datastore', privkey, path, data, create=create, force_data=force_data, config_path=config_path )
+    device_ids = None
+
+    if hasattr(args.device_ids) and args.device_ids:
+        device_ids = args.device_ids.split(',')
+
+    return datastore_file_put('datastore', privkey, path, data, create=create, force_data=force_data, device_ids=device_ids, config_path=config_path )
 
 
 def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False ):
@@ -4339,19 +4369,24 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False ):
     arg: privkey (str) 'The datastore private key'
     arg: path (str) 'The path to the file to delete'
     opt: force (str) 'If True, then tolerate stale inode data.'
+    opt: device_ids (str) 'CSV of device IDs, if different from what is loaded locally'
     """
 
     path = str(args.path)
     privkey = str(args.privkey)
     datastore_id = datastore_get_id(get_pubkey_hex(privkey))
     force = (str(getattr(args, 'force', '')).lower() in ['1', 'true'])
+    device_ids = None
+
+    if hasattr(args.device_ids) and args.device_ids:
+        device_ids = args.device_ids.split(',')
 
     # connect 
     rpc = local_api_connect(config_path=config_path)
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id)
+    datastore_info = rpc.backend_datastore_get(datastore_id, device_ids=device_ids)
     if 'error' in datastore_info:
         datastore_info['errno'] = errno.EPERM
         return datastore_info
