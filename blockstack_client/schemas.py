@@ -767,6 +767,12 @@ CREATE_DATASTORE_REQUEST_SCHEMA = {
     'properties': {
         'datastore_info': CREATE_DATASTORE_INFO_SCHEMA,
         'datastore_sigs': CREATE_DATASTORE_SIGS_SCHEMA,
+        'root_tombstones': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+            },
+        },
     },
     'additionalProperties': False,
     'required': [
