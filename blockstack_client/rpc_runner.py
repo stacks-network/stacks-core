@@ -79,19 +79,6 @@ if __name__ == '__main__':
 
         sys.exit(0)
 
-    elif command == 'status':
-        rc = local_api_status(config_dir=config_dir)
-        if rc:
-            print('Alive', file=sys.stderr)
-            sys.exit(0)
-        else:
-            print('Dead', file=sys.stderr)
-            sys.exit(1)
-
-    elif command == 'stop':
-        rc = local_api_stop(config_dir=config_dir)
-        sys.exit(0 if rc else 1)
-
     elif command == 'restart':
         rc = local_api_stop(config_dir=config_dir)
         if not rc:
