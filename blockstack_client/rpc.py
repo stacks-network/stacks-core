@@ -61,7 +61,7 @@ import backend
 import proxy
 from proxy import json_is_error, json_is_exception
 
-from .constants import BLOCKSTACK_DEBUG, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT
+from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT
 from .method_parser import parse_methods
 import app
 import assets
@@ -494,7 +494,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')    # CORS
         self.send_header('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE')
-        self.send_header('Access-Control-Allow-Headers', 'content-type')
+        self.send_header('Access-Control-Allow-Headers', 'content-type', 'authorization')
         self.send_header('Access-Control-Max-Age', 21600)
         self.end_headers()
         return
@@ -1219,8 +1219,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Invalid datastore ID: {} != {}".format(datastore_id, ses['app_user_id']))
             return self._reply_json({'error': 'Invalid datastore ID'}, status_code=403)
 
+        device_ids = '' 
+        if path_info['qs_values'].has_key('device_ids'):
+            device_ids = path_info['qs_values']['device_ids']
+
         internal = self.server.get_internal_proxy()
-        res = internal.cli_get_datastore(datastore_id, config_path=self.server.config_path)
+        res = internal.cli_get_datastore(datastore_id, device_ids, config_path=self.server.config_path)
         if 'error' in res:
             log.debug("Failed to get datastore: {}".format(res['error']))
             if res.has_key('errno'):
@@ -1246,7 +1250,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
 
         try:
-            jsonschema.validate(CREATE_DATASTORE_REQUEST_SCHEMA, datastore_sigs_info)
+            jsonschema.validate(datastore_sigs_info, CREATE_DATASTORE_REQUEST_SCHEMA)
         except ValidationError as ve:
             if BLOCKSTACK_DEBUG:
                 log.exception(ve)
@@ -1255,14 +1259,15 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return False
 
         datastore_info = datastore_sigs_info['datastore_info']
+        root_tombstones = datastore_sigs_info['root_tombstones']
         sigs_info = datastore_sigs_info['datastore_sigs']
         datastore_pubkey_hex = ses['app_public_key']
-         
+       
         res = data.verify_datastore_info( datastore_info, sigs_info, datastore_pubkey_hex )
         if not res:
-            return self._reply_json({'error': 'Unable to verify datastore info'}, status_code=403)
+            return self._reply_json({'error': 'Unable to verify datastore info with {}'.format(datastore_pubkey_hex)}, status_code=403)
 
-        res = data.put_datastore_info( datastore_info, sigs_info, config_path=self.server.config_path )
+        res = data.put_datastore_info( datastore_info, sigs_info, root_tombstones, config_path=self.server.config_path )
         if 'error' in res:
             return self._reply_json({'error': 'Failed to store datastore info'}, status_code=503)
 
@@ -1300,31 +1305,31 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'error': 'Not implemented'}, status_code=501) 
 
 
-    def _delete_signed_datastore( self, ses, path_info, tombstone_info ):
+    def _delete_signed_datastore( self, ses, path_info, tombstone_info, device_ids ):
         """
         Given a set of sigend tombstones, go delete the datastore.
         """
         try:
-            jsonschema.validate(DELETE_DATASTORE_REQUEST_SCHEMA, tombstone_info)
+            jsonschema.validate(tombstone_info, DELETE_DATASTORE_REQUEST_SCHEMA)
         except ValidationError as ve:
             if BLOCKSTACK_DEBUG:
                 log.exception(ve)
 
             return self._reply_json({'error': 'Invalid tombstone info', 'errno': errno.EINVAL}, status_code=401)
 
-        # authenticate
+        # authenticate, and require qs-given device IDs to be covered by the tombstones
         datastore_pubkey = ses['app_public_key']
         datastore_id = ses['app_user_id']
-        res = data.verify_mutable_data_tombstones( tombstone_info['datastore_tombstones'], datastore_pubkey )
+        res = data.verify_mutable_data_tombstones( tombstone_info['datastore_tombstones'], datastore_pubkey, device_ids=device_ids )
         if not res:
             return self._reply_json({'error': 'Invalid datastore tombstone', 'errno': errno.EINVAL}, status_code=401)
 
-        res = data.verify_mutable_data_tombstones( tombstone_info['root_tombstones'], datastore_pubkey )
+        res = data.verify_mutable_data_tombstones( tombstone_info['root_tombstones'], datastore_pubkey, device_ids=device_ids )
         if not res:
             return self._reply_json({'error': 'Invalid root tombstone', 'errno': errno.EINVAL}, status_code=401)
 
         # delete 
-        res = data.delete_datastore_info( datastore_id, tombstone_info['datastore_tombstones'], tombstone_info['root_tombstones'], config_path=self.server.config_path )
+        res = data.delete_datastore_info( datastore_id, tombstone_info['datastore_tombstones'], tombstone_info['root_tombstones'], device_ids=device_ids, config_path=self.server.config_path )
         if 'error' in res:
             return self._reply_json({'error': 'Failed to delete datastore info: {}'.format(res['error']), 'errno': res['errno']}, status_code=503)
 
@@ -1345,12 +1350,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         force = qs.get('force', "0")
         force = (force.lower() in ['1', 'true'])
 
+        device_ids = qs.get('device_ids', '').split(',')
         app_domain = ses['app_domain']
 
         # deleting from signed tombstones?
         request = self._read_json()
         if request:
-            return self._delete_signed_datastore( ses, path_info, request )
+            return self._delete_signed_datastore( ses, path_info, request, device_ids )
        
         else:
             return self._reply_json({'error': 'Missing signed datastore info', 'errno': errno.EINVAL}, status_code=401)
@@ -1376,6 +1382,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         qs = path_info['qs_values']
         pubkey = ses['app_public_key']
+        device_ids = qs.get('device_ids', '')
 
         # include extended information
         include_extended = qs.get('extended', '0')
@@ -1393,22 +1400,23 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if inode_type == 'files':
             if path is not None:
-                res = internal.cli_datastore_getfile(datastore_id, path, '0', force, config_path=self.server.config_path)
+                res = internal.cli_datastore_getfile(datastore_id, path, '0', force, device_ids, config_path=self.server.config_path)
+
             else:
-                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, idata, force, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, idata, force, device_ids, config_path=self.server.config_path)
 
         elif inode_type == 'directories':
             # path requred 
             if path is not None:
-                res = internal.cli_datastore_listdir(datastore_id, path, include_extended, force, config_path=self.server.config_path)
+                res = internal.cli_datastore_listdir(datastore_id, path, include_extended, force, device_ids, config_path=self.server.config_path)
             else:
-                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, idata, force, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, idata, force, device_ids, config_path=self.server.config_path)
 
         else:
             if path is not None:
-                res = internal.cli_datastore_stat(datastore_id, path, include_extended, idata, force, config_path=self.server.config_path)
+                res = internal.cli_datastore_stat(datastore_id, path, include_extended, idata, force, device_ids, config_path=self.server.config_path)
             else:
-                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, idata, force, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, idata, force, device_ids, config_path=self.server.config_path)
 
         if json_is_error(res):
             err = {'error': 'Failed to read {}: {}'.format(inode_type, res['error']), 'errno': res.get('errno', errno.EPERM)}
@@ -1498,28 +1506,47 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'type': 'string',
                     },
                 },
-                'datastore': DATASTORE_SCHEMA, 
+                'datastore_str': {
+                    'type': 'string'
+                },
+                'datastore_sig': {
+                    'type': 'string',
+                    'pattern': OP_BASE64_PATTERN,
+                },
             },
             'additionalProperties': False,
             'required': [
                 'inodes',
-                'paylaods',
+                'payloads',
                 'signatures',
                 'tombstones',
-                'datastore',
+                'datastore_str',
+                'datastore_sig',
             ],
         }
 
         try:
-            jsonschema.validate(inode_info_schema, inode_info)
+            jsonschema.validate(inode_info, inode_info_schema)
         except ValidationError as ve:
             if BLOCKSTACK_DEBUG:
                 log.exception(ve)
 
             return self._reply_json({'error': 'Invalid request'}, status_code=401)
 
+        # verify datastore signature 
+        datastore_str = str(inode_info['datastore_str'])
+        datastore_sig = str(inode_info['datastore_sig'])
+        res = keys.verify_raw_data(datastore_str, ses['app_public_key'], datastore_sig)
+        if not res:
+            return self._reply_json({'error': 'Invalid request: invalid datastore signature'}, status_code=401)
+
+        datastore = None
+        try:
+            datastore = json.loads(datastore_str)
+        except ValueError:
+            return self._reply_json({'error': 'Invalid request: invalid datastore'}, status_code=401)
+
         datastore_pubkey = ses['app_public_key']
-        datastore = inode_info['datastore']
         if datastore['pubkey'] != datastore_pubkey:
             # wrong datastore 
             return self._reply_json({'error': 'Invalid datastore in request'}, status_code=401)
@@ -1559,6 +1586,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Create or update a file, or create a directory.
         Implements POST_store_item and PUT_store_item
+        Return 200 on successful save
+        Return 401 on invalid request
+        return 503 on storage failure
         """
         
         if datastore_id != ses['app_user_id']:
@@ -2328,6 +2358,26 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
+    def POST_test(self, session, path_info, command):
+        """
+        Issue a test framework command.  Only works in test mode.
+        Return 200 on success
+        Return 401 on invalid command or arguments
+        """
+        if not BLOCKSTACK_TEST:
+            return self._send_headers(status_code=404, content_type='text/plain')
+
+        if command == 'envar':
+            # set an envar on the qs
+            for (key, value) in path_info['qs_values'].items():
+                os.environ[key] = value
+
+            return self._send_headers(status_code=200, content_type='text/plain')
+
+        else:
+            return self._send_headers(status_code=401, content_type='text/plain')
+
+
     def _dispatch(self, method_name):
         """
         Top-level dispatch method
@@ -3094,6 +3144,21 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
+            # test interface (only active if BLOCKSTACK_TEST is set)
+            r'^/v1/test/({})$'.format(URLENCODING_CLASS): {
+                'routes': {
+                    'POST': self.POST_test,
+                },
+                'whitelist': {
+                    'POST': {
+                        'name': 'test',
+                        'desc': 'issue test framework commands',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
+                    },
+                },
+            },
             r'^/v1/.*$': {
                 'routes': {
                     'OPTIONS': self.OPTIONS_preflight,
@@ -3606,7 +3671,7 @@ class BlockstackAPIEndpointClient(object):
         return res
 
     
-    def backend_datastore_create(self, datastore_info, datastore_sigs ):
+    def backend_datastore_create(self, datastore_info, datastore_sigs, root_tombstones ):
         """
         Store signed datastore record and root inode.
         Return {'status': True} on success
@@ -3614,7 +3679,7 @@ class BlockstackAPIEndpointClient(object):
         """
         if is_api_server(self.config_dir):
             # directly do this 
-            return data.put_datastore_info(datastore_info, datastore_sigs, config_path=self.config_path)
+            return data.put_datastore_info(datastore_info, datastore_sigs, root_tombstones, config_path=self.config_path)
 
         else:
             # ask the API server 
@@ -3627,7 +3692,7 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_datastore_get( self, datastore_id ):
+    def backend_datastore_get( self, datastore_id, device_ids=None ):
         """
         Get a datastore from the backend
         Return {'status': True, 'datastore': ...} on success
@@ -3635,12 +3700,16 @@ class BlockstackAPIEndpointClient(object):
         """
         if is_api_server(self.config_dir):
             # directly do this 
-            return data.get_datastore(datastore_id, config_path=self.config_path)
+            return data.get_datastore(datastore_id, device_ids=device_ids, config_path=self.config_path)
 
         else:
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
-            req = requests.get('http://{}:{}/v1/stores/{}'.format(self.server, self.port, datastore_id), timeout=self.timeout, headers=headers)
+            url = 'http://{}:{}/v1/stores/{}'.format(self.server, self.port, datastore_id)
+            if device_ids:
+                url += '?device_ids={}'.format(','.join(device_ids))
+
+            req = requests.get( url, timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
@@ -3720,7 +3789,7 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_datastore_mkdir(self, datastore, path, inodes, payloads, signatures, tombstones ):
+    def backend_datastore_mkdir(self, datastore_str, datastore_sig, path, inodes, payloads, signatures, tombstones ):
         """
         Send signed inodes, payloads, and tombstones for a mkdir.
         Return {'status': True} on success
@@ -3734,18 +3803,19 @@ class BlockstackAPIEndpointClient(object):
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             request = {
-                'datastore': datastore,
+                'datastore_str': datastore_str,
+                'datastore_sig': datastore_sig,
                 'inodes': inodes,
                 'payloads': payloads,
                 'signatures': signatures,
                 'tombstones': tombstones,
             }
-            datastore_id = data.datastore_get_id(datastore['pubkey'])
+            datastore_id = data.datastore_get_id(json.loads(datastore_str)['pubkey'])
             req = requests.post( 'http://{}:{}/v1/stores/{}/directories?path={}'.format(self.server, self.port, datastore_id, urllib.quote(path)), data=json.dumps(request), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
     
-    def backend_datastore_putfile(self, datastore, path, inodes, payloads, signatures, tombstones ):
+    def backend_datastore_putfile(self, datastore_str, datastore_sig, path, inodes, payloads, signatures, tombstones ):
         """
         Send signed inodes, payloads, and tombstones for a putfile.
         Return {'status': True} on success
@@ -3759,18 +3829,19 @@ class BlockstackAPIEndpointClient(object):
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             request = {
-                'datastore': datastore,
+                'datastore_str': datastore_str,
+                'datastore_sig': datastore_sig,
                 'inodes': inodes,
                 'payloads': payloads,
                 'signatures': signatures,
                 'tombstones': tombstones,
             }
-            datastore_id = data.datastore_get_id(datastore['pubkey'])
+            datastore_id = data.datastore_get_id(json.loads(datastore_str)['pubkey'])
             req = requests.put( 'http://{}:{}/v1/stores/{}/files?path={}'.format(self.server, self.port, datastore_id, urllib.quote(path)), data=json.dumps(request), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
-    def backend_datastore_rmdir(self, datastore, path, inodes, payloads, signatures, tombstones ):
+    def backend_datastore_rmdir(self, datastore_str, datastore_sig, path, inodes, payloads, signatures, tombstones ):
         """
         Send signed inodes, payloads, and tombstones for a rmdir.
         Return {'status': True} on success
@@ -3784,18 +3855,19 @@ class BlockstackAPIEndpointClient(object):
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             request = {
-                'datastore': datastore,
+                'datastore_str': datastore_str,
+                'datastore_sig': datastore_sig,
                 'inodes': inodes,
                 'payloads': payloads,
                 'signatures': signatures,
                 'tombstones': tombstones
             }
-            datastore_id = data.datastore_get_id(datastore['pubkey'])
+            datastore_id = data.datastore_get_id(json.loads(datastore_str)['pubkey'])
             req = requests.delete( 'http://{}:{}/v1/stores/{}/directories?path={}'.format(self.server, self.port, datastore_id, urllib.quote(path)), data=json.dumps(request), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
-    def backend_datastore_deletefile(self, datastore, path, inodes, payloads, signatures, tombstones ):
+    def backend_datastore_deletefile(self, datastore_str, datastore_sig, path, inodes, payloads, signatures, tombstones ):
         """
         Send signed inodes, payloads, and tombstones for a deletefile
         Return {'status': True} on success
@@ -3809,18 +3881,19 @@ class BlockstackAPIEndpointClient(object):
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             request = {
-                'datastore': datastore,
+                'datastore_str': datastore_str,
+                'datastore_sig': datastore_sig,
                 'inodes': inodes,
                 'payloads': payloads,
                 'signatures': signatures,
                 'tombstones': tombstones,
             }
-            datastore_id = data.datastore_get_id(datastore['pubkey'])
+            datastore_id = data.datastore_get_id(json.loads(datastore_str)['pubkey'])
             req = requests.delete( 'http://{}:{}/v1/stores/{}/files?path={}'.format(self.server, self.port, datastore_id, urllib.quote(path)), data=json.dumps(request), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
-    def backend_datastore_rmtree(self, datastore, inodes, payloads, signatures, tombstones ):
+    def backend_datastore_rmtree(self, datastore_str, datastore_sig, inodes, payloads, signatures, tombstones ):
         """
         Delete data as part of an rmtree
         Return {'status': True} on success
@@ -3834,14 +3907,15 @@ class BlockstackAPIEndpointClient(object):
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             request = {
-                'datastore': datastore,
+                'datastore_str': datastore_str,
+                'datastore_sig': datastore_sig,
                 'inodes': inodes,
                 'payloads': payloads,
                 'signatures': signatures,
                 'tombstones': tombstones,
             }
 
-            datastore_id = data.datastore_get_id(datastore['pubkey'])
+            datastore_id = data.datastore_get_id(json.loads(datastore_str)['pubkey'])
             req = requests.delete('http://{}:{}/v1/stores/{}/inodes?rmtree=1'.format(self.server, self.port, datastore_id), data=json.dumps(request), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
@@ -3963,6 +4037,14 @@ def local_api_action(command, password=None, api_pass=None, config_dir=blockstac
     if command in ['start', 'start-foreground', 'restart']:
         assert api_pass, "Need API password for '{}'".format(command)
 
+    if command == 'status':
+        rc = local_api_status(config_dir=config_dir)
+        return rc
+
+    if command == 'stop':
+        rc = local_api_stop(config_dir=config_dir)
+        return rc
+    
     config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
 
     conf = blockstack_config.get_config(config_path)
