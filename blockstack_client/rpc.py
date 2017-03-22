@@ -494,7 +494,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')    # CORS
         self.send_header('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE')
-        self.send_header('Access-Control-Allow-Headers', 'content-type', 'authorization')
+        self.send_header('Access-Control-Allow-Headers', 'content-type, authorization')
         self.send_header('Access-Control-Max-Age', 21600)
         self.end_headers()
         return
