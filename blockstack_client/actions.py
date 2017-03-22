@@ -4356,7 +4356,7 @@ def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, forc
 
     device_ids = None
 
-    if hasattr(args.device_ids) and args.device_ids:
+    if hasattr(args, 'device_ids') and args.device_ids:
         device_ids = args.device_ids.split(',')
 
     return datastore_file_put('datastore', privkey, path, data, create=create, force_data=force_data, device_ids=device_ids, config_path=config_path )
@@ -4378,7 +4378,7 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False ):
     force = (str(getattr(args, 'force', '')).lower() in ['1', 'true'])
     device_ids = None
 
-    if hasattr(args.device_ids) and args.device_ids:
+    if hasattr(args, 'device_ids') and args.device_ids:
         device_ids = args.device_ids.split(',')
 
     # connect 
