@@ -1350,7 +1350,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         force = qs.get('force', "0")
         force = (force.lower() in ['1', 'true'])
 
-        device_ids = qs.get('device_ids', '').split(',')
+        device_ids = qs.get('device_ids', None)
+        if device_ids:
+            device_ids = device_ids.split(',')
+
         app_domain = ses['app_domain']
 
         # deleting from signed tombstones?
@@ -3687,6 +3690,7 @@ class BlockstackAPIEndpointClient(object):
             request = {
                 'datastore_info': datastore_info,
                 'datastore_sigs': datastore_sigs,
+                'root_tombstones': root_tombstones,
             }
             req = requests.post( 'http://{}:{}/v1/stores'.format(self.server, self.port), timeout=self.timeout, data=json.dumps(request), headers=headers)
             return self.get_response(req)
