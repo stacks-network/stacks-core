@@ -120,6 +120,9 @@ def get_metadata_dir(conf):
 def load_mutable_data_version(conf, device_id, fq_data_id, config_path=CONFIG_PATH):
     """
     Get the version field of a piece of mutable data from local cache.
+    Return the version on success
+    Return None if not found
+    Raise on invalid input
     """
 
     # try to get the current, locally-cached version
@@ -130,9 +133,12 @@ def load_mutable_data_version(conf, device_id, fq_data_id, config_path=CONFIG_PA
         log.debug(msg.format(fq_data_id))
         return None
 
+    _, data_id = storage.parse_fq_data_id(fq_data_id)
+    assert data_id, "Invalid fqid {}".format(fq_data_id)
+
     metadata_dir = get_metadata_dir(conf)
     dev_id = serialize_mutable_data_id(device_id)
-    d_id = serialize_mutable_data_id(fq_data_id)
+    d_id = serialize_mutable_data_id(data_id)
 
     ver_dir = os.path.join(metadata_dir, d_id)
     if not os.path.exists(ver_dir):
@@ -161,6 +167,7 @@ def store_mutable_data_version(conf, device_id, fq_data_id, ver, config_path=CON
 
     Return True if stored
     Return False if not
+    Raise on invalid input
     """
 
     conf = get_config(path=config_path) if conf is None else conf
@@ -184,7 +191,10 @@ def store_mutable_data_version(conf, device_id, fq_data_id, ver, config_path=CON
             log.warning(msg.format(fq_data_id))
             return False
 
-    d_id = serialize_mutable_data_id(fq_data_id)
+    _, data_id = storage.parse_fq_data_id(fq_data_id)
+    assert data_id, "Invalid fqid {}".format(fq_data_id)
+
+    d_id = serialize_mutable_data_id(data_id)
     dev_id = serialize_mutable_data_id(device_id)
 
     ver_dir = os.path.join(metadata_dir, d_id)
@@ -221,6 +231,7 @@ def delete_mutable_data_version(conf, device_id, fq_data_id, config_path=CONFIG_
 
     Return True if deleted.
     Return False if not
+    Raise on invalid input
     """
 
     conf = get_config(path=config_path) if conf is None else conf
@@ -234,7 +245,10 @@ def delete_mutable_data_version(conf, device_id, fq_data_id, config_path=CONFIG_
     if not os.path.isdir(metadata_dir):
         return True
 
-    d_id = serialize_mutable_data_id(fq_data_id)
+    _, data_id = storage.parse_fq_data_id(fq_data_id)
+    assert data_id, "Invalid fqid {}".format(fq_data_id)
+
+    d_id = serialize_mutable_data_id(data_id)
     dev_id = serialize_mutable_data_id(device_id)
 
     ver_dir = os.path.join(metadata_dir, d_id)
@@ -561,8 +575,13 @@ def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_a
     for device_id in device_ids:
         fq_data_ids.append( storage.make_fq_data_id(device_id, data_id) )
 
+    local_device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
+    if not local_device_id:
+        raise Exception("No device ID defined")
+
     lookup = False
     if data_address is None and data_pubkey is None and data_hash is None:
+        # TODO: cut this code path
         if blockchain_id is None:
             raise ValueError("No data public key, data address, or blockchain ID given")
 
@@ -588,11 +607,11 @@ def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_a
 
     if not force:
         # require specific version min
-        version_info = _get_mutable_data_versions(data_id, device_ids, config_path=config_path)
+        version_info = _get_mutable_data_versions(data_id, device_ids + [local_device_id], config_path=config_path)
         expected_version = version_info['version']
 
-    log.debug("get_mutable({}, blockchain_id={}, pubkey={} ({}), addr={}, hash={}, expected_version={}, storage_drivers={})".format(
-        data_id, blockchain_id, data_pubkey, lookup, data_address, data_hash, expected_version, ','.join(storage_drivers)
+    log.debug("get_mutable({}, device_ids={}, blockchain_id={}, pubkey={} ({}), addr={}, hash={}, expected_version={}, storage_drivers={})".format(
+        data_id, device_ids, blockchain_id, data_pubkey, lookup, data_address, data_hash, expected_version, ','.join(storage_drivers)
     ))
 
     mutable_data = None
@@ -607,8 +626,8 @@ def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_a
             # get the mutable data itsef
             data_str = storage.get_mutable_data(fq_data_id, data_pubkey, urls=urls, drivers=[driver], data_address=data_address, data_hash=data_hash, blockchain_id=blockchain_id)
             if data_str is None:
-                log.error("Failed to get mutable datum {}".format(fq_data_id))
-                return {'error': 'Failed to look up mutable datum'}
+                log.error("Failed to get mutable datum {} from {}".format(fq_data_id, driver))
+                continue
             
             if raw:
                 # no more work to do
@@ -672,7 +691,7 @@ def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_a
         log.error("Failed to fetch mutable data for {}".format(fq_data_id))
         return {'error': 'Failed to fetch mutable data', 'stale': True}
 
-    rc = _put_mutable_data_versions(data_id, version, device_ids, config_path=config_path)
+    rc = _put_mutable_data_versions(data_id, version, device_ids + [local_device_id], config_path=config_path)
     if 'error' in rc:
         return {'error': 'Failed to store consistency information'}
 
@@ -847,23 +866,42 @@ def sign_mutable_data_tombstones( tombstones, data_privkey ):
     return [storage.sign_data_tombstone(ts, data_privkey) for ts in tombstones]
 
 
-def verify_mutable_data_tombstones( tombstones, data_pubkey ):
+def verify_mutable_data_tombstones( tombstones, data_pubkey, device_ids=None ):
     """
     Verify all tombstones
     Return True if they're all signed correctly
     Return False if at least one has an invalid signature (or cannot be parsed)
     """
+    ts_device_ids = []
     for ts in tombstones:
         if not storage.verify_data_tombstone(ts, data_pubkey):
             return False
+       
+        res = storage.parse_data_tombstone(ts)
+        fq_data_id = res['tombstone_payload']
+        
+        device_id, data_id = storage.parse_fq_data_id(fq_data_id)
+        if device_id:
+            # this was, in fact, a fqid for a datum
+            ts_device_ids.append(device_id)
+
+    if device_ids:
+        # verify that all of the device IDs here are present in the tombstone information 
+        for dev_id in device_ids:
+            if dev_id not in ts_device_ids:
+                log.error("Device ID {} not present in the tombstones".format(dev_id))
+                return False
 
     return True
 
 
-def make_mutable_data_blob(data_id, data_payload, device_ids=None, version=None, timestamp=None, blockchain_id=None, min_version=None, config_path=CONFIG_PATH, create=False):
+def make_mutable_data_info(data_id, data_payload, device_ids=None, version=None, timestamp=None, blockchain_id=None, min_version=None, config_path=CONFIG_PATH, create=False):
     """
     Make mutable data to serialize, sign, and store.
-    data_payload must be a string
+    data_payload must be a string.
+
+    This is a client-side method.
+
     Return {'status': True, 'fq_data_id': ..., 'data': ..., 'version': ..., 'timestamp': ..., 'tombstones': ...} on success
     Return {'error': ...} on error
     """
@@ -915,8 +953,8 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, versi
     """
     put_mutable.
 
-    given a data payload from make_mutable_data, store it with the
-    configured storage providers.
+    given a fully-qualified data identifier (i.e. prefixed by the device ID), a serialized data payload from make_mutable_data, a public key, a signature, and a version,
+    store it with the configured storage providers.
 
     ** Consistency **
 
@@ -926,11 +964,12 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, versi
 
     ** Durability **
 
-    Replication is best-effort.  If one storage provider driver succeeds, the put_mutable succeeds.  If they all fail, then put_mutable fails.
-    More complex behavior can be had by creating a "meta-driver" that calls existing drivers' methods in the desired manner.
+    Replication is all-or-nothing with respect to explicitly-listed storage drivers.  Each storage driver in storage_drivers must succeed.
+    If any of them fail, then put_mutable fails.  All other storage drivers configured in the config file but not listed in storage_drivers
+    will be attempted, but failures will be ignored.
 
     Notes on usage:
-    * if storage_drivers is None, each storage driver under `storage_drivers_required_write=` will be attempted.
+    * if storage_drivers is None, each storage driver under `storage_drivers_required_write=` will be required.
     * if storage_drivers is not None, then each storage driver in storage_drivers *must* succeed
     * If data_signature is not None, it must be the signature over the serialized payload form of data_payload
 
@@ -1281,7 +1320,7 @@ def _init_datastore_info( datastore_type, datastore_pubkey, driver_names, device
     return {'datastore_blob': data_blob_serialize(datastore_info), 'root_blob': root_blob['header']}
 
 
-def get_datastore( datastore_id, config_path=CONFIG_PATH, proxy=None):
+def get_datastore( datastore_id, config_path=CONFIG_PATH, device_ids=None, proxy=None):
     """
     Get a datastore's information.
     This is a server-side method.
@@ -1296,7 +1335,7 @@ def get_datastore( datastore_id, config_path=CONFIG_PATH, proxy=None):
     nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
 
     data_id = '{}.datastore'.format(datastore_id)
-    datastore_info = get_mutable(data_id, data_address=datastore_id, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
+    datastore_info = get_mutable(data_id, data_address=datastore_id, device_ids=device_ids, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
     if 'error' in datastore_info:
         log.error("Failed to load public datastore information: {}".format(datastore_info['error']))
         return {'error': 'Failed to load public datastore record', 'errno': errno.ENOENT}
@@ -1338,14 +1377,14 @@ def make_datastore_info( datastore_type, datastore_pubkey_hex, driver_names=None
 
     data_id = '{}.datastore'.format(datastore_id)
 
-    datastore_blob = make_mutable_data_blob(data_id, datastore_str, device_ids=device_ids, config_path=config_path)
+    datastore_info = make_mutable_data_info(data_id, datastore_str, device_ids=device_ids, config_path=config_path)
     if 'error' in datastore_blob:
         # only way this fails is if we had create=True and it already existed 
-        return {'error': datastore_blob['error'], 'errno': datastore_blob['errno']}
+        return {'error': datastore_info['error'], 'errno': datastore_info['errno']}
 
-    datastore_blob_str = data_blob_serialize(datastore_blob)
+    datastore_info_str = data_blob_serialize(datastore_info)
 
-    return {'datastore_blob': datastore_blob_str, 'root_blob': datastore_info['root_blob']}
+    return {'datastore_blob': datastore_info_str, 'root_blob': datastore_info['root_blob']}
 
 
 def sign_datastore_info( datastore_info, datastore_privkey_hex, config_path=CONFIG_PATH ):
@@ -1396,7 +1435,7 @@ def verify_datastore_info( datastore_info, sigs, datastore_pubkey_hex, config_pa
     return True
 
 
-def put_datastore_info( datastore_info, datastore_sigs, config_path=CONFIG_PATH, proxy=None ):
+def put_datastore_info( datastore_info, datastore_sigs, root_tombstones, config_path=CONFIG_PATH, proxy=None ):
     """
     Given output from make_datastore_info and sign_datastore_info, store it to mutable data.
     This is a server-side method
@@ -1408,15 +1447,39 @@ def put_datastore_info( datastore_info, datastore_sigs, config_path=CONFIG_PATH,
         proxy = get_default_proxy(config_path)
 
     datastore_mutable_data = data_blob_parse(datastore_info['datastore_blob'])
+    try:
+        jsonschema.validate(datastore_mutable_data, DATA_BLOB_SCHEMA)
+    except ValidationError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        return {'error': 'Invalid datastore blob'}
 
     datastore_fqid = datastore_mutable_data['fq_data_id']
     datastore_version = datastore_mutable_data['version']
 
+    try:
+        datastore_dev_id, datastore_data_id = storage.parse_fq_data_id(datastore_fqid)
+        assert datastore_dev_id, "Invalid fqid"
+        assert datastore_data_id, "Invalid fquid"
+    except AssertionError as ae:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ae)
+
+        return {'error': 'Invalid datastore ID'}
+
     datastore = data_blob_parse(datastore_mutable_data['data'])
+    try:
+        jsonschema.validate(datastore, DATASTORE_SCHEMA)
+    except ValidationError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        return {'error': 'Invalid datastore'}
+
     datastore_id = datastore_get_id(datastore['pubkey'])
     
     root_idata = data_blob_serialize({})
-    root_tombstones = datastore_sigs['root_tombstones']
 
     res = put_inode_data( datastore, datastore_info['root_blob'], datastore_sigs['root_sig'], root_idata, config_path=config_path, proxy=proxy)
     if 'error' in res:
@@ -1430,7 +1493,7 @@ def put_datastore_info( datastore_info, datastore_sigs, config_path=CONFIG_PATH,
         log.error("Faield to store datastore record for {}".format(datastore_id))
 
         # try to clean up 
-        res = delete_inode_data( datastore, datastore_sigs['root_tombstones'], proxy=proxy, config_path=config_path )
+        res = delete_inode_data( datastore, root_tombstones, proxy=proxy, config_path=config_path )
         if 'error' in res:
             log.error("Failed to clean up root inode for {}".format(datastore_id))
 
@@ -1452,7 +1515,7 @@ def put_datastore(api_client, datastore_info, datastore_privkey, config_path=CON
     if 'error' in sigs:
         return sigs
 
-    res = api_client.backend_datastore_create(datastore_info, sigs)
+    res = api_client.backend_datastore_create(datastore_info, sigs, sigs['root_tombstones'])
     if 'error' in res:
         return res
 
@@ -1467,7 +1530,7 @@ def make_datastore_tombstones( datastore_id, device_ids ):
     return datastore_tombstones
 
 
-def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, force=False, proxy=None, config_path=CONFIG_PATH ):
+def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, device_ids=None, force=False, proxy=None, config_path=CONFIG_PATH ):
     """
     Delete a datastore.  Only do so if its root directory is empty (unless force=True).
     This is a server-side method.
@@ -1479,7 +1542,7 @@ def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, 
         proxy = get_default_proxy(config_path)
 
     # get the datastore first
-    datastore_info = get_datastore(datastore_id, config_path=config_path, proxy=proxy )
+    datastore_info = get_datastore(datastore_id, config_path=config_path, device_ids=device_ids, proxy=proxy )
     if 'error' in datastore_info:
         log.error("Failed to look up datastore information for {}".format(datastore_id))
         return {'error': 'Failed to look up datastore', 'errno': errno.ENOENT}
@@ -1587,7 +1650,7 @@ def get_inode_data(datastore_id, inode_uuid, inode_type, data_pubkey_hex, driver
         # only wanted header 
         return {'status': True, 'inode': inode_header, 'version': header_version}
 
-    log.debug("Get inode data for {}.{}".format(datastore_id, inode_uuid))
+    log.debug("Get inode data for {}.{} from {}".format(datastore_id, inode_uuid, drivers_to_try))
 
     # get inode from only the driver(s) that gave back fresh information.
     # expect raw data.  It will either be idata (for a file), or a dir listing (for a directory)
@@ -1596,11 +1659,26 @@ def get_inode_data(datastore_id, inode_uuid, inode_type, data_pubkey_hex, driver
     if force:
         ver_min = 0
 
-    res = get_mutable(data_id, ver_min=ver_min, force=force, raw=True, data_hash=data_hash, storage_drivers=drivers_to_try, proxy=proxy, config_path=config_path)
-    if 'error' in res:
-        log.error("Failed to get inode {} from {}: {}".format(inode_uuid, ','.join(drivers_to_try), res['error']))
+    have_stale = False
+    have_data = False
+    res = None
+    for driver_to_try in drivers_to_try:
+        # try each driver, until we find one with the right hash
+        res = get_mutable(data_id, ver_min=ver_min, device_ids=device_ids, force=force, raw=True, data_hash=data_hash, storage_drivers=drivers_to_try, proxy=proxy, config_path=config_path)
+        if 'error' in res:
+            log.error("Failed to get inode {} from {}: {}".format(inode_uuid, ','.join(drivers_to_try), res['error']))
+            if res.get('stale'):
+                have_stale = True
+
+            continue
+
+        else:
+            have_data = True
+            break
+
+    if not have_data:
         err = {'error': 'Failed to find fresh inode', 'errno': errno.EREMOTEIO}
-        if res.get('stale'):
+        if have_stale:
             err['errno'] = errno.ESTALE
 
         return err
@@ -1673,7 +1751,8 @@ def _put_mutable_data_versions( data_id, new_version, device_ids, config_path=CO
     new_version = max(res['version'], new_version)
 
     for device_id in device_ids:
-        rc = store_mutable_data_version(conf, device_id, data_id, new_version, config_path=config_path)
+        fq_data_id = storage.make_fq_data_id(device_id, data_id)
+        rc = store_mutable_data_version(conf, device_id, fq_data_id, new_version, config_path=config_path)
         if not rc:
             return {'error': 'Failed to advance mutable data version {} to {}'.format(data_id, new_version), 'errno': errno.EIO}
 
@@ -1734,6 +1813,7 @@ def get_inode_header(datastore_id, inode_uuid, data_pubkey_hex, drivers, device_
     inode_version = 0
     inode_hdr_version = 0
 
+    # latest version the *server* has seen
     res = _get_mutable_data_versions( inode_id, device_ids, config_path=CONFIG_PATH )
     inode_version = res['version']
 
@@ -1752,7 +1832,7 @@ def get_inode_header(datastore_id, inode_uuid, data_pubkey_hex, drivers, device_
     if 'error' in res:
         log.error("Failed to get inode data {}: {}".format(inode_uuid, res['error']))
         errcode = errno.EREMOTEIO
-        if res['stale']:
+        if res.get('stale'):
             errcode = errno.ESTALE
 
         return {'error': 'Failed to get inode data', 'errno': errcode}
@@ -1778,7 +1858,7 @@ def get_inode_header(datastore_id, inode_uuid, data_pubkey_hex, drivers, device_
 
         return {'error': "Invalid inode header", 'errno': errno.EIO}
 
-    # advance header version and inode version (unless force=True)
+    # advance header version and inode version, so the server never gets stale data again (unless force=True)
     if not force:
         res = _put_inode_consistency_info(datastore_id, inode_uuid, max(inode_hdr_version, inode_version), device_ids, config_path=config_path)
         if 'error' in res:
@@ -1811,11 +1891,11 @@ def make_inode_header_blob( datastore_id, inode_type, owner, inode_uuid, data_ha
     data_id = '{}.{}.hdr'.format(datastore_id, inode_uuid)
     inode_hdr_str = data_blob_serialize(res)
 
-    blob = make_mutable_data_blob( data_id, inode_hdr_str, config_path=config_path, device_ids=device_ids, min_version=min_version, create=create )
+    info = make_mutable_data_info( data_id, inode_hdr_str, config_path=config_path, device_ids=device_ids, min_version=min_version, create=create )
     if 'error' in blob:
-        return {'error': blob['error'], 'errno': blob['errno']}
+        return {'error': info['error'], 'errno': info['errno']}
 
-    return {'status': True, 'header': data_blob_serialize(blob)}
+    return {'status': True, 'header': data_blob_serialize(info)}
 
 
 def make_file_inode_data( datastore_id, owner, inode_uuid, data_payload_hash, device_ids, config_path=CONFIG_PATH, min_version=None, create=False ):
@@ -1855,19 +1935,28 @@ def sign_inode_header_blob( header_blob, data_privkey ):
     return sig
 
 
-def analyze_inode_header( datastore_id, inode_header_blob_str ):
+def analyze_inode_header_blob( datastore_id, inode_header_blob_str ):
     """
-    Get some useful information from a serialized inode
-    header blob.
+    Get some useful information from a mutable data blob containing a serialized inode header blob.
+
     Return the useful info on success (as a dict)
     Return {'error': ..., 'errno': ...} on error.
     """
 
     inode_header_blob = data_blob_parse(inode_header_blob_str)
-  
+    try:
+        jsonschema.validate(inode_header_blob, DATA_BLOB_SCHEMA)
+    except ValidationError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        return {'error': 'Invalid inode header blob: expected mutable data blob'}
+
     try:
         header_fqid = inode_header_blob['fq_data_id']
         dev_id, header_id = storage.parse_fq_data_id(header_fqid)
+        assert dev_id, "Invalid header fqid {}".format(header_fqid)
+        assert header_id, "Invalid header fqid {}".format(header_fqid)
 
         version = inode_header_blob['version']
 
@@ -1902,6 +1991,7 @@ def analyze_inode_header( datastore_id, inode_header_blob_str ):
 def put_inode_data( datastore, header_blob_str, header_blob_sig, idata_str, config_path=CONFIG_PATH, proxy=None ):
     """
     Store an inode and its idata to mutable storage.  Update local consistency info on success.
+    The caller should call datastore_operation_check() before calling this method.
 
     This is a server-side method.
 
@@ -1914,7 +2004,7 @@ def put_inode_data( datastore, header_blob_str, header_blob_sig, idata_str, conf
     datastore_id = datastore_get_id(datastore['pubkey'])
     drivers = datastore['drivers']
 
-    header_info = analyze_inode_header(datastore_id, header_blob_str)
+    header_info = analyze_inode_header_blob(datastore_id, header_blob_str)
     if 'error' in header_info:
         return header_info
 
@@ -1922,25 +2012,42 @@ def put_inode_data( datastore, header_blob_str, header_blob_sig, idata_str, conf
     inode_uuid = header_info['uuid']
     header_fqid = header_info['header_fqid']
     idata_fqid = header_info['idata_fqid']
-    
-    # store payload (no signature; we'll use the header's hash)
-    res = put_mutable(idata_fqid, idata_str, datastore['pubkey'], encode_signature(0, 0), version, storage_drivers=drivers, storage_drivers_exclusive=True, config_path=config_path, proxy=proxy )
-    if 'error' in res:
-        log.error("Failed to replicate inode {}: {}".format(idata_fqid, res['error']))
-        return {'error': 'Failed to replicate inode', 'errno': errno.EREMOTEIO}
 
-    # store header
-    res = put_mutable(header_fqid, header_blob_str, datastore['pubkey'], header_blob_sig, version, storage_drivers=drivers, storage_drivers_exclusive=True, config_path=config_path, proxy=proxy )
-    if 'error' in res:
-        log.error("Failed to replicate inode header for {}: {}".format(header_fqid, res['error']))
-        return {'error': 'Failed to replicate inode header', 'errno': errno.EREMOTEIO}
+    # replicate best-effort to each driver
+    # replicate (header, payload) per driver, instead of (headers) to driver and then (payloads) to driver.
+    # this way, if some services are offline but others are not, this write can partially succeed to readers.
+    driver_failed = False
+    driver_succeeded = False
+    for driver in drivers:
 
-    # update consistency info
-    res = _put_inode_consistency_info(datastore_id, inode_uuid, version, datastore['device_ids'], config_path=config_path)
-    if 'error' in res:
-        return res
+        # store payload (no signature; we'll use the header's hash)
+        res = put_mutable(idata_fqid, idata_str, datastore['pubkey'], encode_signature(0, 0), version, storage_drivers=[driver], storage_drivers_exclusive=True, config_path=config_path, proxy=proxy )
+        if 'error' in res:
+            log.error("Failed to replicate inode {}: {}".format(idata_fqid, res['error']))
+            driver_failed = True
+            continue
 
-    return {'status': True}
+        # store header
+        res = put_mutable(header_fqid, header_blob_str, datastore['pubkey'], header_blob_sig, version, storage_drivers=[driver], storage_drivers_exclusive=True, config_path=config_path, proxy=proxy )
+        if 'error' in res:
+            log.error("Failed to replicate inode header for {}: {}".format(header_fqid, res['error']))
+            driver_failed = True
+            continue
+        
+        # at least one driver succeeded
+        driver_succeeded = True
+
+    res = {'status': True}
+
+    if driver_succeeded:
+        # update consistency info, even if some driver failed,
+        # so we at least use a later version next time.
+        res = _put_inode_consistency_info(datastore_id, inode_uuid, version, datastore['device_ids'], config_path=config_path)
+
+    if driver_failed:
+        return {'error': 'Failed to replicate inode data to at least one driver', 'errno': errno.EREMOTEIO}
+
+    return res
 
 
 def make_inode_tombstones( datastore_id, inode_uuid, device_ids ):
@@ -1984,6 +2091,8 @@ def delete_inode_data( datastore, signed_tombstones, proxy=None, config_path=CON
         # format of ts_data['id'] is fqid(datastore_id.inode_uuid[.hdr])
         try:
             dev_id, data_id = storage.parse_fq_data_id(ts_data['id'])
+            assert dev_id, "Invalid tombstone data {}".format(ts_data['id'])
+            assert data_id, "Invalid tombstone data {}".format(ts_data['id'])
 
             parts = data_id.split('.', 1)
             assert len(parts) == 2
@@ -2328,7 +2437,7 @@ def datastore_inodes_check_consistent( datastore_id, inode_headers, device_ids, 
     """
     for inode_header_str in inode_headers:
         # parse 
-        header_info = analyze_inode_header(datastore_id, inode_header_str)
+        header_info = analyze_inode_header_blob(datastore_id, inode_header_str)
         if 'error' in header_info:
             return header_info
 
@@ -2354,7 +2463,7 @@ def datastore_inodes_check_consistent( datastore_id, inode_headers, device_ids, 
     return {'status': True}
 
 
-def datastore_inodes_verify( datastore_pubkey, inode_headers, inode_payloads, inode_signatures, inode_tombstones, config_path=CONFIG_PATH ):
+def datastore_inodes_verify( datastore_pubkey, inode_headers, inode_payloads, inode_signatures, inode_tombstones, device_ids, config_path=CONFIG_PATH ):
     """
     Given signed inodes, tombstones, and payloads, verify that they were all signed.
     
@@ -2374,6 +2483,7 @@ def datastore_inodes_verify( datastore_pubkey, inode_headers, inode_payloads, in
 
         res = storage.verify_data_payload( header_blob, datastore_pubkey, signature )
         if not res:
+            log.debug("Failed to verify {} ({}) with {}".format(header_blob, signature, datastore_pubkey))
             return {'error': 'Failed to verify inode signature', 'errno': errno.EINVAL}
 
         # check hash 
@@ -2381,11 +2491,13 @@ def datastore_inodes_verify( datastore_pubkey, inode_headers, inode_payloads, in
         header_mutable_data_struct = data_blob_parse(header_blob)
         header_struct = data_blob_parse(header_mutable_data_struct['data'])
         if payload_hash != header_struct['data_hash']:
+            log.debug("Inode hash mismatch: {} != {}".format(payload_hash, header_struct['data_hash']))
             return {'error': "Payload {} does not match inode header {}".format(payload_hash, header_struct['data_hash']), 'errno': errno.EINVAL}
 
-    res = verify_mutable_data_tombstones( inode_tombstones, datastore_pubkey )
-    if not res:
-        return {'error': 'Failed to verify data tombstones', 'errno': errno.EINVAL}
+    if len(inode_tombstones) > 0:
+        res = verify_mutable_data_tombstones( inode_tombstones, datastore_pubkey, device_ids=device_ids )
+        if not res:
+            return {'error': 'Failed to verify data tombstones', 'errno': errno.EINVAL}
 
     return {'status': True}
 
@@ -2401,12 +2513,14 @@ def datastore_operation_check( datastore_pubkey, inode_headers, inode_payloads, 
     Return {'error': ..., 'errno': ...} on failure
     """
     datastore_id = datastore_get_id(datastore_pubkey)
-    res = datastore_inodes_verify( datastore_pubkey, inode_headers, inode_payloads, inode_signatures, inode_tombstones, config_path=config_path)
+    res = datastore_inodes_verify( datastore_pubkey, inode_headers, inode_payloads, inode_signatures, inode_tombstones, device_ids, config_path=config_path)
     if 'error' in res:
+        log.debug("Failed to verify inode and tombstone signatures") 
         return res
 
     res = datastore_inodes_check_consistent( datastore_id, inode_headers, device_ids, config_path=config_path )
     if 'error' in res:
+        log.debug("Failed to verify data is consistent")
         return res
 
     return {'status': True}
@@ -2451,7 +2565,16 @@ def datastore_do_inode_operation( datastore, inode_headers, inode_payloads, inod
             return res
 
     return {'status': True}
- 
+
+
+def datastore_serialize_and_sign( datastore, data_privkey):
+    """
+    Serialize and sign a datastore for a request
+    """
+    datastore_str = json.dumps(datastore, sort_keys=True)
+    datastore_sig = sign_raw_data(datastore_str, data_privkey)
+    return {'str': datastore_str, 'sig': datastore_sig}
+
 
 def datastore_mkdir_make_inodes(api_client, datastore, data_path, data_pubkey, parent_dir=None, force=False, config_path=CONFIG_PATH):
     """
@@ -2585,8 +2708,9 @@ def datastore_mkdir(api_client, datastore, data_path, data_privkey_hex, parent_d
     for inode_header_blob in inode_info['inodes']:
         signature = sign_inode_header_blob( inode_header_blob, data_privkey_hex )
         inode_signatures.append( signature )
-
-    res = api_client.backend_datastore_mkdir( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_signatures, inode_info['tombstones'] )
+    
+    datastore_info = datastore_serialize_and_sign(datastore, data_privkey_hex)
+    res = api_client.backend_datastore_mkdir( datastore_info['str'], datastore_info['sig'], data_path, inode_info['inodes'], inode_info['payloads'], inode_signatures, inode_info['tombstones'] )
     if 'error' in res:
         log.debug("Failed to put mkdir inodes")
         return res
@@ -2736,7 +2860,8 @@ def datastore_rmdir(api_client, datastore, data_path, data_privkey_hex, force=Fa
     signed_tombstones = sign_mutable_data_tombstones( inode_info['tombstones'], data_privkey_hex )
     assert len(signed_tombstones) > 0
 
-    res = api_client.backend_datastore_rmdir( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_signatures, signed_tombstones )
+    datastore_info = datastore_serialize_and_sign(datastore, data_privkey_hex)
+    res = api_client.backend_datastore_rmdir( datastore_info['str'], datastore_info['sig'], data_path, inode_info['inodes'], inode_info['payloads'], inode_signatures, signed_tombstones )
     if 'error' in res:
         log.debug("Failed to put rmdir inodes")
         return res
@@ -2747,7 +2872,7 @@ def datastore_rmdir(api_client, datastore, data_path, data_privkey_hex, force=Fa
 def datastore_getfile(api_client, datastore, data_path, extended=False, force=False, config_path=CONFIG_PATH ):
     """
     Get a file identified by a path.
-    Return {'status': True, 'file': inode and data}
+    Return the file data on success (if not extended); otherwise return {'status': True, 'file': inode and data}
     Return {'error': ..., 'errno': ...} on error
     """
 
@@ -2768,16 +2893,16 @@ def datastore_getfile(api_client, datastore, data_path, extended=False, force=Fa
         log.error("Not a file: {}".format(data_path))
         return {'error': 'Not a file', 'errno': errno.EISDIR}
 
-    ret = {
-        'status': True,
-        'file': file_info['inode_info']['inode'],
-    }
-
-    # decode
-    ret['file']['idata'] = base64.b64decode(str(ret['file']['idata']))
-    
+    ret = None
     if extended:
-        ret['path_info'] = file_info['path_info']
+        ret = {
+            'status': True,
+            'file': file_info['inode_info']['inode'],
+            'path_info': file_info['path_info']
+        }
+
+    else:
+        ret = base64.b64decode(str(file_info['inode_info']['inode']['idata']))
 
     return ret
 
@@ -2969,7 +3094,8 @@ def datastore_putfile(api_client, datastore, data_path, file_data_bin, data_priv
     assert inode_info['payloads'][0] is None
     inode_info['payloads'][0] = file_data_b64
 
-    res = api_client.backend_datastore_putfile( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_signatures, inode_info['tombstones'] )
+    datastore_info = datastore_serialize_and_sign(datastore, data_privkey_hex)
+    res = api_client.backend_datastore_putfile( datastore_info['str'], datastore_info['sig'], data_path, inode_info['inodes'], inode_info['payloads'], inode_signatures, inode_info['tombstones'] )
     if 'error' in res:
         log.debug("Failed to put putfile inodes")
         return res
@@ -3105,7 +3231,8 @@ def datastore_deletefile(api_client, datastore, data_path, data_privkey_hex, for
 
     signed_tombstones = sign_mutable_data_tombstones(inode_info['tombstones'], data_privkey_hex)
 
-    res = api_client.backend_datastore_deletefile( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_signatures, signed_tombstones )
+    datastore_info = datastore_serialize_and_sign(datastore, data_privkey_hex)
+    res = api_client.backend_datastore_deletefile( datastore_info['str'], datastore_info['sig'], data_path, inode_info['inodes'], inode_info['payloads'], inode_signatures, signed_tombstones )
     if 'error' in res:
         log.debug("Failed to put deletefile inodes")
         return res
@@ -3398,8 +3525,10 @@ def datastore_rmtree(api_client, datastore, data_path, data_privkey_hex, force=F
             log.error("Failed to delete inodes: {}".format(res['error']))
             return res
 
+    datastore_info = datastore_serialize_and_sign(datastore, data_privkey_hex)
+
     # update root
-    res = api_client.backend_datastore_rmtree( datastore, inode_info['inodes'], inode_info['payloads'], inode_signatures, [] )
+    res = api_client.backend_datastore_rmtree( datastore_info['str'], datastore_info['sig'], inode_info['inodes'], inode_info['payloads'], inode_signatures, [] )
     if 'error' in res:
         log.error("Failed to update root tree: {}".format(res['error']))
         return res
