@@ -1725,7 +1725,20 @@ def blockstack_cli_datastore_getfile( datastore_id, path, config_path=None, forc
     args.path = path
     args.force = '1' if force else '0'
 
-    return cli_datastore_getfile( args, config_path=config_path, interactive=interactive )
+    data = cli_datastore_getfile( args, config_path=config_path, interactive=interactive )
+
+    # backwards-compatibility
+    if json_is_error(data):
+        return data
+
+    else:
+        return {
+            'status': True,
+            'file': {
+                'idata': data
+            },
+        }
+
 
 
 def blockstack_cli_datastore_putfile( datastore_privkey, path, data, data_path=None, interactive=False, force=False, proxy=None, config_path=None):
@@ -2012,6 +2025,18 @@ def blockstack_REST_call( method, route, session, api_pass=None, app_fqu=None, a
         'response': response,
         'raw': resp.text
     }
+
+
+def blockstack_test_setenv(key, value):
+    """
+    Set an environment variable on a running API daemon via the test interface
+    """
+    res = blockstack_REST_call('POST', '/v1/test/envar?{}={}'.format(urllib.quote(key), urllib.quote(value)), None)
+    if res['http_status'] != 200:
+        res['error'] = 'Failed to issue test RPC call'
+        return res
+
+    return res
 
 
 def blockstack_verify_database( consensus_hash, consensus_block_id, db_path, working_db_path=None, start_block=None ):
