@@ -777,7 +777,8 @@ CREATE_DATASTORE_REQUEST_SCHEMA = {
     'additionalProperties': False,
     'required': [
         'datastore_info',
-        'datastore_sigs'
+        'datastore_sigs',
+        'root_tombstones'
     ],
 }
 
