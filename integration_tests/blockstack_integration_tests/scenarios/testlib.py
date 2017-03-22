@@ -1732,12 +1732,13 @@ def blockstack_cli_datastore_getfile( datastore_id, path, config_path=None, forc
         return data
 
     else:
-        return {
+        res = {
             'status': True,
             'file': {
                 'idata': data
             },
         }
+        return res
 
 
 
