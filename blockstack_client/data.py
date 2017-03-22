@@ -569,7 +569,7 @@ def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_a
     
     # find all possible fqids for this datum
     fq_data_ids = []
-    if device_ids is None:
+    if device_ids is None or device_ids == []:
         device_ids = get_all_device_ids(config_path=config_path)
 
     for device_id in device_ids:
@@ -688,7 +688,7 @@ def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_a
             break
 
     if mutable_data is None:
-        log.error("Failed to fetch mutable data for {}".format(fq_data_id))
+        log.error("Failed to fetch mutable data for {}".format(data_id))
         return {'error': 'Failed to fetch mutable data', 'stale': True}
 
     rc = _put_mutable_data_versions(data_id, version, device_ids + [local_device_id], config_path=config_path)
@@ -1370,21 +1370,23 @@ def make_datastore_info( datastore_type, datastore_pubkey_hex, driver_names=None
     datastore_info = _init_datastore_info( datastore_type, datastore_pubkey_hex, driver_names, device_ids, config_path=config_path)
     if 'error' in datastore_info:
         return datastore_info
-    
+   
+    root_blob = datastore_info['root_blob']
     datastore_id = datastore_get_id(datastore_pubkey_hex)
     datastore_data_id = '{}.datastore'.format(datastore_id)
     datastore_str = datastore_info['datastore_blob']
 
     data_id = '{}.datastore'.format(datastore_id)
-
+    
+    # encapsulate to mutable data
     datastore_info = make_mutable_data_info(data_id, datastore_str, device_ids=device_ids, config_path=config_path)
-    if 'error' in datastore_blob:
+    if 'error' in datastore_info:
         # only way this fails is if we had create=True and it already existed 
         return {'error': datastore_info['error'], 'errno': datastore_info['errno']}
 
     datastore_info_str = data_blob_serialize(datastore_info)
 
-    return {'datastore_blob': datastore_info_str, 'root_blob': datastore_info['root_blob']}
+    return {'datastore_blob': datastore_info_str, 'root_blob': root_blob}
 
 
 def sign_datastore_info( datastore_info, datastore_privkey_hex, config_path=CONFIG_PATH ):
@@ -1515,7 +1517,10 @@ def put_datastore(api_client, datastore_info, datastore_privkey, config_path=CON
     if 'error' in sigs:
         return sigs
 
-    res = api_client.backend_datastore_create(datastore_info, sigs, sigs['root_tombstones'])
+    tombstones = sigs['root_tombstones']
+    del sigs['root_tombstones']
+
+    res = api_client.backend_datastore_create(datastore_info, sigs, tombstones)
     if 'error' in res:
         return res
 
@@ -1892,7 +1897,7 @@ def make_inode_header_blob( datastore_id, inode_type, owner, inode_uuid, data_ha
     inode_hdr_str = data_blob_serialize(res)
 
     info = make_mutable_data_info( data_id, inode_hdr_str, config_path=config_path, device_ids=device_ids, min_version=min_version, create=create )
-    if 'error' in blob:
+    if 'error' in info:
         return {'error': info['error'], 'errno': info['errno']}
 
     return {'status': True, 'header': data_blob_serialize(info)}
