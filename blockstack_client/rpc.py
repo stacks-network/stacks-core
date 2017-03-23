@@ -1476,7 +1476,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._create_or_update_store_item( ses, path_info, store_id, inode_type, create=False )
 
     
-    def _patch_from_signed_inodes( self, ses, path_info, operation, data_path, inode_info ):
+    def _patch_from_signed_inodes( self, ses, path_info, operation, data_path, inode_info, create=False, exist=False ):
         """
         Given signed inode information, store it and act on it.
         Verify that the data is consistent with local versioning information.
@@ -1557,7 +1557,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             res = data.datastore_mkdir_put_inodes( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_info['signatures'], inode_info['tombstones'], config_path=self.server.config_path )
 
         elif operation == 'putfile':
-            res = data.datastore_putfile_put_inodes( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_info['signatures'], inode_info['tombstones'], config_path=self.server.config_path )
+            res = data.datastore_putfile_put_inodes( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_info['signatures'], inode_info['tombstones'],
+                                                     create=create, exist=exist, config_path=self.server.config_path )
 
         elif operation == 'rmdir':
             res = data.datastore_rmdir_put_inodes( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_info['signatures'], inode_info['tombstones'], config_path=self.server.config_path )
@@ -1602,6 +1603,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("No path given")
             return self._reply_json({'error': 'Invalid request: missing path'}, status_code=401)
 
+        create = qs.get('create', '0') == '1'
+        exist = qs.get('exist', '0') == '1'
+
         request = self._read_json()
         if request:
             # sent externally-signed data
@@ -1611,7 +1615,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             else:
                 operation = 'mkdir'
 
-            return self._patch_from_signed_inodes( ses, path_info, operation, path, request )
+            return self._patch_from_signed_inodes( ses, path_info, operation, path, request, create=create, exist=exist )
 
         else:
             return self._reply_json({'error': 'Missing signed inode data'}, status_code=401)
@@ -3813,7 +3817,7 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
     
-    def backend_datastore_putfile(self, datastore_str, datastore_sig, path, inodes, payloads, signatures, tombstones ):
+    def backend_datastore_putfile(self, datastore_str, datastore_sig, path, inodes, payloads, signatures, tombstones, create=False, exist=False ):
         """
         Send signed inodes, payloads, and tombstones for a putfile.
         Return {'status': True} on success
@@ -3821,7 +3825,7 @@ class BlockstackAPIEndpointClient(object):
         """
         if is_api_server(self.config_dir):
             # file put the data 
-            return data.datastore_putfile_put_inodes( datastore, path, inodes, payloads, signatures, tombstones, config_path=self.config_path )
+            return data.datastore_putfile_put_inodes( datastore, path, inodes, payloads, signatures, tombstones, create=create, exist=exist, config_path=self.config_path )
 
         else:
             # ask the API server 
@@ -3835,7 +3839,10 @@ class BlockstackAPIEndpointClient(object):
                 'tombstones': tombstones,
             }
             datastore_id = data.datastore_get_id(json.loads(datastore_str)['pubkey'])
-            req = requests.put( 'http://{}:{}/v1/stores/{}/files?path={}'.format(self.server, self.port, datastore_id, urllib.quote(path)), data=json.dumps(request), timeout=self.timeout, headers=headers)
+            url = 'http://{}:{}/v1/stores/{}/files?path={}&create={}&exist={}'.format(
+                    self.server, self.port, datastore_id, urllib.quote(path), '1' if create else '0', '1' if exist else '0',
+            )
+            req = requests.put( url, data=json.dumps(request), timeout=self.timeout, headers=headers )
             return self.get_response(req)
 
 
