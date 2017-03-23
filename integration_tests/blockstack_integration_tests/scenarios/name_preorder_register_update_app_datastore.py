@@ -120,6 +120,22 @@ def scenario( wallets, **kw ):
             print 'failed to mkdir {}: {}'.format(dpath, res['error'])
             return False
 
+    # make directories again (should fail with EEXIST)
+    for dpath in ['/dir1', '/dir2', '/dir1/dir3', '/dir1/dir3/dir4']:
+        print 'mkdir {} (should fail)'.format(dpath)
+        res = testlib.blockstack_cli_datastore_mkdir( datastore_pk, dpath )
+        if 'error' not in res:
+            print 'accidentally succeeded to mkdir {}: {}'.format(dpath, res)
+            return False
+
+        if not res.has_key('errno'):
+            print 'no errno in error {}'.format(res)
+            return False
+
+        if res['errno'] != errno.EEXIST:
+            print 'wrong errno in error {}'.format(res)
+            return False
+
     # stat directories 
     for dpath in ['/dir1', '/dir2', '/dir1/dir3', '/dir1/dir3/dir4']:
         print 'stat {}'.format(dpath)
@@ -304,6 +320,18 @@ def scenario( wallets, **kw ):
 
         if res['errno'] != errno.ENOENT:
             print 'wrong errno: {}'.format(res)
+            return False
+
+    # remove directories again (should fail) 
+    for dpath in ['/dir1/dir3/dir4', '/dir1/dir3', '/dir2', '/dir1']:
+        print 'rmdir {} (expect failure)'.format(dpath)
+        res = testlib.blockstack_cli_datastore_rmdir( datastore_pk, dpath )
+        if 'error' not in res:
+            print 'accidentally succeeded to rmdir twice: {}'.format(res)
+            return False
+
+        if res.get('errno') != errno.ENOENT:
+            print 'wrong errno on rmdir: {}'.format(res)
             return False
 
     # root should be empty 
