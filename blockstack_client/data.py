@@ -1326,7 +1326,7 @@ def get_datastore( datastore_id, config_path=CONFIG_PATH, device_ids=None, proxy
     This is a server-side method.
 
     Returns {'status': True, 'datastore': public datastore info}
-    Returns {'error': ...} on failure
+    Returns {'error': ..., 'errno':...} on failure
     """
 
     if proxy is None:
