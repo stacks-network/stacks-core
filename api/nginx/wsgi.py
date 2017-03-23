@@ -32,7 +32,7 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from search.server import app as application
+from api.server import app as application
 
 # ------------------------------
 if __name__ == "__main__":
