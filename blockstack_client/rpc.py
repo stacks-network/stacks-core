@@ -1269,7 +1269,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         res = data.put_datastore_info( datastore_info, sigs_info, root_tombstones, config_path=self.server.config_path )
         if 'error' in res:
-            return self._reply_json({'error': 'Failed to store datastore info'}, status_code=503)
+            return self._reply_json({'error': 'Failed to store datastore info'})
 
         return self._reply_json({'status': True})
 
@@ -1277,10 +1277,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
     def POST_store( self, ses, path_info ):
         """
         Make a data store for the application identified by the session
-        Reply 200 on success
+        Reply 200 if we either succeded or have an error message
         Reply 401 on invalid request
         Reply 403 on signature verification failure
-        Reply 503 on failure to replicate
         
         Takes a payload describing the datastore and signatures.
         Takes serialized datastore payload and signature
@@ -1331,7 +1330,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         # delete 
         res = data.delete_datastore_info( datastore_id, tombstone_info['datastore_tombstones'], tombstone_info['root_tombstones'], device_ids=device_ids, config_path=self.server.config_path )
         if 'error' in res:
-            return self._reply_json({'error': 'Failed to delete datastore info: {}'.format(res['error']), 'errno': res['errno']}, status_code=503)
+            return self._reply_json({'error': 'Failed to delete datastore info: {}'.format(res['error']), 'errno': res['errno']})
 
         return self._reply_json({'status': True})
 
@@ -1423,7 +1422,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if json_is_error(res):
             err = {'error': 'Failed to read {}: {}'.format(inode_type, res['error']), 'errno': res.get('errno', errno.EPERM)}
-            self._reply_json(err, status_code=500)
+            self._reply_json(err)
             return
 
         if inode_type == 'files':
@@ -1574,12 +1573,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if 'error' in res:
             log.debug("Failed to patch datastore with {}: {}".format(operation, res['error']))
-
-            status_code = 401
-            if res['errno'] in self.http_errors:
-                status_code = self.http_errors[res['errno']]
-
-            return self._reply_json({'error': res['error'], 'errno': res['errno']}, status_code=status_code)
+            return self._reply_json({'error': res['error'], 'errno': res['errno']})
 
         # good to go!
         return self._reply_json({'status': True})
