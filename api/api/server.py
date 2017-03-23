@@ -65,13 +65,13 @@ config_path = blockstack_constants.CONFIG_PATH
 """
 Check first if API daemon is running
 """
-status = local_api_action('status')
+#status = local_api_action('status')
 
-if(status):
-    log.debug("API daemon is running")
-else:
-    log.debug("Start API daemon first")
-    exit(0)
+#if(status):
+#    log.debug("API daemon is running")
+#else:
+#    log.debug("Start API daemon first")
+#    exit(0)
 
 
 @app.route('/v1/names/<name>', methods=['GET'])
@@ -130,7 +130,8 @@ def catch_all_post(path):
 
 @app.route('/')
 def index():
-    api_calls = get_api_calls('api/api_v1.md')
+    current_dir = os.path.abspath(os.path.dirname(__file__))
+    api_calls = get_api_calls(current_dir + '/api_v1.md')
     server_info = getinfo()
 
     return render_template('index.html', api_calls=api_calls,
