@@ -1022,6 +1022,9 @@ if __name__ == "__main__":
     if os.path.exists("/tmp/blockstack-disk"):
         shutil.rmtree("/tmp/blockstack-disk")
     
+    if os.path.exists("/tmp/blockstack-integration-test-storage"):
+        shutil.rmtree("/tmp/blockstack-integration-test-storage")
+
     # set up SPV 
     if os.path.exists("/tmp/blockstack-test-scenario-spv.dat"):
         os.unlink("/tmp/blockstack-test-scenario-spv.dat")
