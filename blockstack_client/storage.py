@@ -980,7 +980,6 @@ def put_mutable_data(fq_data_id, data_text_or_json, data_privkey=None, data_pubk
             return None
 
         if required_exclusive and handler.__name__ not in required:
-            log.debug("Skipping non-required driver {}".format(handler.__name__))
             continue
 
         rc = False
