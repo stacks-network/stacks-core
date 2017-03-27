@@ -58,6 +58,7 @@ import json
 import config as blockstack_config
 import config as blockstack_constants
 import backend
+import backend.blockchain as backend_blockchain
 import proxy
 from proxy import json_is_error, json_is_exception
 
@@ -404,7 +405,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
     def verify_password(self):
         """
         Verify that the caller submitted the right
-        RPC authorization header
+        RPC authorization header.
+
+        Only call this once we're sure that the caller
+        didn't give us a valid session.
 
         Return True if we got the right header
         Return False if not
@@ -415,9 +419,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return False
 
         auth_parts = auth_header.split(" ", 1)
-        if auth_parts[0].lower() != 'basic':
-            # need basic auth
-            log.debug("Not 'basic' auth")
+        if auth_parts[0].lower() != 'bearer':
+            # must be bearer
+            log.debug("Not 'bearer' auth")
             return False
 
         if auth_parts[1] != self.server.api_pass:
@@ -1570,6 +1574,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             res = data.datastore_rmtree_put_inodes( datastore, inode_info['inodes'], inode_info['payloads'], inode_info['signatures'], inode_info['tombstones'], config_path=self.server.config_path )
             
         else:
+            # indicates a bug
             return self._reply_json({'error': 'Unrecognized operation'}, status_code=500)
 
         if 'error' in res:
@@ -1791,8 +1796,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             else:
                 status_code = 404
 
-            self._reply_json({'error': res['error']}, status_code=status_code)
-            return
+            return self._reply_json({'error': res['error']}, status_code=status_code)
 
         self._reply_json(res)
         return
@@ -1812,8 +1816,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         namespaces = proxy.get_all_namespaces(offset=offset, count=count)
         if json_is_error(namespaces):
             # error
-            self._reply_json({'error': namespaces['error']}, status_code=500)
-            return
+            status_code = None
+            if json_is_exception(res):
+                status_code = 500
+            else:
+                status_code = 404
+
+            return self._reply_json({'error': namespaces['error']}, status_code=500)
 
         self._reply_json(namespaces)
         return
@@ -1913,6 +1922,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         wallet_path = os.path.join( os.path.dirname(self.server.config_path), WALLET_FILENAME )
         if not os.path.exists(wallet_path):
+            # shouldn't happen; the API server can't start without a wallet
             return self._reply_json({'error': 'No such wallet'}, status_code=500)
 
         try:
@@ -1921,6 +1931,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         except Exception as e:
+            log.exception(e)
             self._reply_json({'error': 'Failed to read wallet file'}, status_code=500)
             return
 
@@ -1934,6 +1945,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         wallet_path = os.path.join( os.path.dirname(self.server.config_path), WALLET_FILENAME )
         if not os.path.exists(wallet_path):
+            # shouldn't happen; the API server can't start without a wallet
             return self._reply_json({'error': 'No such wallet'}, status_code=500)
 
         try:
@@ -1942,6 +1954,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         except Exception as e:
+            log.exception(e)
             self._reply_json({'error': 'Failed to read wallet file'}, status_code=500)
             return
 
@@ -1954,6 +1967,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         wallet_path = os.path.join( os.path.dirname(self.server.config_path), WALLET_FILENAME )
         if not os.path.exists(wallet_path):
+            # shouldn't happen; the API server can't start without a wallet
             return self._reply_json({'error': 'No such wallet'}, status_code=500)
 
         try:
@@ -1961,6 +1975,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'public_key': data_pubkey})
 
         except Exception as e:
+            log.exception(e)
             return self._reply_json({'error': 'Failed to read wallet file'}, status_code=500)
 
 
@@ -1968,10 +1983,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Get the decrypted wallet keys
         Return 200 with wallet info on success
-        Return 404 if the wallet is not loaded
+        Return 500 on failure to load the wallet
         """
         res = backend.registrar.get_wallet(config_path=self.server.config_path)
         if 'error' in res:
+            # shouldn't happen; the API server can't start without a wallet
             return self._reply_json({'error': res['error']}, status_code=500)
 
         else:
@@ -1982,12 +1998,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Get the wallet balance
         Return 200 with the balance
+        Return 500 on error
         """
         internal = self.server.get_internal_proxy()
         res = internal.cli_balance(config_path=self.server.config_path)
         if 'error' in res:
             log.debug("Failed to query wallet balance: {}".format(res['error']))
-            return self._reply_json({'error': 'Failed to query wallet balance'}, status_code=500)
+            return self._reply_json({'error': 'Failed to query wallet balance'}, status_code=503)
 
         return self._reply_json({'balance': res['total_balance']})
 
@@ -2116,39 +2133,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         self._send_headers(status_code=200, content_type='text/plain')
         return
-
-    
-    def POST_serialize( self, ses, path_info ):
-        """
-        Serialize a JSON payload into a string
-        Return 200 with application/octet-stream with the data
-        """
-        request = self._read_json()
-        if request is None:
-            return self._reply_json({'error': 'Invalid request'}, status_code=401)
-
-        blob_str = data.data_blob_serialize(request)
-        self._send_headers(status_code=200, content_type='application/octet-stream')
-        self.wfile.write(blob_str)
-        return
-   
-
-    def POST_deserialize( self, ses, path_info ):
-        """
-        Deserialize a data blob into a JSON document
-        Return 200 with application/json with the data
-        """
-        request_str = self._read_payload(maxlen=self.JSONRPC_MAX_SIZE)
-        if request_str is None:
-            return self._reply_json({'error': 'Invalid request'}, status_code=401)
-       
-        try:
-            request = data.data_blob_deserialize(request_str)
-            return self._reply_json(request)
-        except:
-            log.debug("Failed to parse payload")
-            return self._reply_json({'error': 'Unparseable data'}, status_code=401)
-
+ 
 
     def GET_registrar_state( self, ses, path_info ):
         """
@@ -2351,6 +2336,72 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
+    def GET_blockchain_unspents( self, ses, path_info, blockchain_name, address ):
+        """
+        Handle GET /blockchains/:blockchainID/:address/unspents
+        Takes min_confirmations= as a query-string arg.
+
+        Reply 200 and the list of unspent outputs or current address states
+        Reply 401 if the blockchain is not known
+        Reply 503 on failure to contact the requisite back-end services
+        """
+        if blockchain_name != 'bitcoin':
+            # not supported
+            return self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
+
+        min_confirmations = path_info['qs_values'].get('min_confirmations', '{}'.format(TX_MIN_CONFIRMATIONS)) 
+        try:
+            min_confirmations = int(min_confirmations)
+        except:
+            return self._reply_json({'error': 'Invalid min_confirmations value: expected int'}, status_code=401)
+
+        res = backend_blockchain.get_utxos(address, config_path=self.server.config_path, min_confirmations=min_confirmations)
+        if 'error' in res:
+            return self._reply_json({'error': 'Failed to query backend UTXO service: {}'.format(res['error'])}, status_code=503)
+
+        return self._reply_json(res)
+
+
+    def POST_broadcast_tx( self, ses, path_info, blockchain_name ):
+        """
+        Handle POST /blockchains/:blockchainID/tx
+        Reads {'tx': ...} as JSON from the request.
+
+        Reply 200 and the transaction hash as {'status': True, 'tx_hash': ...} on success
+        Reply 401 if the blockchain is not known
+        Reply 503 on failure to contact the requisite back-end services
+        """
+        if blockchain_name != 'bitcoin':
+            # not supported
+            return self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
+
+        tx_schema = {
+            'type': 'object',
+            'properties': {
+                'tx': {
+                    'type': 'string',
+                    'pattern': OP_HEX_PATTERN,
+                },
+            },
+            'additionalProperties': False,
+            'required': [
+                'tx'
+            ],
+        }
+
+        tx_req = None
+        tx_req = self._read_json(tx_schema)
+        if tx_req is None:
+            return self._reply_json({'error': 'Failed to parse request.  Expected {}'.format(json.dumps(tx_schema))}, status_code=401)
+
+        # broadcast!
+        res = backend_blockchain.broadcast_tx(tx_req['tx'], config_path=self.server.config_path)
+        if 'error' in res:
+            return self._reply_json({'error': 'Failed to sent transaction: {}'.format(res['error'])}, status_code=503)
+        
+        return self._reply_json(res)
+
+
     def GET_ping(self, session, path_info):
         """
         ping
@@ -2426,7 +2477,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'whitelist': {
                     'GET': {
                         'name': 'names',
-                        'desc': 'get names owned by an address',
+                        'desc': 'get names owned by an address on a particular blockchain',
                         'auth_session': False,
                         'auth_pass': False,
                         'need_data_key': False,
@@ -2485,6 +2536,34 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'desc': 'get pending transactions this node has sent',
                         'auth_session': False,
                         'auth_pass': False,
+                        'need_data_key': False,
+                    },
+                },
+            },
+            r'^/v1/blockchains/({})/({})/unspent$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
+                'routes': {
+                    'GET': self.GET_blockchain_unspents,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'blockchain',
+                        'desc': 'get most-recent state of any address our account',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False,
+                    },
+                },
+            },
+            r'^/v1/blockchains/({})/txs$'.format(URLENCODING_CLASS): {
+                'routes': {
+                    'POST': self.POST_broadcast_tx,
+                },
+                'whitelist': {
+                    'POST': {
+                        'name': 'blockchain',
+                        'desc': 'send a transaction through this node',
+                        'auth_session': True,
+                        'auth_pass': True,
                         'need_data_key': False,
                     },
                 },
@@ -2802,34 +2881,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'auth_session': False,
                         'auth_pass': False,
                         'need_data_key': False
-                    },
-                },
-            },
-            r'^/v1/node/lib/serialize$': {
-                'routes': {
-                    'POST': self.POST_serialize,
-                },
-                'whitelist': {
-                    'POST': {
-                        'name': '',
-                        'desc': 'Serialize an application/json string into a data payload to sign.',
-                        'auth_session': False,
-                        'auth_pass': False,
-                        'need_data_key': False,
-                    },
-                },
-            },
-            r'^/v1/node/lib/deserialize$': {
-                'routes': {
-                    'POST': self.POST_deserialize,
-                },
-                'whitelist': {
-                    'POST': {
-                        'name': '',
-                        'desc': 'Deserialize a payload string into an application/json document.',
-                        'auth_session': False,
-                        'auth_pass': False,
-                        'need_data_key': False,
                     },
                 },
             },
@@ -3200,9 +3251,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         use_password = whitelist_info['auth_pass']
 
         log.debug("\nfull path: {}\nmethod: {}\npath: {}\nqs: {}\nheaders:\n {}\n".format(self.path, method_name, path_info['path'], qs_values, '\n'.join( '{}: {}'.format(k, v) for (k, v) in self.headers.items() )))
-
-        have_password = self.verify_password()
+        
+        have_password = False
         session = self.verify_session(qs_values)
+        if not session:
+            have_password = self.verify_password()
+
         authorized = False
 
         # sanity check: this API only works if we have a data key
@@ -3448,7 +3502,7 @@ class BlockstackAPIEndpointClient(object):
 
         else:
             if self.api_pass:
-                headers['Authorization'] = 'basic {}'.format(self.api_pass)
+                headers['Authorization'] = 'bearer {}'.format(self.api_pass)
         
             elif self.session:
                 headers['Authorization'] = 'bearer {}'.format(self.session)
