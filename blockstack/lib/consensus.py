@@ -42,8 +42,6 @@ import blockstack_client
 
 log = virtualchain.get_logger("blockstack-server")
 
-import pybitcoin
-
 import nameset as blockstack_state_engine
 import nameset.virtualchain_hooks as virtualchain_hooks
 
