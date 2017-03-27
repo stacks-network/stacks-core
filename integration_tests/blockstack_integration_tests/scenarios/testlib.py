@@ -1960,7 +1960,7 @@ def blockstack_app_session( app_domain, methods, config_path=None ):
     token = signer.sign( req, privk )
 
     url = 'http://localhost:{}/v1/auth?authRequest={}'.format(api_port, token)
-    resp = requests.get( url, headers={'Authorization': 'basic {}'.format(api_pass)} )
+    resp = requests.get( url, headers={'Authorization': 'bearer {}'.format(api_pass)} )
     if resp.status_code != 200:
         log.error("GET {} status code {}".format(url, resp.status_code))
         return {'error': 'Failed to get session'}
@@ -2000,7 +2000,7 @@ def blockstack_REST_call( method, route, session, api_pass=None, app_fqu=None, a
     if session:
         headers['authorization'] = 'bearer {}'.format(session)
     elif api_pass:
-        headers['authorization'] = 'basic {}'.format(api_pass)
+        headers['authorization'] = 'bearer {}'.format(api_pass)
 
     assert not (data and raw_data), "Multiple data given"
 
@@ -2234,9 +2234,10 @@ def get_balance( addr ):
     return sum([inp['value'] for inp in inputs])
 
 
-def send_funds( privkey, satoshis, payment_addr ):
+def send_funds_tx( privkey, satoshis, payment_addr ):
     """
-    Send funds from a private key (in satoshis) to an address
+    Make a signed transaction that will send the given number
+    of satoshis to the given payment address
     """
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
     assert config_path is not None
@@ -2268,6 +2269,14 @@ def send_funds( privkey, satoshis, payment_addr ):
 
     serialized_tx = pybitcoin.serialize_transaction(inputs, outputs)
     signed_tx = blockstack_client.tx.sign_tx(serialized_tx, privkey)
+    return signed_tx
+
+
+def send_funds( privkey, satoshis, payment_addr ):
+    """
+    Send funds from a private key (in satoshis) to an address
+    """
+    signed_tx = send_funds_tx(privkey, satoshis, payment_addr)
     return blockstack_client.tx.broadcast_tx(signed_tx)
 
 
