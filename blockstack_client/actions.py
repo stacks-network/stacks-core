@@ -106,7 +106,7 @@ from pybitcoin import is_b58check_address, serialize_transaction
 from pybitcoin.transactions.outputs import calculate_change_amount
 
 from .backend.blockchain import (
-    get_balance, is_address_usable, get_utxos,
+    get_balance, is_address_usable, get_utxos, broadcast_tx,
     can_receive_name, get_tx_confirmations, get_tx_fee
 )
 
@@ -131,7 +131,7 @@ from .user import add_user_zonefile_url, remove_user_zonefile_url, user_zonefile
         make_empty_user_profile, user_zonefile_data_pubkey
 
 from .resolve import *
-from .tx import sign_tx, broadcast_tx
+from .tx import sign_tx
 from .zonefile import make_empty_zonefile, url_to_uri_record
 
 from .utils import exit_with_error, satoshis_to_btc
