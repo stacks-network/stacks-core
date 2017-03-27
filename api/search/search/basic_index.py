@@ -30,7 +30,7 @@ import requests
 from pymongo import MongoClient
 
 from .utils import validUsername
-from .utils import get_json, config_log
+from .utils import get_json, config_log, pretty_print
 
 from .config import BLOCKCHAIN_DATA_FILE, PROFILE_DATA_FILE
 
@@ -173,6 +173,19 @@ def create_search_index():
 
         profile = get_json(user['profile'])
 
+
+        hasBazaarId=False
+        # search for openbazaar id in the profile        
+        if 'account' in profile:
+            for accounts in profile['account']:
+                if  accounts['service'] == 'openbazaar':
+                   hasBazaarId = True
+                   search_profile['openbazaar']=accounts['identifier']
+                  # pretty_print(search_profile['openbazaar'])  
+
+        if (hasBazaarId == False):
+            search_profile['openbazaar'] = None
+        
         if 'name' in profile:
 
             try:
@@ -192,6 +205,7 @@ def create_search_index():
             search_profile['name'] = None
 
         if 'twitter' in profile:
+        
             twitter_handle = profile['twitter']
 
             try:
@@ -214,6 +228,9 @@ def create_search_index():
         search_profile['profile'] = profile
         search_profiles.save(search_profile)
 
+        
+
+           
     # dedup names
     people_names = list(set(people_names))
     people_names = {'name': people_names}
@@ -225,6 +242,9 @@ def create_search_index():
     usernames = {'username': usernames}
 
     # save final dedup results to mongodb (using it as a cache)
+
+    
+    
     people_cache.save(people_names)
     twitter_cache.save(twitter_handles)
     username_cache.save(usernames)
@@ -233,7 +253,7 @@ def create_search_index():
 
     log.debug('Created name/twitter/username search index')
 
-
+        
 if __name__ == "__main__":
 
     if(len(sys.argv) < 2):
