@@ -37,7 +37,6 @@ as a command-line option.
 
 import argparse
 import sys
-
 import requests
 requests.packages.urllib3.disable_warnings()
 
@@ -53,6 +52,14 @@ from wallet import *
 from utils import exit_with_error, print_result
 
 log = config.get_logger()
+
+# a less-verbose argument parser
+class BlockstackArgumentParser(argparse.ArgumentParser):
+    def print_usage(self, *args, **kw):
+        pass
+
+    def exit(self, *args, **kw):
+        raise SystemExit()
 
 
 def get_methods(prefix, module):
@@ -173,13 +180,23 @@ def parse_args(arg_defs, argv, config_path=CONFIG_PATH):
     ret = {}
     envs = {}
     re_exec = False
+
+    for arg_name in arg_defs.keys():
+        similars = arg_defs[arg_name]['similar']
+        for similar in similars:
+            if similar in argv:
+                similar_argv_index = argv.index(similar)
+                return {'error': 'Invalid argument {}'.format(similar), 'similar': {argv[similar_argv_index]: similar}}
+
     for arg_name in arg_defs.keys():
         short_opt = arg_defs[arg_name]['short']
         long_opt = arg_defs[arg_name]['long']
-
-        new_argv, arg_val = find_arg( argv, arg_defs[arg_name]['has_arg'], short_opt, long_opt )
+        
+        new_argv, arg_val = find_arg( argv, arg_defs[arg_name]['has_arg'], short_opt, long_opt)
         if new_argv is None:
-            return {'error': 'Invalid argument {}/{}'.format(short_opt, long_opt)}
+            # catch similar-sounding (but wrong) arguments
+            error = {'error': 'Invalid argument {}/{}'.format(short_opt, long_opt)}
+            return error
 
         ret[arg_name] = arg_val
         re_exec = re_exec or arg_defs[arg_name]['re-exec']
@@ -216,7 +233,8 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             'has_arg': False,
             're-exec': True,
             'env': 'BLOCKSTACK_DEBUG',
-            'help': 'Enable global debugging messages'
+            'help': 'Enable global debugging messages',
+            'similar': ['--dbg', '-dd', '-ddd', '-dddd', '--verbose'],
         },
         'config': {
             'short': '-c',
@@ -224,7 +242,8 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             'has_arg': True,
             're-exec': True,
             'env': 'BLOCKSTACK_CLIENT_CONFIG',
-            'help': 'Path to alternative configuration file and associated state'
+            'help': 'Path to alternative configuration file and associated state',
+            'similar': ['--conf'],
         },
         'default_yes': {
             'short': '-y',
@@ -233,6 +252,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             're-exec': False,
             'env': 'BLOCKSTACK_CLIENT_INTERACTIVE_YES',
             'help': 'Assume default/yes response to all queries',
+            'similar': [],
         },
         'api_pass': {
             'short': '-a',
@@ -241,6 +261,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             're-exec': False,
             'env': 'BLOCKSTACK_API_PASSWORD',
             'help': 'API password to use',
+            'similar': ['--api-password', '--api-pass', '--api_pass'],
         },
         'api_session': {
             'short': '-A',
@@ -249,6 +270,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             're-exec': False,
             'env': 'BLOCKSTACK_API_SESSION',
             'help': 'API session token to use',
+            'similar': ['--api-session', '--session', '--ses'],
         },
         'api_bind': {
             'short': '-b',
@@ -257,6 +279,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             're-exec': False,
             'env': 'BLOCKSTACK_API_BIND',
             'help': 'Address or hostname to bind the API server',
+            'similar': [],
         },
         'dry_run': {
             'short': '-n',
@@ -264,7 +287,8 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             'has_arg': False,
             're-exec': True,
             'env': 'BLOCKSTACK_DRY_RUN',
-            'help': 'Do not send transactions. Return the signed transaction instead.'
+            'help': 'Do not send transactions. Return the signed transaction instead.',
+            'similar': ['--dry-run', '--dryrun'],
         },
         'wallet_password': {
             'short': '-p',
@@ -273,6 +297,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             're-exec': False,
             'env': 'BLOCKSTACK_CLIENT_WALLET_PASSWORD',
             'help': 'Wallet decryption password',
+            'similar': ['--pass', '--passwd'],
         },
         'indexer_host': {
             'short': '-H',
@@ -281,6 +306,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             're-exec': False,
             'env': 'BLOCKSTACK_CLI_SERVER_HOST',
             'help': 'Hostname or IP address of the Blockstack blockchain indexer',
+            'similar': ['--ip', '--ipv4'],
         },
         'indexer_port': {
             'short': '-P',
@@ -289,6 +315,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             're-exec': False,
             'env': 'BLOCKSTACK_CLI_SERVER_PORT',
             'help': 'Port number of the Blockstack blockchain indexer',
+            'similar': [],
         },
     }
 
@@ -299,7 +326,16 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     arg_info = parse_args( global_cli_args, argv, config_path=config_path )
     if 'error' in arg_info:
         print("Failed to parse global CLI arguments: {}".format(arg_info['error']), file=sys.stderr)
-        print("Global CLI arguments:\n{}\n".format( "\n".join( ["\t{}/{}\n\t\t{}".format(cliarg['short'], cliarg['long'], cliarg['help']) for cliarg in global_cli_args] )), file=sys.stderr)
+        print("Global CLI arguments:\n{}\n".format( "\n".join( ["\t{}/{}\n\t\t{}".format(cliarg['short'], cliarg['long'], cliarg['help']) for argname, cliarg in global_cli_args.items()] )), file=sys.stderr)
+
+        if 'similar' in arg_info:
+            siminfo = arg_info['similar']
+            assert len(siminfo.keys()) == 1
+            opt = siminfo.keys()[0]
+            arg = siminfo[opt]
+
+            print("Suggestion:  Use '{}' instead of '{}'".format(arg, opt), file=sys.stderr)
+
         sys.exit(1)
 
     cli_debug = arg_info['args']['debug']
@@ -358,7 +394,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
     advanced_mode = conf.get('advanced_mode', False)
 
-    parser = argparse.ArgumentParser(
+    parser = BlockstackArgumentParser(
         description='Blockstack cli version {}'.format(config.VERSION)
     )
 
@@ -382,6 +418,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     interactive, args, directive = False, None, None
 
     try:
+        # capture stderr so we don't repeat ourselves
         args, unknown_args = parser.parse_known_args(args=argv[1:])
         directive = args.action
     except SystemExit:
@@ -389,7 +426,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         # special case: if the method is specified, but no method arguments are given,
         # then switch to prompting the user for individual arguments.
         try:
-            directive_parser = argparse.ArgumentParser(
+            directive_parser = BlockstackArgumentParser(
                 description='Blockstack cli version {}'.format(config.VERSION)
             )
             directive_subparsers = directive_parser.add_subparsers(
@@ -400,6 +437,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             build_method_subparsers(
                 directive_subparsers, all_methods, include_args=False, include_opts=False
             )
+
             directive_args, directive_unknown_args = directive_parser.parse_known_args(
                 args=argv[1:]
             )
@@ -409,7 +447,6 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
         except SystemExit:
             # still invalid
-            parser.print_help()
             return {'error': 'Invalid arguments.  Try passing "-h".'}
 
     result = {}
