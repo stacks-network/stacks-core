@@ -3666,9 +3666,9 @@ if __name__ == "__main__":
             'app_public_key': key_formatting.decompress( ECPrivateKey(private_key).public_key().to_hex() ),
         }
 
-        # authentication: basic {password}
+        # authentication: bearer {password}
         headers = {
-            'Authorization': 'basic {}'.format(api_password)
+            'Authorization': 'bearer {}'.format(api_password)
         }
 
         # make the authentication token
