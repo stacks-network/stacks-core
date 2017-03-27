@@ -30,9 +30,9 @@ from keys import *
 from proxy import *
 from profile import *
 
+import virtualchain
 from virtualchain import SPVClient
 
-import pybitcoin
 from utilitybelt import is_hex
 
 from .config import get_logger
@@ -45,7 +45,6 @@ from .constants import (
 
 log = get_logger()
 
-import virtualchain
 
 def txid_to_block_data(txid, bitcoind_proxy, proxy=None):
     """
@@ -223,7 +222,7 @@ def parse_tx_op_return(tx):
     outputs = tx['vout']
     for out in outputs:
         script_key = out['scriptPubKey']['hex']
-        if int(script_key[0:2], 16) == pybitcoin.opcodes.OP_RETURN:
+        if int(script_key[0:2], 16) == virtualchain.OPCODE_VALUES['OP_RETURN']:
             op_return = script_key.decode('hex')
             break
 
