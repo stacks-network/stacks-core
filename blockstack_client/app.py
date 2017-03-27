@@ -96,13 +96,27 @@ def app_verify_session( app_session_token, data_pubkey_hex, config_path=CONFIG_P
     """
     pubkey = str(data_pubkey_hex)
     verifier = jsontokens.TokenVerifier()
-    valid = verifier.verify( app_session_token, pubkey )
-    if not valid:
-        log.debug("Failed to verify with {}".format(pubkey))
+    
+    valid = False
+
+    try:
+        valid = verifier.verify( app_session_token, pubkey )
+        if not valid:
+            log.debug("Failed to verify with {}".format(pubkey))
+            return None
+    except:
+        log.debug("Not a valid token")
         return None
 
-    session_jwt = jsontokens.decode_token(app_session_token)
-    session = session_jwt['payload']
+    session = None
+    session_jwt = None
+
+    try:
+        session_jwt = jsontokens.decode_token(app_session_token)
+        session = session_jwt['payload']
+    except:
+        log.debug("Failed to decode token")
+        return None
 
     # must match session structure 
     try:
