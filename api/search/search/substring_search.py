@@ -40,7 +40,7 @@ from search.db import search_db, search_profiles
 from search.db import search_cache
 
 from search.config import DEFAULT_LIMIT
-
+from .utils import get_json,pretty_print
 
 def anyword_substring_search_inner(query_word, target_words):
     """ return True if ANY target_word matches a query_word
@@ -109,6 +109,18 @@ def substring_search(query, list_of_strings, limit_results=DEFAULT_LIMIT):
     return matching
 
 
+def search_people_by_GUID(query, limit_results=DEFAULT_LIMIT):
+
+    result={}
+    
+    for entry in search_profiles.find({"openbazaar":query}, {"profile":1,"username" : 1}):
+         result["profile"] = entry["profile"]
+         result["username"] = entry["username"]
+    
+    pretty_print(result)
+
+
+
 def search_people_by_name(query, limit_results=DEFAULT_LIMIT):
 
     query = query.lower()
@@ -116,9 +128,13 @@ def search_people_by_name(query, limit_results=DEFAULT_LIMIT):
     people_names = []
 
     # using mongodb as a cache, load data in people_names
+
+
+    
     for i in search_cache.people_cache.find():
         people_names += i['name']
-
+        
+          
     results = substring_search(query, people_names, limit_results)
 
     return order_search_results(query, results)
@@ -129,11 +145,14 @@ def search_people_by_twitter(query, limit_results=DEFAULT_LIMIT):
     query = query.lower()
 
     twitter_handles = []
-
+    
+    
+    
     # using mongodb as a cache, load data
     for i in search_cache.twitter_cache.find():
         twitter_handles += i['twitter_handle']
 
+       
     results = substring_search(query, twitter_handles, limit_results)
 
     return results
@@ -315,11 +334,16 @@ if __name__ == "__main__":
         print '-' * 5
         print fetch_profiles(name_search_results, search_type="name")
     elif(option == '--search_twitter'):
+    
         query = sys.argv[2]
         twitter_search_results = search_people_by_twitter(query, DEFAULT_LIMIT)
         print twitter_search_results
         print '-' * 5
         print fetch_profiles(twitter_search_results, search_type="twitter")
+    elif(option == '--search_GUID'):
+        print "searching by GUID"
+        query = sys.argv[2]
+        search_people_by_GUID(query, DEFAULT_LIMIT)
     elif(option == '--search_username'):
         query = sys.argv[2]
         username_search_results = search_people_by_username(query, DEFAULT_LIMIT)
