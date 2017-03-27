@@ -26,7 +26,6 @@ import sys
 import copy
 import socket
 from ConfigParser import SafeConfigParser
-import pybitcoin
 import json
 
 try:
