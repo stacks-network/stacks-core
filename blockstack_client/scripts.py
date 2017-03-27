@@ -36,6 +36,7 @@ from virtualchain import tx_serialize, tx_deserialize, tx_script_to_asm, tx_outp
 from .b40 import *
 from .constants import MAGIC_BYTES, NAME_OPCODES, LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID, TX_MIN_CONFIRMATIONS, BLOCKSTACK_TEST
 from .keys import *
+from .backend.utxo import get_unspents 
 
 log = virtualchain.get_logger('blockstack-client')
 
@@ -402,7 +403,7 @@ def tx_get_address_and_utxos(private_key_info, utxo_client, address=None):
 
     if private_key_info is None:
         # just go with the address 
-        unspents = pybitcoin.get_unspents(address, utxo_client)
+        unspents = get_unspents(address, utxo_client)
         return addr, unspents 
 
     if is_singlesig(private_key_info):
@@ -414,7 +415,7 @@ def tx_get_address_and_utxos(private_key_info, utxo_client, address=None):
     if is_multisig(private_key_info):
         redeem_script = str(private_key_info['redeem_script'])
         addr = virtualchain.make_multisig_address(redeem_script)
-        unspents = pybitcoin.get_unspents(addr, utxo_client)
+        unspents = get_unspents(addr, utxo_client)
 
         return addr, unspents
 
@@ -543,7 +544,7 @@ def tx_get_unspents(address, utxo_client, min_confirmations=TX_MIN_CONFIRMATIONS
     if min_confirmations != TX_MIN_CONFIRMATIONS:
         log.warning("Using UTXOs with {} confirmations instead of the default {}".format(min_confirmations, TX_MIN_CONFIRMATIONS))
 
-    data = pybitcoin.get_unspents(address, utxo_client)
+    data = get_unspents(address, utxo_client)
 
     try:
         assert type(data) == list, "No UTXO list returned"
