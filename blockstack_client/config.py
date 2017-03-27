@@ -328,8 +328,6 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
     }
     """
 
-    global SUPPORTED_UTXO_PROVIDERS, SUPPORTED_UTXO_PARAMS, SUPPORTED_UTXO_PROMPT_MESSAGES
-
     if not os.path.exists(config_file) and interactive:
         # definitely ask for everything
         force = True
@@ -783,7 +781,6 @@ def read_config_file(path=CONFIG_PATH):
         'blockstack-client': [
             'advanced_mode',
             'anonymous_statistics',
-            'authenticate_api',
         ]
     }
 
