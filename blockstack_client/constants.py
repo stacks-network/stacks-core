@@ -360,14 +360,6 @@ del i
 
 EPOCH_HEIGHT_MINIMUM = EPOCH_1_END_BLOCK + 1
 
-DEFAULT_BLOCKCHAIN_READER = 'blockcypher'
-DEFAULT_BLOCKCHAIN_WRITER = 'blockcypher'
-
-SUPPORTED_UTXO_PROMPT_MESSAGES = {
-    'blockcypher': 'Please enter your Blockcypher API token.',
-    'blockchain_info': 'Please enter your blockchain.info API token.',
-    'bitcoind_utxo': 'Please enter your fully-indexed bitcoind node information.',
-    'blockstack_utxo': 'Please enter your Blockstack server info.',
-}
-
+DEFAULT_BLOCKCHAIN_READER = 'blockstack_explorer'
+DEFAULT_BLOCKCHAIN_WRITER = 'blockstack_explorer'
 
