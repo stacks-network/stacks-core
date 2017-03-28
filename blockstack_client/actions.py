@@ -300,7 +300,7 @@ def cli_setup(args, config_path=CONFIG_PATH, password=None):
     log.debug("Set up config file")
 
     # are we configured?
-    opts = configure(interactive=interactive, force=False, config_file=config_path)
+    opts = config.setup_config(config_path=config_path, interactive=interactive)
     if 'error' in opts:
         return opts
 
