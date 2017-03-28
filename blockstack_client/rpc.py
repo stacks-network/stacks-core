@@ -2163,7 +2163,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         conf = None
         try:
-            conf = blockstack_config.read_config_file(self.server.config_path)
+            conf = blockstack_config.read_config_file(config_path=self.server.config_path)
             assert conf
         except Exception as e:
             log.exception(e)
@@ -4115,25 +4115,32 @@ def local_api_action(command, password=None, api_pass=None, config_dir=blockstac
         api_port = int(conf['api_endpoint_port'])
     except:
         raise Exception("Invalid port number {}".format(conf['api_endpoint_port']))
+    
+    if command == 'start-foreground':
+        # start API server the foreground
+        rc = local_api_start(port=api_port, config_dir=config_dir, api_pass=api_pass, password=password, foreground=True)
+        return rc
 
-    argv = [sys.executable, '-m', 'blockstack_client.rpc_runner', str(command), str(api_port), str(config_dir)]
+    else:
+        # use the RPC runner
+        argv = [sys.executable, '-m', 'blockstack_client.rpc_runner', str(command), str(api_port), str(config_dir)]
 
-    env = {}
-    env.update( os.environ )
+        env = {}
+        env.update( os.environ )
 
-    if password:
-        env['BLOCKSTACK_CLIENT_WALLET_PASSWORD'] = password
+        if password:
+            env['BLOCKSTACK_CLIENT_WALLET_PASSWORD'] = password
 
-    if api_pass:
-        env['BLOCKSTACK_API_PASSWORD'] = api_pass
+        if api_pass:
+            env['BLOCKSTACK_API_PASSWORD'] = api_pass
 
-    p = subprocess.Popen(argv, cwd=config_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, env=env)
-    out, err = p.communicate()
-    res = p.wait()
-    if res != 0:
-        log.error("Failed to {} API endpoint: exit code {}".format(command, res))
-        log.error("Error log:\n{}".format("\n".join(["  " + e for e in err.split('\n')])))
-        return False
+        p = subprocess.Popen(argv, cwd=config_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, env=env)
+        out, err = p.communicate()
+        res = p.wait()
+        if res != 0:
+            log.error("Failed to {} API endpoint: exit code {}".format(command, res))
+            log.error("Error log:\n{}".format("\n".join(["  " + e for e in err.split('\n')])))
+            return False
 
     return True
 
