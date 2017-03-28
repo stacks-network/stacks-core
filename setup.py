@@ -24,7 +24,7 @@
 from setuptools import setup, find_packages
 import os
 
-exec(open("blockstack/version.py").read())
+exec(open("blockstack_client/version.py").read())
 
 setup(
     name='blockstack',
