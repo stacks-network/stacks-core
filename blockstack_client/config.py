@@ -30,6 +30,10 @@ import logging
 import traceback
 import uuid
 import urllib2
+import copy
+import time
+import shutil
+
 from binascii import hexlify
 from ConfigParser import SafeConfigParser
 
@@ -170,6 +174,7 @@ def find_missing(message, all_params, given_opts, default_opts, header=None, pro
         missing_values = set(default_opts) - set(given_opts)
         num_prompted = len(missing_values)
         given_opts.update(default_opts)
+
     else:
         if header is not None:
             print('-' * len(header))
@@ -310,7 +315,7 @@ def get_all_device_ids(config_path=CONFIG_PATH):
     return device_ids
 
 
-def configure(config_file=CONFIG_PATH, force=False, interactive=True):
+def configure(config_file=CONFIG_PATH, force=False, interactive=True, set_migrate=False):
     """
     Configure blockstack-client:  find and store configuration parameters to the config file.
 
@@ -341,13 +346,20 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
         'parameters, or press [ENTER] to select the default value.'
     )
 
+    all_opts = read_config_file(config_path=config_file, set_migrate=set_migrate)
     blockstack_opts = {}
-    blockstack_opts_defaults = read_config_file(path=config_file)['blockstack-client']
-    blockstack_params = blockstack_opts_defaults.keys()
+    blockstack_opts_defaults = all_opts['blockstack-client']
+    
+    migrated = False
+    if set_migrate:
+        migrated = all_opts['migrated']
+        del all_opts['migrated']
 
+    blockstack_params = blockstack_opts_defaults.keys()
+    
     if not force:
         # defaults
-        blockstack_opts = read_config_file(path=config_file)['blockstack-client']
+        blockstack_opts = copy.deepcopy(blockstack_opts_defaults)
 
     blockstack_opts, missing_blockstack_opts, num_blockstack_opts_prompted = find_missing(
         blockstack_message,
@@ -366,11 +378,12 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
 
     bitcoind_opts = {}
     bitcoind_opts_defaults = default_bitcoind_opts(config_file=config_file)
+    bitcoind_opts_defaults.update(all_opts.get('bitcoind', {}))
     bitcoind_params = bitcoind_opts_defaults.keys()
 
     if not force:
         # get default set of bitcoind opts
-        bitcoind_opts = default_bitcoind_opts(config_file=config_file)
+        bitcoind_opts = copy.deepcopy(bitcoind_opts_defaults)
 
     # get any missing bitcoind fields
     bitcoind_opts, missing_bitcoin_opts, num_bitcoind_prompted = find_missing(
@@ -400,10 +413,11 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
         blockchain_reader = blockchain_reader_dict['blockchain_reader']
 
     blockchain_reader_defaults = default_utxo_provider_opts(blockchain_reader, config_file=config_file)
+    blockchain_reader_defaults.update(all_opts.get('blockchain_reader', {}))
     blockchain_reader_params = SUPPORTED_UTXO_PARAMS[blockchain_reader]
 
     # get current set of reader opts
-    blockchain_reader_opts = {} if force else blockchain_reader_defaults
+    blockchain_reader_opts = {} if force else copy.deepcopy(blockchain_reader_defaults)
 
     blockchain_reader_opts, missing_reader_opts, num_reader_opts_prompted = find_missing(
         SUPPORTED_UTXO_PROMPT_MESSAGES[blockchain_reader],
@@ -434,10 +448,11 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
         blockchain_writer = blockchain_writer_dict['blockchain_writer']
 
     blockchain_writer_defaults = default_utxo_provider_opts(blockchain_writer, config_file=config_file)
+    blockchain_writer_defaults.update(all_opts.get('blockchain_write', {}))
     blockchain_writer_params = SUPPORTED_UTXO_PARAMS[blockchain_writer]
 
     # get current set of writer opts
-    blockchain_writer_opts = {} if force else blockchain_writer_defaults
+    blockchain_writer_opts = {} if force else copy.deepcopy(blockchain_writer_defaults)
 
     blockchain_writer_opts, missing_writer_opts, num_writer_opts_prompted = find_missing(
         SUPPORTED_UTXO_PROMPT_MESSAGES[blockchain_writer],
@@ -498,15 +513,30 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
         write_config_file(ret, config_file)
 
     # preserve these extra helper fields
-    blockstack_opts['path'] = config_file
+    ret['blockstack-client']['path'] = config_file
     if config_file is not None:
-        blockstack_opts['dir'] = os.path.dirname(config_file)
+        ret['blockstack-client']['dir'] = os.path.dirname(config_file)
     else:
-        blockstack_opts['dir'] = None
+        ret['blockstack-client']['dir'] = None
 
     # set this here, so we don't save it
     ret['uuid'] = u
+    
+    if set_migrate:
+        ret['migrated'] = migrated
+
     return ret
+
+
+def clear_runtime_fields(opts):
+    """
+    Remove runtime opts from a config dict.
+    """
+    for opt in ['path', 'dir', 'migrated', 'uuid']:
+        if opts.has_key(opt):
+            del opts[opt]
+
+    return opts
 
 
 def write_config_file(opts, config_file):
@@ -514,25 +544,17 @@ def write_config_file(opts, config_file):
     Write our config file with the given options dict.
     Each key is a section name, and each value is the list of options.
 
+    If the file exists, do not remove unaffected sections.  Instead,
+    merge the sections in opts into the file.
+
     Return True on success
     Raise on error
     """
 
-    # these can sometimes be left over from older clients' calls to configure().
     if 'blockstack-client' in opts:
-        if 'path' in opts['blockstack-client']:
-            del opts['blockstack-client']['path']
+        opts['blockstack-client'] = clear_runtime_fields(opts['blockstack-client'])
 
-        if 'dir' in opts['blockstack-client']:
-            del opts['blockstack-client']['dir']
-
-    
-    # these can sometimes be left over from older clients' calls to configure().
-    if 'path' in opts:
-        del opts['path']
-
-    if 'dir' in opts:
-        del opts['dir']
+    opts = clear_runtime_fields(opts)
 
     parser = SafeConfigParser()
 
@@ -685,9 +707,13 @@ def str_to_bool(s):
         raise ValueError('Indeterminate boolean "{}"'.format(s))
 
 
-def read_config_file(path=CONFIG_PATH):
+def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
     """
     Read or make a new empty config file with sane defaults.
+    Automatically convert legacy config field and values into their current equivalents.
+    If set_migrate is True, then include 'set_migrate: True/False' in the top-level dict returned
+    in order to indicate whether or not any config field migration took place.
+
     Return the config dict on success
     Raise on error
     """
@@ -703,20 +729,21 @@ def read_config_file(path=CONFIG_PATH):
             raise Exception("Invalid server port")
 
     # try to create
-    if path is not None:
-        dirname = os.path.dirname(path)
+    if config_path is not None:
+        dirname = os.path.dirname(config_path)
         if not os.path.exists(dirname):
             os.makedirs(dirname)
         if not os.path.isdir(dirname):
-            raise Exception('Not a directory: {}'.format(path))
+            raise Exception('Not a directory: {}'.format(config_path))
 
-    client_uuid = get_or_set_uuid(config_dir=os.path.dirname(path))
+    client_uuid = get_or_set_uuid(config_dir=os.path.dirname(config_path))
     if client_uuid is None:
         raise Exception("Failed to get client device ID")
 
-    config_dir = os.path.dirname(path)
-    if path is None or not os.path.exists(path):
+    config_dir = os.path.dirname(config_path)
+    if config_path is None or not os.path.exists(config_path):
 
+        # make a new config structure and save it
         parser = SafeConfigParser()
         parser.add_section('blockstack-client')
         parser.set('blockstack-client', 'server', str(BLOCKSTACKD_SERVER))
@@ -740,16 +767,15 @@ def read_config_file(path=CONFIG_PATH):
         api_pass = os.urandom(32)
         parser.set('blockstack-client', 'api_password', hexlify(api_pass))
 
-        if path is not None:
+        if config_path is not None:
             try:
-                with open(path, 'w') as f:
+                with open(config_path, 'w') as f:
                     parser.write(f)
                     f.flush()
-                    os.fsync(f.fileno())
 
             except:
                 traceback.print_exc()
-                log.error('Failed to write default configuration file to "{}".'.format(path))
+                log.error('Failed to write default configuration file to "{}".'.format(config_path))
                 return False
 
         parser.add_section('blockchain-reader')
@@ -766,15 +792,14 @@ def read_config_file(path=CONFIG_PATH):
                 parser.set('bitcoind', k, '{}'.format(v))
 
         # save
-        if path is not None:
-            with open(path, 'w') as f:
+        if config_path is not None:
+            with open(config_path, 'w') as f:
                 parser.write(f)
                 f.flush()
-                os.fsync(f.fileno())
 
     # now read it back
     parser = SafeConfigParser()
-    parser.read(path)
+    parser.read(config_path)
 
     # these are booleans--convert them
     bool_values = {
@@ -795,6 +820,7 @@ def read_config_file(path=CONFIG_PATH):
                 # literal
                 ret[sec][opt] = parser.get(sec, opt)
 
+    # advanced mode is off by default
     if 'advanced_mode' not in ret.get('blockstack-client', {}):
         ret['blockstack-client']['advanced_mode'] = False
 
@@ -805,10 +831,33 @@ def read_config_file(path=CONFIG_PATH):
         },
     }
 
+    dropped_fields_014_1 = {
+        'blockstack-client': [
+            'blockchain_headers',
+        ],
+    }
+
+    added_fields_014_1 = {
+        'bitcoind': {
+            'spv_path': os.path.expanduser('~/.virtualchain-spv-headers.dat'),  # from virtualchain
+        },
+    }
+
     # grow this list with future releases...
     renamed_fields = [renamed_fields_014_1]
+    removed_fields = [dropped_fields_014_1]
+    added_fields = [added_fields_014_1]
+    migrated = False
 
-    for renamed_field_set in renamed_fields:
+    assert len(renamed_fields) == len(removed_fields)
+    assert len(removed_fields) == len(added_fields)
+
+    for i in xrange(0, len(renamed_fields)):
+        # order: rename, add, drop
+        renamed_field_set = renamed_fields[i]
+        dropped_field_set = removed_fields[i]
+        added_field_set = added_fields[i]
+
         for sec in renamed_field_set.keys():
             if ret.has_key(sec):
                 for old_field_name in renamed_field_set[sec].keys():
@@ -820,6 +869,30 @@ def read_config_file(path=CONFIG_PATH):
 
                         del ret[sec][old_field_name]
                         ret[sec][new_field_name] = value
+                        
+                        migrated = True
+
+        for sec in added_field_set.keys():
+            if not ret.has_key(sec):
+                ret[sec] = {}
+
+            for new_field_name in added_field_set[sec].keys():
+                if not ret[sec].has_key(new_field_name):
+
+                    log.debug("Add new field {}.{}".format(sec, new_field_name))
+                    ret[sec][new_field_name] = added_field_set[sec][new_field_name]
+
+                    migrated = True
+
+        for sec in dropped_field_set.keys():
+            if ret.has_key(sec):
+                for dropped_field_name in dropped_field_set[sec]:
+                    if ret[sec].has_key(dropped_field_name):
+                        
+                        log.debug("Remove old field {}.{}".format(sec, dropped_field_name))
+                        del ret[sec][dropped_field_name]
+                        
+                        migrated = True
    
     # overrides from the environment
     env_overrides = {
@@ -838,8 +911,12 @@ def read_config_file(path=CONFIG_PATH):
                     ret[sec][field_name] = new_value
 
 
-    ret['path'] = path
-    ret['dir'] = os.path.dirname(path)
+    # helpful at runtime
+    ret['path'] = config_path
+    ret['dir'] = os.path.dirname(config_path)
+
+    if set_migrate:
+        ret['migrated'] = migrated
 
     return ret
 
@@ -940,7 +1017,7 @@ def backup_config_file(config_path=CONFIG_PATH):
         legacy_path = config_path + ".legacy.{}".format(int(time.time()))
 
     log.warning('Back up old config file from {} to {}'.format(config_path, legacy_path))
-    shutil.move(config_path, legacy_path)
+    shutil.copy(config_path, legacy_path)
     return legacy_path
 
 
