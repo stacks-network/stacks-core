@@ -344,6 +344,94 @@ def decrypt_wallet_current(data, password):
     return {'status': True, 'wallet': new_wallet}
 
 
+def inspect_wallet_data(data):
+    """
+    Inspect the encrypted wallet structure.  Determine:
+    * which format it has
+    * whether or not it needs to be migrated
+
+    Return {'status': True, 'format': ..., 'migrate': True/False} on success
+    Return {'error': ...} on failure
+    """
+    ret = {}
+    legacy = False
+    legacy_013 = False
+    legacy_014 = False
+    migrated = False
+
+    # must match either current schema or legacy schema 
+    try:
+        jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_CURRENT)
+    except ValidationError as ve:
+        # maybe legacy?
+        try:
+            jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_LEGACY)
+            legacy = True
+        except ValidationError, ve2:
+            try:
+                jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_LEGACY_013)
+                legacy_013 = True
+            except ValidationError, ve3:
+                try:
+                    jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_LEGACY_014)
+                    legacy_014 = True
+                except ValidationError, ve4:
+                    if BLOCKSTACK_TEST:
+                        log.exception(ve2)
+                        log.exception(ve3)
+                        log.exception(ve4)
+           
+                    log.error('Invalid wallet data')
+                    return {'error': 'Invalid wallet data'}
+
+    any_legacy = (legacy or legacy_013 or legacy_014)
+    
+    # version check 
+    # if the version has changed, we'll need to potentially migrate
+    # to e.g. trigger a re-encryption 
+    if not data.has_key('version'):
+        log.debug("Wallet has no version; triggering migration")
+        migrated = True
+
+    elif data['version'] != SERIES_VERSION:
+        log.debug("Wallet series has changed from {} to {}; triggerring migration".format(data['version'], SERIES_VERSION))
+        migrated = True
+
+    if any_legacy:
+        migrated = True
+
+    wallet_format = "current"
+    if legacy:
+        wallet_format = "legacy"        # pre-0.13
+    elif legacy_013:
+        wallet_format = "legacy_013"
+    elif legacy_014:
+        wallet_format = "legacy_014"
+
+    return {'status': True, 'format': wallet_format, 'migrate': migrated}
+
+
+def inspect_wallet(wallet_path=None, config_path=CONFIG_PATH):
+    """
+    Inspect a wallet file.  Determine its format and whether or not we need to migrate it.
+    Return {'status': True, 'format': ..., 'migrate': True/False} on success
+    Return {'error': ...} on failure
+    """
+    if wallet_path is None:
+        wallet_path = os.path.join(os.path.dirname(config_path), WALLET_FILENAME)
+
+    wallet_str = None
+    with open(wallet_path, 'r') as f:
+        wallet_str = f.read()
+
+    try:
+        wallet_data = json.loads(wallet_str)
+    except ValueError:
+        return {'error': 'Invalid wallet dta'}
+
+    return inspect_wallet_data(wallet_data)
+
+
 def decrypt_wallet(data, password, config_path=CONFIG_PATH):
     """
     Decrypt a wallet's encrypted fields.  The wallet will be migrated to the current schema.
@@ -354,11 +442,14 @@ def decrypt_wallet(data, password, config_path=CONFIG_PATH):
     Return {'error': ...} on failure
     """
 
-    legacy = False
-    legacy_013 = False
-    legacy_014 = False
-    is_legacy = False
-    migrated = False
+    wallet_info = inspect_wallet_data(data)
+    if 'error' in wallet_info:
+        return wallet_info
+
+    legacy = (wallet_info['format'] == 'legacy')
+    legacy_013 = (wallet_info['format'] == 'legacy_013')
+    legacy_014 = (wallet_info['format'] == 'legacy_014')
+    migrated = wallet_info['migrate']
 
     # must match either current schema or legacy schema 
     try:
@@ -397,11 +488,9 @@ def decrypt_wallet(data, password, config_path=CONFIG_PATH):
     # to e.g. trigger a re-encryption 
     if not data.has_key('version'):
         log.debug("Wallet has no version; triggering migration")
-        migrated = True
 
     elif data['version'] != SERIES_VERSION:
         log.debug("Wallet series has changed from {} to {}; triggerring migration".format(data['version'], SERIES_VERSION))
-        migrated = True
 
     # legacy check
     if legacy:
@@ -412,20 +501,12 @@ def decrypt_wallet(data, password, config_path=CONFIG_PATH):
             log.error("Failed to migrate legacy wallet: {}".format(key_defaults['error']))
             return key_defaults
 
-        migrated = True
-
     elif legacy_013:
         # legacy 0.13 wallets have an owner_privkey and a payment_privkey, but not a data_privkey
         key_defaults = make_legacy_wallet_013_keys(data, password)
         if 'error' in key_defaults:
             log.error("Failed to migrate legacy 0.13 wallet: {}".format(key_defaults['error']))
             return key_defaults
-
-        migrated = True
-
-    elif legacy_014:
-        # legacy 0.14 wallets have encrypted owner, data, and payment private keys (they're all separate)
-        migrated = True
 
     if any_legacy:
         wallet_info = decrypt_wallet_legacy(data, key_defaults, password)
