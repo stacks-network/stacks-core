@@ -78,119 +78,25 @@ log = blockstack_config.get_logger()
 
 running = False
 
-RPC_INTERNAL_METHODS = None
-RPC_CLI_METHOD_INFO = None
-
-
-class RPCInternalProxy(object):
-    pass
-
 
 class CLIRPCArgs(object):
     """
-    Argument holder for RPC arguments
-    destined to a CLI method
+    Argument holder for CLI arguments,
+    as part of the RPCInternalProxy wrapper
+    methods.
     """
     pass
 
 
-class RPCException(Exception):
-    pass
-
-
-# maps method name to method information
-def load_api_cli_method_info(blockstack_client_mod):
+def run_cli_api(command_info, argv, config_path=CONFIG_PATH, check_rpc=True, **kw):
     """
-    Load and cache RPC method information
-    Call this from __main__
+    Run a CLI method, given its parsed command information and its list of arguments.
+    The caller will be the API server; this method takes the extra step of inspecting the
+    CLI method docstring to verify that it is allowed to be called from the API server.
+
+    Return the result of the CLI command on success
+    Return {'error': ...} on failure
     """
-    global RPC_CLI_METHOD_INFO
-
-    if RPC_CLI_METHOD_INFO is not None:
-        return RPC_CLI_METHOD_INFO
-
-    # load methods
-    all_method_names = blockstack_client_mod.get_cli_methods()
-    all_methods = parse_methods(all_method_names)
-
-    # map method names to info
-    RPC_CLI_METHOD_INFO = {}
-    for method_info in all_methods:
-        RPC_CLI_METHOD_INFO[method_info['command']] = method_info
-
-    os.environ['BLOCKSTACK_RPC_INITIALIZED_INFO'] = '1'
-
-    return RPC_CLI_METHOD_INFO
-
-
-def load_api_internal_methods(config_path):
-    """
-    Load internal RPC method proxy
-    (for the server to use to call its own methods safely)
-    Call this from __main__
-    """
-    global RPC_INTERNAL_METHODS
-
-    if RPC_INTERNAL_METHODS is not None:
-        return RPC_INTERNAL_METHODS
-
-    srv_internal = BlockstackAPIEndpoint(None, None, config_path=config_path, server=False)
-
-    RPC_INTERNAL_METHODS = srv_internal.internal_proxy
-
-    os.environ['BLOCKSTACK_RPC_INITIALIZED_METHODS'] = '1'
-
-    return RPC_INTERNAL_METHODS
-
-
-def get_api_internal_methods():
-    """
-    Get a proxy object to the set of registered
-    RPC methods within the RPC server.
-    This is used for when the RPC server wants to
-    "make a call to itself' without deadlocking.
-    """
-
-    global RPC_INTERNAL_METHODS
-
-    msg = 'Failed to load RPC methods (loaded = {})'
-    msg = msg.format(os.environ.get('BLOCKSTACK_RPC_INITIALIZED_METHODS', None))
-    assert RPC_INTERNAL_METHODS is not None, msg
-
-    return RPC_INTERNAL_METHODS
-
-
-def get_api_cli_method_info(method_name):
-    global RPC_CLI_METHOD_INFO
-
-    msg = 'RPC methods not initialized (loaded = {})'
-    msg = msg.format(os.environ.get('BLOCKSTACK_RPC_INITIALIZED_INFO', None))
-    assert RPC_CLI_METHOD_INFO is not None, msg
-
-    return RPC_CLI_METHOD_INFO.get(method_name, None)
-
-
-def list_api_cli_method_info():
-    global RPC_CLI_METHOD_INFO
-
-    msg = 'RPC methods not loaded (loaded = {})'
-    msg = msg.format(os.environ.get('BLOCKSTACK_RPC_INITIALIZED_INFO', None))
-    assert RPC_CLI_METHOD_INFO is not None, msg
-
-    return RPC_CLI_METHOD_INFO
-
-
-def run_cli_api(command_name, argv, config_path=CONFIG_PATH, check_rpc=True, **kw):
-    """
-    Invoke a CLI method via the RESTful API.  Note that @command_name
-    is the name of the *command*, not the method.
-
-    Return the result of the command on success (as a dict).
-
-    side-effect: caches parsed methods
-    """
-    command_info = get_api_cli_method_info(command_name)
-
     # do sanity checks.
     if command_info is None:
         return {'error': 'No such method'}
@@ -239,10 +145,7 @@ def run_cli_api(command_name, argv, config_path=CONFIG_PATH, check_rpc=True, **k
 # need to wrap CLI methods to capture arguments
 def api_cli_wrapper(method_info, config_path, check_rpc=True, include_kw=False):
     """
-    Factory for producing methods that call the right
-    version of run_cli_api.  Makes the same methods
-    available via the CLI accessible to both the
-    API daemon code and to external clients of the API daemon.
+    Factory for generating a method
     """
     def argwrapper(*args, **kw):
         cf = config_path
@@ -250,9 +153,9 @@ def api_cli_wrapper(method_info, config_path, check_rpc=True, include_kw=False):
             cf = kw.pop('config_path')
 
         if include_kw:
-            result = run_cli_api(method_info['command'], list(args), config_path=cf, check_rpc=check_rpc, **kw)
+            result = run_cli_api(method_info, list(args), config_path=cf, check_rpc=check_rpc, **kw)
         else:
-            result = run_cli_api(method_info['command'], list(args), config_path=cf, check_rpc=check_rpc)
+            result = run_cli_api(method_info, list(args), config_path=cf, check_rpc=check_rpc)
 
         return result
 
@@ -3364,7 +3267,9 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
 
     def register_function(self, func_internal, name=None):
         """
-        Register a CLI-wrapper function
+        Register a CLI-wrapper function to our "internal proxy"
+        (i.e. a mock module with all of the wrapped CLI methods
+        that follow the Python calling convention)
         """
         name = func.__name__ if name is None else name
         assert name
@@ -3373,19 +3278,29 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
 
 
     def get_internal_proxy(self):
+        """
+        Get the "internal proxy", which contains wrappers for
+        each CLI method that allow Python code to call them easily.
+        """
         return self.internal_proxy
 
 
     def register_api_functions(self, config_path):
         """
-        Register all API functions.
-        Do so for both the internal API proxy (for server-callers)
-        and for the exteranl API (for RPC callers).
+        Register all CLI functions to an "internal proxy" object
+        that allows the API server implementation to call them
+        via Python calling convention.
         """
+
+        import blockstack_client
+
+        # load methods
+        all_methods = blockstack_client.get_cli_methods()
+        all_method_infos = parse_methods(all_methods)
 
         # register the command-line methods (will all start with cli_)
         # methods will be named after their *action*
-        for command_name, method_info in list_api_cli_method_info().items():
+        for method_info in all_method_infos:
             method_name = 'cli_{}'.format(method_info['command'])
             method = method_info['method']
 
@@ -3431,12 +3346,16 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
             self.server_bind()
             self.server_activate()
 
+        # proxy method to all wrapped CLI methods
+        class InternalProxy(object):
+            pass
+
         # instantiate
+        self.internal_proxy = InternalProxy()
         self.plugin_mods = []
         self.plugin_destructors = []
         self.plugin_prefixes = []
         self.config_path = config_path
-        self.internal_proxy = RPCInternalProxy()
         self.funcs = {}
         self.wallet_keys = wallet_keys
         self.master_data_privkey = None
@@ -4345,13 +4264,6 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
         
     # daemon child takes this path...
     atexit.register(local_api_atexit)
-
-    # load up internal RPC methods
-    # TODO: might not need these
-    log.debug('Loading RPC methods')
-    load_api_cli_method_info(blockstack_client)
-    load_api_internal_methods(config_path)
-    log.debug('Finished loading RPC methods')
 
     # load drivers 
     log.debug("Loading drivers")
