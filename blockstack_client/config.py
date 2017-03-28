@@ -957,6 +957,54 @@ def get_config(path=CONFIG_PATH, interactive=False):
     return blockstack_opts
 
 
+def setup_config(config_path=CONFIG_PATH, interactive=False):
+    """
+    Set up our config file:
+    * create it if it doesn't exist
+    * migrate field names and values
+    * back up the old config file if we changed anything during migration.
+
+    Return {'status': True, 'config': ..., 'migrated': True/False, 'backup_path': ...} on success
+    Return {'error': ...} on failure
+    """
+ 
+    conf = configure(config_file=config_path, interactive=interactive, set_migrate=True)
+    if conf is None:
+        return {'error': 'Failed to load config'}
+
+    conf_migrated = conf['migrated']
+    del conf['migrated']
+
+    conf_backed_up = False
+    backup_path = None
+    conf_version = conf['blockstack-client'].get('client_version', '')
+    if conf_version != VERSION:
+        # back up the config file 
+        backup_path = backup_config_file(config_path=config_path)
+        if not backup_path:
+            return {'error': 'Failed to load backup path'}
+
+        else:
+            conf_backed_up = True
+
+    if conf_migrated:
+        log.warning("Migrating config file...") 
+        if not conf_backed_up:
+            # back up the config file 
+            backup_path = backup_config_file(config_path=config_path)
+            if not backup_path:
+                return {'error': 'Failed to load backup path'}
+
+        # save config file
+        try:
+            write_config_file(conf, config_path)
+        except Exception as e:
+            log.exception(e)
+            return {'error': 'Failed to save new config file'}
+
+    return {'status': True, 'config': conf, 'migrated': conf_migrated, 'backup_path': backup_path}
+
+
 def get_version_parts(whole, func):
     return [func(_.strip()) for _ in whole[0:3]]
 
