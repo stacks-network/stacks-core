@@ -185,8 +185,7 @@ def parse_args(arg_defs, argv, config_path=CONFIG_PATH):
         similars = arg_defs[arg_name]['similar']
         for similar in similars:
             if similar in argv:
-                similar_argv_index = argv.index(similar)
-                return {'error': 'Invalid argument {}'.format(similar), 'similar': {argv[similar_argv_index]: similar}}
+                return {'error': 'Invalid argument {}'.format(similar), 'similar': {"{}/{}".format(arg_defs[arg_name]['short'], arg_defs[arg_name]['long']): similar}}
 
     for arg_name in arg_defs.keys():
         short_opt = arg_defs[arg_name]['short']
@@ -334,7 +333,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             opt = siminfo.keys()[0]
             arg = siminfo[opt]
 
-            print("Suggestion:  Use '{}' instead of '{}'".format(arg, opt), file=sys.stderr)
+            print("Suggestion:  Use '{}' instead of '{}'".format(opt, arg), file=sys.stderr)
 
         sys.exit(1)
 
@@ -376,23 +375,39 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             if len(email_addr) > 0:
                 analytics_user_register( client_uuid, email_addr )
 
-    conf = config.get_config(path=config_path, interactive=(os.environ.get('BLOCKSTACK_CLIENT_INTERACTIVE_YES') != '1'))
+   
+    # NOTE: also fills in any missing fields if the config path does not exist yet
+    conf = config.configure(config_file=config_path, interactive=True, set_migrate=True)
     if conf is None:
         return {'error': 'Failed to load config'}
 
-    conf_version = conf.get('client_version', '')
-    if not semver_match(conf_version, VERSION):
+    conf_migrated = conf['migrated']
+    del conf['migrated']
+
+    conf_backed_up = False
+    conf_version = conf['blockstack-client'].get('client_version', '')
+    if conf_version != VERSION:
         # back up the config file 
-        if not cli_config_argv:
-            # default config file
+        backup_path = config.backup_config_file(config_path=config_path)
+        if not backup_path:
+            exit_with_error("Failed to back up legacy configuration file {}".format(config_path))
+
+        else:
+            conf_backed_up = True
+
+    if conf_migrated:
+        log.warning("Migrating config file...") 
+        if not conf_backed_up:
+            # back up the config file 
             backup_path = config.backup_config_file(config_path=config_path)
             if not backup_path:
                 exit_with_error("Failed to back up legacy configuration file {}".format(config_path))
 
-            else:
-                exit_with_error("Backed up legacy configuration file from {} to {} and re-generated a new, default configuration.  Please restart.".format(config_path, backup_path))
+        # save config file
+        res = config.write_config_file(conf, config_path)
+        assert res
 
-    advanced_mode = conf.get('advanced_mode', False)
+    advanced_mode = conf['blockstack-client'].get('advanced_mode', False)
 
     parser = BlockstackArgumentParser(
         description='Blockstack cli version {}'.format(config.VERSION)
@@ -451,11 +466,11 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
     result = {}
 
-    blockstack_server, blockstack_port = conf['server'], conf['port']
+    blockstack_server, blockstack_port = conf['blockstack-client']['server'], conf['blockstack-client']['port']
 
     # initialize blockstack connection
     session(
-        conf=conf, server_host=blockstack_server,
+        server_host=blockstack_server,
         server_port=blockstack_port, set_global=True
     )
 
