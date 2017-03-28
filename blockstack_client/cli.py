@@ -45,6 +45,7 @@ logging.disable(logging.CRITICAL)
 
 from blockstack_client import config
 from blockstack_client.client import session, analytics_user_register 
+from blockstack_client.constants import WALLET_FILENAME
 from blockstack_client.config import CONFIG_PATH, VERSION, semver_match, get_config, client_uuid_path, get_or_set_uuid
 from blockstack_client.method_parser import parse_methods, build_method_subparsers
 
@@ -375,37 +376,23 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             if len(email_addr) > 0:
                 analytics_user_register( client_uuid, email_addr )
 
+  
+    res = config.setup_config(config_path=config_path, interactive=True)
+    if 'error' in res:
+        exit_with_error("Failed to load and verify config file: {}".format(res['error']))
    
-    # NOTE: also fills in any missing fields if the config path does not exist yet
-    conf = config.configure(config_file=config_path, interactive=True, set_migrate=True)
-    if conf is None:
-        return {'error': 'Failed to load config'}
+    conf = res['config']
 
-    conf_migrated = conf['migrated']
-    del conf['migrated']
+    # if the wallet exists, make sure that it's the latest version 
+    wallet_path = os.path.join(os.path.dirname(config_path), WALLET_FILENAME)
+    if os.path.exists(wallet_path):
+        res = inspect_wallet(wallet_path=wallet_path)
+        if 'error' in res:
+            exit_with_error("Failed to inspect wallet at {}".format(wallet_path))
 
-    conf_backed_up = False
-    conf_version = conf['blockstack-client'].get('client_version', '')
-    if conf_version != VERSION:
-        # back up the config file 
-        backup_path = config.backup_config_file(config_path=config_path)
-        if not backup_path:
-            exit_with_error("Failed to back up legacy configuration file {}".format(config_path))
-
-        else:
-            conf_backed_up = True
-
-    if conf_migrated:
-        log.warning("Migrating config file...") 
-        if not conf_backed_up:
-            # back up the config file 
-            backup_path = config.backup_config_file(config_path=config_path)
-            if not backup_path:
-                exit_with_error("Failed to back up legacy configuration file {}".format(config_path))
-
-        # save config file
-        res = config.write_config_file(conf, config_path)
-        assert res
+        if res['migrate'] or res['format'] != 'current':
+            if sys.argv[1] != 'setup_wallet':
+                exit_with_error("Wallet is in legacy format.  Please unlock and migrate it with `blockstack setup_wallet`.")
 
     advanced_mode = conf['blockstack-client'].get('advanced_mode', False)
 
