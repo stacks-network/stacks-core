@@ -490,20 +490,22 @@ def blockstack_client_initialize_wallet( password, payment_privkey, owner_privke
 
     wallet = res['wallet']
 
-    print '\n{}\n'.format(json.dumps(wallet, indent=4, sort_keys=True))
+    if start_rpc:
 
-    print "\nstopping API daemon\n"
+        print '\n{}\n'.format(json.dumps(wallet, indent=4, sort_keys=True))
 
-    res = blockstack_client.rpc.local_api_stop(config_dir=config_dir)
+        print "\nstopping API daemon\n"
 
-    print "\nstarting API daemon\n"
+        res = blockstack_client.rpc.local_api_stop(config_dir=config_dir)
 
-    res = blockstack_client.rpc.local_api_start(api_pass=conf['api_password'], port=int(conf['api_endpoint_port']), config_dir=os.path.dirname(config_path), password="0123456789abcdef")
-    if not res:
-        if exception:
-            raise Exception("Failed to start API daemon")
+        print "\nstarting API daemon\n"
 
-        return res
+        res = blockstack_client.rpc.local_api_start(api_pass=conf['api_password'], port=int(conf['api_endpoint_port']), config_dir=os.path.dirname(config_path), password="0123456789abcdef")
+        if not res:
+            if exception:
+                raise Exception("Failed to start API daemon")
+
+            return res
 
     return wallet
 
@@ -542,6 +544,7 @@ def blockstack_client_set_wallet( password, payment_privkey, owner_privkey, data
         log.error("Failed to initialize wallet: %s" % wallet['error'])
         raise Exception("Failed to initialize wallet")
 
+    '''
     print "\nStopping API daemon\n"
     res = blockstack_client.rpc.local_api_stop(config_dir=config_dir)
     if not res:
@@ -551,7 +554,7 @@ def blockstack_client_set_wallet( password, payment_privkey, owner_privkey, data
     res = blockstack_client.rpc.local_api_start(api_pass=conf['api_password'], port=int(conf['api_endpoint_port']), config_dir=os.path.dirname(config_path), password="0123456789abcdef")
     if not res:
         raise Exception("Failed to restart API daemon")
-
+    '''
     return wallet
 
 
