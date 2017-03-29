@@ -431,7 +431,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             assert decoded_token.has_key('payload')
             jsonschema.validate(decoded_token['payload'], APP_AUTHREQUEST_SCHEMA )
         except ValidationError as ve:
-            if BLOCKSTACK_TEST:
+            if BLOCKSTACK_TEST or BLOCKSTACK_DEBUG:
                 log.exception(ve)
 
             log.debug("Invalid token")
@@ -443,10 +443,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         app_public_key = str(decoded_token['payload']['app_public_key'])
         blockchain_ids = decoded_token['payload'].get('blockchain_ids', None)
 
-        if blockchain_ids is not None:
-            blockchain_ids = ",".join(blockchain_ids)
-
-        # it needs to be at least self-signed 
+        # it needs to be at least self-signed
+        # TODO: non-reusable public keys?
         try:
             verifier = jsontokens.TokenVerifier()
             log.debug("Verify with {}".format(app_public_key))
@@ -475,6 +473,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         if blockchain != 'bitcoin': 
             return self._reply_json({'error': 'Invalid blockchain'}, status_code=401)
+
+        # make sure we have the right encoding
+        new_addr = virtualchain.address_reencode(str(address))
+        if new_addr != address:
+            log.debug("Re-encode {} to {}".format(new_addr, address))
+            address = new_addr
 
         res = proxy.get_names_owned_by_address(address)
         if json_is_error(res):
@@ -585,6 +589,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 log.error("Absurd tx fee {}".format(tx_fee))
                 return self._reply_json({'error': 'Absurd transaction fee'}, status_code=401)
         
+        # make sure we have the right encoding
+        if recipient_address:
+            new_addr = virtualchain.address_reencode(str(recipient_address))
+            if new_addr != recipient_address:
+                log.debug("Re-encode {} to {}".format(new_addr, recipient_address))
+                recipient_address = new_addr
+
         # do we own this name already?
         # i.e. do we need to renew?
         res = proxy.get_names_owned_by_address( self.server.wallet_keys['owner_addresses'][0] )
@@ -776,6 +787,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         except ValueError:
             self._reply_json({"error": 'Invalid owner address'}, status_code=401)
             return
+
+        # make sure we have the right encoding
+        new_addr = virtualchain.address_reencode(str(recipient_address))
+        if new_addr != recipient_address:
+            log.debug("Re-encode {} to {}".format(new_addr, recipient_address))
+            recipient_address = new_addr
 
         tx_fee = request.get('tx_fee', None)
         if tx_fee is not None:
@@ -1958,6 +1975,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if min_confs < 0:
             min_confs = 0
 
+        # make sure we have the right encoding
+        new_addr = virtualchain.address_reencode(str(address))
+        if new_addr != address:
+            log.debug("Re-encode {} to {}".format(new_addr, address))
+            address = new_addr
+
         internal = self.server.get_internal_proxy()
         res = internal.cli_withdraw(address, amount, min_confs, tx_only, config_path=self.server.config_path, interactive=False, wallet_keys=self.server.wallet_keys)
         if 'error' in res:
@@ -2251,6 +2274,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if blockchain_name != 'bitcoin':
             # not supported
             return self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
+
+        # make sure we have the right encoding
+        new_addr = virtualchain.address_reencode(str(address))
+        if new_addr != address:
+            log.debug("Re-encode {} to {}".format(new_addr, address))
+            address = new_addr
 
         min_confirmations = path_info['qs_values'].get('min_confirmations', '{}'.format(TX_MIN_CONFIRMATIONS)) 
         try:
