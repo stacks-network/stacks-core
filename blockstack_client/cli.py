@@ -377,7 +377,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
                 analytics_user_register( client_uuid, email_addr )
 
   
-    res = config.setup_config(config_path=config_path, interactive=True)
+    res = config.setup_config(config_path=config_path, interactive=(os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES") != '1'))
     if 'error' in res:
         exit_with_error("Failed to load and verify config file: {}".format(res['error']))
    
