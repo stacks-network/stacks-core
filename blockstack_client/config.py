@@ -476,22 +476,26 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True, set_migrat
     # ask for contact info, so we can send out notifications for bugfixes and
     # upgrades
     if blockstack_opts.get('email') is None:
-        email_msg = (
-            'Would you like to receive notifications\n'
-            'from the developers when there are critical\n'
-            'updates available to install?\n\n'
-            'If so, please enter your email address here.\n'
-            'If not, leave this field blank.\n\n'
-            'Your email address will be used solely\n'
-            'for this purpose.\n'
-        )
-        email_opts, _, email_prompted = find_missing(
-            email_msg, ['email'], {}, {'email': ''}, prompt_missing=interactive
-        )
+        if interactive:
+            email_msg = (
+                'Would you like to receive notifications\n'
+                'from the developers when there are critical\n'
+                'updates available to install?\n\n'
+                'If so, please enter your email address here.\n'
+                'If not, leave this field blank.\n\n'
+                'Your email address will be used solely\n'
+                'for this purpose.\n'
+            )
+            email_opts, _, email_prompted = find_missing(
+                email_msg, ['email'], {}, {'email': ''}, prompt_missing=interactive
+            )
 
-        # merge with blockstack section
-        num_blockstack_opts_prompted += 1
-        blockstack_opts['email'] = email_opts['email']
+            # merge with blockstack section
+            num_blockstack_opts_prompted += 1
+            blockstack_opts['email'] = email_opts['email']
+
+        else:
+            blockstack_opts['email'] = ''
 
     # get client UUID for analytics
     u = get_or_set_uuid(config_dir=config_dir)
