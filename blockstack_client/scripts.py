@@ -407,9 +407,8 @@ def tx_get_address_and_utxos(private_key_info, utxo_client, address=None):
         return addr, unspents 
 
     if is_singlesig(private_key_info):
-        _, payer_address, payer_utxos = virtualchain.analyze_private_key(
-            str(private_key_info), utxo_client
-        )
+        payer_address = virtualchain.BitcoinPrivateKey(private_key_info).public_key().address()
+        payer_utxos = get_unspents(payer_address, utxo_client) 
         return payer_address, payer_utxos
 
     if is_multisig(private_key_info):
