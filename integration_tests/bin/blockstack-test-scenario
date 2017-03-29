@@ -29,6 +29,7 @@ import argparse
 blockstack = None
 blockstackd = None
 testlib = None
+g_interactive = False
 
 import pybitcoin
 
@@ -529,6 +530,26 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     pinger = Pinger()
     pinger.start()
 
+    # shutdown procedure 
+    def shutdown_procedure(*args, **kw):
+        network_stop()
+        atlas_stop( atlas_state )
+        storage_stop()
+        bitcoin_stop()
+        blockstack_client.rpc.local_api_stop(client_config_dir)
+        
+        if pinger:
+            pinger.ask_join()
+            pinger.join()
+
+    def signal_shutdown_procedure(*args, **kw):
+        shutdown_procedure()
+        exit(1)
+
+    signal.signal(signal.SIGINT, signal_shutdown_procedure)
+    signal.signal(signal.SIGQUIT, signal_shutdown_procedure)
+    signal.signal(signal.SIGTERM, signal_shutdown_procedure)
+
     # do we need to refreshdb?
     rpcclient = testlib.TestAPIProxy()
     res = rpcclient.getinfo()
@@ -559,14 +580,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         log.exception(e)
         traceback.print_exc()
         log.error("Failed to run scenario '%s'" % scenario.__name__)
-        network_stop()
-        atlas_stop( atlas_state )
-        storage_stop()
-        bitcoin_stop()
-        blockstack_client.rpc.local_api_stop(client_config_dir)
-
-        pinger.ask_join()
-        pinger.join()
+        shutdown_procedure()
         return False
 
     if rc == False:
@@ -574,9 +588,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         log.error("Scenario exits in error")
         blockstack_client.rpc.local_api_stop(client_config_dir)
         log.error("Failed to run tests '%s'" % scenario.__name__)
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
+        shutdown_procedure()
         return False
 
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
@@ -592,16 +604,11 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         traceback.print_exc()
         blockstack_client.rpc.local_api_stop(client_config_dir)
         log.error("Failed to run tests '%s'" % scenario.__name__)
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
+        shutdown_procedure()
         return False 
     
     if not rc:
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
-        blockstack_client.rpc.local_api_stop(client_config_dir)
+        shutdown_procedure()
         return rc
 
     # do any more interactive tests
@@ -620,9 +627,13 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     pinger.ask_join()
     pinger.join()
+    pinger = None
 
     # stop atlas support 
     atlas_stop( atlas_state )
+    if interactive:
+        shutdown_procedure()
+        return True
 
     log.info("\n\nScenario checks passed; verifying history\n\n")
 
@@ -634,10 +645,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         assert rc, "History check failed"
     except Exception, e:
         log.exception(e)
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
-        blockstack_client.rpc.local_api_stop(client_config_dir)
+        shutdown_procedure()
         return rc
 
     log.info("History check passes!")
@@ -654,10 +662,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         assert rc, "SNV check failed"
     except Exception, e:
         log.exception(e)
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
-        blockstack_client.rpc.local_api_stop(client_config_dir)
+        shutdown_procedure()
         return rc
 
     log.info("SNV check passes!")
@@ -668,10 +673,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     if atlas_state is not None:
         rc = testlib.check_atlas_zonefiles( db, blockstack_opts['atlasdb_path'] )
         if not rc:
-            network_stop()
-            storage_stop()
-            bitcoin_stop()
-            blockstack_client.rpc.local_api_stop(client_config_dir)
+            shutdown_procedure()
             return rc
 
         log.info("Atlas zonefile checks pass!")
@@ -681,20 +683,13 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     rc = testlib.check_data_urls()
     if not rc:
         log.error("Data URL check fails")
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
-        blockstack_client.rpc.local_api_stop(client_config_dir)
+        shutdown_procedure()
         return rc
 
     log.info("Data URL check pass!")
     """
 
-    network_stop()
-    storage_stop()
-    bitcoin_stop()
-    blockstack_client.rpc.local_api_stop(client_config_dir)
-    TEST_RESULT = True
+    shutdown_procedure()
     return True
 
 
@@ -964,6 +959,7 @@ if __name__ == "__main__":
 
     if hasattr(args, "blocktime") and args.blocktime is not None:
         interactive = True
+        g_interactive = True
         blocktime = args.blocktime
         log.debug("Interactive session; block time is %s" % blocktime)
 
