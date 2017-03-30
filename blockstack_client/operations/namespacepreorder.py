@@ -130,7 +130,7 @@ def make_transaction( namespace_id, register_addr, fee, consensus_hash, preorder
 
    assert is_namespace_valid(namespace_id)
    assert len(consensus_hash) == LENGTH_CONSENSUS_HASH * 2
-   assert keylib.b58check.b58check_version_byte( preorder_addr ) == virtualchain.version_byte, "Only p2pkh reveal addresses are supported"
+   assert keylib.b58check.b58check_version_byte( preorder_addr ) == virtualchain.version_byte, "Only p2pkh reveal addresses are supported (got {})".format(preorder_addr)
 
    script_pubkey = virtualchain.make_payment_script( preorder_addr )
    nulldata = build( namespace_id, script_pubkey, register_addr, consensus_hash )

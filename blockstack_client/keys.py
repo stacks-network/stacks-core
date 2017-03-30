@@ -426,7 +426,7 @@ def decrypt_multisig_info(enc_multisig_info, password):
         pk = None
         try:
             pk = aes_decrypt(enc_pk, hex_password)
-            virtualchain.BitcoinPrivateKey(pk)
+            ECPrivateKey(pk)
         except Exception as e:
             if BLOCKSTACK_TEST or BLOCKSTACK_DEBUG:
                 log.exception(e)
@@ -464,9 +464,9 @@ def encrypt_private_key_info(privkey_info, password):
 
     ret = {}
     if is_multisig(privkey_info):
-        ret['address'] = virtualchain.make_multisig_address(
+        ret['address'] = virtualchain.address_reencode( virtualchain.make_multisig_address(
             privkey_info['redeem_script']
-        )
+        ))
         ret['private_key_info'] = encrypt_multisig_info(
             privkey_info, password
         )
@@ -474,7 +474,7 @@ def encrypt_private_key_info(privkey_info, password):
         return {'status': True, 'encrypted_private_key_info': ret}
 
     if is_singlesig(privkey_info):
-        ret['address'] = virtualchain.BitcoinPrivateKey(privkey_info).public_key().address()
+        ret['address'] = virtualchain.address_reencode( ECPrivateKey(privkey_info).public_key().address() )
 
         hex_password = hexlify(password)
         ret['private_key_info'] = aes_encrypt(privkey_info, hex_password)
@@ -519,7 +519,7 @@ def decrypt_private_key_info(privkey_info, password):
 
             return {'error': 'Invalid password'}
 
-        return {'address': virtualchain.BitcoinPrivateKey(pk).public_key().address(), 'private_key_info': pk}
+        return {'address': virtualchain.address_reencode(ECPrivateKey(pk).public_key().address()), 'private_key_info': pk}
 
     return {'error': 'Invalid encrypted private key info'}
 
@@ -539,20 +539,20 @@ def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None
         if not is_singlesig(data_privkey):
             raise ValueError('Invalid data key info')
 
-        pk_data = virtualchain.BitcoinPrivateKey(data_privkey).to_hex()
+        pk_data = ECPrivateKey(data_privkey).to_hex()
         ret['data_privkey'] = pk_data
 
     if owner_privkey is not None:
         if is_multisig(owner_privkey):
-            pks = [virtualchain.BitcoinPrivateKey(pk).to_hex() for pk in owner_privkey['private_keys']]
+            pks = [ECPrivateKey(pk).to_hex() for pk in owner_privkey['private_keys']]
             m, pubs = virtualchain.parse_multisig_redeemscript(owner_privkey['redeem_script'])
             ret['owner_privkey'] = virtualchain.make_multisig_info(m, pks)
             ret['owner_addresses'] = [ret['owner_privkey']['address']]
 
         elif is_singlesig(owner_privkey):
-            pk_owner = virtualchain.BitcoinPrivateKey(owner_privkey).to_hex()
+            pk_owner = ECPrivateKey(owner_privkey).to_hex()
             ret['owner_privkey'] = pk_owner
-            ret['owner_addresses'] = [virtualchain.BitcoinPrivateKey(pk_owner).public_key().address()]
+            ret['owner_addresses'] = [virtualchain.address_reencode(ECPrivateKey(pk_owner).public_key().address())]
 
         else:
             raise ValueError('Invalid owner key info')
@@ -561,15 +561,15 @@ def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None
         return ret
 
     if is_multisig(payment_privkey):
-        pks = [virtualchain.BitcoinPrivateKey(pk).to_hex() for pk in payment_privkey['private_keys']]
+        pks = [ECPrivateKey(pk).to_hex() for pk in payment_privkey['private_keys']]
         m, pubs = virtualchain.parse_multisig_redeemscript(payment_privkey['redeem_script'])
         ret['payment_privkey'] = virtualchain.make_multisig_info(m, pks)
         ret['payment_addresses'] = [ret['payment_privkey']['address']]
 
     elif is_singlesig(payment_privkey):
-        pk_payment = virtualchain.BitcoinPrivateKey(payment_privkey).to_hex()
+        pk_payment = ECPrivateKey(payment_privkey).to_hex()
         ret['payment_privkey'] = pk_payment
-        ret['payment_addresses'] = [virtualchain.BitcoinPrivateKey(pk_payment).public_key().address()]
+        ret['payment_addresses'] = [virtualchain.address_reencode(ECPrivateKey(pk_payment).public_key().address())]
 
     else:
         raise ValueError('Invalid payment key info')
@@ -688,7 +688,7 @@ def get_privkey_info_address(privkey_info):
         return
 
     if is_singlesig(privkey_info):
-        return virtualchain.BitcoinPrivateKey(privkey_info).public_key().address()
+        return virtualchain.address_reencode(ECPrivateKey(privkey_info).public_key().address())
 
     if is_multisig(privkey_info):
         return virtualchain.make_multisig_address(privkey_info['redeem_script'])
@@ -758,7 +758,7 @@ def get_pubkey_addresses(pubkey):
     else:
         raise Exception('Invalid public key')
 
-    return compressed_address, uncompressed_address
+    return virtualchain.address_reencode(compressed_address), virtualchain.address_reencode(uncompressed_address)
 
 
 def get_pubkey_hex( privatekey_hex ):
@@ -804,7 +804,7 @@ def get_uncompressed_private_and_public_keys( privkey_str ):
     Get the private and public keys from a private key string.
     Make sure the both are *uncompressed*
     """
-    pk = virtualchain.BitcoinPrivateKey(str(privkey_str))
+    pk = ECPrivateKey(str(privkey_str))
     pk_hex = pk.to_hex()
 
     # force uncompressed
@@ -812,7 +812,7 @@ def get_uncompressed_private_and_public_keys( privkey_str ):
         assert pk_hex[-2:] == '01'
         pk_hex = pk_hex[:64]
 
-    pubk_hex = virtualchain.BitcoinPrivateKey(pk_hex).public_key().to_hex()
+    pubk_hex = ECPrivateKey(pk_hex).public_key().to_hex()
     return pk_hex, pubk_hex
 
 

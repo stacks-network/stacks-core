@@ -302,7 +302,7 @@ def decrypt_wallet_legacy(data, key_defaults, password):
             default_privkey = key_defaults[keyname]
             new_wallet[keyname_privkey] = default_privkey
             new_wallet[keyname_addresses] = [
-                virtualchain.BitcoinPrivateKey(default_privkey).public_key().address()
+                virtualchain.address_reencode( keylib.ECPrivateKey(default_privkey).public_key().address() )
             ]
 
     return {'status': True, 'wallet': new_wallet}
