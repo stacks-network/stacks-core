@@ -62,7 +62,7 @@ import backend.blockchain as backend_blockchain
 import proxy
 from proxy import json_is_error, json_is_exception
 
-from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT
+from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION
 from .method_parser import parse_methods
 import app
 import assets
@@ -2052,15 +2052,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'status': True})
 
 
-    def GET_ping( self, ses, path_info ):
-        """
-        Ping the node
-        always succeeds
-        """
-        self._send_headers(status_code=200, content_type='text/plain')
-        return
- 
-
     def GET_registrar_state( self, ses, path_info ):
         """
         Handle GET /v1/node/registrar/state
@@ -2338,7 +2329,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         ping
         """
-        self._reply_json({'status': 'alive'})
+        self._reply_json({'status': 'alive', 'version': SERIES_VERSION})
         return
 
 
@@ -3424,6 +3415,7 @@ class BlockstackAPIEndpointClient(object):
         self.session = session
         self.config_path = config_path
         self.config_dir = os.path.dirname(config_path)
+        self.remote_version = None
 
 
     def log_debug_timeline(self, event, key, r=-1):
@@ -3465,7 +3457,7 @@ class BlockstackAPIEndpointClient(object):
         try:
             resp = req.json()
         except:
-            resp = {'error': 'No JSON response; HTTP status {}'.format(req.status_code)}
+            resp = {'error': 'No JSON response', 'http_status': req.status_code}
 
         return resp
 
@@ -3479,6 +3471,26 @@ class BlockstackAPIEndpointClient(object):
         req = requests.get( 'http://{}:{}/v1/node/ping'.format(self.server, self.port), timeout=self.timeout, headers=headers)
         return self.get_response(req)
 
+
+    def check_version(self):
+        """
+        Verify that the remote server is up-to-date with this client
+        """
+        if self.remote_version:
+            # already did this 
+            return {'status': True}
+
+        res = self.ping()
+        if 'error' in res:
+            return {'error': 'Failed to ping server: {}'.format(res['error'])}
+
+        if res.get('version', None) != SERIES_VERSION:
+            return {'error': 'Obsolete API server (version {}).  Please restart it with `blockstack api restart`.'.format(res.get('version', '<unknown>'))}
+
+        log.debug("Remote API endpoint is running version {}".format(res['version']))
+        self.remote_version = res['version']
+        return {'status': True}
+
     
     def backend_set_wallet(self, wallet_keys):
         """
@@ -3487,6 +3499,11 @@ class BlockstackAPIEndpointClient(object):
         Return {'error': ...} on error
         """
         assert not is_api_server(self.config_dir), 'API server should not call this method'
+
+        res = self.check_version()
+        if 'error' in res:
+            return res
+
         headers = self.make_request_headers()
         req = requests.put( 'http://{}:{}/v1/wallet/keys'.format(self.server, self.port), timeout=self.timeout, data=json.dumps(wallet), headers=headers )
         return self.get_response(req)
@@ -3499,6 +3516,11 @@ class BlockstackAPIEndpointClient(object):
         Return {'error': ...} on error
         """
         assert not is_api_server(self.config_dir), 'API server should not call this method'
+
+        res = self.check_version()
+        if 'error' in res:
+            return res
+
         headers = self.make_request_headers()
         req = requests.get( 'http://{}:{}/v1/wallet/keys'.format(self.server, self.port), timeout=self.timeout, headers=headers )
         return self.get_response(req)
@@ -3515,6 +3537,10 @@ class BlockstackAPIEndpointClient(object):
             return backend.registrar.state()
 
         else:
+            res = self.check_version()
+            if 'error' in res:
+                return res
+
             # ask API server
             headers = self.make_request_headers()
             req = requests.get( 'http://{}:{}/v1/node/registrar/state'.format(self.server, self.port), timeout=self.timeout, headers=headers)
@@ -3531,6 +3557,10 @@ class BlockstackAPIEndpointClient(object):
             return backend.registrar.preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs, tx_fee, config_path=self.config_path)
 
         else:
+            res = self.check_version()
+            if 'error' in res:
+                return res
+
             # ask API server
             data = {
                 'name': fqu,
@@ -3565,6 +3595,10 @@ class BlockstackAPIEndpointClient(object):
             return backend.registrar.update(fqu, zonefile_txt,  profile, zonefile_hash, None, tx_fee, config_path=self.config_path)
 
         else:
+            res = self.check_version()
+            if 'error' in res:
+                return res
+
             # ask the API server
             headers = self.make_request_headers()
             data = {}
@@ -3597,6 +3631,10 @@ class BlockstackAPIEndpointClient(object):
             return backend.registrar.transfer(fqu, recipient_addr, tx_fee, config_path=self.config_path)
         
         else:
+            res = self.check_version()
+            if 'error' in res:
+                return res
+
             # ask the API server
             data = {
                 'owner': recipient_addr
@@ -3619,6 +3657,10 @@ class BlockstackAPIEndpointClient(object):
             return backend.registrar.renew(fqu, renewal_fee, tx_fee, config_path=self.config_path)
 
         else:
+            res = self.check_version()
+            if 'error' in res:
+                return res
+
             # ask the API server
             data = {
                 'name': fqu,
@@ -3641,6 +3683,10 @@ class BlockstackAPIEndpointClient(object):
             return backend.registrar.revoke(fqu, tx_fee, config_path=self.config_path)
 
         else:
+            res = self.check_version()
+            if 'error' in res:
+                return res
+
             # ask the API server
             headers = self.make_request_headers()
             req = requests.delete( 'http://{}:{}/v1/names/{}'.format(self.server, self.port, fqu), timeout=self.timeout, headers=headers)
@@ -3655,6 +3701,10 @@ class BlockstackAPIEndpointClient(object):
         assert not is_api_server(self.config_dir)
         if api_password:
             self.api_pass = api_password
+
+        res = self.check_version()
+        if 'error' in res:
+            return res
 
         headers = self.make_request_headers() 
         request = {
@@ -3685,6 +3735,10 @@ class BlockstackAPIEndpointClient(object):
             return data.put_datastore_info(datastore_info, datastore_sigs, root_tombstones, config_path=self.config_path)
 
         else:
+            res = self.check_version()
+            if 'error' in res:
+                return res
+
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             request = {
@@ -3707,6 +3761,10 @@ class BlockstackAPIEndpointClient(object):
             return data.get_datastore(datastore_id, device_ids=device_ids, config_path=self.config_path)
 
         else:
+            res = self.check_version()
+            if 'error' in res:
+                return res
+
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             url = 'http://{}:{}/v1/stores/{}'.format(self.server, self.port, datastore_id)
@@ -3729,6 +3787,10 @@ class BlockstackAPIEndpointClient(object):
             return data.delete_datastore_info(datastore_id, datastore_tombstones, root_tombstones, force=False, config_path=self.config_path )
 
         else:
+            res = self.check_version()
+            if 'error' in res:
+                return res
+
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             request = {
@@ -3752,6 +3814,10 @@ class BlockstackAPIEndpointClient(object):
             return data.inode_path_lookup(datastore, path, data_pubkey, get_idata=idata, force=force, config_path=self.config_path )
 
         else:
+            res = self.check_version()
+            if 'error' in res:
+                return res
+
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             datastore_id = data.datastore_get_id(data_pubkey)
@@ -3783,6 +3849,10 @@ class BlockstackAPIEndpointClient(object):
             return data.get_inode_data(data.datastore_get_id(datastore['pubkey']), inode_uuid, 0, datastore['pubkey'], datastore['drivers'], datastore['device_ids'], idata=idata, config_path=self.config_path )
 
         else:
+            res = self.check_version()
+            if 'error' in res:
+                return res
+
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             datastore_id = data.datastore_get_id(data_pubkey)
@@ -3804,6 +3874,10 @@ class BlockstackAPIEndpointClient(object):
             return data.datastore_mkdir_put_inodes( datastore, path, inodes, payloads, signatures, tombstones, config_path=self.config_path )
     
         else:
+            res = self.check_version()
+            if 'error' in res:
+                return res
+
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             request = {
@@ -3830,6 +3904,10 @@ class BlockstackAPIEndpointClient(object):
             return data.datastore_putfile_put_inodes( datastore, path, inodes, payloads, signatures, tombstones, create=create, exist=exist, config_path=self.config_path )
 
         else:
+            res = self.check_version()
+            if 'error' in res:
+                return res
+
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             request = {
@@ -3859,6 +3937,10 @@ class BlockstackAPIEndpointClient(object):
             return data.datastore_rmdir_put_inodes( datastore, path, inodes, payloads, signatures, tombstones, config_path=self.config_path )
 
         else:
+            res = self.check_version()
+            if 'error' in res:
+                return res
+
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             request = {
@@ -3885,6 +3967,10 @@ class BlockstackAPIEndpointClient(object):
             return data.datastore_deletefile_put_inodes( datastore, path, inodes, payloads, signatures, tombstones, config_path=self.config_path, force=force )
 
         else:
+            res = self.check_version()
+            if 'error' in res:
+                return res
+
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             request = {
@@ -3911,6 +3997,10 @@ class BlockstackAPIEndpointClient(object):
             return data.datastore_rmtree_put_inodes( datastore, inoes, payloads, signatures, tombstones, config_path=self.config_path )
 
         else:
+            res = self.check_version()
+            if 'error' in res:
+                return res
+
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             request = {
@@ -4181,7 +4271,15 @@ def local_api_start_wait( api_host='localhost', api_port=DEFAULT_API_PORT, confi
         log.debug("Attempt {} to ping API server".format(i))
         try:
             local_proxy = local_api_connect(api_host=api_host, api_port=api_port, config_path=config_path)
-            local_proxy.ping()
+            res = local_proxy.check_version()
+            if 'error' in res:
+                print(res['error'], file=sys.stderr)
+                return False
+
+            if res.get('version', None) != SERIES_VERSION:
+                print("Obsolete API server (version {}).  Please restart it with `blocksatck api restart`.".format(res.get('version', '<unknown>')), file=sys.stderr)
+                return False
+
             running = True
             break
         except requests.ConnectionError as ie:
