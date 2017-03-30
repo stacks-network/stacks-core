@@ -21,13 +21,7 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import pybitcoin
-from pybitcoin import embed_data_in_blockchain, \
-    serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, serialize_transaction
-
- 
-from pybitcoin.transactions.outputs import calculate_change_amount
+import keylib
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
@@ -81,7 +75,7 @@ def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b
     
     return [
         # main output
-        {"script_hex": make_op_return_script(str(data), format='hex'),
+        {"script_hex": virtualchain.make_data_script(str(data)),
          "value": 0},
     
         # recipient output
@@ -94,7 +88,7 @@ def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b
         
         # change output
         {"script_hex": virtualchain.make_payment_script(sender_address),
-         "value": calculate_change_amount(inputs, op_fee, dust_fee)}
+         "value": virtualchain.calculate_change_amount(inputs, op_fee, dust_fee)}
     ]
 
 
@@ -112,7 +106,7 @@ def make_transaction(name, recipient_address, update_hash, import_addr, blockcha
     nulldata = build(name)
     
     # convert update_hash from a hex string so it looks like an address
-    update_hash_b58 = pybitcoin.b58check_encode( unhexlify(update_hash), version_byte=virtualchain.version_byte )
+    update_hash_b58 = keylib.b58check_encode( unhexlify(update_hash), version_byte=virtualchain.version_byte )
     inputs = tx_get_unspents( import_addr, blockchain_client )
     if safety:
         assert len(inputs) > 0

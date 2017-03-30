@@ -21,12 +21,6 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import pybitcoin
-from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, hex_hash160
-
-from pybitcoin.transactions.outputs import calculate_change_amount
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
@@ -108,7 +102,7 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
   
     outputs = [
         # main output
-        {"script_hex": make_op_return_script(str(data), format='hex'),
+        {"script_hex": virtualchain.make_data_script(str(data)),
          "value": 0},
     
         # register address
@@ -117,7 +111,7 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
         
         # change address (can be the subsidy address)
         {"script_hex": virtualchain.make_payment_script(change_addr),
-         "value": calculate_change_amount(change_inputs, bill, dust_fee)},
+         "value": virtualchain.calculate_change_amount(change_inputs, bill, dust_fee)},
     ]
     
     if renewal_fee is not None:
