@@ -570,7 +570,7 @@ class RegistrarWorker(threading.Thread):
             
         servers = list(set([str(hp) for hp in servers]))
 
-        if 'node.blockstack.org:6264' not in servers:
+        if 'node.blockstack.org:6264' not in servers and not BLOCKSTACK_TEST:
             log.warning("Also including node.blockstack.org:6264 for Atlas zone file dissimination")
             servers.append("node.blockstack.org:6264")
 
