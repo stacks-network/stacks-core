@@ -41,6 +41,7 @@ import urllib
 import urlparse
 import subprocess
 import signal
+import atexit
 
 import blockstack.blockstackd as blockstackd
 
@@ -544,17 +545,6 @@ def blockstack_client_set_wallet( password, payment_privkey, owner_privkey, data
         log.error("Failed to initialize wallet: %s" % wallet['error'])
         raise Exception("Failed to initialize wallet")
 
-    '''
-    print "\nStopping API daemon\n"
-    res = blockstack_client.rpc.local_api_stop(config_dir=config_dir)
-    if not res:
-        raise Exception("Failed to stop API daemon")
-
-    print "\nStarting API daemon\n"
-    res = blockstack_client.rpc.local_api_start(api_pass=conf['api_password'], port=int(conf['api_endpoint_port']), config_dir=os.path.dirname(config_path), password="0123456789abcdef")
-    if not res:
-        raise Exception("Failed to restart API daemon")
-    '''
     return wallet
 
 
@@ -2182,8 +2172,11 @@ def start_api(password):
     port = int(conf['api_endpoint_port'])
     api_pass = conf['api_password']
 
-    blockstack_client.rpc.local_api_start(api_pass=api_pass, port=port, config_dir=os.path.dirname(config_path), password="0123456789abcdef")
-    return
+    res = blockstack_client.rpc.local_api_start(api_pass=api_pass, port=port, config_dir=os.path.dirname(config_path), password="0123456789abcdef")
+    if not res:
+        return {'error': 'Failed to start API server'}
+
+    return {'status': True}
 
     
 def instantiate_wallet():
@@ -2200,7 +2193,9 @@ def instantiate_wallet():
     port = int(conf['api_endpoint_port'])
     api_pass = conf['api_password']
 
-    blockstack_client.rpc.local_api_start(api_pass=api_pass, port=port, config_dir=os.path.dirname(config_path), password="0123456789abcdef")
+    res = blockstack_client.rpc.local_api_start(api_pass=api_pass, port=port, config_dir=os.path.dirname(config_path), password="0123456789abcdef")
+    if not res:
+        return {'error': 'Failed to start API server'}
 
     wallet_info = blockstack_client.actions.get_wallet_with_backoff(config_path)
     if 'error' in wallet_info:
@@ -3236,4 +3231,70 @@ def verify_in_queue( ses, name, queue_name, tx_hash, expected_length=1 ):
 
 
     return True
+
+
+def nodejs_cleanup(dirp):
+    """
+    Clean up nodejs test
+    """
+    if not os.path.exists(dirp):
+        return True
+
+    print "Clean up Node install at {}".format(dirp)
+    shutil.rmtree(dirp)
+    return True
+
+
+def nodejs_setup():
+    """
+    Set up a working directory for testing Blockstack node.js packages
+    """
+    for prog in ['npm', 'node', 'babel', 'browserify']:
+        rc = os.system('which {}'.format(prog))
+        if rc != 0:
+            raise Exception("Could not find program {}".format(prog))
+
+    tmpdir = tempfile.mkdtemp()
+    atexit.register(nodejs_cleanup, tmpdir)
+    
+    print "Node install at {}".format(tmpdir)
+    return tmpdir
+
+
+def nodejs_copy_package( testdir, package_name ):
+    """
+    Copy the contents of a package into the test directory
+    """
+    node_package_path = '/usr/lib/node_modules/{}'.format(package_name)
+    if not os.path.exists(node_package_path):
+        raise Exception("Missing node package {}: no directory {}".format(package_name, node_package_path))
+
+    rc = os.system('cp -a "{}"/* "{}"'.format(node_package_path, testdir))
+    if rc != 0:
+        raise Exception("Failed to copy {} to {}".format(node_package_path, testdir))
+
+    return True
+
+
+def nodejs_link_package( testdir, package_name ):
+    """
+    Link a dependency to a package
+    """
+    rc = os.system('cd "{}" && npm link "{}"'.format(testdir, package_name))
+    if rc != 0:
+        raise Exception("Failed to link {} to {}".format(package_name, testdir))
+    
+    return True
+
+
+def nodejs_run_test( testdir, test_name="core-test" ):
+    """
+    Run a nodejs test
+    """
+    rc = os.system('cd "{}" && npm run {}'.format(testdir, test_name))
+    if rc != 0:
+        raise Exception("Test {} failed".format(test_name))
+
+    return True
+
 
