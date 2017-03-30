@@ -32,7 +32,6 @@ import bitcoin
 import sys
 import copy
 import json
-import gnupg
 import time
 import blockstack_zones
 import base64
@@ -2742,32 +2741,6 @@ def last_block( **kw ):
     global state_engine
     return state_engine.lastblock
 
-def make_gpg_test_keys(num_keys, **kw ):
-    """
-    Set up a test gpg keyring directory.
-    Return the list of key fingerprints.
-    """
-    keydir = gpg_key_dir( **kw )
-    gpg = gnupg.GPG( gnupghome=keydir )
-    ret = []
-
-    for i in xrange(0, num_keys):
-        print "Generating GPG key %s" % i
-        key_input = gpg.gen_key_input()
-        key_res = gpg.gen_key( key_input )
-        ret.append( key_res.fingerprint )
-
-    return ret
-
-def get_gpg_key( key_id, **kw ):
-    """
-    Get the GPG key 
-    """
-    keydir = os.path.join(kw['working_dir'], "keys")
-    gpg = gnupg.GPG( gnupghome=keydir )
-    keydat = gpg.export_keys( [key_id] )
-    return keydat
-    
 
 def put_test_data( relpath, data, **kw ):
     """
