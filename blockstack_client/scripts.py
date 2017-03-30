@@ -283,7 +283,7 @@ def tx_make_input_signature(tx, idx, script, privkey_str, hashcode):
 
     Return the hex signature.
     """
-    pk = keylib.ECPrivateKey(str(privkey_str))
+    pk = ecdsa_private_key(str(privkey_str))
     pubk = pk.public_key()
     
     priv = pk.to_hex()
@@ -316,7 +316,7 @@ def tx_sign_multisig(tx, idx, redeem_script, private_keys, hashcode=bitcoin.SIGH
     # sign in the right order.  map all possible public keys to their private key 
     privs = {}
     for pk in private_keys:
-        pubk = keylib.ECPrivateKey(pk).public_key().to_hex()
+        pubk = ecdsa_private_key(pk).public_key().to_hex()
 
         compressed_pubkey = keylib.key_formatting.compress(pubk)
         uncompressed_pubkey = keylib.key_formatting.decompress(pubk)
@@ -356,7 +356,7 @@ def tx_sign_singlesig(tx, idx, private_key_info, hashcode=bitcoin.SIGHASH_ALL):
     NOTE: implemented here instead of bitcoin, since bitcoin.sign() can cause a stack overflow
     while converting the private key to a public key.
     """
-    pk = keylib.ECPrivateKey(str(private_key_info))
+    pk = ecdsa_private_key(str(private_key_info))
     pubk = pk.public_key()
 
     pub = pubk.to_hex()
@@ -432,7 +432,7 @@ def tx_get_address_and_utxos(private_key_info, utxo_client, address=None):
         return addr, unspents 
 
     if is_singlesig(private_key_info):
-        payer_address = virtualchain.address_reencode( keylib.ECPrivateKey(private_key_info).public_key().address() )
+        payer_address = virtualchain.address_reencode( ecdsa_private_key(private_key_info).public_key().address() )
         payer_utxos = get_unspents(payer_address, utxo_client) 
         return payer_address, payer_utxos
 

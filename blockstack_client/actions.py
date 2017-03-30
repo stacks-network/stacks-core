@@ -2204,7 +2204,7 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
 
     # make absolutely certain that these are valid keys or multisig key strings
     try:
-        owner_privkey_info = keylib.ECPrivateKey(str(args.owner_privkey)).to_hex()
+        owner_privkey_info = ecdsa_private_key(str(args.owner_privkey)).to_hex()
     except:
         log.debug("Owner private key string is not a valid Bitcoin private key")
         owner_privkey_info = parse_multisig_csv(args.owner_privkey)
@@ -2212,7 +2212,7 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
             return owner_privkey_info
 
     try:
-        payment_privkey_info = keylib.ECPrivateKey(str(args.payment_privkey)).to_hex()
+        payment_privkey_info = ecdsa_private_key(str(args.payment_privkey)).to_hex()
     except:
         log.debug("Payment private key string is not a valid Bitcoin private key")
         payment_privkey_info = parse_multisig_csv(args.payment_privkey)
@@ -2220,7 +2220,7 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
             return payment_privkey_info
 
     try:
-        data_privkey_info = keylib.ECPrivateKey(str(args.data_privkey)).to_hex()
+        data_privkey_info = ecdsa_private_key(str(args.data_privkey)).to_hex()
     except:
         log.error("Only single private keys are supported for data at this time")
         return {'error': 'Invalid data private key'}

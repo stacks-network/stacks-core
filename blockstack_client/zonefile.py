@@ -253,7 +253,8 @@ def load_data_pubkey_for_new_zonefile(wallet_keys={}, config_path=CONFIG_PATH):
 
     data_privkey = wallet_keys.get('data_privkey', None)
     if data_privkey is not None:
-        data_pubkey = ECPrivateKey(data_privkey).public_key().to_hex()
+        # force compressed
+        data_pubkey = ECPrivateKey(data_privkey, compressesd=True).public_key().to_hex()
         return data_pubkey
 
     data_pubkey = wallet_keys.get('data_pubkey', None)

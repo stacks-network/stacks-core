@@ -31,7 +31,6 @@ import shutil
 import virtualchain
 import copy
 
-from keylib import ECPrivateKey
 from socket import error as socket_error
 from getpass import getpass
 from binascii import hexlify
@@ -83,28 +82,38 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
     if not test_legacy:
         jsonschema.validate(decrypted_wallet, WALLET_SCHEMA_CURRENT)
 
+    owner_address = virtualchain.address_reencode( get_privkey_info_address(decrypted_wallet['owner_privkey']) )
+    payment_address = virtualchain.address_reencode( get_privkey_info_address(decrypted_wallet['payment_privkey']) )
+    data_pubkey = None
+    data_privkey_info = None
+
+    if decrypted_wallet.has_key('data_privkey'):
+
+        # make sure data key is hex encoded
+        data_privkey_info = decrypted_wallet.get('data_privkey', None)
+        if not test_legacy:
+            assert data_privkey_info
+
+        if data_privkey_info:
+            if not is_singlesig_hex(data_privkey_info):
+                data_privkey_info = ecdsa_private_key(data_privkey_info).to_hex()
+
+            if not is_singlesig(data_privkey_info):
+                log.error('Invalid data private key')
+                return {'error': 'Invalid data private key'}
+        
+        data_pubkey = ecdsa_private_key(data_privkey_info).public_key().to_hex()
+
+            
     wallet = {
-        'owner_addresses': decrypted_wallet['owner_addresses'],
+        'owner_addresses': [owner_address],
         'payment_addresses': decrypted_wallet['payment_addresses'],
-        'data_pubkey': decrypted_wallet['data_pubkey'],
-        'data_pubkeys': decrypted_wallet['data_pubkeys'],
+        'data_pubkey': data_pubkey,
+        'data_pubkeys': [data_pubkey],
         'version': decrypted_wallet['version'],
         'enc': None,        # to be filled in
     }
     
-    # make sure data key is hex encoded
-    data_privkey_info = decrypted_wallet.get('data_privkey', None)
-    if not test_legacy:
-        assert data_privkey_info
-
-    if data_privkey_info:
-        if not is_singlesig_hex(data_privkey_info):
-            data_privkey_info = ECPrivateKey(data_privkey_info).to_hex()
-
-        if not is_singlesig(data_privkey_info):
-            log.error('Invalid data private key')
-            return {'error': 'Invalid data private key'}
-
     wallet_enc = {
         'owner_privkey': decrypted_wallet['owner_privkey'],
         'payment_privkey': decrypted_wallet['payment_privkey'],
@@ -149,15 +158,15 @@ def make_wallet(password, config_path=CONFIG_PATH, payment_privkey_info=None, ow
     # default to 2-of-3 multisig key info if data isn't given
     payment_privkey_info = virtualchain.make_multisig_wallet(2, 3) if payment_privkey_info is None and not test_legacy else payment_privkey_info
     owner_privkey_info = virtualchain.make_multisig_wallet(2, 3) if owner_privkey_info is None and not test_legacy else owner_privkey_info
-    data_privkey_info = ECPrivateKey().to_wif() if data_privkey_info is None and not test_legacy else data_privkey_info
+    data_privkey_info = ecdsa_private_key().to_wif() if data_privkey_info is None and not test_legacy else data_privkey_info
 
     decrypted_wallet = {
         'owner_addresses': [get_privkey_info_address(owner_privkey_info)],
         'owner_privkey': owner_privkey_info,
         'payment_addresses': [get_privkey_info_address(payment_privkey_info)],
         'payment_privkey': payment_privkey_info,
-        'data_pubkey': ECPrivateKey(data_privkey_info).public_key().to_hex(),
-        'data_pubkeys': [ECPrivateKey(data_privkey_info).public_key().to_hex()],
+        'data_pubkey': ecdsa_private_key(data_privkey_info).public_key().to_hex(),
+        'data_pubkeys': [ecdsa_private_key(data_privkey_info).public_key().to_hex()],
         'data_privkey': data_privkey_info,
         'version': SERIES_VERSION,
     }
@@ -302,7 +311,7 @@ def decrypt_wallet_legacy(data, key_defaults, password):
             default_privkey = key_defaults[keyname]
             new_wallet[keyname_privkey] = default_privkey
             new_wallet[keyname_addresses] = [
-                virtualchain.address_reencode( keylib.ECPrivateKey(default_privkey).public_key().address() )
+                virtualchain.address_reencode( keylib.ecdsa_private_key(default_privkey, compressed=False).public_key().address() )
             ]
 
     return {'status': True, 'wallet': new_wallet}
@@ -451,31 +460,6 @@ def decrypt_wallet(data, password, config_path=CONFIG_PATH):
     legacy_014 = (wallet_info['format'] == 'legacy_014')
     migrated = wallet_info['migrate']
 
-    # must match either current schema or legacy schema 
-    try:
-        jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_CURRENT)
-    except ValidationError as ve:
-        # maybe legacy?
-        try:
-            jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_LEGACY)
-            legacy = True
-        except ValidationError, ve2:
-            try:
-                jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_LEGACY_013)
-                legacy_013 = True
-            except ValidationError, ve3:
-                try:
-                    jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_LEGACY_014)
-                    legacy_014 = True
-                except ValidationError, ve4:
-                    if BLOCKSTACK_TEST:
-                        log.exception(ve2)
-                        log.exception(ve3)
-                        log.exception(ve4)
-           
-                    log.error('Invalid wallet data')
-                    return {'error': 'Invalid wallet data'}
-
     any_legacy = (legacy or legacy_013 or legacy_014)
 
     legacy_hdwallet = None
@@ -523,7 +507,7 @@ def decrypt_wallet(data, password, config_path=CONFIG_PATH):
     # post-decryption formatting
     # make sure data key is an uncompressed public key
     assert new_wallet.has_key('data_privkey')
-    data_pubkey = ECPrivateKey(str(new_wallet['data_privkey'])).public_key().to_hex()
+    data_pubkey = ecdsa_private_key(str(new_wallet['data_privkey'])).public_key().to_hex()
     if keylib.key_formatting.get_pubkey_format(data_pubkey) == 'hex_compressed':
         data_pubkey = keylib.key_formatting.decompress(data_pubkey)
 
@@ -843,9 +827,9 @@ def unlock_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None):
             return res
 
         addresses = {
-            'payment_address': wallet['payment_addresses'][0],
-            'owner_address': wallet['owner_addresses'][0],
-            'data_pubkey': wallet['data_pubkeys'][0]
+            'payment_address': virtualchain.address_reencode(wallet['payment_addresses'][0]),
+            'owner_address': virtualchain.address_reencode(wallet['owner_addresses'][0]),
+            'data_pubkey': virtualchain.address_reencode(wallet['data_pubkeys'][0])
         }
 
         return {'status': True, 'addresses': addresses}
@@ -975,11 +959,11 @@ def get_addresses_from_file(config_dir=CONFIG_DIR, wallet_path=None):
    
     # extract addresses
     if data.has_key('payment_addresses'):
-        payment_address = str(data['payment_addresses'][0])
+        payment_address = virtualchain.address_reencode(str(data['payment_addresses'][0]))
     if data.has_key('owner_addresses'):
-        owner_address = str(data['owner_addresses'][0])
+        owner_address = virtualchain.address_reencode(str(data['owner_addresses'][0]))
     if data.has_key('data_pubkeys'):
-        data_pubkey = str(data['data_pubkeys'][0])
+        data_pubkey = virtualchain.address_reencode(str(data['data_pubkeys'][0]))
 
     return payment_address, owner_address, data_pubkey
 

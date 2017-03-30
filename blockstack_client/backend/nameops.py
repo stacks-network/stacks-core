@@ -62,7 +62,7 @@ from ..storage import get_blockchain_compat_hash, hash_zonefile, put_announcemen
 from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration, fees_preorder, \
         fees_namespace_preorder, fees_namespace_reveal, fees_namespace_ready, fees_announce
 
-from ..keys import get_privkey_info_address, get_privkey_info_params
+from ..keys import get_privkey_info_address, get_privkey_info_params, ecdsa_private_key
 
 from .safety import *
 
@@ -614,7 +614,7 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
     assert payment_address
     payment_address = str(payment_address)
 
-    fake_privkey = keylib.ECPrivateKey('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_PREORDER only supports p2pkh)
+    fake_privkey = ecdsa_private_key('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_PREORDER only supports p2pkh)
     fake_reveal_address = virtualchain.address_reencode('1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q')
     fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
 
@@ -649,7 +649,7 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
     assert payment_address
     payment_address = str(payment_address)
 
-    fake_privkey = keylib.ECPrivateKey('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_REVEAL only supports p2pkh)
+    fake_privkey = ecdsa_private_key('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_REVEAL only supports p2pkh)
     fake_reveal_address = virtualchain.address_reencode('1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q')
 
     try:
@@ -690,7 +690,7 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
     assert reveal_addr
     reveal_addr = str(reveal_addr)
 
-    fake_privkey = keylib.ECPrivateKey('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_READY only supports p2pkh)
+    fake_privkey = ecdsa_private_key('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_READY only supports p2pkh)
 
     try:
         unsigned_tx = namespace_ready_tx( namespace_id, reveal_addr, utxo_client )
@@ -1361,7 +1361,7 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
     payment_address = None
 
     try:
-        payment_address = virtualchain.address_reencode( keylib.ECPrivateKey( importer_privkey_info ).public_key().address() )
+        payment_address = virtualchain.address_reencode( ecdsa_private_key( importer_privkey_info ).public_key().address() )
     except Exception, e:
         log.exception(e)
         return {'error': 'Import can only use a single private key with a P2PKH script'}
@@ -1403,7 +1403,7 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
     payment_address = None
 
     try:
-        payment_address = virtualchain.address_reencode( keylib.ECPrivateKey( payment_privkey_info ).public_key().address() )
+        payment_address = virtualchain.address_reencode( ecdsa_private_key( payment_privkey_info ).public_key().address() )
     except Exception, e:
         log.error("Invalid private key info")
         return {'error': 'Namespace preorder can only use a single private key with a P2PKH script'}
@@ -1469,7 +1469,7 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
     payment_address = None
 
     try:
-        payment_address = virtualchain.address_reencode( keylib.ECPrivateKey( payment_privkey_info ).public_key().address() )
+        payment_address = virtualchain.address_reencode( ecdsa_private_key( payment_privkey_info ).public_key().address() )
     except:
         log.error("Invalid private key info")
         return {'error': 'Namespace reveal can only use a single private key with a P2PKH script'}
@@ -1520,7 +1520,7 @@ def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broad
     reveal_address = None
 
     try:
-        reveal_address = virtualchain.address_reencode(keylib.ECPrivateKey( reveal_privkey_info ).public_key().address())
+        reveal_address = virtualchain.address_reencode(ecdsa_private_key( reveal_privkey_info ).public_key().address())
     except:
         log.error("Invalid private key info")
         return {'error': 'Namespace ready can only use a single private key with a P2PKH script'}
