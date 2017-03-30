@@ -110,6 +110,7 @@ class TestAPIProxy(object):
 
         client_config = blockstack_client.get_config(client_path)
         
+        log.debug("Connect to Blockstack node at {}:{}".format(client_config['server'], client_config['port']))
         self.client = blockstack_client.BlockstackRPCClient( client_config['server'], client_config['port'] )
         self.config_path = client_path
         self.conf = {
@@ -128,6 +129,7 @@ class TestAPIProxy(object):
 
         if not os.path.exists(self.conf['metadata']):
             os.makedirs(self.conf['metadata'], 0700)
+
 
     def __getattr__(self, name):
         
