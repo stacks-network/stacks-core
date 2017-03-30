@@ -749,20 +749,26 @@ def bitcoin_regtest_reset():
 
     # wait for a few seconds for it to come up
     log.debug("Waiting for bitcoind to start up")
-
-    while True:
+    deadline = time.time() + 30
+    started = False
+    while time.time() < deadline:
         time.sleep(1)
         opts = bitcoin_regtest_opts()
         try:
 
             bitcoind = virtualchain.default_connect_bitcoind( opts )
             bitcoind.getinfo()
+            started = True
             break
 
         except socket.error:
             pass
         except JSONRPCException:
             pass
+
+    if not started:
+        log.error("Failed to connect to bitcoind")
+        return False
 
     # generate 150 blocks (50 BTC coinbase each), and confirm them
     bitcoind = virtualchain.connect_bitcoind(opts)
