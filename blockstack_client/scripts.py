@@ -24,13 +24,16 @@
 from binascii import hexlify, unhexlify
 from decimal import *
 
+import pybitcoin
 import bitcoin
 import ecdsa
 import hashlib
-import pybitcoin
 import virtualchain
 
-from pybitcoin.transactions.outputs import calculate_change_amount
+from hashlib import sha256
+from binascii import hexlify, unhexlify
+from utilitybelt import is_hex
+
 from virtualchain import tx_serialize, tx_deserialize, tx_script_to_asm, tx_output_parse_scriptPubKey
 
 from .b40 import *
@@ -47,6 +50,28 @@ class UTXOException(Exception):
 def add_magic_bytes(hex_script):
     return '{}{}'.format(hexlify(MAGIC_BYTES), hex_script)
 
+
+def bin_hash160(s, hex_format=False):
+    """ s is in hex or binary format
+    """
+    if hex_format and is_hex(s):
+        s = unhexlify(s)
+    return hashlib.new('ripemd160', bin_sha256(s)).digest()
+
+
+def hex_hash160(s, hex_format=False):
+    """ s is in hex or binary format
+    """
+    if hex_format and is_hex(s):
+        s = unhexlify(s)
+    return hexlify(bin_hash160(s))
+
+
+def bin_sha256(bin_s):
+    return sha256(bin_s).digest()
+
+def bin_double_sha256(bin_s):
+    return bin_sha256(bin_sha256(bin_s))
 
 def common_checks(n):
     """
@@ -157,29 +182,29 @@ def hash_name(name, script_pubkey, register_addr=None):
     if register_addr is not None:
         name_and_pubkey += str(register_addr)
 
-    return pybitcoin.hex_hash160(name_and_pubkey)
+    return hex_hash160(name_and_pubkey)
 
 
 def hash256_trunc128(data):
     """
     Hash a string of data by taking its 256-bit sha256 and truncating it to 128 bits.
     """
-    return hexlify(pybitcoin.hash.bin_sha256(data)[0:16])
+    return hexlify(bin_sha256(data)[0:16])
 
 
 def tx_output_is_op_return(output):
     """
     Is an output's script an OP_RETURN script?
     """
-    return int(output['script_hex'][0:2], 16) == pybitcoin.opcodes.OP_RETURN
+    return int(output['script_hex'][0:2], 16) == virtualchain.opcodes.OPCODE_VALUES['OP_RETURN']
 
 
 def tx_extend(partial_tx_hex, new_inputs, new_outputs):
     """
     Given an unsigned serialized transaction, add more inputs and outputs to it.
-    @new_inputs and @new_outputs will be pybitcoin-formatted:
+    @new_inputs and @new_outputs will be virtualchain-formatted:
     * new_inputs[i] will have {'output_index': ..., 'script_hex': ..., 'transaction_hash': ...}
-    * new_outputs[i] will have {'script_hex': ..., 'value': ... (in satoshis!)}
+    * new_outputs[i] will have {'script_hex': ..., 'value': ... (in fundamental units, e.g. satoshis!)}
     """
 
     # recover tx
@@ -243,7 +268,7 @@ def tx_make_subsidization_output(payer_utxo_inputs, payer_address, op_fee, dust_
 
     return {
         'script_hex': virtualchain.make_payment_script(payer_address),
-        'value': calculate_change_amount(payer_utxo_inputs, op_fee, int(round(dust_fee)))
+        'value': virtualchain.calculate_change_amount(payer_utxo_inputs, op_fee, int(round(dust_fee)))
     }
 
 
@@ -507,12 +532,12 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
     tx = subsidy_info['tx']
     tx_inputs = tx['vin']
 
-    # NOTE: pybitcoin-formatted output; values are still in satoshis!
+    # NOTE: virtualchain-formatted output; values are still in satoshis!
     subsidy_output = tx_make_subsidization_output(
         payer_utxo_inputs, payer_address, op_fee, dust_fee + tx_fee
     )
 
-    # add our inputs and output (recall: pybitcoin-formatted; so values are satoshis)
+    # add our inputs and output (recall: virtualchain-formatted; so values are fundamental units (i.e. satoshis))
     subsidized_tx = tx_extend(blockstack_tx, payer_utxo_inputs, [subsidy_output])
 
     # sign each of our inputs with our key, but use
