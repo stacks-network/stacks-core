@@ -23,7 +23,6 @@
 
 # this module contains the high-level methods for talking to ancillary storage.
 
-import pybitcoin
 import keylib
 import re
 import os
@@ -44,7 +43,7 @@ import blockstack_profiles
 
 from config import get_logger
 from constants import CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
-from scripts import is_name_valid
+from scripts import is_name_valid, hex_hash160
 import schemas
 from keys import *
 
@@ -78,7 +77,7 @@ def get_zonefile_data_hash(data_txt):
     Generate a hash over a user's zonefile.
     Return the hex string.
     """
-    return pybitcoin.hex_hash160(data_txt)
+    return hex_hash160(data_txt)
 
 
 def get_blockchain_compat_hash(data_txt):
@@ -87,7 +86,7 @@ def get_blockchain_compat_hash(data_txt):
     the blockchain (e.g. for user zonefiles and
     announcements).
     """
-    return pybitcoin.hex_hash160(data_txt)
+    return hex_hash160(data_txt)
 
 
 def hash_zonefile(zonefile_json):
