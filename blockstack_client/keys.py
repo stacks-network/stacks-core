@@ -280,6 +280,18 @@ class RFC6979_blockstack(RFC6979):
         return self.gen_nonce_from_digest(h1)
 
 
+def ecdsa_private_key(privkey_str):
+    """
+    Make a private key, but enforce the following rule:
+    * unless the key's hex encoding specifically ends in '01', treat it as uncompressed.
+    """
+    compressed = False
+    if keylib.key_formatting.get_privkey_format(privkey_str).endswith('compressed'):
+        compressed = True
+
+    return ECPrivateKey(privkey_str, compressed=compressed)
+
+
 def is_multisig(privkey_info):
     """
     Does the given private key info represent
@@ -349,7 +361,7 @@ def singlesig_privkey_to_string(privkey_info):
     """
     Convert private key to string
     """
-    return ECPrivateKey(privkey_info).to_hex()
+    return ecdsa_private_key(privkey_info).to_hex()
 
 
 def multisig_privkey_to_string(privkey_info):
@@ -426,14 +438,14 @@ def decrypt_multisig_info(enc_multisig_info, password):
         pk = None
         try:
             pk = aes_decrypt(enc_pk, hex_password)
-            ECPrivateKey(pk)
+            ecdsa_private_key(pk)
         except Exception as e:
             if BLOCKSTACK_TEST or BLOCKSTACK_DEBUG:
                 log.exception(e)
 
             return {'error': 'Invalid password; failed to decrypt private key in multisig wallet'}
 
-        multisig_info['private_keys'].append(ECPrivateKey(pk).to_hex())
+        multisig_info['private_keys'].append(ecdsa_private_key(pk).to_hex())
 
     redeem_script = None
     enc_redeem_script = enc_multisig_info['encrypted_redeem_script']
@@ -474,7 +486,7 @@ def encrypt_private_key_info(privkey_info, password):
         return {'status': True, 'encrypted_private_key_info': ret}
 
     if is_singlesig(privkey_info):
-        ret['address'] = virtualchain.address_reencode( ECPrivateKey(privkey_info).public_key().address() )
+        ret['address'] = virtualchain.address_reencode( ecdsa_private_key(privkey_info).public_key().address() )
 
         hex_password = hexlify(password)
         ret['private_key_info'] = aes_encrypt(privkey_info, hex_password)
@@ -512,14 +524,14 @@ def decrypt_private_key_info(privkey_info, password):
         try:
             hex_password = hexlify(password)
             pk = aes_decrypt(privkey_info, hex_password)
-            pk = ECPrivateKey(pk).to_hex()
+            pk = ecdsa_private_key(pk).to_hex()
         except Exception as e:
             if BLOCKSTACK_TEST:
                 log.exception(e)
 
             return {'error': 'Invalid password'}
 
-        return {'address': virtualchain.address_reencode(ECPrivateKey(pk).public_key().address()), 'private_key_info': pk}
+        return {'address': virtualchain.address_reencode(ecdsa_private_key(pk).public_key().address()), 'private_key_info': pk}
 
     return {'error': 'Invalid encrypted private key info'}
 
@@ -539,20 +551,20 @@ def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None
         if not is_singlesig(data_privkey):
             raise ValueError('Invalid data key info')
 
-        pk_data = ECPrivateKey(data_privkey).to_hex()
+        pk_data = ecdsa_private_key(data_privkey).to_hex()
         ret['data_privkey'] = pk_data
 
     if owner_privkey is not None:
         if is_multisig(owner_privkey):
-            pks = [ECPrivateKey(pk).to_hex() for pk in owner_privkey['private_keys']]
+            pks = [ecdsa_private_key(pk).to_hex() for pk in owner_privkey['private_keys']]
             m, pubs = virtualchain.parse_multisig_redeemscript(owner_privkey['redeem_script'])
             ret['owner_privkey'] = virtualchain.make_multisig_info(m, pks)
             ret['owner_addresses'] = [ret['owner_privkey']['address']]
 
         elif is_singlesig(owner_privkey):
-            pk_owner = ECPrivateKey(owner_privkey).to_hex()
+            pk_owner = ecdsa_private_key(owner_privkey).to_hex()
             ret['owner_privkey'] = pk_owner
-            ret['owner_addresses'] = [virtualchain.address_reencode(ECPrivateKey(pk_owner).public_key().address())]
+            ret['owner_addresses'] = [virtualchain.address_reencode(ecdsa_private_key(pk_owner).public_key().address())]
 
         else:
             raise ValueError('Invalid owner key info')
@@ -561,20 +573,20 @@ def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None
         return ret
 
     if is_multisig(payment_privkey):
-        pks = [ECPrivateKey(pk).to_hex() for pk in payment_privkey['private_keys']]
+        pks = [ecdsa_private_key(pk).to_hex() for pk in payment_privkey['private_keys']]
         m, pubs = virtualchain.parse_multisig_redeemscript(payment_privkey['redeem_script'])
         ret['payment_privkey'] = virtualchain.make_multisig_info(m, pks)
         ret['payment_addresses'] = [ret['payment_privkey']['address']]
 
     elif is_singlesig(payment_privkey):
-        pk_payment = ECPrivateKey(payment_privkey).to_hex()
+        pk_payment = ecdsa_private_key(payment_privkey).to_hex()
         ret['payment_privkey'] = pk_payment
-        ret['payment_addresses'] = [virtualchain.address_reencode(ECPrivateKey(pk_payment).public_key().address())]
+        ret['payment_addresses'] = [virtualchain.address_reencode(ecdsa_private_key(pk_payment).public_key().address())]
 
     else:
         raise ValueError('Invalid payment key info')
 
-    ret['data_pubkey'] = ECPrivateKey(ret['data_privkey']).public_key().to_hex()
+    ret['data_pubkey'] = ecdsa_private_key(ret['data_privkey']).public_key().to_hex()
     ret['data_pubkeys'] = [ret['data_pubkey']]
 
     return ret
@@ -688,7 +700,7 @@ def get_privkey_info_address(privkey_info):
         return
 
     if is_singlesig(privkey_info):
-        return virtualchain.address_reencode(ECPrivateKey(privkey_info).public_key().address())
+        return virtualchain.address_reencode(ecdsa_private_key(privkey_info).public_key().address())
 
     if is_multisig(privkey_info):
         return virtualchain.make_multisig_address(privkey_info['redeem_script'])
@@ -804,7 +816,7 @@ def get_uncompressed_private_and_public_keys( privkey_str ):
     Get the private and public keys from a private key string.
     Make sure the both are *uncompressed*
     """
-    pk = ECPrivateKey(str(privkey_str))
+    pk = ecdsa_private_key(str(privkey_str))
     pk_hex = pk.to_hex()
 
     # force uncompressed
@@ -812,7 +824,7 @@ def get_uncompressed_private_and_public_keys( privkey_str ):
         assert pk_hex[-2:] == '01'
         pk_hex = pk_hex[:64]
 
-    pubk_hex = ECPrivateKey(pk_hex).public_key().to_hex()
+    pubk_hex = ecdsa_private_key(pk_hex).public_key().to_hex()
     return pk_hex, pubk_hex
 
 
