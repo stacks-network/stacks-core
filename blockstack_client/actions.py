@@ -102,8 +102,7 @@ from .constants import (
 from .b40 import is_b40
 from .storage import get_drivers_for_url, get_driver_urls, get_storage_handlers
 
-from pybitcoin import is_b58check_address, serialize_transaction
-from pybitcoin.transactions.outputs import calculate_change_amount
+from pybitcoin import serialize_transaction
 
 from .backend.blockchain import (
     get_balance, is_address_usable, get_utxos, broadcast_tx,
@@ -461,7 +460,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
                 return {'error': 'Cannot withdraw dust'}
             
         else:
-            change = calculate_change_amount(inputs, amt, tx_fee)
+            change = virtualchain.calculate_change_amount(inputs, amt, tx_fee)
 
         outputs = [
             {'script_hex': virtualchain.make_payment_script(recipient_addr),
@@ -2407,7 +2406,7 @@ def cli_consensus(args, config_path=CONFIG_PATH):
 
 def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
     """
-    command: api
+    command: api 
     help: Control the RESTful API endpoint
     arg: command (str) '"start", "start-foreground", "stop", or "status"'
     opt: wallet_password (str) 'The wallet password. Will prompt if required.'
