@@ -34,7 +34,6 @@ import base64
 from ConfigParser import SafeConfigParser
 
 import blockstack_zones
-import pybitcoin
 
 # stop common XML attacks 
 from defusedxml import xmlrpc

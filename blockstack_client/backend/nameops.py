@@ -24,7 +24,6 @@ import os
 import sys
 import json
 import simplejson
-import pybitcoin
 import traceback
 import time
 
@@ -74,7 +73,6 @@ log = get_logger("blockstack-client")
 class UTXOWrapper(object):
     """
     Class for wrapping a known list of UTXOs for a set of addresses.
-    Compatible with pybitcoin's UTXO service class.
     Requires get_unspents()
     """
     def __init__(self):
@@ -806,12 +804,12 @@ def address_privkey_match( address, privkey_params ):
     i.e. singlesig --> p2pkh address
     i.e. multisig --> p2sh address
     """
-    if privkey_params == (1,1) and pybitcoin.b58check_version_byte( str(address) ) != virtualchain.version_byte:
+    if privkey_params == (1,1) and keylib.b58check.b58check_version_byte( str(address) ) != virtualchain.version_byte:
         # invalid address, given parameters
         log.error("Address %s does not correspond to a single private key" % address)
         return False
 
-    elif (privkey_params[0] > 1 or privkey_params[1] > 1) and pybitcoin.b58check_version_byte( str(address) ) != virtualchain.multisig_version_byte:
+    elif (privkey_params[0] > 1 or privkey_params[1] > 1) and keylib.b58check.b58check_version_byte( str(address) ) != virtualchain.multisig_version_byte:
         # invalid address
         log.error("Address %s does not correspond to multisig private keys")
         return False

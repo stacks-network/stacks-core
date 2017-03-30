@@ -24,7 +24,6 @@
 import os
 import sys
 import virtualchain
-import pybitcoin
 import json
 import traceback
 
