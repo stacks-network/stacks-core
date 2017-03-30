@@ -460,10 +460,6 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     client_opts = blockstack_client.config.configure(config_file=client_config_file, interactive=False)
     utxo_opts = client_opts['blockchain-reader']
-   
-    # override multiprocessing options to ensure single-process behavior 
-    utxo_opts['multiprocessing_num_procs'] = 1 
-    utxo_opts['multiprocessing_num_blocks'] = 10
 
     # pass along extra arguments
     utxo_opts['blockchain_server'] = 'localhost'
@@ -551,9 +547,17 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     signal.signal(signal.SIGTERM, signal_shutdown_procedure)
 
     # do we need to refreshdb?
-    rpcclient = testlib.TestAPIProxy()
-    res = rpcclient.getinfo()
-    need_db_refresh = False
+    rpcclient = None
+    res = None
+    need_db_refresh = None
+
+    try:
+        rpcclient = testlib.TestAPIProxy()
+        res = rpcclient.getinfo()
+        need_db_refresh = False
+    except Exception as e:
+        log.exception(e)
+        sys.exit(1)
 
     if not blockstack_client.config.semver_newer( res['server_version'], "0.14.0" ) and not res['server_version'].startswith("0.14."):
         log.debug("Need periodic DB refreshes (server_version = %s)" % res['server_version'])
