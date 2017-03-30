@@ -57,7 +57,6 @@ import hmac
 from struct import pack
 import hashlib
 import base64
-import pybitcoin
 import bitcoin
 import binascii
 import jsonschema
