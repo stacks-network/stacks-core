@@ -28,6 +28,7 @@ from ..constants import *
 from ..keys import *
 from ..proxy import *
 from ..config import get_logger, get_utxo_provider_client
+from ..b40 import is_b40
 
 from .blockchain import (
     get_balance, is_address_usable, get_utxos,
