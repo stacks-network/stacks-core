@@ -3485,6 +3485,7 @@ class BlockstackAPIEndpointClient(object):
             return {'error': 'Failed to ping server: {}'.format(res['error'])}
 
         if res.get('version', None) != SERIES_VERSION:
+            log.error("Obsolete reply: {}".format(res))
             return {'error': 'Obsolete API server (version {}).  Please restart it with `blockstack api restart`.'.format(res.get('version', '<unknown>'))}
 
         log.debug("Remote API endpoint is running version {}".format(res['version']))
@@ -4274,10 +4275,6 @@ def local_api_start_wait( api_host='localhost', api_port=DEFAULT_API_PORT, confi
             res = local_proxy.check_version()
             if 'error' in res:
                 print(res['error'], file=sys.stderr)
-                return False
-
-            if res.get('version', None) != SERIES_VERSION:
-                print("Obsolete API server (version {}).  Please restart it with `blocksatck api restart`.".format(res.get('version', '<unknown>')), file=sys.stderr)
                 return False
 
             running = True
