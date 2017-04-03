@@ -963,7 +963,7 @@ def get_addresses_from_file(config_dir=CONFIG_DIR, wallet_path=None):
     if data.has_key('owner_addresses'):
         owner_address = virtualchain.address_reencode(str(data['owner_addresses'][0]))
     if data.has_key('data_pubkeys'):
-        data_pubkey = virtualchain.address_reencode(str(data['data_pubkeys'][0]))
+        data_pubkey = str(data['data_pubkeys'][0])
 
     return payment_address, owner_address, data_pubkey
 
