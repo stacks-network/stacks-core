@@ -40,7 +40,12 @@ $ blockstack info
 ```
 which should display the last block processed and the latest consensus hash.
 
-After installation, you can start Blockstack Core and index the blockchain:
+After installation, you can (optionally) do a fast-sync that quickly syncs your node with the network:
+```bash
+$ blockstack-core --debug fast_sync http://fast-sync.blockstack.org/snapshot.bsk
+```
+
+And start Blockstack Core to index the blockchain:
 ```bash
 $ blockstack-core --debug start
 $ tail -f ~/.blockstack-server/blockstack-server.log
