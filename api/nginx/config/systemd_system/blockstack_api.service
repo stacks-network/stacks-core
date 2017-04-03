@@ -1,0 +1,15 @@
+[Unit]
+Description=uWSGI instance to serve Blockstack API
+After=network.target
+
+[Service]
+User=muneeb
+Group=www-data
+WorkingDirectory=/home/muneeb/blockstack-core/api/nginx
+Environment="PATH=/home/muneeb/bin"
+Environment="PYTHONPATH=/usr/local/python"
+Environment="BLOCKSTACK_DEBUG=1"
+ExecStart=/usr/local/bin/uwsgi --ini /home/muneeb/blockstack-core/api/nginx/blockstack_api.ini
+
+[Install]
+WantedBy=multi-user.target
