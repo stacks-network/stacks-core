@@ -1,12 +1,12 @@
 #!/bin/bash
 
-BRANCH="rc-0.14.0"
+BRANCH="rc-0.14.2"
 if [ $# -ge 2 ]; then 
    BRANCH="$1"
    shift 1
 fi
 
-for repo in dns-zone-file-py blockstack-profiles-py virtualchain blockstack-cli blockstack-core blockstack-files blockstack-gpg blockstack-integration-tests; do
+for repo in dns-zone-file-py blockstack-profiles-py virtualchain blockstack-core; do
    git clone "https://github.com/blockstack/$repo"
    pushd "$repo"
    git checkout "$BRANCH"
@@ -15,6 +15,13 @@ for repo in dns-zone-file-py blockstack-profiles-py virtualchain blockstack-cli 
    if [ $? -ne 0 ]; then 
       echo "Failed to install"
       exit 1
+   fi
+
+   if [[ "$repo" == 'blockstack-core' ]]; then 
+      echo "Installing integration tests"
+      pushd "integration_tests"
+      python ./setup.py build && sudo python ./setup.py install
+      popd
    fi
 
    popd
