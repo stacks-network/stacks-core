@@ -6,6 +6,12 @@ if [ $# -ge 2 ]; then
    shift 1
 fi
 
+# sometimes this doesn't install cleanly 
+pip install --upgrade pip
+pip install --upgrade scrypt
+pip install --upgrade fastecdsa
+pip install --upgrade cryptography
+
 for repo in dns-zone-file-py blockstack-profiles-py virtualchain blockstack-core; do
    git clone "https://github.com/blockstack/$repo"
    pushd "$repo"
