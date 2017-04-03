@@ -25,6 +25,4 @@ blueprints = [v1auth]
 for blueprint in blueprints:
     app.register_blueprint(blueprint)
 
-# Import views
-import index
-import api_v1
+
