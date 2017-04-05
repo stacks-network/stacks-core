@@ -46,6 +46,7 @@ import base64
 import jsonschema
 import jsontokens
 import subprocess
+import platform
 from jsonschema import ValidationError
 from schemas import *
 
@@ -3365,8 +3366,7 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
 
             self.server_bind()
             self.server_activate()
-
-            log.debug("API server version {} starting...".format(SERIES_VERSION))
+            
 
         # proxy method to all wrapped CLI methods
         class InternalProxy(object):
@@ -4315,11 +4315,26 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     Return False on error
     """
 
+    global rpc_pidpath, rpc_srv, running
+
+    p = subprocess.Popen("pip freeze", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = p.communicate()
+    if p.returncode != 0:
+        raise Exception("Failed to run `pip freeze`")
+
+    log.info("API server version {} starting...".format(SERIES_VERSION))
+    log.info("Machine:   {}".format(platform.machine()))
+    log.info("Version:   {}".format(platform.version()))
+    log.info("Platform:  {}".format(platform.platform()))
+    log.info("uname:     {}".format(" ".join(platform.uname())))
+    log.info("System:    {}".format(platform.system()))
+    log.info("Processor: {}".format(platform.processor()))
+    log.info("pip:\n{}".format(out))
+
     import blockstack_client
     from blockstack_client.wallet import load_wallet
     from blockstack_client.client import session
 
-    global rpc_pidpath, rpc_srv, running
     config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
     wallet_path = os.path.join(config_dir, blockstack_constants.WALLET_FILENAME)
 
