@@ -833,16 +833,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
     return None
 
 
-def serialize_immutable_data(data_json):
-    """
-    Serialize a piece of immutable data
-    """
-    msg = 'Invalid immutable data: must be a dict or list(got type {})'
-    assert isinstance(data_json, (dict, list)), msg.format(type(data_json))
-    return json.dumps(data_json, sort_keys=True)
-
-
-def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required=None, skip=None):
+def put_immutable_data(data_text, txid, data_hash=None, required=None, skip=None):
     """
     Given a string of data (which can either be data or a zonefile), store it into our immutable data stores.
     Do so in a best-effort manner--this method only fails if *all* storage providers fail.
@@ -856,17 +847,8 @@ def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required
     required = [] if required is None else required
     skip = [] if skip is None else skip
 
-    data_checks = (
-        (data_hash is None and data_text is None and data_json is not None) or
-        (data_hash is not None and data_text is not None)
-    )
-
-    assert data_checks, 'Need data hash and text, or just JSON'
-
-    if data_text is None:
-        data_text = serialize_immutable_data(data_json)
-
     if data_hash is None:
+        assert data_text
         data_hash = get_data_hash(data_text)
     else:
         data_hash = str(data_hash)
