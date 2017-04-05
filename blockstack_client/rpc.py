@@ -2141,6 +2141,65 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'status': True})
 
 
+    def GET_node_logfile(self, ses, path_info):
+        """
+        Get the node's log file.
+        Return 200 on success, and reply "text/plain" log
+        Return 500 on failure
+        """
+        logpath = local_api_logfile_path(config_dir=os.path.dirname(self.server.config_path))
+        with open(logpath, 'r') as f:
+            logdata = f.read()
+
+        self._send_headers(status_code=200, content_type='text/plain')
+        self.wfile.write(logdata)
+
+
+    def POST_node_logmsg(self, ses, path_info):
+        """
+        Write a line to the node's logfile
+        qs args:
+            * level: "debug", "info", "warning", "warn", "error", "critical"
+            * name: name of the requester
+
+        Return 200 on success
+        Return 401 on invalid
+        """
+        loglevel = "info"
+        name = "unknown"
+        qs_values = path_info['qs_values']
+
+        if qs_values.get('name') is not None:
+            name = qs_values.get('name')
+
+        if qs_values.get('level') is not None:
+            loglevel = qs_values.get('level')
+
+        if loglevel not in ['debug', 'info', 'warning', 'warn', 'error', 'critical']:
+            return self._reply_json({'error': 'Invalid log level'}, status_code=401)
+
+        logmsg = self._read_payload(maxlen=4096)
+        msg = "{}: {}".format(name, logmsg)
+
+        if loglevel == 'debug':
+            log.debug(msg)
+
+        elif loglevel == 'info':
+            log.info(msg)
+
+        elif loglevel in ['warn', 'warning']:
+            log.warning(msg)
+
+        elif loglevel == 'error':
+            log.error(msg)
+
+        else:
+            log.critical(msg)
+
+        self._send_headers(status_code=200, content_type='text/plain')
+        return
+
+
     def GET_blockchain_ops( self, ses, path_info, blockchain_name, blockheight ):
         """
         Get the name's historic name operations
@@ -2880,6 +2939,28 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'DELETE': {
                         'name': '',
                         'desc': 'delete a config section field',
+                        'auth_session': False,
+                        'auth_pass': True,
+                        'need_data_key': False,
+                    },
+                },
+            },
+            r'^/v1/node/log$': {
+                'routes': {
+                    'GET': self.GET_node_logfile,
+                    'POST': self.POST_node_logmsg,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': '',
+                        'desc': 'Get the node log file',
+                        'auth_session': False,
+                        'auth_pass': True,
+                        'need_data_key': False,
+                    },
+                    'POST': {
+                        'name': '',
+                        'desc': 'Append to the log file',
                         'auth_session': False,
                         'auth_pass': True,
                         'need_data_key': False,
@@ -4196,6 +4277,23 @@ def local_api_logfile_path(config_dir=blockstack_constants.CONFIG_DIR):
     return os.path.join(config_dir, 'api_endpoint.log')
 
 
+def backup_api_logfile(config_dir=blockstack_constants.CONFIG_DIR):
+    """
+    Back up the logfile
+    """
+    logpath = local_api_logfile_path(config_dir=config_dir)
+    if os.path.exists(logpath):
+        # back this up 
+        backup_path = logpath
+        while os.path.exists(backup_path):  
+            now = int(time.time())
+            backup_path = '{}.{}'.format(logpath, now)
+
+        shutil.move(logpath, backup_path)
+
+    return True
+
+
 def local_api_read_pidfile(pidfile_path):
     """
     Read a PID file
@@ -4387,6 +4485,7 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     if not foreground:
         log.debug('Running in the background')
 
+        backup_api_logfile(config_dir=config_dir)
         logpath = local_api_logfile_path(config_dir=config_dir)
 
         res = daemonize(logpath, child_wait=lambda: local_api_start_wait(api_port=port, api_host=host, config_path=config_path))
