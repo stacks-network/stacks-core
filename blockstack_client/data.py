@@ -607,7 +607,7 @@ def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_a
 
     if not force:
         # require specific version min
-        version_info = _get_mutable_data_versions(data_id, device_ids + [local_device_id], config_path=config_path)
+        version_info = get_mutable_data_version(data_id, device_ids + [local_device_id], config_path=config_path)
         expected_version = version_info['version']
 
     log.debug("get_mutable({}, device_ids={}, blockchain_id={}, pubkey={} ({}), addr={}, hash={}, expected_version={}, storage_drivers={})".format(
@@ -691,7 +691,7 @@ def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_a
         log.error("Failed to fetch mutable data for {}".format(data_id))
         return {'error': 'Failed to fetch mutable data', 'stale': True}
 
-    rc = _put_mutable_data_versions(data_id, version, device_ids + [local_device_id], config_path=config_path)
+    rc = put_mutable_data_version(data_id, version, device_ids + [local_device_id], config_path=config_path)
     if 'error' in rc:
         return {'error': 'Failed to store consistency information'}
 
@@ -922,7 +922,7 @@ def make_mutable_data_info(data_id, data_payload, device_ids=None, version=None,
 
     # get the version to use across all devices
     if version is None:
-        version_info = _get_mutable_data_versions( data_id, device_ids, config_path=config_path)
+        version_info = get_mutable_data_version( data_id, device_ids, config_path=config_path)
         if version_info['version'] > 0 and create:
             log.error("Already exists: {}".format(fq_data_id))
             return {'error': 'Data exists', 'errno': errno.EEXIST}
@@ -1724,7 +1724,7 @@ def get_inode_data(datastore_id, inode_uuid, inode_type, data_pubkey_hex, driver
     return {'status': True, 'inode': full_inode, 'version':  header_version}
 
 
-def _get_mutable_data_versions( data_id, device_ids, config_path=CONFIG_PATH ):
+def get_mutable_data_version( data_id, device_ids, config_path=CONFIG_PATH ):
     """
     Get the mutable data version for a datum spread across multiple devices
     Return {'status': True, 'version': version} on success
@@ -1742,7 +1742,7 @@ def _get_mutable_data_versions( data_id, device_ids, config_path=CONFIG_PATH ):
     return {'status': True, 'version': new_version}
 
 
-def _put_mutable_data_versions( data_id, new_version, device_ids, config_path=CONFIG_PATH ):
+def put_mutable_data_version( data_id, new_version, device_ids, config_path=CONFIG_PATH ):
     """
     Advance all versions of a mutable datum to at least new_version
     Return {'status': True, 'version': new version} on success
@@ -1753,7 +1753,7 @@ def _put_mutable_data_versions( data_id, new_version, device_ids, config_path=CO
     conf = get_config(config_path)
     assert conf
 
-    res = _get_mutable_data_versions(data_id, device_ids, config_path=CONFIG_PATH)
+    res = get_mutable_data_version(data_id, device_ids, config_path=CONFIG_PATH)
     new_version = max(res['version'], new_version)
 
     for device_id in device_ids:
@@ -1776,19 +1776,19 @@ def _put_inode_consistency_info(datastore_id, inode_uuid, new_version, device_id
     inode_data_id = '{}.{}'.format(datastore_id, inode_uuid)
     hdr_data_id = '{}.{}.hdr'.format(datastore_id, inode_uuid)
 
-    res = _put_mutable_data_versions(inode_data_id, new_version, device_ids, config_path=CONFIG_PATH)
+    res = put_mutable_data_version(inode_data_id, new_version, device_ids, config_path=CONFIG_PATH)
     if 'error' in res:
         return res
 
     hdr_ver = res['version']
-    res = _put_mutable_data_versions(hdr_data_id, hdr_ver, device_ids, config_path=CONFIG_PATH)
+    res = put_mutable_data_version(hdr_data_id, hdr_ver, device_ids, config_path=CONFIG_PATH)
     if 'error' in res:
         return res
 
     if res['version'] > hdr_ver:
         # headers had later version 
         inode_ver = res['version']
-        res = _put_mutable_data_versions(inode_data_id, inode_ver, device_ids, config_path=CONFIG_PATH)
+        res = put_mutable_data_version(inode_data_id, inode_ver, device_ids, config_path=CONFIG_PATH)
         if 'error' in res:
             return res
 
@@ -1820,11 +1820,11 @@ def get_inode_header(datastore_id, inode_uuid, data_pubkey_hex, drivers, device_
     inode_hdr_version = 0
 
     # latest version the *server* has seen
-    res = _get_mutable_data_versions( inode_id, device_ids, config_path=CONFIG_PATH )
+    res = get_mutable_data_version( inode_id, device_ids, config_path=CONFIG_PATH )
     inode_version = res['version']
 
     if inode_hdr_version is None:
-        res = _get_mutable_data_versions( inode_hdr_id, device_ids, config_path=CONFIG_PATH )
+        res = get_mutable_data_version( inode_hdr_id, device_ids, config_path=CONFIG_PATH )
         inode_hdr_version = res['version']
      
     # get from *all* drivers so we know that if we succeed, we have a fresh version
@@ -2463,7 +2463,7 @@ def datastore_inodes_check_consistent( datastore_id, inode_headers, creates, exi
             return {'error': 'Inode not from a datastore device', 'errno': errno.EXDEV}
 
         # check version
-        version_info = _get_mutable_data_versions( header_id, device_ids, config_path=config_path )
+        version_info = get_mutable_data_version( header_id, device_ids, config_path=config_path )
         if 'error' in version_info:
             log.error("Failed to query version info for {}".format(header_id))
             return {'error': 'Failed to query version info for inode', 'errno': errno.EIO}
