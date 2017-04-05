@@ -383,7 +383,10 @@ def serialize_secrets():
 
 
 def parse_secrets(buf):
-    return json.loads(buf)
+    try:    
+        return json.loads(buf)
+    except:
+        return {}
 
 
 def load_secrets(buf):
