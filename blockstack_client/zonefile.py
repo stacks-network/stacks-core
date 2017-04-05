@@ -359,8 +359,8 @@ def store_name_zonefile_data(name, user_zonefile_txt, txid, storage_drivers=None
     data_hash = storage.get_zonefile_data_hash(user_zonefile_txt)
 
     result = storage.put_immutable_data(
-        None, txid, data_hash=data_hash,
-        data_text=user_zonefile_txt, required=storage_drivers
+        user_zonefile_txt, txid, data_hash=data_hash,
+        required=storage_drivers
     )
 
     rc = bool(result)
