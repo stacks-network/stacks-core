@@ -590,15 +590,14 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     if rc == False:
         # explicitly erred
         log.error("Scenario exits in error")
-        blockstack_client.rpc.local_api_stop(client_config_dir)
         log.error("Failed to run tests '%s'" % scenario.__name__)
         shutdown_procedure()
         return False
 
+    log.info("\n\nTest finished; doing checks\n\n")
+
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
     testlib.set_state_engine(db)
-
-    log.info("\n\nTest finished; doing checks\n\n")
 
     # run the checks on the database
     try:
