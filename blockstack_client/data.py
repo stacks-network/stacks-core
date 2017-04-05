@@ -710,7 +710,7 @@ def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_a
 
 
 
-def put_immutable(blockchain_id, data_id, data_json, data_url=None, txid=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH):
+def put_immutable(blockchain_id, data_id, data_text, data_url=None, txid=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH):
     """
     put_immutable
 
@@ -745,8 +745,6 @@ def put_immutable(blockchain_id, data_id, data_json, data_url=None, txid=None, p
         return user_zonefile
 
     user_zonefile = user_zonefile['zonefile']
-
-    data_text = storage.serialize_immutable_data(data_json)
     data_hash = storage.get_data_hash(data_text)
 
     # insert into user zonefile, overwriting if need be
@@ -804,7 +802,7 @@ def put_immutable(blockchain_id, data_id, data_json, data_url=None, txid=None, p
     }
 
     # replicate immutable data
-    rc = storage.put_immutable_data(data_json, txid)
+    rc = storage.put_immutable_data(data_text, txid)
     if not rc:
         result['error'] = 'Failed to store immutable data'
         return result
