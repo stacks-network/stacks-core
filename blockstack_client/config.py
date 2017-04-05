@@ -847,20 +847,30 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
         },
     }
 
+    changed_fields_014_1 = {
+        'blockstack-client': {
+            'client_version': VERSION
+        }
+    }
+
     # grow this list with future releases...
     renamed_fields = [renamed_fields_014_1]
     removed_fields = [dropped_fields_014_1]
     added_fields = [added_fields_014_1]
+    changed_fields = [changed_fields_014_1]
+
     migrated = False
 
     assert len(renamed_fields) == len(removed_fields)
     assert len(removed_fields) == len(added_fields)
+    assert len(added_fields) == len(changed_fields)
 
     for i in xrange(0, len(renamed_fields)):
-        # order: rename, add, drop
+        # order: rename, add, drop, change
         renamed_field_set = renamed_fields[i]
         dropped_field_set = removed_fields[i]
         added_field_set = added_fields[i]
+        changed_field_set = changed_fields[i]
 
         for sec in renamed_field_set.keys():
             if ret.has_key(sec):
@@ -897,6 +907,18 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
                         del ret[sec][dropped_field_name]
                         
                         migrated = True
+
+        for sec in changed_field_set.keys():
+            if not ret.has_key(sec):
+                ret[sec] = {}
+
+            for changed_field_name in changed_field_set[sec]:
+
+                if ret[sec][changed_field_name] != changed_field_set[sec][changed_field_name]:
+                    log.debug("Change {}.{} to {}".format(sec, changed_field_name, changed_field_set[sec][changed_field_name]))
+                    ret[sec][changed_field_name] = changed_field_set[sec][changed_field_name]
+
+                    migrated = True
    
     # overrides from the environment
     env_overrides = {
