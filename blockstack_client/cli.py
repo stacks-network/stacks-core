@@ -385,14 +385,16 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
  
         new_argv = arg_info['new_argv']
 
-        # set secrets...
-        for secvar, secval in arg_info['secrets'].items():
-            set_secret(secvar, secval)
+        if len(arg_info['secrets']) > 0:
+            # set secrets...
+            for secvar, secval in arg_info['secrets'].items():
+                set_secret(secvar, secval)
 
-        secbuf = serialize_secrets()
-        fd = write_secrets(secbuf)
+            secbuf = serialize_secrets()
+            fd = write_secrets(secbuf)
 
-        new_argv += ['--secrets', str(fd)]
+            new_argv += ['--secrets', str(fd)]
+
         if cli_debug:
             print("Re-exec as `{}`".format( " ".join(new_argv)), file=sys.stderr)
 
@@ -401,23 +403,24 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     # load secrets
     if arg_info['args'].has_key('secret_fd'):
         fd_str = arg_info['args']['secret_fd']
-        try:
-            fd = int(fd_str)
-        except:
-            print('Invalid secret fd {}'.format(fd_str), file=sys.stderr)
-            sys.exit(1)
+        if fd_str:
+            try:
+                fd = int(fd_str)
+            except:
+                print('Invalid secret fd {}'.format(fd_str), file=sys.stderr)
+                sys.exit(1)
 
-        log.debug("Load secrets from {}".format(fd))
+            log.debug("Load secrets from {}".format(fd))
 
-        try:
-            os.lseek(fd, 0, os.SEEK_SET)
-            secbuf = os.read(fd, 65536)
-            os.close(fd)
+            try:
+                os.lseek(fd, 0, os.SEEK_SET)
+                secbuf = os.read(fd, 65536)
+                os.close(fd)
 
-            load_secrets(secbuf)
-        except Exception as e:
-            traceback.print_exc()
-            sys.exit(1)
+                load_secrets(secbuf)
+            except Exception as e:
+                traceback.print_exc()
+                sys.exit(1)
 
     # do one-time opt-in request
     uuid_path = client_uuid_path(config_dir=os.path.dirname(config_path))
