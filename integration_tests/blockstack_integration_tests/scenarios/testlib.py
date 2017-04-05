@@ -1105,13 +1105,24 @@ def blockstack_cli_put_immutable( name, data_id, data_json_str, password=None, c
 
     args = CLIArgs()
 
+    fd, path = tempfile.mkstemp()
+    os.write(fd, data_json_str)
+    os.close(fd)
+
     args.name = name
     args.data_id = data_id
-    args.data = data_json_str
+    args.data = path
 
     res = cli_put_immutable( args, config_path=config_path, password=password )
+
+    try:
+        os.unlink(path)
+    except:
+        pass
+
     if 'error' in res:
         return res
+
 
     """
     assert 'url' in res, "Missing URL"
