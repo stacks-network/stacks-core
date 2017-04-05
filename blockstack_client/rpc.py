@@ -3366,6 +3366,8 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
             self.server_bind()
             self.server_activate()
 
+            log.debug("API server version {} starting...".format(SERIES_VERSION))
+
         # proxy method to all wrapped CLI methods
         class InternalProxy(object):
             pass
