@@ -589,11 +589,22 @@ def blockstack_cli_update( name, zonefile_json, password, nonstandard=True, conf
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
+    fd, path = tempfile.mkstemp()
+    os.write(fd, zonefile_json)
+    os.close(fd)
+
+    log.debug("Stored JSON to {}".format(path))
+
     args = CLIArgs()
     args.name = name
-    args.data = zonefile_json 
+    args.data = path
 
     resp = cli_update( args, config_path=config_path, password=password, interactive=False, nonstandard=nonstandard )
+
+    try:
+        os.unlink(path)
+    except:
+        pass
 
     if 'value_hash' in resp:
         atlas_zonefiles_present.append( resp['value_hash'] )
@@ -686,12 +697,24 @@ def blockstack_cli_sync_zonefile( name, zonefile_string=None, txid=None, interac
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
+    fd, path = tempfile.mkstemp()
+    os.write(fd, zonefile_json)
+    os.close(fd)
+
+    log.debug("Stored JSON to {}".format(path))
+
     args = CLIArgs()
     args.name = name
-    args.zonefile = zonefile_string
+    args.zonefile = path
     args.txid = txid
 
     resp = cli_sync_zonefile( args, config_path=config_path, proxy=test_proxy, interactive=interactive, nonstandard=nonstandard )
+
+    try:
+        os.unlink(path)
+    except:
+        pass
+
     if 'value_hash' in resp:
         atlas_zonefiles_present.append( resp['value_hash'] )
 
@@ -1027,11 +1050,21 @@ def blockstack_cli_put_mutable( name, data_id, data_json_str, password=None, con
 
     args = CLIArgs()
 
+    fd, path = tempfile.mkstemp()
+    os.write(fd, data_json_str)
+    os.close(fd)
+
     args.name = name
     args.data_id = data_id
-    args.data = data_json_str
+    args.data = path
 
     res = cli_put_mutable( args, config_path=config_path, password=password )
+
+    try:
+        os.unlink(path)
+    except:
+        pass
+
     if 'error' in res:
         return res
 
