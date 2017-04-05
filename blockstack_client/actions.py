@@ -296,7 +296,7 @@ def get_default_password(password):
     """
     Get the default password
     """
-    return password if password is not None else os.environ.get("BLOCKSTACK_CLIENT_WALLET_PASSWORD", None)
+    return password if password is not None else get_secret("BLOCKSTACK_CLIENT_WALLET_PASSWORD")
 
 
 def get_default_interactive(interactive):
@@ -2528,7 +2528,7 @@ def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
     api_pass = getattr(args, 'api_pass', None)
     if api_pass is None:
         # environment?
-        api_pass = os.environ.get('BLOCKSTACK_API_PASSWORD', None)
+        api_pass = get_secret('BLOCKSTACK_API_PASSWORD')
         
         if api_pass is None:
             # config file?
@@ -2737,7 +2737,7 @@ def cli_put_immutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     help: Put signed, blockchain-hashed data into your storage providers.
     arg: name (str) 'The name that points to the zone file to use'
     arg: data_id (str) 'The name of the data'
-    arg: data (str) 'The JSON-formatted data to store'
+    arg: data (str) 'Path to the data to store'
     """
 
     password = get_default_password(password)
@@ -2748,10 +2748,9 @@ def cli_put_immutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     if error:
         return {'error': error}
 
-    try:
-        data = json.loads(args.data)
-    except:
-        return {'error': 'Invalid JSON'}
+    data_path = str(args.data)
+    with open(data_path, 'r') as f:
+        data = f.read()
 
     wallet_keys = get_wallet_keys(config_path, password)
     if 'error' in wallet_keys:
@@ -2768,8 +2767,6 @@ def cli_put_immutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
         return result
     
     data_hash = result['immutable_data_hash']
-    url = blockstack_immutable_data_url( fqu, urllib.quote(str(args.data_id)), data_hash )
-
     result['hash'] = data_hash
     return result
 
@@ -3633,7 +3630,7 @@ def cli_app_signin(args, config_path=CONFIG_PATH, interactive=True):
     api_methods = api_methods.split(',')
     
     # get API password 
-    api_pass = os.environ.get("BLOCKSTACK_API_PASSWORD", None)
+    api_pass = get_secret("BLOCKSTACK_API_PASSWORD")
     if api_pass is None:
         conf = config.get_config(config_path)
         if conf:
