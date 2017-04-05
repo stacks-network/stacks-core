@@ -38,6 +38,8 @@ as a command-line option.
 import argparse
 import sys
 import requests
+import tempfile
+import traceback
 requests.packages.urllib3.disable_warnings()
 
 import logging
@@ -45,7 +47,7 @@ logging.disable(logging.CRITICAL)
 
 from blockstack_client import config
 from blockstack_client.client import session, analytics_user_register 
-from blockstack_client.constants import WALLET_FILENAME
+from blockstack_client.constants import WALLET_FILENAME, set_secret, serialize_secrets, write_secrets, parse_secrets, load_secrets, CONFIG_PATH, BLOCKSTACK_DEBUG
 from blockstack_client.config import CONFIG_PATH, VERSION, semver_match, get_config, client_uuid_path, get_or_set_uuid
 from blockstack_client.method_parser import parse_methods, build_method_subparsers
 
@@ -176,10 +178,11 @@ def find_arg(argv, has_arg, short_opt, long_opt):
 def parse_args(arg_defs, argv, config_path=CONFIG_PATH):
     """
     Given arg definitions, parse argv.
-    Return {'status': True, 'new_argv': [...], 'args': {'argname': 'argvalue', ...}, 'envs': {'ENVAR': 'value', ...}, 're-exec': True/False}
+    Return {'status': True, 'new_argv': [...], 'args': {'argname': 'argvalue', ...}, 'envs': {'ENVAR': 'value', ...}, 'secrets': {'SECRET': 'value', ...}, 're-exec': True/False}
     """
     ret = {}
     envs = {}
+    secrets = {}
     re_exec = False
 
     for arg_name in arg_defs.keys():
@@ -199,6 +202,11 @@ def parse_args(arg_defs, argv, config_path=CONFIG_PATH):
             return error
 
         ret[arg_name] = arg_val
+
+        if not arg_val:
+            # not found
+            continue
+
         re_exec = re_exec or arg_defs[arg_name]['re-exec']
 
         if arg_defs[arg_name].has_key('env'):
@@ -209,11 +217,15 @@ def parse_args(arg_defs, argv, config_path=CONFIG_PATH):
                 env_val = arg_val
 
             if env_val:
-                envs[ arg_defs[arg_name]['env'] ] = env_val
+                if arg_defs[arg_name].get('secret'):
+                    secrets[ arg_defs[arg_name]['env'] ] = env_val
+                
+                else:
+                    envs[ arg_defs[arg_name]['env'] ] = env_val
 
         argv = new_argv
 
-    return {'status': True, 'new_argv': argv, 'args': ret, 'envs': envs, 're-exec': re_exec}
+    return {'status': True, 'new_argv': argv, 'args': ret, 'envs': envs, 'secrets': secrets, 're-exec': re_exec}
 
 
 def run_cli(argv=None, config_path=CONFIG_PATH):
@@ -235,6 +247,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             'env': 'BLOCKSTACK_DEBUG',
             'help': 'Enable global debugging messages',
             'similar': ['--dbg', '-dd', '-ddd', '-dddd', '--verbose'],
+            'secret': False,
         },
         'config': {
             'short': '-c',
@@ -244,6 +257,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             'env': 'BLOCKSTACK_CLIENT_CONFIG',
             'help': 'Path to alternative configuration file and associated state',
             'similar': ['--conf'],
+            'secret': False,
         },
         'default_yes': {
             'short': '-y',
@@ -253,6 +267,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             'env': 'BLOCKSTACK_CLIENT_INTERACTIVE_YES',
             'help': 'Assume default/yes response to all queries',
             'similar': [],
+            'secret': False,
         },
         'api_pass': {
             'short': '-a',
@@ -262,6 +277,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             'env': 'BLOCKSTACK_API_PASSWORD',
             'help': 'API password to use',
             'similar': ['--api-password', '--api-pass', '--api_pass'],
+            'secret': True,
         },
         'api_session': {
             'short': '-A',
@@ -271,6 +287,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             'env': 'BLOCKSTACK_API_SESSION',
             'help': 'API session token to use',
             'similar': ['--api-session', '--session', '--ses'],
+            'secret': True,
         },
         'api_bind': {
             'short': '-b',
@@ -280,6 +297,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             'env': 'BLOCKSTACK_API_BIND',
             'help': 'Address or hostname to bind the API server',
             'similar': [],
+            'secret': False,
         },
         'dry_run': {
             'short': '-n',
@@ -289,6 +307,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             'env': 'BLOCKSTACK_DRY_RUN',
             'help': 'Do not send transactions. Return the signed transaction instead.',
             'similar': ['--dry-run', '--dryrun'],
+            'secret': False,
         },
         'wallet_password': {
             'short': '-p',
@@ -298,6 +317,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             'env': 'BLOCKSTACK_CLIENT_WALLET_PASSWORD',
             'help': 'Wallet decryption password',
             'similar': ['--pass', '--passwd'],
+            'secret': True,
         },
         'indexer_host': {
             'short': '-H',
@@ -307,6 +327,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             'env': 'BLOCKSTACK_CLI_SERVER_HOST',
             'help': 'Hostname or IP address of the Blockstack blockchain indexer',
             'similar': ['--ip', '--ipv4'],
+            'secret': False,
         },
         'indexer_port': {
             'short': '-P',
@@ -316,6 +337,16 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             'env': 'BLOCKSTACK_CLI_SERVER_PORT',
             'help': 'Port number of the Blockstack blockchain indexer',
             'similar': [],
+            'secret': False,
+        },
+        'secret_fd': {
+            'short': '-f',
+            'long': '--secrets',
+            'has_arg': True,
+            're-exec': False,
+            'help': 'Used internally; file descriptor number to serialized secrets preserved across execv(2).',
+            'similar': [],
+            'secret': False,
         },
     }
 
@@ -338,25 +369,56 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
         sys.exit(1)
 
-    cli_debug = arg_info['args']['debug']
+    cli_debug = arg_info['args'].get('debug')
     cli_config_argv = (arg_info['args'].has_key('config'))
 
-    # set environment variables
+    # set (non-secret) environment variables
     for envar, enval in arg_info['envs'].items():
         if os.environ.get(envar) is None:
             if cli_debug:
                 print("Set {} to {}".format(envar, enval), file=sys.stderr)
 
             os.environ[envar] = enval
-    
+   
     # re-exec?
     if arg_info['re-exec']:
+ 
+        new_argv = arg_info['new_argv']
+
+        # set secrets...
+        for secvar, secval in arg_info['secrets'].items():
+            set_secret(secvar, secval)
+
+        secbuf = serialize_secrets()
+        fd = write_secrets(secbuf)
+
+        new_argv += ['--secrets', str(fd)]
         if cli_debug:
-            new_argv = arg_info['new_argv']
             print("Re-exec as `{}`".format( " ".join(new_argv)), file=sys.stderr)
 
-            os.execv( new_argv[0], new_argv )
+        os.execv( new_argv[0], new_argv )
     
+    # load secrets
+    if arg_info['args'].has_key('secret_fd'):
+        fd_str = arg_info['args']['secret_fd']
+        try:
+            fd = int(fd_str)
+        except:
+            print('Invalid secret fd {}'.format(fd_str), file=sys.stderr)
+            sys.exit(1)
+
+        log.debug("Load secrets from {}".format(fd))
+
+        try:
+            os.lseek(fd, 0, os.SEEK_SET)
+            secbuf = os.read(fd, 65536)
+            os.close(fd)
+
+            load_secrets(secbuf)
+        except Exception as e:
+            traceback.print_exc()
+            sys.exit(1)
+
     # do one-time opt-in request
     uuid_path = client_uuid_path(config_dir=os.path.dirname(config_path))
     first_time = False
