@@ -61,6 +61,7 @@ import jsonschema
 import threading
 from decimal import Decimal
 import uuid
+import string
 
 requests.packages.urllib3.disable_warnings()
 
@@ -89,7 +90,7 @@ from rpc import local_api_connect, local_api_status, local_api_stop
 import rpc as local_rpc
 import config
 
-from .config import configure_zonefile, set_advanced_mode, configure, get_utxo_provider_client 
+from .config import configure_zonefile, set_advanced_mode, configure, get_utxo_provider_client, get_local_device_id, get_all_device_ids
 from .constants import (
     CONFIG_PATH, CONFIG_DIR, FIRST_BLOCK_TIME_UTC,
     APPROX_PREORDER_TX_LEN, APPROX_REGISTER_TX_LEN,
@@ -100,7 +101,8 @@ from .constants import (
 )
 
 from .b40 import is_b40
-from .storage import get_drivers_for_url, get_driver_urls, get_storage_handlers
+from .storage import get_drivers_for_url, get_driver_urls, get_storage_handlers, sign_data_payload, make_fq_data_id, \
+    get_zonefile_data_hash
 
 from pybitcoin import serialize_transaction
 
@@ -140,7 +142,8 @@ from .app import app_publish, app_unpublish, app_get_config, app_get_resource, \
 from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, get_datastore, put_datastore, delete_datastore, \
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir, datastore_stat, \
         datastore_rmtree, datastore_get_id, datastore_get_privkey, _mutable_data_make_file, \
-        verify_datastore_info, put_datastore_info, datastore_getinode, datastore_get_privkey 
+        verify_datastore_info, put_datastore_info, datastore_getinode, datastore_get_privkey, get_mutable_data_version, \
+        make_mutable_data_info, data_blob_serialize, make_mutable_data_tombstones, sign_mutable_data_tombstones
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
 
@@ -213,59 +216,80 @@ def load_zonefile_from_string(fqu, zonefile_data, check_current=True):
     either JSON or text.  Verify that it is
     well-formed and current.
 
-    Return {'status': True, 'zonefile': the serialized zonefile data (as a string)} on success.
-    Return {'error': ...} on error
-    Return {'error': ..., 'identical': True, 'zonefile': serialized zonefile string} if the zonefile is identical
+    Return {'status': True, 'zonefile': the serialized zonefile data (as a string), 'parsed_zonefile': ...} on success.
+    Return {'error': ..., 'nonstandard': True/False, 'identical': True/False} if the zonefile is nonstandard and/or identical
     """
 
-    user_data = str(zonefile_data)
+    # is this a new, standard zonefile?
+    nonstandard = False
+    identical = False
+
+    user_data = None
     user_zonefile = None
     try:
-        user_data = json.loads(user_data)
+        user_data = json.loads(zonefile_data)
     except:
         log.debug('Zonefile is not a serialized JSON string; try parsing as text')
         try:
-            user_data = blockstack_zones.parse_zone_file(user_data)
+            user_data = blockstack_zones.parse_zone_file(zonefile_data)
             user_data = dict(user_data)  # force dict. e.g if not defaultdict
         except Exception as e:
-            if BLOCKSTACK_TEST is not None:
+            if BLOCKSTACK_DEBUG is not None:
                 log.exception(e)
 
-            return {'error': 'Zonefile data is invalid.'}
+            nonstandard = True
 
-    # is this a zonefile?
-    try:
-        user_zonefile = blockstack_zones.make_zone_file(user_data)
-    except Exception as e:
-        log.exception(e)
-        log.error('Invalid zonefile')
-        return {'error': 'Invalid zonefile\n{}'.format(traceback.format_exc())}
+    if user_data is not None:
+        try:
+            user_zonefile = blockstack_zones.make_zone_file(user_data)
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
 
-    # sanity checks...
-    if fqu != user_data.get('$origin', ''):
-        log.error('Zonefile is missing or has invalid $origin')
-        return {'error': 'Invalid $origin; must use your name'}
+            log.error('Nonstandard zonefile')
+            nonstandard = True
 
-    if '$ttl' not in user_data:
-        log.error('Zonefile is missing a TTL')
-        return {'error': 'Missing $ttl; please supply a positive integer'}
+    # sanity checks on the standard-ness
+    if not nonstandard:
 
-    if not is_user_zonefile(user_data):
-        log.error('Zonefile is non-standard')
-        return {'error': 'Zonefile is missing or has invalid URI and/or TXT records'}
+        if fqu != user_data.get('$origin', ''):
+            log.error('Zonefile is missing or has invalid $origin')
+            nonstandard = True
 
-    try:
-        ttl = int(user_data['$ttl'])
-        assert ttl >= 0
-    except Exception as e:
-        return {'error': 'Invalid $ttl; must be a positive integer'}
+        if '$ttl' not in user_data:
+            log.error('Zonefile is missing a TTL')
+            nonstandard = True
 
-    if check_current and is_zonefile_current(fqu, user_data):
-        msg = 'Zonefile data is same as current zonefile; update not needed.'
-        log.error(msg)
-        return {'error': msg, 'identical': True, 'zonefile': user_zonefile}
+        if not is_user_zonefile(user_data):
+            log.error("Zonefile does not match standard schema")
+            nonstandard = True
 
-    return {'status': True, 'zonefile': user_zonefile}
+        try:
+            ttl = int(user_data['$ttl'])
+            assert ttl >= 0
+        except Exception as e:
+            log.error("Zonefile has an invalid $ttl; must be a positive integer")
+            nonstandard = True
+
+    if check_current:
+        current = False
+        if not nonstandard and user_data is not None:
+            current = is_zonefile_current(fqu, user_data)
+        else:
+            current = is_zonefile_data_current(fqu, zonefile_data)
+
+        if current:
+            log.debug('Zonefile data is same as current zonefile; update not needed.')
+            identical = True
+
+    if user_zonefile is not None and not identical and not nonstandard:
+        return {'status': True, 'zonefile': user_zonefile, 'parsed_zonefile': user_data, 'identical': identical, 'nonstandard': nonstandard}
+
+    elif nonstandard:
+        return {'error': 'nonstandard zonefile', 'identical': identical, 'nonstandard': nonstandard}
+
+    else:
+        return {'error': 'identical zonefile', 'zonefile': user_zonefile, 'parsed_zonefile': user_data, 'identical': identical, 'nonstandard': nonstandard}
 
 
 def get_default_password(password):
@@ -1043,7 +1067,99 @@ def is_valid_path(path):
     if not isinstance(path, str):
         return False
 
-    return '\x00' not in path
+    # while not technically denied by POSIX, paths usually
+    # have only printable characters and without the "weird"
+    # whitespace characters
+    valid_chars = set(string.printable) - set("\t\n\r\x0b\x0c")
+    filtered_string = filter(lambda x: x in valid_chars, path)
+    return filtered_string == path
+
+
+def analyze_zonefile_string(fqu, zonefile_data, force_data=False, proxy=None):
+    """
+    Figure out what to do with a zone file data string, based on whether or not
+    we can prompt the user and whether or not we expect a standard zonefile.
+
+    if @force_data is True, then the zonefile_data will be treated as raw data.
+    Otherwise, it will be considered to be a path
+
+    Returns: {
+        'is_string': True/False # whether or not the zone file string is a raw zone file
+        'is_path': True/False   # whether or not the zone file string is a path to a file on disk
+        'downloaded': True/False    # whether or not the zone file was fetched remotely
+        'identical': True/False     # whether or not the zone file is identical to the name's current zone file
+        'nonstandard': True/False   # whether or not the zone file follows the standard format
+        'raw_zonefile': str     # the raw zone file data. will be equal to zonefile_data if it is not None
+        'zonefile': dict        # the parsed standard zone file (or None if nonstandard)
+        'zonefile_str': str     # the serialized zone file data.  Will be equal to 'raw_zonefile' if nonstandard; otherwise is equal to serialized zonefile if standard
+    }
+
+    Return {'error': ...} on error
+    """
+
+    ret = {}
+   
+    zonefile_data_exists_on_disk = zonefile_data is not None and is_valid_path(zonefile_data) and os.path.exists(zonefile_data)
+
+    if zonefile_data is None:
+        # fetch remotely
+        zonefile_data_res = get_name_zonefile(
+            fqu, proxy=proxy, raw_zonefile=True
+        )
+        if 'error' not in zonefile_data_res:
+            zonefile_data = zonefile_data_res['zonefile']
+        else:
+            log.warning('Failed to fetch zonefile: {}'.format(zonefile_data_res['error']))
+
+        # zone file is not given; we had to fetch it
+        ret['downloaded'] = True
+        ret['raw_zonefile'] = zonefile_data
+        ret['is_path'] = False
+        ret['is_string'] = False
+
+    elif zonefile_data_exists_on_disk and not force_data:
+        # this sure looks like a path
+        try:
+            with open(zonefile_data) as f:
+                zonefile_data = f.read()
+        except:
+            raise Exception("Invalid arguments: failed to read file")
+        
+        # loaded from path
+        ret['downloaded'] = False
+        ret['raw_zonefile'] = zonefile_data
+        ret['is_path'] = True
+        ret['is_string'] = False
+    
+    elif force_data:
+        # string given
+        ret['downloaded'] = False
+        ret['raw_zonefile'] = zonefile_data
+        ret['is_path'] = False
+        ret['is_string'] = True
+
+    else:
+        if force_data:
+            return {'error': 'Invalid argument: no data given'}
+        else:
+            return {'error': 'Invalid argument: no such file or directory: {}'.format(zonefile_data)}
+
+    # load zonefile, if given
+    user_data_res = load_zonefile_from_string(fqu, zonefile_data)
+
+    # propagate identical and nonstandard...
+    ret['identical'] = user_data_res['identical'] 
+    ret['nonstandard'] = user_data_res['nonstandard']
+
+    if user_data_res.has_key('zonefile'):
+        ret['zonefile'] = user_data_res['zonefile']
+
+    if user_data_res.has_key('parsed_zonefile'):
+        ret['zonefile_str'] = blockstack_zones.make_zone_file(user_data_res['parsed_zonefile'])
+    else:
+        ret['zonefile_str'] = ret['raw_zonefile']
+
+    return ret
 
 
 def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
@@ -1052,10 +1168,12 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
     command: register
     help: Register a name
     arg: name (str) 'The name to register'
-    opt: zonefile (str) 'The raw zone file to give this name (or a path to one)'
+    opt: zonefile (str) 'The path to the zone file for this name'
     opt: recipient (str) 'The recipient address, if not this wallet'
     opt: min_confs (int) 'The minimum number of confirmations on the initial preorder'
     """
+
+    # NOTE: if force_data == True, then the zonefile will be the zonefile text itself, not a path.
 
     config_dir = os.path.dirname(config_path)
     if not local_api_status(config_dir=config_dir):
@@ -1078,6 +1196,11 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
     transfer_address = getattr(args, 'recipient', None)
     min_payment_confs = getattr(args, 'min_confs', TX_MIN_CONFIRMATIONS)
 
+    # name must be well-formed
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+
     if min_payment_confs is None:
         min_payment_confs = TX_MIN_CONFIRMATIONS
 
@@ -1086,25 +1209,19 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
             return {'error': 'Not a valid address'}
 
     if user_zonefile:
-        # is this a path?
-        zonefile_data_exists = (is_valid_path(user_zonefile) and os.path.exists(user_zonefile) and not force_data)
-        if zonefile_data_exists:
-            try:
-                with open(zonefile_data) as f:
-                    user_zonefile = f.read()
-            except:
-                return {'error': 'Failed to read "{}"'.format(zonefile_data)}
-        
-        # is this valid zonefile data?
-        try:
-            zf = blockstack_zones.parse_zone_file(user_zonefile)
-            assert zf
-        except:
+        zonefile_info = analyze_zonefile_string(fqu, user_zonefile, force_data=force_data, proxy=proxy)
+        if 'error' in zonefile_info:
+            log.error("Failed to analyze user zonefile: {}".format(zonefile_info['error']))
+            return {'error': zonefile_info['error']}
+
+        if zonefile_info.get('nonstandard'):
             log.warning("Non-standard zone file")
             if interactive:
                 proceed = prompt_invalid_zonefile()
                 if not proceed:
                     return {'error': 'Non-standard zone file'}
+
+        user_zonefile = zonefile_info['zonefile_str']
     
     else:
         # make a default zonefile
@@ -1124,11 +1241,6 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
             return {'error': 'No data key in wallet.  Please add one with `setup_wallet`'}
 
         user_profile = make_empty_user_profile()
-
-    # name must be well-formed
-    error = check_valid_name(fqu)
-    if error:
-        return {'error': error}
 
     # operation checks (API server only)
     if local_rpc.is_api_server(config_dir=config_dir):
@@ -1231,6 +1343,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
 
     return result
 
+    
 
 def cli_update(args, config_path=CONFIG_PATH, password=None,
                interactive=True, proxy=None, nonstandard=False,
@@ -1239,10 +1352,12 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     """
     command: update
     help: Set the zone file for a name
-    arg: name (str) 'The name to update'
-    opt: data (str) 'A zone file string, or a path to a file with the data.'
-    opt: nonstandard (str) 'If true, then do not validate or parse the zonefile.'
+    arg: name (str) 'The name to update.'
+    opt: data (str) 'A path to a file with the zone file data.'
+    opt: nonstandard (str) 'If true, then do not validate or parse the zone file.'
     """
+
+    # NOTE: if force_data == True, then the zonefile will be the zonefile text itself, not a path.
 
     config_dir = os.path.dirname(config_path)
     if not local_api_status(config_dir=config_dir):
@@ -1253,7 +1368,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
     proxy = get_default_proxy() if proxy is None else proxy
     password = get_default_password(password)
-
+    
     if hasattr(args, 'nonstandard') and not nonstandard:
         if args.nonstandard is not None and args.nonstandard.lower() in ['yes', '1', 'true']:
             nonstandard = True
@@ -1266,15 +1381,14 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         return res
 
     fqu = str(args.name)
-    
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
 
-    zonefile_data = None
+    zonefile_data_path_or_string = None
     downloaded = False
     if getattr(args, 'data', None) is not None:
-        zonefile_data = str(args.data)
+        zonefile_data_path_or_string = str(args.data)
  
     if not local_rpc.is_api_server(config_dir=config_dir):
         # verify that we own the name before trying to edit its zonefile
@@ -1288,41 +1402,26 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         if fqu not in res:
             return {'error': 'This wallet does not own this name'}
 
-    # is this a path?
-    zonefile_data_exists = is_valid_path(zonefile_data) and os.path.exists(zonefile_data) and not force_data
-    if zonefile_data is not None and zonefile_data_exists:
-        try:
-            with open(zonefile_data) as f:
-                zonefile_data = f.read()
-        except:
-            return {'error': 'Failed to read "{}"'.format(zonefile_data)}
+    zonefile_info = analyze_zonefile_string(fqu, zonefile_data_path_or_string, force_data=force_data, proxy=proxy)
+    if 'error' in zonefile_info:
+        log.error("Failed to analyze zone file: {}".format(zonefile_info['error']))
+        return {'error': zonefile_info['error']}
 
-    # fetch remotely?
-    if zonefile_data is None:
-        zonefile_data_res = get_name_zonefile(
-            fqu, proxy=proxy, raw_zonefile=True
-        )
-        if 'error' not in zonefile_data_res:
-            zonefile_data = zonefile_data_res['zonefile']
-        else:
-            log.warning('Failed to fetch zonefile: {}'.format(zonefile_data_res['error']))
-
-        downloaded = True
+    if zonefile_info['identical'] and not zonefile_info['downloaded']:
+        log.error("Zone file has not changed")
+        return {'error': 'Zone file matches the current name hash; not updating'}
 
     # load zonefile, if given
     user_data_txt, user_data_hash, user_zonefile_dict = None, None, {}
+    zonefile_data = zonefile_info['zonefile_str']
 
-    user_data_res = load_zonefile_from_string(fqu, zonefile_data)
-    if 'error' not in user_data_res or ('identical' in user_data_res and downloaded):
-        user_data_txt = user_data_res['zonefile']
-        user_data_hash = storage.get_zonefile_data_hash(user_data_res['zonefile'])
-        user_zonefile_dict = blockstack_zones.parse_zone_file(user_data_res['zonefile'])
+    if not zonefile_info['nonstandard'] and (not zonefile_info['identical'] or zonefile_info['downloaded']):
+        # standard zone file that is not identital to what we have now, or standard zonefile that we downloaded and wish to edit
+        user_data_txt = zonefile_data
+        user_data_hash = get_zonefile_data_hash(zonefile_data)
+        user_zonefile_dict = blockstack_zones.parse_zone_file(zonefile_data)
 
     else:
-        if 'identical' in user_data_res:
-            # given the same zonefile on the CLI
-            return {'error': 'Zonefile matches the current name hash; not updating.'}
-        
         if not interactive:
             if zonefile_data is None or nonstandard:
                 log.warning('Using non-zonefile data')
@@ -1330,17 +1429,16 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
             else:
                 return {'error': 'Zone file not updated (invalid)'}
 
-        # not a well-formed zonefile (but maybe that's okay! ask the user)
+        # not a standard zonefile (but maybe that's okay! ask the user)
         if zonefile_data is not None and interactive:
             # something invalid here.  prompt overwrite
             proceed = prompt_invalid_zonefile()
             if not proceed:
-                msg = 'Zone file not updated (reason: {})'
-                return {'error': msg.format(user_data_res['error'])}
+                return {'error': 'Zone file not updated'}
 
         user_data_txt = zonefile_data
         if zonefile_data is not None:
-            user_data_hash = storage.get_zonefile_data_hash(zonefile_data)
+            user_data_hash = get_zonefile_data_hash(zonefile_data)
 
 
     # open the zonefile editor
@@ -1350,6 +1448,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         return {'error': 'No data public key set in the wallet.  Please use `blockstack setup_wallet` to fix this.'}
 
     if interactive and not nonstandard:
+        # configuration wizard!
         if user_zonefile_dict is None:
             user_zonefile_dict = make_empty_zonefile(fqu, data_pubkey)
 
@@ -1363,7 +1462,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
         user_zonefile_dict = new_zonefile
         user_data_txt = blockstack_zones.make_zone_file(user_zonefile_dict)
-        user_data_hash = storage.get_zonefile_data_hash(user_data_txt)
+        user_data_hash = get_zonefile_data_hash(user_data_txt)
 
     # forward along to RESTful server (or registrar)
     log.debug("Update {}, zonefile={}, zonefile_hash={} tx_fee={}".format(fqu, user_data_txt, user_data_hash, tx_fee))
@@ -1675,7 +1774,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     if 'error' not in res:
         name_rec = res['name_record']
         user_zonefile_txt = res['zonefile']
-        user_zonefile_hash = storage.get_zonefile_data_hash(user_zonefile_txt)
+        user_zonefile_hash = get_zonefile_data_hash(user_zonefile_txt)
         user_zonefile = None
         legacy = False
         nonstandard = False
@@ -1734,7 +1833,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
         return {'error': res['error']}
 
     zonefile_txt = blockstack_zones.make_zone_file(user_zonefile)
-    zonefile_hash = storage.get_zonefile_data_hash(zonefile_txt) 
+    zonefile_hash = get_zonefile_data_hash(zonefile_txt) 
 
     rpc = local_api_connect(config_path=config_path)
     assert rpc
@@ -2576,33 +2675,58 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     help: Put signed, versioned data into your storage providers.
     arg: name (str) 'The name that points to the zone file to use'
     arg: data_id (str) 'The name of the data'
-    arg: data (str) 'The JSON-serializable data to store'
+    arg: data_path (str) 'The path to the data to store'
+    opt: privkey (str) 'The private key to sign with'
+    opt: version (str) 'The version of this data to store'
     """
     
     password = get_default_password(password)
     
     fqu = str(args.name)
+    data_id = str(args.data_id)
+    data_path = str(args.data)
+
+    data = None
+    with open(data_path, 'r') as f:
+        data = f.read()
+
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
 
+    # this should only succeed if the zone file is well-formed,
+    # since otherwise no one would be able to get the public key.
+    zfinfo = get_name_zonefile(fqu, proxy=proxy)
+    if 'error' in zfinfo:
+        log.error("Unable to load zone file for {}: {}".format(fqu, zfinfo['error']))
+        return {'error': 'Unable to load or parse zone file for {}'.format(fqu)}
+   
+    if not user_zonefile_data_pubkey(zfinfo['zonefile']):
+        log.error("Zone file for {} has no public key".format(fqu))
+        return {'error': 'Zone file for {} has no public key'.format(fqu)}
+
     config_dir = os.path.dirname(config_path)
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        return wallet_keys
+    privkey = None
+    if not hasattr(args, 'privkey'):
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
+
+        privkey = wallet_keys['data_privkey']
+    else:
+        privkey = str(args.privkey)
+
+    pubkey = ECPrivateKey(privkey).public_key().to_hex()
+
+    mutable_data_info = make_mutable_data_info(data_id, data, blockchain_id=fqu, config_path=config_path)
+    mutable_data_payload = data_blob_serialize(mutable_data_info)
 
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
+    sig = sign_data_payload(mutable_data_payload, privkey)
 
-    result = put_mutable(
-        str(args.data_id), str(args.data), blockchain_id=fqu,
-        wallet_keys=wallet_keys, proxy=proxy
-    )
-
+    result = put_mutable(mutable_data_info['fq_data_id'], mutable_data_payload, pubkey, sig, mutable_data_info['version'], blockchain_id=fqu, config_path=config_path, proxy=proxy) 
     if 'error' in result:
         return result
-
-    version = result['version']
-    fq_data_id = result['fq_data_id']
 
     return result
 
@@ -2657,8 +2781,6 @@ def cli_get_mutable(args, config_path=CONFIG_PATH, proxy=None):
     arg: name (str) 'The blockchain ID that owns the data'
     arg: data_id (str) 'The name of the data'
     """
-    proxy = get_default_proxy() if proxy is None else proxy
-
     result = get_mutable(str(args.data_id), proxy=proxy, config_path=config_path, blockchain_id=str(args.name))
     if 'error' in result:
         return result
@@ -2791,22 +2913,51 @@ def cli_delete_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None)
     help: Delete a mutable datum from a profile.
     arg: name (str) 'The name that owns the data'
     arg: data_id (str) 'The ID of the data to remove'
+    opt: privkey (str) 'If given, the data private key to use'
     """ 
     password = get_default_password(password)
     
+    data_id = str(args.data_id)
     fqu = str(args.name)
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
 
     config_dir = os.path.dirname(config_path)
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        return wallet_keys
+
+    # this should only succeed if the zone file is well-formed,
+    # since otherwise no one would be able to get the public key
+    # to verify the tombstones.
+    zfinfo = get_name_zonefile(fqu, proxy=proxy)
+    if 'error' in zfinfo:
+        log.error("Unable to load zone file for {}: {}".format(fqu, zfinfo['error']))
+        return {'error': 'Unable to load or parse zone file for {}'.format(fqu)}
+   
+    if not user_zonefile_data_pubkey(zfinfo['zonefile']):
+        log.error("Zone file for {} has no public key".format(fqu))
+        return {'error': 'Zone file for {} has no public key'.format(fqu)}
+
+    privkey = None
+
+    if hasattr(args, 'privkey') and args.privkey:
+        privkey = str(args.privkey)
+
+    else:
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
+
+        privkey = wallet_keys['data_privkey']
+        assert privkey
 
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
 
-    result = delete_mutable(str(args.data_id), blockchain_id=str(args.name), proxy=proxy, wallet_keys=wallet_keys)
+    device_ids = get_all_device_ids(config_path=config_path)
+    data_tombstones = make_mutable_data_tombstones(device_ids, data_id) 
+    signed_data_tombstones = sign_mutable_data_tombstones(data_tombstones, privkey)
+
+    result = delete_mutable(data_id, signed_data_tombstones, proxy=proxy, device_ids=device_ids, config_path=config_path)
+    result = delete_mutable(str(args.data_id), blockchain_id=str(args.name), proxy=proxy)
     return result
 
 
@@ -3134,7 +3285,7 @@ def cli_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, interactive=Tru
     help: Upload the current zone file to all storage providers.
     arg: name (str) 'Name of the zone file to synchronize.'
     opt: txid (str) 'NAME_UPDATE transaction ID that set the zone file.'
-    opt: zonefile (str) 'The zone file (JSON or text), if unavailable from other sources.'
+    opt: zonefile (str) 'The path to the zone file on disk, if unavailable from other sources.'
     opt: nonstandard (str) 'If true, do not attempt to parse the zonefile.  Just upload as-is.'
     """
 
@@ -3159,30 +3310,21 @@ def cli_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, interactive=Tru
         nonstandard = args.nonstandard.lower() in ['yes', '1', 'true']
 
     if getattr(args, 'zonefile', None) is not None:
-        # zonefile given
-        user_data = args.zonefile
-        valid = False
-        try:
-            user_data_res = load_zonefile_from_string(name, user_data)
-            if 'error' in user_data_res and 'identical' not in user_data_res:
-                log.warning('Failed to parse zonefile (reason: {})'.format(user_data_res['error']))
-            else:
-                valid = True
-                user_data = user_data_res['zonefile']
-        except Exception as e:
-            if BLOCKSTACK_DEBUG is not None:
-                log.exception(e)
-            valid = False
+        # zonefile path given
+        zonefile_path = str(args.zonefile)
+        zonefile_info = analyze_zonefile_string(name, zonefile_path, proxy=proxy)
+        if 'error' in zonefile_info:
+            log.error("Failed to analyze user zonefile: {}".format(zonefile_info['error']))
+            return {'error': zonefile_info['error']}
 
-        # if it's not a valid zonefile, ask if the user wants to sync
-        if not valid and interactive:
-            proceed = prompt_invalid_zonefile()
-            if not proceed:
-                return {'error': 'Not replicating invalid zone file'}
-        elif not valid and not nonstandard:
-            return {'error': 'Not replicating invalid zone file'}
-        else:
-            pass
+        if zonefile_info.get('nonstandard'):
+            log.warning("Non-standard zone file")
+            if interactive and not nonstandard:
+                proceed = prompt_invalid_zonefile()
+                if not proceed:
+                    return {'error': 'Non-standard zone file'}
+
+        user_data = zonefile_info['zonefile_str']
 
     if txid is None or user_data is None:
         # load zonefile and txid from queue?
@@ -3763,7 +3905,7 @@ def cli_list_device_ids( args, config_path=CONFIG_PATH, proxy=None ):
     """
 
     try:
-        device_ids = config.get_all_device_ids(config_path=config_path)
+        device_ids = get_all_device_ids(config_path=config_path)
         return {'device_ids': device_ids}
     except AssertionError:
         return {'error': 'Failed to read config file'}
@@ -3789,7 +3931,7 @@ def cli_add_device_id( args, config_path=CONFIG_PATH, proxy=None ):
     arg: device_id (str) 'The ID of the device to add'
     """
     try:
-        device_ids = config.get_all_device_ids(config_path=config_path)
+        device_ids = get_all_device_ids(config_path=config_path)
         device_id_str = ','.join( list(set(device_ids + [str(args.device_id)])) )
         config.write_config_field( config_path, 'blockstack-client', 'default_devices', device_id_str )
         return {'status': True}
@@ -3806,7 +3948,7 @@ def cli_remove_device_id( args, config_path=CONFIG_PATH, proxy=None ):
     """
     try:
         device_id = str(args.device_id)
-        device_ids = config.get_all_device_ids(config_path=config_path)
+        device_ids = get_all_device_ids(config_path=config_path)
         if device_id not in device_ids:
             return {'status': True}
 
