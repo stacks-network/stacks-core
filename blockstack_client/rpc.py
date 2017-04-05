@@ -4103,7 +4103,7 @@ def local_api_connect(api_pass=None, api_session=None, password=None, config_pat
     
     if api_pass is None:
         # try environment
-        api_pass = os.environ.get('BLOCKSTACK_API_PASSWORD', None)
+        api_pass = get_secret('BLOCKSTACK_API_PASSWORD')
 
     if api_pass is None:
         # try config file
@@ -4111,7 +4111,7 @@ def local_api_connect(api_pass=None, api_session=None, password=None, config_pat
 
     if api_session is None:
         # try environment 
-        api_session = os.environ.get('BLOCKSTACK_API_SESSION', None)
+        api_session = get_secret('BLOCKSTACK_API_SESSION')
 
     connect_msg = 'Connect to API at {}:{}'
     log.debug(connect_msg.format(api_host, api_port))
@@ -4169,14 +4169,10 @@ def local_api_action(command, password=None, api_pass=None, config_dir=blockstac
         env = {}
         env.update( os.environ )
 
-        if password:
-            env['BLOCKSTACK_CLIENT_WALLET_PASSWORD'] = password
-
-        if api_pass:
-            env['BLOCKSTACK_API_PASSWORD'] = api_pass
+        api_stdin_buf = blockstack_constants.serialize_secrets()
 
         p = subprocess.Popen(argv, cwd=config_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, env=env)
-        out, err = p.communicate()
+        out, err = p.communicate(input=api_stdin_buf)
         res = p.wait()
         if res != 0:
             log.error("Failed to {} API endpoint: exit code {}".format(command, res))
