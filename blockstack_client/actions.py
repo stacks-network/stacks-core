@@ -3728,11 +3728,12 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
     name = str(args.name)
     path = str(args.path)
     pubkey = None
+    owner_address = None
 
     if not os.path.exists(path):
         return {'error': 'No such file or directory'}
 
-    if hasattr(args, 'pubkey'):
+    if hasattr(args, 'pubkey') and args.pubkey is not None:
         pubkey = str(args.pubkey)
         try:
             pubkey = ECPublicKey(pubkey).to_hex()
@@ -3741,13 +3742,14 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
 
     if pubkey is None:
         zonefile_data = None
-
+        name_rec = None
         # get the pubkey 
         zonefile_data_res = get_name_zonefile(
-            name, proxy=proxy, raw_zonefile=True
+            name, proxy=proxy, raw_zonefile=True, include_name_record=True
         )
         if 'error' not in zonefile_data_res:
             zonefile_data = zonefile_data_res['zonefile']
+            name_rec = zonefile_data_res['name_record']
         else:
             return {'error': "Failed to get zonefile data: {}".format(name)}
 
@@ -3760,7 +3762,13 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
 
         pubkey = user_zonefile_data_pubkey(zonefile_dict)
         if pubkey is None:
-            return {'error': 'No data public key in zone file'}
+            # fall back to owner hash
+            owner_address = str(name_rec['address'])
+            if virtualchain.is_p2sh_address(owner_address):
+                return {'error': 'No data public key in zone file, and owner is a p2sh address'}
+
+            else:
+                log.warn("Falling back to owner address")
 
     profile_data = None
     try:
@@ -3769,7 +3777,7 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
     except:
         return {'error': 'Failed to read profile file'}
 
-    res = storage.parse_mutable_data(profile_data, pubkey)
+    res = storage.parse_mutable_data(profile_data, pubkey, public_key_hash=owner_address)
     if res is None:
         return {'error': 'Failed to verify profile'}
 
