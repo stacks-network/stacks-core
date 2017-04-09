@@ -1,101 +1,67 @@
-resolver
-=======
+#Blockstack API 
 
-## Installation:
+Step-by-step instructions for deploying a Blockstack API node on Debian or 
+Ubuntu are below.
 
-Notes on installing the resolver. 
+- **Step 1:** Make sure you have Blockstack Core running locally (see [instructions](https://github.com/blockstack/blockstack-core/blob/master/README.md#quick-start)). 
 
-## For quick deployment:
-
-```
-pip install -r requirements.txt
-./runserver
-```
-
-To deploy on Heroku:
-
-```bash
-heroku create
-heroku addons:add memcachedcloud
-git push heroku master
-```
-
-## Detailed Instructions:
-
-###1. resolver requires memcached:
-
-###Linux:
-```
-sudo apt-get install memcached libmemcached-dev zlib1g-dev
+- **Step 2:** Make sure you have [virtualenv installed](http://docs.python-guide.org/en/latest/dev/virtualenvs/). 
+Then, setup the API:
+``` 
+$ sudo apt-get install -y python-pip memcached python-dev libmemcached-dev zlib1g-dev
+$ sudo service memcached start
+$ sudo pip install virtualenv
+$ virtualenv api
+$ git clone https://github.com/blockstack/blockstack-core.git
+$ cd blockstack-core/
+$ git checkout api
+$ pip install -r api/requirements.txt
+$ bin/blockstack api start
+$ bin/blockstack-api
 ```
 
-Before installing pylibmc (listed in requirements.txt) install the above packages.
+### Search Subsystem
 
-Install pybitcoin:
+If you want to enable the search subsystem in your installation, you can
+follow the instructions [here](search.md).
+
+### Nginx Deployment
+
+For a production deployment we recommend using nginx and uwsgi:
+
+- **Step 1:** Install nginx and uWSGI:
 ```
-pip install pybitcoin
+$ sudo apt-get install -y nginx
+$ sudo pip install uwsgi
 ```
+- **Step 2:** Copy [this sample nginx sites file](https://github.com/blockstack/blockstack-core/blob/api/api/nginx/config/nginx_sites-available/blockstack_api) to
 
-------------------------------------------------------------------
-###Mac OS X:
+> /etc/nginx/sites-available/blockstack_api
 
-Easiest way is to make use of brew
-
-brew can  be installed by:
+and edit the paths depending on your home directory. You can test your nginx settings:
 ```
-	ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)”
+$ sudo nginx -t
 ```
-After installation:
+- **Step 3:** Copy [this sample systemd service file](https://github.com/blockstack/blockstack-core/blob/api/api/nginx/config/systemd_system/blockstack_api.service) to
+
+> /etc/systemd/system/blockstack_api.service
+
+and edit the paths depending on your home directory.
+
+- **Step 4:** Get a security certificate from [Let's Encrypt](https://letsencrypt.org/).
 ```
-brew install libmemcached
-```
-libmemcached dependencies: 
-		```
-		memcached : brew intall memcached 
-		libevent(should automatically install) :  brew intall libevent 
-		```
-
-------------------------------------------------------------------
-###2. running memcache:
-/usr/local/opt/memcached/bin/memcached
-
-
-an easier way to launch memcache is to use Lunchy:
-
-Lunchy is a gem that simplifies the command line interface to launchctl. To install Lunchy, do
-
-gem install lunchy
-```
-  1. $ mkdir ~/Library/LaunchAgents
-  2. $ cp /usr/local/Cellar/memcached/$version/homebrew.mxcl.memcached.plist ~/Library/LaunchAgents/
-  3. $ lunchy start memcached
-  4. $ lunchy stop memcached
+$ git clone https://github.com/certbot/certbot.git
+$ cd certbot/
+$ ./certbot-auto --nginx -d <your_domain>
 ```
 
-------------------------------------------------------------------
-###3. Ensure you have python 2.7 and python development headers installed:
+And copy the cert files to the path given in the nginx sites file earlier.
 
-on linux:
+- **Step 5:** Start nginx and the Blockstack API:
 ```
-	sudo apt-get install python2.7-dev
+sudo systemctl restart blockstack_api
+sudo systemctl restart nginx
 ```
 
-on Mac:
-	
-	On mac headers are automatically installed during the process of python installation. Python 2.7 can be installed as follows.
-  	```
-  	1. brew install python
-    2. brew link python
-
-    3. ensure you GCC installed:
-    	GCC can be obtained by downloading XCode, the smaller Command Line Tools (must have an Apple account) or the even smaller OSX-GCC-Installer package
-    ```
-	Comprehensive guide to installing python on mac:
-	
-		http://docs.python-guide.org/en/latest/starting/install/osx/#install-osx
-
-
-
-------------------------------------------------------------------
-
-###4. pip install pybitcoin
+If you run into any issues, please [submit a Github issue](https://github.com/blockstack/blockstack-core/issues) and we'll update these
+instructions.
