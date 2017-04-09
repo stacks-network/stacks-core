@@ -1,4 +1,4 @@
-# Documentation
+# Blockstack CLI
 
 Blockstack CLI is both a command-line interface (CLI) tool, a system service (daemon), and a client (Python library) for interacting with Blockstack. It talks to Blockstack Core and provides an interface for interacting with it.
 
