@@ -29,15 +29,15 @@ import requests
 import json
 
 from flask import Flask, jsonify, request
-from flask_crossdomain import crossdomain
 from flask import render_template, send_from_directory
+
+from flask_https import RequireHTTPS
+from flask_crossdomain import crossdomain
 
 from .parameters import parameters_required
 from .utils import get_api_calls
-from .settings import PUBLIC_NODE, SERVER_URL, BASE_API_URL
-from .settings import SEARCH_URL
-
-app = Flask(__name__)
+from .config import PUBLIC_NODE, PUBLIC_NODE_URL, BASE_API_URL
+from .config import SEARCH_NODE_URL
 
 # hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -54,25 +54,22 @@ from blockstack_client.proxy import getinfo
 
 log = blockstack_config.get_logger()
 
-#wallet_keys = make_wallet('password', encrypt=False)
-api_password = "password"
-port = 6269
-host = 'localhost'
-config_path = blockstack_constants.CONFIG_PATH
-
+"""
+# starting internal API logic should go somewhere else
 #local_api_start(password='temptemptemp')
 
-"""
-Check first if API daemon is running
-"""
-#status = local_api_action('status')
+#Check first if API daemon is running
+status = local_api_action('status')
 
-#if(status):
-#    log.debug("API daemon is running")
-#else:
-#    log.debug("Start API daemon first")
-#    exit(0)
+if(status):
+    log.debug("API daemon is running")
+else:
+    log.debug("Start API daemon first")
+    exit(0)
+"""
 
+# Import app
+from . import app
 
 @app.route('/v1/names/<name>', methods=['GET'])
 @crossdomain(origin='*')
@@ -136,9 +133,21 @@ def index():
 
     return render_template('index.html', api_calls=api_calls,
                                          server_info=server_info,
-                                         server_url=SERVER_URL)
+                                         server_url=PUBLIC_NODE_URL)
 
 
 @app.route('/favicon.ico')
 def favicon():
     return send_from_directory(app.static_folder, 'favicon.ico')
+
+
+"""
+@app.errorhandler(500)
+def internal_error(error):
+    return make_response(jsonify({'error': error.description}), 500)
+
+
+@app.errorhandler(404)
+def not_found(error):
+    return make_response(jsonify({'error': 'Not found'}), 404)
+"""
