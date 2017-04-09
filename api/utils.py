@@ -25,7 +25,7 @@ This file is part of Blockstack Core.
 
 import re
 import json
-from .settings import MAX_PROFILE_LIMIT
+from .config import MAX_PROFILE_LIMIT
 
 
 def build_api_call_object(text):
