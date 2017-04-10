@@ -2525,6 +2525,9 @@ def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
 
             password = prompt_wallet_password()
 
+    if password:
+        set_secret("BLOCKSTACK_CLIENT_WALLET_PASSWORD", password)
+
     api_pass = getattr(args, 'api_pass', None)
     if api_pass is None:
         # environment?
@@ -2536,6 +2539,7 @@ def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
             assert conf
 
             api_pass = conf.get('api_password', None)
+            set_secret("BLOCKSTACK_API_PASSWORD", api_pass)
 
     if api_pass is None:
         return {'error': 'Need --api-password on the CLI, or `api_password=` set in your config file ({})'.format(config_path)}
