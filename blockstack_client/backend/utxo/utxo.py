@@ -30,14 +30,15 @@ import traceback
 
 from virtualchain import AuthServiceProxy
 
-from .blockstack_utxo import BlockstackUTXOClient
+from .blockstack_core import BlockstackCoreUTXOClient
 from .blockcypher import BlockcypherClient
 from .bitcoind_utxo import BitcoindClient
 from .blockchain_info import BlockchainInfoClient
 from .blockstack_explorer import BlockstackExplorerClient, BLOCKSTACK_EXPLORER_URL
+from .blockstack_utxo import BlockstackUTXOClient, BLOCKSTACK_UTXO_URL
 
-from .blockstack_utxo import get_unspents as blockstack_utxo_get_unspents
-from .blockstack_utxo import broadcast_transaction as blockstack_utxo_broadcast_transaction
+from .blockstack_core import get_unspents as blockstack_core_get_unspents
+from .blockstack_core import broadcast_transaction as blockstack_core_broadcast_transaction
 
 from .blockcypher import get_unspents as blockcypher_get_unspents
 from .blockcypher import broadcast_transaction as blockcypher_broadcast_transaction
@@ -56,21 +57,23 @@ DEBUG = True
 FIRST_BLOCK_MAINNET = 373601        # well-known value for blockstack-server; doesn't ever change
 
 
-SUPPORTED_UTXO_PROVIDERS = [ "blockcypher", "blockchain_info", "bitcoind_utxo", "blockstack_utxo", "blockstack_explorer" ]
+SUPPORTED_UTXO_PROVIDERS = [ "blockcypher", "blockchain_info", "bitcoind_utxo", "blockstack_core", "blockstack_explorer", "blockstack_utxo" ]
 SUPPORTED_UTXO_PARAMS = {
     "blockcypher": ["api_token"],
     "blockchain_info": ["api_token"],
     "bitcoind_utxo": ["rpc_username", "rpc_password", "server", "port", "use_https", "version_byte"],
-    "blockstack_utxo": ["server", "port"],
+    "blockstack_core": ["server", "port"],
     "blockstack_explorer": ["url"],
+    'blockstack_utxo': ["url"],
 }
 
 SUPPORTED_UTXO_PROMPT_MESSAGES = {
     'blockcypher': 'Please enter your Blockcypher API token.',
     'blockchain_info': 'Please enter your blockchain.info API token.',
     'bitcoind_utxo': 'Please enter your fully-indexed bitcoind node information.',
-    'blockstack_utxo': 'Please enter your Blockstack server info.',
-    'blockstack_explorer': 'Please enter your Blockstack Explorer info.'
+    'blockstack_core': 'Please enter your Blockstack Core node info.',
+    'blockstack_explorer': 'Please enter your Blockstack Explorer info.',
+    'blockstack_utxo': 'Please enter your Blockstack UTXO service info',
 }
 
 
@@ -89,11 +92,14 @@ def default_utxo_provider_opts( utxo_provider, config_file=None ):
    elif utxo_provider == "bitcoind_utxo":
        return default_bitcoind_utxo_opts( config_file=config_file )
 
-   elif utxo_provider == "blockstack_utxo":
-       return default_blockstack_utxo_opts( config_file=config_file )
+   elif utxo_provider == "blockstack_core":
+       return default_blockstack_core_opts( config_file=config_file )
     
    elif utxo_provider == "blockstack_explorer":
        return default_blockstack_explorer_opts( config_file=config_file )
+
+   elif utxo_provider == 'blockstack_utxo':
+       return default_blockstack_utxo_opts( config_file=config_file )
 
    else:
        raise Exception("Unsupported UTXO provider '%s'" % utxo_provider)
@@ -264,9 +270,9 @@ def default_bitcoind_utxo_opts( config_file=None ):
    return bitcoind_utxo_opts
 
 
-def default_blockstack_utxo_opts( config_file=None ):
+def default_blockstack_core_opts( config_file=None ):
    """
-   Get our default Blockstack UTXO proxy options from a config file.
+   Get our default Blockstack Core UTXO proxy options from a config file.
    """
 
    if config_file is None:
@@ -275,12 +281,12 @@ def default_blockstack_utxo_opts( config_file=None ):
    parser = SafeConfigParser()
    parser.read( config_file )
 
-   blockstack_utxo_opts = {}
+   blockstack_core_opts = {}
 
    server = None
    port = None
 
-   provider_secs = find_service_provider_sections(config_file, 'blockstack_utxo')
+   provider_secs = find_service_provider_sections(config_file, 'blockstack_core')
    if len(provider_secs) > 0:
        provider_sec = provider_secs[0]
 
@@ -290,23 +296,56 @@ def default_blockstack_utxo_opts( config_file=None ):
        if parser.has_option(provider_sec, "port"):
            port = int(parser.get(provider_sec, "port"))
 
-   blockstack_utxo_opts = {
+   blockstack_core_opts = {
        "server": server,
        "port": port
    }
 
    # strip Nones
-   for (k, v) in blockstack_utxo_opts.items():
+   for (k, v) in blockstack_core_opts.items():
       if v is None:
-         del blockstack_utxo_opts[k]
+         del blockstack_core_opts[k]
 
-   blockstack_utxo_opts['utxo_provider'] = 'blockstack_utxo'
-   return blockstack_utxo_opts
+   blockstack_core_opts['utxo_provider'] = 'blockstack_core'
+   return blockstack_core_opts
 
 
 def default_blockstack_explorer_opts( config_file=None ):
     """
     Get our default Blockstack Explorer options from a config file.
+    """
+
+    if config_file is None:
+        raise Exception("No config file given")
+
+    parser = SafeConfigParser()
+    parser.read(config_file)
+
+    url = BLOCKSTACK_EXPLORER_URL
+
+    provider_secs = find_service_provider_sections(config_file, 'blockstack_explorer')
+    if len(provider_secs) > 0:
+        provider_sec = provider_secs[0]
+        
+        if parser.has_option(provider_sec, "url"):
+            url = parser.get(provider_sec, "url")
+
+    blockstack_explorer_opts = {
+        'url': url,
+    }
+
+    # strip nones 
+    for (k, v) in blockstack_explorer_opts.items():
+        if v is None:
+            del blockstack_explorer_opts[k]
+
+    blockstack_explorer_opts['utxo_provider'] = 'blockstack_explorer'
+    return blockstack_explorer_opts
+
+
+def default_blockstack_utxo_opts( config_file=None ):
+    """
+    Get our default Blockstack UTXO service options from a config file.
     """
 
     if config_file is None:
@@ -333,7 +372,7 @@ def default_blockstack_explorer_opts( config_file=None ):
         if v is None:
             del blockstack_explorer_opts[k]
 
-    blockstack_explorer_opts['utxo_provider'] = 'blockstack_explorer'
+    blockstack_explorer_opts['utxo_provider'] = 'blockstack_utxo'
     return blockstack_explorer_opts
 
 
@@ -360,11 +399,14 @@ def connect_utxo_provider( utxo_opts ):
    elif utxo_provider == "bitcoind_utxo":
        return BitcoindClient( utxo_opts['rpc_username'], utxo_opts['rpc_password'], use_https=utxo_opts['use_https'], server=utxo_opts['server'], port=utxo_opts['port'], version_byte=utxo_opts['version_byte'] )
 
-   elif utxo_provider == "blockstack_utxo":
-       return BlockstackUTXOClient( utxo_opts['server'], utxo_opts['port'] )
+   elif utxo_provider == "blockstack_core":
+       return BlockstackCoreUTXOClient( utxo_opts['server'], utxo_opts['port'] )
 
    elif utxo_provider == "blockstack_explorer":
        return BlockstackExplorerClient( url=utxo_opts['url'] )
+
+   elif utxo_provider == "blockstack_utxo":
+       return BlockstackUTXOClient( url=utxo_opts['url'] )
 
    else:
        raise Exception("Unrecognized UTXO provider '%s'" % utxo_provider )
@@ -373,6 +415,15 @@ def connect_utxo_provider( utxo_opts ):
 def get_unspents(address, blockchain_client):
     """
     Gets the unspent outputs for a given address.
+    Returns [{
+        "transaction_hash": str,
+        "output_index": int
+        "value": int,
+        "script_hex": str,
+        "confirmations": int,
+        }]
+    on success.
+
     Raises exception on error
     """
     if isinstance(blockchain_client, BlockcypherClient):
@@ -381,10 +432,12 @@ def get_unspents(address, blockchain_client):
         return blockchain_info_get_unspents(address, blockchain_client)
     elif isinstance(blockchain_client, (BitcoindClient, AuthServiceProxy)):
         return bitcoind_utxo_get_unspents(address, blockchain_client)
-    elif isinstance(blockchain_client, BlockstackUTXOClient):
-        return blockstack_utxo_get_unspents(address, blockchain_client)
+    elif isinstance(blockchain_client, BlockstackCoreUTXOClient):
+        return blockstack_core_get_unspents(address, blockchain_client)
     elif isinstance(blockchain_client, BlockstackExplorerClient):
         return blockstack_explorer_get_unspents(address, blockchain_client)
+    elif isinstance(blockchain_client, BlockstackUTXOClient):
+        return blockstack_utxo_get_unspents(address, blockchain_client)
 
     # default
     elif hasattr(blockchain_client, "get_unspents"):
@@ -398,6 +451,7 @@ def get_unspents(address, blockchain_client):
 def broadcast_transaction(hex_tx, blockchain_client):
     """
     Dispatches a raw hex transaction to the network.
+    Returns {'status': True, 'tx_hash': str} on success
     Raises exception on error
     """
     if isinstance(blockchain_client, BlockcypherClient):
@@ -406,10 +460,12 @@ def broadcast_transaction(hex_tx, blockchain_client):
         return blockchain_info_broadcast_transaction(hex_tx, blockchain_client)
     elif isinstance(blockchain_client, (BitcoindClient, AuthServiceProxy)):
         return bitcoind_utxo_broadcast_transaction(hex_tx, blockchain_client)
-    elif isinstance(blockchain_client, BlockstackUTXOClient):
-        return blockstack_utxo_broadcast_transaction(hex_tx, blockchain_client)
+    elif isinstance(blockchain_client, BlockstackCoreUTXOClient):
+        return blockstack_core_broadcast_transaction(hex_tx, blockchain_client)
     elif isinstance(blockchain_client, BlockstackExplorerClient):
         return blockstack_explorer_broadcast_transaction(hex_tx, blockchain_client)
+    elif isinstance(blockchain_client, BlockstackUTXOClient):
+        return blockstack_utxo_broadcast_transaction(hex_tx, blockchain_client)
 
     # default
     elif hasattr(blockchain_client, "broadcast_transaction"):
