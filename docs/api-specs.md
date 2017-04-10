@@ -97,14 +97,21 @@ TODO: authRequestToken format
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
-| Get block operations | GET /v1/blockchains/{blockchainName}/block/{blockHeight} | blockchains | - | 
-| Get raw name history | GET /v1/blockchains/{blockchainName}/names/{nameID}/history | blockchains |  - | 
-| Get consensus hash | GET /v1/blockchains/{blockchainName}/consensusHash | blockchains | - | 
-| Get pending transactions | GET /v1/blockchains/{blockchainName}/pending | blockchains | - |
+| Get block operations | GET /v1/blockchains/{blockchainName}/block/{blockHeight} | blockchain | - | 
+| Get raw name history | GET /v1/blockchains/{blockchainName}/names/{nameID}/history | blockchain |  - | 
+| Get consensus hash | GET /v1/blockchains/{blockchainName}/consensusHash | blockchain | - | 
+| Get pending transactions | GET /v1/blockchains/{blockchainName}/pending | blockchain | - |
+
+| Method | API Call | API family | Notes |
+| ------ | -------- | ---------- | ----- |
+| Get unspent outputs | GET /v1/blockchains/{blockchainName}/{address}/unspent | blockchain | Returns `{"transaction_hash": str, "output_index": int, "value": int (satoshis), "script_hex": str, "confirmations": int}` |
+| Broadcast transaction | POST /v1/blockchains/{blockchainName}/txs | blockchain | Takes `{"tx": str}` as its payload |
 
 ## Identity API
 
 ### Profiles
+
+TODO: this is not decided
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |

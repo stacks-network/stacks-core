@@ -73,7 +73,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
     
-    wallet = testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, None )
+    wallet = testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
 
     balance_before = testlib.blockstack_cli_balance()
     deposit_info = testlib.blockstack_cli_deposit()

@@ -30,6 +30,7 @@ import blockstack_profiles
 import virtualchain
 import time
 import sys
+import keylib
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -220,12 +221,13 @@ def scenario( wallets, **kw ):
     sys.stdout.flush()
     
     testlib.next_block( **kw )
-       
-    datastore_id_res = testlib.blockstack_cli_datastore_get_id( "foo-app.com" )
+    
+    datastore_pk = keylib.ECPrivateKey(wallets[-1].privkey).to_hex()
+    datastore_id_res = testlib.blockstack_cli_datastore_get_id( datastore_pk )
     datastore_name = datastore_id_res['datastore_id']
 
     # make datastore 
-    res = testlib.blockstack_cli_create_datastore( "foo-app.com" )
+    res = testlib.blockstack_cli_create_datastore( datastore_pk )
     if 'error' in res:
         print "failed to create datastore: {}".format(res['error'])
         return False
@@ -233,14 +235,14 @@ def scenario( wallets, **kw ):
     # put a file into the datastore
     data = 'hello datastore'
     log.debug("putfile")
-    res = testlib.blockstack_cli_datastore_putfile( "foo-app.com", '/hello_datastore', data )
+    res = testlib.blockstack_cli_datastore_putfile( datastore_pk, '/hello_datastore', data )
     if 'error' in res:
         print 'failed to putfile /hello_datastore: {}'.format(res['error'])
         return False
 
     # make a directory 
     log.debug("mkdir")
-    res = testlib.blockstack_cli_datastore_mkdir( "foo-app.com",  '/hello_dir' )
+    res = testlib.blockstack_cli_datastore_mkdir( datastore_pk,  '/hello_dir' )
     if 'error' in res:
         print 'failed to mkdir /hello_dir: {}'.format(res['error'])
         return False
@@ -248,7 +250,7 @@ def scenario( wallets, **kw ):
     # put a file into the directory
     data = 'hello dir datastore'
     log.debug("putfile in dir")
-    res = testlib.blockstack_cli_datastore_putfile( 'foo-app.com', '/hello_dir/hello_dir_datastore', data )
+    res = testlib.blockstack_cli_datastore_putfile( datastore_pk, '/hello_dir/hello_dir_datastore', data )
     if 'error' in res:
         print 'failed to putfile /hello_dir/hello_dir_datastore: {}'.format(res['error'])
         return False

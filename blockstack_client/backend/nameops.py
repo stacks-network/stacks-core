@@ -24,9 +24,9 @@ import os
 import sys
 import json
 import simplejson
-import pybitcoin
 import traceback
 import time
+import keylib
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -38,8 +38,6 @@ from .blockchain import get_tx_confirmations
 from .blockchain import is_address_usable
 from .blockchain import can_receive_name, get_balance, get_tx_fee, get_utxos
 from .blockchain import get_block_height
-
-from crypto.utils import get_address_from_privkey, get_pubkey_from_privkey
 
 from ..utils import pretty_print as pprint
 from ..utils import pretty_dump
@@ -64,7 +62,7 @@ from ..storage import get_blockchain_compat_hash, hash_zonefile, put_announcemen
 from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration, fees_preorder, \
         fees_namespace_preorder, fees_namespace_reveal, fees_namespace_ready, fees_announce
 
-from ..keys import get_privkey_info_address, get_privkey_info_params
+from ..keys import get_privkey_info_address, get_privkey_info_params, ecdsa_private_key
 
 from .safety import *
 
@@ -76,7 +74,6 @@ log = get_logger("blockstack-client")
 class UTXOWrapper(object):
     """
     Class for wrapping a known list of UTXOs for a set of addresses.
-    Compatible with pybitcoin's UTXO service class.
     Requires get_unspents()
     """
     def __init__(self):
@@ -617,7 +614,7 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
     assert payment_address
     payment_address = str(payment_address)
 
-    fake_privkey = virtualchain.BitcoinPrivateKey('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_PREORDER only supports p2pkh)
+    fake_privkey = ecdsa_private_key('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_PREORDER only supports p2pkh)
     fake_reveal_address = virtualchain.address_reencode('1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q')
     fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
 
@@ -652,7 +649,7 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
     assert payment_address
     payment_address = str(payment_address)
 
-    fake_privkey = virtualchain.BitcoinPrivateKey('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_REVEAL only supports p2pkh)
+    fake_privkey = ecdsa_private_key('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_REVEAL only supports p2pkh)
     fake_reveal_address = virtualchain.address_reencode('1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q')
 
     try:
@@ -693,7 +690,7 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
     assert reveal_addr
     reveal_addr = str(reveal_addr)
 
-    fake_privkey = virtualchain.BitcoinPrivateKey('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_READY only supports p2pkh)
+    fake_privkey = ecdsa_private_key('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_READY only supports p2pkh)
 
     try:
         unsigned_tx = namespace_ready_tx( namespace_id, reveal_addr, utxo_client )
@@ -808,12 +805,12 @@ def address_privkey_match( address, privkey_params ):
     i.e. singlesig --> p2pkh address
     i.e. multisig --> p2sh address
     """
-    if privkey_params == (1,1) and pybitcoin.b58check_version_byte( str(address) ) != virtualchain.version_byte:
+    if privkey_params == (1,1) and keylib.b58check.b58check_version_byte( str(address) ) != virtualchain.version_byte:
         # invalid address, given parameters
         log.error("Address %s does not correspond to a single private key" % address)
         return False
 
-    elif (privkey_params[0] > 1 or privkey_params[1] > 1) and pybitcoin.b58check_version_byte( str(address) ) != virtualchain.multisig_version_byte:
+    elif (privkey_params[0] > 1 or privkey_params[1] > 1) and keylib.b58check.b58check_version_byte( str(address) ) != virtualchain.multisig_version_byte:
         # invalid address
         log.error("Address %s does not correspond to multisig private keys")
         return False
@@ -1364,7 +1361,7 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
     payment_address = None
 
     try:
-        payment_address = virtualchain.BitcoinPrivateKey( importer_privkey_info ).public_key().address()
+        payment_address = virtualchain.address_reencode( ecdsa_private_key( importer_privkey_info ).public_key().address() )
     except Exception, e:
         log.exception(e)
         return {'error': 'Import can only use a single private key with a P2PKH script'}
@@ -1406,7 +1403,7 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
     payment_address = None
 
     try:
-        payment_address = virtualchain.BitcoinPrivateKey( payment_privkey_info ).public_key().address()
+        payment_address = virtualchain.address_reencode( ecdsa_private_key( payment_privkey_info ).public_key().address() )
     except Exception, e:
         log.error("Invalid private key info")
         return {'error': 'Namespace preorder can only use a single private key with a P2PKH script'}
@@ -1472,7 +1469,7 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
     payment_address = None
 
     try:
-        payment_address = virtualchain.BitcoinPrivateKey( payment_privkey_info ).public_key().address()
+        payment_address = virtualchain.address_reencode( ecdsa_private_key( payment_privkey_info ).public_key().address() )
     except:
         log.error("Invalid private key info")
         return {'error': 'Namespace reveal can only use a single private key with a P2PKH script'}
@@ -1523,7 +1520,7 @@ def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broad
     reveal_address = None
 
     try:
-        reveal_address = virtualchain.BitcoinPrivateKey( reveal_privkey_info ).public_key().address()
+        reveal_address = virtualchain.address_reencode(ecdsa_private_key( reveal_privkey_info ).public_key().address())
     except:
         log.error("Invalid private key info")
         return {'error': 'Namespace ready can only use a single private key with a P2PKH script'}

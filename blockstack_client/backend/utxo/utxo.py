@@ -24,24 +24,55 @@
 import os
 import sys
 from ConfigParser import SafeConfigParser
-import pybitcoin
 import logging
 import json
 import traceback
+
+from virtualchain import AuthServiceProxy
+
 from .blockstack_utxo import BlockstackUTXOClient
+from .blockcypher import BlockcypherClient
+from .bitcoind_utxo import BitcoindClient
+from .blockchain_info import BlockchainInfoClient
+from .blockstack_explorer import BlockstackExplorerClient, BLOCKSTACK_EXPLORER_URL
+
+from .blockstack_utxo import get_unspents as blockstack_utxo_get_unspents
+from .blockstack_utxo import broadcast_transaction as blockstack_utxo_broadcast_transaction
+
+from .blockcypher import get_unspents as blockcypher_get_unspents
+from .blockcypher import broadcast_transaction as blockcypher_broadcast_transaction
+
+from .bitcoind_utxo import get_unspents as bitcoind_utxo_get_unspents
+from .bitcoind_utxo import broadcast_transaction as bitcoind_utxo_broadcast_transaction
+
+from .blockchain_info import get_unspents as blockchain_info_get_unspents
+from .blockchain_info import broadcast_transaction as blockchain_info_broadcast_transaction
+
+from .blockstack_explorer import get_unspents as blockstack_explorer_get_unspents
+from .blockstack_explorer import broadcast_transaction as blockstack_explorer_broadcast_transaction
+
 
 DEBUG = True
 FIRST_BLOCK_MAINNET = 373601        # well-known value for blockstack-server; doesn't ever change
 
 
-SUPPORTED_UTXO_PROVIDERS = [ "blockcypher", "blockchain_info", "bitcoind_utxo", "blockstack_utxo", "mock_utxo" ]
+SUPPORTED_UTXO_PROVIDERS = [ "blockcypher", "blockchain_info", "bitcoind_utxo", "blockstack_utxo", "blockstack_explorer" ]
 SUPPORTED_UTXO_PARAMS = {
     "blockcypher": ["api_token"],
     "blockchain_info": ["api_token"],
     "bitcoind_utxo": ["rpc_username", "rpc_password", "server", "port", "use_https", "version_byte"],
     "blockstack_utxo": ["server", "port"],
-    "mock_utxo": []
+    "blockstack_explorer": ["url"],
 }
+
+SUPPORTED_UTXO_PROMPT_MESSAGES = {
+    'blockcypher': 'Please enter your Blockcypher API token.',
+    'blockchain_info': 'Please enter your blockchain.info API token.',
+    'bitcoind_utxo': 'Please enter your fully-indexed bitcoind node information.',
+    'blockstack_utxo': 'Please enter your Blockstack server info.',
+    'blockstack_explorer': 'Please enter your Blockstack Explorer info.'
+}
+
 
 
 def default_utxo_provider_opts( utxo_provider, config_file=None ):
@@ -60,9 +91,9 @@ def default_utxo_provider_opts( utxo_provider, config_file=None ):
 
    elif utxo_provider == "blockstack_utxo":
        return default_blockstack_utxo_opts( config_file=config_file )
-
-   elif utxo_provider == "mock_utxo":
-       return default_mock_utxo_opts( config_file=config_file )
+    
+   elif utxo_provider == "blockstack_explorer":
+       return default_blockstack_explorer_opts( config_file=config_file )
 
    else:
        raise Exception("Unsupported UTXO provider '%s'" % utxo_provider)
@@ -273,99 +304,37 @@ def default_blockstack_utxo_opts( config_file=None ):
    return blockstack_utxo_opts
 
 
-def default_mock_utxo_opts( config_file=None ):
-   """
-   Get default options for the mock UTXO provider.
-   """
+def default_blockstack_explorer_opts( config_file=None ):
+    """
+    Get our default Blockstack Explorer options from a config file.
+    """
 
-   mock_tx_list = None
-   mock_tx_file = None
-   mock_start_block = FIRST_BLOCK_MAINNET
-   mock_start_time = None
-   mock_difficulty = None
-   mock_initial_utxos = None
-   mock_save_file = None
+    if config_file is None:
+        raise Exception("No config file given")
 
-   if config_file is not None:
+    parser = SafeConfigParser()
+    parser.read(config_file)
 
-      provider_secs = find_service_provider_sections(config_file, 'mock_utxo')
-      if len(provider_secs) > 0:
-         provider_sec = provider_secs[0]
+    url = BLOCKSTACK_EXPLORER_URL
 
-         parser = SafeConfigParser()
-         parser.read(config_file)
+    provider_secs = find_service_provider_sections(config_file, 'blockstack_utxo')
+    if len(provider_secs) > 0:
+        provider_sec = provider_secs[0]
+        
+        if parser.has_option(provider_sec, "url"):
+            url = parser.get(provider_sec, "url")
 
-         if parser.has_option(provider_sec, 'tx_list'):
-            # should be a csv of raw transactions
-            mock_tx_list = parser.get(provider_sec, 'tx_list').split(',')
+    blockstack_explorer_opts = {
+        'url': url,
+    }
 
-         if parser.has_option(provider_sec, 'tx_file'):
-            # should be a path
-            mock_tx_file = parser.get(provider_sec, 'tx_file')
+    # strip nones 
+    for (k, v) in blockstack_explorer_opts.items():
+        if v is None:
+            del blockstack_explorer_opts[k]
 
-         if parser.has_option(provider_sec, 'start_block'):
-            # should be an int
-            try:
-                mock_start_block = int( parser.get(provider_sec, 'start_block') )
-            except:
-                print >> sys.stderr, "Invalid 'start_block' value: expected int"
-                return None
-
-         if parser.has_option(provider_sec, 'difficulty'):
-            # should be a float
-            try:
-                mock_difficulty = float( parser.get(provider_sec, 'difficulty') )
-            except:
-                print >> sys.stderr, "Invalid 'difficulty' value: expected float"
-                return None
-
-         if parser.has_option(provider_sec, 'start_block'):
-            # should be an int
-            try:
-                mock_start_block = int( parser.get(provider_sec, 'start_block'))
-            except:
-                print >> sys.stderr, "Invalid 'start_block' value: expected int"
-                return None
-
-         if parser.has_option(provider_sec, 'save_file'):
-             # should be a path 
-             mock_save_file = parser.get(provider_sec, 'save_file')
-
-         if parser.has_option(provider_sec, 'initial_utxos'):
-            # should be a csv of privatekey:int
-            try:
-                # verify that we can parse this
-                wallet_info = parser.get(provider_sec, 'initial_utxos').split(',')
-                wallets = {}
-                for wi in wallet_info:
-                    privkey, value = wi.split(':')
-                    wallets[ privkey ] = int(value)
-
-                #mock_initial_utxos = wallets
-                mock_initial_utxos = parser.get(provider_sec, 'initial_utxos')
-
-            except:
-                print >> sys.stderr, "Invalid 'mock_initial_utxos' value: expected CSV of wif_private_key:int"
-                return None
-
-
-   default_mock_utxo_opts = {
-      "tx_list": mock_tx_list,
-      "tx_file": mock_tx_file,
-      "start_block": mock_start_block,
-      "difficulty": mock_difficulty,
-      "initial_utxos": mock_initial_utxos,
-      "start_block": mock_start_block,
-      "save_file": mock_save_file
-   }
-
-   # strip Nones
-   for (k, v) in default_mock_utxo_opts.items():
-      if v is None:
-         del default_mock_utxo_opts[k]
-
-   default_mock_utxo_opts['utxo_provider'] = 'mock_utxo'
-   return default_mock_utxo_opts
+    blockstack_explorer_opts['utxo_provider'] = 'blockstack_explorer'
+    return blockstack_explorer_opts
 
 
 def connect_utxo_provider( utxo_opts ):
@@ -383,27 +352,71 @@ def connect_utxo_provider( utxo_opts ):
        raise Exception("Unsupported UTXO provider '%s'" % utxo_provider)
 
    elif utxo_provider == "blockcypher":
-       return pybitcoin.BlockcypherClient( utxo_opts['api_token'] )
+       return BlockcypherClient( utxo_opts['api_token'] )
 
    elif utxo_provider == "blockchain_info":
-       return pybitcoin.BlockchainInfoClient( utxo_opts['api_token'] )
+       return BlockchainInfoClient( utxo_opts['api_token'] )
 
    elif utxo_provider == "bitcoind_utxo":
-       return pybitcoin.BitcoindClient( utxo_opts['rpc_username'], utxo_opts['rpc_password'], use_https=utxo_opts['use_https'], server=utxo_opts['server'], port=utxo_opts['port'], version_byte=utxo_opts['version_byte'] )
+       return BitcoindClient( utxo_opts['rpc_username'], utxo_opts['rpc_password'], use_https=utxo_opts['use_https'], server=utxo_opts['server'], port=utxo_opts['port'], version_byte=utxo_opts['version_byte'] )
 
    elif utxo_provider == "blockstack_utxo":
        return BlockstackUTXOClient( utxo_opts['server'], utxo_opts['port'] )
 
-   elif utxo_provider == "mock_utxo":
-       # requires blockstack tests to be installed
-       try:
-           from blockstack_integration_tests import connect_mock_utxo_provider
-       except:
-           raise Exception("Mock UTXO provider requires blockstack_integration_tests to be installed")
-
-       return connect_mock_utxo_provider( utxo_opts )
+   elif utxo_provider == "blockstack_explorer":
+       return BlockstackExplorerClient( url=utxo_opts['url'] )
 
    else:
        raise Exception("Unrecognized UTXO provider '%s'" % utxo_provider )
+
+
+def get_unspents(address, blockchain_client):
+    """
+    Gets the unspent outputs for a given address.
+    Raises exception on error
+    """
+    if isinstance(blockchain_client, BlockcypherClient):
+        return blockcypher_get_unspents(address, blockchain_client)
+    elif isinstance(blockchain_client, BlockchainInfoClient):
+        return blockchain_info_get_unspents(address, blockchain_client)
+    elif isinstance(blockchain_client, (BitcoindClient, AuthServiceProxy)):
+        return bitcoind_utxo_get_unspents(address, blockchain_client)
+    elif isinstance(blockchain_client, BlockstackUTXOClient):
+        return blockstack_utxo_get_unspents(address, blockchain_client)
+    elif isinstance(blockchain_client, BlockstackExplorerClient):
+        return blockstack_explorer_get_unspents(address, blockchain_client)
+
+    # default
+    elif hasattr(blockchain_client, "get_unspents"):
+        return blockchain_client.get_unspents( address )
+    elif isinstance(blockchain_client, BlockchainClient):
+        raise Exception('That blockchain interface is not supported.')
+    else:
+        raise Exception('A BlockchainClient object is required')
+
+
+def broadcast_transaction(hex_tx, blockchain_client):
+    """
+    Dispatches a raw hex transaction to the network.
+    Raises exception on error
+    """
+    if isinstance(blockchain_client, BlockcypherClient):
+        return blockcypher_broadcast_transaction(hex_tx, blockchain_client)
+    elif isinstance(blockchain_client, BlockchainInfoClient):
+        return blockchain_info_broadcast_transaction(hex_tx, blockchain_client)
+    elif isinstance(blockchain_client, (BitcoindClient, AuthServiceProxy)):
+        return bitcoind_utxo_broadcast_transaction(hex_tx, blockchain_client)
+    elif isinstance(blockchain_client, BlockstackUTXOClient):
+        return blockstack_utxo_broadcast_transaction(hex_tx, blockchain_client)
+    elif isinstance(blockchain_client, BlockstackExplorerClient):
+        return blockstack_explorer_broadcast_transaction(hex_tx, blockchain_client)
+
+    # default
+    elif hasattr(blockchain_client, "broadcast_transaction"):
+        return blockchain_client.broadcast_transaction( hex_tx )
+    elif isinstance(blockchain_client, BlockchainClient):
+        raise Exception('That blockchain interface is not supported.')
+    else:
+        raise Exception('A BlockchainClient object is required')
 
 

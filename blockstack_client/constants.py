@@ -26,6 +26,11 @@ from __future__ import print_function
 
 import os
 import sys
+import json
+import tempfile
+import subprocess
+import fcntl
+
 import virtualchain
 from .version import __version__, __version_major__, __version_minor__, __version_patch__
 
@@ -302,10 +307,6 @@ WALLET_PATH = os.path.join(CONFIG_DIR, 'wallet.json')
 DEFAULT_QUEUE_PATH = os.path.join(CONFIG_DIR, 'queues.db')
 
 METADATA_DIRNAME = 'metadata'
-APP_ACCOUNT_DIRNAME = 'accounts'
-USER_DIRNAME = 'accounts'
-DATASTORE_DIRNAME = 'datastores'
-LOCAL_PRIVKEY_INDEX_NAME = 'local_privkey.idx'
 
 BLOCKCHAIN_ID_MAGIC = 'id'
 
@@ -341,6 +342,9 @@ APPROX_TX_OUT_P2SH_LEN = 40
 ACCOUNT_SIGNING_KEY_INDEX = 0
 DATASTORE_SIGNING_KEY_INDEX = 0
 
+# version of the storage protocol 
+BLOCKSTACK_STORAGE_PROTO_VERSION = 1
+
 # session lifetime
 DEFAULT_SESSION_LIFETIME = 3600 * 24 * 7    # 1 week
 
@@ -361,14 +365,83 @@ del i
 
 EPOCH_HEIGHT_MINIMUM = EPOCH_1_END_BLOCK + 1
 
-DEFAULT_BLOCKCHAIN_READER = 'blockcypher'
-DEFAULT_BLOCKCHAIN_WRITER = 'blockcypher'
+DEFAULT_BLOCKCHAIN_READER = 'blockstack_explorer'
+DEFAULT_BLOCKCHAIN_WRITER = 'blockstack_explorer'
 
-SUPPORTED_UTXO_PROMPT_MESSAGES = {
-    'blockcypher': 'Please enter your Blockcypher API token.',
-    'blockchain_info': 'Please enter your blockchain.info API token.',
-    'bitcoind_utxo': 'Please enter your fully-indexed bitcoind node information.',
-    'blockstack_utxo': 'Please enter your Blockstack server info.',
-}
+SECRETS = {}
 
+def set_secret(key, value):
+    global SECRETS
+    SECRETS[key] = value
+
+def get_secret(key):
+    return SECRETS.get(key)
+
+
+def serialize_secrets():
+    return json.dumps(SECRETS)
+
+
+def parse_secrets(buf):
+    try:    
+        return json.loads(buf)
+    except:
+        return {}
+
+
+def load_secrets(buf):
+    global SECRETS
+    sec = parse_secrets(buf)
+    SECRETS.update(sec)
+   
+
+def write_secrets(buf):
+    """
+    Given serialized secrets, save them to an
+    unlinked temporary file that the calling process
+    can read and write.
+
+    Be careful how we do this---we don't want another
+    process running as the same user 
+    to be able to open the file in read mode.
+
+    Returns the (integer) file descriptor number on success.
+    Raises on error.
+    """
+
+    dirp = tempfile.mkdtemp()
+    tmppath = os.path.join(dirp, "secrets")
+
+    fd = os.open(tmppath, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0200)
+
+    os.unlink(tmppath)
+    os.rmdir(dirp)
+
+    # NOTE: FD_CLOEXEC to stop the subprocess below from inheriting
+    flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+    flags |= fcntl.FD_CLOEXEC
+    fcntl.fcntl(fd, fcntl.F_SETFD, flags)
+
+    # try to verify that we got this file to ourselves
+    command = 'lsof -nP +L1 | grep "{}"'.format(tmppath)
+    p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+    out, err = p.communicate()
+
+    assert p.returncode == 0, "'{}' failed with code {}".format(command, p.returncode)
+
+    linecount = len(out.strip().split("\n"))
+    assert linecount == 1, "Some other process opened our secrets\n\n{}".format(out)
+
+    # save to write
+    os.write(fd, buf)
+    os.lseek(fd, 0, os.SEEK_SET)
+
+    # make accessible again
+    os.fchmod(fd, 0600)
+
+    # remove O_CLOEXEC (since we're passing this on exec to the reloaded process)
+    flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+    flags &= ~fcntl.FD_CLOEXEC
+    fcntl.fcntl(fd, fcntl.F_SETFD,  flags)
+    return fd
 

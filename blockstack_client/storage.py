@@ -23,7 +23,6 @@
 
 # this module contains the high-level methods for talking to ancillary storage.
 
-import pybitcoin
 import keylib
 import re
 import os
@@ -44,7 +43,7 @@ import blockstack_profiles
 
 from config import get_logger
 from constants import CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
-from scripts import is_name_valid
+from scripts import is_name_valid, hex_hash160
 import schemas
 from keys import *
 
@@ -78,7 +77,7 @@ def get_zonefile_data_hash(data_txt):
     Generate a hash over a user's zonefile.
     Return the hex string.
     """
-    return pybitcoin.hex_hash160(data_txt)
+    return hex_hash160(data_txt)
 
 
 def get_blockchain_compat_hash(data_txt):
@@ -87,7 +86,7 @@ def get_blockchain_compat_hash(data_txt):
     the blockchain (e.g. for user zonefiles and
     announcements).
     """
-    return pybitcoin.hex_hash160(data_txt)
+    return hex_hash160(data_txt)
 
 
 def hash_zonefile(zonefile_json):
@@ -244,6 +243,22 @@ def sign_data_tombstone( tombstone_data, data_privkey ):
     """
     sigb64 = sign_raw_data(tombstone_data, data_privkey)
     return '{}:{}'.format(tombstone_data, sigb64)
+
+
+def parse_data_tombstone( signed_tombstone ):
+    """
+    Parse a signed data tombstone
+    """
+    parts = signed_tombstone.rsplit(":", 1)
+    if len(parts) != 2:
+        return {'error': 'Missing signature'}
+
+    tombstone_data, sigb64 = parts[0], parts[1]
+    if not tombstone_data.startswith('delete:'):
+        return {'error': 'Missing delete: crib'}
+
+    tombstone_payload = tombstone_data[len('delete:'):]
+    return {'tombstone_payload': tombstone_payload, 'sigb64': sigb64}
 
 
 def verify_data_tombstone( signed_tombstone, data_pubkey ):
@@ -428,7 +443,10 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
 
         log.debug("Try verify with {}".format(pubkey_hash))
 
-        if keylib.public_key_to_address(pubk_hex) == pubkey_hash:
+        pubk_compressed = keylib.key_formatting.compress(pubk_hex)
+        pubk_uncompressed = keylib.key_formatting.decompress(pubk_hex)
+
+        if keylib.public_key_to_address(pubk_compressed) == pubkey_hash or keylib.public_key_to_address(pubk_uncompressed) == pubkey_hash:
             if verify_data_payload( data_txt, pubk_hex, sig_b64 ):
                 log.debug("Verified payload with public key hash {} ({})".format(pubk_hex, pubkey_hash))
                 return data_txt
@@ -815,16 +833,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
     return None
 
 
-def serialize_immutable_data(data_json):
-    """
-    Serialize a piece of immutable data
-    """
-    msg = 'Invalid immutable data: must be a dict or list(got type {})'
-    assert isinstance(data_json, (dict, list)), msg.format(type(data_json))
-    return json.dumps(data_json, sort_keys=True)
-
-
-def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required=None, skip=None):
+def put_immutable_data(data_text, txid, data_hash=None, required=None, skip=None):
     """
     Given a string of data (which can either be data or a zonefile), store it into our immutable data stores.
     Do so in a best-effort manner--this method only fails if *all* storage providers fail.
@@ -838,22 +847,15 @@ def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required
     required = [] if required is None else required
     skip = [] if skip is None else skip
 
-    data_checks = (
-        (data_hash is None and data_text is None and data_json is not None) or
-        (data_hash is not None and data_text is not None)
-    )
-
-    assert data_checks, 'Need data hash and text, or just JSON'
-
-    if data_text is None:
-        data_text = serialize_immutable_data(data_json)
-
     if data_hash is None:
+        assert data_text
         data_hash = get_data_hash(data_text)
     else:
         data_hash = str(data_hash)
 
     successes = 0
+    required_successes = 0
+
     msg = 'put_immutable_data({}), required={}, skip={}'
     log.debug(msg.format(data_hash, ','.join(required), ','.join(skip)))
 
@@ -896,8 +898,11 @@ def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required
             log.debug('Replication succeeded with "{}"'.format(handler.__name__))
             successes += 1
 
+            if handler.__name__ in required:
+                required_successes += 1
+
     # failed everywhere or succeeded somewhere
-    return None if successes == 0 else data_hash
+    return None if successes == 0 and required_successes == len(required) else data_hash
 
 
 def put_mutable_data(fq_data_id, data_text_or_json, data_privkey=None, data_pubkey=None, data_signature=None, profile=False, blockchain_id=None, required=None, skip=None, required_exclusive=False):
@@ -935,6 +940,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, data_privkey=None, data_pubk
     serialized_data = serialize_mutable_data(data_text_or_json, data_privkey=data_privkey, data_pubkey=data_pubkey, data_signature=data_signature, profile=profile)
     
     successes = 0
+    required_successes = 0
 
     log.debug('put_mutable_data({}), required={}, skip={} required_exclusive={}'.format(fq_data_id, ','.join(required), ','.join(skip), required_exclusive))
     if BLOCKSTACK_TEST:
@@ -955,7 +961,6 @@ def put_mutable_data(fq_data_id, data_text_or_json, data_privkey=None, data_pubk
             return None
 
         if required_exclusive and handler.__name__ not in required:
-            log.debug("Skipping non-required driver {}".format(handler.__name__))
             continue
 
         rc = False
@@ -972,8 +977,12 @@ def put_mutable_data(fq_data_id, data_text_or_json, data_privkey=None, data_pubk
             return None
 
         if rc:
-            log.debug("Replicated {} bytes with {}".format(len(serialized_data), handler.__name__))
+            log.debug("Replicated {} bytes with {} (rc = {})".format(len(serialized_data), handler.__name__, rc))
             successes += 1
+
+            if handler.__name__ in required:
+                required_successes += 1
+
             continue
 
         if handler.__name__ not in required:
@@ -984,7 +993,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, data_privkey=None, data_pubk
         return None
 
     # failed everywhere or succeeded somewhere
-    return (successes > 0)
+    return (successes > 0) and (required_successes >= len(required))
 
 
 def delete_immutable_data(data_hash, txid, privkey=None, signed_data_tombstone=None):
@@ -1053,6 +1062,8 @@ def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None,
         ts = make_mutable_data_tombstone(fq_data_id)
         signed_data_tombstone = sign_data_tombstone(ts, privatekey)
 
+    required_successes = 0
+
     # remove data
     for handler in storage_handlers:
         if handler.__name__ in skip:
@@ -1076,8 +1087,11 @@ def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None,
         if not rc and handler.__name__ in required:
             log.error("Failed to delete from required storage driver {}".format(handler.__name__))
             return False
+        
+        elif handler.__name__ in required:
+            required_successes += 1
 
-    return True
+    return required_successes >= len(required)
 
 
 def get_announcement(announcement_hash):

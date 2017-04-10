@@ -98,13 +98,14 @@ def scenario( wallets, **kw ):
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
 
     # make a session 
-    ses = testlib.blockstack_app_session( "register.app", ["names","register","prices","zonefiles","update","blockchain","node_read"], config_path=config_path )
-    if 'error' in ses:
-        ses['test'] = 'Failed to get app session'
-        print json.dumps(ses)
-        return False
+    datastore_pk = keylib.ECPrivateKey(wallets[-1].privkey).to_hex()
+    res = testlib.blockstack_cli_app_signin(datastore_pk, 'register.app', ['names', 'register', 'prices', 'zonefiles', 'blockchain', 'node_read'])
+    if 'error' in res:
+        print json.dumps(res, indent=4, sort_keys=True)
+        error = True
+        return 
 
-    ses = ses['ses']
+    ses = res['token']
 
     # register the name bar.test 
     res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test'})

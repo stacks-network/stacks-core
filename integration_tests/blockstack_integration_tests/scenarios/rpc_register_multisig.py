@@ -58,8 +58,9 @@ def scenario( wallets, **kw ):
 
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
-    
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, None )
+   
+    # NOTE: the wallets used here used to be wallets[2] and wallets[3]; these were changed in rc-0.14.2
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[3].privkey, wallets[4].privkey, wallets[2].privkey )
     resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef" )
     if 'error' in resp:
         print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
@@ -113,7 +114,7 @@ def check( state_engine ):
         return False 
 
     # owned by the right address 
-    owner_address = wallets[3].addr
+    owner_address = wallets[4].addr
     if name_rec['address'] != owner_address or name_rec['sender'] != virtualchain.make_payment_script(owner_address):
         print "sender is wrong"
         print "%s != %s or %s != %s" % (name_rec['address'], owner_address, name_rec['sender'], virtualchain.make_payment_script(owner_address))

@@ -53,6 +53,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
 
+    # pre-0.13 wallet
     legacy_wallet = testlib.make_legacy_wallet( wallets[2].privkey, "0123456789abcdef" )
     testlib.store_wallet( legacy_wallet )
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -21,7 +21,7 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin.services import BlockchainClient
+from .blockchain_client import BlockchainClient
 
 from xmlrpclib import ServerProxy, Transport
 from defusedxml import xmlrpc
@@ -110,7 +110,6 @@ class BlockstackRPCClient(object):
 def get_unspents( address, client=BlockstackUTXOClient("localhost", 6264) ):
     """
     Get unspent outputs from a Blockstack server.
-    TODO: authenticate the server
     """
     proxy = BlockstackRPCClient( client.server, client.port )
     unspents = proxy.get_unspents( address )
@@ -120,7 +119,6 @@ def get_unspents( address, client=BlockstackUTXOClient("localhost", 6264) ):
 def broadcast_transaction( txdata, client ):
     """
     Send a transaction through a Blockstack server
-    TODO: authenticate the server
     """
     if not isinstance(client, BlockstackUTXOClient):
         raise Exception("Not a Blockstack UTXO client")

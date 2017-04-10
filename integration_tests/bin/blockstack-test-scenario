@@ -29,6 +29,7 @@ import argparse
 blockstack = None
 blockstackd = None
 testlib = None
+g_interactive = False
 
 import pybitcoin
 
@@ -93,7 +94,7 @@ storage_drivers_local =
 storage_drivers_required_write = @CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE@
 advanced_mode = true
 api_endpoint_port = %s
-api_password = a653b93e696a998f85f8fd2b241ff4dfcb5dd978fe1da26c413a4c2abf90321b
+api_password = blockstack_integration_test_api_password
 poll_interval = 1
 queue_path = @CLIENT_QUEUE_PATH@
 rpc_detach = True
@@ -313,6 +314,7 @@ def network_start( blockstack_opts, db ):
     """
     Start RPC services
     """
+    blockstackd.gc_start()
     atlas_state = None
     try:
         atlas_state = blockstackd.atlas_start( blockstack_opts, db, TEST_RPC_PORT )
@@ -338,7 +340,7 @@ def network_stop():
     Stop RPC services
     """
     blockstackd.rpc_stop()
-
+    blockstackd.gc_stop()
 
 def atlas_stop( atlas_state ):
     try:
@@ -458,10 +460,6 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     client_opts = blockstack_client.config.configure(config_file=client_config_file, interactive=False)
     utxo_opts = client_opts['blockchain-reader']
-   
-    # override multiprocessing options to ensure single-process behavior 
-    utxo_opts['multiprocessing_num_procs'] = 1 
-    utxo_opts['multiprocessing_num_blocks'] = 10
 
     # pass along extra arguments
     utxo_opts['blockchain_server'] = 'localhost'
@@ -528,10 +526,38 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     pinger = Pinger()
     pinger.start()
 
+    # shutdown procedure 
+    def shutdown_procedure(*args, **kw):
+        network_stop()
+        atlas_stop( atlas_state )
+        storage_stop()
+        bitcoin_stop()
+        blockstack_client.rpc.local_api_stop(client_config_dir)
+        
+        if pinger:
+            pinger.ask_join()
+            pinger.join()
+
+    def signal_shutdown_procedure(*args, **kw):
+        shutdown_procedure()
+        exit(1)
+
+    signal.signal(signal.SIGINT, signal_shutdown_procedure)
+    signal.signal(signal.SIGQUIT, signal_shutdown_procedure)
+    signal.signal(signal.SIGTERM, signal_shutdown_procedure)
+
     # do we need to refreshdb?
-    rpcclient = testlib.TestAPIProxy()
-    res = rpcclient.getinfo()
-    need_db_refresh = False
+    rpcclient = None
+    res = None
+    need_db_refresh = None
+
+    try:
+        rpcclient = testlib.TestAPIProxy()
+        res = rpcclient.getinfo()
+        need_db_refresh = False
+    except Exception as e:
+        log.exception(e)
+        sys.exit(1)
 
     if not blockstack_client.config.semver_newer( res['server_version'], "0.14.0" ) and not res['server_version'].startswith("0.14."):
         log.debug("Need periodic DB refreshes (server_version = %s)" % res['server_version'])
@@ -558,30 +584,20 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         log.exception(e)
         traceback.print_exc()
         log.error("Failed to run scenario '%s'" % scenario.__name__)
-        network_stop()
-        atlas_stop( atlas_state )
-        storage_stop()
-        bitcoin_stop()
-        blockstack_client.rpc.local_api_stop(client_config_dir)
-
-        pinger.ask_join()
-        pinger.join()
+        shutdown_procedure()
         return False
 
     if rc == False:
         # explicitly erred
         log.error("Scenario exits in error")
-        blockstack_client.rpc.local_api_stop(client_config_dir)
         log.error("Failed to run tests '%s'" % scenario.__name__)
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
+        shutdown_procedure()
         return False
+
+    log.info("\n\nTest finished; doing checks\n\n")
 
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
     testlib.set_state_engine(db)
-
-    log.info("\n\nTest finished; doing checks\n\n")
 
     # run the checks on the database
     try:
@@ -591,16 +607,11 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         traceback.print_exc()
         blockstack_client.rpc.local_api_stop(client_config_dir)
         log.error("Failed to run tests '%s'" % scenario.__name__)
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
+        shutdown_procedure()
         return False 
     
     if not rc:
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
-        blockstack_client.rpc.local_api_stop(client_config_dir)
+        shutdown_procedure()
         return rc
 
     # do any more interactive tests
@@ -619,9 +630,13 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     pinger.ask_join()
     pinger.join()
+    pinger = None
 
     # stop atlas support 
     atlas_stop( atlas_state )
+    if interactive:
+        shutdown_procedure()
+        return True
 
     log.info("\n\nScenario checks passed; verifying history\n\n")
 
@@ -633,10 +648,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         assert rc, "History check failed"
     except Exception, e:
         log.exception(e)
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
-        blockstack_client.rpc.local_api_stop(client_config_dir)
+        shutdown_procedure()
         return rc
 
     log.info("History check passes!")
@@ -653,10 +665,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         assert rc, "SNV check failed"
     except Exception, e:
         log.exception(e)
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
-        blockstack_client.rpc.local_api_stop(client_config_dir)
+        shutdown_procedure()
         return rc
 
     log.info("SNV check passes!")
@@ -667,31 +676,23 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     if atlas_state is not None:
         rc = testlib.check_atlas_zonefiles( db, blockstack_opts['atlasdb_path'] )
         if not rc:
-            network_stop()
-            storage_stop()
-            bitcoin_stop()
-            blockstack_client.rpc.local_api_stop(client_config_dir)
+            shutdown_procedure()
             return rc
 
         log.info("Atlas zonefile checks pass!")
 
+    """
     # verify data URLs 
     rc = testlib.check_data_urls()
     if not rc:
         log.error("Data URL check fails")
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
-        blockstack_client.rpc.local_api_stop(client_config_dir)
+        shutdown_procedure()
         return rc
 
     log.info("Data URL check pass!")
+    """
 
-    network_stop()
-    storage_stop()
-    bitcoin_stop()
-    blockstack_client.rpc.local_api_stop(client_config_dir)
-    TEST_RESULT = True
+    shutdown_procedure()
     return True
 
 
@@ -751,20 +752,26 @@ def bitcoin_regtest_reset():
 
     # wait for a few seconds for it to come up
     log.debug("Waiting for bitcoind to start up")
-
-    while True:
+    deadline = time.time() + 30
+    started = False
+    while time.time() < deadline:
         time.sleep(1)
         opts = bitcoin_regtest_opts()
         try:
 
             bitcoind = virtualchain.default_connect_bitcoind( opts )
             bitcoind.getinfo()
+            started = True
             break
 
         except socket.error:
             pass
         except JSONRPCException:
             pass
+
+    if not started:
+        log.error("Failed to connect to bitcoind")
+        return False
 
     # generate 150 blocks (50 BTC coinbase each), and confirm them
     bitcoind = virtualchain.connect_bitcoind(opts)
@@ -961,6 +968,7 @@ if __name__ == "__main__":
 
     if hasattr(args, "blocktime") and args.blocktime is not None:
         interactive = True
+        g_interactive = True
         blocktime = args.blocktime
         log.debug("Interactive session; block time is %s" % blocktime)
 
@@ -1019,6 +1027,9 @@ if __name__ == "__main__":
     if os.path.exists("/tmp/blockstack-disk"):
         shutil.rmtree("/tmp/blockstack-disk")
     
+    if os.path.exists("/tmp/blockstack-integration-test-storage"):
+        shutil.rmtree("/tmp/blockstack-integration-test-storage")
+
     # set up SPV 
     if os.path.exists("/tmp/blockstack-test-scenario-spv.dat"):
         os.unlink("/tmp/blockstack-test-scenario-spv.dat")

@@ -116,7 +116,7 @@ def bsk_make_datastore( session, drivers ):
     # get back datastore?
     ds_res = rpc.backend_datastore_get( datastore_id )
     if 'error' not in ds_res:
-        return {'status': True, 'datastore': ds_info, 'datastore_id': datastore_id}
+        return {'status': True, 'datastore': ds_res['datastore'], 'datastore_id': datastore_id}
 
     # make one!
     ds_info = bsk_data.make_datastore_info( 'datastore', datastore_pubkey, driver_names=drivers )
@@ -132,7 +132,7 @@ def bsk_make_datastore( session, drivers ):
     if 'error' in ds_res:
         raise Exception('get_datastore: {}'.format(ds_res))
 
-    return {'status': True, 'datastore': ds_res, 'datastore_id': datastore_id} 
+    return {'status': True, 'datastore': ds_res['datastore'], 'datastore_id': datastore_id} 
    
 
 def bsk_delete_datastore( session ):

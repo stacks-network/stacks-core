@@ -55,7 +55,7 @@ def scenario( wallets, **kw ):
     zonefile = blockstack_client.zonefile.make_empty_zonefile('foo.test', wallets[4].pubkey_hex, urls=driver_urls)
     zonefile_txt = blockstack_zones.make_zone_file( zonefile, origin='foo.test', ttl=3600 )
 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, None )
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
     resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef", zonefile=zonefile_txt, recipient_address=wallets[4].addr )
     if 'error' in resp:
         print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)

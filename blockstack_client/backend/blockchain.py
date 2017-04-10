@@ -24,7 +24,6 @@
 import os
 import sys
 import virtualchain
-import pybitcoin
 import json
 import traceback
 
@@ -32,12 +31,13 @@ import traceback
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 
-from ..config import TX_EXPIRED_INTERVAL, TX_CONFIRMATIONS_NEEDED, TX_MIN_CONFIRMATIONS
-from ..config import MAXIMUM_NAMES_PER_ADDRESS
-from ..config import BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT
+from ..constants import TX_EXPIRED_INTERVAL, TX_CONFIRMATIONS_NEEDED, TX_MIN_CONFIRMATIONS
+from ..constants import MAXIMUM_NAMES_PER_ADDRESS
+from ..constants import BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT
+from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DRY_RUN
+from ..constants import MINIMUM_BALANCE, CONFIG_PATH
 
-from ..config import MINIMUM_BALANCE, CONFIG_PATH
-from ..config import get_logger, get_utxo_provider_client
+from ..config import get_logger, get_utxo_provider_client, get_tx_broadcaster
 
 from ..utils import satoshis_to_btc
 from ..utils import pretty_print as pprint
@@ -46,6 +46,8 @@ from ..proxy import get_default_proxy
 from ..proxy import get_names_owned_by_address as blockstack_get_names_owned_by_address
 
 from ..scripts import tx_get_unspents
+
+from .utxo import broadcast_transaction
 
 log = get_logger() 
 
@@ -129,7 +131,7 @@ def get_tx_fee( tx_hex, config_path=CONFIG_PATH ):
         fee = bitcoind_client.estimatefee(2)
         if fee < 0:
             # if we're testing, then use our own fee
-            if os.environ.get("BLOCKSTACK_TEST", None) == "1" or os.environ.get("BLOCKSTACK_TESTNET", None) == "1":
+            if BLOCKSTACK_TEST or os.environ.get("BLOCKSTACK_TESTNET", None) == "1":
                 fee = 5500.0 / 10**8
 
             else:
@@ -204,6 +206,52 @@ def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmati
                 ret.append(utxo)
 
     return ret
+
+
+def broadcast_tx(tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None):
+    """
+    Send a signed transaction to the blockchain
+    Return {'status': True, 'transaction_hash': ...} on success.  Include 'tx': ... if BLOCKSTACK_DRY_RUN is set.
+    Return {'error': ...} on failure.
+    """
+    if tx_broadcaster is None:
+        tx_broadcaster = get_tx_broadcaster(config_path=config_path)
+
+    if BLOCKSTACK_TEST is not None:
+        log.debug('Send {}'.format(tx_hex))
+    
+    resp = {}
+    try:
+        if BLOCKSTACK_DRY_RUN:
+            resp = {
+                'tx': tx_hex,
+                'transaction_hash': virtualchain.tx_get_hash(tx_hex),
+                'status': True
+            }
+            return resp
+
+        else:
+            resp = broadcast_transaction(tx_hex, tx_broadcaster)
+            if 'tx_hash' not in resp or 'error' in resp:
+                log.error('Failed to send {}'.format(tx_hex))
+                resp['error'] = 'Failed to broadcast transaction: {}'.format(tx_hex)
+                return resp
+
+    except Exception as e:
+        log.exception(e)
+        resp['error'] = 'Failed to broadcast transaction: {}'.format(tx_hex)
+
+        if BLOCKSTACK_TEST is not None:
+            # should NEVER happen in test mode
+            msg = 'FATAL: failed to send transaction:\n{}'
+            log.error(msg.format(json.dumps(resp, indent=4, sort_keys=True)))
+            os.abort()
+
+    # for compatibility
+    resp['status'] = True
+    resp['transaction_hash'] = resp.pop('tx_hash')
+
+    return resp
 
 
 def get_balance(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=TX_MIN_CONFIRMATIONS):

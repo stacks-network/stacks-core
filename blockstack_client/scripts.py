@@ -24,18 +24,22 @@
 from binascii import hexlify, unhexlify
 from decimal import *
 
+import pybitcoin
 import bitcoin
 import ecdsa
 import hashlib
-import pybitcoin
 import virtualchain
 
-from pybitcoin.transactions.outputs import calculate_change_amount
+from hashlib import sha256
+from binascii import hexlify, unhexlify
+from utilitybelt import is_hex
+
 from virtualchain import tx_serialize, tx_deserialize, tx_script_to_asm, tx_output_parse_scriptPubKey
 
 from .b40 import *
 from .constants import MAGIC_BYTES, NAME_OPCODES, LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID, TX_MIN_CONFIRMATIONS, BLOCKSTACK_TEST
 from .keys import *
+from .backend.utxo import get_unspents 
 
 log = virtualchain.get_logger('blockstack-client')
 
@@ -46,6 +50,28 @@ class UTXOException(Exception):
 def add_magic_bytes(hex_script):
     return '{}{}'.format(hexlify(MAGIC_BYTES), hex_script)
 
+
+def bin_hash160(s, hex_format=False):
+    """ s is in hex or binary format
+    """
+    if hex_format and is_hex(s):
+        s = unhexlify(s)
+    return hashlib.new('ripemd160', bin_sha256(s)).digest()
+
+
+def hex_hash160(s, hex_format=False):
+    """ s is in hex or binary format
+    """
+    if hex_format and is_hex(s):
+        s = unhexlify(s)
+    return hexlify(bin_hash160(s))
+
+
+def bin_sha256(bin_s):
+    return sha256(bin_s).digest()
+
+def bin_double_sha256(bin_s):
+    return bin_sha256(bin_sha256(bin_s))
 
 def common_checks(n):
     """
@@ -156,29 +182,29 @@ def hash_name(name, script_pubkey, register_addr=None):
     if register_addr is not None:
         name_and_pubkey += str(register_addr)
 
-    return pybitcoin.hex_hash160(name_and_pubkey)
+    return hex_hash160(name_and_pubkey)
 
 
 def hash256_trunc128(data):
     """
     Hash a string of data by taking its 256-bit sha256 and truncating it to 128 bits.
     """
-    return hexlify(pybitcoin.hash.bin_sha256(data)[0:16])
+    return hexlify(bin_sha256(data)[0:16])
 
 
 def tx_output_is_op_return(output):
     """
     Is an output's script an OP_RETURN script?
     """
-    return int(output['script_hex'][0:2], 16) == pybitcoin.opcodes.OP_RETURN
+    return int(output['script_hex'][0:2], 16) == virtualchain.opcodes.OPCODE_VALUES['OP_RETURN']
 
 
 def tx_extend(partial_tx_hex, new_inputs, new_outputs):
     """
     Given an unsigned serialized transaction, add more inputs and outputs to it.
-    @new_inputs and @new_outputs will be pybitcoin-formatted:
+    @new_inputs and @new_outputs will be virtualchain-formatted:
     * new_inputs[i] will have {'output_index': ..., 'script_hex': ..., 'transaction_hash': ...}
-    * new_outputs[i] will have {'script_hex': ..., 'value': ... (in satoshis!)}
+    * new_outputs[i] will have {'script_hex': ..., 'value': ... (in fundamental units, e.g. satoshis!)}
     """
 
     # recover tx
@@ -242,7 +268,7 @@ def tx_make_subsidization_output(payer_utxo_inputs, payer_address, op_fee, dust_
 
     return {
         'script_hex': virtualchain.make_payment_script(payer_address),
-        'value': calculate_change_amount(payer_utxo_inputs, op_fee, int(round(dust_fee)))
+        'value': virtualchain.calculate_change_amount(payer_utxo_inputs, op_fee, int(round(dust_fee)))
     }
 
 
@@ -257,12 +283,12 @@ def tx_make_input_signature(tx, idx, script, privkey_str, hashcode):
 
     Return the hex signature.
     """
-    pk = virtualchain.BitcoinPrivateKey(str(privkey_str))
+    pk = ecdsa_private_key(str(privkey_str))
     pubk = pk.public_key()
     
     priv = pk.to_hex()
     pub = pubk.to_hex()
-    addr = pubk.address()
+    addr = virtualchain.address_reencode( pubk.address() )
 
     signing_tx = bitcoin.signature_form(tx, idx, script, hashcode)
     txhash = bitcoin.bin_txhash(signing_tx, hashcode)
@@ -290,7 +316,7 @@ def tx_sign_multisig(tx, idx, redeem_script, private_keys, hashcode=bitcoin.SIGH
     # sign in the right order.  map all possible public keys to their private key 
     privs = {}
     for pk in private_keys:
-        pubk = keylib.ECPrivateKey(pk).public_key().to_hex()
+        pubk = ecdsa_private_key(pk).public_key().to_hex()
 
         compressed_pubkey = keylib.key_formatting.compress(pubk)
         uncompressed_pubkey = keylib.key_formatting.decompress(pubk)
@@ -330,11 +356,11 @@ def tx_sign_singlesig(tx, idx, private_key_info, hashcode=bitcoin.SIGHASH_ALL):
     NOTE: implemented here instead of bitcoin, since bitcoin.sign() can cause a stack overflow
     while converting the private key to a public key.
     """
-    pk = virtualchain.BitcoinPrivateKey(str(private_key_info))
+    pk = ecdsa_private_key(str(private_key_info))
     pubk = pk.public_key()
 
     pub = pubk.to_hex()
-    addr = pubk.address()
+    addr = virtualchain.address_reencode( pubk.address() )
 
     script = virtualchain.make_payment_script(addr)
     sig = tx_make_input_signature(tx, idx, script, private_key_info, hashcode)
@@ -402,19 +428,18 @@ def tx_get_address_and_utxos(private_key_info, utxo_client, address=None):
 
     if private_key_info is None:
         # just go with the address 
-        unspents = pybitcoin.get_unspents(address, utxo_client)
+        unspents = get_unspents(address, utxo_client)
         return addr, unspents 
 
     if is_singlesig(private_key_info):
-        _, payer_address, payer_utxos = virtualchain.analyze_private_key(
-            str(private_key_info), utxo_client
-        )
+        payer_address = virtualchain.address_reencode( ecdsa_private_key(private_key_info).public_key().address() )
+        payer_utxos = get_unspents(payer_address, utxo_client) 
         return payer_address, payer_utxos
 
     if is_multisig(private_key_info):
         redeem_script = str(private_key_info['redeem_script'])
         addr = virtualchain.make_multisig_address(redeem_script)
-        unspents = pybitcoin.get_unspents(addr, utxo_client)
+        unspents = get_unspents(addr, utxo_client)
 
         return addr, unspents
 
@@ -507,12 +532,12 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
     tx = subsidy_info['tx']
     tx_inputs = tx['vin']
 
-    # NOTE: pybitcoin-formatted output; values are still in satoshis!
+    # NOTE: virtualchain-formatted output; values are still in satoshis!
     subsidy_output = tx_make_subsidization_output(
         payer_utxo_inputs, payer_address, op_fee, dust_fee + tx_fee
     )
 
-    # add our inputs and output (recall: pybitcoin-formatted; so values are satoshis)
+    # add our inputs and output (recall: virtualchain-formatted; so values are fundamental units (i.e. satoshis))
     subsidized_tx = tx_extend(blockstack_tx, payer_utxo_inputs, [subsidy_output])
 
     # sign each of our inputs with our key, but use
@@ -543,7 +568,7 @@ def tx_get_unspents(address, utxo_client, min_confirmations=TX_MIN_CONFIRMATIONS
     if min_confirmations != TX_MIN_CONFIRMATIONS:
         log.warning("Using UTXOs with {} confirmations instead of the default {}".format(min_confirmations, TX_MIN_CONFIRMATIONS))
 
-    data = pybitcoin.get_unspents(address, utxo_client)
+    data = get_unspents(address, utxo_client)
 
     try:
         assert type(data) == list, "No UTXO list returned"

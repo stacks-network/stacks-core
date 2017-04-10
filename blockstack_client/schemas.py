@@ -52,6 +52,8 @@ OP_NAMESPACE_HASH_PATTERN = r'^([0-9a-fA-F]{16})$'
 OP_BASE64_PATTERN_SECTION = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
 OP_BASE64_PATTERN = r'^({})$'.format(OP_BASE64_PATTERN_SECTION)
 OP_URLENCODED_NOSLASH_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'       # intentionally left out /
+OP_URLENCODED_NOSLASH_OR_EMPTY_PATTERN = r'^([a-zA-Z0-9\-_.~%]*)$'       # intentionally left out /, allow empty
+OP_URLENCODED_OR_EMPTY_PATTERN = r'^([a-zA-Z0-9\-_.~%/]*)$'
 OP_URLENCODED_PATTERN = r'^([a-zA-Z0-9\-_.~%/]+)$'
 OP_USER_ID_CLASS = r'[a-zA-Z0-9\-_.%]'
 OP_DATASTORE_ID_CLASS = r'[a-zA-Z0-9\-_.~%]'
@@ -212,21 +214,7 @@ ENCRYPTED_WALLET_SCHEMA_PROPERTIES = {
     },
 }
 
-ENCRYPTED_WALLET_SCHEMA_CURRENT = {
-    'type': 'object',
-    'properties': ENCRYPTED_WALLET_SCHEMA_PROPERTIES,
-    'required': [
-        'data_pubkey',
-        'data_pubkeys',
-        'encrypted_data_privkey',
-        'encrypted_owner_privkey',
-        'encrypted_payment_privkey',
-        'owner_addresses',
-        'payment_addresses',
-        'version'
-    ],
-}
-
+# pre-0.13 wallet
 ENCRYPTED_WALLET_SCHEMA_LEGACY = {
     'type': 'object',
     'properties': ENCRYPTED_WALLET_SCHEMA_PROPERTIES,
@@ -242,10 +230,85 @@ ENCRYPTED_WALLET_SCHEMA_LEGACY_013 = {
     'required': [
         'encrypted_owner_privkey',
         'encrypted_payment_privkey',
+        'owner_addresses',
+        'payment_addresses',
     ],
 }
 
+# in 0.14.0 and 0.14.1, we encrypted lots of fields separately
+ENCRYPTED_WALLET_SCHEMA_LEGACY_014 = {
+    'type': 'object',
+    'properties': ENCRYPTED_WALLET_SCHEMA_PROPERTIES,
+    'required': [
+        'data_pubkey',
+        'data_pubkeys',
+        'encrypted_data_privkey',
+        'encrypted_owner_privkey',
+        'encrypted_payment_privkey',
+        'owner_addresses',
+        'payment_addresses',
+        'version'
+    ],
+}
 
+# in 0.14.2 and on, we encrypt the secret fields as one unit 
+ENCRYPTED_WALLET_SCHEMA_CURRENT = {
+    'type': 'object',
+    'properties': {
+        # unencrypted fields
+        'data_pubkey': {
+            'type': 'string',
+            'pattern': OP_PUBKEY_PATTERN
+        },
+        'data_pubkeys': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': OP_PUBKEY_PATTERN,
+                'minItems': 1,
+                'maxItems': 1
+            },
+        },
+        'owner_addresses': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': OP_ADDRESS_PATTERN,
+                'minItems': 1,
+                'maxItems': 1
+            },
+        },
+        'payment_addresses': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': OP_ADDRESS_PATTERN,
+                'minItems': 1,
+                'maxItems': 1
+            },
+        },
+        'version': {
+            'type': 'string'
+        },
+
+        # encrypted fields 
+        'enc': {
+            'type': 'string',
+            'pattern': OP_BASE64_PATTERN,
+        },
+    },
+    'required': [
+        'data_pubkey',
+        'data_pubkeys',
+        'owner_addresses',
+        'payment_addresses',
+        'version', 
+        'enc'
+    ],
+    'additionalProperties': False,
+}
+
+# fully-decrypted wallet schema
 WALLET_SCHEMA_PROPERTIES = {
     'data_pubkey': {
         'type': 'string',
@@ -398,6 +461,14 @@ MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES = {
         'type': 'string',
         'pattern': OP_UUID_PATTERN
     },
+    'version': {
+        # inode version
+        'type': 'integer'
+    },
+    'proto_version': {
+        # version of the protocol
+        'type': 'integer'
+    },
 }
 
 # header contains hash of payload
@@ -425,11 +496,15 @@ MUTABLE_DATUM_DIRENT_SCHEMA = {
             'type': 'string',
             'pattern': OP_UUID_PATTERN
         },
+        'version': {
+            'type': 'integer',
+        },
     },
     'additionalProperties': False,
     'required': [
         'type',
-        'uuid'
+        'uuid',
+        'version',
     ],
 }
 
@@ -444,8 +519,9 @@ MUTABLE_DATUM_DIR_IDATA_SCHEMA = {
 
 MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.update({
     'idata': {
-        # raw data
+        # raw data as b64
         'type': 'string',
+        'pattern': OP_BASE64_PATTERN,
     },
 })
 
@@ -648,6 +724,190 @@ APP_CONFIG_SCHEMA = {
         'app_domain',
         'index_uris',
         'api_methods',
+    ],
+}
+
+
+CREATE_DATASTORE_INFO_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'datastore_blob': {
+            'type': 'string',
+        },
+        'root_blob': {
+            'type': 'string',
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'datastore_blob',
+        'root_blob',
+    ],
+}
+
+CREATE_DATASTORE_SIGS_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'datastore_sig': {
+            'type': 'string',
+        },
+        'root_sig': {
+            'type': 'string',
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'datastore_sig',
+        'root_sig',
+    ],
+}
+
+CREATE_DATASTORE_REQUEST_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'datastore_info': CREATE_DATASTORE_INFO_SCHEMA,
+        'datastore_sigs': CREATE_DATASTORE_SIGS_SCHEMA,
+        'root_tombstones': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+            },
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'datastore_info',
+        'datastore_sigs',
+        'root_tombstones'
+    ],
+}
+
+
+DELETE_DATASTORE_REQUEST_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'datastore_tombstones': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+            },
+        },
+        'root_tombstones': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+            },
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'datastore_tombstones',
+        'root_tombstones',
+    ],
+}
+
+
+DATASTORE_LOOKUP_PATH_ENTRY_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'name': {
+            'type': 'string',
+            'pattern': OP_URLENCODED_NOSLASH_OR_EMPTY_PATTERN,
+        },
+        'uuid': {
+            'type': 'string',
+            'pattern': OP_UUID_PATTERN,
+        },
+        'parent': {
+            'type': 'string',
+            'pattern': OP_URLENCODED_OR_EMPTY_PATTERN,
+        },
+        'inode': MUTABLE_DATUM_DIR_SCHEMA,
+    },
+    'required': [
+        'name',
+        'uuid',
+        'parent',
+        'inode',
+    ],
+    'additionalProperties': False,
+}
+
+
+DATASTORE_LOOKUP_INODE_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'name': {
+            'type': 'string',
+            'pattern': OP_URLENCODED_NOSLASH_OR_EMPTY_PATTERN,
+        },
+        'uuid': {
+            'type': 'string',
+            'pattern': OP_UUID_PATTERN,
+        },
+        'parent': {
+            'type': 'string',
+            'pattern': OP_URLENCODED_OR_EMPTY_PATTERN,
+        },
+        'inode': {
+            'anyOf': [
+                MUTABLE_DATUM_DIR_SCHEMA,
+                MUTABLE_DATUM_FILE_SCHEMA,
+                MUTABLE_DATUM_INODE_HEADER_SCHEMA,
+            ],
+        },
+    },
+    'required': [
+        'name',
+        'uuid',
+        'parent',
+        'inode',
+    ],
+    'additionalProperties': False,
+}
+
+
+DATASTORE_LOOKUP_RESPONSE_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'inode': {
+            'anyOf': [
+                MUTABLE_DATUM_DIR_SCHEMA,
+                MUTABLE_DATUM_FILE_SCHEMA,
+                MUTABLE_DATUM_INODE_HEADER_SCHEMA,
+            ],
+        },
+        'status': {
+            'type': 'boolean',
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'inode_info',
+        'status',
+    ],
+}
+
+
+DATASTORE_LOOKUP_EXTENDED_RESPONSE_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'path_info': {
+            'type': 'object',
+            'patternProperties': {
+                OP_URLENCODED_OR_EMPTY_PATTERN: DATASTORE_LOOKUP_INODE_SCHEMA,
+            },
+        },
+        'inode_info': DATASTORE_LOOKUP_INODE_SCHEMA,
+        'status': {
+            'type': 'boolean',
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'inode_info',
+        'path_info',
+        'status',
     ],
 }
 

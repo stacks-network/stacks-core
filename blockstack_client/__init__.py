@@ -72,6 +72,8 @@ from user import is_user_zonefile, user_zonefile_data_pubkey
 
 from zonefile import get_name_zonefile, decode_name_zonefile, zonefile_data_replicate, load_name_zonefile, store_name_zonefile
 
+from backend.blockchain import get_utxos, broadcast_tx
+
 from operations import *
 from backend.nameops import *
 

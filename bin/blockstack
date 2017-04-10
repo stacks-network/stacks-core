@@ -54,11 +54,11 @@ if __name__ == '__main__':
             print >> sys.stderr, result['error']
             sys.exit(1)
         elif isinstance(result, dict):
-            if 'raw' in result['pragmas']:
-                print result['result']
+            if 'raw' in result.get('pragmas', []):
+                print result.get('result', result)
 
             else:
-                print json.dumps(result['result'], indent=4, sort_keys=True)
+                print json.dumps(result.get('result', result), indent=4, sort_keys=True)
 
             sys.exit(0)
 
