@@ -1,7 +1,5 @@
-############################################################
-# Dockerfile to build resolver
-# Based on Ubuntu
-############################################################
+# NOTE: old image, only here for SSL example
+# TO-DO: update api/Dockerfile with SSL below
 
 # Set the base image to Ubuntu
 FROM digitalpassport/namecoind
