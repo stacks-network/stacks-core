@@ -365,8 +365,8 @@ del i
 
 EPOCH_HEIGHT_MINIMUM = EPOCH_1_END_BLOCK + 1
 
-DEFAULT_BLOCKCHAIN_READER = 'blockstack_explorer'
-DEFAULT_BLOCKCHAIN_WRITER = 'blockstack_explorer'
+DEFAULT_BLOCKCHAIN_READER = 'blockstack_utxo'
+DEFAULT_BLOCKCHAIN_WRITER = 'blockstack_utxo'
 
 SECRETS = {}
 
