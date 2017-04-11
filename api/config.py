@@ -63,6 +63,15 @@ CURRENT_DIR = os.path.abspath(os.path.dirname(__file__))
 NAMES_FILE = os.path.join(CURRENT_DIR, NAMES_FILENAME)
 NEW_NAMES_FILE = os.path.join(CURRENT_DIR, NEW_NAMES_FILENAME)
 
+# For search endpoint
+SEARCH_API_ENDPOINT_ENABLED = False
+SEARCH_BLOCKCHAIN_DATA_FILE = "/var/blockstack-search/blockchain_data.json"
+SEARCH_PROFILE_DATA_FILE = "/var/blockstack-search/profile_data.json"
+SEARCH_BULK_INSERT_LIMIT = 1000
+SEARCH_DEFAULT_LIMIT = 50
+SEARCH_LUCENE_ENABLED = False
+SEARCH_SUPPORTED_PROOFS = ['twitter', 'facebook', 'github', 'domain']
+
 
 # Memcache settings
 MEMCACHED_USERNAME = None

@@ -7,6 +7,7 @@ User=USER
 Group=www-data
 WorkingDirectory=/path/to/blockstack/
 Environment="BLOCKSTACK_DEBUG=1"
+Environment="UWSGI_VIRTUALENV=/path/to/virtualenv"
 ExecStart=/usr/local/bin/uwsgi --ini /path/to/blockstack/api/nginx/blockstack_api.ini
 
 [Install]

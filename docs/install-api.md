@@ -40,7 +40,7 @@ For a production deployment we recommend using nginx and uwsgi:
 $ sudo apt-get install -y nginx
 $ sudo pip install uwsgi
 ```
-- **Step 2:** Copy [this sample nginx sites file](https://github.com/blockstack/blockstack-core/blob/api/api/nginx/config/nginx_sites-available/blockstack_api) to
+- **Step 2:** Copy [this sample nginx sites file](../api/nginx/config/nginx_sites-available/blockstack_api) to
 
 > /etc/nginx/sites-available/blockstack_api
 
@@ -49,17 +49,18 @@ You can test your nginx settings:
 ```
 $ sudo nginx -t
 ```
-- **Step 3:** Copy [this sample systemd service file](https://github.com/blockstack/blockstack-core/blob/api/api/nginx/config/systemd_system/blockstack_api.service) to
+- **Step 3:** Copy [this sample systemd service file](../api/nginx/config/systemd_system/blockstack_api.service) to
 
 > /etc/systemd/system/blockstack_api.service
 
-and edit the service user and blockstack paths depending on where your blockstack repo is located.
+and edit the service user and blockstack paths depending on where your blockstack repo is located, and 
+where your virtualenv is located. The following sed commands will work if the virtualenv is currently active and your shell is in the repo's root directory.
 
-Then, update the [uwsgi ini file](../api/nginx/blockstack_api.ini) with your $VIRTUAL_ENV location:
 ```
-$ sed -i 's#/path/to/virtual_environment#$VIRTUAL_ENV#' api/nginx/blockstack_api.ini
+$ sudo sed -i "s/User\=USER/User\=$USER/" /etc/systemd/system/blockstack_api.service
+$ sudo sed -i "s#/path/to/blockstack#$PWD#" /etc/systemd/system/blockstack_api.service
+$ sudo sed -i "s#/path/to/virtualenv#$VIRTUAL_ENV#" /etc/systemd/system/blockstack_api.service
 ```
-
 
 - **Step 4:** Get a security certificate from [Let's Encrypt](https://letsencrypt.org/).
 ```

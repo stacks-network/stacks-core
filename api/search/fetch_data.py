@@ -26,16 +26,17 @@ This file is part of Blockstack.
 import sys
 import json
 
+from api.config import SEARCH_BLOCKCHAIN_DATA_FILE as BLOCKCHAIN_DATA_FILE, \
+    SEARCH_PROFILE_DATA_FILE as PROFILE_DATA_FILE
+
 from .utils import validUsername
 from .utils import get_json, config_log
 
-from .config import BLOCKCHAIN_DATA_FILE, PROFILE_DATA_FILE
-
 from blockstack_client.proxy import get_all_names
 from blockstack_client.profile import get_profile
+import logging
 
 log = config_log(__name__)
-
 
 def fetch_namespace():
     """
@@ -51,8 +52,14 @@ def fetch_namespace():
 
     return
 
+def print_status_bar(filled, total):
+    pct = float(filled) / total
+    bar = max((int(pct * 60) - 1), 0)
+    out = "\r[%s>%s] %.1f%%" % ( ("=" * bar), " " * (59 - bar), pct * 100)
+    sys.stderr.write(out)
+    sys.stderr.flush()
 
-def fetch_profiles():
+def fetch_profiles(max_to_fetch = None):
     """
         Fetch profile data using Blockstack Core and save the data.
         Data is saved in: data/profile_data.json
@@ -68,10 +75,15 @@ def fetch_profiles():
     all_names = json.loads(file)
 
     all_profiles = []
+    
+    if max_to_fetch == None:
+        max_to_fetch = len(all_names)
 
-    counter = 0
-
-    for fqu in all_names:
+    for ix, fqu in enumerate(all_names):
+        if ix % 100 == 0:
+            print_status_bar(ix, max_to_fetch)
+        if ix >= max_to_fetch:
+            break
 
         resp = {}
         resp['fqu'] = fqu
@@ -79,12 +91,10 @@ def fetch_profiles():
         try:
             resp['profile'] = get_profile(fqu)[0]
             all_profiles.append(resp)
+        except KeyboardInterrupt as e:
+            raise e
         except:
             pass
-
-        counter += 1
-        if counter % 100 == 0:
-            print counter
 
     fout = open(PROFILE_DATA_FILE, 'w')
     fout.write(json.dumps(all_profiles))
@@ -107,7 +117,11 @@ if __name__ == "__main__":
 
     elif(option == '--fetch_profiles'):
         # Step 2
-        fetch_profiles()
+        if len(sys.argv) > 2:
+            max_to_fetch = int(sys.argv[2])
+            fetch_profiles(max_to_fetch)
+        else:
+            fetch_profiles()
 
     else:
         print "Usage error"

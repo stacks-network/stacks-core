@@ -20,18 +20,14 @@ with data that follows structure of [blockstack IDs](https://github.com/blocksta
 Then, setup the search subsystem:
 ``` 
 $ sudo apt-get install -y mongodb memcached python-dev libmemcached-dev zlib1g-dev nginx
-$ sudo service memcached start
-$ sudo service mongodb start
 $ sudo pip install uwsgi
-$ virtualenv search
-$ git clone https://github.com/blockstack/blockstack-core.git
+$ git clone https://github.com/blockstack/blockstack-core.git --branch api
 $ cd blockstack-core/
-$ git checkout search
-$ cd api/search/
-$ mkdir data
-$ pip install -r requirements.txt
-$ python runserver.py
+$ sudo pip install .
+$ sudo pip install -r api/requirements.txt
+$ sudo mkdir /var/blockstack-search && sudo chown $USER:$USER /var/blockstack-search
 ```
+
 - **Step 2:** Make sure you have Blockstack Core running locally (see [instructions](https://github.com/blockstack/blockstack-core/blob/master/README.md#quick-start)). We highly
 recommend using a local node because the search subsystem issues thousands of calls to 
 Blockstack Core for re-indexing and remote nodes can slow down performance. 
@@ -48,6 +44,12 @@ $ python -m search.fetch_data --fetch_profiles
 
 ```
 python -m search.basic_index --refresh
+```
+
+- **Step 5:** Enable search API endpoint:
+
+```
+$ sed -i 's/SEARCH_API_ENDPOINT_ENABLED \= False/SEARCH_API_ENDPOINT_ENABLED \= True/'
 ```
 
 # Usage

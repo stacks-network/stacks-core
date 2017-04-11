@@ -25,6 +25,7 @@ This file is part of Blockstack Core.
 
 from flask import Flask, Blueprint
 from flask_sslify import SSLify
+from .config import SEARCH_API_ENDPOINT_ENABLED
 
 app = Flask(__name__)
 
@@ -37,6 +38,10 @@ if not (app.config.get('DEBUG')):
 from .resolver import resolver
 
 blueprints = [resolver]
+
+if SEARCH_API_ENDPOINT_ENABLED:
+    from .search.server import searcher
+    blueprints.append(searcher)
 
 for blueprint in blueprints:
     app.register_blueprint(blueprint)

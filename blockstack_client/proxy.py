@@ -555,9 +555,14 @@ def get_all_names_page(offset, count, proxy=None):
             return resp
 
         # must be valid names
+        valid_names = []
         for n in resp['names']:
-            assert scripts.is_name_valid(str(n)), ('Invalid name "{}"'.format(str(n)))
-    except ValidationError as e:
+            if not scripts.is_name_valid(str(n)):
+                log.error('Invalid name "{}"'.format(str(n)))
+            else:
+                valid_names.append(n)
+        resp['names'] = valid_names
+    except (ValidationError, AssertionError) as e:
         log.exception(e)
         resp = json_traceback(resp.get('error'))
         return resp
