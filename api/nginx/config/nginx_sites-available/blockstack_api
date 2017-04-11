@@ -1,3 +1,5 @@
+uwsgi_cache_path /tmp/blockstack_uwsgi_cache levels=1:2 keys_zone=api:50m;
+
 server {
     listen 80 default_server;
     server_name localhost;
@@ -20,5 +22,17 @@ server {
     location / {
         include uwsgi_params;
         uwsgi_pass unix:/tmp/blockstack_api.sock;
+	
+#	expires 5m;
+	
+	uwsgi_cache api;
+	uwsgi_cache_key $uri$args;
+
+	add_header X-Cache-Status $upstream_cache_status;	
+	
+	uwsgi_cache_methods GET HEAD;
+	
+	uwsgi_cache_valid 200 12h;
+	uwsgi_cache_valid 404 12h;
     }
 }
