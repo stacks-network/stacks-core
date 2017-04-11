@@ -19,6 +19,6 @@ server {
 
     location / {
         include uwsgi_params;
-        uwsgi_pass unix:/path/to/nginx/blockstack_api.sock;
+        uwsgi_pass unix:/tmp/blockstack_api.sock;
     }
 }

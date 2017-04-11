@@ -8,16 +8,22 @@ Ubuntu are below.
 - **Step 2:** Make sure you have [virtualenv installed](http://docs.python-guide.org/en/latest/dev/virtualenvs/). 
 Then, setup the API:
 ``` 
-$ sudo apt-get install -y python-pip memcached python-dev libmemcached-dev zlib1g-dev
+$ sudo apt-get install -y python-pip memcached rng-tools python-dev libmemcached-dev zlib1g-dev libgmp-dev libffi-dev libssl-dev 
 $ sudo service memcached start
 $ sudo pip install virtualenv
-$ virtualenv api
-$ git clone https://github.com/blockstack/blockstack-core.git
+$ virtualenv api && source api/bin/activate
+$ git clone https://github.com/blockstack/blockstack-core.git --branch api
 $ cd blockstack-core/
-$ git checkout api
+$ pip install .
 $ pip install -r api/requirements.txt
-$ bin/blockstack api start
-$ bin/blockstack-api
+$ blockstack setup_wallet
+$ blockstack api start
+```
+
+If you'd like to point the Blockstack API server to your local Blockstack Core instead of node.blockstack.org:
+```
+$ sed -i 's/node.blockstack.org/localhost/' ~/.blockstack/client.ini
+$ blockstack info
 ```
 
 ### Search Subsystem
@@ -38,7 +44,8 @@ $ sudo pip install uwsgi
 
 > /etc/nginx/sites-available/blockstack_api
 
-and edit the paths depending on your home directory. You can test your nginx settings:
+and edit the paths depending on the uwsgi blockstack_api socket directory (defaults to /tmp/blockstack_api.sock) 
+You can test your nginx settings:
 ```
 $ sudo nginx -t
 ```
@@ -46,7 +53,13 @@ $ sudo nginx -t
 
 > /etc/systemd/system/blockstack_api.service
 
-and edit the paths depending on your home directory.
+and edit the service user and blockstack paths depending on where your blockstack repo is located.
+
+Then, update the [uwsgi ini file](../api/nginx/blockstack_api.ini) with your $VIRTUAL_ENV location:
+```
+$ sed -i 's#/path/to/virtual_environment#$VIRTUAL_ENV#' api/nginx/blockstack_api.ini
+```
+
 
 - **Step 4:** Get a security certificate from [Let's Encrypt](https://letsencrypt.org/).
 ```
@@ -57,7 +70,7 @@ $ ./certbot-auto --nginx -d <your_domain>
 
 And copy the cert files to the path given in the nginx sites file earlier.
 
-- **Step 5:** Start nginx and the Blockstack API:
+- **Step 5:** Start nginx and the Blockstack API uwsgi server:
 ```
 sudo systemctl restart blockstack_api
 sudo systemctl restart nginx
