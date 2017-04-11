@@ -555,9 +555,14 @@ def get_all_names_page(offset, count, proxy=None):
             return resp
 
         # must be valid names
+        valid_names = []
         for n in resp['names']:
-            assert scripts.is_name_valid(str(n)), ('Invalid name "{}"'.format(str(n)))
-    except ValidationError as e:
+            if not scripts.is_name_valid(str(n)):
+                log.error('Invalid name "{}"'.format(str(n)))
+            else:
+                valid_names.append(n)
+        resp['names'] = valid_names
+    except (ValidationError, AssertionError) as e:
         log.exception(e)
         resp = json_traceback(resp.get('error'))
         return resp
@@ -1628,12 +1633,24 @@ def has_zonefile_hash(fqu, proxy=None):
 
 def is_zonefile_current(fqu, zonefile_json, proxy=None):
     """
-    Return True if hash(@zonefile_json) published on blockchain
+    Return True if hash(@zonefile_json) is published on the blockchain
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
 
     zonefile_hash = storage.hash_zonefile(zonefile_json)
+
+    return is_zonefile_hash_current(fqu, zonefile_hash, proxy=proxy)
+
+
+def is_zonefile_data_current(fqu, zonefile_data, proxy=None):
+    """
+    Return True if hash(@zonefile_data) is published on the blockchain
+    """
+
+    proxy = get_default_proxy() if proxy is None else proxy
+
+    zonefile_hash = storage.get_zonefile_data_hash(zonefile_data)
 
     return is_zonefile_hash_current(fqu, zonefile_hash, proxy=proxy)
 

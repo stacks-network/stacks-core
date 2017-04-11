@@ -28,7 +28,7 @@ import re
 
 from json import JSONEncoder
 import logging
-from config import DEBUG
+from api.config import DEBUG
 
 
 def config_log(name):

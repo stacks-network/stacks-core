@@ -21,12 +21,6 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import pybitcoin
-from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script 
- 
-from pybitcoin.transactions.outputs import calculate_change_amount
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
@@ -108,14 +102,14 @@ def make_outputs( data, inputs, new_name_owner_address, change_address, tx_fee=0
     
     return [
         # main output
-        {"script_hex": make_op_return_script(str(data), format='hex'),
+        {"script_hex": virtualchain.make_data_script(str(data)),
          "value": 0},
         # new name owner output
         {"script_hex": virtualchain.make_payment_script(new_name_owner_address),
          "value": dust_value},
         # change output
         {"script_hex": virtualchain.make_payment_script(change_address),
-         "value": calculate_change_amount(inputs, op_fee, dust_fee)}
+         "value": virtualchain.calculate_change_amount(inputs, op_fee, dust_fee)}
     ]
 
 

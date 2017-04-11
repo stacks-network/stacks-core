@@ -32,7 +32,7 @@ from pymongo import MongoClient
 from .utils import validUsername
 from .utils import get_json, config_log, pretty_print
 
-from .config import BLOCKCHAIN_DATA_FILE, PROFILE_DATA_FILE
+from api.config import SEARCH_BLOCKCHAIN_DATA_FILE, SEARCH_PROFILE_DATA_FILE
 
 from .db import namespace, profile_data
 from .db import search_profiles
@@ -48,7 +48,7 @@ def fetch_profile_data_from_file():
     """ takes profile data from file and saves in the profile_data DB
     """
 
-    profile_data_file = open(PROFILE_DATA_FILE, 'r')
+    profile_data_file = open(SEARCH_PROFILE_DATA_FILE, 'r')
 
     profiles = profile_data_file.read()
     profiles = json.loads(profiles)
@@ -80,7 +80,7 @@ def fetch_profile_data_from_file():
 
 def fetch_namespace_from_file():
 
-    blockchain_file = open(BLOCKCHAIN_DATA_FILE, 'r')
+    blockchain_file = open(SEARCH_BLOCKCHAIN_DATA_FILE, 'r')
 
     blockchain_state = blockchain_file.read()
     blockchain_state = json.loads(blockchain_state)

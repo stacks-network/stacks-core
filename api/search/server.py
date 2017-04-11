@@ -29,11 +29,11 @@ import threading
 import pylibmc
 
 from time import time
-from flask import request, jsonify, Flask, make_response, render_template
+from flask import request, jsonify, make_response, render_template, Blueprint
+from flask_crossdomain import crossdomain
 
-from .config import DEFAULT_HOST, DEFAULT_PORT, DEBUG, MEMCACHED_TIMEOUT
-from .config import DEFAULT_LIMIT
-from .config import MEMCACHED_ENABLED, LUCENE_ENABLED
+from api.config import DEFAULT_HOST, DEFAULT_PORT, DEBUG, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
+from api.config import SEARCH_DEFAULT_LIMIT as DEFAULT_LIMIT, SEARCH_LUCENE_ENABLED as LUCENE_ENABLED
 
 from .substring_search import search_people_by_name, search_people_by_twitter
 from .substring_search import search_people_by_username, search_people_by_bio
@@ -41,14 +41,11 @@ from .substring_search import fetch_profiles
 
 from .attributes_index import search_proofs, validProofQuery
 
+searcher = Blueprint('searcher', __name__, url_prefix='')
 
-app = Flask(__name__)
+from api.resolver import get_mc_client
 
-mc = pylibmc.Client(["127.0.0.1:11211"], binary=True,
-					behaviors={'tcp_nodelay': True,
-							   'connect_timeout': 100,
-							   'no_block': True})
-
+mc = get_mc_client()
 
 class QueryThread(threading.Thread):
 	""" for performing multi-threaded search on three search sub-systems
@@ -114,7 +111,8 @@ def test_alphanumeric(query):
 	return True
 
 
-@app.route('/search')
+@searcher.route('/search', methods = ["GET", "POST"], strict_slashes = False)
+@crossdomain(origin='*')
 def search_by_name():
 
 	query = request.args.get('query')
@@ -224,28 +222,3 @@ def search_proofs_index(query):
 		mc.set(cache_key, results, int(time() + MEMCACHED_TIMEOUT))
 
 	return jsonify(results)
-
-
-@app.route('/')
-def index():
-    return render_template('index.html')
-    
-
-@app.errorhandler(500)
-def internal_error(error):
-
-	reply = []
-	return json.dumps(reply)
-
-
-@app.errorhandler(404)
-def not_found(error):
-
-	resp = {}
-	resp['error'] = "Not found"
-
-	return make_response(jsonify(resp), 404)
-
-if __name__ == '__main__':
-
-	app.run(host=DEFAULT_HOST, port=DEFAULT_PORT, debug=DEBUG)

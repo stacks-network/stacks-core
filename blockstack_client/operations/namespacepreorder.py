@@ -21,13 +21,7 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import pybitcoin
-from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, hex_hash160
-
-from pybitcoin.transactions.outputs import calculate_change_amount
-
+import keylib
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
@@ -104,12 +98,12 @@ def make_outputs( data, inputs, change_addr, fee, tx_fee, pay_fee=True ):
     
     return [
         # main output
-        {"script_hex": make_op_return_script(str(data), format='hex'),
+        {"script_hex": virtualchain.make_data_script(str(data)),
          "value": 0},
         
         # change address
         {"script_hex": virtualchain.make_payment_script( change_addr ),
-         "value": calculate_change_amount(inputs, bill, dust_fee)},
+         "value": virtualchain.calculate_change_amount(inputs, bill, dust_fee)},
         
         # burn address
         {"script_hex": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
@@ -136,7 +130,7 @@ def make_transaction( namespace_id, register_addr, fee, consensus_hash, preorder
 
    assert is_namespace_valid(namespace_id)
    assert len(consensus_hash) == LENGTH_CONSENSUS_HASH * 2
-   assert pybitcoin.b58check_version_byte( preorder_addr ) == virtualchain.version_byte, "Only p2pkh reveal addresses are supported"
+   assert keylib.b58check.b58check_version_byte( preorder_addr ) == virtualchain.version_byte, "Only p2pkh reveal addresses are supported (got {})".format(preorder_addr)
 
    script_pubkey = virtualchain.make_payment_script( preorder_addr )
    nulldata = build( namespace_id, script_pubkey, register_addr, consensus_hash )

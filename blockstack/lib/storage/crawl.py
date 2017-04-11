@@ -242,7 +242,7 @@ def store_zonefile_data_to_storage( zonefile_text, txid, required=None, skip=Non
             log.debug("Failed to cache zonefile %s" % zonefile_hash)
 
     # NOTE: this can fail if one of the required drivers needs a non-null txid
-    res = blockstack_client.storage.put_immutable_data( None, txid, data_hash=zonefile_hash, data_text=zonefile_text, required=required, skip=skip )
+    res = blockstack_client.storage.put_immutable_data( zonefile_text, txid, data_hash=zonefile_hash, required=required, skip=skip )
     if res is None:
         log.error("Failed to store zonefile '%s' for '%s'" % (zonefile_hash, txid))
         return False

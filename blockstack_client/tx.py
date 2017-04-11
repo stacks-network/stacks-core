@@ -25,13 +25,13 @@ import json
 import sys
 
 import pybitcoin
-from pybitcoin import broadcast_transaction
 
 from .operations import *
 from .constants import CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DRY_RUN
 from .config import get_tx_broadcaster, get_logger
 
 from .scripts import tx_sign_all_unsigned_inputs
+from .backend.blockchain import broadcast_tx
 
 log = get_logger('blockstack-client')
 
@@ -131,50 +131,6 @@ def sign_tx(tx_hex, private_key_info):
     Sign a transaction
     """
     return tx_sign_all_unsigned_inputs(private_key_info, tx_hex)
-
-
-def broadcast_tx(tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None):
-    """
-    Send a signed transaction to the blockchain
-    """
-    if tx_broadcaster is None:
-        tx_broadcaster = get_tx_broadcaster(config_path=config_path)
-
-    if BLOCKSTACK_TEST is not None:
-        log.debug('Send {}'.format(tx_hex))
-    
-    resp = {}
-    try:
-        if BLOCKSTACK_DRY_RUN:
-            resp = {
-                'tx': tx_hex,
-                'transaction_hash': virtualchain.tx_get_hash(tx_hex),
-                'status': True
-            }
-            return resp
-
-        else:
-            resp = broadcast_transaction(tx_hex, tx_broadcaster)
-            if 'tx_hash' not in resp or 'error' in resp:
-                log.error('Failed to send {}'.format(tx_hex))
-                resp['error'] = 'Failed to broadcast transaction: {}'.format(tx_hex)
-                return resp
-
-    except Exception as e:
-        log.exception(e)
-        resp['error'] = 'Failed to broadcast transaction: {}'.format(tx_hex)
-
-        if BLOCKSTACK_TEST is not None:
-            # should NEVER happen in test mode
-            msg = 'FATAL: failed to send transaction:\n{}'
-            log.error(msg.format(json.dumps(resp, indent=4, sort_keys=True)))
-            os.abort()
-
-    # for compatibility
-    resp['status'] = True
-    resp['transaction_hash'] = resp.pop('tx_hash')
-
-    return resp
 
 
 def sign_and_broadcast_tx(tx_hex, private_key_info, config_path=CONFIG_PATH, tx_broadcaster=None):

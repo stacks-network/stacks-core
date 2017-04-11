@@ -26,9 +26,7 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'blockstack>=0.14.1',
-        'blockstack-file>=0.14.1',
-        'blockstack-gpg>=0.14.1',
+        'blockstack>=0.14.2',
     ],
     classifiers=[
         'Intended Audience :: Developers',

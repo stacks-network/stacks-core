@@ -27,9 +27,8 @@ import sys
 import json
 import requests
 
-from proofchecker import profile_to_proofs
-from proofchecker import contains_valid_proof_statement
-from proofchecker.domain import get_proof_from_txt_record
+from blockstack_proofs import profile_to_proofs,  contains_valid_proof_statement
+from blockstack_proofs.domain import get_proof_from_txt_record
 
 from pybitcoin import is_b58check_address
 
@@ -39,7 +38,7 @@ from .db import twitter_index, facebook_index
 from .db import github_index, domain_index
 from .db import proofs_cache
 
-from .config import SUPPORTED_PROOFS
+from api.config import SEARCH_SUPPORTED_PROOFS
 
 
 def flush_collection():
@@ -301,7 +300,7 @@ def validProofQuery(query):
     except:
         return False
 
-    if query_type in SUPPORTED_PROOFS:
+    if query_type in SEARCH_SUPPORTED_PROOFS:
         return True
 
     return False

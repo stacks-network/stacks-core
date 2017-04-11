@@ -32,14 +32,10 @@ import sys
 import json
 
 
-current_dir =  os.path.abspath(os.path.dirname(__file__))
-parent_dir = os.path.abspath(current_dir + "/../")
-sys.path.insert(0, parent_dir)
+from api.search.db import search_db, search_profiles
+from api.search.db import search_cache
 
-from search.db import search_db, search_profiles
-from search.db import search_cache
-
-from search.config import DEFAULT_LIMIT
+from api.config import SEARCH_DEFAULT_LIMIT as DEFAULT_LIMIT
 from .utils import get_json,pretty_print
 
 def anyword_substring_search_inner(query_word, target_words):

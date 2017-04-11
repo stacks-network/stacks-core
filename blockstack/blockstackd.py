@@ -1207,6 +1207,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         db.close()
 
         log.debug("Saved %s zonefile(s)\n", sum(saved))
+        log.debug("Reply: {}".format({'saved': saved}))
         self.analytics("put_zonefiles", {'count': len(zonefile_datas)})
         return self.success_response( {'saved': saved} )
 

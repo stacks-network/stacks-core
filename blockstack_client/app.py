@@ -50,7 +50,7 @@ from .schemas import *
 from keys import HDWallet, get_pubkey_hex
 
 
-def app_make_session( app_domain, methods, app_public_key, master_data_privkey_hex, app_user_id=None, session_lifetime=None, blockchain_ids=None, config_path=CONFIG_PATH ):
+def app_make_session( app_public_key, app_domain, methods, master_data_privkey, app_user_id=None, session_lifetime=None, blockchain_ids=None, config_path=CONFIG_PATH ):
     """
     Make a session JWT for this application.
     Verify with user private key
@@ -81,7 +81,7 @@ def app_make_session( app_domain, methods, app_public_key, master_data_privkey_h
     jsonschema.validate(ses, APP_SESSION_SCHEMA)
 
     signer = jsontokens.TokenSigner()
-    session_token = signer.sign( ses, master_data_privkey_hex )
+    session_token = signer.sign( ses, master_data_privkey )
     session = jsontokens.decode_token(session_token)
 
     return {'session': session, 'session_token': session_token}
@@ -96,13 +96,27 @@ def app_verify_session( app_session_token, data_pubkey_hex, config_path=CONFIG_P
     """
     pubkey = str(data_pubkey_hex)
     verifier = jsontokens.TokenVerifier()
-    valid = verifier.verify( app_session_token, pubkey )
-    if not valid:
-        log.debug("Failed to verify with {}".format(pubkey))
+    
+    valid = False
+
+    try:
+        valid = verifier.verify( app_session_token, pubkey )
+        if not valid:
+            log.debug("Failed to verify with {}".format(pubkey))
+            return None
+    except:
+        log.debug("Not a valid token")
         return None
 
-    session_jwt = jsontokens.decode_token(app_session_token)
-    session = session_jwt['payload']
+    session = None
+    session_jwt = None
+
+    try:
+        session_jwt = jsontokens.decode_token(app_session_token)
+        session = session_jwt['payload']
+    except:
+        log.debug("Failed to decode token")
+        return None
 
     # must match session structure 
     try:

@@ -51,14 +51,12 @@ from .queue import queue_cleanall, queue_find_accepted
 
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
 
-from ..keys import get_data_privkey_info, is_singlesig, is_singlesig_hex, is_multisig, get_privkey_info_address, get_privkey_info_params, encrypt_private_key_info, decrypt_private_key_info
+from ..keys import get_data_privkey_info, is_singlesig, is_singlesig_hex, is_multisig, get_privkey_info_address, get_privkey_info_params 
 from ..proxy import is_name_registered, is_zonefile_hash_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost, get_atlas_peers, json_is_error
 from ..zonefile import zonefile_data_replicate, make_empty_zonefile
 from ..user import is_user_zonefile, make_empty_user_profile
 from ..storage import put_mutable_data, put_immutable_data, hash_zonefile, get_zonefile_data_hash
 from ..data import get_profile_timestamp, set_profile_timestamp
-
-from .crypto.utils import aes_decrypt, aes_encrypt
 
 from ..constants import SLEEP_INTERVAL, CONFIG_PATH, DEFAULT_QUEUE_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, TX_MIN_CONFIRMATIONS
 from ..config import get_config, get_logger, url_to_host_port
@@ -572,7 +570,7 @@ class RegistrarWorker(threading.Thread):
             
         servers = list(set([str(hp) for hp in servers]))
 
-        if 'node.blockstack.org:6264' not in servers:
+        if 'node.blockstack.org:6264' not in servers and not BLOCKSTACK_TEST:
             log.warning("Also including node.blockstack.org:6264 for Atlas zone file dissimination")
             servers.append("node.blockstack.org:6264")
 

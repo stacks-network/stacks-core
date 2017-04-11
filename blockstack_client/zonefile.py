@@ -253,7 +253,8 @@ def load_data_pubkey_for_new_zonefile(wallet_keys={}, config_path=CONFIG_PATH):
 
     data_privkey = wallet_keys.get('data_privkey', None)
     if data_privkey is not None:
-        data_pubkey = ECPrivateKey(data_privkey).public_key().to_hex()
+        # force compressed
+        data_pubkey = ECPrivateKey(data_privkey, compressesd=True).public_key().to_hex()
         return data_pubkey
 
     data_pubkey = wallet_keys.get('data_pubkey', None)
@@ -358,8 +359,8 @@ def store_name_zonefile_data(name, user_zonefile_txt, txid, storage_drivers=None
     data_hash = storage.get_zonefile_data_hash(user_zonefile_txt)
 
     result = storage.put_immutable_data(
-        None, txid, data_hash=data_hash,
-        data_text=user_zonefile_txt, required=storage_drivers
+        user_zonefile_txt, txid, data_hash=data_hash,
+        required=storage_drivers
     )
 
     rc = bool(result)
@@ -420,11 +421,12 @@ def zonefile_data_publish(fqu, zonefile_txt, server_list, wallet_keys=None):
             hostport = '{}:{}'.format(server_host, server_port)
 
             res = put_zonefiles(hostport, [base64.b64encode(zonefile_txt)])
-            if 'error' in res or len(res['saved']) == 0 or res['saved'][0] != 1:
+            if 'error' in res or len(res['saved']) == 0 or res['saved'][0] != 1: 
+                log.debug("server returned {}".format(res))
+
                 if not res.has_key('error'):
                     res['error'] = 'server did not save'
-                
-                log.debug("server returned {}".format(res))
+
                 msg = 'Failed to publish zonefile to {}:{}: {}'
                 log.error(msg.format(server_host, server_port, res['error']))
                 continue

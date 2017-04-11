@@ -23,33 +23,3 @@ This file is part of Blockstack.
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os
-
-DEBUG = True
-
-MEMCACHED_ENABLED = True
-LUCENE_ENABLED = False
-
-DEFAULT_PORT = 5000
-DEFAULT_HOST = '127.0.0.1'
-
-BULK_INSERT_LIMIT = 1000
-DEFAULT_LIMIT = 50
-MEMCACHED_TIMEOUT = 6 * 60 * 60
-
-
-BLOCKCHAIN_DATA_FILENAME = "data/blockchain_data.json"
-PROFILE_DATA_FILENAME = "data/profile_data.json"
-
-current_dir = os.path.abspath(os.path.dirname(__file__))
-parent_dir = os.path.abspath(current_dir + "/../")
-BLOCKCHAIN_DATA_FILE = os.path.join(parent_dir, BLOCKCHAIN_DATA_FILENAME)
-PROFILE_DATA_FILE = os.path.join(parent_dir, PROFILE_DATA_FILENAME)
-
-SUPPORTED_PROOFS = ['twitter', 'facebook', 'github', 'domain']
-
-try:
-    # to overrite things like MEMCACHED_ENABLED
-    from config_local import *
-except:
-    pass

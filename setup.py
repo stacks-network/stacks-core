@@ -24,7 +24,7 @@
 from setuptools import setup, find_packages
 import os
 
-exec(open("blockstack/version.py").read())
+exec(open("blockstack_client/version.py").read())
 
 setup(
     name='blockstack',
@@ -41,7 +41,7 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=0.14.1',
+        'virtualchain>=0.14.2',
         'keychain>=0.1.4',
         'protocoin>=0.2',
         'blockstack-profiles>=0.14.1',
@@ -54,6 +54,7 @@ setup(
         'simplejson>=3.8.2',
         'jsonschema>=2.5.1',
         'fastecdsa>=1.3.2',
+        'scrypt>=0.8.0',
         'basicrpc>=0.0.2',      # DHT storage driver
         'boto>=2.38.0',         # S3 storage driver
         'dropbox>=7.1.1',       # Dropbox driver

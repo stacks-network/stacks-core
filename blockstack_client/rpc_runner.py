@@ -28,6 +28,7 @@ import os
 import sys
 import traceback
 import config as blockstack_config
+import constants as blockstack_constants
 from rpc import local_api_start, local_api_stop, local_api_status
 
 
@@ -49,8 +50,11 @@ if __name__ == '__main__':
         print(usage, file=sys.stderr)
         sys.exit(1)
 
-    passwd = os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD', None)
-    api_pass = os.environ.get("BLOCKSTACK_API_PASSWORD", None)
+    # takes serialized secrets as stdin from parent process
+    blockstack_constants.load_secrets(sys.stdin, is_file = True)
+     
+    passwd = blockstack_constants.get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
+    api_pass = blockstack_constants.get_secret('BLOCKSTACK_API_PASSWORD')
     
     if api_pass is None:
         # try to get it from the config file 
@@ -78,19 +82,6 @@ if __name__ == '__main__':
             sys.exit(1)
 
         sys.exit(0)
-
-    elif command == 'status':
-        rc = local_api_status(config_dir=config_dir)
-        if rc:
-            print('Alive', file=sys.stderr)
-            sys.exit(0)
-        else:
-            print('Dead', file=sys.stderr)
-            sys.exit(1)
-
-    elif command == 'stop':
-        rc = local_api_stop(config_dir=config_dir)
-        sys.exit(0 if rc else 1)
 
     elif command == 'restart':
         rc = local_api_stop(config_dir=config_dir)

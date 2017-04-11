@@ -21,10 +21,6 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import pybitcoin
-from pybitcoin import embed_data_in_blockchain, hex_hash160, \
-        make_op_return_tx, serialize_transaction, broadcast_transaction, make_op_return_script
-
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
@@ -63,17 +59,17 @@ def build( namespace_id):
    return packaged_script
 
 
-def make_outputs( nulldata, inputs, change_addr, fee=0, format='bin' ):
+def make_outputs( nulldata, inputs, change_addr, fee=0 ):
    """
    Make namespace-ready outputs
    """
    return [
-        { "script_hex": make_op_return_script(nulldata, format=format),
+        { "script_hex": virtualchain.make_data_script(str(nulldata)),
           "value": 0
         },
         # change output
         { "script_hex": virtualchain.make_payment_script(change_addr),
-          "value": calculate_change_amount(inputs, 0, fee)
+          "value": virtualchain.calculate_change_amount(inputs, 0, fee)
         }
     ]
 
@@ -97,7 +93,7 @@ def make_transaction( namespace_id, reveal_addr, blockchain_client, tx_fee=0, sa
        assert len(inputs) > 0
 
    # OP_RETURN outputs 
-   outputs = make_outputs( nulldata, inputs, reveal_addr, fee=(DEFAULT_OP_RETURN_FEE + tx_fee), format='hex' )
+   outputs = make_outputs( nulldata, inputs, reveal_addr, fee=(DEFAULT_OP_RETURN_FEE + tx_fee) )
   
    return (inputs, outputs)
 
