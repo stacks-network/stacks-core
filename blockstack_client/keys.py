@@ -280,13 +280,13 @@ class RFC6979_blockstack(RFC6979):
         return self.gen_nonce_from_digest(h1)
 
 
-def ecdsa_private_key(privkey_str):
+def ecdsa_private_key(privkey_str = None):
     """
     Make a private key, but enforce the following rule:
     * unless the key's hex encoding specifically ends in '01', treat it as uncompressed.
     """
     compressed = False
-    if keylib.key_formatting.get_privkey_format(privkey_str).endswith('compressed'):
+    if privkey_str is None or keylib.key_formatting.get_privkey_format(privkey_str).endswith('compressed'):
         compressed = True
 
     return ECPrivateKey(privkey_str, compressed=compressed)
