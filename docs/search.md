@@ -59,7 +59,7 @@ python -m search.basic_index --refresh
 - **Step 5:** Enable search API endpoint:
 
 ```
-$ sed -i 's/SEARCH_API_ENDPOINT_ENABLED \= False/SEARCH_API_ENDPOINT_ENABLED \= True/'
+$ sed -i 's/SEARCH_API_ENDPOINT_ENABLED \= False/SEARCH_API_ENDPOINT_ENABLED \= True/' config.py
 ```
 
 # Usage
