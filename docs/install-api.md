@@ -18,12 +18,7 @@ $ pip install .
 $ pip install -r api/requirements.txt
 $ blockstack setup_wallet
 $ blockstack api start
-```
-
-If you'd like to point the Blockstack API server to your local Blockstack Core instead of node.blockstack.org:
-```
-$ sed -i 's/node.blockstack.org/localhost/' ~/.blockstack/client.ini
-$ blockstack info
+$ deactivate
 ```
 
 ### Search Subsystem
@@ -54,7 +49,9 @@ $ sudo nginx -t
 > /etc/systemd/system/blockstack_api.service
 
 and edit the service user and blockstack paths depending on where your blockstack repo is located, and 
-where your virtualenv is located. The following sed commands will work if the virtualenv is currently active and your shell is in the repo's root directory.
+where your virtualenv is located. 
+
+Note: The following sed commands will work if the virtualenv is currently active and your shell is in the repo's root directory.
 
 ```
 $ sudo sed -i "s/User\=USER/User\=$USER/" /etc/systemd/system/blockstack_api.service

@@ -14,10 +14,18 @@ Currently there are two types of indexes to handle search queries:
 Search will currently return upto a max of 20 results (can be less depending on the query)
 with data that follows structure of [blockstack IDs](https://github.com/blockstack/blockstack):
 
+In early 2017, the search subsystem was ported over to the new API system, where support for search is provided by the endpoint:
+
+```
+http://localhost:5000/search?query=<SEARCH_PATTERN>
+```
+
+This document describes how to setup the search subsystem to respond at that endpoint.
+
 # Installation
 
 - **Step 1:** First, make sure you have [virtualenv installed](http://docs.python-guide.org/en/latest/dev/virtualenvs/). 
-Then, setup the search subsystem:
+Then, setup the API and search subsystem:
 ``` 
 $ sudo apt-get install -y mongodb memcached python-dev libmemcached-dev zlib1g-dev nginx
 $ sudo pip install uwsgi
@@ -32,9 +40,11 @@ $ sudo mkdir /var/blockstack-search && sudo chown $USER:$USER /var/blockstack-se
 recommend using a local node because the search subsystem issues thousands of calls to 
 Blockstack Core for re-indexing and remote nodes can slow down performance. 
 
-- **Step 3:** Fetch the data for the .id namespace and respective profiles:
+- **Step 3:** Fetch the data for the .id namespace and respective profiles. Note, you may want to redirect stderr to a file, as there is a lot of debug output.
 
 ```
+$ cd api/
+
 $ python -m search.fetch_data --fetch_namespace
 
 $ python -m search.fetch_data --fetch_profiles

@@ -56,8 +56,8 @@ def print_status_bar(filled, total):
     pct = float(filled) / total
     bar = max((int(pct * 60) - 1), 0)
     out = "\r[%s>%s] %.1f%%" % ( ("=" * bar), " " * (59 - bar), pct * 100)
-    sys.stderr.write(out)
-    sys.stderr.flush()
+    sys.stdout.write(out)
+    sys.stdout.flush()
 
 def fetch_profiles(max_to_fetch = None):
     """
