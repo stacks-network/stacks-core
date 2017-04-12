@@ -158,7 +158,7 @@ def make_wallet(password, config_path=CONFIG_PATH, payment_privkey_info=None, ow
     # default to 2-of-3 multisig key info if data isn't given
     payment_privkey_info = virtualchain.make_multisig_wallet(2, 3) if payment_privkey_info is None and not test_legacy else payment_privkey_info
     owner_privkey_info = virtualchain.make_multisig_wallet(2, 3) if owner_privkey_info is None and not test_legacy else owner_privkey_info
-    data_privkey_info = ecdsa_private_key().to_wif() if data_privkey_info is None and not test_legacy else data_privkey_info
+    data_privkey_info = ecdsa_private_key().to_hex() if data_privkey_info is None and not test_legacy else data_privkey_info
 
     decrypted_wallet = {
         'owner_addresses': [get_privkey_info_address(owner_privkey_info)],

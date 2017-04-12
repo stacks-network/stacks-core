@@ -47,6 +47,7 @@ import jsonschema
 import jsontokens
 import subprocess
 import platform
+import shutil
 from jsonschema import ValidationError
 from schemas import *
 
@@ -1738,7 +1739,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if json_is_error(namespaces):
             # error
             status_code = None
-            if json_is_exception(res):
+            if json_is_exception(namespaces):
                 status_code = 500
             else:
                 status_code = 404
@@ -4181,7 +4182,7 @@ def local_api_action(command, password=None, api_pass=None, config_dir=blockstac
 
         api_stdin_buf = blockstack_constants.serialize_secrets()
 
-        p = subprocess.Popen(argv, cwd=config_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, env=env)
+        p = subprocess.Popen(argv, cwd=config_dir, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, env=env)
         out, err = p.communicate(input=api_stdin_buf)
         res = p.wait()
         if res != 0:

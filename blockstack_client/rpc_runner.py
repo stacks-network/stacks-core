@@ -51,9 +51,9 @@ if __name__ == '__main__':
         sys.exit(1)
 
     # takes serialized secrets as stdin from parent process
-    blockstack_constants.load_secrets_from_file(sys.stdin)
+    blockstack_constants.load_secrets(sys.stdin, is_file = True)
      
-    passwd = blockstack_constans.get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
+    passwd = blockstack_constants.get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
     api_pass = blockstack_constants.get_secret('BLOCKSTACK_API_PASSWORD')
     
     if api_pass is None:

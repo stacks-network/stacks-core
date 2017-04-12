@@ -396,9 +396,17 @@ def parse_secrets(buf):
         return {}
 
 
-def load_secrets(buf):
+def load_secrets(buf, is_file = False):
     global SECRETS
-    sec = parse_secrets(buf)
+    if is_file:
+        try:
+            # aaron: this will read() from the file object until a json object
+            #        is fully parsed, so it might stall waiting for inputs
+            sec = json.load(buf)
+        except:
+            sec = {}
+    else:
+        sec = parse_secrets(buf)
     SECRETS.update(sec)
    
 
