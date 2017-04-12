@@ -59,7 +59,7 @@ def build( namespace_id):
    return packaged_script
 
 
-def make_outputs( nulldata, inputs, change_addr, fee=0 ):
+def make_outputs( nulldata, inputs, change_addr, tx_fee=0 ):
    """
    Make namespace-ready outputs
    """
@@ -69,7 +69,7 @@ def make_outputs( nulldata, inputs, change_addr, fee=0 ):
         },
         # change output
         { "script_hex": virtualchain.make_payment_script(change_addr),
-          "value": virtualchain.calculate_change_amount(inputs, 0, fee)
+          "value": virtualchain.calculate_change_amount(inputs, 0, tx_fee + DEFAULT_OP_RETURN_FEE)
         }
     ]
 
@@ -93,17 +93,17 @@ def make_transaction( namespace_id, reveal_addr, blockchain_client, tx_fee=0, sa
        assert len(inputs) > 0
 
    # OP_RETURN outputs 
-   outputs = make_outputs( nulldata, inputs, reveal_addr, fee=(DEFAULT_OP_RETURN_FEE + tx_fee) )
+   outputs = make_outputs( nulldata, inputs, reveal_addr, tx_fee=tx_fee )
   
    return (inputs, outputs)
 
 
 def get_fees( inputs, outputs ):
     """
-    Blockstack currently does not allow 
-    the subsidization of namespaces.
+    Calculate (dust fee, op fee) for namespace ready.
+    there is no op fee for namespace ready
     """
-    return (None, None)
+    return (DEFAULT_OP_RETURN_FEE + (len(inputs) + 1) * DEFAULT_DUST_FEE, 0) 
 
 
 def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
