@@ -34,6 +34,7 @@ from flask_crossdomain import crossdomain
 
 from api.config import DEFAULT_HOST, DEFAULT_PORT, DEBUG, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
 from api.config import SEARCH_DEFAULT_LIMIT as DEFAULT_LIMIT, SEARCH_LUCENE_ENABLED as LUCENE_ENABLED
+from api.utils import cache_control
 
 from .substring_search import search_people_by_name, search_people_by_twitter
 from .substring_search import search_people_by_username, search_people_by_bio
@@ -113,6 +114,7 @@ def test_alphanumeric(query):
 
 @searcher.route('/search', methods = ["GET", "POST"], strict_slashes = False)
 @crossdomain(origin='*')
+@cache_control(MEMCACHED_TIMEOUT)
 def search_by_name():
 
 	query = request.args.get('query')

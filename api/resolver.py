@@ -46,6 +46,8 @@ from blockstack_zones import parse_zone_file
 
 from blockstack_client.proxy import get_name_blockchain_record
 
+from api.utils import cache_control
+
 from .config import DEBUG
 from .config import DEFAULT_HOST, MEMCACHED_SERVERS, MEMCACHED_USERNAME
 from .config import MEMCACHED_PASSWORD, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
@@ -382,6 +384,7 @@ def get_all_users():
 
 @resolver.route('/v2/users/<usernames>', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')
+@cache_control(MEMCACHED_TIMEOUT)
 def get_users(usernames):
     """ Fetch data from username in .id namespace
     """

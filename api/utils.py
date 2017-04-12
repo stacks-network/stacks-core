@@ -27,6 +27,18 @@ import re
 import json
 from .config import MAX_PROFILE_LIMIT
 
+from flask import make_response
+from functools import wraps
+
+def cache_control(timeout):
+    def decorator(f):
+        @wraps(f)
+        def decorated_f(*a, **kw):
+            resp = make_response(f(*a, **kw))
+            resp.headers['Cache-Control'] = 'public, max-age={:d}'.format(timeout)
+            return resp
+        return decorated_f
+    return decorator
 
 def build_api_call_object(text):
     api_call = {}

@@ -71,6 +71,14 @@ else:
 # Import app
 from . import app
 
+@app.after_request
+def default_cache_off(response):
+    """ By default turn front-end caching (i.e., nginx cache) off """
+    if 'Cache-Control' not in response.headers:
+        response.headers['Cache-Control'] = 'no-cache'
+    return response
+
+
 @app.route('/v1/names/<name>', methods=['GET'])
 @crossdomain(origin='*')
 def api_names(name):

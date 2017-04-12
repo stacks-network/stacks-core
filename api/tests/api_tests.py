@@ -1,3 +1,25 @@
+"""
+    Blockstack Core
+    ~~~~~
+
+    copyright: (c) 2017 by Blockstack.org
+
+This file is part of Blockstack Core.
+
+    Blockstack Core is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Blockstack Core is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Search. If not, see <http://www.gnu.org/licenses/>.
+"""
+
 import os, sys, re, json
 import unittest
 import requests
@@ -6,8 +28,10 @@ import binascii
 
 from test import test_support
 from binascii import hexlify
+
 import api
 
+import api.config
 
 from api.tests.resolver_tests import ResolverTestCase
 from api.tests.search_tests import SearchTestCase
@@ -146,7 +170,8 @@ def test_main(args = []):
     test_classes = [PingTest, LookupUsersTest, NamespaceTest, ConsensusTest,
                     NamepriceTest, NamesOwnedTest, NameHistoryTest]
     test_classes += [ResolverTestCase]
-    test_classes += [SearchTestCase]
+    if api.config.SEARCH_API_ENDPOINT_ENABLED:
+        test_classes += [SearchTestCase]
 
     test_map = {}
     for t in test_classes:
