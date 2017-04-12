@@ -684,7 +684,7 @@ def get_all_namespaces(offset=None, count=None, proxy=None):
     resp = {}
     try:
         resp = proxy.get_all_namespaces()
-        resp = json_validate(namespaces__schema, resp)
+        resp = json_validate(namespaces_schema, resp)
         if json_is_error(resp):
             return resp
     except ValidationError as e:
@@ -1489,12 +1489,14 @@ def get_nameops_hash_at(block_id, proxy=None):
     return resp['ops_hash']
 
 
-def get_name_blockchain_record(name, proxy=None):
+def get_name_blockchain_record(name, include_expired=True, proxy=None):
     """
     get_name_blockchain_record
     Return the blockchain-extracted information on success.
     Return {'error': ...} on error
         In particular, return {'error': 'Not found.'} if the name isn't registered
+
+    If include_expired is True, then a name record will be returned even if it expired
     """
 
     nameop_schema = {
@@ -1518,6 +1520,7 @@ def get_name_blockchain_record(name, proxy=None):
     proxy = get_default_proxy() if proxy is None else proxy
 
     resp = {}
+    lastblock = None
     try:
         resp = proxy.get_name_blockchain_record(name)
         resp = json_validate(resp_schema, resp)
@@ -1526,6 +1529,8 @@ def get_name_blockchain_record(name, proxy=None):
                 return {'error': 'Not found.'}
 
             return resp
+
+        lastblock = resp['lastblock']
 
     except ValidationError as e:
         log.exception(e)
@@ -1536,7 +1541,16 @@ def get_name_blockchain_record(name, proxy=None):
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
+    if not include_expired:
+        # check expired
+        if lastblock is None:
+            return {'error': 'No lastblock given from server'}
+
+        if lastblock > resp['record']['expire_block'] and int(resp['record']['expire_block']) > 0:
+            return {'error': 'Name expired'}
+
     return resp['record']
+
 
 
 def get_namespace_blockchain_record(namespace_id, proxy=None):
@@ -1589,12 +1603,13 @@ def get_namespace_blockchain_record(namespace_id, proxy=None):
 
 def is_name_registered(fqu, proxy=None):
     """
-    Return True if @fqu registered on blockchain
+    Return True if @fqu is a registered name on the blockchain.
+    Must not be revoked, and must not be expired.
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
 
-    blockchain_record = get_name_blockchain_record(fqu, proxy=proxy)
+    blockchain_record = get_name_blockchain_record(fqu, include_expired=False, proxy=proxy)
     if 'error' in blockchain_record:
         log.debug('Failed to read blockchain record for {}'.format(fqu))
         return False
@@ -1609,6 +1624,33 @@ def is_name_registered(fqu, proxy=None):
         return False
 
     return 'first_registered' in blockchain_record
+
+
+def is_namespace_revealed(ns, proxy=None):
+    """
+    Return True if @ns is a revealed namespace on the blockchain
+    """
+
+    proxy = get_default_proxy() if proxy is None else proxy
+    namespace_record = get_namespace_blockchain_record(ns, proxy=proxy)
+    if 'error' in namespace_record:
+        log.debug("Failed to read blockchain record for {}".format(ns))
+        return False
+
+    return True
+
+
+def is_namespace_ready(ns, proxy=None):
+    """
+    Return True if @ns is a revealed, ready namespace
+    """
+    proxy = get_default_proxy() if proxy is None else proxy
+    namespace_record = get_namespace_blockchain_record(ns, proxy=proxy)
+    if 'error' in namespace_record:
+        log.debug("Failed to read blockchain record for {}".format(ns))
+        return False
+
+    return namespace_record['ready']
 
 
 def has_zonefile_hash(fqu, proxy=None):
