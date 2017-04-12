@@ -258,7 +258,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
 
     @classmethod
-    def build_import_keychain( cls, namespace_id, pubkey_hex ):
+    def build_import_keychain( cls, namespace_id, pubkey_hex, keychain_dir=None ):
         """
         Generate all possible NAME_IMPORT addresses from the NAMESPACE_REVEAL public key
         """
@@ -266,7 +266,10 @@ class BlockstackDB( virtualchain.StateEngine ):
         pubkey_addr = virtualchain.BitcoinPublicKey( str(pubkey_hex) ).address()
 
         # do we have a cached one on disk?
-        cached_keychain = os.path.join( virtualchain.get_working_dir(), "%s.keychain" % namespace_id )
+        if keychain_dir is None:
+            keychain_dir = virtualchain.get_working_dir()
+
+        cached_keychain = os.path.join( keychain_dir, "%s.keychain" % namespace_id )
         if os.path.exists( cached_keychain ):
 
             child_addrs = []
