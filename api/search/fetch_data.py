@@ -89,7 +89,7 @@ def fetch_profiles(max_to_fetch = None):
         resp['fqu'] = fqu
 
         try:
-            resp['profile'] = get_profile(fqu)[0]
+            resp['profile'] = get_profile(fqu, use_legacy = True)[0]
             all_profiles.append(resp)
         except KeyboardInterrupt as e:
             raise e
