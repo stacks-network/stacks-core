@@ -562,6 +562,62 @@ def blockstack_client_queue_state(config_path=None):
     return queue_info
 
 
+def blockstack_cli_namespace_preorder( namespace_id, namespace_privkey, reveal_privkey, config_path=None ):
+    """
+    Preorder a namespace
+    """
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    args.namespace_id = namespace_id
+    args.payment_privkey = namespace_privkey
+    args.reveal_privkey = reveal_privkey
+
+    resp = cli_namespace_preorder(args, config_path=config_path, interactive=False, proxy=test_proxy)
+    return resp
+
+
+def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privkey, lifetime, coeff, base, buckets, nonalpha_disc, no_vowel_disc, config_path=None ):
+    """
+    reveal a namespace
+    """
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    args.namespace_id = namespace_id
+    args.payment_privkey = payment_privkey
+    args.reveal_privkey = reveal_privkey
+    args.lifetime = lifetime
+    args.coeff = coeff
+    args.base = base
+    args.buckets = buckets
+    args.nonalpha_discount = nonalpha_disc
+    args.no_vowel_discount = no_vowel_disc
+
+    resp = cli_namespace_reveal(args, config_path=config_path, interactive=False, proxy=test_proxy)
+    return resp
+
+
+def blockstack_cli_namespace_ready( namespace_id, reveal_privkey, config_path=None ):
+    """
+    launch a namespace
+    """
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    args.namespace_id = namespace_id
+    args.reveal_privkey = reveal_privkey
+
+    resp = cli_namespace_ready(args, config_path=config_path, interactive=False, proxy=test_proxy)
+    return resp
+
+
 def blockstack_cli_register( name, password, recipient_address=None, zonefile=None, config_path=None):
     """
     Register a name, using the backend RPC endpoint
@@ -1019,20 +1075,6 @@ def blockstack_cli_rpc( method, rpc_args=None, rpc_kw=None, config_path=None):
 def blockstack_cli_name_import( name, address, value_hash, owner_privkey, config_path=None):
     """
     do a name import in the CLI
-    """
-    raise Exception("BROKEN IN THE CLIENT")
-
-
-def blockstack_cli_namespace_preorder( namespace_id, owner_privkey, reveal_address, config_path=None):
-    """
-    do a namespace preorder in the CLI
-    """
-    raise Exception("BROKEN IN THE CLIENT")
-
-
-def blockstack_cli_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base, buckets, nonalpha_discount, no_vowel_discount, reveal_privkey, config_path=None):
-    """
-    do a namespace reveal in the CLI
     """
     raise Exception("BROKEN IN THE CLIENT")
 
