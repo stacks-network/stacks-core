@@ -109,6 +109,10 @@ def catch_all_get(path):
 
     resp = requests.get(API_URL)
 
+    if not resp:
+        log.error("No response from API URL: {}".format(API_URL))
+        return jsonify({'error': 'Not found'}), 404
+
     return jsonify(resp.json()), 200
 
 

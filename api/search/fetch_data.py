@@ -59,7 +59,7 @@ def print_status_bar(filled, total):
     sys.stdout.write(out)
     sys.stdout.flush()
 
-def fetch_profiles(max_to_fetch = None):
+def fetch_profiles(max_to_fetch = None, just_test_set = False):
     """
         Fetch profile data using Blockstack Core and save the data.
         Data is saved in: data/profile_data.json
@@ -79,6 +79,10 @@ def fetch_profiles(max_to_fetch = None):
     if max_to_fetch == None:
         max_to_fetch = len(all_names)
 
+    if just_test_set:
+        from api.tests.search_tests import SEARCH_TEST_USERS
+        all_names = ["{}.id".format(u) for u in SEARCH_TEST_USERS]
+
     for ix, fqu in enumerate(all_names):
         if ix % 100 == 0:
             print_status_bar(ix, max_to_fetch)
@@ -89,7 +93,7 @@ def fetch_profiles(max_to_fetch = None):
         resp['fqu'] = fqu
 
         try:
-            resp['profile'] = get_profile(fqu)[0]
+            resp['profile'] = get_profile(fqu, use_legacy = True)[0]
             all_profiles.append(resp)
         except KeyboardInterrupt as e:
             raise e
@@ -117,11 +121,13 @@ if __name__ == "__main__":
 
     elif(option == '--fetch_profiles'):
         # Step 2
+        args = {}
         if len(sys.argv) > 2:
-            max_to_fetch = int(sys.argv[2])
-            fetch_profiles(max_to_fetch)
-        else:
-            fetch_profiles()
+            if sys.argv[2] == '--test':
+                args['just_test_set'] = True
+            else:
+                args['max_to_fetch'] = int(sys.argv[2])
+        fetch_profiles(**args)
 
     else:
         print "Usage error"

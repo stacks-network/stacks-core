@@ -689,7 +689,7 @@ def get_all_namespaces(offset=None, count=None, proxy=None):
     resp = {}
     try:
         resp = proxy.get_all_namespaces()
-        resp = json_validate(namespaces__schema, resp)
+        resp = json_validate(namespaces_schema, resp)
         if json_is_error(resp):
             return resp
     except ValidationError as e:

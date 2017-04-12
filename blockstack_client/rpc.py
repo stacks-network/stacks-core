@@ -1739,7 +1739,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if json_is_error(namespaces):
             # error
             status_code = None
-            if json_is_exception(res):
+            if json_is_exception(namespaces):
                 status_code = 500
             else:
                 status_code = 404

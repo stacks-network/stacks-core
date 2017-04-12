@@ -45,3 +45,8 @@ if SEARCH_API_ENDPOINT_ENABLED:
 
 for blueprint in blueprints:
     app.register_blueprint(blueprint)
+
+# make sure routes from api.server are included!
+
+import api.server
+
