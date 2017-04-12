@@ -179,6 +179,8 @@ def get_fees( inputs, outputs ):
         log.error("outputs[2] is not the burn address (%s)" % BLOCKSTACK_BURN_ADDRESS)
         return (None, None)
     
+    # should match make_outputs()
+    # the +2 comes from 2 new outputs
     dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     op_fee = outputs[2]["value"]
     
