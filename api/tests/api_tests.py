@@ -1,6 +1,4 @@
-import os
-import sys
-import json
+import os, sys, re, json
 import unittest
 import requests
 import argparse
@@ -8,43 +6,27 @@ import binascii
 
 from test import test_support
 from binascii import hexlify
-from utilitybelt import dev_urandom_entropy
 import api
-from requests.auth import _basic_auth_str as basic_auth
+
+
+from api.tests.resolver_tests import ResolverTestCase
+from api.tests.search_tests import SearchTestCase
+from blockstack_client import schemas 
 
 BASE_URL = 'http://localhost:5000'
 API_VERSION = '1'
 
+api.app.testing = True
 app = api.app.test_client()
-
-from api.auth.registration import register_user
-new_id = binascii.b2a_hex(os.urandom(16))
-APP_ID, APP_SECRET = new_id, new_id
-register_user(new_id + '@domain.com', app_id=APP_ID, app_secret=APP_SECRET,
-              email_user=False)
-
-# to use credentials from env variables instead
-#APP_ID = os.environ['ONENAME_API_ID']
-#APP_SECRET = os.environ['ONENAME_API_SECRET']
-#register_user('m@ali.vc', app_id=APP_ID, app_secret=APP_SECRET,
-#               email_user=False)
-
-
-def random_username():
-    username = hexlify(dev_urandom_entropy(16))
-    return username
-
-
-def build_url(pathname):
-    return '/v' + API_VERSION + pathname
 
 
 def test_get_request(cls, endpoint, headers={}, status_code=200):
-    resp = app.get(endpoint, headers=headers)
-    data = json.loads(resp.data)
-    cls.assertTrue(isinstance(data, dict))
+    resp = app.get(endpoint)
     if not resp.status_code == status_code:
-        print data
+        print(endpoint)
+        print(resp.status_code)
+
+    data = json.loads(resp.data)
     cls.assertTrue(resp.status_code == status_code)
     return data
 
@@ -52,7 +34,6 @@ def test_get_request(cls, endpoint, headers={}, status_code=200):
 def test_post_request(cls, endpoint, payload, headers={}, status_code=200):
     resp = app.post(endpoint, data=json.dumps(payload), headers=headers)
     data = json.loads(resp.data)
-    cls.assertTrue(isinstance(data, dict))
     cls.assertTrue(resp.status_code == status_code)
     return data
 
@@ -71,259 +52,126 @@ def check_data(cls, data, required_keys=[], banned_keys=[]):
                 cls.assertTrue(subkey not in data[k])
 
 
+class PingTest(unittest.TestCase):
+    def test_found_user_lookup(self):
+        usernames = 'muneeb.id'
+        data = test_get_request(self, "/v1/ping",
+                                headers = {} , status_code=200)
+        
+        self.assertTrue(data['status'] == 'alive')
+
 class LookupUsersTest(unittest.TestCase):
-    def setUp(self):
-        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-        self.required_subkeys = ['profile', 'verifications']
-        self.banned_subkeys = ['error']
+    def build_url(self, username):
+        return '/v1/names/' + username
 
-    def tearDown(self):
-        pass
-
-    def build_url(self, usernames):
-        return build_url('/users/' + ','.join(usernames))
-
-    def required_keys(self, usernames):
-        keys = {}
-        for username in usernames:
-            keys[username] = self.required_subkeys
-        return keys
-
-    def banned_keys(self, usernames):
-        keys = {}
-        for username in usernames:
-            keys[username] = self.banned_subkeys
-        return keys
-
-    def test_unprotected_demo_user_lookup(self):
-        usernames = ['fredwilson']
+    def test_found_user_lookup(self):
+        usernames = 'muneeb.id'
         data = test_get_request(self, self.build_url(usernames),
-                                headers=self.headers, status_code=200)
-        check_data(self, data, required_keys=self.required_keys(usernames),
-                   banned_keys=self.banned_keys(usernames))
+                                headers = {}, status_code=200)
+        
+        self.assertTrue(data['status'] == 'registered')
+        self.assertRegexpMatches(data['address'], schemas.OP_ADDRESS_PATTERN)
+        self.assertRegexpMatches(data['zonefile_hash'], schemas.OP_ZONEFILE_HASH_PATTERN)
+        self.assertRegexpMatches(data['last_txid'], schemas.OP_TXID_PATTERN)
 
-    """
-    def test_user_lookup_without_auth(self):
-        usernames = ['naval']
+    def test_user_not_found(self):
+        usernames = '----'
         data = test_get_request(self, self.build_url(usernames),
-                                headers={}, status_code=401)
-        check_data(self, data, required_keys={'error': ['message', 'type']},
-                   banned_keys={'naval': []})
-    """
+                                headers = {}, status_code=200)
+        self.assertTrue(data['error'] == 'Failed to lookup name')
 
-    def test_user_lookup_with_auth(self):
-        usernames = ['naval']
+
+class NameHistoryTest(unittest.TestCase):
+    def build_url(self, username):
+        return '/v1/names/{}/history'.format(username)
+
+    def check_history_block(self, blocks):
+        self.assertEqual(len(blocks), 1)
+        block = blocks[0]
+        self.assertRegexpMatches(block['address'], schemas.OP_ADDRESS_PATTERN)
+        self.assertTrue(block['opcode'].startswith('NAME'))
+
+    def test_found_user_lookup(self):
+        usernames = 'muneeb.id'
         data = test_get_request(self, self.build_url(usernames),
-                                headers=self.headers, status_code=200)
-        check_data(self, data, required_keys=self.required_keys(usernames),
-                   banned_keys=self.banned_keys(usernames))
-
-    def test_user_lookup_with_multiple_users(self):
-        usernames = ['fredwilson', 'naval', 'albertwenger']
-        data = test_get_request(self, self.build_url(usernames),
-                                headers=self.headers, status_code=200)
-        check_data(self, data, required_keys=self.required_keys(usernames),
-                   banned_keys=self.banned_keys(usernames))
+                                headers = {}, status_code=200)
+        
+        self.assertTrue(len(data.keys()) > 2)
+        for block_key, block_data in data.items():
+            self.check_history_block(block_data)
 
 
-class UserbaseTest(unittest.TestCase):
-    def setUp(self):
-        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
+class NamesOwnedTest(unittest.TestCase):
+    def build_url(self, addr):
+        return '/v1/addresses/bitcoin/{}'.format(addr)
+    def test_check_names(self):
+        addrs_to_check = ["1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP",
+                          "16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg"]
+        names_to_check = ["muneeb.id", "judecn.id"]
+        for addr, name in zip(addrs_to_check, names_to_check):
+            data = test_get_request(self, self.build_url(addr),
+                                    headers = {}, status_code = 200)
+            self.assertTrue(len(data["names"]) > 0)
+            self.assertIn(name, data["names"])
 
-    def tearDown(self):
-        pass
+class NamespaceTest(unittest.TestCase):
+    def test_id_space(self):
+        data = test_get_request(self, "/v1/namespaces",
+                                headers = {} , status_code=200)        
+        self.assertIn('id', data)
 
-    def test_userbase_lookup(self):
-        required_keys = {
-            'usernames': [],
-        }
-        data = test_get_request(self, build_url('/users'),
-                                headers=self.headers, status_code=200)
-        check_data(self, data, required_keys=required_keys)
+class NamepriceTest(unittest.TestCase):
+    def price_url(self, name):
+        return "/v1/prices/names/{}".format(name)
+    
+    def test_id_price(self):
+        data = test_get_request(self, self.price_url("muneeb.id"),
+                                headers = {} , status_code=200)        
+        json_keys = data.keys()
+        self.assertIn('name_price', json_keys)
+        self.assertIn('preorder_tx_fee', json_keys)
+        self.assertIn('register_tx_fee', json_keys)
+        self.assertIn('total_estimated_cost', json_keys)
+        self.assertIn('total_tx_fees', json_keys)
+        self.assertIn('update_tx_fee', json_keys)
 
-    def test_recent_userbase_lookup(self):
-        required_keys = {'usernames': []}
-        data = test_get_request(self, build_url('/users'),
-                                headers=self.headers, status_code=200)
-        check_data(self, data, required_keys=required_keys)
-
-
-class UserbaseStatsTest(unittest.TestCase):
-    def setUp(self):
-        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-
-    def tearDown(self):
-        pass
-
-    def test_stats_lookup(self):
-        required_keys = {
-            'stats': ['registrations']
-        }
-        data = test_get_request(self, build_url('/stats/users'),
-                                headers=self.headers, status_code=200)
-        check_data(self, data, required_keys=required_keys)
-
-
-class SearchTest(unittest.TestCase):
-    def setUp(self):
-        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-        self.required_keys = {'results': []}
-
-    def tearDown(self):
-        pass
-
-    def test_simple_search_query(self):
-        query = 'wenger'
-        data = test_get_request(self, build_url('/search?query=' + query),
-                                headers=self.headers)
-        check_data(self, data, required_keys=self.required_keys)
-
-    def test_twitter_search_query(self):
-        query = 'twitter:albertwenger'
-        data = test_get_request(self, build_url('/search?query=' + query),
-                                headers=self.headers)
-        check_data(self, data, required_keys=self.required_keys)
-
-    def test_domain_search_query(self):
-        query = 'domain:muneebali.com'
-        data = test_get_request(self, build_url('/search?query=' + query),
-                                headers=self.headers)
-        check_data(self, data, required_keys=self.required_keys)
+class ConsensusTest(unittest.TestCase):
+    def test_id_space(self):
+        data = test_get_request(self, "/v1/blockchains/bitcoin/consensus",
+                                headers = {} , status_code=200)        
+        self.assertRegexpMatches(data['consensus_hash'], schemas.OP_CONSENSUS_HASH_PATTERN)
 
 
-class LookupUnspentsTest(unittest.TestCase):
-    def setUp(self):
-        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-        self.required_keys = {'unspents': []}
+def test_main(args = []):
+    test_classes = [PingTest, LookupUsersTest, NamespaceTest, ConsensusTest,
+                    NamepriceTest, NamesOwnedTest, NameHistoryTest]
+    test_classes += [ResolverTestCase]
+    test_classes += [SearchTestCase]
 
-    def tearDown(self):
-        pass
-
-    def build_url(self, address):
-        return build_url('/addresses/' + address + '/unspents')
-
-    def test_address_lookup(self):
-        address = '19bXfGsGEXewR6TyAV3b89cSHBtFFewXt6'
-        data = test_get_request(self, self.build_url(address),
-                                headers=self.headers)
-
-        check_data(self, data, required_keys=self.required_keys)
+    test_map = {}
+    for t in test_classes:
+        test_map[t.__name__] = t
 
 
-class LookupNamesOwnedTest(unittest.TestCase):
-    def setUp(self):
-        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-        self.required_keys = {'results': []}
+    with test_support.captured_stdout() as out:
+        test_support.run_unittest(PingTest)
+    out = out.getvalue()
+    if out[-3:-1] != "OK":
+        print(out)
+        print("Failure of the ping test means the rest of the unit tests will fail. Is the blockstack api daemon running? (did you run `blockstack api start`)")
+        return
 
-    def tearDown(self):
-        pass
+    if len(args) == 1 and args[0] == "--list":
+        print("Tests supported: ")
+        for testname in test_map.keys():
+            print(testname)
+        return
 
-    def build_url(self, address):
-        return build_url('/addresses/' + address + '/names')
+    if len(args) == 0 or args[0] == "--all":
+        args = [ testname for testname in test_map.keys() if
+                 testname != "NamepriceTest" ] # Nameprice is a slow test, don't include by default!
 
-    def test_address_lookup(self):
-        address = '1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP'
-        data = test_get_request(self, self.build_url(address),
-                                headers=self.headers)
-        check_data(self, data, required_keys=self.required_keys)
-
-
-class RegisterUserTest(unittest.TestCase):
-    def setUp(self):
-        self.headers = {
-            'Authorization': basic_auth(APP_ID, APP_SECRET),
-            'Content-type': 'application/json'
-        }
-        self.required_keys = {'status': []}
-
-    def tearDown(self):
-        pass
-
-    def test_user_registration(self):
-
-        payload = dict(
-            recipient_address='19MoWG8u88L6t766j7Vne21Mg4wHsCQ7vk',
-            username=random_username(),
-            profile={'name': {'formatted': 'John Doe'}}
-        )
-
-        data = test_post_request(self, build_url('/users'), payload,
-                                 headers=self.headers)
-
-        check_data(self, data, required_keys=self.required_keys)
-
-
-class BroadcastTransactionTest(unittest.TestCase):
-    def setUp(self):
-        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-        self.required_keys = {'error': ['message', 'type']}
-        self.banned_keys = {'transaction_hash': []}
-
-    def tearDown(self):
-        pass
-
-    def test_bogus_transaction_broadcast(self):
-        #bitcoind reject this, needs updating
-        signed_hex = '00710000015e98119922f0b'
-        payload = {'signed_hex': signed_hex}
-        data = test_post_request(self, build_url('/transactions'), payload,
-                                 headers=self.headers, status_code=400)
-        check_data(self, data, required_keys=self.required_keys,
-                   banned_keys=self.banned_keys)
-
-
-class DKIMPubkeyTest(unittest.TestCase):
-    def setUp(self):
-        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-        self.required_keys = {'public_key': [], 'key_type': []}
-
-    def tearDown(self):
-        pass
-
-    def build_url(self, domain):
-        return build_url('/domains/' + domain + '/dkim')
-
-    def test_address_lookup(self):
-        domain = 'onename.com'
-        data = test_get_request(self, self.build_url(domain),
-                                headers=self.headers)
-        check_data(self, data, required_keys=self.required_keys)
-
-
-class EmailSaveTest(unittest.TestCase):
-    def setUp(self):
-        self.required_keys = {'status': []}
-
-    def tearDown(self):
-        pass
-
-    def get_email_token(self):
-
-        data = test_get_request(self, build_url('/emails'))
-        return data['token']
-
-    def test_email_save(self):
-        email = 'test@onename.com'
-        token = self.get_email_token()
-        payload = {'email': email, 'token': token}
-        data = test_post_request(self, build_url('/emails'), payload)
-        check_data(self, data, required_keys=self.required_keys)
-
-
-def test_main():
-    test_support.run_unittest(
-        LookupUsersTest,
-        UserbaseTest,
-        UserbaseStatsTest,
-        SearchTest,
-        LookupUnspentsTest,
-        LookupNamesOwnedTest,
-        RegisterUserTest,
-        #BroadcastTransactionTest,
-        DKIMPubkeyTest,
-        EmailSaveTest,
-    )
-
+    test_support.run_unittest( *[test_map[test_name] for test_name in args] )
 
 if __name__ == '__main__':
-    test_main()
+    test_main(sys.argv[1:])

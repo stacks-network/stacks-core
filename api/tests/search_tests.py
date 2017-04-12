@@ -28,32 +28,36 @@ import sys
 import json
 import unittest
 
-from pymongo import MongoClient
+import api
+from api.search.db import namespace
 
-# Hack around absolute paths
-current_dir = os.path.abspath(os.path.dirname(__file__))
-parent_dir = os.path.abspath(current_dir + "/../")
-sys.path.insert(0, parent_dir)
-
-from search.db_index import namespace
-
-test_users = ['muneeb.id', 'fredwilson.id']
-
+SEARCH_URL = "/search?query={}"
 
 class SearchTestCase(unittest.TestCase):
 
-    def tearDown(self):
-        pass
+    def setUp(self):
+        self.client = api.app.test_client()
+        self.test_users = ['muneeb', 'fredwilson', 'judecn', 'albertwenger']
+
+
+    def do_search(self, userq):
+        url = SEARCH_URL.format(userq)
+        r = self.client.get(url)
+        return json.loads(r.data)
 
     def test_namespace_state(self):
-        """ Check if namespace was correctly fetched
-        """
-
+        """ Check if namespace was correctly fetched """
         for entry in namespace.find():
+            self.assertIsNotNone(entry['username'])
+            if entry['username'] not in self.test_users:
+                continue
+            self.assertIsNotNone(entry['profile'], 
+                                 msg="Error in fetching profile of entry: {}".format(entry))
 
-            self.assertIsNotNone(entry['profile'], msg="Error in fetching profile")
+    def test_find_user(self):
+        for u in self.test_users[1:]:
+            data = self.do_search(u)
+            self.assertTrue(len(data['results']) > 0)
+            self.assertIn(u, data['results'][0]['username'])
+            self.assertIn("profile", data['results'][0].keys())
 
-
-if __name__ == '__main__':
-
-    unittest.main()
