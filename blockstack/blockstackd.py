@@ -434,7 +434,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 name_record['expire_block'] = max( namespace_record['ready_block'], name_record['last_renewed'] ) + namespace_record['lifetime'] * namespace_lifetime_multiplier
 
             else:
-                name_record['expire_block'] = '-1'
+                name_record['expire_block'] = -1
 
             db.close()
             self.analytics("get_name_blockchain_record", {})
