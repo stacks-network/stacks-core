@@ -88,7 +88,8 @@ def namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, 
       raise Exception("Invalid namespace ID length for '%s' (expected length between 1 and %s)" % (namespace_id, LENGTH_MAX_NAMESPACE_ID))
    
    if lifetime < 0 or lifetime > (2**32 - 1):
-      lifetime = NAMESPACE_LIFE_INFINITE 
+      import blockstack
+      lifetime = blockstack.NAMESPACE_LIFE_INFINITE 
 
    if coeff < 0 or coeff > 255:
       raise Exception("Invalid cost multiplier %s: must be in range [0, 256)" % coeff)
@@ -192,7 +193,7 @@ def make_outputs( data, inputs, reveal_addr, change_addr, tx_fee):
         
         # change address
         {"script_hex": virtualchain.make_payment_script(change_addr),
-         "value": virtualchain.calculate_change_amount(inputs, total_to_send, DEFAULT_DUST_FEE * (len(inputs) + 3)) + tx_fee},
+         "value": virtualchain.calculate_change_amount(inputs, total_to_send, DEFAULT_DUST_FEE * (len(inputs) + 2) + DEFAULT_OP_RETURN_FEE + tx_fee)},
     ]
     
     
@@ -238,7 +239,7 @@ def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, buc
    inputs = tx_get_unspents( preorder_addr, blockchain_client )
    if safety:
        assert len(inputs) > 0
-    
+   
    # build custom outputs here
    outputs = make_outputs(nulldata, inputs, reveal_addr, preorder_addr, tx_fee)
    
@@ -247,10 +248,35 @@ def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, buc
 
 def get_fees( inputs, outputs ):
     """
-    Blockstack currently does not allow 
-    the subsidization of namespaces.
+    Get (dust fee, op fee) for namespace reveal
+    (op fee is 0)
     """
-    return (None, None)
+ 
+    dust_fee = 0
+    op_fee = 0
+    
+    if len(outputs) != 3:
+        log.debug("len(outputs) == %s" % len(outputs))
+        return (None, None)
+    
+    # 0: op_return
+    if not tx_output_is_op_return( outputs[0] ):
+        log.debug("output[0] is not an OP_RETURN")
+        return (None, None) 
+   
+    # 1: reveal address 
+    if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
+        log.debug("output[1] is not a p2pkh or p2sh script")
+        return (None, None)
+    
+    # 2: change address 
+    if virtualchain.script_hex_to_address( outputs[2]["script_hex"] ) is None:
+        log.debug("output[2] is not a p2pkh or p2sh script")
+        return (None, None)
+    
+    # should match make_outputs()
+    dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
+    return (dust_fee, op_fee)
 
 
 def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
