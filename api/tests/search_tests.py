@@ -32,12 +32,13 @@ import api
 from api.search.db import namespace
 
 SEARCH_URL = "/search?query={}"
+SEARCH_TEST_USERS = ['muneeb', 'fredwilson', 'judecn', 'albertwenger']
 
 class SearchTestCase(unittest.TestCase):
 
     def setUp(self):
         self.client = api.app.test_client()
-        self.test_users = ['muneeb', 'fredwilson', 'judecn', 'albertwenger']
+        self.test_users = SEARCH_TEST_USERS
 
 
     def do_search(self, userq):
