@@ -343,19 +343,24 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         """
         Is the given namespace available for preorder/reveal?
         """
-        if not is_namespace_revealed(ns):
+        if not is_namespace_revealed(ns, proxy=proxy):
             return {'status': True}
         else:
             return {'error': 'Namespace is already revealed'}
 
-    def _is_namespace_still_revealed(ns):
+    def _is_namespace_still_revealed(fqu_or_ns):
         """
         Is the given namespace ready?
+        Takes a fully-qualified name or a namespace ID
         """
-        if not is_namespace_revealed(ns):
+        ns = fqu_or_ns
+        if '.' in fqu_or_ns:
+            ns = fqu_or_ns.split('.')[1]
+
+        if not is_namespace_revealed(ns, proxy=proxy):
             return {'error': 'Namespace is not revealed'}
 
-        if is_namespace_ready(ns):
+        if is_namespace_ready(ns, proxy=proxy):
             return {'error': 'Namespace is already launched'}
 
         return {'status': True}
@@ -396,7 +401,7 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
 
         return {'status': True}
 
-    def _is_name_import_key(nsid, import_privkey):
+    def _is_name_import_key(fqu_or_ns, import_privkey):
         """
         Is the given private key a valid derived key for importing a name
         into this namespace?
@@ -406,22 +411,47 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         """
         import blockstack
 
+        nsid = fqu_or_ns
+        if '.' in fqu_or_ns:
+            nsid = fqu_or_ns.split('.')[1]
+
         if not is_singlesig(import_privkey):
+            if BLOCKSTACK_TEST:
+                log.debug("Not a single private key: {}".format(import_privkey))
+
             return {'error': 'Not a single private key'}
 
-        keychain_dir = os.path.join( os.path.dirname(config_path, 'keychains') )
+        built_keychain = False
+        keychain_dir = os.path.join( os.path.dirname(config_path), 'import_keychains' )
         if not os.path.exists(keychain_dir):
             os.makedirs(keychain_dir)
+            built_keychain = True
+
+        keychain_path = blockstack.BlockstackDB.get_import_keychain_path(keychain_dir, nsid)
+        if not os.path.exists(keychain_path):
+            built_keychain = True
+
+        def _cleanup():
+            if built_keychain: 
+                try:
+                    os.unlink(keychain_path)
+                except:
+                    pass
+
+            return
+
 
         child_addrs = blockstack.BlockstackDB.build_import_keychain( nsid, ecdsa_private_key(import_privkey).public_key().to_hex(), keychain_dir=keychain_dir )
         import_addr = virtualchain.address_reencode( ecdsa_private_key(import_privkey).public_key().address() )
 
         if import_addr not in child_addrs:
+            _cleanup()
             return {'error': 'Invalid import key'}
 
         # is this the first such name?
         res = get_num_names_in_namespace(nsid, proxy=proxy)
         if json_is_error(res):
+            _cleanup()
             return {'error': res['error']}
 
         assert type(res) in [int, long]
@@ -429,9 +459,11 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
             # this must be the same as the revealer key
             res = get_namespace_blockchain_record(nsid, proxy=proxy)
             if 'error' in res:
+                _cleanup()
                 return {'error': res['error']}
 
             if res['recipient_address'] != import_addr:
+                _cleanup()
                 return {'error': 'The first imported name must have the namespace reveal address as its owner'}
 
         return {'status': True}
@@ -449,7 +481,7 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         'is_namespace_still_revealed': lambda: _is_namespace_still_revealed(fqu_or_ns),
         'is_namespace_revealer': lambda: _is_namespace_revealer(fqu_or_ns, owner_address),
         'is_namespace_reveal_address_valid': lambda: _is_namespace_reveal_address_valid(owner_address),
-        'is_name_import_key': lambda: _is_name_import_key(fqu_or_ns, owner_privkey_info)
+        'is_name_import_key': lambda: _is_name_import_key(fqu_or_ns, payment_privkey_info)
     }
     
     # common to all operations
@@ -1317,10 +1349,10 @@ def check_namespace_ready(nsid, reveal_privkey_info, min_payment_confs=TX_MIN_CO
     return _check_op(nsid, 'namespace_ready', required_checks, None, reveal_privkey_info, owner_address=reveal_addr, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)
 
 
-def check_name_import(name, importer_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+def check_name_import(name, importer_privkey_info, recipient_address, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
     """
     Verify that a name import can go through
     @importer_privkey_info is the private key information derived from the reveal private key.  It will be used as the "payment" key by the op-checker
     """
-    required_checks = ['is_namespace_still_revealed', 'is_owner_address_usable', 'is_name_import_key']
-    return _check_op(name, 'name_import', required_checks, None, importer_privkey_info, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)
+    required_checks = ['is_namespace_still_revealed', 'is_payment_address_usable', 'is_name_import_key', 'owner_can_receive']
+    return _check_op(name, 'name_import', required_checks, None, importer_privkey_info, owner_address=recipient_address, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)
