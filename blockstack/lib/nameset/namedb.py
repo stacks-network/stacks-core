@@ -256,6 +256,15 @@ class BlockstackDB( virtualchain.StateEngine ):
             
         sqlite3_backup( self.get_db_path(), path )
 
+    
+    @classmethod
+    def get_import_keychain_path( cls, keychain_dir, namespace_id ):
+        """
+        Get the path to the import keychain
+        """
+        cached_keychain = os.path.join( keychain_dir, "{}.keychain".format(namespace_id) )
+        return cached_keychain
+
 
     @classmethod
     def build_import_keychain( cls, namespace_id, pubkey_hex, keychain_dir=None ):
@@ -269,7 +278,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         if keychain_dir is None:
             keychain_dir = virtualchain.get_working_dir()
 
-        cached_keychain = os.path.join( keychain_dir, "%s.keychain" % namespace_id )
+        cached_keychain = cls.get_import_keychain_path(keychain_dir, namespace_id)
         if os.path.exists( cached_keychain ):
 
             child_addrs = []
