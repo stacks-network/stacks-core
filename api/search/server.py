@@ -26,7 +26,6 @@ This file is part of Search.
 import sys
 import json
 import threading
-import pylibmc
 
 from time import time
 from flask import request, jsonify, make_response, render_template, Blueprint
@@ -44,7 +43,7 @@ from .attributes_index import search_proofs, validProofQuery
 
 searcher = Blueprint('searcher', __name__, url_prefix='')
 
-from api.resolver import get_mc_client
+from api.utils import get_mc_client
 
 mc = get_mc_client()
 

@@ -28,9 +28,6 @@ import re
 
 DEBUG = True
 
-if(DEBUG):
-    os.environ["BLOCKSTACK_DEBUG"] = "1"
-
 DEFAULT_PORT = 5000
 DEFAULT_HOST = '0.0.0.0'
 

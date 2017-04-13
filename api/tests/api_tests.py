@@ -159,6 +159,37 @@ class NamepriceTest(unittest.TestCase):
         self.assertIn('total_tx_fees', json_keys)
         self.assertIn('update_tx_fee', json_keys)
 
+
+class SearchAPITest(unittest.TestCase):
+    def search_url(self, q):
+        return "/v1/search?query={}".format(q)
+
+    def test_forward_to_search_server(self):
+        u = "muneeb"
+        original = api.config.SEARCH_API_ENDPOINT_ENABLED
+        api.config.SEARCH_API_ENDPOINT_ENABLED = False
+        
+        data = test_get_request(self, self.search_url(u),
+                                headers = {}, status_code=200)
+
+        self.assertTrue(len(data['results']) > 0)
+        self.assertIn(u, data['results'][0]['username'])
+        self.assertIn("profile", data['results'][0].keys())
+
+        api.config.SEARCH_API_ENDPOINT_ENABLED = original
+        
+    def test_search_server(self):
+        u = "muneeb"
+        if not api.config.SEARCH_API_ENDPOINT_ENABLED:
+            print "skipping search server test"
+            return
+        data = test_get_request(self, self.search_url(u),
+                                headers = {}, status_code=200)
+
+        self.assertTrue(len(data['results']) > 0)
+        self.assertIn(u, data['results'][0]['username'])
+        self.assertIn("profile", data['results'][0].keys())
+
 class ConsensusTest(unittest.TestCase):
     def test_id_space(self):
         data = test_get_request(self, "/v1/blockchains/bitcoin/consensus",
@@ -168,7 +199,7 @@ class ConsensusTest(unittest.TestCase):
 
 def test_main(args = []):
     test_classes = [PingTest, LookupUsersTest, NamespaceTest, ConsensusTest,
-                    NamepriceTest, NamesOwnedTest, NameHistoryTest]
+                    NamepriceTest, NamesOwnedTest, NameHistoryTest, SearchAPITest]
     test_classes += [ResolverTestCase]
     if api.config.SEARCH_API_ENDPOINT_ENABLED:
         test_classes += [SearchTestCase]
@@ -179,7 +210,10 @@ def test_main(args = []):
 
 
     with test_support.captured_stdout() as out:
-        test_support.run_unittest(PingTest)
+        try:
+            test_support.run_unittest(PingTest)
+        except Exception as e:
+            print(e)
     out = out.getvalue()
     if out[-3:-1] != "OK":
         print(out)

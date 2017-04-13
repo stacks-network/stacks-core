@@ -37,7 +37,7 @@ from flask_crossdomain import crossdomain
 from .parameters import parameters_required
 from .utils import get_api_calls
 from .config import PUBLIC_NODE, PUBLIC_NODE_URL, BASE_API_URL
-from .config import SEARCH_NODE_URL
+from .config import SEARCH_NODE_URL, SEARCH_API_ENDPOINT_ENABLED
 
 # hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -94,13 +94,17 @@ def api_names(name):
 @parameters_required(parameters=['query'])
 @crossdomain(origin='*')
 def search_people():
+    query = request.values['query']
 
-    search_url = SEARCH_URL + '/search'
+    if SEARCH_API_ENDPOINT_ENABLED:
+        client = app.test_client()
+        return client.get('/search?query={}'.format(query), 
+                          headers=list(request.headers))
 
-    name = request.values['query']
+    search_url = SEARCH_NODE_URL + '/search'
 
     try:
-        resp = requests.get(url=search_url, params={'query': name})
+        resp = requests.get(url=search_url, params={'query': query})
     except (RequestsConnectionError, RequestsTimeout) as e:
         raise InternalProcessingError()
 
