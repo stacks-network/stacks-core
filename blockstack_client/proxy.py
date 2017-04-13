@@ -1634,7 +1634,7 @@ def is_namespace_revealed(ns, proxy=None):
     proxy = get_default_proxy() if proxy is None else proxy
     namespace_record = get_namespace_blockchain_record(ns, proxy=proxy)
     if 'error' in namespace_record:
-        log.debug("Failed to read blockchain record for {}".format(ns))
+        log.debug("Failed to read blockchain record for namespace {}".format(ns))
         return False
 
     return True
