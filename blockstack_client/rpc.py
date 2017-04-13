@@ -2283,7 +2283,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
     def GET_blockchain_unspents( self, ses, path_info, blockchain_name, address ):
         """
-        Handle GET /blockchains/:blockchainID/:address/unspents
+        Handle GET /blockchains/:blockchain_name/:address/unspents
         Takes min_confirmations= as a query-string arg.
 
         Reply 200 and the list of unspent outputs or current address states
@@ -2315,7 +2315,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
     def POST_broadcast_tx( self, ses, path_info, blockchain_name ):
         """
-        Handle POST /blockchains/:blockchainID/tx
+        Handle POST /blockchains/:blockchain_name/tx
         Reads {'tx': ...} as JSON from the request.
 
         Reply 200 and the transaction hash as {'status': True, 'tx_hash': ...} on success
@@ -2491,7 +2491,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/v1/blockchains/({})/({})/unspent$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
+            r'^/v1/blockchains/({})/({})/unspent$'.format(URLENCODING_CLASS, BASE58CHECK_CLASS): {
                 'routes': {
                     'GET': self.GET_blockchain_unspents,
                 },
