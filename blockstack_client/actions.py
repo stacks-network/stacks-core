@@ -4507,7 +4507,7 @@ def cli_validate_zone_file(args, config_path=CONFIG_PATH, proxy=None):
     help: Validate an on-disk zone file to ensure that is properly formatted.
     arg: name (str) 'The name that will use this zone file'
     arg: zonefile_path (str) 'The path on disk to the zone file'
-    opt: verbose (str) 'Pass True to see more analysis data beyond "valid" or "invalid".'
+    opt: verbose (str) 'Pass True to see more analysis beyond "valid" or "invalid".'
     """
     
     name = str(args.name)
