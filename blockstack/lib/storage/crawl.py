@@ -277,7 +277,7 @@ def store_mutable_data_to_storage( blockchain_id, data_id, data_txt, required=No
     """
    
     nocollide_data_id = '{}-{}'.format(blockchain_id, data_id)
-    res = blockstack_client.storage.put_mutable_data(nocollide_data_id, data_text, None, sign=False, required=required, skip=skip, blockchain_id=blockchain_id)
+    res = blockstack_client.storage.put_mutable_data(nocollide_data_id, data_txt, None, sign=False, required=required, skip=skip, blockchain_id=blockchain_id)
     return res
 
 
