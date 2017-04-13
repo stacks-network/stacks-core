@@ -1900,7 +1900,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
     def POST_wallet_balance( self, ses, path_info ):
         """
-        Transfer wallet balance.  Takes {'address': ...}
+        Transfer wallet balance.  Takes 'address' 'amount', 'min_confs', 'tx_only', 'message'
         Return 200 with the balance
         Return 500 on failure to contact the blockchain service
         """
@@ -1920,6 +1920,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'tx_only': {
                     'type': 'boolean'
                 },
+                'message': {
+                    'type': 'string',
+                },
             },
             'required': [
                 'address'
@@ -1935,6 +1938,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         amount = request.get('amount', None)
         min_confs = request.get('min_confs', TX_MIN_CONFIRMATIONS)
         tx_only = request.get('tx_only', False)
+        message = request.get('message', None)
 
         if tx_only:
             tx_only = 'True'
@@ -1951,7 +1955,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             address = new_addr
 
         internal = self.server.get_internal_proxy()
-        res = internal.cli_withdraw(address, amount, min_confs, tx_only, config_path=self.server.config_path, interactive=False, wallet_keys=self.server.wallet_keys)
+        res = internal.cli_withdraw(address, amount, message, min_confs, tx_only, config_path=self.server.config_path, interactive=False, wallet_keys=self.server.wallet_keys)
         if 'error' in res:
             log.debug("Failed to transfer balance: {}".format(res['error']))
             return self._reply_json({'error': 'Failed to transfer balance: {}'.format(res['error'])}, status_code=500)

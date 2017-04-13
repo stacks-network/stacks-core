@@ -57,6 +57,7 @@ import blockstack_zones
 import blockstack_profiles
 import requests
 import base64
+import binascii
 import jsonschema
 import threading
 from decimal import Decimal
@@ -415,6 +416,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
     help: Transfer funds out of the Blockstack wallet to a new address
     arg: address (str) 'The recipient address'
     opt: amount (int) 'The amount to withdraw (defaults to all)'
+    opt: message (str) 'A message to include with the payment (up to 40 bytes)'
     opt: min_confs (int) 'The minimum confirmations for oustanding transactions'
     opt: tx_only (str) 'If "True", only return the transaction'
     """
@@ -425,6 +427,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
 
     recipient_addr = str(args.address)
     amount = getattr(args, 'amount', None)
+    message = getattr(args, 'message', None)
     min_confs = getattr(args, 'min_confs', TX_MIN_CONFIRMATIONS)
     tx_only = getattr(args, 'tx_only', False)
    
@@ -453,6 +456,10 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         log.debug("tx_only = {}".format(tx_only))
         return {'error': 'Invalid tx_only'}
 
+    if message:
+        message = str(message)
+        if len(message) > virtualchain.bitcoin_blockchain.MAX_DATA_LEN:
+            return {'error': 'Message must be {} bytes or less (got {})'.format(virtualchain.bitcoin_blockchain.MAX_DATA_LEN, len(message))}
 
     res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
@@ -500,6 +507,11 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
                 {'script_hex': virtualchain.make_payment_script(send_addr),
                   "value": change}
             )
+
+        if message:
+            outputs = [
+                {"script_hex": virtualchain.make_data_script(binascii.hexlify(message)),
+                 "value": 0} ] + outputs
 
         serialized_tx = serialize_transaction(inputs, outputs)
         signed_tx = sign_tx(serialized_tx, wallet_keys['payment_privkey'])
