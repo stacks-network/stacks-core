@@ -747,7 +747,7 @@ def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required
     return None if successes == 0 else data_hash
 
 
-def put_mutable_data(fq_data_id, data_text_or_json, privatekey_hex, profile=False, blockchain_id=None, required=None, skip=None, required_exclusive=False):
+def put_mutable_data(fq_data_id, data_text_or_json, privatekey_hex, sign=True, profile=False, blockchain_id=None, required=None, skip=None, required_exclusive=False):
     """
     Given the unserialized data, store it into our mutable data stores.
     Do so in a best-effort way.  This method fails if all storage providers fail,
@@ -767,15 +767,20 @@ def put_mutable_data(fq_data_id, data_text_or_json, privatekey_hex, profile=Fals
     if blockchain_id is not None:
         fqu = blockchain_id
 
-    # sanity check: only support single-sig private keys
-    if not is_singlesig_hex(privatekey_hex):
-        log.error('Only single-signature data private keys are supported')
-        return False
+    serialized_data = None
+    if sign:
+        # sanity check: only support single-sig private keys
+        if not is_singlesig_hex(privatekey_hex):
+            log.error('Only single-signature data private keys are supported')
+            return False
 
-    assert privatekey_hex is not None
-    pubkey_hex = get_pubkey_hex( privatekey_hex )
-    serialized_data = serialize_mutable_data(data_text_or_json, privatekey_hex, pubkey_hex, profile=profile)
+        assert privatekey_hex is not None
+        pubkey_hex = get_pubkey_hex( privatekey_hex )
+        serialized_data = serialize_mutable_data(data_text_or_json, privatekey_hex, pubkey_hex, profile=profile)
     
+    else:
+        serialized_data = data_text_or_json
+
     successes = 0
 
     log.debug('put_mutable_data({}), required={}, skip={} required_exclusive={}'.format(fq_data_id, ','.join(required), ','.join(skip), required_exclusive))
