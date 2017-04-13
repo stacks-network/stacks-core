@@ -576,6 +576,9 @@ def blockstack_cli_namespace_preorder( namespace_id, namespace_privkey, reveal_p
     args.reveal_privkey = reveal_privkey
 
     resp = cli_namespace_preorder(args, config_path=config_path, interactive=False, proxy=test_proxy)
+    if 'error' not in resp:
+        assert 'transaction_hash' in resp
+
     return resp
 
 
@@ -599,6 +602,9 @@ def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privk
     args.no_vowel_discount = no_vowel_disc
 
     resp = cli_namespace_reveal(args, config_path=config_path, interactive=False, proxy=test_proxy)
+    if 'error' not in resp:
+        assert 'transaction_hash' in resp
+
     return resp
 
 
@@ -615,6 +621,9 @@ def blockstack_cli_namespace_ready( namespace_id, reveal_privkey, config_path=No
     args.reveal_privkey = reveal_privkey
 
     resp = cli_namespace_ready(args, config_path=config_path, interactive=False, proxy=test_proxy)
+    if 'error' not in resp:
+        assert 'transaction_hash' in resp
+
     return resp
 
 
@@ -632,6 +641,9 @@ def blockstack_cli_register( name, password, recipient_address=None, zonefile=No
     args.zonefile = zonefile
 
     resp = cli_register( args, config_path=config_path, password=password, interactive=False, proxy=test_proxy )
+    if 'error' not in resp:
+        assert 'transaction_hash' in resp
+
     return resp
 
 
@@ -665,6 +677,9 @@ def blockstack_cli_update( name, zonefile_json, password, nonstandard=True, conf
     if 'value_hash' in resp:
         atlas_zonefiles_present.append( resp['value_hash'] )
     
+    if 'error' not in resp:
+        assert 'transaction_hash' in resp
+
     return resp
 
 
@@ -681,6 +696,9 @@ def blockstack_cli_transfer( name, new_owner_address, password, config_path=None
     args.address = new_owner_address
 
     resp = cli_transfer( args, config_path=config_path, password=password )
+    if 'error' not in resp:
+        assert 'transaction_hash' in resp
+
     return resp
 
 
@@ -696,6 +714,9 @@ def blockstack_cli_renew( name, password, config_path=None):
     args.name = name
 
     resp = cli_renew( args, config_path=config_path, password=password, interactive=False, proxy=test_proxy )
+    if 'error' not in resp:
+        assert 'transaction_hash' in resp
+
     return resp
 
 
@@ -711,6 +732,47 @@ def blockstack_cli_revoke( name, password, config_path=None):
     args.name = name
 
     resp = cli_revoke( args, config_path=config_path, password=password, interactive=False, proxy=test_proxy )
+    if 'error' not in resp:
+        assert 'transaction_hash' in resp
+
+    return resp
+
+
+def blockstack_cli_name_import( name, address, zonefile_txt, importer_privkey, config_path=None):
+    """
+    Import a name
+    """
+    global atlas_zonefiles_present
+
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    fd, path = tempfile.mkstemp()
+    os.write(fd, zonefile_txt)
+    os.close(fd)
+
+    log.debug("Stored JSON to {}".format(path))
+
+    args = CLIArgs()
+    args.name = name
+    args.address = address
+    args.zonefile_path = path
+    args.privatekey = importer_privkey
+
+    resp = cli_name_import( args, config_path=config_path, interactive=False)
+
+    try:
+        os.unlink(path)
+    except:
+        pass
+
+    if 'value_hash' in resp:
+        atlas_zonefiles_present.append( resp['value_hash'] )
+   
+    if 'error' not in resp:
+        assert 'transaction_hash' in resp
+
     return resp
 
 
@@ -1070,13 +1132,6 @@ def blockstack_cli_rpc( method, rpc_args=None, rpc_kw=None, config_path=None):
     args.kwargs = rpc_kw
 
     return cli_rpc( args, config_path=config_path )
-
-
-def blockstack_cli_name_import( name, address, value_hash, owner_privkey, config_path=None):
-    """
-    do a name import in the CLI
-    """
-    raise Exception("BROKEN IN THE CLIENT")
 
 
 def blockstack_cli_put_mutable( name, data_id, data_json_str, password=None, config_path=None):
@@ -1964,7 +2019,7 @@ def blockstack_rpc_sync_zonefile( name, zonefile_string=None, txid=None, config_
     return resp
 
 
-def blockstack_get_zonefile( zonefile_hash, config_path=None ):
+def blockstack_get_zonefile( zonefile_hash, parse=True, config_path=None ):
     """
     Get a zonefile from the RPC endpoint
     Return None if not given
@@ -1976,7 +2031,6 @@ def blockstack_get_zonefile( zonefile_hash, config_path=None ):
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
-
     zonefile_result = test_proxy.get_zonefiles( [zonefile_hash] )
     if 'error' in zonefile_result:
         return None
@@ -1985,13 +2039,18 @@ def blockstack_get_zonefile( zonefile_hash, config_path=None ):
         return None
 
     zonefile_txt = base64.b64decode( zonefile_result['zonefiles'][zonefile_hash] )
-    zonefile = blockstack_zones.parse_zone_file( zonefile_txt )
 
-    # verify
-    if zonefile_hash != blockstack_client.hash_zonefile( zonefile ):
-        return None
+    if parse:
+        zonefile = blockstack_zones.parse_zone_file( zonefile_txt )
 
-    return zonefile
+        # verify
+        if zonefile_hash != blockstack_client.hash_zonefile( zonefile ):
+            return None
+
+        return zonefile
+
+    else:
+        return zonefile_txt
 
 
 def blockstack_get_profile( name, config_path=None ):
