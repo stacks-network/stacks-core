@@ -125,7 +125,7 @@ def scenario( wallets, **kw ):
     balance_before = testlib.get_balance(wallets[8].addr)
 
     # can we move the funds?
-    res = testlib.blockstack_REST_call('POST', '/v1/wallet/balance', None, api_pass=api_pass, data={'address': wallets[8].addr, 'amount': wallet_balance - 10000})
+    res = testlib.blockstack_REST_call('POST', '/v1/wallet/balance', None, api_pass=api_pass, data={'address': wallets[8].addr, 'amount': wallet_balance - 10000, 'message': "hello world!"})
     if res['http_status'] != 200:
         res['test'] = 'failed to transfer funds'
         print json.dumps(res)
@@ -135,6 +135,8 @@ def scenario( wallets, **kw ):
         res['test'] = 'missing tx hash'
         print json.dumps(res)
         return False
+
+    print "\n\nTransaction: {}\n\n".format(res['response']['transaction_hash'])
 
     # confirm it
     for i in xrange(0, 10):
