@@ -1856,6 +1856,8 @@ class BlockstackStoragePusher( threading.Thread ):
         blockchain_id = str(entry['fqu'])
         fq_data_id = None
         data_txt = None
+        profile = False
+
         try:
             # mutable data?
             payload = json.loads(entry['profile'])
@@ -1874,6 +1876,7 @@ class BlockstackStoragePusher( threading.Thread ):
             # profile 
             fq_data_id = blockchain_id
             data_txt = str(entry['profile'])
+            profile = True
 
         except Exception as e:
             log.exception(e)
@@ -1882,7 +1885,7 @@ class BlockstackStoragePusher( threading.Thread ):
             queue_removeall( entries, path=self.queue_path )
             return False
         
-        success = store_mutable_data_to_storage( blockchain_id, fq_data_id, data_txt, required=storage_drivers, skip=['blockstack_server'])
+        success = store_mutable_data_to_storage( blockchain_id, fq_data_id, data_txt, profile=profile, required=storage_drivers, skip=['blockstack_server'])
         if not success:
             log.error("Failed to store data for {} ({} bytes)".format(blockchain_id, len(data_txt)))
             queue_removeall( entries, path=self.queue_path )
