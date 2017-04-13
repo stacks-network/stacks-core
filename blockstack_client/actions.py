@@ -97,7 +97,8 @@ from .constants import (
     APPROX_UPDATE_TX_LEN, APPROX_TRANSFER_TX_LEN,
     FIRST_BLOCK_MAINNET, NAME_UPDATE,
     BLOCKSTACK_DEBUG, BLOCKSTACK_TEST,
-    TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME
+    TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME,
+    LENGTH_VALUE_HASH
 )
 
 from .b40 import is_b40
@@ -117,11 +118,12 @@ from .backend.nameops import (
     estimate_preorder_tx_fee, estimate_register_tx_fee,
     estimate_update_tx_fee, estimate_transfer_tx_fee,
     estimate_renewal_tx_fee, estimate_revoke_tx_fee,
-    do_namespace_preorder, do_namespace_reveal, do_namespace_ready 
+    do_namespace_preorder, do_namespace_reveal, do_namespace_ready,
+    do_name_import
 )
 
 from .backend.safety import *
-from .backend.queue import queuedb_remove, queuedb_find
+from .backend.queue import queuedb_remove, queuedb_find, queue_append
 from .backend.queue import extract_entry as queue_extract_entry
 
 from .wallet import *
@@ -704,7 +706,7 @@ def cli_get_registrar_info(args, config_path=CONFIG_PATH, queues=None):
     help: Get information about the backend registrar queues
     """
     
-    queues = ['preorder', 'register', 'update', 'transfer', 'renew', 'revoke'] if queues is None else queues
+    queues = ['preorder', 'register', 'update', 'transfer', 'renew', 'revoke', 'name_import'] if queues is None else queues
     config_dir = os.path.dirname(config_path)
     conf = config.get_config(config_path)
     
@@ -1095,7 +1097,7 @@ def is_valid_path(path):
     return filtered_string == path
 
 
-def analyze_zonefile_string(fqu, zonefile_data, force_data=False, proxy=None):
+def analyze_zonefile_string(fqu, zonefile_data, force_data=False, check_current=True, proxy=None):
     """
     Figure out what to do with a zone file data string, based on whether or not
     we can prompt the user and whether or not we expect a standard zonefile.
@@ -1165,7 +1167,7 @@ def analyze_zonefile_string(fqu, zonefile_data, force_data=False, proxy=None):
             return {'error': 'Invalid argument: no such file or directory: {}'.format(zonefile_data)}
 
     # load zonefile, if given
-    user_data_res = load_zonefile_from_string(fqu, zonefile_data)
+    user_data_res = load_zonefile_from_string(fqu, zonefile_data, check_current=check_current)
 
     # propagate identical and nonstandard...
     ret['identical'] = user_data_res['identical'] 
@@ -2575,22 +2577,95 @@ def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
     return {'status': True}
 
 
-def cli_name_import(args, config_path=CONFIG_PATH):
+def cli_name_import(args, interactive=True, config_path=CONFIG_PATH, proxy=None):
     """
     command: name_import advanced
-    help: Import a name to a revealed but not-yet-readied namespace
+    help: Import a name to a revealed but not-yet-launched namespace
     arg: name (str) 'The name to import'
     arg: address (str) 'The address of the name recipient'
-    arg: hash (str) 'The zonefile hash of the name'
-    arg: privatekey (str) 'One of the private keys of the namespace revealer'
+    arg: zonefile (str) 'The path to the zone file'
+    arg: privatekey (str) 'An unhardened child private key derived from the namespace reveal key'
     """
-    # BROKEN
-    result = name_import(
-        str(args.name), str(args.address),
-        str(args.hash), str(args.privatekey)
-    )
 
-    return result
+    import blockstack
+
+    proxy = get_default_proxy() if proxy is None else proxy
+    config_dir = os.path.dirname(config_path)
+    conf = config.get_config(config_path)
+    assert conf
+    assert 'queue_path' in conf
+    queue_path = conf['queue_path']
+
+    # NOTE: we only need this for the queues.  This command is otherwise not accessible from the RESTful API,
+    if not local_api_status(config_dir=config_dir):
+        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
+
+    name = str(args.name)
+    address = virtualchain.address_reencode( str(args.address) )
+    zonefile_path = str(args.zonefile_path)
+    privkey = str(args.privatekey)
+
+    try:
+        privkey = ecdsa_private_key(privkey).to_hex()
+    except:
+        return {'error': 'Invalid private key'}
+
+    if not re.match(OP_BASE58CHECK_PATTERN, address):
+        return {'error': 'Invalid address'}
+
+    if not os.path.exists(zonefile_path):
+        return {'error': 'No such file or directory: {}'.format(zonefile_path)}
+
+    zonefile_data = None
+    try:
+        with open(zonefile_path) as f:
+            zonefile_data = f.read()
+
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        return {'error': 'Failed to load {}'.format(zonefile_path)}
+
+    zonefile_info = analyze_zonefile_string(name, zonefile_data, force_data=True, check_current=False, proxy=proxy)
+    if 'error' in zonefile_info:
+        log.error("Failed to analyze zone file: {}".format(zonefile_info['error']))
+        return {'error': zonefile_info['error']}
+
+    if zonefile_info['nonstandard']:
+        if interactive:
+            proceed = prompt_invalid_zonefile()
+            if not proceed:
+                return {'error': 'Aborting name import on invalid zone file'}
+
+        else:
+            log.warning("Using nonstandard zone file data")
+
+    zonefile_data = zonefile_info['zonefile_str']
+    zonefile_hash = get_zonefile_data_hash(zonefile_data)
+
+    if interactive:
+        fees = get_price_and_fees(name, ['name_import'], privkey, privkey, config_path=config_path, proxy=proxy)
+        if 'error' in fees:
+            return fees
+
+        print("Import cost breakdown:\n{}".format(json.dumps(fees, indent=4, sort_keys=True)))
+        print("Importing name '{}' to be owned by '{}' with zone file hash '{}'".format(name, address, zonefile_hash))
+        proceed = raw_input("Proceed? (y/N) ")
+        if proceed.lower() != 'y':
+            return {'error': 'Name import aborted'}
+
+    utxo_client = get_utxo_provider_client(config_path=config_path)
+    tx_broadcaster = get_tx_broadcaster(config_path=config_path)
+    res = do_name_import(name, privkey, address, zonefile_hash, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
+    if 'error' in res:
+        return res
+
+    # success! enqueue to back-end
+    queue_append("name_import", name, res['transaction_hash'], zonefile_data=zonefile_data, zonefile_hash=zonefile_hash, owner_address=address, config_path=config_path, path=queue_path)
+
+    res['value_hash'] = zonefile_hash
+    return res
 
 
 def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, proxy=None):
