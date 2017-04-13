@@ -4501,6 +4501,44 @@ def cli_verify_data( args, config_path=CONFIG_PATH, proxy=None, interactive=True
     return data_blob_parse(res)
 
 
+def cli_validate_zone_file(args, config_path=CONFIG_PATH, proxy=None):
+    """
+    command: validate_zone_file advanced
+    help: Validate an on-disk zone file to ensure that is properly formatted.
+    arg: name (str) 'The name that will use this zone file'
+    arg: zonefile_path (str) 'The path on disk to the zone file'
+    opt: verbose (str) 'Pass True to see more analysis data beyond "valid" or "invalid".'
+    """
+    
+    name = str(args.name)
+    zonefile_path = str(args.zonefile_path)
+    verbose = str(getattr(args, 'verbose', '')).lower() in ['true', 'yes', '1']
+
+    if not os.path.exists(zonefile_path):
+        return {'error': 'No such file or directory: {}'.format(zonefile_path)}
+
+    zonefile_data = None
+    try:
+        with open(zonefile_path, 'r') as f:
+            zonefile_data = f.read()
+
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        return {'error': 'Failed to read zone file.'}
+
+    res = analyze_zonefile_string(name, zonefile_data, force_data=True, check_current=False, proxy=proxy)
+    if verbose:
+        return res
+       
+    # simplify...
+    if res['nonstandard']:
+        return {'error': 'Nonstandard zone file data'}
+
+    return {'status': True}
+
+
 def cli_list_device_ids( args, config_path=CONFIG_PATH, proxy=None ):
     """
     command: list_device_ids advanced
