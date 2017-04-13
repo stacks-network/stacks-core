@@ -30,7 +30,7 @@ from ..scripts import *
 from ..constants import TX_MIN_CONFIRMATIONS
 
 import virtualchain
-log = virtualchain.get_logger("blockstack-client")
+log = get_logger("blockstack-client")
 
 def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None):
     """

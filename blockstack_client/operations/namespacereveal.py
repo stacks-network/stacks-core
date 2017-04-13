@@ -32,7 +32,7 @@ from ..config import *
 from ..scripts import *
    
 import virtualchain
-log = virtualchain.get_logger("blockstack-log")
+log = get_logger("blockstack-log")
 
 
 def serialize_int( int_field, numbytes ):

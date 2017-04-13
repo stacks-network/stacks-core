@@ -29,7 +29,7 @@ from ..config import *
 from ..scripts import *
 
 import virtualchain
-log = virtualchain.get_logger("blockstack-server")
+log = get_logger("blockstack-server")
 
 def update_sanity_test( name, consensus_hash, data_hash ):
     """

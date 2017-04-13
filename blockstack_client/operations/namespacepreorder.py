@@ -30,7 +30,7 @@ from ..config import *
 from ..scripts import *
 
 import virtualchain
-log = virtualchain.get_logger("blockstack-client")
+log = get_logger("blockstack-client")
 
 
 def build( namespace_id, script_pubkey, register_addr, consensus_hash, namespace_id_hash=None):
