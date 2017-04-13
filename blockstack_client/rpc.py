@@ -500,21 +500,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Returns 500 on failure to get names
         """
 
-        # optional args: offset=..., count=...
         qs_values = path_info['qs_values']
-        offset = qs_values.get('offset')
-        count = qs_values.get('count')
+        page = qs_values.get('page', None)
+        if page is None:
+            log.error("Page required")
+            return self._reply_json({'error': 'page= argument required'}, status_code=401)
 
         try:
-            if offset is not None:
-                offset = int(offset)
-
-            if count is not None:
-                count = int(count)
-
+            page = int(page)
         except ValueError:
-            log.error("Invalid offset and/or count")
-            return self._send_headers(status_code=401, content_type='text/plain')
+            log.error("Invalid page")
+            return self._reply_json({'error': 'Invalid page= value'}, status_code=401)
+
+        offset = page * 100
+        count = 100
 
         res = proxy.get_all_names(offset, count)
         if json_is_error(res):
