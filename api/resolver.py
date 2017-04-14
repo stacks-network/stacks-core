@@ -365,6 +365,8 @@ def get_all_users():
 
     return data
 
+# aaron note: do we need to support multiple users in a query?
+#    this seems like a potential avenue for abuse.
 
 @resolver.route('/v2/users/<usernames>', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')

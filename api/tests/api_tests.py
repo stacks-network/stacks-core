@@ -78,7 +78,6 @@ def check_data(cls, data, required_keys=[], banned_keys=[]):
 
 class PingTest(unittest.TestCase):
     def test_found_user_lookup(self):
-        usernames = 'muneeb.id'
         data = test_get_request(self, "/v1/ping",
                                 headers = {} , status_code=200)
         
@@ -86,7 +85,7 @@ class PingTest(unittest.TestCase):
 
 class LookupUsersTest(unittest.TestCase):
     def build_url(self, username):
-        return '/v1/names/' + username
+        return '/v1/names/{}'.format(username)
 
     def test_found_user_lookup(self):
         usernames = 'muneeb.id'
@@ -98,10 +97,10 @@ class LookupUsersTest(unittest.TestCase):
         self.assertRegexpMatches(data['zonefile_hash'], schemas.OP_ZONEFILE_HASH_PATTERN)
         self.assertRegexpMatches(data['last_txid'], schemas.OP_TXID_PATTERN)
 
-    def test_user_not_found(self):
-        usernames = '----'
+    def test_user_not_formatted(self):
+        usernames = 'muneeb'
         data = test_get_request(self, self.build_url(usernames),
-                                headers = {}, status_code=200)
+                                headers = {}, status_code=500)
         self.assertTrue(data['error'] == 'Failed to lookup name')
 
 
