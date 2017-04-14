@@ -3522,7 +3522,7 @@ class BlockstackAPIEndpointClient(object):
             return res
 
         headers = self.make_request_headers()
-        req = requests.put( 'http://{}:{}/v1/wallet/keys'.format(self.server, self.port), timeout=self.timeout, data=json.dumps(wallet), headers=headers )
+        req = requests.put( 'http://{}:{}/v1/wallet/keys'.format(self.server, self.port), timeout=self.timeout, data=json.dumps(wallet_keys), headers=headers )
         return self.get_response(req)
 
 
