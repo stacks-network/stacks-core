@@ -1,0 +1,199 @@
+/* Guide */
+/* - Hero section is special */
+/* - All other headings are to be 400 weight */
+/* - Y-axis margins are to be added in via media quieries with class names */
+/* - Max-width of site is to be set via `container` */
+/* - All sections utilize `containter` */
+
+/* Base structure */
+html, body {-webkit-overflow-scrolling:touch;}
+body{padding-top:0;padding-bottom:0;background-color:#270F34!important;}
+
+/* Spacing */
+.m-t-0{margin-top:0px;}
+.m-t-10{margin-top:10px;}
+.m-t-15{margin-top:15px;}
+.m-t-20{margin-top:20px;}
+.m-t-25{margin-top:25px;}
+.m-t-30{margin-top:30px;}
+.m-t-35{margin-top:35px;}
+.m-t-40{margin-top:40px;}
+.m-t-45{margin-top:45px;}
+.m-t-50{margin-top:50px;}
+.m-t-55{margin-top:55px;}
+.m-t-60{margin-top:60px;}
+.m-t-65{margin-top:65px;}
+.m-t-70{margin-top:70px;}
+.m-t-75{margin-top:75px;}
+.m-t-80{margin-top:80px;}
+.m-t-85{margin-top:85px;}
+.m-t-90{margin-top:90px;}
+.m-t-95{margin-top:95px;}
+.m-t-100{margin-top:100px;}
+.m-t-150{margin-top:150px;}
+.m-b-0{margin-bottom:0px;}
+.m-b-10{margin-bottom:10px;}
+.m-b-15{margin-bottom:15px;}
+.m-b-20{margin-bottom:20px;}
+.m-b-25{margin-bottom:25px;}
+.m-b-30{margin-bottom:30px;}
+.m-b-35{margin-bottom:35px;}
+.m-b-40{margin-bottom:40px;}
+.m-b-45{margin-bottom:45px;}
+.m-b-50{margin-bottom:50px;}
+.m-b-55{margin-bottom:55px;}
+.m-b-60{margin-bottom:60px;}
+.m-b-65{margin-bottom:65px;}
+.m-b-70{margin-bottom:70px;}
+.m-b-75{margin-bottom:75px;}
+.m-b-80{margin-bottom:80px;}
+.m-b-85{margin-bottom:85px;}
+.m-b-90{margin-bottom:90px;}
+.m-b-95{margin-bottom:95px;}
+.p-t-0{padding-top:0px;}
+.p-t-10{padding-top:10px;}
+.p-t-15{padding-top:15px;}
+.p-t-20{padding-top:20px;}
+.p-t-25{padding-top:25px;}
+.p-t-30{padding-top:30px;}
+.p-t-35{padding-top:35px;}
+.p-t-40{padding-top:40px;}
+.p-t-45{padding-top:45px;}
+.p-t-50{padding-top:50px;}
+.p-t-55{padding-top:55px;}
+.p-t-60{padding-top:60px;}
+.p-t-65{padding-top:65px;}
+.p-t-70{padding-top:70px;}
+.p-t-75{padding-top:75px;}
+.p-t-80{padding-top:80px;}
+.p-t-85{padding-top:85px;}
+.p-t-90{padding-top:90px;}
+.p-t-95{padding-top:95px;}
+.p-b-0{padding-bottom:0px;}
+.p-b-10{padding-bottom:10px;}
+.p-b-15{padding-bottom:15px;}
+.p-b-20{padding-bottom:20px;}
+.p-b-25{padding-bottom:25px;}
+.p-b-30{padding-bottom:30px;}
+.p-b-35{padding-bottom:35px;}
+.p-b-40{padding-bottom:40px;}
+.p-b-45{padding-bottom:45px;}
+.p-b-50{padding-bottom:50px;}
+.p-b-55{padding-bottom:55px;}
+.p-b-60{padding-bottom:60px;}
+.p-b-65{padding-bottom:65px;}
+.p-b-70{padding-bottom:70px;}
+.p-b-75{padding-bottom:75px;}
+.p-b-80{padding-bottom:80px;}
+.p-b-85{padding-bottom:85px;}
+.p-b-90{padding-bottom:90px;}
+.p-b-95{padding-bottom:95px;}
+
+/* Globals */
+h3{margin-top:35px;margin-bottom:15px;}
+h4{margin:20px 0;}
+a{font-weight:500;}
+.col-centered{float:none;margin:0 auto;}
+.no-padding{padding-right:0;padding-left:0;}
+.bg-primary{background-color:#270F34!important;}
+.hero{color:#fff;margin-top:18%;}
+
+/* Spacing */
+
+/* Typography */
+h1.hero-head{font-family:'Source Code Pro',monospace;margin-bottom:1.5rem;font-size:1.75rem;font-weight:300;text-align:center;margin-top:1rem;}
+.hero-lead{font-family:'Source Code Pro',monospace;font-size:0.8125rem;text-align:center;margin-bottom:2rem;}
+
+/* Navbar */
+.navbar-fixed-top.bg-primary{height:60px;}
+.nav-header{width:100%;}
+.navbar{font-family:'Source Code Pro',monospace;padding-top:0.4375rem;padding-bottom:0.5625rem;padding-right:0;padding-left:0;line-height:26px;}
+.navbar-brand{margin-right:0px;}
+.navbar-brand img{width:164px;position:fixed;bottom:13%;z-index:2000;margin:0 auto;left:0;right:0;}
+.brand-bug{margin-right:1rem;}
+.brand-bug img{width:33px;position:relative;top:2px;}
+div.navbar-fixed-top.bg-primary > header.container.nav-header > nav.navbar.navbar-toggleable-md > a.navbar-brand{display:none;}
+div.navbar-fixed-top.bg-primary > header.container.nav-header > nav.navbar.navbar-toggleable-md > a.navbar-brand.brand-bug{display:block;}
+a.nav-link{color:#fff;font-size:0.8125rem;font-weight:300;margin-top:0.0625rem;}
+a.nav-link:hover,a.nav-link:focus{color:#fff;}
+.nav-item:first-child{margin-left:.625rem;}
+.navbar-nav{display:none;}
+
+/* Other */
+body,html,#app,.app-landing{height:100%;}
+.feat-lead{margin-bottom:15px;}
+.spacing-container{padding-top:102px;padding-bottom:50px;background-color:rgba(248,249,251,1);}
+.foot-feature{margin:0;padding-top:150px;padding-bottom:150px;background-color:#270F34;color:rgba(255,255,255,1);text-align:center;}
+h2.action-title{margin-bottom:35px;font-size:30px;line-height:42px;font-weight:300;}
+.app-center{display:flex;align-items:center;justify-content:center;}
+.app-wrap{width:940px;display:flex;align-items:center;justify-content:center;}
+.app-container{display:flex;align-items:center;justify-content:center;}
+
+
+/* Media queries */
+
+/* Extra small devices (phones, less than 768px) */
+
+/* No media query since this is the default in Bootstrap */
+
+/* Small devices (tablets, 768px and up) */
+@media (min-width:768px){
+
+  /* Max widths */
+  .container{max-width:992px;}
+
+  /* Globals */
+  h1.hero-head{font-size:2.25rem;text-align:left;margin-top:0;}
+  .hero-lead{text-align:left;padding-left:0;padding-right:0;margin-bottom:3rem;}
+  .col-3-section{padding-bottom:50px;}
+  .hero-head.summ-head{font-size:40px;}
+  .hero-btn{padding-left:0;}
+
+  /* Navbar */
+  .nav-header{width:unset;}
+  .navbar,.navbar-nav{display:flex;-webkit-box-orient:horizontal;-webkit-box-direction:normal;flex-direction:row;}
+  .brand-bug{display:none;}
+  .navbar-brand{margin-right:2.5rem;margin-top:0.25rem;}
+  .navbar-brand img{position:relative;display:inline-block;top:0px;margin-left:3px;}
+  div.navbar-fixed-top.bg-primary > header.container.nav-header > nav.navbar.navbar-toggleable-md > a.navbar-brand{display:inline-block;}
+  div.navbar-fixed-top.bg-primary > header.container.nav-header > nav.navbar.navbar-toggleable-md > a.navbar-brand.brand-bug{display:none;}
+  .nav-item:first-child{margin-left:.875rem;}
+  .navbar-nav .nav-item+.nav-item{margin-left:1.375rem;}
+  a.nav-link{padding-right:5px;padding-left:5px;}
+  .navbar{font-family:'Source Code Pro',monospace;padding-top:.375rem;padding-bottom:.625rem}
+  a.nav-link{margin-top:0.3125rem;}
+  .fa-github{margin-top:-.1875rem;margin-right:.5rem;vertical-align:middle;font-size:1.375rem;}
+  .dropdown-menu{margin-top:0;padding-top:1rem;padding-bottom:1rem;background-color:#270F34;border-radius:0;border:1px solid rgba(255,255,255,0.1);box-shadow:0 0 1.875rem rgba(0,0,0,0);}
+  a.dropdown-item{font-size:0.8125rem;color:#95889C;font-weight:300;padding:0.375rem 3.4375rem 0.375rem 1.875rem;}
+  .dropdown-item:focus,.dropdown-item:hover{color:#95889C;background-color:rgba(0,0,0,0.15);font-weight:300;}
+}
+
+/* Medium devices (desktops, 992px and up) */
+@media (min-width:992px){
+
+  /* Max widths */
+  /*.container{width:975px;}*/
+
+  /* Globals */
+  h1.hero-head{font-size:2.25rem;}
+  h3{margin-top:45px;margin-bottom:15px;margin-bottom:20px;}
+  h4{margin:20px 0;}
+
+  .navbar-brand img{position:relative;display:block;top:0px;}
+
+  /* Hero */
+  .hero-head.summ-head{font-size:54px;}
+
+  /* Feature action */
+  h2.action-title{margin-bottom:3rem;font-size:2.5rem;line-height:3.5rem;}
+  .foot-feature{margin:0;padding-top:12.5rem;padding-bottom:15rem;}
+}
+
+/* Large devices (large desktops, 1200px and up) */
+@media (min-width:1200px){
+}
+
+/* x-Small devices (hide last child in navbar) */
+@media (max-width:348px){
+  li.nav-item:nth-last-child(2){display:none;}
+}

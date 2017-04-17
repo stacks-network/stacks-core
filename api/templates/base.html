@@ -1,0 +1,115 @@
+{% set site_name = 'Blockstack Core' %}
+
+<!doctype html>
+<html class="no-js">
+  <head>
+	{% block head %}
+	<title>{% block title %}{{ site_name }}{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, minimal-ui">
+	<meta name="description" content="">
+	<meta name="keywords" content="">
+	<meta name="author" content="">
+	<meta charset="utf-8">
+
+	<meta property="og:title" content=""/>
+	<meta property="og:type" content="website"/>
+	<meta property="og:url" content=""/>
+	<meta property="og:image" content="" />
+	<meta property="og:site_name" content='{{ site_name }}'/>
+	<meta property="og:description" content=""/>
+
+	<link href="{{ url_for('static', filename='css/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
+	<link href="{{ url_for('static', filename='css/bootstrap/docs.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/proximanova/proximanova.css') }}" rel="stylesheet">
+	<link href="{{ url_for('static', filename='css/highlight-sunburst.css') }}" rel="stylesheet">
+	<link href="{{ url_for('static', filename='css/main.css') }}" rel="stylesheet">
+
+	<link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon" />
+
+	<!-- SUPPORT FOR IE6-8 OF HTML5 ELEMENTS -->
+	<!--[if lt IE 9]>
+		  <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+	<![endif]-->
+
+	{% block scripts %}
+		<script src="{{ url_for('static', filename='js/jquery/jquery.min.js') }}"></script>
+		<script src="{{ url_for('static', filename='js/bootstrap/bootstrap.min.js') }}"></script>
+	{% endblock %}
+	{% endblock %}
+  </head>
+  <body>
+
+	<div class="navbar navbar-fixed-top">
+  	{% block desktop_navbar %}
+		<div class="pull-left navbar-default navbar-subtle hidden-xs hidden-sm">
+			<div class="navbar-header">
+				<a class="navbar-brand" href="/">
+					<p style="color:#2c0b42">Blockstack Core</p>
+				</a>
+			</div>
+		</div>
+	{% endblock %}
+	</div>
+	<div class="navbar navbar-fixed-top navbar-default navbar-subtle visible-xs visible-sm">
+	{% block mobile_navbar %}
+		<div class="container-fluid">
+			<div class="navbar-header">
+				<button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+					<span class="icon-bar"></span>
+					<span class="icon-bar"></span>
+					<span class="icon-bar"></span>
+				</button>
+				<a class="navbar-brand" href="/docs">
+					<p style="color:#2c0b42">Blockstack Core</p>
+				</a>
+			</div>
+			<!-- mobile .navbar-collapse - changes here need to reflect on sidebar nav -->
+			<div class="navbar-collapse collapse">
+			  <ul class="nav navbar-nav navbar-right visible-xs visible-sm">
+			  		<li>
+						<h5 class="navheader">Node</h5>
+					</li>
+					<li>
+					  <a href="/#node_ping">Ping</a>
+					</li>
+					
+					<li>
+						<h5 class="navheader">Users</h5>
+					</li>
+					<li>
+					  <a href="/#lookup_users">Lookup users</a>
+					</li>
+					<li>
+					  <a href="/#register_user">Register a user</a>
+					</li>
+					<li>
+						<a href="/#search_users">Search for a user</a>
+					</li>
+					<li>
+						<a href="/#userbase_stats">Get userbase stats</a>
+					</li>
+					<li>
+						<h5 class="navheader">Transactions</h5>
+					</li>
+					<li>
+						<a href="/#broadcast_transaction">Broadcast a transaction</a>
+					</li>
+					<li>
+						<h5 class="navheader">Addresses</h5>
+					</li>
+					<li>
+						<a href="/#lookup_address">Lookup an address</a>
+					</li>
+					<li>
+					  <a href="/signup">Sign up</a>
+					</li>
+			  </ul>
+			</div><!--/.navbar-collapse -->
+		</div>
+	{% endblock %}
+	</div>
+
+	{% block content %}
+	{% endblock %}
+</body>
+</html>
