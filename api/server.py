@@ -78,17 +78,6 @@ def default_cache_off(response):
         response.headers['Cache-Control'] = 'no-cache'
     return response
 
-def parameters_for_paged_query(values):
-    params = {}
-
-    count = int(values['count']) if 'count' in values else 100
-    params['count'] = min(100, count)
-
-    if 'offset' in values:
-        params['offset'] = values['offset']
-    
-    return params
-
 def forwarded_get(url, params = None):
     if params:
         resp = requests.get(url, params = params)
@@ -101,26 +90,6 @@ def forwarded_get(url, params = None):
     except:
         log.error("Bad response from API URL: {} \n {}".format(resp.url, resp.text))
         return jsonify({'error': 'Not found'}), resp.status_code
-
-
-@app.route('/v1/names/', methods=['GET'])
-@crossdomain(origin='*')
-def api_allnames():
-    """ Limit the total size of this fetch from the Flask side """
-    params = parameters_for_paged_query(request.values)
-    API_URL = BASE_API_URL + '/v1/names/'
-
-    return forwarded_get(API_URL, params = params)
-
-@app.route('/v1/namespaces/<name>/names/', methods=['GET'])
-@crossdomain(origin='*')
-def api_allnames_namespace(name):
-    """ Limit the total size of this fetch from the Flask side """
-    params = parameters_for_paged_query(request.values)
-    API_URL = BASE_API_URL + '/v1/namespaces/{}/names'.format(name)
-
-    return forwarded_get(API_URL, params = params)
-
 
 @app.route('/v1/search', methods=['GET'])
 @parameters_required(parameters=['query'])
