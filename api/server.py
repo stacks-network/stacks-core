@@ -134,15 +134,26 @@ def catch_all_post(path):
     return jsonify(resp.json()), 200
 
 
+from collections import OrderedDict
+
 @app.route('/')
 def index():
     current_dir = os.path.abspath(os.path.dirname(__file__))
-    api_calls = get_api_calls(current_dir + '/api_v1.md')
+    api_calls = get_api_calls(current_dir + '/../docs/api_v1.md')
     server_info = getinfo()
 
+    grouped = OrderedDict()
+    for call in api_calls:
+        if "grouping_note" in call:
+            log.debug(call["grouping_note"])
+        if call["grouping"] not in grouped:
+            grouped[call["grouping"]] = []
+        grouped[call["grouping"]].append(call)
+
     return render_template('index.html', api_calls=api_calls,
-                                         server_info=server_info,
-                                         server_url=PUBLIC_NODE_URL)
+                           grouped_calls = grouped,
+                           server_info=server_info,
+                           server_url=PUBLIC_NODE_URL)
 
 
 @app.route('/favicon.ico')
