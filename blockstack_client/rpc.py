@@ -500,21 +500,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Returns 500 on failure to get names
         """
 
-        # optional args: offset=..., count=...
         qs_values = path_info['qs_values']
-        offset = qs_values.get('offset')
-        count = qs_values.get('count')
+        page = qs_values.get('page', None)
+        if page is None:
+            log.error("Page required")
+            return self._reply_json({'error': 'page= argument required'}, status_code=401)
 
         try:
-            if offset is not None:
-                offset = int(offset)
-
-            if count is not None:
-                count = int(count)
-
+            page = int(page)
         except ValueError:
-            log.error("Invalid offset and/or count")
-            return self._send_headers(status_code=401, content_type='text/plain')
+            log.error("Invalid page")
+            return self._reply_json({'error': 'Invalid page= value'}, status_code=401)
+
+        offset = page * 100
+        count = 100
 
         res = proxy.get_all_names(offset, count)
         if json_is_error(res):
@@ -1750,15 +1749,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def POST_namespaces( self, ses, path_info ):
-        """
-        Preorder and reveal a namespace
-        Currently unimpleemnted
-        """
-        self._reply_json({'error': 'Unimplemented'}, status_code=405)
-        return
-
-
     def GET_namespace_info( self, ses, path_info, namespace_id ):
         """
         Look up a namespace's info
@@ -1781,14 +1771,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         self._reply_json(namespace_rec)
         return
-
-
-    def PUT_namespace_ready( self, ses, path_info, namespace_id ):
-        """
-        Launch a namespace; mark it as ready.
-        Not implemented
-        """
-        return self._reply_json({'error': 'Not implemented'}, status_code=501) 
 
 
     def GET_namespace_names( self, ses, path_info, namespace_id ):
@@ -1817,22 +1799,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         self._reply_json(namespace_names)
         return
-
-
-    def POST_namespace_name_import( self, ses, path_info, namespace_id ):
-        """
-        Import a name.
-        Not implemented
-        """
-        return self._reply_json({'error': 'Not implemented'}, status_code=501) 
-
-
-    def PUT_namespace_name_import( self, ses, path_info, namespace_id ):
-        """
-        Re-import a name
-        Not implemented
-        """
-        return self._reply_json({'error': 'Not implemented'}, status_code=501) 
 
 
     def GET_wallet_payment_address( self, ses, path_info ):
@@ -1933,7 +1899,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
     def POST_wallet_balance( self, ses, path_info ):
         """
-        Transfer wallet balance.  Takes {'address': ...}
+        Transfer wallet balance.  Takes 'address' 'amount', 'min_confs', 'tx_only', 'message'
         Return 200 with the balance
         Return 500 on failure to contact the blockchain service
         """
@@ -1953,6 +1919,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'tx_only': {
                     'type': 'boolean'
                 },
+                'message': {
+                    'type': 'string',
+                },
             },
             'required': [
                 'address'
@@ -1968,6 +1937,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         amount = request.get('amount', None)
         min_confs = request.get('min_confs', TX_MIN_CONFIRMATIONS)
         tx_only = request.get('tx_only', False)
+        message = request.get('message', None)
 
         if tx_only:
             tx_only = 'True'
@@ -1984,7 +1954,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             address = new_addr
 
         internal = self.server.get_internal_proxy()
-        res = internal.cli_withdraw(address, amount, min_confs, tx_only, config_path=self.server.config_path, interactive=False, wallet_keys=self.server.wallet_keys)
+        res = internal.cli_withdraw(address, amount, message, min_confs, tx_only, config_path=self.server.config_path, interactive=False, wallet_keys=self.server.wallet_keys)
         if 'error' in res:
             log.debug("Failed to transfer balance: {}".format(res['error']))
             return self._reply_json({'error': 'Failed to transfer balance: {}'.format(res['error'])}, status_code=500)
@@ -2316,7 +2286,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
     def GET_blockchain_unspents( self, ses, path_info, blockchain_name, address ):
         """
-        Handle GET /blockchains/:blockchainID/:address/unspents
+        Handle GET /blockchains/:blockchain_name/:address/unspents
         Takes min_confirmations= as a query-string arg.
 
         Reply 200 and the list of unspent outputs or current address states
@@ -2348,7 +2318,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
     def POST_broadcast_tx( self, ses, path_info, blockchain_name ):
         """
-        Handle POST /blockchains/:blockchainID/tx
+        Handle POST /blockchains/:blockchain_name/tx
         Reads {'tx': ...} as JSON from the request.
 
         Reply 200 and the transaction hash as {'status': True, 'tx_hash': ...} on success
@@ -2524,7 +2494,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/v1/blockchains/({})/({})/unspent$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
+            r'^/v1/blockchains/({})/({})/unspent$'.format(URLENCODING_CLASS, BASE58CHECK_CLASS): {
                 'routes': {
                     'GET': self.GET_blockchain_unspents,
                 },
@@ -2677,7 +2647,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             r'^/v1/namespaces$': {
                 'routes': {
                     'GET': self.GET_namespaces,
-                    'POST': self.POST_namespaces,       # accepts: namespace-reveal info.  Returns: HTTP 202 with txid (NAMESPACE_PREORDER)
                 },
                 'whitelist': {
                     'GET': {
@@ -2687,19 +2656,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'auth_pass': False,
                         'need_data_key': False
                     },
-                    'POST': {
-                        'name': 'namespace_registration',
-                        'desc': 'create new namespaces',
-                        'auth_session': True,
-                        'auth_pass': True,
-                        'need_data_key': False
-                    },
                 },
             },
             r'^/v1/namespaces/({})$'.format(NAMESPACE_CLASS): {
                 'routes': {
                     'GET': self.GET_namespace_info,
-                    'PUT': self.PUT_namespace_ready,     # accepts: {'launched': True}, Returns: HTTP 202 with txid (NAMESPACE_READY)
                 },
                 'whitelist': {
                     'GET': {
@@ -2709,19 +2670,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'auth_pass': False,
                         'need_data_key': False
                     },
-                    'PUT': {
-                        'name': 'namespace_registration',
-                        'desc': 'launch namespaces',
-                        'auth_session': True,
-                        'auth_pass': True,
-                        'need_data_key': False
-                    },
                 },
             },
             r'^/v1/namespaces/({})/names$'.format(NAMESPACE_CLASS): {
                 'routes': {
                     'GET': self.GET_namespace_names,
-                    'POST': self.POST_namespace_name_import,    # accepts name, owner, zonefile; returns HTTP 202 with txid (NAME_IMPORT)
                 },
                 'whitelist': {
                     'GET': {
@@ -2729,27 +2682,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'desc': 'read all names in a namespace',
                         'auth_session': False,
                         'auth_pass': False,
-                        'need_data_key': False
-                    },
-                    'POST': {
-                        'name': 'namespace_registration',
-                        'desc': 'import names into new namespaces',
-                        'auth_session': True,
-                        'auth_pass': True,
-                        'need_data_key': False
-                    },
-                },
-            },
-            r'^/v1/namespaces/({})/names/({})$'.format(NAMESPACE_CLASS, NAME_CLASS): {
-                'routes': {
-                    'PUT': self.PUT_namespace_name_import,       # re-imports a name
-                },
-                'whitelist': {
-                    'PUT': {
-                        'name': 'namespace_registration',
-                        'desc': 're-import names into a new namespace',
-                        'auth_session': True,
-                        'auth_pass': True,
                         'need_data_key': False
                     },
                 },

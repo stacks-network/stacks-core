@@ -57,6 +57,7 @@ import blockstack_zones
 import blockstack_profiles
 import requests
 import base64
+import binascii
 import jsonschema
 import threading
 from decimal import Decimal
@@ -90,14 +91,15 @@ from rpc import local_api_connect, local_api_status, local_api_stop
 import rpc as local_rpc
 import config
 
-from .config import configure_zonefile, set_advanced_mode, configure, get_utxo_provider_client, get_local_device_id, get_all_device_ids
+from .config import configure_zonefile, set_advanced_mode, configure, get_utxo_provider_client, get_tx_broadcaster, get_local_device_id, get_all_device_ids
 from .constants import (
     CONFIG_PATH, CONFIG_DIR, FIRST_BLOCK_TIME_UTC,
     APPROX_PREORDER_TX_LEN, APPROX_REGISTER_TX_LEN,
     APPROX_UPDATE_TX_LEN, APPROX_TRANSFER_TX_LEN,
     FIRST_BLOCK_MAINNET, NAME_UPDATE,
     BLOCKSTACK_DEBUG, BLOCKSTACK_TEST,
-    TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME
+    TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME,
+    LENGTH_VALUE_HASH
 )
 
 from .b40 import is_b40
@@ -108,7 +110,7 @@ from pybitcoin import serialize_transaction
 
 from .backend.blockchain import (
     get_balance, is_address_usable, get_utxos, broadcast_tx,
-    can_receive_name, get_tx_confirmations, get_tx_fee
+    can_receive_name, get_tx_confirmations, get_tx_fee, get_block_height
 )
 
 from .backend.registrar import get_wallet as registrar_get_wallet 
@@ -116,18 +118,20 @@ from .backend.registrar import get_wallet as registrar_get_wallet
 from .backend.nameops import (
     estimate_preorder_tx_fee, estimate_register_tx_fee,
     estimate_update_tx_fee, estimate_transfer_tx_fee,
-    estimate_renewal_tx_fee, estimate_revoke_tx_fee
+    estimate_renewal_tx_fee, estimate_revoke_tx_fee,
+    do_namespace_preorder, do_namespace_reveal, do_namespace_ready,
+    do_name_import
 )
 
 from .backend.safety import *
-from .backend.queue import queuedb_remove, queuedb_find
+from .backend.queue import queuedb_remove, queuedb_find, queue_append
 from .backend.queue import extract_entry as queue_extract_entry
 
 from .wallet import *
 from .keys import *
 from .proxy import *
 from .client import analytics_event 
-from .scripts import UTXOException, is_name_valid, is_valid_hash
+from .scripts import UTXOException, is_name_valid, is_valid_hash, is_namespace_valid
 from .user import add_user_zonefile_url, remove_user_zonefile_url, user_zonefile_urls, \
         make_empty_user_profile, user_zonefile_data_pubkey
 
@@ -412,6 +416,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
     help: Transfer funds out of the Blockstack wallet to a new address
     arg: address (str) 'The recipient address'
     opt: amount (int) 'The amount to withdraw (defaults to all)'
+    opt: message (str) 'A message to include with the payment (up to 40 bytes)'
     opt: min_confs (int) 'The minimum confirmations for oustanding transactions'
     opt: tx_only (str) 'If "True", only return the transaction'
     """
@@ -422,6 +427,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
 
     recipient_addr = str(args.address)
     amount = getattr(args, 'amount', None)
+    message = getattr(args, 'message', None)
     min_confs = getattr(args, 'min_confs', TX_MIN_CONFIRMATIONS)
     tx_only = getattr(args, 'tx_only', False)
    
@@ -450,6 +456,10 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         log.debug("tx_only = {}".format(tx_only))
         return {'error': 'Invalid tx_only'}
 
+    if message:
+        message = str(message)
+        if len(message) > virtualchain.bitcoin_blockchain.MAX_DATA_LEN:
+            return {'error': 'Message must be {} bytes or less (got {})'.format(virtualchain.bitcoin_blockchain.MAX_DATA_LEN, len(message))}
 
     res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
@@ -498,6 +508,11 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
                   "value": change}
             )
 
+        if message:
+            outputs = [
+                {"script_hex": virtualchain.make_data_script(binascii.hexlify(message)),
+                 "value": 0} ] + outputs
+
         serialized_tx = serialize_transaction(inputs, outputs)
         signed_tx = sign_tx(serialized_tx, wallet_keys['payment_privkey'])
         return signed_tx
@@ -513,11 +528,59 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
     return res
     
 
+def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_privkey_info, payment_address=None, owner_address=None, transfer_address=None, config_path=CONFIG_PATH, proxy=None ):
+    """
+    Get the price and fees associated with a set of operations, using
+    a given owner and payment key.
+    Returns a dict with each operation as a key, and the prices in BTC and satoshis.
+    Returns {'error': ...} on failure
+    """
+
+    sg = ScatterGather()
+    res = get_operation_fees( name_or_ns, operations, sg, payment_privkey_info, owner_privkey_info,
+                              proxy=proxy, config_path=config_path, payment_address=payment_address,
+                              owner_address=owner_address, transfer_address=transfer_address )
+
+    if not res:
+        return {'error': 'Failed to get the requisite operation fees'}
+
+    # do queries 
+    sg.run_tasks()
+
+    # get results 
+    fees = interpret_operation_fees(operations, sg)
+    if 'error' in fees:
+        log.error("Failed to get all operation fees: {}".format(fees['error']))
+        return {'error': 'Failed to get some operation fees: {}.  Try again with `--debug` for details.'.format(fees['error'])}
+
+    analytics_event('Name price', {})
+
+    # convert to BTC
+    btc_keys = [
+        'preorder_tx_fee', 'register_tx_fee',
+        'update_tx_fee', 'total_estimated_cost',
+        'name_price', 'transfer_tx_fee', 'renewal_tx_fee',
+        'revoke_tx_fee', 'namespace_preorder_tx_fee',
+        'namespace_reveal_tx_fee', 'namespace_ready_tx_fee',
+        'name_import_tx_fee'
+    ]
+
+    for k in btc_keys:
+        if k in fees.keys():
+            v = {
+                'satoshis': fees[k],
+                'btc': satoshis_to_btc(fees[k])
+            }
+            fees[k] = v
+
+    return fees
+
+
 def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
     """
     command: price
     help: Get the price to register a name
-    arg: name (str) 'Name to query'
+    arg: name_or_namespace (str) 'Name or namespace ID to query'
     opt: recipient (str) 'Address of the recipient, if not this wallet.'
     opt: operations (str) 'A CSV of operations to check.'
     """
@@ -525,7 +588,7 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
     proxy = get_default_proxy() if proxy is None else proxy
     password = get_default_password(password)
 
-    fqu = str(args.name)
+    name_or_ns = str(args.name_or_namespace)
     transfer_address = getattr(args, 'recipient', None)
     operations = getattr(args, 'operations', None)
 
@@ -543,10 +606,13 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
     if 'error' in res:
         return res
 
-    error = check_valid_name(fqu)
+    error = check_valid_name(name_or_ns)
     if error:
-        return {'error': error}
-    
+        # must be valid namespace
+        ns_error = check_valid_namespace(name_or_ns)
+        if ns_error:
+            return {'error': 'Neither a valid name or namespace:\n   * {}\n   * {}'.format(error, ns_error)}
+
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
@@ -573,40 +639,8 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
 
             log.debug("Could not get wallet keys from API server")
 
-    sg = ScatterGather()
-    res = get_operation_fees( fqu, operations, sg, payment_privkey_info, owner_privkey_info,
-                              proxy=proxy, config_path=config_path, payment_address=payment_address,
-                              owner_address=owner_address, transfer_address=transfer_address )
-
-    if not res:
-        return {'error': 'Failed to get the requisite operation fees'}
-
-    # do queries 
-    sg.run_tasks()
-
-    # get results 
-    fees = interpret_operation_fees(operations, sg)
-    if 'error' in fees:
-        log.error("Failed to get all operation fees: {}".format(fees['error']))
-        return {'error': 'Failed to get some operation fees: {}.  Try again with `--debug` for details.'.format(fees['error'])}
-
-    analytics_event('Name price', {})
-
-    # convert to BTC
-    btc_keys = [
-        'preorder_tx_fee', 'register_tx_fee',
-        'update_tx_fee', 'total_estimated_cost',
-        'name_price', 'transfer_tx_fee', 'renewal_tx_fee',
-        'revoke_tx_fee',
-    ]
-
-    for k in btc_keys:
-        if k in fees.keys():
-            v = {
-                'satoshis': fees[k],
-                'btc': satoshis_to_btc(fees[k])
-            }
-            fees[k] = v
+    fees = get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_privkey_info,
+                               payment_address=payment_address, owner_address=owner_address, transfer_address=transfer_address, config_path=config_path, proxy=proxy )
 
     return fees
 
@@ -661,7 +695,7 @@ def cli_import(args, config_path=CONFIG_PATH):
 def cli_names(args, config_path=CONFIG_DIR):
     """
     command: names
-    help: Display the names owned by local addresses
+    help: Display the names owned by the wallet owner key
     """
     result = {}
 
@@ -684,7 +718,7 @@ def cli_get_registrar_info(args, config_path=CONFIG_PATH, queues=None):
     help: Get information about the backend registrar queues
     """
     
-    queues = ['preorder', 'register', 'update', 'transfer', 'renew', 'revoke'] if queues is None else queues
+    queues = ['preorder', 'register', 'update', 'transfer', 'renew', 'revoke', 'name_import'] if queues is None else queues
     config_dir = os.path.dirname(config_path)
     conf = config.get_config(config_path)
     
@@ -1075,7 +1109,7 @@ def is_valid_path(path):
     return filtered_string == path
 
 
-def analyze_zonefile_string(fqu, zonefile_data, force_data=False, proxy=None):
+def analyze_zonefile_string(fqu, zonefile_data, force_data=False, check_current=True, proxy=None):
     """
     Figure out what to do with a zone file data string, based on whether or not
     we can prompt the user and whether or not we expect a standard zonefile.
@@ -1145,7 +1179,7 @@ def analyze_zonefile_string(fqu, zonefile_data, force_data=False, proxy=None):
             return {'error': 'Invalid argument: no such file or directory: {}'.format(zonefile_data)}
 
     # load zonefile, if given
-    user_data_res = load_zonefile_from_string(fqu, zonefile_data)
+    user_data_res = load_zonefile_from_string(fqu, zonefile_data, check_current=check_current)
 
     # propagate identical and nonstandard...
     ret['identical'] = user_data_res['identical'] 
@@ -2555,122 +2589,685 @@ def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
     return {'status': True}
 
 
-def cli_name_import(args, config_path=CONFIG_PATH):
+def cli_name_import(args, interactive=True, config_path=CONFIG_PATH, proxy=None):
     """
     command: name_import advanced
-    help: Import a name to a revealed but not-yet-readied namespace
+    help: Import a name to a revealed but not-yet-launched namespace
     arg: name (str) 'The name to import'
     arg: address (str) 'The address of the name recipient'
-    arg: hash (str) 'The zonefile hash of the name'
-    arg: privatekey (str) 'One of the private keys of the namespace revealer'
+    arg: zonefile (str) 'The path to the zone file'
+    arg: privatekey (str) 'An unhardened child private key derived from the namespace reveal key'
     """
-    # BROKEN
-    result = name_import(
-        str(args.name), str(args.address),
-        str(args.hash), str(args.privatekey)
-    )
 
-    return result
+    import blockstack
+
+    proxy = get_default_proxy() if proxy is None else proxy
+    config_dir = os.path.dirname(config_path)
+    conf = config.get_config(config_path)
+    assert conf
+    assert 'queue_path' in conf
+    queue_path = conf['queue_path']
+
+    # NOTE: we only need this for the queues.  This command is otherwise not accessible from the RESTful API,
+    if not local_api_status(config_dir=config_dir):
+        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
+
+    name = str(args.name)
+    address = virtualchain.address_reencode( str(args.address) )
+    zonefile_path = str(args.zonefile_path)
+    privkey = str(args.privatekey)
+
+    try:
+        privkey = ecdsa_private_key(privkey).to_hex()
+    except:
+        return {'error': 'Invalid private key'}
+
+    if not re.match(OP_BASE58CHECK_PATTERN, address):
+        return {'error': 'Invalid address'}
+
+    if not os.path.exists(zonefile_path):
+        return {'error': 'No such file or directory: {}'.format(zonefile_path)}
+
+    zonefile_data = None
+    try:
+        with open(zonefile_path) as f:
+            zonefile_data = f.read()
+
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        return {'error': 'Failed to load {}'.format(zonefile_path)}
+
+    zonefile_info = analyze_zonefile_string(name, zonefile_data, force_data=True, check_current=False, proxy=proxy)
+    if 'error' in zonefile_info:
+        log.error("Failed to analyze zone file: {}".format(zonefile_info['error']))
+        return {'error': zonefile_info['error']}
+
+    if zonefile_info['nonstandard']:
+        if interactive:
+            proceed = prompt_invalid_zonefile()
+            if not proceed:
+                return {'error': 'Aborting name import on invalid zone file'}
+
+        else:
+            log.warning("Using nonstandard zone file data")
+
+    zonefile_data = zonefile_info['zonefile_str']
+    zonefile_hash = get_zonefile_data_hash(zonefile_data)
+
+    if interactive:
+        fees = get_price_and_fees(name, ['name_import'], privkey, privkey, config_path=config_path, proxy=proxy)
+        if 'error' in fees:
+            return fees
+
+        print("Import cost breakdown:\n{}".format(json.dumps(fees, indent=4, sort_keys=True)))
+        print("Importing name '{}' to be owned by '{}' with zone file hash '{}'".format(name, address, zonefile_hash))
+        proceed = raw_input("Proceed? (y/N) ")
+        if proceed.lower() != 'y':
+            return {'error': 'Name import aborted'}
+
+    utxo_client = get_utxo_provider_client(config_path=config_path)
+    tx_broadcaster = get_tx_broadcaster(config_path=config_path)
+    res = do_name_import(name, privkey, address, zonefile_hash, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
+    if 'error' in res:
+        return res
+
+    # success! enqueue to back-end
+    queue_append("name_import", name, res['transaction_hash'], zonefile_data=zonefile_data, zonefile_hash=zonefile_hash, owner_address=address, config_path=config_path, path=queue_path)
+
+    res['value_hash'] = zonefile_hash
+    return res
 
 
-def cli_namespace_preorder(args, config_path=CONFIG_PATH):
+def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, proxy=None):
     """
     command: namespace_preorder advanced
     help: Preorder a namespace
     arg: namespace_id (str) 'The namespace ID'
-    arg: privatekey (str) 'The private key to send and pay for the preorder'
-    opt: reveal_addr (str) 'The address of the keypair that will import names (automatically generated if not given)'
+    arg: payment_privkey (str) 'The private key to pay for the namespace'
+    arg: reveal_privkey (str) 'The private key that will import names'
     """
 
+    import blockstack
+
+    # NOTE: this does *not* go through the API.
+    # exposing this through the API is dangerous.
+    proxy = get_default_proxy() if proxy is None else proxy
+
     config_dir = os.path.dirname(config_path)
-    if not local_api_status(config_dir=config_dir):
-        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
-
-    # BROKEN
+    nsid = str(args.namespace_id)
+    ns_privkey = str(args.payment_privkey)
+    ns_reveal_privkey = str(args.reveal_privkey)
     reveal_addr = None
-    if args.address is not None:
-        reveal_addr = str(args.address)
+    
+    try:
+        keylib.ECPrivateKey(ns_privkey)
+        reveal_addr = virtualchain.address_reencode( ecdsa_private_key(ns_reveal_privkey).public_key().address() )
+    except:
+        return {'error': 'Invalid namespace private key'}
+    
+    print("Calculating fees...")
+    fees = get_price_and_fees(nsid, ['namespace_preorder', 'namespace_reveal', 'namespace_ready'], ns_privkey, ns_reveal_privkey, config_path=config_path, proxy=proxy )
+    if 'error' in fees:
+        return fees
 
-    result = namespace_preorder(
-        str(args.namespace_id),
-        str(args.privatekey),
-        reveal_addr=reveal_addr
-    )
+    msg = "".join([
+        "\n",
+        "IMPORTANT:  PLEASE READ THESE INSTRUCTIONS CAREFULLY\n",
+        "\n",
+        "You are about to preorder the namespace '{}'.  It will cost about {} BTC ({} satoshi).\n".format(nsid, fees['total_estimated_cost']['btc'], fees['total_estimated_cost']['satoshis']),
+        "\n",
+        "Before you do, there are some things you should know.\n".format(nsid),
+        "\n",
+        "* Once you preorder the namespace, you will need to reveal it within 144 blocks (about 24 hours).\n",
+        "  If you do not do so, then the namespace fee is LOST FOREVER and someone else can preorder it.\n",
+        "  In addition, there is a very small (but non-zero) chance that someone else can preorder and reveal\n",
+        "  the same namespace at the same time as you are.  If this happens, your namespace fee is LOST FOREVER as well.\n",
+        "\n",
+        "  The command to reveal the namespace is `blockstack namespace_reveal`.  Please be prepared to run it\n",
+        "  once your namespace-preorder transaction is confirmed.\n",
+        "\n",
+        "* You must launch the namespace within {} blocks (about 1 year) after it is revealed with the above command.\n".format(blockstack.BLOCKS_PER_YEAR),
+        "  If you do not do so, then the namespace and all the names in it will DISAPPEAR, and you (or someone else)\n",
+        "  will have to START THE NAMESPACE OVER FROM SCRATCH.\n",
+        "\n",
+        "  The command to launch the namespace is `blockstack namespace_ready`.  Please be prepared to run it\n",
+        "  once your namespace-reveal transaction is confirmed, and once you have populated your namespace with\n",
+        "  the initial names.\n",
+        "\n",
+        "* After you reveal the namespace but before you launch it, you can pre-populate it with names.\n",
+        "  This is optional, but you have 1 year to import as many names as you want.\n",
+        "  ONLY YOU WILL BE ABLE TO IMPORT NAMES until the namespace has been launched.  Then, anyone can register names.\n",
+        "\n",
+        "  The command to do so is `blockstack name_import`.\n",
+        "\n",
+        "If you want to test your namespace parameters before creating it, please consider trying it in our integration test\n",
+        "framework first.  Instructions are at https://github.com/blockstack/blockstack-core/tree/master/integration_tests\n",
+        "\n",
+        "If you have any questions, please contact us at support@blockstack.com or via https://blockstack.slack.com\n",
+        "\n",
+        "Full cost breakdown:\n",
+        "{}".format(json.dumps(fees, indent=4, sort_keys=True))
+    ])
+   
+    print(msg)
+    
+    prompts = [
+        "I acknowledge that I have read and understood the above instructions (yes/no) ",
+        "I acknowledge that this will cost {} BTC or more (yes/no) ".format(fees['total_estimated_cost']['btc']),
+        "I acknowledge that by not following these instructions, I may lose {} BTC (yes/no) ".format(fees['total_estimated_cost']['btc']),
+        "I acknowledge that I have tested my namespace in Blockstack's test mode (yes/no) ",
+        "I am ready to preorder this namespace (yes/no) "
+    ]
 
-    return result
+    for prompt in prompts:
+        while True:
+            if interactive:
+                proceed = raw_input("I acknowledge that I have read the above instructions. (yes/No) ")
+            else:
+                proceed = 'yes'
+
+            if proceed.lower() == 'y':
+                print("Please type 'yes' or 'no'")
+                continue
+
+            if proceed.lower() != 'yes':
+                return {'error': 'Aborting namespace preorder on user command'}
+
+            break
+
+    # proceed!
+    utxo_client = get_utxo_provider_client(config_path=config_path)
+    tx_broadcaster = get_tx_broadcaster(config_path=config_path)
+    res = do_namespace_preorder(nsid, int(fees['namespace_price']), ns_privkey, reveal_addr, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
+    return res
 
 
-def cli_namespace_reveal(args, config_path=CONFIG_PATH):
+def format_cost_table(namespace_id, base, coeff, bucket_exponents, nonalpha_discount, no_vowel_discount, block_height):
+    """
+    Generate a string that contains a table of how much a name of a particular length will cost,
+    subject to particular discounts.
+    """
+    import blockstack
+
+    columns = [
+        'length',
+        'price',
+        'price, nonalpha',
+        'price, no vowel',
+        'price, both'
+    ]
+
+    table = dict( [(c, [c]) for c in columns] )
+
+    namespace_params = {
+        'base': base,
+        'coeff': coeff,
+        'buckets': bucket_exponents,
+        'nonalpha_discount': nonalpha_discount,
+        'no_vowel_discount': no_vowel_discount,
+        'namespace_id': namespace_id
+    }
+
+    for i in xrange(0, len(bucket_exponents)):
+        length = i+1
+        price_normal = str(int(round( blockstack.price_name("a" * length, namespace_params, block_height) )))
+        price_nonalpha = str(int(round( blockstack.price_name(("1a" * length)[:length], namespace_params, block_height) )))
+        price_novowel = str(int(round( blockstack.price_name("b" * length, namespace_params, block_height) )))
+        price_nonalpha_novowel = str(int(round( blockstack.price_name("1" * length, namespace_params, block_height) )))
+        
+        len_str = str(length)
+        if i == len(bucket_exponents)-1:
+            len_str += '+'
+
+        table['length'].append(len_str)
+        table['price'].append(price_normal)
+        table['price, nonalpha'].append(price_nonalpha)
+        table['price, no vowel'].append(price_novowel)
+        table['price, both'].append(price_nonalpha_novowel)
+
+    col_widths = {}
+    for k in table.keys():
+        max_width = reduce( lambda x, y: max(x,y), map( lambda p: len(p), table[k] ) )
+        col_widths[k] = max_width
+
+    row_template_parts = [' {{: >{}}} '.format(col_widths[c]) for c in columns]
+    header_template_parts = [' {{: <{}}} '.format(col_widths[c]) for c in columns]
+
+    row_template = '|' + '|'.join(row_template_parts) + '|'
+    header_template = '|' + '|'.join(header_template_parts) + '|'
+
+    table_str = header_template.format(*columns) + '\n'
+    table_str += '-' * (len(table_str) - 1) + '\n'
+    
+    for i in xrange(1, len(bucket_exponents)+1):
+        row_data = [table[c][i] for c in columns]
+        table_str += row_template.format(*row_data) + '\n'
+
+    return table_str
+
+
+def format_price_formula(namespace_id, block_height):
+    """
+    Generate a string that encodes the generic price function
+    """
+    import blockstack
+
+
+    exponent_str =    "                                     buckets[min(len(name)-1, 15)]\n"
+    numerator_str =   "             UNIT_COST * coeff * base                             \n"
+    divider_str =     "cost(name) = -----------------------------------------------------\n"
+    denominator_str = "                   max(nonalpha_discount, no_vowel_discount)      \n"
+
+    formula_str = "(UNIT_COST = 100):\n" + \
+                  exponent_str + \
+                  numerator_str + \
+                  divider_str + \
+                  denominator_str
+
+    return formula_str
+
+
+def format_price_formula_worksheet(name, namespace_id, base, coeff, bucket_exponents, nonalpha_discount, no_vowel_discount, block_height):
+    """
+    Generate a string that encodes the namespace price function for a particular name
+    """
+    import blockstack
+
+    if '.' in name:
+        if name.count('.') != 1:
+            return '\nThe specified name is invalid.  Names may not have periods (.) in them\n'
+
+        name_parts = name.split('.')
+        name = name_parts[0]
+        if name_parts[1] != namespace_id:
+            return '\nThe name specified does not belong to this namespace\n'
+
+    full_name = '{}.{}'.format(name, namespace_id)
+    err = check_valid_name(full_name)
+    if err:
+        return "\nFully-qualified name: {}\n{}\n".format(full_name, err)
+
+    namespace_params = {
+        'base': base,
+        'coeff': coeff,
+        'buckets': bucket_exponents,
+        'nonalpha_discount': nonalpha_discount,
+        'no_vowel_discount': no_vowel_discount,
+        'namespace_id': namespace_id
+    }
+
+    def has_no_vowel_discount(n):
+        return sum( [n.lower().count(v) for v in ["a", "e", "i", "o", "u", "y"]] ) == 0
+
+    def has_nonalpha_discount(n):
+        return sum( [n.lower().count(v) for v in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "-", "_"]] ) > 0
+    
+    discount = 1
+
+    # no vowel discount?
+    if has_no_vowel_discount(name):
+       # no vowels!
+       discount = max( discount, no_vowel_discount )
+
+    # non-alpha discount?
+    if has_nonalpha_discount(name):
+       # non-alpha!
+       discount = max( discount, nonalpha_discount )
+
+    eval_numerator_str = "{} * {} * {}".format(blockstack.NAME_COST_UNIT * blockstack.get_epoch_price_multiplier(block_height, namespace_id), coeff, base)
+    eval_exponent_str = "{}".format(bucket_exponents[min(len(name)-1, 15)])
+    eval_denominator_str = "{}".format(discount)
+
+    eval_divider_str = "cost({}) = ".format(name)
+    left_pad = len(eval_divider_str)
+
+    numerator_len = len(eval_numerator_str) + len(eval_exponent_str)
+    denominator_len = len(eval_denominator_str)
+
+    padded_exponent_str = (" " * (left_pad + len(eval_numerator_str))) + eval_exponent_str + '\n'
+    padded_numerator_str = (" " * left_pad) + eval_numerator_str + '\n'
+    padded_divider_str = eval_divider_str + ("-" * numerator_len) + (" = {}".format(int(blockstack.price_name(name, namespace_params, block_height)))) + '\n'
+    padded_denominator_str = (" " * (left_pad + (numerator_len / 2) - (denominator_len / 2))) + eval_denominator_str + '\n'
+
+    formula_str = "Worksheet:\n" + \
+                  "\n" + \
+                  "len({}) = {}\n".format(name, len(name)) + \
+                  "buckets[min(len(name)-1, 15)] = buckets[min({}, 15)] = buckets[{}] = {}\n".format(len(name)-1, min(len(name)-1, 15), bucket_exponents[min(len(name)-1, 15)]) + \
+                  "nonalpha_discount = {}\n".format( nonalpha_discount if has_nonalpha_discount(name) else 1 ) + \
+                  "no_vowel_discount = {}\n".format( no_vowel_discount if has_no_vowel_discount(name) else 1 ) + \
+                  "max(nonalpha_discount, no_vowel_discount) = max({}, {}) = {}\n".format(nonalpha_discount if has_nonalpha_discount(name) else 1, no_vowel_discount if has_no_vowel_discount(name) else 1, discount) + \
+                  "\n" + \
+                  padded_exponent_str + \
+                  padded_numerator_str + \
+                  padded_divider_str + \
+                  padded_denominator_str + \
+                  "\n"
+    
+    return formula_str
+
+
+def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=None):
     """
     command: namespace_reveal advanced
-    help: Reveal a namespace and set its pricing parameters
+    help: Reveal a namespace and interactively set its pricing parameters
     arg: namespace_id (str) 'The namespace ID'
-    arg: addr (str) 'The address of the keypair that will import names (given in the namespace preorder)'
-    arg: lifetime (int) 'The lifetime (in blocks) for each name.  Negative means "never expires".'
-    arg: coeff (int) 'The multiplicative coefficient in the price function.'
-    arg: base (int) 'The exponential base in the price function.'
-    arg: bucket_exponents (str) 'A 16-field CSV of name-length exponents in the price function.'
-    arg: nonalpha_discount (int) 'The denominator that defines the discount for names with non-alpha characters.'
-    arg: no_vowel_discount (int) 'The denominator that defines the discount for names without vowels.'
-    arg: privatekey (str) 'The private key of the import keypair (whose address is `addr` above).'
+    arg: payment_privkey (str) 'The private key that paid for the namespace'
+    arg: reveal_privkey (str) 'The private key that will import names'
     """
+    # NOTE: this will not use the RESTful API.
+    # it is too dangerous to expose this to web browsers.
+    import blockstack
+    
+    namespace_id = str(args.namespace_id)
+    privkey = str(args.payment_privkey)
+    reveal_privkey = str(args.reveal_privkey)
+    reveal_addr = None
 
-    config_dir = os.path.dirname(config_path)
-    if not local_api_status(config_dir=config_dir):
-        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
+    res = is_namespace_valid(namespace_id)
+    if not res:
+        return {'error': 'Invalid namespace ID'}
 
-    # BROKEN
-    bucket_exponents = args.bucket_exponents.split(',')
-    if len(bucket_exponents) != 16:
-        msg = '`bucket_exponents` must be a 16-value CSV of integers'
-        return {'error': msg}
+    try:
+        ecdsa_private_key(privkey)
+        reveal_addr = virtualchain.address_reencode( ecdsa_private_key(reveal_privkey).public_key().address() )
+    except:
+        return {'error': 'Invalid private keys'}
 
-    for i in range(len(bucket_exponents)):
+    infinite_lifetime = 0xffffffff       # means "infinite" to blockstack-core
+    
+    # sane defaults
+    lifetime = int(getattr(args, 'lifetime', infinite_lifetime))
+    coeff = int(getattr(args, 'coeff', 4))
+    base = int(getattr(args, 'base', 4))
+    bucket_exponents_str = getattr(args, 'buckets', "15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0")
+    nonalpha_discount = int(getattr(args, 'nonalpha_discount', 2))
+    no_vowel_discount = int(getattr(args, 'no_vowel_discount', 5))
+
+    def parse_bucket_exponents(exp_str):
+
+        bucket_exponents_strs = exp_str.split(',')
+        if len(bucket_exponents_strs) != 16:
+            raise Exception('bucket_exponents must be a 16-value comma-separated list of integers')
+
+        bucket_exponents = []
+        for i in xrange(0, len(bucket_exponents_strs)):
+            try:
+                bucket_exponents.append( int(bucket_exponents_strs[i]) )
+                assert 0 <= bucket_exponents[i]
+                assert bucket_exponents[i] < 16
+            except (ValueError, AssertionError) as e:
+                raise Exception('bucket_exponents must contain integers between 0 and 15, inclusively')
+
+        return bucket_exponents
+
+    def print_namespace_configuration(params):
+        print("Namespace ID:           {}".format(namespace_id))
+        print("Name lifetimes:         {}".format(params['lifetime'] if params['lifetime'] != infinite_lifetime else "infinite"))
+        print("Price coefficient:      {}".format(params['coeff']))
+        print("Price base:             {}".format(params['base']))
+        print("Price bucket exponents: {}".format(params['buckets']))
+        print("Non-alpha discount:     {}".format(params['nonalpha_discount']))
+        print("No-vowel discount:      {}".format(params['no_vowel_discount']))
+        print("")
+
+        formula_str = format_price_formula(namespace_id, block_height)
+        price_table_str = format_cost_table(namespace_id, params['base'], params['coeff'], params['buckets'],
+                                                          params['nonalpha_discount'], params['no_vowel_discount'], block_height)
+
+        print("Name price formula:")
+        print(formula_str)
+        print("")
+        print("Name price table:")
+        print(price_table_str)
+
+        print("")
+
+
+    bbs = None
+    try:
+        bbs = parse_bucket_exponents(bucket_exponents_str)
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        return {'error': 'Invalid bucket exponents.  Must be a list of 16 integers between 0 and 15.'}
+        
+    namespace_params = {
+        'lifetime': lifetime,
+        'coeff': coeff,
+        'base': base,
+        'buckets': bbs,
+        'nonalpha_discount': nonalpha_discount,
+        'no_vowel_discount': no_vowel_discount
+    }
+
+    block_height = get_block_height(config_path=config_path)
+
+    options = {
+        '1': {
+            'msg': 'Set name lifetime in blocks             (positive integer between 1 and {}, or "infinite")'.format(2**32 - 1),
+            'var': 'lifetime',
+            'parse': lambda x: infinite_lifetime if x == "infinite" else int(x)
+        },
+        '2': {
+            'msg': 'Set price coefficient                   (positive integer between 1 and 255)',
+            'var': 'coeff',
+            'parse': lambda x: int(x)
+        },
+        '3': {
+            'msg': 'Set base price                          (positive integer between 1 and 255)',
+            'var': 'base',
+            'parse': lambda x: int(x)
+        },
+        '4': {
+            'msg': 'Set price bucket exponents              (16 comma-separated integers, each between 1 and 15)',
+            'var': 'buckets',
+            'parse': lambda x: parse_bucket_exponents(x)
+        },
+        '5': {
+            'msg': 'Set non-alphanumeric character discount (positive integer between 1 and 15)',
+            'var': 'nonalpha_discount',
+            'parse': lambda x: int(x)
+        },
+        '6': {
+            'msg': 'Set no-vowel discount                   (positive integer between 1 and 15)',
+            'var': 'no_vowel_discount',
+            'parse': lambda x: int(x)
+        },
+        '7': {
+            'msg': 'Show name price formula',
+            'input': 'Enter name: ',
+            'callback': lambda inp: print(format_price_formula_worksheet(inp, namespace_id, namespace_params['base'], namespace_params['coeff'],
+                                                                         namespace_params['buckets'], namespace_params['nonalpha_discount'], 
+                                                                         namespace_params['no_vowel_discount'], block_height))
+        },
+        '8': {
+            'msg': 'Show price table',
+            'callback': lambda: print(print_namespace_configuration(namespace_params)),
+        },
+        '9': {
+            'msg': 'Done',
+            'break': True,
+        },
+    }
+    option_order = options.keys()
+    option_order.sort()
+    
+    print_namespace_configuration(namespace_params)
+
+    while interactive:
+
+        print("What would you like to do?")
+
+        for opt in option_order:
+            print("({}) {}".format(opt, options[opt]['msg']))
+
+        print("")
+
+        selection = None
+        value = None
+        while True:
+            selection = raw_input("({}-{}) ".format(option_order[0], option_order[-1]))
+            if selection not in options:
+                print("Please select between {} and {}".format(option_order[0], option_order[-1]))
+                continue
+            else:
+                break
+
+        if options[selection].has_key('var'):
+            value_str = raw_input("New value for '{}': ".format(options[selection]['var']))
+            old_value = namespace_params[ options[selection]['var'] ]
+            try:
+                value = options[selection]['parse'](value_str)
+                namespace_params[ options[selection]['var'] ] = value
+                assert blockstack.namespacereveal.namespacereveal_sanity_check( namespace_id, blockstack.BLOCKSTACK_VERSION, namespace_params['lifetime'],
+                                                                                namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
+                                                                                namespace_params['nonalpha_discount'], namespace_params['no_vowel_discount'] )
+
+            except Exception as e:
+                if BLOCKSTACK_DEBUG:
+                    log.exception(e)
+
+                print("Invalid value for '{}'".format(options[selection]['var']))
+                namespace_params[ options[selection]['var'] ] = old_value
+
+            print_namespace_configuration(namespace_params)
+            continue
+
+        elif options[selection].has_key('input'):
+            inpstr = options[selection]['input']
+            inp = raw_input(inpstr)
+            options[selection]['callback'](inp)
+            continue
+
+        elif options[selection].has_key('callback'):
+            options[selection]['callback']()
+            continue
+
+        elif options[selection].has_key('break'):
+            break
+
+        else:
+            raise Exception("BUG: selection {}".format(selection))
+
+    if not interactive:
+        # still check this 
         try:
-            bucket_exponents[i] = int(bucket_exponents[i])
-            assert 0 <= bucket_exponents[i] < 16
-        except (ValueError, AssertionError) as e:
-            msg = '`bucket_exponents` must contain integers between 0 and 15, inclusively.'
-            return {'error': msg}
+            assert blockstack.namespacereveal.namespacereveal_sanity_check( namespace_id, blockstack.BLOCKSTACK_VERSION, namespace_params['lifetime'],
+                                                                            namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
+                                                                            namespace_params['nonalpha_discount'], namespace_params['no_vowel_discount'] )
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
 
-    lifetime = int(args.lifetime)
-    if lifetime < 0:
-        lifetime = 0xffffffff       # means "infinite" to blockstack-server
+            return {'error': 'Invalid namespace parameters'}
 
-    # BUG: undefined function
-    result = namespace_reveal(
-        str(args.namespace_id),
-        str(args.addr),
-        lifetime,
-        int(args.coeff),
-        int(args.base),
-        bucket_exponents,
-        int(args.nonalpha_discount),
-        int(args.no_vowel_discount),
-        str(args.privatekey)
-    )
+    # do we have enough btc?
+    print("Calculating fees...")
+    fees = get_price_and_fees(namespace_id, ['namespace_reveal'], privkey, reveal_privkey, config_path=config_path, proxy=proxy )
+    if 'error' in fees:
+        return fees
 
-    return result
+    if 'warnings' in fees:
+        return {'error': 'Not enough information for fee calculation: {}'.format( ", ".join(["'{}'".format(w) for w in fees['warnings']]) )}
+
+    # got the params we wanted
+    print("This is the final configuration for your namespace:") 
+    print_namespace_configuration(namespace_params)
+    print("You will NOT be able to change this once it is set.")
+    print("Reveal address:  {}".format(reveal_addr))
+    print("Payment address: {}".format(virtualchain.address_reencode(ecdsa_private_key(privkey).public_key().address())))
+    print("Transaction cost breakdown:\n{}".format(json.dumps(fees, indent=4, sort_keys=True)))
+    print("")
+
+    while interactive:
+        proceed = raw_input("Proceed? (yes/no) ")
+        if proceed.lower() == 'y':
+            print("Please type 'yes' or 'no'")
+            continue
+
+        if proceed.lower() != 'yes':
+            return {'error': 'Aborted namespace reveal'}
+
+        break
+
+    # proceed!
+    utxo_client = get_utxo_provider_client(config_path=config_path)
+    tx_broadcaster = get_tx_broadcaster(config_path=config_path)
+    res = do_namespace_reveal(namespace_id, reveal_addr, namespace_params['lifetime'], namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
+                              namespace_params['nonalpha_discount'], namespace_params['no_vowel_discount'], privkey, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
+
+    return res
 
 
-def cli_namespace_ready(args, config_path=CONFIG_PATH):
+def cli_namespace_ready(args, interactive=True, config_path=CONFIG_PATH, proxy=None):
     """
     command: namespace_ready advanced
     help: Mark a namespace as ready
     arg: namespace_id (str) 'The namespace ID'
-    arg: privatekey (str) 'The private key of the keypair that imports names'
+    arg: reveal_privkey (str) 'The private key used to import names'
     """
-    config_dir = os.path.dirname(config_path)
-    if not local_api_status(config_dir=config_dir):
-        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
 
-    # BROKEN
-    result = namespace_ready(
-        str(args.namespace_id),
-        str(args.privatekey)
-    )
+    import blockstack
+    namespace_id = str(args.namespace_id)
+    reveal_privkey = str(args.reveal_privkey)
 
-    return result
+    res = is_namespace_valid(namespace_id)
+    if not res:
+        return {'error': 'Invalid namespace ID'}
+    
+    try:
+        reveal_addr = virtualchain.address_reencode( ecdsa_private_key(reveal_privkey).public_key().address() )
+    except:
+        return {'error': 'Invalid private keys'}
+
+    # do we have enough btc?
+    print("Calculating fees...")
+    fees = get_price_and_fees(namespace_id, ['namespace_ready'], reveal_privkey, reveal_privkey, config_path=config_path, proxy=proxy )
+    if 'error' in fees:
+        return fees
+
+    if 'warnings' in fees:
+        return {'error': 'Not enough information for fee calculation: {}'.format( ", ".join(["'{}'".format(w) for w in fees['warnings']]) )}
+
+    namespace_rec = get_namespace_blockchain_record(namespace_id, proxy=proxy)
+    if 'error' in namespace_rec:
+        return namespace_rec
+
+    if namespace_rec['ready']:
+        return {'error': 'Namespace is already launched'}
+
+    launch_deadline = namespace_rec['reveal_block'] + blockstack.NAMESPACE_REVEAL_EXPIRE
+
+    print("Cost breakdown:\n{}".format(json.dumps(fees, indent=4, sort_keys=True)))
+    print("This command will launch the namespace '{}'".format(namespace_id))
+    print("Once launched, *anyone* can register a name in it.")
+    print("This namespace must be launched by block {}, so please run this command before block {}.".format(launch_deadline, launch_deadline - 144))
+    print("THIS CANNOT BE UNDONE.")
+    print("")
+    while True:
+        proceed = None
+        if interactive:
+            proceed = raw_input("Proceed? (yes/no) ")
+        else:
+            proceed = 'yes'
+
+        if proceed.lower() == 'y':
+            print("Please type 'yes' or 'no'")
+            continue
+
+        if proceed.lower() != 'yes':
+            return {'error': 'Namespace launch aborted'}
+
+        break
+
+    # proceed!
+    utxo_client = get_utxo_provider_client(config_path=config_path)
+    tx_broadcaster = get_tx_broadcaster(config_path=config_path)
+    res = do_namespace_ready(namespace_id, reveal_privkey, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
+    return res
 
 
 def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
@@ -3099,9 +3696,18 @@ def cli_get_all_names(args, config_path=CONFIG_PATH):
     return result
 
 
+def cli_get_all_namespaces(args, config_path=CONFIG_PATH):
+    """
+    command: get_all_namespaces
+    help: Get the list of namespaces
+    """
+    result = get_all_namespaces()
+    return result
+
+
 def cli_get_names_in_namespace(args, config_path=CONFIG_PATH):
     """
-    command: get_names_in_namespace
+    command: get_names_in_namespace advanced
     help: Get the names in a given namespace, optionally paginating through them
     arg: namespace_id (str) 'The ID of the namespace to query'
     opt: offset (int) 'The offset into the sorted list of names'
@@ -3905,6 +4511,44 @@ def cli_verify_data( args, config_path=CONFIG_PATH, proxy=None, interactive=True
         return {'error': 'Failed to verify data'}
 
     return data_blob_parse(res)
+
+
+def cli_validate_zone_file(args, config_path=CONFIG_PATH, proxy=None):
+    """
+    command: validate_zone_file advanced
+    help: Validate an on-disk zone file to ensure that is properly formatted.
+    arg: name (str) 'The name that will use this zone file'
+    arg: zonefile_path (str) 'The path on disk to the zone file'
+    opt: verbose (str) 'Pass True to see more analysis beyond "valid" or "invalid".'
+    """
+    
+    name = str(args.name)
+    zonefile_path = str(args.zonefile_path)
+    verbose = str(getattr(args, 'verbose', '')).lower() in ['true', 'yes', '1']
+
+    if not os.path.exists(zonefile_path):
+        return {'error': 'No such file or directory: {}'.format(zonefile_path)}
+
+    zonefile_data = None
+    try:
+        with open(zonefile_path, 'r') as f:
+            zonefile_data = f.read()
+
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        return {'error': 'Failed to read zone file.'}
+
+    res = analyze_zonefile_string(name, zonefile_data, force_data=True, check_current=False, proxy=proxy)
+    if verbose:
+        return res
+       
+    # simplify...
+    if res['nonstandard']:
+        return {'error': 'Nonstandard zone file data'}
+
+    return {'status': True}
 
 
 def cli_list_device_ids( args, config_path=CONFIG_PATH, proxy=None ):

@@ -113,6 +113,7 @@ def scenario( wallets, **kw ):
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowedge the update"
     time.sleep(10)
+    return True
 
 
 def check( state_engine ):

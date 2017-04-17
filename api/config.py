@@ -28,9 +28,6 @@ import re
 
 DEBUG = True
 
-if(DEBUG):
-    os.environ["BLOCKSTACK_DEBUG"] = "1"
-
 DEFAULT_PORT = 5000
 DEFAULT_HOST = '0.0.0.0'
 
@@ -64,7 +61,7 @@ NAMES_FILE = os.path.join(CURRENT_DIR, NAMES_FILENAME)
 NEW_NAMES_FILE = os.path.join(CURRENT_DIR, NEW_NAMES_FILENAME)
 
 # For search endpoint
-SEARCH_API_ENDPOINT_ENABLED = False
+SEARCH_API_ENDPOINT_ENABLED = True
 SEARCH_BLOCKCHAIN_DATA_FILE = "/var/blockstack-search/blockchain_data.json"
 SEARCH_PROFILE_DATA_FILE = "/var/blockstack-search/profile_data.json"
 SEARCH_BULK_INSERT_LIMIT = 1000

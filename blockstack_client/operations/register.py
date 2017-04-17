@@ -29,7 +29,7 @@ from ..config import *
 from ..scripts import *
 
 import virtualchain
-log = virtualchain.get_logger("blockstack-server")
+log = get_logger("blockstack-server")
 
 
 def build(name):
@@ -204,10 +204,14 @@ def get_fees( inputs, outputs ):
             log.debug("output[3] is not the burn address %s (got %s)" % (BLOCKSTACK_BURN_ADDRESS, addr_hash))
             return (None, None)
     
+        # should match make_outputs().
+        # the +3 comes from 1 owner UTXO + 2 new outputs
         dust_fee = (len(inputs) + 3) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
         op_fee = outputs[3]["value"]
         
     else:
+        # should match make_outputs().
+        # the +2 comes frmo 1 owner UTXO + 1 new output
         dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     
     return (dust_fee, op_fee)

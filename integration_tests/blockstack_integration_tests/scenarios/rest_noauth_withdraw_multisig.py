@@ -128,7 +128,7 @@ def scenario( wallets, **kw ):
     balance_before = testlib.get_balance(wallets[3].addr)
 
     # can we move the funds?
-    res = testlib.blockstack_REST_call('POST', '/v1/wallet/balance', None, api_pass=api_pass, data={'address': wallets[3].addr} )
+    res = testlib.blockstack_REST_call('POST', '/v1/wallet/balance', None, api_pass=api_pass, data={'message': 'hello multisig!', 'address': wallets[3].addr} )
     if res['http_status'] != 200:
         res['test'] = 'failed to transfer funds'
         print json.dumps(res)

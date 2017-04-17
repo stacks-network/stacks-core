@@ -40,8 +40,9 @@ from .b40 import *
 from .constants import MAGIC_BYTES, NAME_OPCODES, LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID, TX_MIN_CONFIRMATIONS, BLOCKSTACK_TEST
 from .keys import *
 from .backend.utxo import get_unspents 
+from .config import get_logger
 
-log = virtualchain.get_logger('blockstack-client')
+log = get_logger('blockstack-client')
 
 class UTXOException(Exception):
     pass

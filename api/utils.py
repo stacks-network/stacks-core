@@ -26,6 +26,36 @@ This file is part of Blockstack Core.
 import re
 import json
 from .config import MAX_PROFILE_LIMIT
+from .config import MEMCACHED_ENABLED, MEMCACHED_SERVERS, MEMCACHED_USERNAME, MEMCACHED_PASSWORD
+
+from flask import make_response
+from functools import wraps
+from collections import OrderedDict
+
+def cache_control(timeout):
+    def decorator(f):
+        @wraps(f)
+        def decorated_f(*a, **kw):
+            resp = make_response(f(*a, **kw))
+            resp.headers['Cache-Control'] = 'public, max-age={:d}'.format(timeout)
+            return resp
+        return decorated_f
+    return decorator
+
+def get_mc_client():
+    """ Return a new connection to memcached
+    """
+    if not MEMCACHED_ENABLED:
+        return False
+
+    import pylibmc
+
+    mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
+                        username=MEMCACHED_USERNAME,
+                        password=MEMCACHED_PASSWORD,
+                        behaviors={"no_block": True,
+                                   "connect_timeout": 200})
+    return mc
 
 
 def build_api_call_object(text):
@@ -50,6 +80,52 @@ def build_api_call_object(text):
 
     return api_call
 
+class MarkdownGroup:
+    def __init__(self):
+        self.notes = False
+        self.subgroups = OrderedDict()
+    def add_to_group(self, obj, subgroup):
+        if not subgroup in self.subgroups:
+            self.subgroups[subgroup] = []
+        self.subgroups[subgroup].append(obj)
+
+def write_markdown_spec(f_out, api_calls):
+    groups = OrderedDict()
+    
+    for api_obj in api_calls:
+        obj = {}
+        obj["Method"] = api_obj["title"]
+        obj["API Call"] = "{} {}".format(api_obj["method"],
+                                         api_obj["path_template"])
+        obj["Grouping"] = api_obj["grouping"]
+        obj["Notes"] = api_obj["notes"] if "notes" in api_obj else ""
+        obj["API Family"] = api_obj["family"] if "family" in api_obj else "-"
+        obj["Subgroup"] = api_obj["subgroup"] if "subgroup" in api_obj else ""
+        
+        if obj["Grouping"] not in groups:
+            groups[obj["Grouping"]] = MarkdownGroup()
+        groups[obj["Grouping"]].add_to_group(obj, obj["Subgroup"])
+
+        if "grouping_note" in api_obj:
+            groups[obj["Grouping"]].notes = api_obj["grouping_note"]
+
+    row_headers = ["Method", "API Call", "API Family", "Notes"]
+
+
+    f_out.write("# Blockstack Specifications\n\n")
+    for gname, g in groups.items():
+        f_out.write("## {}\n\n".format(gname))
+        for sg_name, sg in g.subgroups.items():
+            if len(sg_name) > 0:
+                f_out.write("### {}\n\n".format(sg_name))
+            f_out.write("| {} |\n".format(" | ".join(row_headers)))
+            f_out.write("| {} |\n".format(" | ".join(["----" for i in row_headers])))
+            for item in sg:
+                f_out.write("| {} |\n".format(" | ".join(
+                    [item[k] for k in row_headers])))
+        f_out.write("\n\n")
+        if g.notes:
+            f_out.write("#### {}\n\n".format(g.notes))
 
 def get_api_calls(filename):
     api_calls = []

@@ -37,7 +37,7 @@ from flask_crossdomain import crossdomain
 from .parameters import parameters_required
 from .utils import get_api_calls
 from .config import PUBLIC_NODE, PUBLIC_NODE_URL, BASE_API_URL
-from .config import SEARCH_NODE_URL
+from .config import SEARCH_NODE_URL, SEARCH_API_ENDPOINT_ENABLED
 
 # hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -71,28 +71,41 @@ else:
 # Import app
 from . import app
 
-@app.route('/v1/names/<name>', methods=['GET'])
-@crossdomain(origin='*')
-def api_names(name):
+@app.after_request
+def default_cache_off(response):
+    """ By default turn front-end caching (i.e., nginx cache) off """
+    if 'Cache-Control' not in response.headers:
+        response.headers['Cache-Control'] = 'no-cache'
+    return response
 
-    API_URL = BASE_API_URL + '/v1/names/' + name
+def forwarded_get(url, params = None):
+    if params:
+        resp = requests.get(url, params = params)
+    else:
+        resp = requests.get(url)
 
-    resp = requests.get(API_URL)
-
-    return jsonify(resp.json()), 200
-
+    try:
+        log.debug("{} => {}".format(resp.url, resp.status_code))
+        return jsonify(resp.json()), resp.status_code
+    except:
+        log.error("Bad response from API URL: {} \n {}".format(resp.url, resp.text))
+        return jsonify({'error': 'Not found'}), resp.status_code
 
 @app.route('/v1/search', methods=['GET'])
 @parameters_required(parameters=['query'])
 @crossdomain(origin='*')
 def search_people():
+    query = request.values['query']
 
-    search_url = SEARCH_URL + '/search'
+    if SEARCH_API_ENDPOINT_ENABLED:
+        client = app.test_client()
+        return client.get('/search?query={}'.format(query), 
+                          headers=list(request.headers))
 
-    name = request.values['query']
+    search_url = SEARCH_NODE_URL + '/search'
 
     try:
-        resp = requests.get(url=search_url, params={'query': name})
+        resp = requests.get(url=search_url, params={'query': query})
     except (RequestsConnectionError, RequestsTimeout) as e:
         raise InternalProcessingError()
 
@@ -104,17 +117,8 @@ def search_people():
 
 @app.route('/<path:path>', methods=['GET'])
 def catch_all_get(path):
-
     API_URL = BASE_API_URL + '/' + path
-
-    resp = requests.get(API_URL)
-
-    if not resp:
-        log.error("No response from API URL: {}".format(API_URL))
-        return jsonify({'error': 'Not found'}), 404
-
-    return jsonify(resp.json()), 200
-
+    return forwarded_get(API_URL)
 
 @app.route('/<path:path>', methods=['POST'])
 def catch_all_post(path):

@@ -26,7 +26,6 @@ This file is part of Blockstack Core.
 import re
 import json
 import collections
-import pylibmc
 import logging
 import xmlrpclib
 
@@ -46,9 +45,10 @@ from blockstack_zones import parse_zone_file
 
 from blockstack_client.proxy import get_name_blockchain_record
 
+from api.utils import cache_control, get_mc_client
+
 from .config import DEBUG
-from .config import DEFAULT_HOST, MEMCACHED_SERVERS, MEMCACHED_USERNAME
-from .config import MEMCACHED_PASSWORD, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
+from .config import DEFAULT_HOST, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
 from .config import USERSTATS_TIMEOUT
 from .config import VALID_BLOCKS, RECENT_BLOCKS
 from .config import BLOCKSTACKD_IP, BLOCKSTACKD_PORT
@@ -69,21 +69,7 @@ if DEBUG:
 else:
     log.setLevel(level=logging.INFO)
 
-
-def get_mc_client():
-    """ Return a new connection to memcached
-    """
-
-    mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
-                        username=MEMCACHED_USERNAME,
-                        password=MEMCACHED_PASSWORD,
-                        behaviors={"no_block": True,
-                                   "connect_timeout": 200})
-
-    return mc
-
 mc = get_mc_client()
-
 
 def validName(name):
     """ Return True if valid name
@@ -379,9 +365,12 @@ def get_all_users():
 
     return data
 
+# aaron note: do we need to support multiple users in a query?
+#    this seems like a potential avenue for abuse.
 
 @resolver.route('/v2/users/<usernames>', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')
+@cache_control(MEMCACHED_TIMEOUT)
 def get_users(usernames):
     """ Fetch data from username in .id namespace
     """

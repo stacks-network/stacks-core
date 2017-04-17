@@ -1,3 +1,25 @@
+"""
+    Blockstack Core
+    ~~~~~
+
+    copyright: (c) 2017 by Blockstack.org
+
+This file is part of Blockstack Core.
+
+    Blockstack Core is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Blockstack Core is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Search. If not, see <http://www.gnu.org/licenses/>.
+"""
+
 import os, sys, re, json
 import unittest
 import requests
@@ -6,8 +28,10 @@ import binascii
 
 from test import test_support
 from binascii import hexlify
+
 import api
 
+import api.config
 
 from api.tests.resolver_tests import ResolverTestCase
 from api.tests.search_tests import SearchTestCase
@@ -54,7 +78,6 @@ def check_data(cls, data, required_keys=[], banned_keys=[]):
 
 class PingTest(unittest.TestCase):
     def test_found_user_lookup(self):
-        usernames = 'muneeb.id'
         data = test_get_request(self, "/v1/ping",
                                 headers = {} , status_code=200)
         
@@ -62,7 +85,7 @@ class PingTest(unittest.TestCase):
 
 class LookupUsersTest(unittest.TestCase):
     def build_url(self, username):
-        return '/v1/names/' + username
+        return '/v1/names/{}'.format(username)
 
     def test_found_user_lookup(self):
         usernames = 'muneeb.id'
@@ -74,10 +97,10 @@ class LookupUsersTest(unittest.TestCase):
         self.assertRegexpMatches(data['zonefile_hash'], schemas.OP_ZONEFILE_HASH_PATTERN)
         self.assertRegexpMatches(data['last_txid'], schemas.OP_TXID_PATTERN)
 
-    def test_user_not_found(self):
-        usernames = '----'
+    def test_user_not_formatted(self):
+        usernames = 'muneeb'
         data = test_get_request(self, self.build_url(usernames),
-                                headers = {}, status_code=200)
+                                headers = {}, status_code=500)
         self.assertTrue(data['error'] == 'Failed to lookup name')
 
 
@@ -135,6 +158,37 @@ class NamepriceTest(unittest.TestCase):
         self.assertIn('total_tx_fees', json_keys)
         self.assertIn('update_tx_fee', json_keys)
 
+
+class SearchAPITest(unittest.TestCase):
+    def search_url(self, q):
+        return "/v1/search?query={}".format(q)
+
+    def test_forward_to_search_server(self):
+        u = "muneeb"
+        original = api.config.SEARCH_API_ENDPOINT_ENABLED
+        api.config.SEARCH_API_ENDPOINT_ENABLED = False
+        
+        data = test_get_request(self, self.search_url(u),
+                                headers = {}, status_code=200)
+
+        self.assertTrue(len(data['results']) > 0)
+        self.assertIn(u, data['results'][0]['username'])
+        self.assertIn("profile", data['results'][0].keys())
+
+        api.config.SEARCH_API_ENDPOINT_ENABLED = original
+        
+    def test_search_server(self):
+        u = "muneeb"
+        if not api.config.SEARCH_API_ENDPOINT_ENABLED:
+            print "skipping search server test"
+            return
+        data = test_get_request(self, self.search_url(u),
+                                headers = {}, status_code=200)
+
+        self.assertTrue(len(data['results']) > 0)
+        self.assertIn(u, data['results'][0]['username'])
+        self.assertIn("profile", data['results'][0].keys())
+
 class ConsensusTest(unittest.TestCase):
     def test_id_space(self):
         data = test_get_request(self, "/v1/blockchains/bitcoin/consensus",
@@ -144,9 +198,10 @@ class ConsensusTest(unittest.TestCase):
 
 def test_main(args = []):
     test_classes = [PingTest, LookupUsersTest, NamespaceTest, ConsensusTest,
-                    NamepriceTest, NamesOwnedTest, NameHistoryTest]
+                    NamepriceTest, NamesOwnedTest, NameHistoryTest, SearchAPITest]
     test_classes += [ResolverTestCase]
-    test_classes += [SearchTestCase]
+    if api.config.SEARCH_API_ENDPOINT_ENABLED:
+        test_classes += [SearchTestCase]
 
     test_map = {}
     for t in test_classes:
@@ -154,7 +209,10 @@ def test_main(args = []):
 
 
     with test_support.captured_stdout() as out:
-        test_support.run_unittest(PingTest)
+        try:
+            test_support.run_unittest(PingTest)
+        except Exception as e:
+            print(e)
     out = out.getvalue()
     if out[-3:-1] != "OK":
         print(out)

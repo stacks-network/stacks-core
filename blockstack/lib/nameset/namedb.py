@@ -256,9 +256,18 @@ class BlockstackDB( virtualchain.StateEngine ):
             
         sqlite3_backup( self.get_db_path(), path )
 
+    
+    @classmethod
+    def get_import_keychain_path( cls, keychain_dir, namespace_id ):
+        """
+        Get the path to the import keychain
+        """
+        cached_keychain = os.path.join( keychain_dir, "{}.keychain".format(namespace_id) )
+        return cached_keychain
+
 
     @classmethod
-    def build_import_keychain( cls, namespace_id, pubkey_hex ):
+    def build_import_keychain( cls, namespace_id, pubkey_hex, keychain_dir=None ):
         """
         Generate all possible NAME_IMPORT addresses from the NAMESPACE_REVEAL public key
         """
@@ -266,7 +275,10 @@ class BlockstackDB( virtualchain.StateEngine ):
         pubkey_addr = virtualchain.BitcoinPublicKey( str(pubkey_hex) ).address()
 
         # do we have a cached one on disk?
-        cached_keychain = os.path.join( virtualchain.get_working_dir(), "%s.keychain" % namespace_id )
+        if keychain_dir is None:
+            keychain_dir = virtualchain.get_working_dir()
+
+        cached_keychain = cls.get_import_keychain_path(keychain_dir, namespace_id)
         if os.path.exists( cached_keychain ):
 
             child_addrs = []

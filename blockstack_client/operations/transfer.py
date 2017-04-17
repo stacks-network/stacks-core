@@ -29,7 +29,7 @@ from ..config import *
 from ..scripts import *
 
 import virtualchain
-log = virtualchain.get_logger("blockstack-client")
+log = get_logger("blockstack-client")
 
 
 def transfer_sanity_check( name, consensus_hash ):
@@ -167,6 +167,8 @@ def get_fees( inputs, outputs ):
     if virtualchain.script_hex_to_address( outputs[2]["script_hex"] ) is None:
         return (None, None)
     
+    # should match make_outputs()
+    # the +2 comes from 2 new outputs
     dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     op_fee = DEFAULT_DUST_FEE
     

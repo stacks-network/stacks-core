@@ -2,6 +2,9 @@
 
 ## Ping the node
 
+#### grouping:
+Dashboard Endpoints
+
 #### anchor_tag:
 node_ping
 
@@ -31,6 +34,12 @@ GET
 _end_
 
 ## Get name info
+
+#### grouping:
+Naming API
+
+#### subgrouping:
+Names
 
 #### anchor_tag:
 naming_name_info
@@ -67,6 +76,12 @@ GET
 _end_
 
 ## Get name history
+
+#### grouping:
+Naming API
+
+#### subgrouping:
+Names
 
 #### anchor_tag:
 naming_name_history
@@ -116,6 +131,12 @@ _end_
 
 ## Get names owned
 
+#### grouping:
+Naming API
+
+#### subgrouping:
+Names
+
 #### anchor_tag:
 names_owned
 
@@ -148,6 +169,12 @@ _end_
 
 ## Get all namespaces
 
+#### grouping:
+Naming API
+
+#### subgrouping:
+Names
+
 #### anchor_tag:
 namespaces_all
 
@@ -179,6 +206,12 @@ GET
 _end_
 
 ## Get name price
+
+#### grouping:
+Naming API
+
+#### subgrouping:
+Prices
 
 #### anchor_tag:
 price_name
@@ -231,6 +264,12 @@ _end_
 
 ## Get consensus hash
 
+#### grouping:
+Naming API
+
+#### subgrouping:
+Blockchains
+
 #### anchor_tag:
 blockchains_consensus
 
@@ -261,6 +300,12 @@ GET
 _end_
 
 ## Get profile
+
+#### grouping:
+Identity API
+
+#### subgrouping:
+Profiles
 
 #### anchor_tag:
 identity_get
@@ -328,6 +373,12 @@ _end_
 
 ## Create profile
 
+#### grouping:
+Identity API
+
+#### subgrouping:
+Profiles
+
 #### anchor_tag:
 identity_create
 
@@ -361,6 +412,12 @@ POST
 _end_
 
 ## Update profile
+
+#### grouping:
+Identity API
+
+#### subgrouping:
+Profiles
 
 #### anchor_tag:
 identity_update
@@ -396,6 +453,12 @@ _end_
 
 
 ## Search users
+
+#### grouping:
+Identity API
+
+#### subgrouping:
+Profiles
 
 #### anchor_tag:
 search_users

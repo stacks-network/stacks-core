@@ -29,7 +29,7 @@ from ..config import *
 from ..scripts import *
 
 import virtualchain
-log = virtualchain.get_logger("blockstack-server")
+log = get_logger("blockstack-server")
 
 def update_sanity_test( name, consensus_hash, data_hash ):
     """
@@ -163,6 +163,8 @@ def get_fees( inputs, outputs ):
     if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
         return (None, None)
     
+    # should match make_outputs()
+    # the +1 comes from one new output
     dust_fee = (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     op_fee = 0
     
