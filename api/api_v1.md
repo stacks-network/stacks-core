@@ -320,13 +320,13 @@ Returns an object with profile data.
 GET
 
 #### path_template:
-/v1/users/{username}
+/v2/users/{username}
 
 #### tryit_pathname:
-/v1/users/fredwilson
+/v2/users/fredwilson
 
 #### example_request_bash:
-/v1/users/fredwilson 
+/v2/users/fredwilson
 
 #### example_response:
 {
