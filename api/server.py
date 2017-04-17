@@ -27,6 +27,7 @@ import sys
 import os
 import requests
 import json
+from collections import OrderedDict
 
 from flask import Flask, jsonify, request
 from flask import render_template, send_from_directory
@@ -132,9 +133,6 @@ def catch_all_post(path):
     resp = requests.post(API_URL, data=requests.data)
 
     return jsonify(resp.json()), 200
-
-
-from collections import OrderedDict
 
 @app.route('/')
 @cache_control(5*60)

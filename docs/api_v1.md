@@ -758,118 +758,6 @@ GET
       "vtxindex": 948, 
       "op": "+"
     }
-  ], 
-  "424744": [
-    {
-      "block_number": 373821, 
-      "namespace_id": "id", 
-      "importer_address": "16firc3qZU97D1pWkyL6ZYwPX5UVnWc82V", 
-      "value_hash": "97710672cd3cb335d4f7cf0493efb48cb5275c45", 
-      "consensus_hash": "93ff7f9ced2b9c0061552f7e14396dde", 
-      "txid": "8a68d52d70cf06d819eb72a9a58f4dceda942db792ceb35dd333f43f55fa8713", 
-      "importer": "76a9143e2b5fdd12db7580fb4d3434b31d4fe9124bd9f088ac", 
-      "name_hash128": "deb7fe99776122b77925cbf0a24ab6f8", 
-      "transfer_send_block_id": null, 
-      "preorder_hash": "e58b193cfe867020ed84cc74edde2487889f28fe", 
-      "first_registered": 373821, 
-      "last_creation_op": ";", 
-      "namespace_block_number": 373601, 
-      "address": "1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP", 
-      "op_fee": 100000, 
-      "revoked": false, 
-      "last_renewed": 373821, 
-      "sender": "76a914ff95f5612a26a81e919e4b6e63fdd929fd115d6d88ac", 
-      "name": "muneeb.id", 
-      "sender_pubkey": "0411d88aa37a0eea476a5b63ca4b1cd392ded830865824c27dacef6bde9f9bc53fa13a0926533ef4d20397207e212c2086cbe13db5470fd29616abd35326d33090", 
-      "preorder_block_number": 373821, 
-      "opcode": "NAME_UPDATE", 
-      "vtxindex": 2240, 
-      "op": "+"
-    }
-  ], 
-  "381287": [
-    {
-      "block_number": 373821, 
-      "namespace_id": "id", 
-      "importer_address": "16firc3qZU97D1pWkyL6ZYwPX5UVnWc82V", 
-      "value_hash": "15b4b06e55ba469c2bcac929635a4e56679c6cc6", 
-      "consensus_hash": null, 
-      "txid": "a6a954b9ad0af2d08ffa64d8691e93a2c4e860d7daa630872acff76d13c517f7", 
-      "importer": "76a9143e2b5fdd12db7580fb4d3434b31d4fe9124bd9f088ac", 
-      "name_hash128": "deb7fe99776122b77925cbf0a24ab6f8", 
-      "transfer_send_block_id": null, 
-      "preorder_hash": "e58b193cfe867020ed84cc74edde2487889f28fe", 
-      "first_registered": 373821, 
-      "last_creation_op": ";", 
-      "namespace_block_number": 373601, 
-      "address": "1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP", 
-      "op_fee": 100000, 
-      "revoked": false, 
-      "last_renewed": 373821, 
-      "sender": "76a914ff95f5612a26a81e919e4b6e63fdd929fd115d6d88ac", 
-      "name": "muneeb.id", 
-      "sender_pubkey": "0411d88aa37a0eea476a5b63ca4b1cd392ded830865824c27dacef6bde9f9bc53fa13a0926533ef4d20397207e212c2086cbe13db5470fd29616abd35326d33090", 
-      "preorder_block_number": 373821, 
-      "opcode": "NAME_IMPORT", 
-      "vtxindex": 1362, 
-      "op": ";"
-    }
-  ], 
-  "373821": [
-    {
-      "block_number": 373821, 
-      "namespace_id": "id", 
-      "importer_address": "16firc3qZU97D1pWkyL6ZYwPX5UVnWc82V", 
-      "value_hash": "f15528d0831d2beffed5d609d469cf4064bd0b51", 
-      "consensus_hash": null, 
-      "txid": "f75f58329714fd0455e1283e40cf27b07b933b75f06286874c8328ccedde21f7", 
-      "importer": "76a9143e2b5fdd12db7580fb4d3434b31d4fe9124bd9f088ac", 
-      "name_hash128": "deb7fe99776122b77925cbf0a24ab6f8", 
-      "transfer_send_block_id": null, 
-      "preorder_hash": "e58b193cfe867020ed84cc74edde2487889f28fe", 
-      "first_registered": 373821, 
-      "last_creation_op": ";", 
-      "namespace_block_number": 373601, 
-      "address": "1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP", 
-      "op_fee": 100000.0, 
-      "revoked": false, 
-      "last_renewed": 373821, 
-      "sender": "76a914ff95f5612a26a81e919e4b6e63fdd929fd115d6d88ac", 
-      "name": "muneeb.id", 
-      "sender_pubkey": "0411d88aa37a0eea476a5b63ca4b1cd392ded830865824c27dacef6bde9f9bc53fa13a0926533ef4d20397207e212c2086cbe13db5470fd29616abd35326d33090", 
-      "preorder_block_number": 373821, 
-      "opcode": "NAME_IMPORT", 
-      "vtxindex": 232, 
-      "op": ";"
-    }
-  ], 
-  "456383": [
-    {
-      "block_number": 373821, 
-      "namespace_id": "id", 
-      "importer_address": "16firc3qZU97D1pWkyL6ZYwPX5UVnWc82V", 
-      "value_hash": "b100a68235244b012854a95f9114695679002af9", 
-      "consensus_hash": "36dc9bd59e9ee00370349d0af898144c", 
-      "txid": "1edfa419f7b83f33e00830bc9409210da6c6d1db60f99eda10c835aa339cad6b", 
-      "importer": "76a9143e2b5fdd12db7580fb4d3434b31d4fe9124bd9f088ac", 
-      "name_hash128": "deb7fe99776122b77925cbf0a24ab6f8", 
-      "transfer_send_block_id": null, 
-      "preorder_hash": "e58b193cfe867020ed84cc74edde2487889f28fe", 
-      "first_registered": 373821, 
-      "last_creation_op": ";", 
-      "namespace_block_number": 373601, 
-      "address": "1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP", 
-      "op_fee": 100000, 
-      "revoked": false, 
-      "last_renewed": 373821, 
-      "sender": "76a914ff95f5612a26a81e919e4b6e63fdd929fd115d6d88ac", 
-      "name": "muneeb.id", 
-      "sender_pubkey": "0411d88aa37a0eea476a5b63ca4b1cd392ded830865824c27dacef6bde9f9bc53fa13a0926533ef4d20397207e212c2086cbe13db5470fd29616abd35326d33090", 
-      "preorder_block_number": 373821, 
-      "opcode": "NAME_UPDATE", 
-      "vtxindex": 53, 
-      "op": "+"
-    }
   ]
 }
 
@@ -902,7 +790,19 @@ zonefiles
 GET
 
 #### path_template:
-/names/{name}/zonefile/{zoneFileHash}
+/v1/names/{name}/zonefile/{zoneFileHash}
+
+#### tryit_pathname:
+/v1/names/muneeb.id/zonefile/b100a68235244b012854a95f9114695679002af9
+
+#### example_request_bash:
+/v1/names/muneeb.id/zonefile/b100a68235244b012854a95f9114695679002af9
+
+#### example_response:
+{
+  "zonefile": 
+  "$ORIGIN muneeb.id\n$TTL 3600\n_http._tcp IN URI 10 1 \"https://blockstack.s3.amazonaws.com/muneeb.id\"\n"
+}
 
 _end_
 
