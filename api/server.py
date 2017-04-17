@@ -35,7 +35,7 @@ from flask_https import RequireHTTPS
 from flask_crossdomain import crossdomain
 
 from .parameters import parameters_required
-from .utils import get_api_calls
+from .utils import get_api_calls, cache_control
 from .config import PUBLIC_NODE, PUBLIC_NODE_URL, BASE_API_URL
 from .config import SEARCH_NODE_URL, SEARCH_API_ENDPOINT_ENABLED
 
@@ -135,6 +135,7 @@ def catch_all_post(path):
 
 
 @app.route('/')
+@cache_control(5*60)
 def index():
     current_dir = os.path.abspath(os.path.dirname(__file__))
     api_calls = get_api_calls(current_dir + '/api_v1.md')
