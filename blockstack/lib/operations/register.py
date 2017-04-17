@@ -610,12 +610,5 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     already present in the name record.
     """
     return blockstack_client.operations.register.snv_consensus_extras( name_rec, block_id, blockchain_name_data )
-    '''
-    ret_op = {}
-    
-    # reconstruct the recipient information
-    ret_op['recipient'] = str(name_rec['sender'])
-    ret_op['recipient_address'] = str(name_rec['address'])
-    return ret_op
-    '''
+
 
