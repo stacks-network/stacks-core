@@ -20,7 +20,8 @@ setup(
     scripts=[
         'bin/blockstack-test-scenario',
         'bin/blockstack-test-check-serialization',
-        'bin/blockstack-test-all'
+        'bin/blockstack-test-all',
+        'bin/blockstack-netlog-server',
     ],
     download_url='https://github.com/blockstack/blockstack-integration-tests/archive/master.zip',
     zip_safe=False,
