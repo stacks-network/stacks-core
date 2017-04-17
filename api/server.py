@@ -118,7 +118,8 @@ def search_people():
 @app.route('/<path:path>', methods=['GET'])
 def catch_all_get(path):
     API_URL = BASE_API_URL + '/' + path
-    return forwarded_get(API_URL)
+    params = dict(request.args)
+    return forwarded_get(API_URL, params = params)
 
 @app.route('/<path:path>', methods=['POST'])
 def catch_all_post(path):
