@@ -25,6 +25,7 @@ import socket
 import simplejson
 import threading
 import argparse
+import SimpleHTTPServer
 
 blockstack = None
 blockstackd = None
@@ -48,6 +49,8 @@ if os.environ.get("BLOCKSTACK_STORAGE_DRIVERS", None) is not None:
 BITCOIN_DIR = "/tmp/bitcoin-regtest"
 SCENARIO_PID = os.getpid()
 
+NET_LOG_PATH = "/tmp/blockstack-test-netlog.log"
+
 DEFAULT_SERVER_INI_TEMPLATE = """
 [bitcoind]
 passwd = blockstacksystem
@@ -60,7 +63,7 @@ regtest = True
 spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
 
 [blockstack]
-server_version = 0.14.1
+server_version = 0.14.2
 rpc_port = %s
 backup_frequency = 1
 backup_max_age = 30
@@ -85,7 +88,7 @@ DEFAULT_CLIENT_INI_TEMPLATE = """
 accounts = @CLIENT_ACCOUNTS_PATH@
 users = @CLIENT_USERS_PATH@
 datastores = @CLIENT_DATASTORES_PATH@
-client_version = 0.14.1
+client_version = 0.14.2
 server = localhost
 port = %s
 metadata = @CLIENT_METADATA@
