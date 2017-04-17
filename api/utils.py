@@ -89,7 +89,17 @@ class MarkdownGroup:
             self.subgroups[subgroup] = []
         self.subgroups[subgroup].append(obj)
 
+def run_api_to_markdown_specs(fn_out = '/tmp/api-specs.md', fn_in = 'docs/api_v1.md'):
+    with open(fn_out, 'w') as f_out:
+        write_markdown_spec(f_out, get_api_calls(fn_in))
+
 def write_markdown_spec(f_out, api_calls):
+    """
+    Translates from api_calls dictionary [returned from get_api_calls()]
+    into a markdown spec (i.e., docs/api-specs.md)
+
+    $ python -c "from api.utils import *; f = open('/tmp/foo', 'w'); write_markdown_spec(f, get_api_calls('api/api_v1.md')); f.close()"
+    """
     groups = OrderedDict()
     
     for api_obj in api_calls:
@@ -119,13 +129,114 @@ def write_markdown_spec(f_out, api_calls):
             if len(sg_name) > 0:
                 f_out.write("### {}\n\n".format(sg_name))
             f_out.write("| {} |\n".format(" | ".join(row_headers)))
-            f_out.write("| {} |\n".format(" | ".join(["----" for i in row_headers])))
+            f_out.write("| {} |\n".format(" | ".join(["-------------" for i in row_headers])))
             for item in sg:
                 f_out.write("| {} |\n".format(" | ".join(
                     [item[k] for k in row_headers])))
         f_out.write("\n\n")
         if g.notes:
             f_out.write("#### {}\n\n".format(g.notes))
+
+def run_md_api_specs_to_api_detailed(fn_in = 'docs/api-specs.md', fn_out = 'docs/api_v1.md'):
+    with open(fn_in) as f_in:
+        with open(fn_out, 'w') as f_out:
+            md_api_specs_to_api_detailed(f_in, f_out)
+
+def md_api_specs_to_api_detailed(f_in, f_out):
+    """
+    $ python -c "from api.utils import *; f = open('docs/api-specs.md'); md_api_specs_to_api_detailed(f, None); f.close()"
+    """
+
+    group_header = re.compile(r"""^## (.*)$""", re.DOTALL)
+    subgroup_header = re.compile(r"""^### (.*)$""", re.DOTALL)
+    note_header = re.compile(r"""^#### (.*)$""", re.DOTALL)
+
+    cur_group = None
+    cur_subgroup = None
+    cur_note = None
+    cur_obj = None
+
+    objects = []
+
+    for line in f_in:
+        line = line.strip()
+        if cur_note:
+            if line.startswith("|") or line.startswith("#"):
+                cur_obj["grouping_note"] = "\n".join(cur_note)
+                cur_note = None
+            else:
+                cur_note.append(line)
+
+        matched_head = re.match(group_header, line)
+        if matched_head:
+            cur_group = matched_head.group(1)
+            continue
+        matched_subhead = re.match(subgroup_header, line)
+        if matched_subhead:
+            cur_subgroup = matched_subhead.group(1)
+            continue
+        matched_note_header = re.match(note_header, line)
+        if matched_note_header:
+            cur_note = [matched_note_header.group(1)]
+            continue
+        if line.startswith("|"):
+            row_contents = line.split("|")[1:-1]
+            if row_contents[0].startswith(" Method") or row_contents[0].startswith(" -"):
+                continue
+            else:
+                if cur_obj:
+                    objects.append(cur_obj)
+                cur_obj = {}
+                cur_obj["title"] = row_contents[0].strip()
+                cur_obj["grouping"] = cur_group
+                if cur_subgroup:
+                    cur_obj["subgrouping"] = cur_subgroup
+                cur_obj["notes"] = row_contents[3].strip()
+                api_call = row_contents[1].strip()
+                cur_obj["method"], cur_obj["path_template"] = api_call.split(" ")
+                cur_obj["family"] = row_contents[2].strip()
+                to_anchor_tag = cur_obj["title"].lower().replace(" ", "_").replace("the", "")
+                to_anchor_tag = to_anchor_tag.replace("(", "_").replace("'", "").replace(")", "_")
+                if len(to_anchor_tag) > 20:
+                    to_anchor_tag = to_anchor_tag[:20]
+                cur_obj["anchor_tag"] = to_anchor_tag
+    if cur_note:
+        cur_obj["grouping_note"] = "\n".join(cur_note)
+    if cur_obj:
+        objects.append(cur_obj)
+
+    # now, we write the objects out to a MD file...
+    f_out.write("# API Documentation\n\n")
+
+    keys = ["grouping", "subgrouping", "anchor_tag", "description",
+            "response_description", "notes", "family", "method",
+            "path_template"] #, "tryit_pathname", "example_request_bash","example_response"]
+
+    tryit_attempts = { "name" : "muneeb.id",
+                       "blockchain" : "bitcoin",
+                       "address" : "1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP"}
+    import requests
+
+    for object in objects:
+        f_out.write("## {}\n\n".format(object["title"]))
+        for key in keys:
+            if key in object:
+                f_out.write("#### {}:\n{}\n\n".format(key, object[key]))
+            else:
+                f_out.write("#### {}\n\n\n".format(key))
+        try:
+            if object["method"] == "GET":
+                path_template = object["path_template"]
+                tryit_pathname = path_template.format(**tryit_attempts)
+                get_url = "http://localhost:6270{}".format(tryit_pathname)
+                example_response = json.dumps(requests.get(get_url).json(), indent = 2 )
+                f_out.write("#### {}:\n{}\n\n".format("tryit_pathname", tryit_pathname))
+                f_out.write("#### {}:\n{}\n\n".format("example_request_bash", tryit_pathname))
+                f_out.write("#### {}:\n{}\n\n".format("example_response", example_response))
+                print("example requested: {}".format(path_template))
+        except Exception as e:
+            pass
+        f_out.write("_end_\n\n")
 
 def get_api_calls(filename):
     api_calls = []
