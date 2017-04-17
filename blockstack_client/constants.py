@@ -40,6 +40,9 @@ BLOCKSTACK_DEBUG = os.environ.get('BLOCKSTACK_DEBUG', None)
 BLOCKSTACK_TEST_FIRST_BLOCK = os.environ.get('BLOCKSTACK_TEST_FIRST_BLOCK', None)
 BLOCKSTACK_DRY_RUN = os.environ.get('BLOCKSTACK_DRY_RUN', None)
 
+if BLOCKSTACK_DRY_RUN is not None:
+    BLOCKSTACK_DRY_RUN = True
+    
 DEBUG = False
 if BLOCKSTACK_TEST is not None and BLOCKSTACK_TEST_NODEBUG is None:
     DEBUG = True
@@ -330,6 +333,10 @@ APPROX_UPDATE_TX_LEN = 1240
 APPROX_TRANSFER_TX_LEN = 1240
 APPROX_RENEWAL_TX_LEN = 1240
 APPROX_REVOKE_TX_LEN = 1240
+APPROX_NAMESPACE_PREORDER_TX_LEN = 620
+APPROX_NAMESPACE_REVEAL_TX_LEN = 620
+APPROX_NAMESPACE_READY_TX_LEN = 1240        # assumes three p2pkh inputs (more than required)
+APPROX_NAMESPACE_IMPORT_TX_LEN = 1240       # assumes three p2pkh inputs (more than required)
 
 # for estimating tx lengths, when we can't generate a transaction.
 APPROX_TX_OVERHEAD_LEN = 12

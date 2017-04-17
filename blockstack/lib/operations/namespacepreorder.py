@@ -198,6 +198,3 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     given the block number, the name record at the block number, and the db.
     """
     return blockstack_client.operations.namespacepreorder.snv_consensus_extras( name_rec, block_id, blockchain_name_data )
-    '''
-    return {}
-    '''

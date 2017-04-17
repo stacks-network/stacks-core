@@ -30,7 +30,7 @@ from ..config import *
 from ..scripts import *
 
 import virtualchain
-log = virtualchain.get_logger("blockstack-client")
+log = get_logger("blockstack-client")
 
 
 def build(name):
@@ -118,10 +118,11 @@ def make_transaction(name, recipient_address, update_hash, import_addr, blockcha
 
 def get_fees( inputs, outputs ):
     """
-    Blockstack currently does not allow 
-    the subsidization of namespaces.
+    Return (dust fee, op fee) totals
+    op fee will be zero
+    dust fee is the sum of the minimum output values
     """
-    return (None, None)
+    return ((len(inputs) + 3) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE, 0)
 
 
 def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):

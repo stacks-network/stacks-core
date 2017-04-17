@@ -35,7 +35,7 @@ from .blockchain import (
     can_receive_name, get_tx_confirmations, get_tx_fee
 )
 
-from ..scripts import UTXOException, is_name_valid
+from ..scripts import UTXOException, is_name_valid, is_namespace_valid
 
 log = get_logger('safety')
 
@@ -72,13 +72,52 @@ def check_valid_name(fqu):
     if not is_b40(name):
         msg = (
             'The name specified is invalid. '
-            'Names may only contain alphanumeric characters '
+            'Names may only contain lowercase alphanumeric characters '
             'and underscores.'
         )
 
         return msg
 
+    if len(fqu) > 37 or len(fqu) < 3:
+        msg = (
+            'The name specified is invalid.  '
+            'Fully-qualified names must be between 3 and 37 characters long.'
+        )
+
+        return msg
+
     return 'The name is invalid'
+
+
+def check_valid_namespace(nsid):
+    """
+    Verify that a namespace ID is valid.
+    Return None on success
+    Return an error string on error
+    """
+
+    rc = is_namespace_valid(nsid)
+    if rc:
+        return None
+
+    # get a coherent reason why
+    if '.' in nsid or '+' in nsid:
+        msg = (
+            'The namespace specified is invalid.  '
+            'Namespace IDs cannot have "." or "+" in them.'
+        )
+
+        return msg
+
+    if not is_b40(nsid):
+        msg = (
+            'The namespace specified is invalid.  '
+            'Namespace IDs may only contain alphanumeric characters and underscores.'
+        )
+
+        return msg
+
+    return 'The namespace ID is invalid'
 
 
 class ScatterGatherThread(threading.Thread):
@@ -200,9 +239,9 @@ class ScatterGather(object):
         return self.results
 
 
-def operation_sanity_checks(fqu, operations, scatter_gather, payment_privkey_info, owner_privkey_info, required_checks=[],
+def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privkey_info, owner_privkey_info, required_checks=[],
                             min_confirmations=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH,
-                            transfer_address=None, proxy=None):
+                            transfer_address=None, owner_address=None, proxy=None):
     """
     Do a sanity check on carrying out a sequence of operations on a given name.
     Prime the given scatter/gather context with the set of necessary callbacks.
@@ -236,7 +275,10 @@ def operation_sanity_checks(fqu, operations, scatter_gather, payment_privkey_inf
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    owner_address = get_privkey_info_address(owner_privkey_info)
+    if owner_address is None:
+        assert owner_privkey_info
+        owner_address = get_privkey_info_address(owner_privkey_info)
+
     payment_address = get_privkey_info_address(payment_privkey_info)
     if transfer_address:
         transfer_address = str(transfer_address)
@@ -247,8 +289,8 @@ def operation_sanity_checks(fqu, operations, scatter_gather, payment_privkey_inf
         """
         is name available? (scatter/gather worker)
         """
-        if is_name_registered(fqu, proxy=proxy):
-            return {'error': '{} is already registered.'.format(fqu)}
+        if is_name_registered(fqu_or_ns, proxy=proxy):
+            return {'error': '{} is already registered.'.format(fqu_or_ns)}
         else:
             return {'status': True}
 
@@ -256,8 +298,8 @@ def operation_sanity_checks(fqu, operations, scatter_gather, payment_privkey_inf
         """
         is name taken already? (scatter/gather worker)
         """
-        if not is_name_registered(fqu, proxy=proxy):
-            return {'error': '{} is not registered.'.format(fqu)}
+        if not is_name_registered(fqu_or_ns, proxy=proxy):
+            return {'error': '{} is not registered.'.format(fqu_or_ns)}
         else:
             return {'status': True}
 
@@ -295,8 +337,137 @@ def operation_sanity_checks(fqu, operations, scatter_gather, payment_privkey_inf
             return {'error': res['error']}
 
         else:
-            return {'status': fqu in res}
+            return {'status': fqu_or_ns in res}
 
+    def _is_namespace_available(ns):
+        """
+        Is the given namespace available for preorder/reveal?
+        """
+        if not is_namespace_revealed(ns, proxy=proxy):
+            return {'status': True}
+        else:
+            return {'error': 'Namespace is already revealed'}
+
+    def _is_namespace_still_revealed(fqu_or_ns):
+        """
+        Is the given namespace ready?
+        Takes a fully-qualified name or a namespace ID
+        """
+        ns = fqu_or_ns
+        if '.' in fqu_or_ns:
+            ns = fqu_or_ns.split('.')[1]
+
+        if not is_namespace_revealed(ns, proxy=proxy):
+            return {'error': 'Namespace is not revealed'}
+
+        if is_namespace_ready(ns, proxy=proxy):
+            return {'error': 'Namespace is already launched'}
+
+        return {'status': True}
+
+    def _is_namespace_revealer(ns, reveal_addr):
+        """
+        Is the given reveal address the revealer for this namespace?
+        The namespace must already exist
+        """
+        reveal_addr = virtualchain.address_reencode(reveal_addr)
+        if virtualchain.is_p2sh_address(reveal_addr):
+            return {'error': 'Invalid address; only p2pkh addresses are supported for namespace reveal'}
+
+        res = get_namespace_blockchain_record(ns, proxy=proxy)
+        if 'error' in res:
+            return {'error': res['error']}
+
+        if res['recipient_address'] != reveal_addr:
+            return {'error': 'Wrong namespace reveal address'}
+
+        return {'status': True}
+
+    def _is_namespace_reveal_address_valid(reveal_address):
+        """
+        Is the given address suitable for issuing a namespace reveal?
+        * must be a p2pkh address
+        * must have no outstanding UTXOs
+        """
+        reveal_address = virtualchain.address_reencode(reveal_address)
+        if virtualchain.is_p2sh_address(reveal_address):
+            return {'error': 'Invalid address; only p2pkh addresses are supported for namespace reveal'}
+        
+        if not BLOCKSTACK_TEST:
+            # if we're *NOT* testing, then we also require that the reveal key be absent from the blockchain.
+            utxos = get_utxos(reveal_address, config_path=config_path, min_confirmations=0)
+            if len(utxos) > 0:
+                return {'error': 'Reveal key must not have been used prior to namespace reveal'}
+
+        return {'status': True}
+
+    def _is_name_import_key(fqu_or_ns, import_privkey):
+        """
+        Is the given private key a valid derived key for importing a name
+        into this namespace?
+        * must be a single private key (for p2pkh)
+        * must be derived from the reveal private key
+        * if this is the first name imported, then the key must be equal to the reveal key
+        """
+        import blockstack
+
+        nsid = fqu_or_ns
+        if '.' in fqu_or_ns:
+            nsid = fqu_or_ns.split('.')[1]
+
+        if not is_singlesig(import_privkey):
+            if BLOCKSTACK_TEST:
+                log.debug("Not a single private key: {}".format(import_privkey))
+
+            return {'error': 'Not a single private key'}
+
+        built_keychain = False
+        keychain_dir = os.path.join( os.path.dirname(config_path), 'import_keychains' )
+        if not os.path.exists(keychain_dir):
+            os.makedirs(keychain_dir)
+            built_keychain = True
+
+        keychain_path = blockstack.BlockstackDB.get_import_keychain_path(keychain_dir, nsid)
+        if not os.path.exists(keychain_path):
+            built_keychain = True
+
+        def _cleanup():
+            if built_keychain: 
+                try:
+                    os.unlink(keychain_path)
+                except:
+                    pass
+
+            return
+
+
+        child_addrs = blockstack.BlockstackDB.build_import_keychain( nsid, ecdsa_private_key(import_privkey).public_key().to_hex(), keychain_dir=keychain_dir )
+        import_addr = virtualchain.address_reencode( ecdsa_private_key(import_privkey).public_key().address() )
+
+        if import_addr not in child_addrs:
+            _cleanup()
+            return {'error': 'Invalid import key'}
+
+        # is this the first such name?
+        res = get_num_names_in_namespace(nsid, proxy=proxy)
+        if json_is_error(res):
+            _cleanup()
+            return {'error': res['error']}
+
+        assert type(res) in [int, long]
+        if res == 0:
+            # this must be the same as the revealer key
+            res = get_namespace_blockchain_record(nsid, proxy=proxy)
+            if 'error' in res:
+                _cleanup()
+                return {'error': res['error']}
+
+            if res['recipient_address'] != import_addr:
+                _cleanup()
+                return {'error': 'The first imported name must have the namespace reveal address as its owner'}
+
+        return {'status': True}
+        
     
     check_names = {
         'is_owner_address_usable': lambda: _is_address_usable(owner_address),
@@ -306,6 +477,11 @@ def operation_sanity_checks(fqu, operations, scatter_gather, payment_privkey_inf
         'is_name_registered': _is_name_registered,
         'is_name_owner': lambda: _is_name_owner(owner_address),
         'recipient_can_receive': lambda: _can_receive_name(transfer_address),
+        'is_namespace_available': lambda: _is_namespace_available(fqu_or_ns),
+        'is_namespace_still_revealed': lambda: _is_namespace_still_revealed(fqu_or_ns),
+        'is_namespace_revealer': lambda: _is_namespace_revealer(fqu_or_ns, owner_address),
+        'is_namespace_reveal_address_valid': lambda: _is_namespace_reveal_address_valid(owner_address),
+        'is_name_import_key': lambda: _is_name_import_key(fqu_or_ns, payment_privkey_info)
     }
     
     # common to all operations
@@ -323,7 +499,7 @@ def operation_sanity_checks(fqu, operations, scatter_gather, payment_privkey_inf
         sg.add_task( req, check_names[req] )
 
     # add tasks for fees
-    res = get_operation_fees(fqu, operations, sg, payment_privkey_info, owner_privkey_info,
+    res = get_operation_fees(fqu_or_ns, operations, sg, payment_privkey_info, owner_privkey_info,
                              payment_address=payment_address, owner_address=owner_address, transfer_address=transfer_address,
                              min_payment_confs=min_confirmations, config_path=config_path, proxy=proxy )
 
@@ -331,13 +507,13 @@ def operation_sanity_checks(fqu, operations, scatter_gather, payment_privkey_inf
         log.error("Failed to get operation fees: {}".format(res['error']))
         return {'error': 'Failed to calculate transaction fees'}
 
-    log.debug("Queued tasks for {} on {}: {}".format(', '.join(operations), fqu, ', '.join(sorted(sg.tasks.keys()))))
+    log.debug("Queued tasks for {} on {}: {}".format(', '.join(operations), fqu_or_ns, ', '.join(sorted(sg.tasks.keys()))))
 
     # scatter/gather primed!
     return {'status': True}
 
 
-def interpret_operation_sanity_checks( name, operations, scatter_gather ):
+def interpret_operation_sanity_checks( operations, scatter_gather ):
     """
     Interpret the set of scatter/gather task results.
     """
@@ -371,14 +547,15 @@ def interpret_operation_sanity_checks( name, operations, scatter_gather ):
     return reply
 
 
-def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, owner_privkey_info,
+def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_info, owner_privkey_info,
                        proxy=None, config_path=CONFIG_PATH, payment_address=None,
                        min_payment_confs=TX_MIN_CONFIRMATIONS, owner_address=None, transfer_address=None):
     """
     Given a list of operations and a scatter/gather context,
     go prime it to fetch the cost of each operation.
     
-    Operations must be a list containing 'preorder', 'register', 'update', 'transfer', 'revoke', or 'renewal'
+    Operations must be a list containing 'preorder', 'register', 'update', 'transfer', 'revoke',
+    'renewal', 'namespace_preorder', 'namespace_reveal', 'namespace_ready', or 'import'
 
     The scatter/gather context, when executed, will yield
     the following results:
@@ -391,6 +568,9 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
         Preorder and Renewal will also have:
         * "name_cost": the cost of the name itself
 
+        Namespace preorder will have:
+        * "namespace_cost": the cost of the namespace
+
     Task results will be named after their operations.
 
     Return {'status': True} on success
@@ -401,7 +581,9 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
     from .nameops import (
         estimate_preorder_tx_fee, estimate_register_tx_fee,
         estimate_update_tx_fee, estimate_transfer_tx_fee,
-        estimate_renewal_tx_fee, estimate_revoke_tx_fee
+        estimate_renewal_tx_fee, estimate_revoke_tx_fee,
+        estimate_namespace_preorder_tx_fee, estimate_namespace_reveal_tx_fee,
+        estimate_namespace_ready_tx_fee, estimate_name_import_tx_fee
     )
 
     if payment_privkey_info is not None:
@@ -410,7 +592,7 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
     if owner_privkey_info is not None:
         owner_address = get_privkey_info_address(owner_privkey_info)
 
-    # fee estimation: cost of name + cost of preorder transaction +
+    # fee estimation: cost of name_or_ns + cost of preorder transaction +
     # cost of registration transaction + cost of update transaction + cost of transfer transaction
 
     reply = {}
@@ -427,7 +609,11 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
     if 'transfer' in operations:
         assert transfer_address, "Transfer address required"
 
-    log.debug("Get total operation fees for running '{}' on {} owned by {} paid by {}".format(','.join(operations), name, owner_address, payment_address))
+    namespace_operations = ['namespace_preorder', 'namespace_reveal', 'namespace_ready']
+    if len(set(operations).intersection(set(namespace_operations))) > 0:
+        assert len(set(operations) - set(namespace_operations)) == 0, "Mixed name and namespace operations"
+
+    log.debug("Get total operation fees for running '{}' on {} owned by {} paid by {}".format(','.join(operations), name_or_ns, owner_address, payment_address))
 
     def _get_balance():
         """
@@ -448,7 +634,7 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
         """
         name_cost = None
         try:
-            res = get_name_cost(name, proxy=proxy)
+            res = get_name_cost(name_or_ns, proxy=proxy)
             if 'error' in res:
                 return {'error': 'Failed to get name cost'}
 
@@ -463,7 +649,7 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
 
             insufficient_funds = False
             preorder_tx_fee = estimate_preorder_tx_fee(
-                name, name_cost, owner_address, payment_address, utxo_client,
+                name_or_ns, name_cost, owner_address, payment_address, utxo_client,
                 owner_privkey_params=owner_privkey_params, min_payment_confs=min_payment_confs,
                 config_path=config_path, include_dust=True
             )
@@ -478,11 +664,11 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
             return {'status': True, 'name_cost': name_cost, 'tx_fee': preorder_tx_fee, 'insufficient': insufficient_funds}
 
         except UTXOException as ue:
-            log.error('Failed to query UTXO provider.')
+            log.error('Failed to query UTXO provider for name preorder.')
             if BLOCKSTACK_DEBUG is not None:
                 log.exception(ue)
 
-            return {'error': 'Failed to query UTXO provider.  Please try again.'}
+            return {'error': 'Failed to query UTXO provider for NAME_PREORDER fee estimation.  Please try again.'}
 
 
     def _estimate_register_tx():
@@ -498,7 +684,7 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
 
             insufficient_funds = False
             register_tx_fee = estimate_register_tx_fee(
-                name, owner_address, payment_address, utxo_client,
+                name_or_ns, owner_address, payment_address, utxo_client,
                 owner_privkey_params=owner_privkey_params,
                 config_path=config_path, include_dust=True
             )
@@ -512,11 +698,11 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
             return {'status': True, 'tx_fee': register_tx_fee, 'insufficient': insufficient_funds}
 
         except UTXOException as ue:
-            log.error('Failed to query UTXO provider.')
+            log.error('Failed to query UTXO provider for name registration.')
             if BLOCKSTACK_DEBUG is not None:
                 log.exception(ue)
 
-            return {'error': 'Failed to query UTXO provider.  Please try again.'}
+            return {'error': 'Failed to query UTXO provider for NAME_REGISTRATION fee estimation.  Please try again.'}
 
 
     def _estimate_update_tx():
@@ -532,7 +718,7 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
             insufficient_funds = False
             estimate = False
             update_tx_fee = estimate_update_tx_fee(
-                name, payment_privkey_info, owner_address, utxo_client,
+                name_or_ns, payment_privkey_info, owner_address, utxo_client,
                 owner_privkey_params=owner_privkey_params,
                 config_path=config_path, payment_address=payment_address, include_dust=True
             )
@@ -550,11 +736,11 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
             return {'status': True, 'tx_fee': update_tx_fee, 'insufficient': insufficient_funds, 'estimate': estimate}
 
         except UTXOException as ue:
-            log.error('Failed to query UTXO provider.')
+            log.error('Failed to query UTXO provider for name update.')
             if BLOCKSTACK_DEBUG is not None:
                 log.exception(ue)
 
-            return {'error': 'Failed to query UTXO provider.  Please try again.'}
+            return {'error': 'Failed to query UTXO provider for NAME_UPDATE fee estimation.  Please try again.'}
 
     
     def _estimate_transfer_tx():
@@ -573,7 +759,7 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
                 estimate = False
 
                 transfer_tx_fee = estimate_transfer_tx_fee(
-                    name, payment_privkey_info, owner_address, utxo_client,
+                    name_or_ns, payment_privkey_info, owner_address, utxo_client,
                     owner_privkey_params=owner_privkey_params,
                     config_path=config_path, payment_address=payment_address, include_dust=True
                 )
@@ -594,11 +780,11 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
                 return {'error': 'No transfer address'}
 
         except UTXOException as ue:
-            log.error('Failed to query UTXO provider.')
+            log.error('Failed to query UTXO provider for name transfer.')
             if BLOCKSTACK_DEBUG is not None:
                 log.exception(ue)
 
-            return {'error': 'Failed to query UTXO provider.  Please try again.'}
+            return {'error': 'Failed to query UTXO provider for NAME_TRANSFER fee estimation.  Please try again.'}
 
 
     def _estimate_revoke_tx():
@@ -615,7 +801,7 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
             estimate = False
 
             tx_fee = estimate_revoke_tx_fee(
-                name, payment_privkey_info, owner_address, utxo_client,
+                name_or_ns, payment_privkey_info, owner_address, utxo_client,
                 owner_privkey_params=owner_privkey_params,
                 config_path=config_path, include_dust=True
             )
@@ -633,11 +819,11 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
             return {'status': True, 'tx_fee': tx_fee, 'insufficient': insufficient_funds, 'estimate': estimate}
 
         except UTXOException as ue:
-            log.error('Failed to query UTXO provider.')
+            log.error('Failed to query UTXO provider for name revoke.')
             if BLOCKSTACK_DEBUG is not None:
                 log.exception(ue)
 
-            return {'error': 'Failed to query UTXO provider.  Please try again.'}
+            return {'error': 'Failed to query UTXO provider for NAME_REVOKE fee estimation.  Please try again.'}
 
 
     def _estimate_renewal_tx():
@@ -648,7 +834,7 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
         """
         name_cost = None
         try:
-            res = get_name_cost(name, proxy=proxy)
+            res = get_name_cost(name_or_ns, proxy=proxy)
             name_cost = res['satoshis']
         except Exception as e:
             log.exception(e)
@@ -662,7 +848,7 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
             estimate = False
 
             tx_fee = estimate_renewal_tx_fee(
-                name, name_cost, payment_privkey_info, owner_privkey_info, utxo_client,
+                name_or_ns, name_cost, payment_privkey_info, owner_privkey_info, utxo_client,
                 config_path=config_path, include_dust=True
             )
 
@@ -679,11 +865,147 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
             return {'status': True, 'name_cost': name_cost, 'tx_fee': tx_fee, 'insufficient': insufficient_funds, 'estimate': estimate}
 
         except UTXOException as ue:
-            log.error('Failed to query UTXO provider.')
+            log.error('Failed to query UTXO provider for name renewal.')
             if BLOCKSTACK_DEBUG is not None:
                 log.exception(ue)
 
-            return {'error': 'Failed to query UTXO provider.  Please try again.'}
+            return {'error': 'Failed to query UTXO provider for NAME_RENEWAL fee estimation.  Please try again.'}
+
+
+    def _estimate_namespace_preorder_tx():
+        """
+        Estimate namespace preorder tx fee
+        Return {'status': True, 'namespace_cost': ..., 'tx_fee': ..., 'insufficient': ..., 'estimate': ...} on success
+        Return {'error': ...} on failure
+        """
+        namespace_cost = None
+        tx_fee = None
+        insufficient_funds = False
+        estimate = False
+
+        try:
+            res = get_namespace_cost(name_or_ns, proxy=proxy)
+            namespace_cost = res['satoshis']
+        except Exception as e:
+            log.exception(e)
+            return {'error': 'Could not get namespace price'}
+
+        try:
+            utxo_client = get_utxo_provider_client(config_path=config_path)
+            tx_fee = estimate_namespace_preorder_tx_fee( name_or_ns, namespace_cost, payment_address, utxo_client, config_path=config_path, include_dust=True )
+            
+            if tx_fee is not None:
+                tx_fee = int(tx_fee)
+
+            else:
+                tx_fee = get_tx_fee('00' * APPROX_NAMESPACE_PREORDER_TX_LEN, config_path=config_path)
+                insufficient_funds = True
+
+            return {'status': True, 'namespace_cost': namespace_cost, 'tx_fee': tx_fee, 'insufficient': insufficient_funds, 'estimate': estimate}
+
+        except UTXOException as ue:
+            log.error("Failed to query UTXO provider for namespace preorder.")
+            if BLOCKSTACK_DEBUG is not None:
+                log.exception(ue)
+
+            return {'error': 'Failed to query UTXO provider for NAMESPACE_PREORDER fee estimation.  Please try again.'}
+
+
+    def _estimate_namespace_reveal_tx():
+        """
+        Estimate namespace reveal tx fee
+        payment_address here corresponds to the NAMESPACE_PREORDER key's address
+        Return {'status': True, 'tx_fee': ..., 'insufficient': .., 'estimate': ...} on success
+        Return {'error': ...} on failure
+        """
+        tx_fee = None
+        insufficient_funds = False
+        estimate = False
+
+        try:
+            utxo_client = get_utxo_provider_client(config_path=config_path)
+            tx_fee = estimate_namespace_reveal_tx_fee( name_or_ns, payment_address, utxo_client, config_path=config_path, include_dust=True )
+
+            if tx_fee is not None:
+                tx_fee = int(tx_fee)
+
+            else:
+                tx_fee = get_tx_fee('00' * APPROX_NAMESPACE_REVEAL_TX_LEN, config_path=config_path)
+                insufficient_funds = True
+
+            return {'status': True, 'tx_fee': tx_fee, 'insufficient': insufficient_funds, 'estimate': estimate}
+
+        except UTXOException as ue:
+            log.error("Failed to query UTXO provider for namespace reveal.")
+            if BLOCKSTACK_DEBUG is not None:
+                log.exception(ue)
+
+            return {'error': 'Failed to query UTXO provider for NAMESPACE_REVEAL fee estimation.  Please try again.'}
+
+
+    def _estimate_namespace_ready_tx():
+        """
+        Estimate namespace ready tx fee
+        payment_address here corresponds to the reveal address (i.e. the reveal key pays for the NAMESPACE_READY)
+        Return {'status': True, 'tx_fee': ..., 'insufficient': ..., 'estimate': ...} on success
+        Return {'error': ...} on failure
+        """
+        tx_fee = None
+        insufficient_funds = False
+        estimate = False
+
+        try:
+            utxo_client = get_utxo_provider_client(config_path=config_path)
+            tx_fee = estimate_namespace_ready_tx_fee( name_or_ns, payment_address, utxo_client, config_path=config_path, include_dust=True )
+            
+            if tx_fee is not None:
+                tx_fee = int(tx_fee)
+
+            else:
+                tx_fee = get_tx_fee('00' * APPROX_NAMESPACE_READY_TX_LEN, config_path=config_path)
+                insufficient_funds = True
+
+            return {'status': True, 'tx_fee': tx_fee, 'insufficient': insufficient_funds, 'estimate': estimate}
+
+        except UTXOException as ue:
+            log.error("Failed to query UTXO provider for namespace ready")
+            if BLOCKSTACK_DEBUG is not None:
+                log.exception(ue)
+
+            return {'error': 'Failed to query UTXO provider for NAMESPACE_READY fee estimation.  Please try again'}
+
+
+    def _estimate_name_import_tx():
+        """
+        Estimate name import tx fee
+        payment_address is address of the derived reveal key used to issue the import
+        Return {'status': True, 'tx_fee': ..., 'insufficient': ..., 'estimate': ...} on success
+        Return {'error': ...} on failure
+        """
+        tx_fee = None
+        insufficient_funds = False
+        estimate = False
+
+        try:
+            utxo_client = get_utxo_provider_client(config_path=config_path)
+            tx_fee = estimate_name_import_tx_fee( name_or_ns, payment_address, utxo_client, config_path=config_path, include_dust=True )
+
+            if tx_fee is not None:
+                tx_fee = int(tx_fee)
+
+            else:
+                tx_fee = get_tx_fee('00' * APPROX_NAME_IMPORT_TX_LEN, config_path=config_path)
+                insufficient_funds = True
+
+            return {'status': True, 'tx_fee': tx_fee, 'insufficient': insufficient_funds, 'estimate': estimate}
+
+        except UTXOException as ue:
+            log.error("Failed to query UTXO provider for name import.")
+            if BLOCKSTACK_DEBUG is not None:
+                log.exception(ue)
+
+            return {'error': 'Failed to query UTXO provider for NAME_IMPORT fee estimation.  Please try again'}
+
 
     sg = scatter_gather
     assert sg
@@ -695,6 +1017,10 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
         'transfer': _estimate_transfer_tx,
         'revoke': _estimate_revoke_tx,
         'renewal': _estimate_renewal_tx,
+        'namespace_preorder': _estimate_namespace_preorder_tx,
+        'namespace_reveal': _estimate_namespace_reveal_tx,
+        'namespace_ready': _estimate_namespace_ready_tx,
+        'name_import': _estimate_name_import_tx
     }
 
     sg.add_task('get_balance', _get_balance)
@@ -726,7 +1052,12 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
         * transfer_tx_fee
         * renewal_tx_fee
         * revoke_tx_fee
+        * namespace_preorder_tx_fee
+        * namespace_reveal_tx_fee
+        * namespace_ready_tx_fee
+        * name_import_tx_fee
         * name_price
+        * namespace_price
         * total_estimated_cost
         * warnings
     Return {'error': ...} if an operation failed
@@ -781,6 +1112,12 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
             total_cost += int(task_res['name_cost'])
             reply['name_price'] = int(task_res['name_cost'])
 
+        if 'namespace_cost' in task_res.keys():
+            log.debug("{} +{} satoshis (namespace cost)".format(tx_fee_task, int(task_res['namespace_cost'])))
+            total_cost += int(task_res['namespace_cost'])
+            reply['namespace_price'] = int(task_res['namespace_cost'])
+
+
     log.debug('Total cost of {} is {} satoshis'.format(','.join(operations), total_cost))
 
     reply['total_tx_fees'] = total_tx_fees
@@ -803,7 +1140,7 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
     return reply
 
 
-def check_operations( fqu, operations, owner_privkey_info, payment_privkey_info, required_checks=[], transfer_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey_info, required_checks=[], transfer_address=None, owner_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
     """
     Verify that an operation sequence can be performed, given the set of sanity checks that must pass.
     Return {'status': True, 'opchecks': {...}} if so
@@ -812,15 +1149,14 @@ def check_operations( fqu, operations, owner_privkey_info, payment_privkey_info,
     
     assert len(required_checks) > 0, "Missing required checks"
 
-    log.debug("Check {} on {}: test {}".format(', '.join(operations), fqu, ', '.join(required_checks)))
+    log.debug("Check {} on {}: test {}".format(', '.join(operations), fqu_or_ns, ', '.join(required_checks)))
 
-    owner_address = get_privkey_info_address(owner_privkey_info)
     payment_address = get_privkey_info_address(payment_privkey_info)
 
     sg = ScatterGather()
 
-    res = operation_sanity_checks(fqu, operations, sg, payment_privkey_info, owner_privkey_info,
-                                  required_checks=required_checks,
+    res = operation_sanity_checks(fqu_or_ns, operations, sg, payment_privkey_info, owner_privkey_info,
+                                  required_checks=required_checks, owner_address=owner_address,
                                   min_confirmations=min_payment_confs, config_path=config_path,
                                   transfer_address=transfer_address, proxy=proxy )
 
@@ -830,7 +1166,7 @@ def check_operations( fqu, operations, owner_privkey_info, payment_privkey_info,
 
     sg.run_tasks()
 
-    opchecks = interpret_operation_sanity_checks( fqu, operations, sg )
+    opchecks = interpret_operation_sanity_checks( operations, sg )
     if 'error' in opchecks:
         log.error("Failed to interpret operation sanity checks")
         return {'error': 'Failed operation sanity checks:\n{}'.format(opchecks['error']), 'opchecks': opchecks}
@@ -866,18 +1202,17 @@ def check_operations( fqu, operations, owner_privkey_info, payment_privkey_info,
     return {'status': True, 'opchecks': opchecks}
 
 
-def _check_op(fqu, operation, required_checks, owner_privkey_info, payment_privkey_info, transfer_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+def _check_op(fqu_or_ns, operation, required_checks, owner_privkey_info, payment_privkey_info, owner_address=None, transfer_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
     """
     Check an operation
     Return {'status': True, 'opchecks': {...}, 'tx_fee': ...} on success
     Return {'error': ...} on error
     """
     # find tx fee, and do sanity checks
-    assert owner_privkey_info
     assert payment_privkey_info
 
-    res = check_operations( fqu, [operation], owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs,
-                            transfer_address=transfer_address, required_checks=required_checks, config_path=config_path, proxy=proxy )
+    res = check_operations( fqu_or_ns, [operation], owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs,
+                            transfer_address=transfer_address, owner_address=owner_address, required_checks=required_checks, config_path=config_path, proxy=proxy )
 
     opchecks = res.get('opchecks', None)
     tx_fee = None
@@ -983,3 +1318,41 @@ def check_revoke(fqu, owner_privkey_info, payment_privkey_info, min_payment_conf
     required_checks = ['is_name_registered', 'is_name_owner', 'is_owner_address_usable', 'is_payment_address_usable']
     return _check_op(fqu, 'revoke', required_checks, owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy )
 
+
+def check_namespace_preorder(nsid, payment_privkey_info, reveal_address, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+    """
+    Verify that a namespace preorder can go through
+    @payment_privkey_info is the private key information for the payment private key (that will pay the namespace cost and both the preorder and reveal fees)
+    @reveal_address is the address of the reveal key (but will be treated as the "owner" address by the op-checker)
+    """
+    required_checks = ['is_namespace_available', 'is_payment_address_usable', 'is_namespace_reveal_address_valid']
+    return _check_op(nsid, 'namespace_preorder', required_checks, None, payment_privkey_info, owner_address=reveal_address, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)
+
+
+def check_namespace_reveal(nsid, payment_privkey_info, reveal_address, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+    """
+    Verify that a namespace reveal can go through
+    @payment_privkey_info is the private key information for the payment private key (that will pay for the tx fee)
+    @reveal_address is the address of the reveal key (but will be treated as the "owner" address by the op-checker)
+    """
+    required_checks = ['is_namespace_available', 'is_payment_address_usable', 'is_namespace_reveal_address_valid']
+    return _check_op(nsid, 'namespace_reveal', required_checks, None, payment_privkey_info, owner_address=reveal_address, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy )
+
+
+def check_namespace_ready(nsid, reveal_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+    """
+    Verify that a namespace ready can go through
+    @reveal_privkey_info is the private key information for the reveal private key (but will be treated as the "payment" key for the op-checker)
+    """
+    required_checks = ['is_namespace_reveal_address_valid', 'is_namespace_revealer', 'is_namespace_still_revealed', 'is_payment_address_usable']
+    reveal_addr = virtualchain.address_reencode( ecdsa_private_key(reveal_privkey_info).public_key().address() )
+    return _check_op(nsid, 'namespace_ready', required_checks, None, reveal_privkey_info, owner_address=reveal_addr, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)
+
+
+def check_name_import(name, importer_privkey_info, recipient_address, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+    """
+    Verify that a name import can go through
+    @importer_privkey_info is the private key information derived from the reveal private key.  It will be used as the "payment" key by the op-checker
+    """
+    required_checks = ['is_namespace_still_revealed', 'is_payment_address_usable', 'is_name_import_key', 'owner_can_receive']
+    return _check_op(name, 'name_import', required_checks, None, importer_privkey_info, owner_address=recipient_address, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)

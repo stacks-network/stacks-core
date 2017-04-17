@@ -905,7 +905,7 @@ def put_immutable_data(data_text, txid, data_hash=None, required=None, skip=None
     return None if successes == 0 and required_successes == len(required) else data_hash
 
 
-def put_mutable_data(fq_data_id, data_text_or_json, data_privkey=None, data_pubkey=None, data_signature=None, profile=False, blockchain_id=None, required=None, skip=None, required_exclusive=False):
+def put_mutable_data(fq_data_id, data_text_or_json, sign=True, data_privkey=None, data_pubkey=None, data_signature=None, profile=False, blockchain_id=None, required=None, skip=None, required_exclusive=False):
     """
     Given the unserialized data, store it into our mutable data stores.
     Do so in a best-effort way.  This method fails if all storage providers fail,
@@ -933,11 +933,15 @@ def put_mutable_data(fq_data_id, data_text_or_json, data_privkey=None, data_pubk
 
         data_pubkey = get_pubkey_hex( data_privkey )
 
-    else:
+    elif sign:
         assert data_pubkey is not None
         assert data_signature is not None
 
-    serialized_data = serialize_mutable_data(data_text_or_json, data_privkey=data_privkey, data_pubkey=data_pubkey, data_signature=data_signature, profile=profile)
+    serialized_data = None
+    if sign:
+        serialized_data = serialize_mutable_data(data_text_or_json, data_privkey=data_privkey, data_pubkey=data_pubkey, data_signature=data_signature, profile=profile)
+    else:
+        serialized_data = data_text_or_json
     
     successes = 0
     required_successes = 0

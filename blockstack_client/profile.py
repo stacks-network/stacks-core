@@ -142,7 +142,7 @@ def put_profile(name, new_profile, blockchain_id=None, user_data_privkey=None, u
         )
 
     rc = storage.put_mutable_data(
-        name, profile_payload, user_data_privkey,
+        name, profile_payload, data_privkey=user_data_privkey,
         required=required_storage_drivers,
         profile=True, blockchain_id=blockchain_id
     )

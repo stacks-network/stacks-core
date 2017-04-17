@@ -44,7 +44,7 @@ from ..utils import pretty_dump
 
 from ..config import PREORDER_CONFIRMATIONS, DEFAULT_QUEUE_PATH, CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster, RPC_MAX_ZONEFILE_LEN, RPC_MAX_PROFILE_LEN
 from ..config import get_logger, APPROX_TX_IN_P2PKH_LEN, APPROX_TX_OUT_P2PKH_LEN, APPROX_TX_OVERHEAD_LEN, APPROX_TX_IN_P2SH_LEN, APPROX_TX_OUT_P2SH_LEN
-from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS
+from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS, BLOCKSTACK_DRY_RUN
 
 from ..proxy import get_default_proxy
 from ..proxy import getinfo as blockstack_getinfo
@@ -60,7 +60,7 @@ from ..scripts import tx_make_subsidizable
 from ..storage import get_blockchain_compat_hash, hash_zonefile, put_announcement, get_zonefile_data_hash
 
 from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration, fees_preorder, \
-        fees_namespace_preorder, fees_namespace_reveal, fees_namespace_ready, fees_announce
+        fees_namespace_preorder, fees_namespace_reveal, fees_namespace_ready, fees_name_import, fees_announce
 
 from ..keys import get_privkey_info_address, get_privkey_info_params, ecdsa_private_key
 
@@ -556,35 +556,33 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
         log.error("Failed to get tx fee")
         return None
 
-    log.debug("revoke tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx)/2, int(tx_fee)))
-
     if include_dust:
         dust_fee = estimate_dust_fee( unsigned_tx, fees_revoke )    # must be unsigned tx, without subsidy
         assert dust_fee is not None
         log.debug("Additional dust fee: %s" % dust_fee)
         tx_fee += dust_fee
 
+    log.debug("revoke tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx)/2, int(tx_fee)))
+
     return tx_fee
 
 
-def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
+def estimate_name_import_tx_fee( fqu, reveal_addr, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a name import.
     Return the number of satoshis on success
     Return None on error
-
-    TODO: no dust fee estimation available for imports
     """
 
-    assert payment_addr
-    payment_addr = str(payment_addr)
+    assert reveal_addr
+    reveal_addr = str(reveal_addr)
 
     fake_privkey = '5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX'   # fake private key (NOTE: NAME_IMPORT only supports p2pkh)
     fake_zonefile_hash = '20b512149140494c0f7d565023973226908f6940'
     fake_recipient_address = virtualchain.address_reencode('1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q')
 
     try:
-        unsigned_tx = name_import_tx( fqu, fake_recipient_address, fake_zonefile_hash, payment_addr, utxo_client )
+        unsigned_tx = name_import_tx( fqu, fake_recipient_address, fake_zonefile_hash, reveal_addr, utxo_client )
         signed_tx = sign_tx( unsigned_tx, fake_privkey )
     except ValueError, ve:
         if os.environ.get("BLOCKSTACK_TEST") == "1":
@@ -598,7 +596,14 @@ def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CON
         log.error("Failed to get tx fee")
         return None
 
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_name_import )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     log.debug("name import tx %s bytes, %s satoshis txfee" % (len(signed_tx)/2, int(tx_fee)))
+
     return tx_fee
 
 
@@ -607,8 +612,6 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
     Estimate the transaction fee of a namespace preorder
     Return the number of satoshis on success
     Return None on error
-
-    TODO: no dust fee estimation available for namespace preorder
     """
 
     assert payment_address
@@ -632,6 +635,13 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
     if tx_fee is None:
         log.error("Failed to get tx fee")
         return None
+    
+    dust_fee = 0
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_namespace_preorder )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
 
     log.debug("namespace preorder tx %s bytes, %s satoshis" % (len(signed_tx)/2, int(tx_fee)))
     return tx_fee
@@ -642,8 +652,6 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
     Estimate the transaction fee of a namespace reveal
     Return the number of satoshis on success
     Return None on error
-
-    TODO: no dust estimation available for namespace reveal
     """
 
     assert payment_address
@@ -706,6 +714,13 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
     if tx_fee is None:
         log.error("Failed to get tx fee")
         return None
+
+    dust_fee = 0
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_namespace_ready )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
 
     log.debug("namespace ready tx %s bytes, %s satoshis txfee" % (len(signed_tx)/2, int(tx_fee)))
 
@@ -877,7 +892,7 @@ def deduce_privkey_params( address=None, privkey_info=None, privkey_params=(None
     raise AssertionError("Unable to deduce private key params")
 
 
-def do_blockchain_tx( unsigned_tx, privkey_info=None, config_path=CONFIG_PATH, tx_broadcaster=None, dry_run=False ):
+def do_blockchain_tx( unsigned_tx, privkey_info=None, config_path=CONFIG_PATH, tx_broadcaster=None, dry_run=BLOCKSTACK_DRY_RUN ):
     """
     Sign and/or broadcast a subsidized transaction.
     If dry_run is True, then don't actually send the transaction (and don't bother signing it if no key is given).
@@ -916,7 +931,7 @@ def do_blockchain_tx( unsigned_tx, privkey_info=None, config_path=CONFIG_PATH, t
 
 def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, utxo_client, tx_broadcaster, tx_fee=None,
                  config_path=CONFIG_PATH, owner_address=None, payment_address=None, payment_utxos=None,
-                 min_payment_confs=TX_MIN_CONFIRMATIONS, proxy=None, consensus_hash=None, dry_run=False, safety_checks=True ):
+                 min_payment_confs=TX_MIN_CONFIRMATIONS, proxy=None, consensus_hash=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
     Preorder a name.
 
@@ -995,7 +1010,7 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
 
 def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster, tx_fee=None,
                  config_path=CONFIG_PATH, owner_address=None, payment_address=None, payment_utxos=None,
-                 proxy=None, dry_run=False, safety_checks=True ):
+                 proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
 
     """
     Register a name
@@ -1061,7 +1076,7 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
 
 def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, tx_fee=None,
                owner_address=None, owner_utxos=None, payment_address=None, payment_utxos=None,
-               config_path=CONFIG_PATH, proxy=None, consensus_hash=None, dry_run=False, safety_checks=True ):
+               config_path=CONFIG_PATH, proxy=None, consensus_hash=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
     Put a new zonefile hash for a name.
 
@@ -1169,7 +1184,7 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
 
 
 def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, tx_fee=None,
-                 config_path=CONFIG_PATH, proxy=None, consensus_hash=None, dry_run=False, safety_checks=True ):
+                 config_path=CONFIG_PATH, proxy=None, consensus_hash=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
     Transfer a name to a new address
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1235,7 +1250,7 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
     return resp
 
 
-def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster, tx_fee=None, config_path=CONFIG_PATH, proxy=None, dry_run=False, safety_checks=True ):
+def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster, tx_fee=None, config_path=CONFIG_PATH, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
     Renew a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1295,7 +1310,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     return resp
 
 
-def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, tx_fee=None, proxy=None, dry_run=False, safety_checks=True):
+def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, tx_fee=None, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True):
     """
     Revoke a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1348,7 +1363,7 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
     return resp
 
 
-def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True, dry_run=False ):
+def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, tx_fee=None, proxy=None, safety_checks=True, dry_run=BLOCKSTACK_DRY_RUN ):
     """
     Import a name
     Return {'status': True, 'transaction_hash': ..., 'value_hash': ...} on success
@@ -1359,19 +1374,23 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
 
     fqu = str(fqu)
     payment_address = None
+    
+    if not dry_run and (safety_checks or tx_fee is None):
+        res = check_name_import(fqu, importer_privkey_info, recipient_address, config_path=config_path, proxy=proxy)
+        if 'error' in res and safety_checks:
+            log.error("Failed to check name import: {}".format(res['error']))
+            return res
+
+        if tx_fee is None:
+            tx_fee = res['tx_fee']
+
+        assert tx_fee, "Missing tx fee"
 
     try:
         payment_address = virtualchain.address_reencode( ecdsa_private_key( importer_privkey_info ).public_key().address() )
     except Exception, e:
         log.exception(e)
         return {'error': 'Import can only use a single private key with a P2PKH script'}
-
-    log.debug("Import {} with {}".format(fqu, payment_address))
-
-    tx_fee = estimate_name_import_tx_fee( fqu, payment_address, utxo_client, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to estimate name import tx fee")
-        return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     unsigned_tx = None
     try:
@@ -1382,6 +1401,9 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
         log.error("Failed to generate name import tx")
         return {'error': 'Insufficient funds'}
 
+    log.debug("Import {} with {}".format(fqu, payment_address))
+    log.debug("<payment, recipient> ({}, {}) tx_fee = {}".format(payment_address, recipient_address, tx_fee))
+
     resp = do_blockchain_tx( unsigned_tx, privkey_info=importer_privkey_info, tx_broadcaster=tx_broadcaster, config_path=config_path, dry_run=dry_run )
     if 'error' in resp:
         return resp
@@ -1390,7 +1412,8 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
     return resp
 
 
-def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_address, utxo_client, tx_broadcaster, consensus_hash=None, config_path=CONFIG_PATH, proxy=None, safety_checks=True, dry_run=False ):
+def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_address, utxo_client, tx_broadcaster,
+                           consensus_hash=None, config_path=CONFIG_PATH, tx_fee=None, proxy=None, safety_checks=True, dry_run=BLOCKSTACK_DRY_RUN ):
     """
     Preorder a namespace
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1401,6 +1424,17 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
 
     fqu = str(namespace_id)
     payment_address = None
+
+    if not dry_run and (safety_checks or tx_fee is None):
+        res = check_namespace_preorder(namespace_id, payment_privkey_info, reveal_address, config_path=config_path, proxy=proxy )
+        if 'error' in res and safety_checks:
+            log.error("Failed to check namespace preorder: {}".format(res['error']))
+            return res
+
+        if tx_fee is None:
+            tx_fee = res['tx_fee']
+
+        assert tx_fee, "Missing tx fee"
 
     try:
         payment_address = virtualchain.address_reencode( ecdsa_private_key( payment_privkey_info ).public_key().address() )
@@ -1419,27 +1453,6 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
     else:
         log.warn("Using caller-supplied consensus hash '%s'" % consensus_hash)
 
-    if safety_checks:
-        # namespace must not exist
-        blockchain_record = blockstack_get_namespace_blockchain_record( namespace_id, proxy=proxy )
-        if blockchain_record is None or 'error' in blockchain_record:
-            if blockchain_record is None:
-                log.error("Failed to read blockchain record for %s" % namespace_id)
-                return {'error': 'Failed to read blockchain record for namespace'}
-
-            if blockchain_record['error'] != 'No such namespace':
-                log.error("Failed to read blockchain record for %s" % namespace_id)
-                return {'error': 'Failed to read blockchain record for namespace'}
-
-        else:
-            # exists
-            return {'error': 'Namespace already exists'}
-
-    tx_fee = estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utxo_client, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to estimate namespace preorder tx fee")
-        return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
-
     log.debug("Preordering namespace (%s, %s, %s), tx_fee = %s" % (namespace_id, payment_address, reveal_address, tx_fee))
 
     unsigned_tx = None
@@ -1456,7 +1469,8 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
     return resp
 
 
-def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, payment_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True, dry_run=False ):
+def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, payment_privkey_info, utxo_client, tx_broadcaster,
+                         config_path=CONFIG_PATH, tx_fee=None, proxy=None, safety_checks=True, dry_run=BLOCKSTACK_DRY_RUN ):
     """
     Reveal a namespace
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1468,29 +1482,23 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
     fqu = str(namespace_id)
     payment_address = None
 
+    if not dry_run and (safety_checks or tx_fee is None):
+        res = check_namespace_reveal(namespace_id, payment_privkey_info, reveal_address, config_path=config_path, proxy=proxy )
+        if 'error' in res and safety_checks:
+            log.error("Failed to check namespace preorder: {}".format(res['error']))
+            return res
+
+        if tx_fee is None:
+            tx_fee = res['tx_fee']
+
+        assert tx_fee, "Missing tx fee"
+
     try:
         payment_address = virtualchain.address_reencode( ecdsa_private_key( payment_privkey_info ).public_key().address() )
+        reveal_address = virtualchain.address_reencode( reveal_address )
     except:
         log.error("Invalid private key info")
-        return {'error': 'Namespace reveal can only use a single private key with a P2PKH script'}
-
-    if safety_checks:
-        # namespace must not exist
-        blockchain_record = blockstack_get_namespace_blockchain_record( namespace_id, proxy=proxy )
-        if blockchain_record is None or 'error' in blockchain_record:
-            if blockchain_record['error'] != 'No such namespace':
-                log.error("Failed to read blockchain record for %s" % namespace_id)
-                return {'error': 'Failed to read blockchain record for namespace'}
-
-        else:
-            # exists
-            log.error("Namespace already exists")
-            return {'error': 'Namespace already exists'}
-
-    tx_fee = estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to estimate namespace reveal tx fee")
-        return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
+        return {'error': 'Namespace reveal can only use a single private key with a P2PKH script.  Got payment address {}, reveal address {}'.format(payment_address, reveal_address)}
 
     log.debug("Revealing namespace (%s, %s, %s), tx_fee = %s" % (namespace_id, payment_address, reveal_address, tx_fee))
 
@@ -1506,7 +1514,7 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
     return resp
 
 
-def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True, dry_run=False ):
+def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, tx_fee=None, proxy=None, safety_checks=True, dry_run=BLOCKSTACK_DRY_RUN ):
     """
     Open a namespace for registration
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1519,28 +1527,22 @@ def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broad
     fqu = str(namespace_id)
     reveal_address = None
 
+    if not dry_run and (safety_checks or tx_fee is None):
+        res = check_namespace_ready(namespace_id, reveal_privkey_info, config_path=config_path, proxy=proxy )
+        if 'error' in res and safety_checks:
+            log.error("Failed to check namespace preorder: {}".format(res['error']))
+            return res
+
+        if tx_fee is None:
+            tx_fee = res['tx_fee']
+
+        assert tx_fee, "Missing tx fee"
+
     try:
         reveal_address = virtualchain.address_reencode(ecdsa_private_key( reveal_privkey_info ).public_key().address())
     except:
         log.error("Invalid private key info")
         return {'error': 'Namespace ready can only use a single private key with a P2PKH script'}
-
-    if safety_checks:
-        # namespace must exist, but not be ready
-        blockchain_record = blockstack_get_namespace_blockchain_record( namespace_id, proxy=proxy )
-        if blockchain_record is None or 'error' in blockchain_record:
-            log.error("Failed to read blockchain record for %s" % namespace_id)
-            return {'error': 'Failed to read blockchain record for namespace'}
-
-        if blockchain_record['ready']:
-            # exists
-            log.error("Namespace already made ready")
-            return {'error': 'Namespace already made ready'}
-
-    tx_fee = estimate_namespace_ready_tx_fee( namespace_id, reveal_address, utxo_client, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to estimate namespace-ready tx fee")
-        return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     log.debug("Readying namespace (%s, %s), tx_fee = %s" % (namespace_id, reveal_address, tx_fee) )
 
@@ -1557,7 +1559,7 @@ def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broad
     return resp
 
 
-def do_announce( message_text, sender_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True, dry_run=False ):
+def do_announce( message_text, sender_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True, dry_run=BLOCKSTACK_DRY_RUN ):
     """
     Send an announcement hash to the blockchain
     Return {'status': True, 'transaction_hash': ...} on success
