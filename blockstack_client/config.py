@@ -82,7 +82,7 @@ class NetworkLogHandler( logging.Handler ):
 
         try:
             requests.post(self.url, json=log_entry, headers=headers, timeout=1.0)
-        except:
+        except Exception as e:
             pass
 
 
@@ -102,8 +102,25 @@ def get_network_log_handler(api_password=None, name=None, scheme="http", host="l
 
     if api_password is None:
         api_password = get_secret("BLOCKSTACK_API_PASSWORD")
-        if api_password is None:
+    
+    if api_password is None:
+
+        # extract...
+        p = SafeConfigParser()
+        try:
+            p.read(CONFIG_PATH)
+        except:
             return None
+
+        try:
+            if p.has_section('blockstack-client'):
+                if p.get('blockstack-client', 'api_password') is not None:
+                    api_password = p.get('blockstack_client', 'api_password')
+        except:
+            return None
+
+    if not api_password:
+        return None
 
     url = "{}://{}:{}".format(scheme, host, port)
     authorization = 'bearer {}'.format(api_password)
@@ -120,15 +137,17 @@ def get_network_log_handler(api_password=None, name=None, scheme="http", host="l
 def get_logger(name="blockstack-client", debug=DEBUG):
     logger = virtualchain.get_logger(name)
     logger.setLevel(logging.DEBUG if debug else logging.INFO)
-   
-    network_logger = get_network_log_handler(name=name)
-    if network_logger:
-        logger.addHandler(network_logger)
+  
+    if not BLOCKSTACK_TEST:
+        network_logger = get_network_log_handler(name=name)
+        if network_logger:
+            logger.addHandler(network_logger)
 
     return logger
 
 
 log = get_logger('blockstack-client')
+
 
 # NOTE: duplicated from blockstack-core and streamlined.
 def op_get_opcode_name(op_string):
