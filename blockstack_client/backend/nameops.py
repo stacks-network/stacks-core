@@ -126,7 +126,9 @@ def make_fake_privkey_info( privkey_params ):
     if privkey_params == (1, 1):
         # fake private key
         return "5512612ed6ef10ea8c5f9839c63f62107c73db7306b98588a46d0cd2c3d15ea5"
-
+    elif privkey_params == (2, 3):
+        hardcoded_fake = {'redeem_script': '522102b6ce4725183a41ec384440528b1251b69ed7ed5197e1629d8d59d2d674b9aa6f21023f57978a73aff4214ba562e59be7ba32639a25ea32d74b1d2eca9c3db8890b6921029315ac9a275529114dc7b5ddda4237470a826a97875185ecea36a8572548535d53ae', 'private_keys': ['07fc6fd7246b6528785fb8137c89dfc2b2383cc89bcaa74e486de6889cc02d2501', '65bcdaf3810f3f9b51872d3b18467bc1b181388399284d00ff9ca3728542f51801', 'b211140d29c25d362151fd54c2c5ea4e05234d0ca583f4ff766230e978e30cd601'], 'address': '3DAX8pxC4jJeS3DZCRbHDkHX5xQBhcz85J'}
+        return hardcoded_fake
     else:
         m, n = privkey_params
         return virtualchain.make_multisig_wallet( m, n )
