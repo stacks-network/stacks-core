@@ -20,7 +20,7 @@ This file is part of Blockstack Core.
     along with Search. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os, sys, re, json
+import os, sys, re, json, time
 import unittest
 import requests
 import argparse
@@ -43,9 +43,26 @@ API_VERSION = '1'
 api.app.testing = True
 app = api.app.test_client()
 
+class FakeResponseObj:
+    def __init__(self):
+        self.status_code = 600
+        self.data = ""
+
+class ForwardingClient:
+    def __init__(self, base_url):
+        self.base_url = base_url
+    def get(self, endpoint, headers = {}):
+        resp = requests.get(self.base_url + endpoint, headers = headers)
+        ret_obj = FakeResponseObj()
+        ret_obj.status_code = resp.status_code
+        ret_obj.data = resp.text
+        return ret_obj
 
 def test_get_request(cls, endpoint, headers={}, status_code=200):
-    resp = app.get(endpoint)
+    t_start = time.time()
+    resp = app.get(endpoint, headers = headers)
+    t_end = time.time()
+    print("\r{}get time: {}s".format("\t"*9, t_end - t_start))
     if not resp.status_code == status_code:
         print(endpoint)
         print(resp.status_code)
@@ -53,7 +70,6 @@ def test_get_request(cls, endpoint, headers={}, status_code=200):
     data = json.loads(resp.data)
     cls.assertTrue(resp.status_code == status_code)
     return data
-
 
 def test_post_request(cls, endpoint, payload, headers={}, status_code=200):
     resp = app.post(endpoint, data=json.dumps(payload), headers=headers)
@@ -237,6 +253,13 @@ def test_main(args = []):
         for testname in test_map.keys():
             print(testname)
         return
+
+    if "--remote" in args:
+        ainx = args.index("--remote")
+        del args[ainx]
+        global app
+        app = ForwardingClient(args[ainx])
+        del args[ainx]
 
     if len(args) == 0 or args[0] == "--all":
         args = [ testname for testname in test_map.keys() if
