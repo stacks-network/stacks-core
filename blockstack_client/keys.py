@@ -904,10 +904,15 @@ def verify_raw_data(raw_data, pubkey_hex, sigb64):
     Return True on success.
     Return False on error.
     """
-    sig_r, sig_s = decode_signature(sigb64)
-    pubk_i = decode_pubkey_hex(pubkey_hex)
-    res = fastecdsa.ecdsa.verify((sig_r, sig_s), raw_data, pubk_i, curve=fastecdsa.curve.secp256k1)
-    return res
+    try:
+        sig_r, sig_s = decode_signature(sigb64)
+        pubk_i = decode_pubkey_hex(pubkey_hex)
+        res = fastecdsa.ecdsa.verify((sig_r, sig_s), raw_data, pubk_i, curve=fastecdsa.curve.secp256k1)
+        return res
+    except (fastecdsa.ecdsa.EcdsaError, AssertionError):
+        # invalid signature
+        log.debug("Invalid signature {}".format(sigb64))
+        return False
 
 
 def sign_digest( digest_hex, privkey_hex, curve=fastecdsa.curve.secp256k1, hashfunc=hashlib.sha256 ):

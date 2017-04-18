@@ -1187,7 +1187,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         root_tombstones = datastore_sigs_info['root_tombstones']
         sigs_info = datastore_sigs_info['datastore_sigs']
         datastore_pubkey_hex = ses['app_public_key']
-       
+         
         res = data.verify_datastore_info( datastore_info, sigs_info, datastore_pubkey_hex )
         if not res:
             return self._reply_json({'error': 'Unable to verify datastore info with {}'.format(datastore_pubkey_hex)}, status_code=403)

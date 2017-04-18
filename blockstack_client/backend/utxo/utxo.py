@@ -52,6 +52,8 @@ from .blockchain_info import broadcast_transaction as blockchain_info_broadcast_
 from .blockstack_explorer import get_unspents as blockstack_explorer_get_unspents
 from .blockstack_explorer import broadcast_transaction as blockstack_explorer_broadcast_transaction
 
+from .blockstack_utxo import get_unspents as blockstack_utxo_get_unspents
+from .blockstack_utxo import broadcast_transaction as blockstack_utxo_broadcast_transaction
 
 DEBUG = True
 FIRST_BLOCK_MAINNET = 373601        # well-known value for blockstack-server; doesn't ever change
