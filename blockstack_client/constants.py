@@ -65,7 +65,7 @@ WALLET_PASSWORD_LENGTH = 8
 WALLET_DECRYPT_MAX_TRIES = 5
 WALLET_DECRYPT_BACKOFF_RESET = 3600
 
-BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = 'disk,blockstack_resolver,blockstack_server,http,dht'
+BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = 'disk,s3,blockstack_resolver,blockstack_server,http,dht'
 
 # storage drivers that must successfully acknowledge each write
 BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE = 'disk,blockstack_server,dht'
