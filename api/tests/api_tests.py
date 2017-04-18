@@ -180,7 +180,7 @@ class SearchAPITest(unittest.TestCase):
     def test_search_server(self):
         u = "muneeb"
         if not api.config.SEARCH_API_ENDPOINT_ENABLED:
-            print "skipping search server test"
+            print("skipping search server test")
             return
         data = test_get_request(self, self.search_url(u),
                                 headers = {}, status_code=200)
@@ -188,6 +188,19 @@ class SearchAPITest(unittest.TestCase):
         self.assertTrue(len(data['results']) > 0)
         self.assertIn(u, data['results'][0]['username'])
         self.assertIn("profile", data['results'][0].keys())
+
+class TestAPILandingPageExamples(unittest.TestCase):
+    def test_endpoints(self):
+        from api.utils import get_api_calls
+        current_dir = os.path.abspath(os.path.dirname(__file__))
+        api_endpoints = [ call['tryit_pathname'] 
+                          for call in get_api_calls(current_dir + '/../../docs/api_v1.md')
+                          if (not ("private" in call and call["private"].lower().startswith("t")))
+                          and 'tryit_pathname' in call ]
+        print("")
+        for url in api_endpoints:
+            print("\tTesting API example: {}".format(url))
+            test_get_request(self, url, headers = {}, status_code=200)
 
 class ConsensusTest(unittest.TestCase):
     def test_id_space(self):
@@ -197,7 +210,7 @@ class ConsensusTest(unittest.TestCase):
 
 
 def test_main(args = []):
-    test_classes = [PingTest, LookupUsersTest, NamespaceTest, ConsensusTest,
+    test_classes = [PingTest, LookupUsersTest, NamespaceTest, ConsensusTest, TestAPILandingPageExamples,
                     NamepriceTest, NamesOwnedTest, NameHistoryTest, SearchAPITest]
     test_classes += [ResolverTestCase]
     if api.config.SEARCH_API_ENDPOINT_ENABLED:
