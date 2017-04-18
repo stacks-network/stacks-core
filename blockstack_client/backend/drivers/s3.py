@@ -44,7 +44,7 @@ log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 AWS_BUCKET = 'blockstack-server-profiles'
 AWS_ACCESS_KEY_ID = None 
 AWS_SECRET_ACCESS_KEY = None
-AWS_COMPRESS = True
+AWS_COMPRESS = False
 
 #-------------------------
 def compress_chunk( chunk_buf ):
