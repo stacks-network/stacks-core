@@ -41,7 +41,7 @@ log = get_logger("blockstack-storage-driver-s3")
 
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
-AWS_BUCKET = None
+AWS_BUCKET = 'blockstack-server-profiles'
 AWS_ACCESS_KEY_ID = None 
 AWS_SECRET_ACCESS_KEY = None
 AWS_COMPRESS = True
