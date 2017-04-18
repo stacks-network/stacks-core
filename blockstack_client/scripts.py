@@ -97,7 +97,7 @@ def is_name_valid(fqn):
         return False
 
     # validate max length
-    return len(fqn) < LENGTH_MAX_NAME
+    return len(fqn) <= LENGTH_MAX_NAME
 
 
 def is_valid_hash(value):
