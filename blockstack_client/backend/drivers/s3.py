@@ -44,6 +44,7 @@ log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 AWS_BUCKET = None
 AWS_ACCESS_KEY_ID = None 
 AWS_SECRET_ACCESS_KEY = None
+AWS_COMPRESS = True
 
 #-------------------------
 def compress_chunk( chunk_buf ):
@@ -71,25 +72,48 @@ def get_bucket( bucket_name ):
     """
     
     global AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+   
+    if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+        log.debug("Read/write connect to S3")
+
+        aws_id = AWS_ACCESS_KEY_ID
+        aws_key = AWS_SECRET_ACCESS_KEY
     
-    aws_id = AWS_ACCESS_KEY_ID
-    aws_key = AWS_SECRET_ACCESS_KEY
-    
-    try:
-        conn = boto.connect_s3(aws_id, aws_key)
-    except Exception, e:
-        log.error("Connection to S3 failed")
-        log.exception(e)
-        return None
+        try:
+            conn = boto.connect_s3(aws_id, aws_key)
+        except Exception, e:
+            log.error("Connection to S3 failed")
+            log.exception(e)
+            return None
         
-    bucket = None
-    try:
-        bucket = conn.create_bucket(bucket_name)
-    except Exception, e:
-        log.error("Could not create/fetch bucket " + bucket_name)
-        log.exception(e)
+        bucket = None
+        try:
+            bucket = conn.create_bucket(bucket_name)
+        except Exception, e:
+            log.error("Could not create/fetch bucket " + bucket_name)
+            log.exception(e)
         
-    return bucket
+        return bucket
+
+    else:
+        # anonymous read-only 
+        log.debug("Anonymous read-only connect to S3")
+        try:
+            conn = boto.connect_s3()
+        except Exception, e:
+            log.error("Connection to S3 failed")
+            log.exception(e)
+            return None
+
+        bucket = None
+        try:
+            bucket = conn.get_bucket(bucket_name)
+        except Exception, e:
+            log.error("Could not get bucket {}".format(bucket_name))
+            log.exception(e)
+        
+        return bucket
+
 
 #-------------------------
 def write_chunk( chunk_path, chunk_buf ):
@@ -100,8 +124,12 @@ def write_chunk( chunk_path, chunk_buf ):
     Return False on error, and log an exception
     """
 
-    global AWS_BUCKET
+    global AWS_BUCKET, AWS_COMPRESS
     
+    if not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY:
+        log.debug("No AWS key set, cannot write")
+        return False
+
     bucket = get_bucket( AWS_BUCKET )
     if bucket == None:
         log.error("Failed to get bucket '%s'" % AWS_BUCKET )
@@ -118,7 +146,11 @@ def write_chunk( chunk_path, chunk_buf ):
     end = None
     size = None
     try:
-        compressed_data = compress_chunk( chunk_buf )
+        if AWS_COMPRESS:
+            compressed_data = compress_chunk( chunk_buf )
+        else:
+            compressed_data = chunk_buf
+
         size = len(compressed_data)
 
         begin = time.time()
@@ -134,6 +166,7 @@ def write_chunk( chunk_path, chunk_buf ):
         log.debug("[BENCHMARK] s3.write_chunk %s: %s" % (size, end - begin))
 
     return rc
+
 
 #-------------------------
 def read_chunk( chunk_path ):
@@ -167,7 +200,10 @@ def read_chunk( chunk_path ):
         end = time.time()
         size = len(compressed_data)
 
-        data = decompress_chunk( compressed_data )
+        try:
+            data = decompress_chunk( compressed_data )
+        except:
+            data = compressed_data
         
     except Exception, e:
         log.error("Failed to read '%s'" % chunk_path)
@@ -190,6 +226,10 @@ def delete_chunk( chunk_path ):
     
     global AWS_BUCKET
     
+    if not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY:
+        log.debug("No AWS key set, cannot write")
+        return False
+
     bucket = get_bucket( AWS_BUCKET )
     if bucket == None:
         log.error("Failed to get bucket '%s'" % AWS_BUCKET)
@@ -224,7 +264,7 @@ def storage_init(conf):
     Return True on success
     Return False on error 
     """
-    global AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_BUCKET
+    global AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_BUCKET, AWS_COMPRESS
 
     config_path = conf['path']
     if os.path.exists( config_path ):
@@ -248,10 +288,12 @@ def storage_init(conf):
             if parser.has_option('s3', 'api_key_secret'):
                 AWS_SECRET_ACCESS_KEY = parser.get('s3', 'api_key_secret')
             
+            if parser.has_option('s3', 'compress'):
+                AWS_COMPRESS = parser.get('s3', 'compress', 'false').lower() in ['true', '1']
             
     # we can't proceed unless we have all three.
-    if AWS_ACCESS_KEY_ID is None or AWS_SECRET_ACCESS_KEY is None or AWS_BUCKET is None:
-        log.error("Config file '%s': section 's3' is missing 'bucket', 'api_key_id', and/or 'api_key_secret'" % config_path )
+    if AWS_BUCKET is None:
+        log.error("Config file '%s': section 's3' is missing 'bucket', and possibly 'api_key_id', and/or 'api_key_secret'" % config_path )
         return False 
     
     return True
@@ -278,7 +320,7 @@ def make_mutable_url( data_id ):
     # remove /'s
     data_id = data_id.replace( "/", r"\x2f" )
 
-    return "https://%s.s3.amazonaws.com/mutable-%s" % (AWS_BUCKET, data_id)
+    return "https://%s.s3.amazonaws.com/%s" % (AWS_BUCKET, data_id)
 
 
 def get_immutable_handler( key, **kw ):
@@ -330,9 +372,7 @@ def put_mutable_handler( data_id, data_json, **kw ):
     S3 implementation of the put_mutable_handler API call.
     Return True on success; False on failure.
     """
-
-    mutable_data_id = "mutable-%s" % data_id 
-    return write_chunk( mutable_data_id, data_json )
+    return write_chunk( data_id, data_json )
 
 
 def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
@@ -354,9 +394,7 @@ def delete_mutable_handler( data_id, signature, **kw ):
     signature over the hash of the data_id, remove data from storage.
     Return True on success; False if not.
     """
-
-    mutable_data_id = "mutable-%s" % data_id 
-    return delete_chunk( mutable_data_id )
+    return delete_chunk( data_id )
 
 
 
