@@ -29,6 +29,9 @@ GET
 #### path_template:
 /
 
+#### private:
+True
+
 _end_
 
 ## Auth Request View
@@ -60,6 +63,9 @@ GET
 #### path_template:
 /auth?authRequest={authRequestToken}
 
+#### private:
+True
+
 #### grouping_note:
 Explanation of the auth request view:
 
@@ -80,11 +86,11 @@ Node
 #### anchor_tag:
 ping__node
 
-#### description
+#### description:
+Ping the node to check if the node is alive.
 
-
-#### response_description
-
+#### response_description:
+Returns the status of the node.
 
 #### notes:
 Requires pre-shared secret in the `Authorization:` header
@@ -141,6 +147,9 @@ GET
 #### path_template:
 /v1/node/config
 
+#### private:
+True
+
 _end_
 
 ## Set one or more config fields in a config section
@@ -171,6 +180,9 @@ POST
 
 #### path_template:
 /v1/node/config/{section}?{key}={value}
+
+#### private:
+True
 
 _end_
 
@@ -203,6 +215,9 @@ DELETE
 #### path_template:
 /v1/node/config/{section}/{key}
 
+#### private:
+True
+
 _end_
 
 ## Delete a config section
@@ -233,6 +248,9 @@ DELETE
 
 #### path_template:
 /v1/node/config/{section}
+
+#### private:
+True
 
 _end_
 
@@ -265,6 +283,9 @@ GET
 #### path_template:
 /v1/node/registrar/state
 
+#### private:
+True
+
 _end_
 
 ## Get wallet payment address
@@ -278,10 +299,10 @@ Wallet
 #### anchor_tag:
 get_wallet_payment_a
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -296,6 +317,9 @@ GET
 #### path_template:
 /v1/wallet/payment_address
 
+#### private:
+True
+
 _end_
 
 ## Get wallet owner address
@@ -309,10 +333,10 @@ Wallet
 #### anchor_tag:
 get_wallet_owner_add
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -327,6 +351,9 @@ GET
 #### path_template:
 /v1/wallet/owner_address
 
+#### private:
+True
+
 _end_
 
 ## Get wallet data public key
@@ -340,10 +367,10 @@ Wallet
 #### anchor_tag:
 get_wallet_data_publ
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -358,6 +385,9 @@ GET
 #### path_template:
 /v1/wallet/data_pubkey
 
+#### private:
+True
+
 _end_
 
 ## Set the wallet
@@ -371,10 +401,10 @@ Wallet
 #### anchor_tag:
 set__wallet
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -388,6 +418,9 @@ PUT
 
 #### path_template:
 /v1/wallet/keys
+
+#### private:
+True
 
 _end_
 
@@ -402,10 +435,10 @@ Wallet
 #### anchor_tag:
 get__wallet
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -420,6 +453,9 @@ GET
 #### path_template:
 /v1/wallet/keys
 
+#### private:
+True
+
 _end_
 
 ## Get the wallet balance
@@ -433,10 +469,10 @@ Wallet
 #### anchor_tag:
 get__wallet_balance
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -451,6 +487,9 @@ GET
 #### path_template:
 /v1/wallet/balance
 
+#### private:
+True
+
 _end_
 
 ## Withdraw funds from the wallet
@@ -464,10 +503,10 @@ Wallet
 #### anchor_tag:
 withdraw_funds_from_
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -482,6 +521,9 @@ POST
 #### path_template:
 /v1/wallet/balance
 
+#### private:
+True
+
 _end_
 
 ## Change wallet password
@@ -495,10 +537,10 @@ Wallet
 #### anchor_tag:
 change_wallet_passwo
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -513,6 +555,9 @@ PUT
 #### path_template:
 /v1/wallet/password
 
+#### private:
+True
+
 _end_
 
 ## Create an authorization token
@@ -526,14 +571,14 @@ Authorization
 #### anchor_tag:
 create_an_authorizat
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
-Requires a pre-shared secret in the `Authorization:` header.
+Requires a pre-shared secret in the `Authorization:` header. TODO: describe authRequestToken format.
 
 #### family:
 -
@@ -543,6 +588,9 @@ GET
 
 #### path_template:
 /v1/auth?authRequest={authRequestToken}
+
+#### private:
+True
 
 _end_
 
@@ -557,11 +605,11 @@ Names
 #### anchor_tag:
 get_all_names
 
-#### description
+#### description:
+Fetch a page from the list of all registered names.
 
-
-#### response_description
-
+#### response_description:
+Array of registered names.
 
 #### notes:
 -
@@ -572,8 +620,11 @@ names
 #### method:
 GET
 
+#### parameters[]:
+{"name": "page", "description": "the page number to fetch"}
+
 #### path_template:
-/v1/names
+/v1/names?page={page}
 
 #### tryit_pathname:
 /v1/names?page=0
@@ -598,10 +649,10 @@ Names
 #### anchor_tag:
 register_name
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -616,6 +667,9 @@ POST
 #### path_template:
 /v1/names
 
+#### private:
+True
+
 _end_
 
 ## Get name info
@@ -629,11 +683,11 @@ Names
 #### anchor_tag:
 get_name_info
 
-#### description
+#### description:
+Get the latest blockchain registration record of a name.
 
-
-#### response_description
-
+#### response_description:
+Returns the owner address, status, expiry block and other name info.
 
 #### notes:
 -
@@ -677,11 +731,11 @@ Names
 #### anchor_tag:
 get_name_history
 
-#### description
+#### description:
+Get a history of all blockchain records of a registered name.
 
-
-#### response_description
-
+#### response_description:
+Returns the owner address, status, expiry block and other name info.
 
 #### notes:
 -
@@ -724,46 +778,24 @@ GET
       "last_renewed": 373821, 
       "sender": "76a914ff95f5612a26a81e919e4b6e63fdd929fd115d6d88ac", 
       "name": "muneeb.id", 
-      "sender_pubkey": "0411d88aa37a0eea476a5b63ca4b1cd392ded830865824c27dacef6bde9f9bc53fa13a0926533ef4d20397207e212c2086cbe13db5470fd29616abd35326d33090", 
       "preorder_block_number": 373821, 
       "opcode": "NAME_IMPORT", 
       "vtxindex": 308, 
-      "op": ";"
+      "op": ";",
+      ...
     }
   ], 
   "402804": [
     {
-      "block_number": 373821, 
-      "namespace_id": "id", 
-      "importer_address": "16firc3qZU97D1pWkyL6ZYwPX5UVnWc82V", 
-      "value_hash": "3085137b19ce56092f5cb91b7f78d073c815dbc1", 
-      "consensus_hash": "63c434864743c944782553996d6819a0", 
-      "txid": "904c5f187ab143d187e26afaddaa6061059451407193fbfc4c4a9b0baa24dbd7", 
-      "importer": "76a9143e2b5fdd12db7580fb4d3434b31d4fe9124bd9f088ac", 
-      "name_hash128": "deb7fe99776122b77925cbf0a24ab6f8", 
-      "transfer_send_block_id": null, 
-      "preorder_hash": "e58b193cfe867020ed84cc74edde2487889f28fe", 
-      "first_registered": 373821, 
-      "last_creation_op": ";", 
-      "namespace_block_number": 373601, 
-      "address": "1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP", 
-      "op_fee": 100000, 
-      "revoked": false, 
-      "last_renewed": 373821, 
-      "sender": "76a914ff95f5612a26a81e919e4b6e63fdd929fd115d6d88ac", 
-      "name": "muneeb.id", 
-      "sender_pubkey": "0411d88aa37a0eea476a5b63ca4b1cd392ded830865824c27dacef6bde9f9bc53fa13a0926533ef4d20397207e212c2086cbe13db5470fd29616abd35326d33090", 
-      "preorder_block_number": 373821, 
-      "opcode": "NAME_UPDATE", 
-      "vtxindex": 948, 
-      "op": "+"
+    ...
     }
-  ]
+  ],
+  ...
 }
 
 _end_
 
-## Get historical zone file
+## Get zone file
 
 #### grouping:
 Naming API
@@ -772,13 +804,13 @@ Naming API
 Names
 
 #### anchor_tag:
-get_historical_zone_
+get_historical_zone
 
-#### description
+#### description:
+Fetches the historical zonefile specified by the username and zone hash.
 
-
-#### response_description
-
+#### response_description:
+Zonefile object.
 
 #### notes:
 -
@@ -817,10 +849,10 @@ Names
 #### anchor_tag:
 revoke_name
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -835,6 +867,9 @@ DELETE
 #### path_template:
 /v1/names/{name}
 
+#### private:
+True
+
 _end_
 
 ## Transfer name
@@ -848,10 +883,10 @@ Names
 #### anchor_tag:
 transfer_name
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -866,6 +901,9 @@ PUT
 #### path_template:
 /v1/names/{name}/owner
 
+#### private:
+True
+
 _end_
 
 ## Set zone file
@@ -879,10 +917,10 @@ Names
 #### anchor_tag:
 set_zone_file
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -897,6 +935,9 @@ PUT
 #### path_template:
 /v1/names/{name}/zonefile
 
+#### private:
+True
+
 _end_
 
 ## Set zone file hash
@@ -910,10 +951,10 @@ Names
 #### anchor_tag:
 set_zone_file_hash
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -928,9 +969,12 @@ PUT
 #### path_template:
 /v1/names/{name}/zonefile
 
+#### private:
+True
+
 _end_
 
-## Get names owned by address
+## Get names owned
 
 #### grouping:
 Naming API
@@ -941,11 +985,11 @@ Addresses
 #### anchor_tag:
 get_names_owned_by_a
 
-#### description
+#### description:
+Retrieves a list of names owned by the address provided.
 
-
-#### response_description
-
+#### response_description:
+Returns an array of the names that the address owns.
 
 #### notes:
 -
@@ -957,7 +1001,20 @@ names
 GET
 
 #### path_template:
-/v1/addresses/{address}
+/v1/addresses/{blockain}/{address}
+
+#### tryit_pathname:
+/v1/addresses/bitcoin/1Q3K7ymNVycu3TQoTDUaty8Q5fUVB3feEQ
+
+#### example_request_bash:
+/v1/addresses/bitcoin/1Q3K7ymNVycu3TQoTDUaty8Q5fUVB3feEQ
+
+#### example_response:
+{
+  "names": [
+    "ryanshea.id"
+  ]
+}
 
 _end_
 
@@ -972,11 +1029,11 @@ Namespaces
 #### anchor_tag:
 get_all_namespaces
 
-#### description
+#### description:
+Retrieves a list of all namespaces on all blockchains.
 
-
-#### response_description
-
+#### response_description:
+Returns an array of all namespaces.
 
 #### notes:
 -
@@ -1014,10 +1071,10 @@ Namespaces
 #### anchor_tag:
 create_namespace
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1032,6 +1089,9 @@ POST
 #### path_template:
 /v1/namespaces
 
+#### private:
+True
+
 _end_
 
 ## Launch namespace
@@ -1045,10 +1105,10 @@ Namespaces
 #### anchor_tag:
 launch_namespace
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1063,6 +1123,9 @@ PUT
 #### path_template:
 /v1/namespaces/{tld}
 
+#### private:
+True
+
 _end_
 
 ## Get namespace names
@@ -1076,11 +1139,11 @@ Namespaces
 #### anchor_tag:
 get_namespace_names
 
-#### description
+#### description:
+Fetch a page from the list of all names registered in a namespace.
 
-
-#### response_description
-
+#### response_description:
+Array of registered names.
 
 #### notes:
 -
@@ -1091,8 +1154,23 @@ namespaces
 #### method:
 GET
 
+#### parameters[]:
+{"name": "page", "description": "the page number to fetch"}
+
 #### path_template:
-/v1/namespaces/{tld}/names
+/v1/namespaces/{tld}/names?page={page}
+
+#### tryit_pathname:
+/v1/namespaces/id/names?page=23
+
+#### example_request_bash:
+/v1/namespaces/id/names?page=23
+
+#### example_response:
+
+[ "aldenquimby.id", "aldeoryn.id", 
+  "alderete.id", "aldert.id", 
+  "aldi.id", "aldighieri.id", ... ]
 
 _end_
 
@@ -1107,10 +1185,10 @@ Namespaces
 #### anchor_tag:
 pre-register_a_name
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1125,6 +1203,9 @@ POST
 #### path_template:
 /v1/namespaces/{tld}/names
 
+#### private:
+True
+
 _end_
 
 ## Update pre-registered name
@@ -1138,10 +1219,10 @@ Namespaces
 #### anchor_tag:
 update_pre-registere
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1156,6 +1237,9 @@ PUT
 #### path_template:
 /v1/namespaces/{tld}/names/{name}
 
+#### private:
+True
+
 _end_
 
 ## Get namespace price
@@ -1169,11 +1253,11 @@ Prices
 #### anchor_tag:
 get_namespace_price
 
-#### description
+#### description:
+Get the registration price for a namespace.
 
-
-#### response_description
-
+#### response_description:
+Returns price information for the namespace.
 
 #### notes:
 May return a warning if the wallet does not have enough funds
@@ -1186,6 +1270,17 @@ GET
 
 #### path_template:
 /v1/prices/namespaces/{tld}
+
+#### tryit_pathname:
+/v1/prices/namespaces/id
+
+#### example_request_bash:
+/v1/prices/namespaces/id
+
+#### example_response:
+{
+  "satoshis": 4000000000
+}
 
 _end_
 
@@ -1200,11 +1295,11 @@ Prices
 #### anchor_tag:
 get_name_price
 
-#### description
+#### description:
+Get the registration price of a name.
 
-
-#### response_description
-
+#### response_description:
+Returns an array of name price info.
 
 #### notes:
 May return a warning if the wallet does not have enough funds
@@ -1265,14 +1360,14 @@ Blockchains
 #### anchor_tag:
 get_block_operations
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
--
+- NOT IMPLEMENTED
 
 #### family:
 blockchain
@@ -1282,6 +1377,17 @@ GET
 
 #### path_template:
 /v1/blockchains/{blockchainName}/block/{blockHeight}
+
+#### tryit_pathname:
+/v1/blockchains/bitcoin/block/462449
+
+#### example_request_bash:
+/v1/blockchains/bitcoin/block/462449
+
+#### example_response:
+
+#### private:
+True
 
 _end_
 
@@ -1296,14 +1402,14 @@ Blockchains
 #### anchor_tag:
 get_raw_name_history
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
--
+ERROR IN IMPLEMENTATION
 
 #### family:
 blockchain
@@ -1313,6 +1419,15 @@ GET
 
 #### path_template:
 /v1/blockchains/{blockchainName}/names/{nameID}/history
+
+#### tryit_pathname:
+/v1/blockchains/bitcoin/names/ryanshea.id/history
+
+#### path_template:
+/v1/blockchains/{blockchainName}/names/{nameID}/history
+
+#### private:
+True
 
 _end_
 
@@ -1327,11 +1442,11 @@ Blockchains
 #### anchor_tag:
 get_consensus_hash
 
-#### description
+#### description:
+Get the current Blockstack consensus hash of a blockchain.
 
-
-#### response_description
-
+#### response_description:
+Returns an array with the current consensus hash.
 
 #### notes:
 -
@@ -1343,7 +1458,18 @@ blockchain
 GET
 
 #### path_template:
-/v1/blockchains/{blockchainName}/consensusHash
+/v1/blockchains/{blockchainName}/consensus
+
+#### tryit_pathname:
+/v1/blockchains/bitcoin/consensus
+
+#### example_request_bash:
+/v1/blockchains/bitcoin/consensus
+
+#### example_response:
+{
+  "consensus_hash": "f435a51026f06d8e4af5223f2acd5546"
+}
 
 _end_
 
@@ -1358,11 +1484,11 @@ Blockchains
 #### anchor_tag:
 get_pending_transact
 
-#### description
+#### description:
+Gets a list of transactions pending on this node for a specific blockchain.
 
-
-#### response_description
-
+#### response_description:
+Array of pending transactions.
 
 #### notes:
 -
@@ -1375,6 +1501,17 @@ GET
 
 #### path_template:
 /v1/blockchains/{blockchainName}/pending
+
+#### example_request_bash:
+/v1/blockchains/bitcoin/pending
+
+#### tryit_pathname:
+/v1/blockchains/bitcoin/pending
+
+#### example_response:
+{
+  "queues": {}
+}
 
 _end_
 
@@ -1389,10 +1526,10 @@ Blockchains
 #### anchor_tag:
 get_unspent_outputs
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1407,6 +1544,26 @@ GET
 #### path_template:
 /v1/blockchains/{blockchainName}/{address}/unspent
 
+#### tryit_pathname:
+/v1/blockchains/bitcoin/16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg/unspent
+
+#### example_request_bash:
+/v1/blockchains/bitcoin/16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg/unspent
+
+#### example_response:
+[
+    {
+        "confirmations": 8710,
+        "output_index": 1,
+        "script_hex": "76a914395f3643cea07ec4eec73b4d9a973dcce56b9bf188ac",
+        "transaction_hash": "93824630a2afa2da6279322f42118bec14f300a6993b5787d550b783ec456953",
+        "value": 16500
+    }
+]
+
+#### private:
+True
+
 _end_
 
 ## Broadcast transaction
@@ -1420,10 +1577,10 @@ Blockchains
 #### anchor_tag:
 broadcast_transactio
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1438,6 +1595,9 @@ POST
 #### path_template:
 /v1/blockchains/{blockchainName}/txs
 
+#### private:
+True
+
 _end_
 
 ## Create profile
@@ -1451,11 +1611,12 @@ Profiles
 #### anchor_tag:
 create_profile
 
-#### description
+#### description:
+Registers a new profile. Wallet on the node must own the name and POST requests 
+should be enabled on the node.
 
-
-#### response_description
-
+#### response_description:
+Returns an object with a status that is either "success" or "error".
 
 #### notes:
 Payload: `{"name": NAME, "profile": PROFILE}`.  Wallet must own the name.
@@ -1468,6 +1629,103 @@ POST
 
 #### path_template:
 /v1/profiles
+
+#### path_template:
+/v1/profiles
+
+#### example_request_bash:
+/v1/profiles \
+    -d '{"name": "fredwilson",
+         "profile": {"bio": "I am a VC"}}' \
+    -H 'Content-type: application/json' \
+    -X POST
+
+#### example_response:
+{
+    "status": "success"
+}
+
+#### private:
+True
+
+_end_
+
+## Get profile
+
+#### grouping:
+Identity API
+
+#### subgrouping:
+Profiles
+
+#### anchor_tag:
+identity_get_deprecated
+
+#### description:
+Looks up the data for a profile. 
+Note that this is a legacy endpoint and will be phased out in the future.
+
+#### response_description:
+Returns an object with profile data.
+
+#### notes:
+Legacy endpoint
+
+#### family:
+profile_read
+
+#### method:
+GET
+
+#### path_template:
+/v2/users/{username}
+
+#### tryit_pathname:
+/v2/users/fredwilson
+
+#### example_request_bash:
+/v2/users/fredwilson
+
+#### example_response:
+{
+  "fredwilson": {
+    "profile": {
+      "avatar": {
+        "url": "https://s3.amazonaws.com/kd4/fredwilson1"
+      },
+      "bio": "I am a VC",
+      "bitcoin": {
+        "address": "1Fbi3WDPEK6FxKppCXReCPFTgr9KhWhNB7"
+      },
+      "cover": {
+        "url": "https://s3.amazonaws.com/dx3/fredwilson"
+      },
+      "facebook": {
+        "proof": {
+          "url": "https://facebook.com/fred.wilson.963871/posts/10100401430876108"
+        },
+        "username": "fred.wilson.963871"
+      },
+      "graph": {
+        "url": "https://s3.amazonaws.com/grph/fredwilson"
+      },
+      "location": {
+        "formatted": "New York City"
+      },
+      "name": {
+        "formatted": "Fred Wilson"
+      },
+      "twitter": {
+        "proof": {
+          "url": "https://twitter.com/fredwilson/status/533040726146162689"
+        },
+        "username": "fredwilson"
+      },
+      "v": "0.2",
+      "website": "http://avc.com"
+    }
+  }
+}
 
 _end_
 
@@ -1482,14 +1740,14 @@ Profiles
 #### anchor_tag:
 get_profile
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
--
+- This doesn't appear to be implemented yet...
 
 #### family:
 profile_read
@@ -1499,6 +1757,9 @@ GET
 
 #### path_template:
 /v1/profiles/{name}
+
+#### private:
+True
 
 _end_
 
@@ -1513,10 +1774,10 @@ Profiles
 #### anchor_tag:
 delete_profile
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1531,6 +1792,9 @@ DELETE
 #### path_template:
 /v1/profiles/{name}
 
+#### private:
+True
+
 _end_
 
 ## Update profile
@@ -1544,11 +1808,12 @@ Profiles
 #### anchor_tag:
 update_profile
 
-#### description
+#### description: 
+Update a profile. Wallet on the node must own the name and POST requests 
+should be enabled on the node.
 
-
-#### response_description
-
+#### response_description:
+Returns an object with a status that is either "success" or "error".
 
 #### notes:
 Payload: `{"blockchain_id": NAME, "profile": PROFILE }`.  Wallet must own the name
@@ -1561,6 +1826,21 @@ PATCH
 
 #### path_template:
 /v1/profiles/{name}
+
+#### example_request_bash:
+/v1/profile/fredwilson \
+    -d '{"profile": {"bio": "I am a VC"}, 
+         "blockchain_id": "fredwilson"}' \
+    -H 'Content-type: application/json' \
+    -X PATCH
+
+#### example_response:
+{
+    "status": "success"
+}
+
+#### private:
+True
 
 _end_
 
@@ -1575,10 +1855,10 @@ Datastores
 #### anchor_tag:
 create_store_for_thi
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1593,6 +1873,9 @@ POST
 #### path_template:
 /v1/stores
 
+#### private:
+True
+
 _end_
 
 ## Get store metadata
@@ -1606,10 +1889,10 @@ Datastores
 #### anchor_tag:
 get_store_metadata
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1624,6 +1907,9 @@ GET
 #### path_template:
 /v1/stores/{storeID}
 
+#### private:
+True
+
 _end_
 
 ## Delete store
@@ -1637,10 +1923,10 @@ Datastores
 #### anchor_tag:
 delete_store
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1655,6 +1941,9 @@ DELETE
 #### path_template:
 /v1/stores/{storeID}
 
+#### private:
+True
+
 _end_
 
 ## Get inode info (stat)
@@ -1668,10 +1957,10 @@ Datastores
 #### anchor_tag:
 get_inode_info__stat
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1686,6 +1975,9 @@ GET
 #### path_template:
 /v1/stores/{storeID}/inodes?path={path}
 
+#### private:
+True
+
 _end_
 
 ## Get directory files (ls)
@@ -1699,10 +1991,10 @@ Datastores
 #### anchor_tag:
 get_directory_files_
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1717,6 +2009,9 @@ GET
 #### path_template:
 /v1/stores/{storeID}/directories?path={path}
 
+#### private:
+True
+
 _end_
 
 ## Create directory (mkdir)
@@ -1730,10 +2025,10 @@ Datastores
 #### anchor_tag:
 create_directory__mk
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1747,6 +2042,9 @@ POST
 
 #### path_template:
 /v1/stores/{storeID}/directories?path={path}
+
+#### private:
+True
 
 _end_
 
@@ -1761,10 +2059,10 @@ Datastores
 #### anchor_tag:
 delete_directory__rm
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1779,6 +2077,9 @@ DELETE
 #### path_template:
 /v1/stores/{storeID}/directories?path={path}
 
+#### private:
+True
+
 _end_
 
 ## Get file data (cat)
@@ -1792,10 +2093,10 @@ Datastores
 #### anchor_tag:
 get_file_data__cat_
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1810,6 +2111,9 @@ GET
 #### path_template:
 /v1/stores/{storeID}/files?path={path}
 
+#### private:
+True
+
 _end_
 
 ## Create file
@@ -1823,10 +2127,10 @@ Datastores
 #### anchor_tag:
 create_file
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1840,6 +2144,9 @@ POST
 
 #### path_template:
 /v1/stores/{storeID}/files?path={path}
+
+#### private:
+True
 
 _end_
 
@@ -1854,10 +2161,10 @@ Datastores
 #### anchor_tag:
 update_file
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1872,6 +2179,9 @@ PUT
 #### path_template:
 /v1/stores/{storeID}/files?path={path}
 
+#### private:
+True
+
 _end_
 
 ## Delete file (rm)
@@ -1885,10 +2195,10 @@ Datastores
 #### anchor_tag:
 delete_file__rm_
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1903,6 +2213,9 @@ DELETE
 #### path_template:
 /v1/stores/{storeID}/files?path={path}
 
+#### private:
+True
+
 _end_
 
 ## Create collection
@@ -1916,10 +2229,10 @@ Collections
 #### anchor_tag:
 create_collection
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1934,6 +2247,9 @@ POST
 #### path_template:
 /v1/collections
 
+#### private:
+True
+
 _end_
 
 ## Get all collection items
@@ -1947,10 +2263,10 @@ Collections
 #### anchor_tag:
 get_all_collection_i
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1964,6 +2280,9 @@ GET
 
 #### path_template:
 /v1/collections/{collectionID}
+
+#### private:
+True
 
 _end_
 
@@ -1978,10 +2297,10 @@ Collections
 #### anchor_tag:
 create_collection_it
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -1996,6 +2315,9 @@ POST
 #### path_template:
 /v1/collections/{collectionID}
 
+#### private:
+True
+
 _end_
 
 ## Get collection item
@@ -2009,10 +2331,10 @@ Collections
 #### anchor_tag:
 get_collection_item
 
-#### description
+#### description:
 
 
-#### response_description
+#### response_description:
 
 
 #### notes:
@@ -2027,5 +2349,87 @@ GET
 #### path_template:
 /v1/{collectionID}/{itemID}
 
+#### private:
+True
+
 _end_
 
+## Search users
+
+#### grouping:
+Identity API
+
+#### subgrouping:
+Profiles
+
+#### anchor_tag:
+search_users
+
+#### description:
+Takes in a search query and returns a list of results that match the search. 
+The query is matched against usernames, full names, and twitter handles.
+
+#### response_description:
+Returns an array of results, where each result has a \"profile\" object.
+
+#### method:
+GET
+
+#### notes:
+
+#### family:
+-
+
+#### path_template:
+/v1/search
+
+#### parameters[]:
+{"name": "query", "description": "The text to search for."}
+
+#### tryit_pathname:
+/v1/search?query=wenger
+
+#### example_request_bash:
+/v1/search?query=wenger
+
+#### example_response:
+{
+  "results": [
+    {
+      "profile": {
+        "@type": "Person", 
+        "account": [
+          {
+            "@type": "Account", 
+            "identifier": "albertwenger", 
+            "proofType": "http", 
+            "service": "twitter"
+          }, 
+          {
+            "@type": "Account", 
+            "identifier": "albertwenger", 
+            "proofType": "http", 
+            "service": "facebook"
+          }, 
+          {
+            "@type": "Account", 
+            "identifier": "albertwenger", 
+            "proofType": "http", 
+            "service": "github"
+          }, 
+          {
+            "@type": "Account", 
+            "identifier": "1QHDGGLEKK7FZWsBEL78acV9edGCTarqXt", 
+            "role": "payment", 
+            "service": "bitcoin"
+          }
+        ], 
+        "address": {
+          "@type": "PostalAddress", 
+          "addressLocality": "New York"
+        }, 
+        "description": "VC at USV.com", 
+        ...
+}
+
+_end_

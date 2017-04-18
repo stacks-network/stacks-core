@@ -110,7 +110,7 @@ def write_markdown_spec(f_out, api_calls):
         obj["Grouping"] = api_obj["grouping"]
         obj["Notes"] = api_obj["notes"] if "notes" in api_obj else ""
         obj["API Family"] = api_obj["family"] if "family" in api_obj else "-"
-        obj["Subgroup"] = api_obj["subgroup"] if "subgroup" in api_obj else ""
+        obj["Subgroup"] = api_obj["subgrouping"] if "subgrouping" in api_obj else ""
         
         if obj["Grouping"] not in groups:
             groups[obj["Grouping"]] = MarkdownGroup()
@@ -133,7 +133,7 @@ def write_markdown_spec(f_out, api_calls):
             for item in sg:
                 f_out.write("| {} |\n".format(" | ".join(
                     [item[k] for k in row_headers])))
-        f_out.write("\n\n")
+            f_out.write("\n")
         if g.notes:
             f_out.write("#### {}\n\n".format(g.notes))
 

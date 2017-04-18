@@ -32,11 +32,16 @@
     <div class="pull-left sidebar hidden-xs hidden-sm">
         <div class="list-group">
            <a href="/#" class="list-group-item">Getting Started</a>
-
-           {% for group_name, group_entries in grouped_calls.iteritems() %}
-	   <h5 class="navheader">{{ group_name }}</h5>
-   	     {% for call in group_entries %}
-            <a href="/#{{ call.anchor_tag }}" class="list-group-item">{{ call.title }}</a>	     
+	   
+           {% for group_name, subgroups in grouped_calls.iteritems() %}
+	     <h5 class="navheader">{{ group_name }}</h5>
+             {% for subgroup_name, group_entries in subgroups.iteritems() %}
+	       {% if subgroups|length > 1 and subgroup_name %}
+   	       <h7 class="navheader">{{ subgroup_name }}</h7>
+	       {% endif %} 
+               {% for call in group_entries %}
+               <a href="/#{{ call.anchor_tag }}" class="list-group-item">{{ call.title }}</a>	     
+	       {% endfor %}
 	     {% endfor %}
            {% endfor %}
 
