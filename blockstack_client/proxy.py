@@ -743,8 +743,13 @@ def get_names_in_namespace_page(namespace_id, offset, count, proxy=None):
             return resp
 
         # must be valid names
+        valid_names = []
         for n in resp['names']:
-            assert scripts.is_name_valid(str(n)), ('Invalid name {}'.format(str(n)))
+            if not scripts.is_name_valid(str(n)):
+                log.error('Invalid name "{}"'.format(str(n)))
+            else:
+                valid_names.append(n)
+        return valid_names
     except (ValidationError, AssertionError) as e:
         log.exception(e)
         resp = json_traceback(resp.get('error'))
@@ -754,8 +759,6 @@ def get_names_in_namespace_page(namespace_id, offset, count, proxy=None):
         log.exception(ee)
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
-
-    return resp['names']
 
 
 def get_num_names_in_namespace(namespace_id, proxy=None):
