@@ -31,7 +31,7 @@ $ sudo pip install blockstack --upgrade
 For SUSE and openSUSE
 ```
 $ sudo zypper update && zypper install rng-tools python-devel libffi-devel
-$ sudo pip2 install blockstack --upgrade
+$ sudo pip2 install blockstack --upgrade 
 ```
 For macOS: 
 ```
