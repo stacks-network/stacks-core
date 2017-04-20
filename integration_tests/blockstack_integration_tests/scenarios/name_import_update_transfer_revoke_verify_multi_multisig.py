@@ -100,7 +100,7 @@ def scenario( wallets, **kw ):
         register_wallet = name_register_wallets[i]
         import_key = private_keys[i]
 
-        resp = testlib.blockstack_name_import( name, register_wallet.addr, str(9 - i) * 40, import_key )
+        resp = testlib.blockstack_name_import( name, register_wallet.addr, str(9 - i) * 40, import_key, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
             return False
