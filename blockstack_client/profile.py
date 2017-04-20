@@ -30,6 +30,10 @@ import base64
 import httplib
 import virtualchain
 
+import virtualchain
+from virtualchain.lib.ecdsalib import *
+import keylib
+
 from .proxy import *
 from blockstack_client import storage
 from blockstack_client import user as user_db
@@ -38,7 +42,7 @@ from .config import get_logger, get_config
 from .constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 
 from .zonefile import load_data_pubkey_for_new_zonefile, get_name_zonefile, make_empty_zonefile
-from .keys import get_data_privkey_info, get_pubkey_hex 
+from .keys import get_data_privkey_info
 
 log = get_logger()
 
@@ -254,7 +258,7 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
             user_data_pubkey = user_db.user_zonefile_data_pubkey(user_zonefile)
             if user_data_pubkey is not None:
                 user_data_pubkey = str(user_data_pubkey)
-                data_address = virtualchain.BitcoinPublicKey(user_data_pubkey).address()
+                data_address = keylib.ECPublicKey(user_data_pubkey).address()
 
         except ValueError:
             # multiple keys defined; we don't know which one to use
