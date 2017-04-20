@@ -68,7 +68,7 @@ def test_get_request(cls, endpoint, headers={}, status_code=200):
         print(resp.status_code)
 
     data = json.loads(resp.data)
-    cls.assertTrue(resp.status_code == status_code)
+    cls.assertEqual(resp.status_code, status_code)
     return data
 
 def test_post_request(cls, endpoint, payload, headers={}, status_code=200):
@@ -158,6 +158,14 @@ class NamespaceTest(unittest.TestCase):
         data = test_get_request(self, "/v1/namespaces",
                                 headers = {} , status_code=200)        
         self.assertIn('id', data)
+    def test_id_space_names(self):
+        data = test_get_request(self, "/v1/namespaces/id/names?page=0",
+                                headers = {} , status_code=200)  
+        self.assertEqual(len(data), 100, "Paginated name length != 100")
+        data = test_get_request(self, "/v1/namespaces/id/names",
+                                headers = {} , status_code=401)  
+        
+
 
 class NamepriceTest(unittest.TestCase):
     def price_url(self, name):
@@ -210,7 +218,7 @@ class TestAPILandingPageExamples(unittest.TestCase):
         from api.utils import get_api_calls
         current_dir = os.path.abspath(os.path.dirname(__file__))
         api_endpoints = [ call['tryit_pathname'] 
-                          for call in get_api_calls(current_dir + '/../../docs/api_v1.md')
+                          for call in get_api_calls(current_dir + '/../api_v1.md')
                           if (not ("private" in call and call["private"].lower().startswith("t")))
                           and 'tryit_pathname' in call ]
         print("")
@@ -262,8 +270,7 @@ def test_main(args = []):
         del args[ainx]
 
     if len(args) == 0 or args[0] == "--all":
-        args = [ testname for testname in test_map.keys() if
-                 testname != "NamepriceTest" ] # Nameprice is a slow test, don't include by default!
+        args = [ testname for testname in test_map.keys() ]
 
     test_support.run_unittest( *[test_map[test_name] for test_name in args] )
 

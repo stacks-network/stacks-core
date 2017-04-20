@@ -138,7 +138,7 @@ def catch_all_post(path):
 @cache_control(5*60)
 def index():
     current_dir = os.path.abspath(os.path.dirname(__file__))
-    api_calls = [call for call in get_api_calls(current_dir + '/../docs/api_v1.md')
+    api_calls = [call for call in get_api_calls(current_dir + '/api_v1.md')
                  if not ("private" in call and call["private"].lower().startswith("t"))]
     server_info = getinfo()
 
