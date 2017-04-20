@@ -55,6 +55,9 @@ from types import ModuleType
 import keylib
 from keylib import *
 
+import virtualchain
+from virtualchain.lib.ecdsalib import *
+
 import signal
 import json
 import config as blockstack_config
