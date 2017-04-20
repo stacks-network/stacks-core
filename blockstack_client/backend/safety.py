@@ -277,9 +277,9 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
 
     if owner_address is None:
         assert owner_privkey_info
-        owner_address = get_privkey_info_address(owner_privkey_info)
+        owner_address = virtualchain.get_privkey_address(owner_privkey_info)
 
-    payment_address = get_privkey_info_address(payment_privkey_info)
+    payment_address = virtualchain.get_privkey_address(payment_privkey_info)
     if transfer_address:
         transfer_address = str(transfer_address)
     
@@ -334,10 +334,15 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         """
         res = get_names_owned_by_address(addr, proxy=proxy)
         if 'error' in res:
+            log.error("Failed to get names owned by {}: {}".format(addr, res['error']))
             return {'error': res['error']}
 
         else:
-            return {'status': fqu_or_ns in res}
+            if fqu_or_ns not in res:
+                log.error("Name {} not owned by {}".format(fqu_or_ns, addr))
+                return {'error': 'Name {} not owned by {}'.format(fqu_or_ns, addr)}
+
+            return {'status': True}
 
     def _is_namespace_available(ns):
         """
@@ -371,7 +376,7 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         The namespace must already exist
         """
         reveal_addr = virtualchain.address_reencode(reveal_addr)
-        if virtualchain.is_p2sh_address(reveal_addr):
+        if not virtualchain.is_singlesig_address(reveal_addr):
             return {'error': 'Invalid address; only p2pkh addresses are supported for namespace reveal'}
 
         res = get_namespace_blockchain_record(ns, proxy=proxy)
@@ -390,7 +395,7 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         * must have no outstanding UTXOs
         """
         reveal_address = virtualchain.address_reencode(reveal_address)
-        if virtualchain.is_p2sh_address(reveal_address):
+        if not virtualchain.is_singlesig_address(reveal_address):
             return {'error': 'Invalid address; only p2pkh addresses are supported for namespace reveal'}
         
         if not BLOCKSTACK_TEST:
@@ -442,7 +447,7 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
 
 
         child_addrs = blockstack.BlockstackDB.build_import_keychain( nsid, ecdsa_private_key(import_privkey).public_key().to_hex(), keychain_dir=keychain_dir )
-        import_addr = virtualchain.address_reencode( ecdsa_private_key(import_privkey).public_key().address() )
+        import_addr = virtualchain.get_privkey_address(import_privkey)
 
         if import_addr not in child_addrs:
             _cleanup()
@@ -587,10 +592,10 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
     )
 
     if payment_privkey_info is not None:
-        payment_address = get_privkey_info_address(payment_privkey_info)
+        payment_address = virtualchain.get_privkey_address(payment_privkey_info)
 
     if owner_privkey_info is not None:
-        owner_address = get_privkey_info_address(owner_privkey_info)
+        owner_address = virtualchain.get_privkey_address(owner_privkey_info)
 
     # fee estimation: cost of name_or_ns + cost of preorder transaction +
     # cost of registration transaction + cost of update transaction + cost of transfer transaction
@@ -1151,7 +1156,7 @@ def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey
 
     log.debug("Check {} on {}: test {}".format(', '.join(operations), fqu_or_ns, ', '.join(required_checks)))
 
-    payment_address = get_privkey_info_address(payment_privkey_info)
+    payment_address = virtualchain.get_privkey_address(payment_privkey_info)
 
     sg = ScatterGather()
 
@@ -1345,7 +1350,7 @@ def check_namespace_ready(nsid, reveal_privkey_info, min_payment_confs=TX_MIN_CO
     @reveal_privkey_info is the private key information for the reveal private key (but will be treated as the "payment" key for the op-checker)
     """
     required_checks = ['is_namespace_reveal_address_valid', 'is_namespace_revealer', 'is_namespace_still_revealed', 'is_payment_address_usable']
-    reveal_addr = virtualchain.address_reencode( ecdsa_private_key(reveal_privkey_info).public_key().address() )
+    reveal_addr = virtualchain.get_privkey_address(reveal_privkey_info)
     return _check_op(nsid, 'namespace_ready', required_checks, None, reveal_privkey_info, owner_address=reveal_addr, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)
 
 
