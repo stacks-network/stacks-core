@@ -28,7 +28,6 @@ import sys
 import tempfile
 import errno
 import shutil
-import bitcoin
 import sys
 import copy
 import json
@@ -49,10 +48,10 @@ from blockstack_client.actions import *
 from blockstack_client.keys import *
 from blockstack_client.app import *
 from blockstack_client.config import atlas_inventory_to_string
+from blockstack_client.backend.crypto import aes_encrypt
+
 import blockstack
-import pybitcoin
 import keylib
-from pybitcoin.transactions.outputs import calculate_change_amount
 
 import virtualchain
 
@@ -351,9 +350,9 @@ def blockstack_name_renew( name, privatekey, register_addr=None, subsidy_key=Non
 
     name_cost_info = test_proxy.get_name_cost( name )
     if register_addr is None:
-        register_addr = get_privkey_info_address(privatekey)
+        register_addr = virtualchain.get_privkey_address(privatekey)
     else:
-        assert register_addr == get_privkey_info_address(privatekey)
+        assert register_addr == virtualchain.get_privkey_address(privatekey)
 
     payment_key = get_default_payment_wallet().privkey
     if subsidy_key is not None:
@@ -386,8 +385,12 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
+    
+    tx_fee = None
+    if not safety_checks:
+        tx_fee = 3000
 
-    resp = blockstack_client.do_name_import( name, privatekey, recipient_address, update_hash, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+    resp = blockstack_client.do_name_import( name, privatekey, recipient_address, update_hash, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, tx_fee=tx_fee )
     api_call_history.append( APICallRecord( "name_import", name, resp ) )
     return resp
 
@@ -2201,18 +2204,6 @@ def blockstack_export_db( path, block_height, **kw ):
         shutil.copy( atlas_path, os.path.join( os.path.dirname(path), "atlas.db.%s" % block_height ) )
 
 
-def tx_sign_all_unsigned_inputs( tx_hex, privkey ):
-    """
-    Sign a serialized transaction's unsigned inputs
-    """
-    inputs, outputs, locktime, version = blockstack.tx_deserialize( tx_hex )
-    for i in xrange( 0, len(inputs)):
-        if len(inputs[i]['script_sig']) == 0:
-            tx_hex = bitcoin.sign( tx_hex, i, privkey )
-
-    return tx_hex
-
-
 def make_legacy_wallet( master_private_key, password ):
     """
     make a legacy pre-0.13 wallet with a single master private key
@@ -2221,18 +2212,80 @@ def make_legacy_wallet( master_private_key, password ):
     hex_password = binascii.hexlify(password)
 
     legacy_wallet = {
-        'encrypted_master_private_key': blockstack_client.backend.crypto.aes_encrypt( master_private_key, hex_password )
+        'encrypted_master_private_key': aes_encrypt( master_private_key, hex_password )
     }
 
     return legacy_wallet
+
+
+
+def encrypt_multisig_info(multisig_info, password):
+    """
+    Given a multisig info dict,
+    encrypt the sensitive fields.
+
+    LEGACY WALLET TESTING ONLY
+
+    Returns {'encrypted_private_keys': ..., 'encrypted_redeem_script': ..., **other_fields}
+    """
+    enc_info = {
+        'encrypted_private_keys': None,
+        'encrypted_redeem_script': None
+    }
+
+    hex_password = hexlify(password)
+
+    assert virtualchain.is_multisig(multisig_info), 'Invalid multisig keys'
+
+    enc_info['encrypted_private_keys'] = []
+    for pk in multisig_info['private_keys']:
+        pk_ciphertext = aes_encrypt(pk, hex_password)
+        enc_info['encrypted_private_keys'].append(pk_ciphertext)
+
+    enc_info['encrypted_redeem_script'] = aes_encrypt(multisig_info['redeem_script'], hex_password)
+
+    # preserve any other fields
+    for k, v in multisig_info.items():
+        if k not in ['private_keys', 'redeem_script']:
+            enc_info[k] = v
+
+    return enc_info
+
+
+def encrypt_private_key_info(privkey_info, password):
+    """
+    Encrypt private key info.
+
+    LEGACY WALLET TESTING ONLY
+
+    Return {'status': True, 'encrypted_private_key_info': {'address': ..., 'private_key_info': ...}} on success
+    Returns {'error': ...} on error
+    """
+
+    ret = {}
+    if virtualchain.is_multisig(privkey_info):
+        ret['address'] = virtualchain.address_reencode( virtualchain.make_p2sh_address( privkey_info['redeem_script'] ))
+        ret['private_key_info'] = encrypt_multisig_info(privkey_info, password)
+
+        return {'status': True, 'encrypted_private_key_info': ret}
+
+    if virtualchain.is_singlesig(privkey_info):
+        ret['address'] = virtualchain.address_reencode( ecdsa_private_key(privkey_info).public_key().address() )
+
+        hex_password = hexlify(password)
+        ret['private_key_info'] = aes_encrypt(privkey_info, hex_password)
+
+        return {'status': True, 'encrypted_private_key_info': ret}
+
+    return {'error': 'Invalid private key info'}
 
 
 def make_legacy_013_wallet( owner_privkey, payment_privkey, password ):
     """
     make a legacy 0.13 wallet with an owner and payment private key
     """
-    assert blockstack_client.keys.is_singlesig(owner_privkey)
-    assert blockstack_client.keys.is_singlesig(payment_privkey)
+    assert virtualchain.is_singlesig(owner_privkey)
+    assert virtualchain.is_singlesig(payment_privkey)
 
     decrypted_legacy_wallet = blockstack_client.keys.make_wallet_keys(owner_privkey=owner_privkey, payment_privkey=payment_privkey)
     encrypted_legacy_wallet = {
@@ -2248,9 +2301,9 @@ def make_legacy_014_wallet( owner_privkey, payment_privkey, data_privkey, passwo
     """
     make a legacy 0.14 wallet with the owner, payment, and data keys
     """
-    assert blockstack_client.keys.is_singlesig(owner_privkey)
-    assert blockstack_client.keys.is_singlesig(payment_privkey)
-    assert blockstack_client.keys.is_singlesig(data_privkey)
+    assert virtualchain.is_singlesig(owner_privkey)
+    assert virtualchain.is_singlesig(payment_privkey)
+    assert virtualchain.is_singlesig(data_privkey)
 
     decrypted_legacy_wallet = blockstack_client.keys.make_wallet_keys(data_privkey=data_privkey, owner_privkey=owner_privkey, payment_privkey=payment_privkey)
     encrypted_legacy_wallet = {
@@ -2313,12 +2366,16 @@ def start_api(password):
     """
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
     assert config_path is not None
+    
+    config_dir = os.path.dirname(config_path)
 
     conf = blockstack_client.get_config(config_path)
     port = int(conf['api_endpoint_port'])
     api_pass = conf['api_password']
 
-    res = blockstack_client.rpc.local_api_start(api_pass=api_pass, port=port, config_dir=os.path.dirname(config_path), password="0123456789abcdef")
+    res = blockstack_client.rpc.local_api_stop(config_dir=config_dir)
+
+    res = blockstack_client.rpc.local_api_start(api_pass=api_pass, port=port, config_dir=config_dir, password=password)
     if not res:
         return {'error': 'Failed to start API server'}
 
@@ -2404,14 +2461,14 @@ def send_funds_tx( privkey, satoshis, payment_addr ):
     
     inputs = blockstack_client.backend.blockchain.get_utxos(send_addr)
     outputs = [
-        {"script_hex": virtualchain.make_payment_script(payment_addr),
+        {"script": virtualchain.make_payment_script(payment_addr),
          "value": satoshis},
         
-        {"script_hex": virtualchain.make_payment_script(send_addr),
-         "value": calculate_change_amount(inputs, satoshis, 5500)},
+        {"script": virtualchain.make_payment_script(send_addr),
+         "value": virtualchain.calculate_change_amount(inputs, satoshis, 5500)},
     ]
 
-    serialized_tx = pybitcoin.serialize_transaction(inputs, outputs)
+    serialized_tx = blockstack_client.tx.serialize_tx(inputs, outputs)
     signed_tx = blockstack_client.tx.sign_tx(serialized_tx, privkey)
     return signed_tx
 
@@ -2814,7 +2871,7 @@ def get_unspents( addr ):
     Get the list of unspent outputs for an address.
     """
     utxo_provider = get_utxo_client()
-    return pybitcoin.get_unspents( addr, utxo_provider )
+    return blockstack_client.backend.utxo.get_unspents(addr, utxo_provider)
 
 
 def broadcast_transaction( tx_hex ):
@@ -2822,7 +2879,7 @@ def broadcast_transaction( tx_hex ):
     Send out a raw transaction to the mock framework.
     """
     utxo_provider = get_utxo_client()
-    return pybitcoin.broadcast_transaction( tx_hex, utxo_provider )
+    return blockstack_client.backend.utxo.broadcast_transaction(tx_hex, utxo_provider)
 
 
 def decoderawtransaction( tx_hex ):
@@ -2851,7 +2908,7 @@ def set_default_payment_wallet( w ):
 
 # getters for the test environment
 def get_utxo_client():
-    utxo_provider = pybitcoin.BitcoindClient("blockstack", "blockstacksystem", port=18332, version_byte=virtualchain.version_byte )
+    utxo_provider = blockstack_client.backend.utxo.bitcoind_utxo.BitcoindClient("blockstack", "blockstacksystem", port=18332, version_byte=virtualchain.version_byte )
     return utxo_provider
 
 def get_bitcoind():
@@ -2962,7 +3019,7 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
     assert data_privkey_info is not None
     assert 'error' not in data_privkey_info, str(data_privkey_info)
 
-    assert blockstack_client.keys.is_singlesig(data_privkey_info)
+    assert virtualchain.is_singlesig(data_privkey_info)
 
     user_zonefile_hash = blockstack_client.hash_zonefile( user_zonefile )
     
