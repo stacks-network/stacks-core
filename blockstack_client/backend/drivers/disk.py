@@ -309,8 +309,11 @@ if __name__ == "__main__":
    Unit tests.
    """
    
-   import pybitcoin 
+   import keylib
+   import virtualchain
    import json 
+
+   from virtualchain.lib.hashing import *
    
    # hack around absolute paths
    current_dir =  os.path.abspath(os.path.join( os.path.dirname(__file__), "..") )
@@ -319,7 +322,7 @@ if __name__ == "__main__":
    from storage import serialize_mutable_data, parse_mutable_data
    from user import make_mutable_data_info
 
-   pk = pybitcoin.BitcoinPrivateKey()
+   pk = keylib.ECPrivateKey()
    data_privkey = pk.to_hex()
    data_pubkey = pk.public_key().to_hex()
    
@@ -331,7 +334,7 @@ if __name__ == "__main__":
    ]
    
    def hash_data( d ):
-      return pybitcoin.hash.hex_hash160( d )
+      return hex_hash160( d )
    
    rc = storage_init()
    if not rc:

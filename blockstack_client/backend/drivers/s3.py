@@ -407,9 +407,11 @@ if __name__ == "__main__":
    Unit tests.
    """
    
-   import pybitcoin 
+   import keylib
    import json 
    import blockstack_client
+   import virtualchain
+   from virtualchain.lib.hashing import hex_hash160
    
    # hack around absolute paths
    current_dir =  os.path.abspath(os.path.dirname(__file__))
@@ -427,7 +429,7 @@ if __name__ == "__main__":
    conf = get_config(CONFIG_PATH)
    print json.dumps(conf, indent=4, sort_keys=True)
 
-   pk = pybitcoin.BitcoinPrivateKey()
+   pk = keylib.ECPrivateKey()
    data_privkey = pk.to_hex()
    data_pubkey = pk.public_key().to_hex()
 
@@ -439,7 +441,7 @@ if __name__ == "__main__":
    ]
    
    def hash_data( d ):
-      return pybitcoin.hash.hex_hash160( d )
+      return hex_hash160( d )
    
    rc = storage_init(conf)
    if not rc:
