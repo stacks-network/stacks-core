@@ -24,16 +24,44 @@
 import json
 import sys
 
-import pybitcoin
+import virtualchain
 
 from .operations import *
 from .constants import CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DRY_RUN
 from .config import get_tx_broadcaster, get_logger
 
-from .scripts import tx_sign_all_unsigned_inputs
 from .backend.blockchain import broadcast_tx
 
 log = get_logger('blockstack-client')
+
+
+def serialize_tx(inputs, outputs):
+    """
+    Given the inputs and outputs to a transaction, serialize them
+    to the appropriate blockchain format.
+
+    Return the hex-string containing the transaction
+    """
+
+    # TODO: expand beyond bitcoin
+    txobj = {
+        'ins': inputs,
+        'outs': outputs,
+        'locktime': 0,
+        'version': 1
+    }
+
+    txstr = virtualchain.btc_tx_serialize(txobj)
+    return txstr
+
+
+def deserialize_tx(txstr):
+    """
+    Given a tx string, deserialize it into the inputs and outputs
+    """
+    # TODO: expand beyond bitcoin 
+    txobj = virtualchain.btc_tx_deserialize(txstr)
+    return txobj['ins'], txobj['outs']
 
 
 def preorder_tx(*args, **kw):
@@ -42,7 +70,7 @@ def preorder_tx(*args, **kw):
     Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_preorder(*args, **kw)
-    return pybitcoin.serialize_transaction(inputs, outputs)
+    return serialize_tx(inputs, outputs)
 
 
 def register_tx(*args, **kw):
@@ -51,7 +79,7 @@ def register_tx(*args, **kw):
     Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_register(*args, **kw)
-    return pybitcoin.serialize_transaction(inputs, outputs)
+    return serialize_tx(inputs, outputs)
 
 
 def update_tx(*args, **kw):
@@ -60,7 +88,7 @@ def update_tx(*args, **kw):
     Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_update(*args, **kw)
-    return pybitcoin.serialize_transaction(inputs, outputs)
+    return serialize_tx(inputs, outputs)
 
 
 def transfer_tx(*args, **kw):
@@ -69,7 +97,7 @@ def transfer_tx(*args, **kw):
     Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_transfer(*args, **kw)
-    return pybitcoin.serialize_transaction(inputs, outputs)
+    return serialize_tx(inputs, outputs)
 
 
 def revoke_tx(*args, **kw):
@@ -78,7 +106,7 @@ def revoke_tx(*args, **kw):
     Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_revoke(*args, **kw)
-    return pybitcoin.serialize_transaction(inputs, outputs)
+    return serialize_tx(inputs, outputs)
 
 
 def namespace_preorder_tx(*args, **kw):
@@ -87,7 +115,7 @@ def namespace_preorder_tx(*args, **kw):
     Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_namespace_preorder(*args, **kw)
-    return pybitcoin.serialize_transaction(inputs, outputs)
+    return serialize_tx(inputs, outputs)
 
 
 def namespace_reveal_tx(*args, **kw):
@@ -96,7 +124,7 @@ def namespace_reveal_tx(*args, **kw):
     Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_namespace_reveal(*args, **kw)
-    return pybitcoin.serialize_transaction(inputs, outputs)
+    return serialize_tx(inputs, outputs)
 
 
 def namespace_ready_tx(*args, **kw):
@@ -105,7 +133,7 @@ def namespace_ready_tx(*args, **kw):
     Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_namespace_ready(*args, **kw)
-    return pybitcoin.serialize_transaction(inputs, outputs)
+    return serialize_tx(inputs, outputs)
 
 
 def name_import_tx(*args, **kw):
@@ -114,7 +142,7 @@ def name_import_tx(*args, **kw):
     Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_name_import(*args, **kw)
-    return pybitcoin.serialize_transaction(inputs, outputs)
+    return serialize_tx(inputs, outputs)
 
 
 def announce_tx(*args, **kw):
@@ -123,14 +151,14 @@ def announce_tx(*args, **kw):
     Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_announce(*args, **kw)
-    return pybitcoin.serialize_transaction(inputs, outputs)
+    return serialize_tx(inputs, outputs)
 
 
 def sign_tx(tx_hex, private_key_info):
     """
     Sign a transaction
     """
-    return tx_sign_all_unsigned_inputs(private_key_info, tx_hex)
+    return virtualchain.tx_sign_all_unsigned_inputs(private_key_info, tx_hex)
 
 
 def sign_and_broadcast_tx(tx_hex, private_key_info, config_path=CONFIG_PATH, tx_broadcaster=None):
