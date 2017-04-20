@@ -219,7 +219,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
     # sender cannot be a p2sh script until we're in an epoch that supports multisig.
     # this is to preserve compatibility with 0.13.
-    if virtualchain.is_p2sh_script( sender ) and not epoch_has_multisig( block_id ):
+    if virtualchain.is_multisig_script( sender ) and not epoch_has_multisig( block_id ):
         log.debug("Sender %s is a p2sh script, but multisig is not enabled in epoch %s" % (sender, get_epoch_number(block_id)))
         return False
 
