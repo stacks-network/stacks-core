@@ -29,7 +29,6 @@ import binascii
 import hashlib
 import math
 import keychain
-import pybitcoin
 import os
 import sys
 import copy
@@ -2633,6 +2632,7 @@ def namedb_get_block_ops_hash( cur, block_number ):
 if __name__ == "__main__":
     # basic unit tests
     import random 
+    import pybitcoin
 
     path = "/tmp/namedb.sqlite"
     if not os.path.exists( path ):
