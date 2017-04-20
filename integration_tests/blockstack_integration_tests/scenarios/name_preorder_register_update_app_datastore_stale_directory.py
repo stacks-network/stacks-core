@@ -88,7 +88,12 @@ def scenario( wallets, **kw ):
     sys.stdout.flush()
     
     testlib.next_block( **kw )
-   
+    
+    res = testlib.start_api("0123456789abcdef")
+    if 'error' in res:
+        print 'failed to start API: {}'.format(res)
+        return False
+
     # sign in and make a token 
     datastore_pk = keylib.ECPrivateKey(wallets[-1].privkey).to_hex()
     res = testlib.blockstack_cli_app_signin(datastore_pk, 'foo-app.com', ['store_read', 'store_write', 'store_admin'])
@@ -98,7 +103,7 @@ def scenario( wallets, **kw ):
         return 
 
     # export to environment 
-    os.environ['BLOCKSTACK_API_SESSION'] = res['token']
+    blockstack_client.set_secret("BLOCKSTACK_API_SESSION", res['token'])
 
     datastore_id_res = testlib.blockstack_cli_datastore_get_id( datastore_pk )
     datastore_id = datastore_id_res['datastore_id']
