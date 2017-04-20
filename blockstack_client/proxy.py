@@ -372,7 +372,7 @@ def getinfo(proxy=None):
         old_resp = resp
         resp = json_validate( schema, resp )
         if json_is_error(resp):
-            if BLOCKSTACKT_TEST:
+            if BLOCKSTACK_TEST:
                 log.debug("invalid response: {}".format(old_resp))
             return resp
 
