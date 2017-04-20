@@ -53,9 +53,12 @@ class BitcoindClient(BlockchainClient):
 def format_unspents(unspents):
     return [{
         "transaction_hash": s["txid"],
-        "output_index": s["vout"],
+        "outpoint": {
+            'hash': s['txid'],
+            'index': s["vout"],
+        },
         "value": int(Decimal(s["amount"]*SATOSHIS_PER_COIN)),
-        "script_hex": s["scriptPubKey"],
+        "out_script": s["scriptPubKey"],
         "confirmations": s["confirmations"]
         }
         for s in unspents
