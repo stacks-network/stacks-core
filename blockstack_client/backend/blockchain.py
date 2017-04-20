@@ -223,9 +223,10 @@ def broadcast_tx(tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None):
     resp = {}
     try:
         if BLOCKSTACK_DRY_RUN:
+            # TODO: expand to other blockchains...
             resp = {
                 'tx': tx_hex,
-                'transaction_hash': virtualchain.tx_get_hash(tx_hex),
+                'transaction_hash': virtualchain.btc_tx_get_hash(tx_hex),
                 'status': True
             }
             return resp
