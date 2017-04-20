@@ -92,15 +92,15 @@ def make_outputs( data, inputs, sender_addr, fee, tx_fee, pay_fee=True ):
     
     return [
         # main output
-        {"script_hex": virtualchain.make_data_script(str(data)),
+        {"script": virtualchain.make_data_script(str(data)),
          "value": 0},
         
         # change address (can be subsidy key)
-        {"script_hex": virtualchain.make_payment_script(sender_addr),
+        {"script": virtualchain.make_payment_script(sender_addr),
          "value": virtualchain.calculate_change_amount(inputs, bill, dust_fee)},
         
         # burn address
-        {"script_hex": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
+        {"script": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
          "value": op_fee}
     ]
 
@@ -156,7 +156,7 @@ def get_fees( inputs, outputs ):
         return (None, None)
     
     # 0: op_return
-    if not tx_output_is_op_return( outputs[0] ):
+    if not virtualchain.tx_output_has_data( outputs[0] ):
         log.debug("outputs[0] is not an OP_RETURN")
         return (None, None) 
     
@@ -165,12 +165,12 @@ def get_fees( inputs, outputs ):
         return (None, None) 
     
     # 1: change address 
-    if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
+    if virtualchain.script_hex_to_address( outputs[1]["script"] ) is None:
         log.error("outputs[1] has no decipherable change address")
         return (None, None)
     
     # 2: burn address 
-    addr_hash = virtualchain.script_hex_to_address( outputs[2]["script_hex"] )
+    addr_hash = virtualchain.script_hex_to_address( outputs[2]["script"] )
     if addr_hash is None:
         log.error("outputs[2] has no decipherable burn address")
         return (None, None) 

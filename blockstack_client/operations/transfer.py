@@ -102,13 +102,13 @@ def make_outputs( data, inputs, new_name_owner_address, change_address, tx_fee=0
     
     return [
         # main output
-        {"script_hex": virtualchain.make_data_script(str(data)),
+        {"script": virtualchain.make_data_script(str(data)),
          "value": 0},
         # new name owner output
-        {"script_hex": virtualchain.make_payment_script(new_name_owner_address),
+        {"script": virtualchain.make_payment_script(new_name_owner_address),
          "value": dust_value},
         # change output
-        {"script_hex": virtualchain.make_payment_script(change_address),
+        {"script": virtualchain.make_payment_script(change_address),
          "value": virtualchain.calculate_change_amount(inputs, op_fee, dust_fee)}
     ]
 
@@ -153,18 +153,18 @@ def get_fees( inputs, outputs ):
         return (None, None)
     
     # 0: op_return
-    if not tx_output_is_op_return( outputs[0] ):
+    if not virtualchain.tx_output_has_data( outputs[0] ):
         return (None, None) 
     
     if outputs[0]["value"] != 0:
         return (None, None) 
     
     # 1: transfer address 
-    if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
+    if virtualchain.script_hex_to_address( outputs[1]["script"] ) is None:
         return (None, None)
     
     # 2: change address 
-    if virtualchain.script_hex_to_address( outputs[2]["script_hex"] ) is None:
+    if virtualchain.script_hex_to_address( outputs[2]["script"] ) is None:
         return (None, None)
     
     # should match make_outputs()
