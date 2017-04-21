@@ -89,7 +89,7 @@ class MarkdownGroup:
             self.subgroups[subgroup] = []
         self.subgroups[subgroup].append(obj)
 
-def run_api_to_markdown_specs(fn_out = '/tmp/api-specs.md', fn_in = 'docs/api_v1.md'):
+def run_api_to_markdown_specs(fn_in = 'api/api_v1.md', fn_out = '/tmp/api-specs.md'):
     with open(fn_out, 'w') as f_out:
         write_markdown_spec(f_out, get_api_calls(fn_in))
 
@@ -137,16 +137,12 @@ def write_markdown_spec(f_out, api_calls):
         if g.notes:
             f_out.write("#### {}\n\n".format(g.notes))
 
-def run_md_api_specs_to_api_detailed(fn_in = 'docs/api-specs.md', fn_out = 'docs/api_v1.md'):
+def run_md_api_specs_to_api_detailed(fn_in = 'docs/api-specs.md', fn_out = 'api/api_v1.md'):
     with open(fn_in) as f_in:
         with open(fn_out, 'w') as f_out:
             md_api_specs_to_api_detailed(f_in, f_out)
 
 def md_api_specs_to_api_detailed(f_in, f_out):
-    """
-    $ python -c "from api.utils import *; f = open('docs/api-specs.md'); md_api_specs_to_api_detailed(f, None); f.close()"
-    """
-
     group_header = re.compile(r"""^## (.*)$""", re.DOTALL)
     subgroup_header = re.compile(r"""^### (.*)$""", re.DOTALL)
     note_header = re.compile(r"""^#### (.*)$""", re.DOTALL)

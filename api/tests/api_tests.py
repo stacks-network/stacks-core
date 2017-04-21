@@ -20,7 +20,7 @@ This file is part of Blockstack Core.
     along with Search. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os, sys, re, json
+import os, sys, re, json, time
 import unittest
 import requests
 import argparse
@@ -43,17 +43,33 @@ API_VERSION = '1'
 api.app.testing = True
 app = api.app.test_client()
 
+class FakeResponseObj:
+    def __init__(self):
+        self.status_code = 600
+        self.data = ""
+
+class ForwardingClient:
+    def __init__(self, base_url):
+        self.base_url = base_url
+    def get(self, endpoint, headers = {}):
+        resp = requests.get(self.base_url + endpoint, headers = headers)
+        ret_obj = FakeResponseObj()
+        ret_obj.status_code = resp.status_code
+        ret_obj.data = resp.text
+        return ret_obj
 
 def test_get_request(cls, endpoint, headers={}, status_code=200):
-    resp = app.get(endpoint)
+    t_start = time.time()
+    resp = app.get(endpoint, headers = headers)
+    t_end = time.time()
+    print("\r{}get time: {}s".format("\t"*9, t_end - t_start))
     if not resp.status_code == status_code:
         print(endpoint)
         print(resp.status_code)
 
     data = json.loads(resp.data)
-    cls.assertTrue(resp.status_code == status_code)
+    cls.assertEqual(resp.status_code, status_code)
     return data
-
 
 def test_post_request(cls, endpoint, payload, headers={}, status_code=200):
     resp = app.post(endpoint, data=json.dumps(payload), headers=headers)
@@ -142,6 +158,14 @@ class NamespaceTest(unittest.TestCase):
         data = test_get_request(self, "/v1/namespaces",
                                 headers = {} , status_code=200)        
         self.assertIn('id', data)
+    def test_id_space_names(self):
+        data = test_get_request(self, "/v1/namespaces/id/names?page=0",
+                                headers = {} , status_code=200)  
+        self.assertEqual(len(data), 100, "Paginated name length != 100")
+        data = test_get_request(self, "/v1/namespaces/id/names",
+                                headers = {} , status_code=401)  
+        
+
 
 class NamepriceTest(unittest.TestCase):
     def price_url(self, name):
@@ -194,7 +218,7 @@ class TestAPILandingPageExamples(unittest.TestCase):
         from api.utils import get_api_calls
         current_dir = os.path.abspath(os.path.dirname(__file__))
         api_endpoints = [ call['tryit_pathname'] 
-                          for call in get_api_calls(current_dir + '/../../docs/api_v1.md')
+                          for call in get_api_calls(current_dir + '/../api_v1.md')
                           if (not ("private" in call and call["private"].lower().startswith("t")))
                           and 'tryit_pathname' in call ]
         print("")
@@ -238,9 +262,15 @@ def test_main(args = []):
             print(testname)
         return
 
+    if "--remote" in args:
+        ainx = args.index("--remote")
+        del args[ainx]
+        global app
+        app = ForwardingClient(args[ainx])
+        del args[ainx]
+
     if len(args) == 0 or args[0] == "--all":
-        args = [ testname for testname in test_map.keys() if
-                 testname != "NamepriceTest" ] # Nameprice is a slow test, don't include by default!
+        args = [ testname for testname in test_map.keys() ]
 
     test_support.run_unittest( *[test_map[test_name] for test_name in args] )
 
