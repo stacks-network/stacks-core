@@ -915,9 +915,12 @@ class BitcoinRegtestUTXOProvider(object):
         unspents_tmp = blockchain_client.listunspent( 0, 200000, [address] )
         unspents_all = [{
             "transaction_hash": s["txid"],
-            "output_index": s["vout"],
+            'outpoint': {
+                'hash': s['txid'],
+                'index': s['vout'],
+            },
             "value": int(round(s["amount"]*SATOSHIS_PER_COIN)),
-            "script_hex": s["scriptPubKey"],
+            "out_script": s["scriptPubKey"],
             "confirmations": s["confirmations"]
             }
             for s in unspents_tmp

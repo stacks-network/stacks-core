@@ -21,7 +21,7 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import b58check_decode
+import keylib
 from binascii import hexlify, unhexlify
 
 from ..config import *
@@ -117,7 +117,7 @@ def get_import_update_hash_from_outputs( outputs, recipient ):
         
         if output_asm[0:9] != 'OP_RETURN' and output_hex is not None and output_hex != recipient:
             
-            ret = hexlify( b58check_decode( str(output_addresses[0]) ) )
+            ret = hexlify( keylib.b58check.b58check_decode( str(output_addresses[0]) ) )
             break
             
     if ret is None:

@@ -26,7 +26,9 @@ import base64
 
 import scrypt
 
+# TODO: deprecate use of Pycrypto by 0.16
 from Crypto.Cipher import AES
+
 from binascii import hexlify, unhexlify
 
 def aes_encrypt(payload, secret):

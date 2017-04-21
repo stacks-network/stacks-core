@@ -372,7 +372,7 @@ def getinfo(proxy=None):
         old_resp = resp
         resp = json_validate( schema, resp )
         if json_is_error(resp):
-            if BLOCKSTACKT_TEST:
+            if BLOCKSTACK_TEST:
                 log.debug("invalid response: {}".format(old_resp))
             return resp
 
@@ -651,6 +651,9 @@ def get_all_names(offset=None, count=None, proxy=None):
             # error
             error_str = 'server replied too much data'
             return {'error': error_str}
+        elif len(page) == 0:
+            # end-of-table
+            break
 
         all_names += page
 
@@ -836,6 +839,9 @@ def get_names_in_namespace(namespace_id, offset=None, count=None, proxy=None):
             # error
             error_str = 'server replied too much data'
             return {'error': error_str}
+        elif len(page) == 0:
+            # end-of-table
+            break
 
         all_names += page
 

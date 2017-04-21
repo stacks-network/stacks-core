@@ -45,7 +45,6 @@ setup(
         'keychain>=0.1.4',
         'protocoin>=0.2',
         'blockstack-profiles>=0.14.1',
-        'pybitcoin>=0.9.9',
         'blockstack-zones>=0.14.1',
         'defusedxml>=0.4.1',
         'keylib>=0.0.5',

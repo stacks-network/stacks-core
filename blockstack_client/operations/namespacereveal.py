@@ -60,8 +60,10 @@ def serialize_buckets( bucket_exponents ):
     There should be 16 buckets, and each one should have an integer between 0 and 15.
     """
     ret = ""
+    assert len(bucket_exponents) == 16
     for i in xrange(0, len(bucket_exponents)):
-        ret += "%X" % bucket_exponents[i]
+        assert bucket_exponents[i] >= 0 and bucket_exponents[i] <= 15
+        ret += "%x" % bucket_exponents[i]
     
     return ret
 
@@ -71,7 +73,9 @@ def serialize_discounts( nonalpha_discount, no_vowel_discount ):
     Serialize the non-alpha and no-vowel discounts.
     They must be between 0 and 15
     """
-    return "%X%X" % (nonalpha_discount, no_vowel_discount)
+    assert nonalpha_discount >= 0 and nonalpha_discount <= 15
+    assert no_vowel_discount >= 0 and no_vowel_discount <= 15
+    return "%x%x" % (nonalpha_discount, no_vowel_discount)
 
 
 def namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount ):
@@ -184,15 +188,15 @@ def make_outputs( data, inputs, reveal_addr, change_addr, tx_fee):
     
     return [
         # main output
-        {"script_hex": virtualchain.make_data_script(str(data)),
+        {"script": virtualchain.make_data_script(str(data)),
          "value": 0},
     
         # register address
-        {"script_hex": virtualchain.make_payment_script(reveal_addr),
+        {"script": virtualchain.make_payment_script(reveal_addr),
          "value": DEFAULT_DUST_FEE},
         
         # change address
-        {"script_hex": virtualchain.make_payment_script(change_addr),
+        {"script": virtualchain.make_payment_script(change_addr),
          "value": virtualchain.calculate_change_amount(inputs, total_to_send, DEFAULT_DUST_FEE * (len(inputs) + 2) + DEFAULT_OP_RETURN_FEE + tx_fee)},
     ]
     
@@ -260,18 +264,18 @@ def get_fees( inputs, outputs ):
         return (None, None)
     
     # 0: op_return
-    if not tx_output_is_op_return( outputs[0] ):
+    if not virtualchain.tx_output_has_data( outputs[0] ):
         log.debug("output[0] is not an OP_RETURN")
         return (None, None) 
    
     # 1: reveal address 
-    if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
-        log.debug("output[1] is not a p2pkh or p2sh script")
+    if virtualchain.script_hex_to_address( outputs[1]["script"] ) is None:
+        log.debug("output[1] is not a valid script")
         return (None, None)
     
     # 2: change address 
-    if virtualchain.script_hex_to_address( outputs[2]["script_hex"] ) is None:
-        log.debug("output[2] is not a p2pkh or p2sh script")
+    if virtualchain.script_hex_to_address( outputs[2]["script"] ) is None:
+        log.debug("output[2] is not a valid script")
         return (None, None)
     
     # should match make_outputs()

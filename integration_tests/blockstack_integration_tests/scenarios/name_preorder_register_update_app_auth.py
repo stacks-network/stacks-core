@@ -100,6 +100,11 @@ def scenario( wallets, **kw ):
     sys.stdout.flush()
     
     testlib.next_block( **kw )
+ 
+    res = testlib.start_api("0123456789abcdef")
+    if 'error' in res:
+        print 'failed to start API: {}'.format(res)
+        return False
 
     data_pk = wallets[-1].privkey
     data_pub = wallets[-1].pubkey_hex
@@ -112,6 +117,11 @@ def scenario( wallets, **kw ):
         f.write(index_file_data)
 
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
+ 
+    res = testlib.start_api("0123456789abcdef")
+    if 'error' in res:
+        print 'failed to start API: {}'.format(res)
+        return False
 
     # register an application under foo.test
     res = testlib.blockstack_cli_app_publish("foo.test", "ping.app", "node_read", index_file_path, password="0123456789abcdef" )
@@ -123,6 +133,11 @@ def scenario( wallets, **kw ):
 
     # activate bar.test
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[9].privkey, wallets[7].privkey, wallets[8].privkey )
+ 
+    res = testlib.start_api("0123456789abcdef")
+    if 'error' in res:
+        print 'failed to start API: {}'.format(res)
+        return False
 
     # sign in 
     res = testlib.blockstack_cli_app_signin("ping.app", "node_read")

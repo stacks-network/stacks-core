@@ -27,9 +27,12 @@ import traceback
 
 import types
 import re
-import pybitcoin
 import socket
 from basicrpc import Proxy
+
+import virtualchain
+from virtualchain.lib.hashing import hex_hash160
+
 
 """ this module contains the plugin to blockstack that makes the DHT useful as
     ancillary storage. This depends on the blockstack server package, since it
@@ -72,7 +75,7 @@ def dht_data_hash(data):
     """
     Calculate a key from the data.
     """
-    return pybitcoin.hash.hex_hash160(data)
+    return hex_hash160(data)
 
 
 def dht_init(local_server=False):
@@ -161,7 +164,7 @@ def make_mutable_url(data_id):
     Return a string.  Use dht+udp to convey both the scheme
     and the transport (since it won't be in /etc/services).
     """
-    return "dht+udp://" + pybitcoin.hash.hex_hash160(data_id)
+    return "dht+udp://" + hex_hash160(data_id)
 
 
 def get_immutable_handler(key, **kw):
@@ -259,7 +262,6 @@ if __name__ == "__main__":
     Unit tests.
     """
 
-    import pybitcoin
     import json
 
     # hack around absolute paths
@@ -284,7 +286,7 @@ if __name__ == "__main__":
             print json.dumps(res)
 
     def hash_data(d):
-        return pybitcoin.hash.hex_hash160(d)
+        return hex_hash160(d)
 
     rc = storage_init({})
     if not rc:

@@ -40,6 +40,9 @@ import collections
 import base64
 from keylib import *
 
+import virtualchain
+from virtualchain.lib.ecdsalib import *
+
 from .keys import *
 from .profile import *
 from .proxy import *
@@ -508,7 +511,7 @@ def load_user_data_pubkey_addr( name, storage_drivers=None, proxy=None, config_p
     data_address = str(data_address)
 
     # data address cannot be a p2sh address
-    if data_address is not None and virtualchain.is_p2sh_address(data_address):
+    if data_address is not None and virtualchain.is_multisig_address(data_address):
         log.warning("Address {} cannot be a data address".format(data_address))
         data_address = None
 

@@ -29,10 +29,11 @@ import traceback
 import logging
 import json
 import requests
-import pybitcoin
 from ConfigParser import SafeConfigParser
 
 import blockstack_zones
+import virtualchain
+from virtualchain.lib.hashing import *
 
 from common import get_logger, DEBUG
 
@@ -52,6 +53,8 @@ def get_zonefile( fqu, zonefile_hash ):
     Return the zonefile (serialized as a string) on success
     Return None on error
     """
+    import blockstack_client
+
     fqu_json = fqu.split(".")[0] + ".json"
     url = "%s/%s" % (RESOLVER_URL, fqu_json)
     req = requests.get(url)
@@ -71,8 +74,8 @@ def get_zonefile( fqu, zonefile_hash ):
         return None
     
     zone_file_str = str(res['zone_file'])
-    if pybitcoin.hex_hash160( zone_file_str ) != zonefile_hash:
-        log.debug("Hash mismatch: expected %s, got %s" % (zonefile_hash, pybitcoin.hex_hash160(zone_file_str)))
+    if hex_hash160( zone_file_str ) != zonefile_hash:
+        log.debug("Hash mismatch: expected %s, got %s" % (zonefile_hash, hex_hash160(zone_file_str)))
         return None
 
     return zone_file_str

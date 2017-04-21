@@ -30,6 +30,9 @@ import base64
 import posixpath
 import errno
 
+import virtualchain
+from virtualchain.lib.ecdsalib import *
+
 import data
 from keys import get_pubkey_hex
 import app

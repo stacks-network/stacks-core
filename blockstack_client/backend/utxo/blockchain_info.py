@@ -48,9 +48,12 @@ def reverse_hash(hash, hex_format=True):
 def format_unspents(unspents):
     return [{
         "transaction_hash": reverse_hash(s["tx_hash"]),
-        "output_index": s["tx_output_n"],
+        "outpoint": {
+            'hash': reverse_hash(s['tx_hash']),
+            'index': s["tx_output_n"],
+        },
         "value": s["value"],
-        "script_hex": s["script"],
+        "out_script": s["script"],
         "confirmations": s["confirmations"]
         }
         for s in unspents
@@ -86,7 +89,7 @@ def broadcast_transaction(hex_tx, blockchain_client=BlockchainInfoClient()):
     r = requests.post(url, data=payload, auth=blockchain_client.auth, timeout=blockchain_client.timeout)
     
     if 'submitted' in r.text.lower():
-        return {'success': True, 'tx_hash': virtualchain.tx_get_hash(hex_tx)}
+        return {'success': True, 'tx_hash': virtualchain.btc_tx_get_hash(hex_tx)}
     else:
         raise Exception('Invalid response from blockchain.info.')
 
