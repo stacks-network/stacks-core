@@ -55,9 +55,6 @@ from types import ModuleType
 import keylib
 from keylib import *
 
-import virtualchain
-from virtualchain.lib.ecdsalib import *
-
 import signal
 import json
 import config as blockstack_config
@@ -1785,8 +1782,19 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
 
         qs_values = path_info['qs_values']
-        offset = qs_values.get('offset', None)
-        count = qs_values.get('count', None)
+        page = qs_values.get('page', None)
+        if page is None:
+            log.error("Page required")
+            return self._reply_json({'error': 'page= argument required'}, status_code=401)
+
+        try:
+            page = int(page)
+        except ValueError:
+            log.error("Invalid page")
+            return self._reply_json({'error': 'Invalid page= value'}, status_code=401)
+
+        offset = page * 100
+        count = 100
 
         namespace_names = proxy.get_names_in_namespace(namespace_id, offset=offset, count=count)
         if json_is_error(namespace_names):
