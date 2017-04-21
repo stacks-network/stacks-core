@@ -113,6 +113,15 @@ class LookupUsersTest(unittest.TestCase):
         self.assertRegexpMatches(data['zonefile_hash'], schemas.OP_ZONEFILE_HASH_PATTERN)
         self.assertRegexpMatches(data['last_txid'], schemas.OP_TXID_PATTERN)
 
+    def test_get_all_names(self):
+        data = test_get_request(self, "/v1/names?page=0",
+                                headers = {} , status_code=200)
+        self.assertEqual(len(data), 100, "Paginated name length != 100")
+        data = test_get_request(self, "/v1/names",
+                                headers = {} , status_code=401)
+        data = test_get_request(self, "/v1/names?page=10000",
+                                headers = {} , status_code=200)
+
     def test_user_not_formatted(self):
         usernames = 'muneeb'
         data = test_get_request(self, self.build_url(usernames),
@@ -160,10 +169,10 @@ class NamespaceTest(unittest.TestCase):
         self.assertIn('id', data)
     def test_id_space_names(self):
         data = test_get_request(self, "/v1/namespaces/id/names?page=0",
-                                headers = {} , status_code=200)  
+                                headers = {} , status_code=200)
         self.assertEqual(len(data), 100, "Paginated name length != 100")
         data = test_get_request(self, "/v1/namespaces/id/names",
-                                headers = {} , status_code=401)  
+                                headers = {} , status_code=401)
         
 
 
