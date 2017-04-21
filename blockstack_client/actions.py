@@ -106,8 +106,6 @@ from .b40 import is_b40
 from .storage import get_drivers_for_url, get_driver_urls, get_storage_handlers, sign_data_payload, make_fq_data_id, \
     get_zonefile_data_hash
 
-from pybitcoin import serialize_transaction
-
 from .backend.blockchain import (
     get_balance, is_address_usable, get_utxos, broadcast_tx,
     can_receive_name, get_tx_confirmations, get_tx_fee, get_block_height
@@ -136,7 +134,7 @@ from .user import add_user_zonefile_url, remove_user_zonefile_url, user_zonefile
         make_empty_user_profile, user_zonefile_data_pubkey
 
 from .resolve import *
-from .tx import sign_tx
+from .tx import serialize_tx, sign_tx
 from .zonefile import make_empty_zonefile, url_to_uri_record
 
 from .utils import exit_with_error, satoshis_to_btc
@@ -150,6 +148,9 @@ from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, get_dat
         make_mutable_data_info, data_blob_serialize, make_mutable_data_tombstones, sign_mutable_data_tombstones
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
+
+import virtualchain
+from virtualchain.lib.ecdsalib import *
 
 log = config.get_logger()
 
@@ -497,23 +498,23 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
             change = virtualchain.calculate_change_amount(inputs, amt, tx_fee)
 
         outputs = [
-            {'script_hex': virtualchain.make_payment_script(recipient_addr),
+            {'script': virtualchain.make_payment_script(recipient_addr),
              'value': amt},
         ]
 
         if amt < total_value and change > 0:
             # need change and tx fee
             outputs.append( 
-                {'script_hex': virtualchain.make_payment_script(send_addr),
+                {'script': virtualchain.make_payment_script(send_addr),
                   "value": change}
             )
 
         if message:
             outputs = [
-                {"script_hex": virtualchain.make_data_script(binascii.hexlify(message)),
+                {"script": virtualchain.make_data_script(binascii.hexlify(message)),
                  "value": 0} ] + outputs
 
-        serialized_tx = serialize_transaction(inputs, outputs)
+        serialized_tx = serialize_tx(inputs, outputs)
         signed_tx = sign_tx(serialized_tx, wallet_keys['payment_privkey'])
         return signed_tx
 
@@ -1320,7 +1321,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
                 pass
 
             price_args = PriceArgs()
-            price_args.name = fqu
+            price_args.name_or_namespace = fqu
             price_args.recipient = transfer_address
 
             costs = cli_price( price_args, config_path=config_path, password=password, proxy=proxy )
@@ -1615,7 +1616,7 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
         pass
 
     price_args = PriceArgs()
-    price_args.name = fqu
+    price_args.name_or_namespace = fqu
     price_args.operations = 'renewal'
 
     costs = cli_price( price_args, config_path=config_path, password=password, proxy=proxy )
@@ -2703,7 +2704,7 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
     
     try:
         keylib.ECPrivateKey(ns_privkey)
-        reveal_addr = virtualchain.address_reencode( ecdsa_private_key(ns_reveal_privkey).public_key().address() )
+        reveal_addr = virtualchain.get_privkey_address(ns_privkey)
     except:
         return {'error': 'Invalid namespace private key'}
     
@@ -2971,7 +2972,7 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
 
     try:
         ecdsa_private_key(privkey)
-        reveal_addr = virtualchain.address_reencode( ecdsa_private_key(reveal_privkey).public_key().address() )
+        reveal_addr = virtualchain.get_privkey_address(reveal_privkey)
     except:
         return {'error': 'Invalid private keys'}
 
@@ -3178,7 +3179,7 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     print_namespace_configuration(namespace_params)
     print("You will NOT be able to change this once it is set.")
     print("Reveal address:  {}".format(reveal_addr))
-    print("Payment address: {}".format(virtualchain.address_reencode(ecdsa_private_key(privkey).public_key().address())))
+    print("Payment address: {}".format(virtualchain.get_privkey_address(privkey)))
     print("Transaction cost breakdown:\n{}".format(json.dumps(fees, indent=4, sort_keys=True)))
     print("")
 
@@ -3219,7 +3220,7 @@ def cli_namespace_ready(args, interactive=True, config_path=CONFIG_PATH, proxy=N
         return {'error': 'Invalid namespace ID'}
     
     try:
-        reveal_addr = virtualchain.address_reencode( ecdsa_private_key(reveal_privkey).public_key().address() )
+        reveal_addr = virtualchain.get_privkey_address(reveal_privkey)
     except:
         return {'error': 'Invalid private keys'}
 
@@ -3684,12 +3685,11 @@ def cli_get_all_names(args, config_path=CONFIG_PATH):
     """
     command: get_all_names advanced
     help: Get all names in existence, optionally paginating through them
-    opt: offset (int) 'The offset into the sorted list of names'
-    opt: count (int) 'The number of names to return'
+    arg: page (int) 'The page of names to fetch (groups of 100)'
     """
 
-    offset = int(args.offset) if args.offset is not None else None
-    count = int(args.count) if args.count is not None else None
+    offset = int(args.page) * 100
+    count = 100
 
     result = get_all_names(offset=offset, count=count)
 
@@ -3710,12 +3710,11 @@ def cli_get_names_in_namespace(args, config_path=CONFIG_PATH):
     command: get_names_in_namespace advanced
     help: Get the names in a given namespace, optionally paginating through them
     arg: namespace_id (str) 'The ID of the namespace to query'
-    opt: offset (int) 'The offset into the sorted list of names'
-    opt: count (int) 'The number of names to return'
+    arg: page (int) 'The page of names to fetch (groups of 100)'
     """
-
-    offset = int(args.offset) if args.offset is not None else None
-    count = int(args.count) if args.count is not None else None
+    
+    offset = int(args.page) * 100
+    count = 100
 
     result = get_names_in_namespace(str(args.namespace_id), offset, count)
 
@@ -4374,7 +4373,7 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
         if pubkey is None:
             # fall back to owner hash
             owner_address = str(name_rec['address'])
-            if virtualchain.is_p2sh_address(owner_address):
+            if virtualchain.is_multisig_address(owner_address):
                 return {'error': 'No data public key in zone file, and owner is a p2sh address'}
 
             else:

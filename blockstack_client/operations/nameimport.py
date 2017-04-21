@@ -75,19 +75,19 @@ def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b
     
     return [
         # main output
-        {"script_hex": virtualchain.make_data_script(str(data)),
+        {"script": virtualchain.make_data_script(str(data)),
          "value": 0},
     
         # recipient output
-        {"script_hex": virtualchain.make_payment_script(recipient_address),
+        {"script": virtualchain.make_payment_script(recipient_address),
          "value": dust_value},
         
         # update hash output
-        {"script_hex": virtualchain.make_payment_script(update_hash_b58),
+        {"script": virtualchain.make_payment_script(update_hash_b58),
          "value": dust_value},
         
         # change output
-        {"script_hex": virtualchain.make_payment_script(sender_address),
+        {"script": virtualchain.make_payment_script(sender_address),
          "value": virtualchain.calculate_change_amount(inputs, op_fee, dust_fee)}
     ]
 

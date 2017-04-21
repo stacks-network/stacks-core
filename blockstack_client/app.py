@@ -34,6 +34,9 @@ import time
 
 from keylib import *
 
+import virtualchain
+from virtualchain.lib.ecdsalib import *
+
 import jsontokens
 import urllib
 import urllib2

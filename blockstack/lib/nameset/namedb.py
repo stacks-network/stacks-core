@@ -27,7 +27,6 @@ import binascii
 import hashlib
 import math
 import keychain
-import pybitcoin
 import os
 import copy
 import shutil
@@ -307,7 +306,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             # if we're on testnet, then re-encode as a testnet address 
             if virtualchain.version_byte == 111:
                 old_child_address = public_child_address
-                public_child_address = virtualchain.hex_hash160_to_address( pybitcoin.address_to_hex_hash160( public_child_address ) )
+                public_child_address = virtualchain.hex_hash160_to_address( virtualchain.address_to_hex_hash160( public_child_address ) )
                 log.debug("Re-encode '%s' to '%s'" % (old_child_address, public_child_address))
 
             child_addrs.append( public_child_address )

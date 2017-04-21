@@ -54,7 +54,7 @@ from storage import get_announcement, put_announcement, verify_zonefile
 from profile import get_profile, put_profile, delete_profile
 
 from config import get_logger, get_config, get_utxo_provider_client, get_tx_broadcaster, default_bitcoind_opts
-from constants import CONFIG_PATH, CONFIG_FILENAME, USER_ZONEFILE_TTL, DEFAULT_API_PORT
+from constants import CONFIG_PATH, CONFIG_FILENAME, USER_ZONEFILE_TTL, DEFAULT_API_PORT, get_secret, set_secret
 
 from resolve import blockstack_mutable_data_url as make_mutable_data_url
 from resolve import blockstack_immutable_data_url as make_immutable_data_url 
@@ -77,7 +77,7 @@ from backend.blockchain import get_utxos, broadcast_tx
 from operations import *
 from backend.nameops import *
 
-from scripts import UTXOException, is_name_valid 
+from scripts import UTXOException, is_name_valid
 
 from utils import daemonize
 

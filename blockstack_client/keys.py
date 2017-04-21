@@ -26,6 +26,8 @@ from binascii import hexlify
 import collections
 import json
 import traceback
+import re
+import sys
 
 import keylib
 from keylib import ECPrivateKey, ECPublicKey
@@ -37,27 +39,7 @@ from keylib.public_key_encoding import PubkeyType
 from .backend.crypto.utils import aes_encrypt, aes_decrypt
 
 from keychain import PrivateKeychain
-
-import fastecdsa
-import fastecdsa.curve
-import fastecdsa.keys
-import fastecdsa.ecdsa
-
-OLD_FASTECDSA = False
-try:
-    import fastecdsa.point
-except:
-    # older fastecdsa library
-    OLD_FASTECDSA = True
-    pass 
-
-from fastecdsa import _ecdsa
-from fastecdsa.util import RFC6979
-import hmac
-from struct import pack
-import hashlib
 import base64
-import bitcoin
 import binascii
 import jsonschema
 from jsonschema.exceptions import ValidationError
@@ -66,6 +48,10 @@ from utilitybelt import is_hex
 from .config import get_logger
 from .constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
 
+import virtualchain
+from virtualchain.lib.ecdsalib import *
+
+# for compatibility
 log = get_logger()
 
 # deriving hardened keys is expensive, so cache them once derived.
@@ -216,97 +202,10 @@ class HDWallet(object):
         return None
 
 
-class RFC6979_blockstack(RFC6979):
-    """
-    Generate RFC6979 nonces from a file
-    """
-    def __init__(self, x, q, hashfunc):
-        RFC6979.__init__(self, '', x, q, hashfunc)
-
-
-    def gen_nonce_from_digest( self, h1 ):
-        """
-        Make the nonce from the digest.
-        @h1: bin-encoded digest
-        @hash_size: size of the digest
-        """
-        hash_size = self.hashfunc().digest_size
-        key_and_msg = self._int2octets(self.x) + self._bits2octets(h1)
-
-        v = b''.join([b'\x01' for _ in range(hash_size)])
-        k = b''.join([b'\x00' for _ in range(hash_size)])
-
-        k = hmac.new(k, v + b'\x00' + key_and_msg, self.hashfunc).digest()
-        v = hmac.new(k, v, self.hashfunc).digest()
-        k = hmac.new(k, v + b'\x01' + key_and_msg, self.hashfunc).digest()
-        v = hmac.new(k, v, self.hashfunc).digest()
-
-        while True:
-            t = b''
-
-            while len(t) * 8 < self.qlen:
-                v = hmac.new(k, v, self.hashfunc).digest()
-                t = t + v
-
-            nonce = self._bits2int(t)
-            if nonce >= 1 and nonce < self.q:
-                return nonce
-
-            k = hmac.new(k, v + b'\x00', self.hashfunc).digest()
-            v = hmac.new(k, v, self.hashfunc).digest()
-
-
-    def gen_nonce_from_file(self, fd, fd_len=None):
-        ''' http://tools.ietf.org/html/rfc6979#section-3.2 '''
-        # based on gen_nonce()
-        
-        h1 = self.hashfunc()
-
-        count = 0
-        while True:
-            buf = f.read(65536)
-            if len(buf) == 0:
-                break
-
-            if fd_len is not None:
-                if count + len(buf) > fd_len:
-                    buf = buf[:fd_len - count]
-
-            h.update(buf)
-            count += len(buf)
-
-        h1 = h1.digest()
-
-        return self.gen_nonce_from_digest(h1)
-
-
-def ecdsa_private_key(privkey_str = None):
-    """
-    Make a private key, but enforce the following rule:
-    * unless the key's hex encoding specifically ends in '01', treat it as uncompressed.
-    """
-    compressed = False
-    if privkey_str is None or keylib.key_formatting.get_privkey_format(privkey_str).endswith('compressed'):
-        compressed = True
-
-    return ECPrivateKey(privkey_str, compressed=compressed)
-
-
-def is_multisig(privkey_info):
-    """
-    Does the given private key info represent
-    a multisig bundle?
-    """
-    from .schemas import PRIVKEY_MULTISIG_SCHEMA
-    try:
-        jsonschema.validate(privkey_info, PRIVKEY_MULTISIG_SCHEMA)
-        return True
-    except ValidationError as e:
-        return False
-
-
 def is_encrypted_multisig(privkey_info):
     """
+    LEGACY COMPATIBILITY CODE
+
     Does a given encrypted private key info
     represent an encrypted multisig bundle?
     """
@@ -318,34 +217,19 @@ def is_encrypted_multisig(privkey_info):
         return False
 
 
-def is_singlesig(privkey_info):
-    """
-    Does the given private key info represent
-    a single signature bundle? (i.e. one private key)?
-    """
-    from .schemas import PRIVKEY_SINGLESIG_SCHEMA
-    try:
-        jsonschema.validate(privkey_info, PRIVKEY_SINGLESIG_SCHEMA)
-        return True
-    except ValidationError as e:
-        return False
-
 
 def is_singlesig_hex(privkey_info):
     """
     Does the given private key info represent
     a single signature bundle? (i.e. one private key)?
     """
-    from .schemas import PRIVKEY_SINGLESIG_SCHEMA_HEX
-    try:
-        jsonschema.validate(privkey_info, PRIVKEY_SINGLESIG_SCHEMA_HEX)
-        return True
-    except ValidationError as e:
-        return False
+    return virtualchain.is_singlesig(privkey_info) and re.match(r"^[0-9a-fA-F]+$", privkey_info)
 
 
 def is_encrypted_singlesig(privkey_info):
     """
+    LEGACY COMPATIBILITY CODE
+
     Does the given string represent an encrypted
     single private key?
     """
@@ -379,45 +263,16 @@ def privkey_to_string(privkey_info):
     if is_singlesig(privkey_info):
         return singlesig_privkey_to_string(privkey_info)
 
-    if is_multisig(privkey_info):
+    if virtualchain.is_multisig(privkey_info):
         return multisig_privkey_to_string(privkey_info)
 
     return None
 
 
-def encrypt_multisig_info(multisig_info, password):
-    """
-    Given a multisig info dict,
-    encrypt the sensitive fields.
-
-    Returns {'encrypted_private_keys': ..., 'encrypted_redeem_script': ..., **other_fields}
-    """
-    enc_info = {
-        'encrypted_private_keys': None,
-        'encrypted_redeem_script': None
-    }
-
-    hex_password = hexlify(password)
-
-    assert is_multisig(multisig_info), 'Invalid multisig keys'
-
-    enc_info['encrypted_private_keys'] = []
-    for pk in multisig_info['private_keys']:
-        pk_ciphertext = aes_encrypt(pk, hex_password)
-        enc_info['encrypted_private_keys'].append(pk_ciphertext)
-
-    enc_info['encrypted_redeem_script'] = aes_encrypt(multisig_info['redeem_script'], hex_password)
-
-    # preserve any other fields
-    for k, v in multisig_info.items():
-        if k not in ['private_keys', 'redeem_script']:
-            enc_info[k] = v
-
-    return enc_info
-
-
 def decrypt_multisig_info(enc_multisig_info, password):
     """
+    LEGACY COMPATIBILITY CODE
+
     Given an encrypted multisig info dict,
     decrypt the sensitive fields.
 
@@ -464,40 +319,14 @@ def decrypt_multisig_info(enc_multisig_info, password):
         if k not in ['encrypted_private_keys', 'encrypted_redeem_script']:
             multisig_info[k] = v
 
+    assert virtualchain.is_multisig(multisig_info)
     return multisig_info
-
-
-def encrypt_private_key_info(privkey_info, password):
-    """
-    Encrypt private key info.
-    Return {'status': True, 'encrypted_private_key_info': {'address': ..., 'private_key_info': ...}} on success
-    Returns {'error': ...} on error
-    """
-
-    ret = {}
-    if is_multisig(privkey_info):
-        ret['address'] = virtualchain.address_reencode( virtualchain.make_multisig_address(
-            privkey_info['redeem_script']
-        ))
-        ret['private_key_info'] = encrypt_multisig_info(
-            privkey_info, password
-        )
-
-        return {'status': True, 'encrypted_private_key_info': ret}
-
-    if is_singlesig(privkey_info):
-        ret['address'] = virtualchain.address_reencode( ecdsa_private_key(privkey_info).public_key().address() )
-
-        hex_password = hexlify(password)
-        ret['private_key_info'] = aes_encrypt(privkey_info, hex_password)
-
-        return {'status': True, 'encrypted_private_key_info': ret}
-
-    return {'error': 'Invalid private key info'}
 
 
 def decrypt_private_key_info(privkey_info, password):
     """
+    LEGACY COMPATIBILITY CODE
+
     Decrypt a particular private key info bundle.
     It can be either a single-signature private key, or a multisig key bundle.
     Return {'address': ..., 'private_key_info': ...} on success.
@@ -507,18 +336,11 @@ def decrypt_private_key_info(privkey_info, password):
     ret = {}
     if is_encrypted_multisig(privkey_info):
         ret = decrypt_multisig_info(privkey_info, password)
-
         if 'error' in ret:
             return {'error': 'Failed to decrypt multisig wallet: {}'.format(ret['error'])}
 
-        # sanity check
-        if 'redeem_script' not in ret:
-            return {'error': 'Invalid multisig wallet: missing redeem_script'}
-
-        if 'private_keys' not in ret:
-            return {'error': 'Invalid multisig wallet: missing private_keys'}
-
-        return {'address': virtualchain.make_p2sh_address(ret['redeem_script']), 'private_key_info': ret}
+        address = virtualchain.get_privkey_address(ret)
+        return {'address': address, 'private_key_info': ret}
 
     if is_encrypted_singlesig(privkey_info):
         try:
@@ -531,7 +353,8 @@ def decrypt_private_key_info(privkey_info, password):
 
             return {'error': 'Invalid password'}
 
-        return {'address': virtualchain.address_reencode(ecdsa_private_key(pk).public_key().address()), 'private_key_info': pk}
+        address = virtualchain.get_privkey_address(pk)
+        return {'address': address, 'private_key_info': pk}
 
     return {'error': 'Invalid encrypted private key info'}
 
@@ -548,23 +371,26 @@ def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None
     }
 
     if data_privkey is not None:
-        if not is_singlesig(data_privkey):
+        if not virtualchain.is_singlesig(data_privkey):
             raise ValueError('Invalid data key info')
 
         pk_data = ecdsa_private_key(data_privkey).to_hex()
         ret['data_privkey'] = pk_data
 
     if owner_privkey is not None:
-        if is_multisig(owner_privkey):
-            pks = [ecdsa_private_key(pk).to_hex() for pk in owner_privkey['private_keys']]
-            m, pubs = virtualchain.parse_multisig_redeemscript(owner_privkey['redeem_script'])
-            ret['owner_privkey'] = virtualchain.make_multisig_info(m, pks)
-            ret['owner_addresses'] = [ret['owner_privkey']['address']]
+        if virtualchain.is_multisig(owner_privkey):
+            pks = owner_privkey['private_keys']
+            m, _ = virtualchain.parse_multisig_redeemscript(owner_privkey['redeem_script'])
+            assert m <= len(pks)
 
-        elif is_singlesig(owner_privkey):
+            multisig_info = virtualchain.make_multisig_info(m, pks)
+            ret['owner_privkey'] = multisig_info
+            ret['owner_addresses'] = [virtualchain.get_privkey_address(multisig_info)]
+
+        elif virtualchain.is_singlesig(owner_privkey):
             pk_owner = ecdsa_private_key(owner_privkey).to_hex()
             ret['owner_privkey'] = pk_owner
-            ret['owner_addresses'] = [virtualchain.address_reencode(ecdsa_private_key(pk_owner).public_key().address())]
+            ret['owner_addresses'] = [virtualchain.get_privkey_address(pk_owner)]
 
         else:
             raise ValueError('Invalid owner key info')
@@ -572,16 +398,19 @@ def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None
     if payment_privkey is None:
         return ret
 
-    if is_multisig(payment_privkey):
-        pks = [ecdsa_private_key(pk).to_hex() for pk in payment_privkey['private_keys']]
-        m, pubs = virtualchain.parse_multisig_redeemscript(payment_privkey['redeem_script'])
-        ret['payment_privkey'] = virtualchain.make_multisig_info(m, pks)
-        ret['payment_addresses'] = [ret['payment_privkey']['address']]
+    if virtualchain.is_multisig(payment_privkey):
+        pks = payment_privkey['private_keys']
+        m, _ = virtualchain.parse_multisig_redeemscript(payment_privkey['redeem_script'])
+        assert m <= len(pks)
 
-    elif is_singlesig(payment_privkey):
+        multisig_info = virtualchain.make_multisig_info(m, pks)
+        ret['payment_privkey'] = multisig_info
+        ret['payment_addresses'] = [virtualchain.get_privkey_address(multisig_info)]
+
+    elif virtualchain.is_singlesig(payment_privkey):
         pk_payment = ecdsa_private_key(payment_privkey).to_hex()
         ret['payment_privkey'] = pk_payment
-        ret['payment_addresses'] = [virtualchain.address_reencode(ecdsa_private_key(pk_payment).public_key().address())]
+        ret['payment_addresses'] = [virtualchain.get_privkey_address(pk_payment)]
 
     else:
         raise ValueError('Invalid payment key info')
@@ -638,9 +467,9 @@ def get_data_privkey(user_zonefile, wallet_keys=None, config_path=CONFIG_PATH):
         # the wallet data key *must* match the owner key
         owner_privkey_info = wallet['owner_privkey']
         owner_privkey = None
-        if is_singlesig(owner_privkey_info):
+        if virtualchain.is_singlesig(owner_privkey_info):
             owner_privkey = owner_privkey_info
-        elif is_multisig(owner_privkey_info):
+        elif virtualchain.is_multisig(owner_privkey_info):
             owner_privkey = owner_privkey_info['private_keys'][0]
 
         owner_pubkey = get_pubkey_hex(str(owner_privkey))
@@ -690,24 +519,6 @@ def get_payment_privkey_info(wallet_keys=None, config_path=CONFIG_PATH):
     return payment_privkey_info
 
 
-def get_privkey_info_address(privkey_info):
-    """
-    Get the address of private key information:
-    * if it's a single private key, then calculate the address.
-    * if it's a multisig info dict, then get the p2sh address
-    """
-    if privkey_info is None:
-        return
-
-    if is_singlesig(privkey_info):
-        return virtualchain.address_reencode(ecdsa_private_key(privkey_info).public_key().address())
-
-    if is_multisig(privkey_info):
-        return virtualchain.make_multisig_address(privkey_info['redeem_script'])
-
-    raise ValueError('Invalid private key info')
-
-
 def get_privkey_info_params(privkey_info, config_path=CONFIG_PATH):
     """
     Get the parameters that characterize a private key
@@ -728,226 +539,14 @@ def get_privkey_info_params(privkey_info, config_path=CONFIG_PATH):
         log.warning('No private key info given, assuming {} key config'.format(key_config))
         return key_config
 
-    if is_singlesig( privkey_info ):
+    if virtualchain.is_singlesig( privkey_info ):
         return (1, 1)
     
-    elif is_multisig( privkey_info ):
+    elif virtualchain.is_multisig( privkey_info ):
         m, pubs = virtualchain.parse_multisig_redeemscript(privkey_info['redeem_script'])
         if m is None or pubs is None:
             return None, None
         return m, len(pubs)
 
     return None, None
-
-
-def get_pubkey_addresses(pubkey):
-    """
-    Get the compressed and uncompressed addresses
-    for a public key.  Useful for verifying
-    signatures by key address.
-
-    If we're running in testnet mode, then use
-    the testnet version byte.
-
-    Return (compressed address, uncompressed address)
-    """
-    version_byte = virtualchain.version_byte
-    compressed_address, uncompressed_address = None, None
-
-    pubkey = ECPublicKey(pubkey, version_byte=version_byte)
-    pubkey_bin = pubkey.to_bin()
-
-    if pubkey._type == PubkeyType.compressed:
-        compressed_address = pubkey.address()
-        uncompressed_address = decompress(pubkey_bin)
-        hashed_address = bin_hash160(uncompressed_address)
-        uncompressed_address = bin_hash160_to_address(hashed_address, version_byte=version_byte)
-    elif pubkey._type == PubkeyType.uncompressed:
-        uncompressed_address = pubkey.address()
-        compressed_address = compress(pubkey_bin)
-        hashed_address = bin_hash160(compressed_address)
-        compressed_address = bin_hash160_to_address(hashed_address, version_byte=version_byte)
-    else:
-        raise Exception('Invalid public key')
-
-    return virtualchain.address_reencode(compressed_address), virtualchain.address_reencode(uncompressed_address)
-
-
-def get_pubkey_hex( privatekey_hex ):
-    """
-    Get the uncompressed hex form of a private key
-    """
-
-    global OLD_FASTECDSA
-
-    if len(privatekey_hex) > 64:
-        assert privatekey_hex[-2:] == '01'
-        privatekey_hex = privatekey_hex[:64]
-
-    # get hex public key
-    privatekey_int = int(privatekey_hex, 16)
-    pubkey_parts = fastecdsa.keys.get_public_key( privatekey_int, curve=fastecdsa.curve.secp256k1 )
-    x = None
-    y = None
-
-    if isinstance(pubkey_parts, (list, tuple)):
-        # older fastecdsa 
-        x = pubkey_parts[0]
-        y = pubkey_parts[1]
-
-    elif not OLD_FASTECDSA:
-        if isinstance(pubkey_parts, fastecdsa.point.Point):
-            # newer fastecdsa interface uses a Point class instead of a tuple
-            x = pubkey_parts.x
-            y = pubkey_parts.y
-        
-        else:
-            raise Exception("Incompatible fastecdsa library")
-
-    else:
-        raise Exception("Incompatible fastecdsa library")
-
-    pubkey_hex = "04{:064x}{:064x}".format(x, y)
-    return pubkey_hex
-
-
-def get_uncompressed_private_and_public_keys( privkey_str ):
-    """
-    Get the private and public keys from a private key string.
-    Make sure the both are *uncompressed*
-    """
-    pk = ecdsa_private_key(str(privkey_str))
-    pk_hex = pk.to_hex()
-
-    # force uncompressed
-    if len(pk_hex) > 64:
-        assert pk_hex[-2:] == '01'
-        pk_hex = pk_hex[:64]
-
-    pubk_hex = ecdsa_private_key(pk_hex).public_key().to_hex()
-    return pk_hex, pubk_hex
-
-
-def decode_privkey_hex(privkey_hex):
-    """
-    Decode a private key for ecdsa signature
-    """
-    # force uncompressed
-    priv = str(privkey_hex)
-    if len(priv) > 64:
-        assert priv[-2:] == '01'
-        priv = priv[:64]
-
-    pk_i = int(priv, 16)
-    return pk_i
-
-
-def decode_pubkey_hex(pubkey_hex):
-    """
-    Decode a public key for ecdsa verification
-    """
-    pubk = str(pubkey_hex)
-    if keylib.key_formatting.get_pubkey_format(pubk) == 'hex_compressed':
-        pubk = keylib.key_formatting.decompress(pubk)
-
-    assert len(pubk) == 130
-
-    pubk_raw = pubk[2:]
-    pubk_i = (int(pubk_raw[:64], 16), int(pubk_raw[64:], 16))
-    return pubk_i
-
-
-def encode_signature(sig_r, sig_s):
-    """
-    Encode an ECDSA signature, with low-s
-    """
-    # enforce low-s 
-    if sig_s * 2 >= fastecdsa.curve.secp256k1.q:
-        log.debug("High-S to low-S")
-        sig_s = fastecdsa.curve.secp256k1.q - sig_s
-
-    sig_bin = '{:064x}{:064x}'.format(sig_r, sig_s).decode('hex')
-    assert len(sig_bin) == 64
-
-    sig_b64 = base64.b64encode(sig_bin)
-    return sig_b64
-
-
-def decode_signature(sigb64):
-    """
-    Decode a signature into r, s
-    """
-    sig_bin = base64.b64decode(sigb64)
-    assert len(sig_bin) == 64
-
-    sig_hex = sig_bin.encode('hex')
-    sig_r = int(sig_hex[:64], 16)
-    sig_s = int(sig_hex[64:], 16)
-    return sig_r, sig_s
-
-
-def sign_raw_data(raw_data, privatekey_hex):
-    """
-    Sign a string of data.
-    Returns signature as a base64 string
-    """
-    pk_i = decode_privkey_hex(privatekey_hex)
-    sig_r, sig_s = fastecdsa.ecdsa.sign(raw_data, pk_i, curve=fastecdsa.curve.secp256k1)
-    sig_b64 = encode_signature(sig_r, sig_s)
-    return sig_b64
-
-
-def verify_raw_data(raw_data, pubkey_hex, sigb64):
-    """
-    Verify the signature over a string, given the public key
-    and base64-encode signature.
-    Return True on success.
-    Return False on error.
-    """
-    try:
-        sig_r, sig_s = decode_signature(sigb64)
-        pubk_i = decode_pubkey_hex(pubkey_hex)
-        res = fastecdsa.ecdsa.verify((sig_r, sig_s), raw_data, pubk_i, curve=fastecdsa.curve.secp256k1)
-        return res
-    except (fastecdsa.ecdsa.EcdsaError, AssertionError):
-        # invalid signature
-        log.debug("Invalid signature {}".format(sigb64))
-        return False
-
-
-def sign_digest( digest_hex, privkey_hex, curve=fastecdsa.curve.secp256k1, hashfunc=hashlib.sha256 ):
-    """
-    Sign a digest with ECDSA
-    Return base64 signature
-    """
-    pk_i = decode_privkey_hex(str(privkey_hex))
-
-    # generate a deterministic nonce per RFC6979
-    rfc6979 = RFC6979_blockstack(pk_i, curve.q, hashfunc)
-    k = rfc6979.gen_nonce_from_digest(digest_hex.decode('hex'))
-
-    r, s = _ecdsa.sign(digest_hex, str(pk_i), str(k), curve.name)
-    return encode_signature(int(r), int(s))
-
-
-def verify_digest( digest_hex, pubkey_hex, sigb64, curve=fastecdsa.curve.secp256k1, hashfunc=hashlib.sha256 ):
-    """
-    Verify a digest and signature with ECDSA
-    Return True if it matches
-    """
-
-    Q = decode_pubkey_hex(str(pubkey_hex))
-    r, s = decode_signature(sigb64)
-
-    # validate Q, r, s
-    if not curve.is_point_on_curve(Q):
-        raise fastecdsa.ecdsa.EcdsaError('Invalid public key, point is not on curve {}'.format(curve.name))
-    elif r > curve.q or r < 1:
-        raise fastecdsa.ecdsa.EcdsaError('Invalid Signature: r is not a positive integer smaller than the curve order')
-    elif s > curve.q or s < 1:
-        raise fastecdsa.ecdsa.EcdsaError('Invalid Signature: s is not a positive integer smaller than the curve order')
-
-    qx, qy = Q
-    return _ecdsa.verify(str(r), str(s), digest_hex, str(qx), str(qy), curve.name)
-
 

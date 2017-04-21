@@ -102,15 +102,15 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
   
     outputs = [
         # main output
-        {"script_hex": virtualchain.make_data_script(str(data)),
+        {"script": virtualchain.make_data_script(str(data)),
          "value": 0},
     
         # register address
-        {"script_hex": virtualchain.make_payment_script(register_addr),
+        {"script": virtualchain.make_payment_script(register_addr),
          "value": dust_value},
         
         # change address (can be the subsidy address)
-        {"script_hex": virtualchain.make_payment_script(change_addr),
+        {"script": virtualchain.make_payment_script(change_addr),
          "value": virtualchain.calculate_change_amount(change_inputs, bill, dust_fee)},
     ]
     
@@ -118,7 +118,7 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
         outputs.append(
             
             # burn address (when renewing)
-            {"script_hex": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
+            {"script": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
              "value": op_fee}
         )
 
@@ -178,26 +178,26 @@ def get_fees( inputs, outputs ):
         return (None, None)
     
     # 0: op_return
-    if not tx_output_is_op_return( outputs[0] ):
+    if not virtualchain.tx_output_has_data( outputs[0] ):
         log.debug("output[0] is not an OP_RETURN")
         return (None, None) 
    
     # 1: reveal address 
-    if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
-        log.debug("output[1] is not a p2pkh or p2sh script")
+    if virtualchain.script_hex_to_address( outputs[1]["script"] ) is None:
+        log.debug("output[1] is not a standard script")
         return (None, None)
     
     # 2: change address 
-    if virtualchain.script_hex_to_address( outputs[2]["script_hex"] ) is None:
-        log.debug("output[2] is not a p2pkh or p2sh script")
+    if virtualchain.script_hex_to_address( outputs[2]["script"] ) is None:
+        log.debug("output[2] is not a a standard script")
         return (None, None)
     
     # 3: burn address, if given 
     if len(outputs) == 4:
         
-        addr_hash = virtualchain.script_hex_to_address( outputs[3]["script_hex"] )
+        addr_hash = virtualchain.script_hex_to_address( outputs[3]["script"] )
         if addr_hash is None:
-            log.debug("output[3] is not a valid script")
+            log.debug("output[3] is not a standard script")
             return (None, None) 
         
         if addr_hash != BLOCKSTACK_BURN_ADDRESS:
@@ -211,7 +211,7 @@ def get_fees( inputs, outputs ):
         
     else:
         # should match make_outputs().
-        # the +2 comes frmo 1 owner UTXO + 1 new output
+        # the +2 comes from 1 owner UTXO + 1 new output
         dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     
     return (dust_fee, op_fee)

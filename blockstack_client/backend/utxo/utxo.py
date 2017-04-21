@@ -419,9 +419,12 @@ def get_unspents(address, blockchain_client):
     Gets the unspent outputs for a given address.
     Returns [{
         "transaction_hash": str,
-        "output_index": int
+        'outpoint': {
+            'index': index,
+            'hash': txhash
+        },
         "value": int,
-        "script_hex": str,
+        "out_script": str,
         "confirmations": int,
         }]
     on success.
@@ -444,10 +447,8 @@ def get_unspents(address, blockchain_client):
     # default
     elif hasattr(blockchain_client, "get_unspents"):
         return blockchain_client.get_unspents( address )
-    elif isinstance(blockchain_client, BlockchainClient):
-        raise Exception('That blockchain interface is not supported.')
     else:
-        raise Exception('A BlockchainClient object is required')
+        raise Exception('A blockchain client object is required')
 
 
 def broadcast_transaction(hex_tx, blockchain_client):
@@ -472,9 +473,7 @@ def broadcast_transaction(hex_tx, blockchain_client):
     # default
     elif hasattr(blockchain_client, "broadcast_transaction"):
         return blockchain_client.broadcast_transaction( hex_tx )
-    elif isinstance(blockchain_client, BlockchainClient):
-        raise Exception('That blockchain interface is not supported.')
     else:
-        raise Exception('A BlockchainClient object is required')
+        raise Exception('A blockchain client object is required')
 
 

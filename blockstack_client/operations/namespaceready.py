@@ -64,11 +64,11 @@ def make_outputs( nulldata, inputs, change_addr, tx_fee=0 ):
    Make namespace-ready outputs
    """
    return [
-        { "script_hex": virtualchain.make_data_script(str(nulldata)),
+        { "script": virtualchain.make_data_script(str(nulldata)),
           "value": 0
         },
         # change output
-        { "script_hex": virtualchain.make_payment_script(change_addr),
+        { "script": virtualchain.make_payment_script(change_addr),
           "value": virtualchain.calculate_change_amount(inputs, 0, tx_fee + DEFAULT_OP_RETURN_FEE)
         }
     ]

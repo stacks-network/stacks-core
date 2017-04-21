@@ -53,8 +53,8 @@ from ..proxy import get_name_blockchain_record as blockstack_get_name_blockchain
 from ..proxy import get_namespace_blockchain_record as blockstack_get_namespace_blockchain_record
 from ..proxy import is_name_registered, is_name_owner
 
-from ..tx import sign_tx, sign_and_broadcast_tx, preorder_tx, register_tx, update_tx, transfer_tx, revoke_tx, \
-        namespace_preorder_tx, namespace_reveal_tx, namespace_ready_tx, announce_tx, name_import_tx, sign_tx
+from ..tx import sign_tx, sign_and_broadcast_tx, deserialize_tx, preorder_tx, register_tx, update_tx, transfer_tx, revoke_tx, \
+        namespace_preorder_tx, namespace_reveal_tx, namespace_ready_tx, announce_tx, name_import_tx
 
 from ..scripts import tx_make_subsidizable
 from ..storage import get_blockchain_compat_hash, hash_zonefile, put_announcement, get_zonefile_data_hash
@@ -62,11 +62,12 @@ from ..storage import get_blockchain_compat_hash, hash_zonefile, put_announcemen
 from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration, fees_preorder, \
         fees_namespace_preorder, fees_namespace_reveal, fees_namespace_ready, fees_name_import, fees_announce
 
-from ..keys import get_privkey_info_address, get_privkey_info_params, ecdsa_private_key
+from ..keys import get_privkey_info_params
 
 from .safety import *
 
 import virtualchain
+from virtualchain.lib.ecdsalib import ecdsa_private_key
 
 log = get_logger("blockstack-client")
 
@@ -82,8 +83,9 @@ class UTXOWrapper(object):
     def add_unspents( self, addr, unspents ):
         # sanity check...
         for unspent in unspents:
-            assert unspent.has_key('transaction_hash')
-            assert unspent.has_key('output_index')
+            assert unspent.has_key('outpoint')
+            assert unspent['outpoint'].has_key('hash')
+            assert unspent['outpoint'].has_key('index')
 
         if not self.utxos.has_key(addr):
             self.utxos[addr] = []
@@ -104,9 +106,7 @@ def estimate_dust_fee( tx, fee_estimator ):
     Return the number of satoshis on success
     Return None on error
     """
-    tx = virtualchain.tx_deserialize( tx )
-    tx_inputs = tx['vin']
-    tx_outputs = tx['vout']
+    tx_inputs, tx_outputs = deserialize_tx(tx)
     dust_fee, op_fee = fee_estimator( tx_inputs, tx_outputs )
     log.debug("dust_fee is %s" % dust_fee)
     return dust_fee
@@ -160,7 +160,7 @@ def estimate_payment_bytes( payment_address, utxo_client, num_payment_sigs=None,
 
     if num_payment_sigs is None:
         # try to guess from the address
-        if virtualchain.is_p2sh_address(payment_address):
+        if virtualchain.is_multisig_address(payment_address):
             log.warning("Assuming 2 signatures required from p2sh payment address")
             num_payment_sigs = 2
 
@@ -170,7 +170,7 @@ def estimate_payment_bytes( payment_address, utxo_client, num_payment_sigs=None,
     payment_input_len = 0
     payment_output_len = 0
 
-    if virtualchain.is_p2sh_address(payment_address):
+    if virtualchain.is_multisig_address(payment_address):
         payment_input_len = APPROX_TX_IN_P2SH_LEN
         payment_output_len = APPROX_TX_OUT_P2SH_LEN
     else:
@@ -190,7 +190,7 @@ def estimate_owner_output_length( owner_address, owner_num_sigs=None ):
     assert owner_address
     owner_address = str(owner_address)
 
-    if virtualchain.is_p2sh_address( owner_address ):
+    if virtualchain.is_multisig_address( owner_address ):
         if owner_num_sigs is None:
             log.warning("Guessing that owner address {} requires 2 signatures".format(owner_address))
             owner_num_sigs = 2
@@ -336,8 +336,8 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_priv
     Return None on error
     """
 
-    payment_address = get_privkey_info_address( payment_privkey_info )
-    owner_address = get_privkey_info_address( owner_privkey_info )
+    payment_address = virtualchain.get_privkey_address( payment_privkey_info )
+    owner_address = virtualchain.get_privkey_address( owner_privkey_info )
     owner_privkey_params = get_privkey_info_params(owner_privkey_info)
 
     try:
@@ -387,7 +387,7 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
     signed_subsidized_tx = None
     if payment_privkey_info is not None:
         # consistency
-        payment_address = get_privkey_info_address( payment_privkey_info )
+        payment_address = virtualchain.get_privkey_address( payment_privkey_info )
 
     try:
         unsigned_tx = None
@@ -888,7 +888,7 @@ def deduce_privkey_params( address=None, privkey_info=None, privkey_params=(None
         return privkey_params
 
     if address is not None:
-        assert not virtualchain.is_p2sh_address(address), "Cannot deduce private key params from multisig address"
+        assert not virtualchain.is_multisig_address(address), "Cannot deduce private key params from multisig address"
         return (1, 1)
 
     raise AssertionError("Unable to deduce private key params")
@@ -962,10 +962,10 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     assert owner_privkey_info or owner_address, "Missing owner address or keys"
 
     if owner_address is None:
-        owner_address = get_privkey_info_address( owner_privkey_info )
+        owner_address = virtualchain.get_privkey_address( owner_privkey_info )
 
     if payment_address is None:
-        payment_address = get_privkey_info_address( payment_privkey_info )
+        payment_address = virtualchain.get_privkey_address( payment_privkey_info )
 
     utxo_client = build_utxo_client( utxo_client=utxo_client, address=payment_address, utxos=payment_utxos )
     assert utxo_client, "Unable to build UTXO client"
@@ -1038,10 +1038,10 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
     assert payment_privkey_info or payment_address, "Missing payment address or keys"
 
     if payment_address is None:
-        payment_address = get_privkey_info_address( payment_privkey_info )
+        payment_address = virtualchain.get_privkey_address( payment_privkey_info )
 
     if owner_address is None:
-        owner_address = get_privkey_info_address( owner_privkey_info )
+        owner_address = virtualchain.get_privkey_address( owner_privkey_info )
 
     assert payment_privkey_info or (payment_address and payment_utxos), "Missing payment keys or payment UTXOs and address"
 
@@ -1105,10 +1105,10 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
     assert owner_privkey_info or owner_address, "Missing owner address or keys"
 
     if owner_address is None:
-        owner_address = get_privkey_info_address( owner_privkey_info )
+        owner_address = virtualchain.get_privkey_address( owner_privkey_info )
 
     if payment_address is None:
-        payment_address = get_privkey_info_address( payment_privkey_info )
+        payment_address = virtualchain.get_privkey_address( payment_privkey_info )
 
     assert payment_privkey_info or (payment_address and payment_utxos), "Missing payment keys or payment UTXOs and address"
 
@@ -1201,8 +1201,8 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
         safety_checks = False
 
     fqu = str(fqu)
-    owner_address = get_privkey_info_address(owner_privkey_info)
-    payment_address = get_privkey_info_address(payment_privkey_info)
+    owner_address = virtualchain.get_privkey_address(owner_privkey_info)
+    payment_address = virtualchain.get_privkey_address(payment_privkey_info)
 
     if not dry_run and (safety_checks or tx_fee is None):
         # find tx fee, and do sanity checks
@@ -1268,8 +1268,8 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
 
     fqu = str(fqu)
     resp = {}
-    owner_address = get_privkey_info_address( owner_privkey_info )
-    payment_address = get_privkey_info_address( payment_privkey_info )
+    owner_address = virtualchain.get_privkey_address( owner_privkey_info )
+    payment_address = virtualchain.get_privkey_address( payment_privkey_info )
 
     if not dry_run and (safety_checks or (renewal_fee is None or tx_fee is None)):
         # find tx fee, and do sanity checks
@@ -1326,8 +1326,8 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
         safety_checks = False
 
     fqu = str(fqu)
-    owner_address = get_privkey_info_address(owner_privkey_info)
-    payment_address = get_privkey_info_address(payment_privkey_info)
+    owner_address = virtualchain.get_privkey_address(owner_privkey_info)
+    payment_address = virtualchain.get_privkey_address(payment_privkey_info)
 
     if not dry_run and (safety_checks or tx_fee is None):
         res = check_revoke(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
@@ -1389,7 +1389,7 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
         assert tx_fee, "Missing tx fee"
 
     try:
-        payment_address = virtualchain.address_reencode( ecdsa_private_key( importer_privkey_info ).public_key().address() )
+        payment_address = virtualchain.get_privkey_address(importer_privkey_info)
     except Exception, e:
         log.exception(e)
         return {'error': 'Import can only use a single private key with a P2PKH script'}
@@ -1439,7 +1439,7 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
         assert tx_fee, "Missing tx fee"
 
     try:
-        payment_address = virtualchain.address_reencode( ecdsa_private_key( payment_privkey_info ).public_key().address() )
+        payment_address = virtualchain.get_privkey_address(payment_privkey_info)
     except Exception, e:
         log.error("Invalid private key info")
         return {'error': 'Namespace preorder can only use a single private key with a P2PKH script'}
@@ -1496,7 +1496,7 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
         assert tx_fee, "Missing tx fee"
 
     try:
-        payment_address = virtualchain.address_reencode( ecdsa_private_key( payment_privkey_info ).public_key().address() )
+        payment_address = virtualchain.get_privkey_address(payment_privkey_info)
         reveal_address = virtualchain.address_reencode( reveal_address )
     except:
         log.error("Invalid private key info")
@@ -1541,7 +1541,7 @@ def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broad
         assert tx_fee, "Missing tx fee"
 
     try:
-        reveal_address = virtualchain.address_reencode(ecdsa_private_key( reveal_privkey_info ).public_key().address())
+        reveal_address = virtualchain.get_privkey_address(reveal_privkey_info)
     except:
         log.error("Invalid private key info")
         return {'error': 'Namespace ready can only use a single private key with a P2PKH script'}
@@ -1574,7 +1574,7 @@ def do_announce( message_text, sender_privkey_info, utxo_client, tx_broadcaster,
     message_text = str(message_text)
     message_hash = get_blockchain_compat_hash( message_text )
 
-    sender_address = get_privkey_info_address( sender_privkey_info )
+    sender_address = virtualchain.get_privkey_address( sender_privkey_info )
     sender_privkey_params = get_privkey_info_params( sender_privkey_info )
     if sender_privkey_params == (None, None):
         log.error("Invalid owner private key info")
@@ -1638,8 +1638,8 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, tx_fee=N
     utxo_client = get_utxo_provider_client( config_path=config_path )
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
-    owner_address = get_privkey_info_address( owner_privkey_info )
-    payment_address = get_privkey_info_address( payment_privkey_info )
+    owner_address = virtualchain.get_privkey_address( owner_privkey_info )
+    payment_address = virtualchain.get_privkey_address( payment_privkey_info )
 
     # stale preorder will get removed from preorder_queue
     if in_queue("register", fqu, path=queue_path):
@@ -1699,8 +1699,8 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, tx_fee=None, n
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
-    owner_address = get_privkey_info_address( owner_privkey_info )
-    payment_address = get_privkey_info_address( payment_privkey_info )
+    owner_address = virtualchain.get_privkey_address( owner_privkey_info )
+    payment_address = virtualchain.get_privkey_address( payment_privkey_info )
 
     # check register_queue first
     # stale preorder will get removed from preorder_queue
@@ -1798,7 +1798,7 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
 
-    owner_address = get_privkey_info_address( owner_privkey_info )
+    owner_address = virtualchain.get_privkey_address( owner_privkey_info )
 
     if in_queue("update", fqu, path=queue_path):
         log.error("Already in update queue: %s" % fqu)
@@ -1854,7 +1854,7 @@ def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
 
-    owner_address = get_privkey_info_address( owner_privkey_info )
+    owner_address = virtualchain.get_privkey_address( owner_privkey_info )
 
     if in_queue("transfer", fqu, path=queue_path):
         log.error("Already in transfer queue: %s" % fqu)
@@ -1897,7 +1897,7 @@ def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee,
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    owner_address = get_privkey_info_address( owner_privkey_info )
+    owner_address = virtualchain.get_privkey_address( owner_privkey_info )
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
@@ -1942,7 +1942,7 @@ def async_revoke(fqu, owner_privkey_info, payment_privkey_info,
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    owner_address = get_privkey_info_address( owner_privkey_info )
+    owner_address = virtualchain.get_privkey_address( owner_privkey_info )
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 

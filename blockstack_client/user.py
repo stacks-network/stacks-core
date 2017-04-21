@@ -33,6 +33,9 @@ from jsonschema.exceptions import ValidationError
 import re
 import keylib
 
+import virtualchain
+from virtualchain.lib.ecdsalib import *
+
 from .schemas import *
 from .constants import BLOCKSTACK_TEST, CONFIG_PATH, BLOCKSTACK_DEBUG
 from .keys import HDWallet, get_pubkey_hex

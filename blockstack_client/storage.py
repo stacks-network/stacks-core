@@ -47,6 +47,9 @@ from scripts import is_name_valid, hex_hash160
 import schemas
 from keys import *
 
+import virtualchain
+from virtualchain.lib.ecdsalib import *
+
 log = get_logger()
 
 import string

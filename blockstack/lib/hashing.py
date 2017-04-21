@@ -25,7 +25,8 @@ from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 import hashlib
 
-from pybitcoin.hash import hex_hash160, bin_hash160, bin_sha256, bin_double_sha256, hex_to_bin_reversed, bin_to_hex_reversed
+import virtualchain
+from virtualchain.lib.hashing import *
 
 from .b40 import b40_to_bin
 from .config import LENGTHS

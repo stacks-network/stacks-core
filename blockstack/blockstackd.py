@@ -57,13 +57,13 @@ from defusedxml import xmlrpc
 xmlrpc.monkey_patch()
 
 import virtualchain
+from virtualchain.lib.hashing import *
+
 log = virtualchain.get_logger("blockstack-core")
 
 import blockstack_client
 
 from ConfigParser import SafeConfigParser
-
-import pybitcoin
 
 from lib import nameset as blockstack_state_engine
 from lib import get_db_state
@@ -1350,7 +1350,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             # no profile yet (or error)
             old_profile_txt = ""
 
-        old_profile_hash = pybitcoin.hex_hash160(old_profile_txt)
+        old_profile_hash = hex_hash160(old_profile_txt)
         if old_profile_hash != prev_profile_hash:
             log.debug("Invalid previous profile hash")
             return {'error': 'Invalid previous profile hash'}

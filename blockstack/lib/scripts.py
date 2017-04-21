@@ -24,13 +24,10 @@
 from utilitybelt import is_hex, is_valid_int
 from binascii import hexlify, unhexlify
 from virtualchain import BitcoinPublicKey
-from pybitcoin import script_to_hex, make_pay_to_address_script
-from pybitcoin.transactions.outputs import calculate_change_amount
 
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
-import bitcoin
 import json
 
 try:

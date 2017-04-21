@@ -41,9 +41,10 @@ log = get_logger("blockstack-storage-driver-s3")
 
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
-AWS_BUCKET = None
+AWS_BUCKET = "blockstack-server-profiles"
 AWS_ACCESS_KEY_ID = None 
 AWS_SECRET_ACCESS_KEY = None
+AWS_COMPRESS = True
 
 #-------------------------
 def compress_chunk( chunk_buf ):
@@ -71,25 +72,48 @@ def get_bucket( bucket_name ):
     """
     
     global AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+   
+    if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+        log.debug("Read/write connect to S3")
+
+        aws_id = AWS_ACCESS_KEY_ID
+        aws_key = AWS_SECRET_ACCESS_KEY
     
-    aws_id = AWS_ACCESS_KEY_ID
-    aws_key = AWS_SECRET_ACCESS_KEY
-    
-    try:
-        conn = boto.connect_s3(aws_id, aws_key)
-    except Exception, e:
-        log.error("Connection to S3 failed")
-        log.exception(e)
-        return None
+        try:
+            conn = boto.connect_s3(aws_id, aws_key)
+        except Exception, e:
+            log.error("Connection to S3 failed")
+            log.exception(e)
+            return None
         
-    bucket = None
-    try:
-        bucket = conn.create_bucket(bucket_name)
-    except Exception, e:
-        log.error("Could not create/fetch bucket " + bucket_name)
-        log.exception(e)
+        bucket = None
+        try:
+            bucket = conn.create_bucket(bucket_name)
+        except Exception, e:
+            log.error("Could not create/fetch bucket " + bucket_name)
+            log.exception(e)
         
-    return bucket
+        return bucket
+
+    else:
+        # anonymous read-only 
+        log.debug("Anonymous read-only connect to S3")
+        try:
+            conn = boto.connect_s3()
+        except Exception, e:
+            log.error("Connection to S3 failed")
+            log.exception(e)
+            return None
+
+        bucket = None
+        try:
+            bucket = conn.get_bucket(bucket_name)
+        except Exception, e:
+            log.error("Could not get bucket {}".format(bucket_name))
+            log.exception(e)
+        
+        return bucket
+
 
 #-------------------------
 def write_chunk( chunk_path, chunk_buf ):
@@ -100,8 +124,12 @@ def write_chunk( chunk_path, chunk_buf ):
     Return False on error, and log an exception
     """
 
-    global AWS_BUCKET
+    global AWS_BUCKET, AWS_COMPRESS
     
+    if not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY:
+        log.debug("No AWS key set, cannot write")
+        return False
+
     bucket = get_bucket( AWS_BUCKET )
     if bucket == None:
         log.error("Failed to get bucket '%s'" % AWS_BUCKET )
@@ -118,7 +146,11 @@ def write_chunk( chunk_path, chunk_buf ):
     end = None
     size = None
     try:
-        compressed_data = compress_chunk( chunk_buf )
+        if AWS_COMPRESS:
+            compressed_data = compress_chunk( chunk_buf )
+        else:
+            compressed_data = chunk_buf
+
         size = len(compressed_data)
 
         begin = time.time()
@@ -134,6 +166,7 @@ def write_chunk( chunk_path, chunk_buf ):
         log.debug("[BENCHMARK] s3.write_chunk %s: %s" % (size, end - begin))
 
     return rc
+
 
 #-------------------------
 def read_chunk( chunk_path ):
@@ -167,7 +200,10 @@ def read_chunk( chunk_path ):
         end = time.time()
         size = len(compressed_data)
 
-        data = decompress_chunk( compressed_data )
+        try:
+            data = decompress_chunk( compressed_data )
+        except:
+            data = compressed_data
         
     except Exception, e:
         log.error("Failed to read '%s'" % chunk_path)
@@ -190,6 +226,10 @@ def delete_chunk( chunk_path ):
     
     global AWS_BUCKET
     
+    if not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY:
+        log.debug("No AWS key set, cannot write")
+        return False
+
     bucket = get_bucket( AWS_BUCKET )
     if bucket == None:
         log.error("Failed to get bucket '%s'" % AWS_BUCKET)
@@ -224,7 +264,7 @@ def storage_init(conf):
     Return True on success
     Return False on error 
     """
-    global AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_BUCKET
+    global AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_BUCKET, AWS_COMPRESS
 
     config_path = conf['path']
     if os.path.exists( config_path ):
@@ -248,9 +288,11 @@ def storage_init(conf):
             if parser.has_option('s3', 'api_key_secret'):
                 AWS_SECRET_ACCESS_KEY = parser.get('s3', 'api_key_secret')
             
+            if parser.has_option('s3', 'compress'):
+                AWS_COMPRESS = (parser.get('s3', 'compress', 'false').lower() in ['true', '1'])
             
     # we can't proceed unless we have all three.
-    if AWS_ACCESS_KEY_ID is None or AWS_SECRET_ACCESS_KEY is None or AWS_BUCKET is None:
+    if AWS_BUCKET is None:
         log.error("Config file '%s': section 's3' is missing 'bucket', 'api_key_id', and/or 'api_key_secret'" % config_path )
         return False 
     
@@ -365,9 +407,11 @@ if __name__ == "__main__":
    Unit tests.
    """
    
-   import pybitcoin 
+   import keylib
    import json 
    import blockstack_client
+   import virtualchain
+   from virtualchain.lib.hashing import hex_hash160
    
    # hack around absolute paths
    current_dir =  os.path.abspath(os.path.dirname(__file__))
@@ -385,7 +429,7 @@ if __name__ == "__main__":
    conf = get_config(CONFIG_PATH)
    print json.dumps(conf, indent=4, sort_keys=True)
 
-   pk = pybitcoin.BitcoinPrivateKey()
+   pk = keylib.ECPrivateKey()
    data_privkey = pk.to_hex()
    data_pubkey = pk.public_key().to_hex()
 
@@ -397,7 +441,7 @@ if __name__ == "__main__":
    ]
    
    def hash_data( d ):
-      return pybitcoin.hash.hex_hash160( d )
+      return hex_hash160( d )
    
    rc = storage_init(conf)
    if not rc:

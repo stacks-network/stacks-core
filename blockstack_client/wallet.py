@@ -65,6 +65,9 @@ from .proxy import get_names_owned_by_address, get_default_proxy
 from .rpc import local_api_connect 
 from .schemas import *
 
+import virtualchain
+from virtualchain.lib.ecdsalib import *
+
 log = config.get_logger()
 
 
@@ -82,8 +85,8 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
     if not test_legacy:
         jsonschema.validate(decrypted_wallet, WALLET_SCHEMA_CURRENT)
 
-    owner_address = virtualchain.address_reencode( get_privkey_info_address(decrypted_wallet['owner_privkey']) )
-    payment_address = virtualchain.address_reencode( get_privkey_info_address(decrypted_wallet['payment_privkey']) )
+    owner_address = virtualchain.get_privkey_address(decrypted_wallet['owner_privkey'])
+    payment_address = virtualchain.get_privkey_address(decrypted_wallet['payment_privkey'])
     data_pubkey = None
     data_privkey_info = None
 
@@ -98,7 +101,7 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
             if not is_singlesig_hex(data_privkey_info):
                 data_privkey_info = ecdsa_private_key(data_privkey_info).to_hex()
 
-            if not is_singlesig(data_privkey_info):
+            if not virtualchain.is_singlesig(data_privkey_info):
                 log.error('Invalid data private key')
                 return {'error': 'Invalid data private key'}
         
@@ -161,9 +164,9 @@ def make_wallet(password, config_path=CONFIG_PATH, payment_privkey_info=None, ow
     data_privkey_info = ecdsa_private_key().to_hex() if data_privkey_info is None and not test_legacy else data_privkey_info
 
     decrypted_wallet = {
-        'owner_addresses': [get_privkey_info_address(owner_privkey_info)],
+        'owner_addresses': [virtualchain.get_privkey_address(owner_privkey_info)],
         'owner_privkey': owner_privkey_info,
-        'payment_addresses': [get_privkey_info_address(payment_privkey_info)],
+        'payment_addresses': [virtualchain.get_privkey_address(payment_privkey_info)],
         'payment_privkey': payment_privkey_info,
         'data_pubkey': ecdsa_private_key(data_privkey_info).public_key().to_hex(),
         'data_pubkeys': [ecdsa_private_key(data_privkey_info).public_key().to_hex()],
@@ -255,7 +258,7 @@ def make_legacy_wallet_013_keys(data, password):
         return ret
  
     data_privkey = None
-    if is_singlesig(owner_privkey):
+    if virtualchain.is_singlesig(owner_privkey):
         data_privkey = owner_privkey
     else:
         data_privkey = owner_privkey['private_keys'][0]

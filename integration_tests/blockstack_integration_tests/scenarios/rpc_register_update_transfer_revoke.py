@@ -136,6 +136,12 @@ def scenario( wallets, **kw ):
 
     # regenerate the wallet, with the new owner address
     wallet = testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[5].privkey, wallets[4].privkey, wallets[4].privkey )
+ 
+    res = testlib.start_api("0123456789abcdef")
+    if 'error' in res:
+        print 'failed to start API: {}'.format(res)
+        return False
+
 
     # revoke it 
     resp = testlib.blockstack_cli_revoke( "foo.test", "0123456789abcdef" )

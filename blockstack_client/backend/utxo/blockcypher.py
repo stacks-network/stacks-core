@@ -47,9 +47,12 @@ def format_unspents(unspents):
 
     return [{
         "transaction_hash": s["tx_hash"],
-        "output_index": s["tx_output_n"],
+        "outpoint": {
+            'hash': s['tx_hash'],
+            'index': s["tx_output_n"],
+        },
         "value": s["value"],
-        "script_hex": s.get("script"),
+        "out_script": s.get("script"),
         "confirmations": s["confirmations"],
         }
         for s in all_unspents

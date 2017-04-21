@@ -45,13 +45,14 @@ from keylib import ECPrivateKey
 
 import blockstack_profiles
 import blockstack_zones
+import virtualchain
 
 from .queue import get_queue_state, in_queue, queue_removeall
 from .queue import queue_cleanall, queue_find_accepted
 
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
 
-from ..keys import get_data_privkey_info, is_singlesig, is_singlesig_hex, is_multisig, get_privkey_info_address, get_privkey_info_params 
+from ..keys import get_data_privkey_info, is_singlesig_hex, get_privkey_info_params 
 from ..proxy import is_name_registered, is_zonefile_hash_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost, get_atlas_peers, json_is_error
 from ..zonefile import zonefile_data_replicate, make_empty_zonefile
 from ..user import is_user_zonefile, make_empty_user_profile
@@ -1003,10 +1004,10 @@ def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, p
         return {'error': 'Missing wallet information'}
 
     # sanity check...
-    if not is_singlesig( payment_keypair[1] ) and not is_multisig( payment_keypair[1] ):
+    if not virtualchain.is_singlesig( payment_keypair[1] ) and not virtualchain.is_multisig( payment_keypair[1] ):
         return {'error': 'Invalid payment key info'}
 
-    if not is_singlesig( owner_keypair[1] ) and not is_multisig( owner_keypair[1] ):
+    if not virtualchain.is_singlesig( owner_keypair[1] ) and not virtualchain.is_multisig( owner_keypair[1] ):
         return {'error': 'Invalid owner key info'}
 
     if not is_singlesig_hex( data_keypair[1] ):
