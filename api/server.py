@@ -29,7 +29,7 @@ import requests
 import json
 from collections import OrderedDict
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, make_response
 from flask import render_template, send_from_directory
 
 from flask_https import RequireHTTPS
@@ -120,6 +120,14 @@ def search_people():
 def catch_all_get(path):
     API_URL = BASE_API_URL + '/' + path
     params = dict(request.args)
+    try:
+        if ("page" in params and len(params["page"]) > 0 and
+            int(params["page"][0]) >= 300):
+            return make_response(
+                jsonify({'error':
+                         "no crawling the user list that high right now, sorry!"}), 403)
+    except:
+        pass
     return forwarded_get(API_URL, params = params)
 
 @app.route('/<path:path>', methods=['POST'])
