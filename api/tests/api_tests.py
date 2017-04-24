@@ -25,6 +25,7 @@ import unittest
 import requests
 import argparse
 import binascii
+import traceback
 
 from test import test_support
 from binascii import hexlify
@@ -36,12 +37,19 @@ import api.config
 from api.tests.resolver_tests import ResolverTestCase
 from api.tests.search_tests import SearchTestCase
 from blockstack_client import schemas 
+import blockstack_client.config as blockstack_config
+import blockstack_client.config as blockstack_constants
+import blockstack_client.keys
 
 BASE_URL = 'http://localhost:5000'
 API_VERSION = '1'
 
-api.app.testing = True
-app = api.app.test_client()
+API_PASSWORD = blockstack_config.get_config(
+    blockstack_constants.CONFIG_PATH).get('api_password', None)
+
+APP = None
+
+DEFAULT_WALLET_ADDRESS = "1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP"
 
 class FakeResponseObj:
     def __init__(self):
@@ -57,26 +65,63 @@ class ForwardingClient:
         ret_obj.status_code = resp.status_code
         ret_obj.data = resp.text
         return ret_obj
+    def post(self, endpoint, data, headers = {}):
+        resp = requests.post(self.base_url + endpoint, 
+                             data = data, headers = headers)
+        ret_obj = FakeResponseObj()
+        ret_obj.status_code = resp.status_code
+        ret_obj.data = resp.text
+        return ret_obj
 
-def test_get_request(cls, endpoint, headers={}, status_code=200):
-    t_start = time.time()
-    resp = app.get(endpoint, headers = headers)
-    t_end = time.time()
-    print("\r{}get time: {}s".format("\t"*9, t_end - t_start))
-    if not resp.status_code == status_code:
-        print(endpoint)
-        print(resp.status_code)
+class APITestCase(unittest.TestCase):
+    def __init__(self, methodName):
+        super(APITestCase, self).__init__(methodName)
+        self.app = APP
+    def setUp(self):
+        if not self.app:
+            api.app.testing = True
+            self.app = api.app.test_client()
+    def get_request(self, cls, endpoint, headers={}, status_code=200):
+        t_start = time.time()
+        resp = self.app.get(endpoint, headers = headers)
+        t_end = time.time()
+        print("\r{}get time: {}s".format("\t"*9, t_end - t_start))
+        if not resp.status_code == status_code:
+            print("{} => {} ".format(endpoint, resp.status_code))
+        
+        cls.assertEqual(resp.status_code, status_code)
+        try:
+            data = json.loads(resp.data)
+            return data
+        except Exception as e:
+            if status_code != 200:
+                return {}
+            raise e
 
-    data = json.loads(resp.data)
-    cls.assertEqual(resp.status_code, status_code)
-    return data
+    def post_request(self, cls, endpoint, payload, headers={}, status_code=200):
+        t_start = time.time()
+        resp = self.app.post(endpoint, data = json.dumps(payload), headers = headers)
+        t_end = time.time()
+        print("\r{}post time: {}s".format("\t"*9, t_end - t_start))
+        if not resp.status_code == status_code:
+            print("{} => {} ".format(endpoint, resp.status_code))
+        
+        cls.assertEqual(resp.status_code, status_code)
+        try:
+            data = json.loads(resp.data)
+            return data
+        except Exception as e:
+            if status_code != 200:
+                return {}
+            traceback.print_exc()
+            raise e
 
-def test_post_request(cls, endpoint, payload, headers={}, status_code=200):
-    resp = app.post(endpoint, data=json.dumps(payload), headers=headers)
-    data = json.loads(resp.data)
-    cls.assertTrue(resp.status_code == status_code)
-    return data
+class InternalAPITestCase(APITestCase):
+    def setUp(self):
+        self.app = ForwardingClient("http://localhost:6270")
 
+def get_auth_header(key = API_PASSWORD):
+    return {'Authorization' : 'bearer {}'.format(key)}
 
 def check_data(cls, data, required_keys=[], banned_keys=[]):
     for k in required_keys:
@@ -92,20 +137,49 @@ def check_data(cls, data, required_keys=[], banned_keys=[]):
                 cls.assertTrue(subkey not in data[k])
 
 
-class PingTest(unittest.TestCase):
+class PingTest(APITestCase):
     def test_found_user_lookup(self):
-        data = test_get_request(self, "/v1/ping",
+        data = self.get_request(self, "/v1/ping",
                                 headers = {} , status_code=200)
         
         self.assertTrue(data['status'] == 'alive')
 
-class LookupUsersTest(unittest.TestCase):
+class AuthInternal(InternalAPITestCase):
+    def test_get_and_use_session_token(self):
+        import jsontokens
+
+        privkey = ("a28ea1a6f11fb1c755b1d102990d64d6" + 
+                   "b4468c10705bbcbdfca8bc4497cf8da8")
+
+        auth_header = get_auth_header()
+        request = {
+            'app_domain': 'test.com',
+            'app_public_key': blockstack_client.keys.get_pubkey_hex(privkey),
+            'methods': ['wallet_read'],
+        }
+
+        signer = jsontokens.TokenSigner()
+        package = signer.sign(request, privkey)
+
+        url = "/v1/auth?authRequest={}".format(package)
+        data = self.get_request(self, url, headers = auth_header, status_code=200)
+        self.assertIn('token', data)
+        session = data['token']
+
+        auth_header = get_auth_header(session)
+        data = self.get_request(self, '/v1/wallet/payment_address',
+                                headers = auth_header, status_code=200)
+        data = self.get_request(self, '/v1/users/muneeb.id',
+                                headers = auth_header, status_code=403)
+        
+
+class LookupUsersTest(APITestCase):
     def build_url(self, username):
         return '/v1/names/{}'.format(username)
 
     def test_found_user_lookup(self):
         usernames = 'muneeb.id'
-        data = test_get_request(self, self.build_url(usernames),
+        data = self.get_request(self, self.build_url(usernames),
                                 headers = {}, status_code=200)
         
         self.assertTrue(data['status'] == 'registered')
@@ -124,12 +198,12 @@ class LookupUsersTest(unittest.TestCase):
 
     def test_user_not_formatted(self):
         usernames = 'muneeb'
-        data = test_get_request(self, self.build_url(usernames),
+        data = self.get_request(self, self.build_url(usernames),
                                 headers = {}, status_code=500)
         self.assertTrue(data['error'] == 'Failed to lookup name')
 
 
-class NameHistoryTest(unittest.TestCase):
+class NameHistoryTest(APITestCase):
     def build_url(self, username):
         return '/v1/names/{}/history'.format(username)
 
@@ -141,7 +215,7 @@ class NameHistoryTest(unittest.TestCase):
 
     def test_found_user_lookup(self):
         usernames = 'muneeb.id'
-        data = test_get_request(self, self.build_url(usernames),
+        data = self.get_request(self, self.build_url(usernames),
                                 headers = {}, status_code=200)
         
         self.assertTrue(len(data.keys()) > 2)
@@ -149,7 +223,7 @@ class NameHistoryTest(unittest.TestCase):
             self.check_history_block(block_data)
 
 
-class NamesOwnedTest(unittest.TestCase):
+class NamesOwnedTest(APITestCase):
     def build_url(self, addr):
         return '/v1/addresses/bitcoin/{}'.format(addr)
     def test_check_names(self):
@@ -157,14 +231,14 @@ class NamesOwnedTest(unittest.TestCase):
                           "16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg"]
         names_to_check = ["muneeb.id", "judecn.id"]
         for addr, name in zip(addrs_to_check, names_to_check):
-            data = test_get_request(self, self.build_url(addr),
+            data = self.get_request(self, self.build_url(addr),
                                     headers = {}, status_code = 200)
             self.assertTrue(len(data["names"]) > 0)
             self.assertIn(name, data["names"])
 
-class NamespaceTest(unittest.TestCase):
+class NamespaceTest(APITestCase):
     def test_id_space(self):
-        data = test_get_request(self, "/v1/namespaces",
+        data = self.get_request(self, "/v1/namespaces",
                                 headers = {} , status_code=200)        
         self.assertIn('id', data)
     def test_id_space_names(self):
@@ -176,12 +250,12 @@ class NamespaceTest(unittest.TestCase):
         
 
 
-class NamepriceTest(unittest.TestCase):
+class NamepriceTest(APITestCase):
     def price_url(self, name):
         return "/v1/prices/names/{}".format(name)
     
     def test_id_price(self):
-        data = test_get_request(self, self.price_url("muneeb.id"),
+        data = self.get_request(self, self.price_url("muneeb.id"),
                                 headers = {} , status_code=200)        
         json_keys = data.keys()
         self.assertIn('name_price', json_keys)
@@ -192,7 +266,7 @@ class NamepriceTest(unittest.TestCase):
         self.assertIn('update_tx_fee', json_keys)
 
 
-class SearchAPITest(unittest.TestCase):
+class SearchAPITest(APITestCase):
     def search_url(self, q):
         return "/v1/search?query={}".format(q)
 
@@ -201,7 +275,7 @@ class SearchAPITest(unittest.TestCase):
         original = api.config.SEARCH_API_ENDPOINT_ENABLED
         api.config.SEARCH_API_ENDPOINT_ENABLED = False
         
-        data = test_get_request(self, self.search_url(u),
+        data = self.get_request(self, self.search_url(u),
                                 headers = {}, status_code=200)
 
         self.assertTrue(len(data['results']) > 0)
@@ -215,14 +289,14 @@ class SearchAPITest(unittest.TestCase):
         if not api.config.SEARCH_API_ENDPOINT_ENABLED:
             print("skipping search server test")
             return
-        data = test_get_request(self, self.search_url(u),
+        data = self.get_request(self, self.search_url(u),
                                 headers = {}, status_code=200)
 
         self.assertTrue(len(data['results']) > 0)
         self.assertIn(u, data['results'][0]['username'])
         self.assertIn("profile", data['results'][0].keys())
 
-class TestAPILandingPageExamples(unittest.TestCase):
+class TestAPILandingPageExamples(APITestCase):
     def test_endpoints(self):
         from api.utils import get_api_calls
         current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -233,18 +307,49 @@ class TestAPILandingPageExamples(unittest.TestCase):
         print("")
         for url in api_endpoints:
             print("\tTesting API example: {}".format(url))
-            test_get_request(self, url, headers = {}, status_code=200)
+            self.get_request(self, url, headers = {}, status_code=200)
 
-class ConsensusTest(unittest.TestCase):
-    def test_id_space(self):
-        data = test_get_request(self, "/v1/blockchains/bitcoin/consensus",
+class BlockChains(APITestCase):
+    def test_consensus(self):
+        data = self.get_request(self, "/v1/blockchains/bitcoin/consensus",
                                 headers = {} , status_code=200)        
         self.assertRegexpMatches(data['consensus_hash'], schemas.OP_CONSENSUS_HASH_PATTERN)
+    def test_name_history(self):
+        data = self.get_request(self, "/v1/blockchains/bitcoin/names/muneeb.id/history",
+                                headers = {} , status_code=405)        
+    def test_names_pending(self):
+        data = self.get_request(self, "/v1/blockchains/bitcoin/pending",
+                                headers = {} , status_code=200)
+        self.assertIn("queues", data)
+    def test_operations(self):
+        data = self.get_request(self, "/v1/blockchains/bitcoin/operations",
+                                headers = {} , status_code=200)
 
+
+class BlockChainsInternal(InternalAPITestCase):
+    def test_unspents(self):
+        url = "/v1/blockchains/bitcoin/{}/unspent".format(DEFAULT_WALLET_ADDRESS)
+        self.get_request(self, url, headers = {}, status_code = 403)
+        data = self.get_request(self, url, headers = get_auth_header(), status_code = 200)
+        
+        self.assertTrue(len(data) >= 1)
+        data = data[0]
+        
+        self.assertTrue(data['confirmations'] >= 0)
+        self.assertRegexpMatches(data['out_script'], schemas.OP_HEX_PATTERN)
+        self.assertRegexpMatches(data['outpoint']['hash'], schemas.OP_HEX_PATTERN)
+        self.assertRegexpMatches(data['transaction_hash'], schemas.OP_HEX_PATTERN)
+        self.assertTrue(data['value'] >= 0)
+    def test_txs(self):
+        url = "/v1/blockchains/bitcoin/txs".format(DEFAULT_WALLET_ADDRESS)
+        self.post_request(self, url, payload = {}, headers = {}, status_code = 403)
+        self.post_request(self, url, payload = {}, headers = get_auth_header(), status_code = 401)
+        
 
 def test_main(args = []):
-    test_classes = [PingTest, LookupUsersTest, NamespaceTest, ConsensusTest, TestAPILandingPageExamples,
-                    NamepriceTest, NamesOwnedTest, NameHistoryTest, SearchAPITest]
+    test_classes = [PingTest, LookupUsersTest, NamespaceTest, BlockChains, TestAPILandingPageExamples,
+                    NamepriceTest, NamesOwnedTest, NameHistoryTest, SearchAPITest, 
+                    AuthInternal, BlockChainsInternal]
     test_classes += [ResolverTestCase]
     if api.config.SEARCH_API_ENDPOINT_ENABLED:
         test_classes += [SearchTestCase]
@@ -258,11 +363,13 @@ def test_main(args = []):
         try:
             test_support.run_unittest(PingTest)
         except Exception as e:
-            print(e)
+            traceback.print_exc(file=sys.stdout)
     out = out.getvalue()
     if out[-3:-1] != "OK":
         print(out)
-        print("Failure of the ping test means the rest of the unit tests will fail. Is the blockstack api daemon running? (did you run `blockstack api start`)")
+        print("Failure of the ping test means the rest of the unit tests will " +
+              "fail. Is the blockstack api daemon running? (did you run " +
+              "`blockstack api start`)")
         return
 
     if len(args) == 1 and args[0] == "--list":
@@ -274,8 +381,8 @@ def test_main(args = []):
     if "--remote" in args:
         ainx = args.index("--remote")
         del args[ainx]
-        global app
-        app = ForwardingClient(args[ainx])
+        global APP
+        APP = ForwardingClient(args[ainx])
         del args[ainx]
 
     if len(args) == 0 or args[0] == "--all":
