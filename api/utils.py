@@ -57,6 +57,23 @@ def get_mc_client():
                                    "connect_timeout": 200})
     return mc
 
+def profile_log(function):
+    import blockstack_client.config as blockstack_config
+    log = blockstack_config.get_logger()
+
+    import cProfile, StringIO, pstats
+    def wrapper(*a, **kw):
+        pr = cProfile.Profile()
+        pr.enable()
+        out = function(*a, **kw)
+        pr.disable()
+        s = StringIO.StringIO()
+        sortby = 'time'
+        ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+        ps.print_stats(10)
+        log.debug(s.getvalue())
+        return out
+    return wrapper
 
 def build_api_call_object(text):
     api_call = {}
