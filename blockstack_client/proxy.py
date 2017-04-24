@@ -1441,7 +1441,7 @@ def get_nameops_at(block_id, proxy=None):
         msg = '{} had {} operations ({} history rows, {} historic nameops, txids: {}) at {}'
         log.debug(
             msg.format(
-                nameop.get('name', 'UNKNOWN'), len(history[block_id]), len(history_rows),
+                nameop.get('name', 'UNKNOWN'), len(history), len(history_rows),
                 len(historic_nameops), [op['txid'] for op in historic_nameops], block_id
             )
         )
