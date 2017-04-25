@@ -64,7 +64,6 @@ from resolve import BlockstackURLHandle, BlockstackHandler
 from storage import get_data_hash, get_blockchain_compat_hash, get_zonefile_data_hash
 from storage import get_storage_handlers, lookup_storage_handler, hash_zonefile
 from storage import parse_mutable_data as parse_signed_data
-from keys import sign_raw_data, verify_raw_data, sign_digest, verify_digest 
 
 from wallet import get_payment_addresses_and_balances, get_owner_addresses_and_names, load_wallet, get_wallet
 
