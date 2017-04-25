@@ -25,7 +25,7 @@ The fastest way to get started with Blockstack is with pip.
 For Debian & Ubuntu:
 ```
 $ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools libgmp3-dev
-$ sudo pip install blockstack
+$ sudo pip2 install blockstack
 ```
 For macOS: 
 ```
