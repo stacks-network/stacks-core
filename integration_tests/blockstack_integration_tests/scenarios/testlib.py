@@ -70,8 +70,7 @@ class Wallet(object):
         else:
             self.privkey = pk.to_hex()
 
-        self.pubkey_hex = pk.public_key().to_hex()                              # coordinate (uncompressed) EC public key
-        self.ec_pubkey_hex = keylib.ECPrivateKey(pk_wif).public_key().to_hex()  # parameterized (compressed) EC public key
+        self.pubkey_hex = pk.public_key().to_hex()
         self.addr = pk.public_key().address()
 
         log.debug("Wallet %s (%s)" % (self.privkey, self.addr))
@@ -88,6 +87,7 @@ class MultisigWallet(object):
         self.addr = self.privkey['address']
 
         log.debug("Multisig wallet %s" % (self.addr))
+        log.debug(json.dumps(self.privkey, indent=4, sort_keys=True))
 
 
 class APICallRecord(object):
@@ -818,11 +818,13 @@ def blockstack_cli_sync_zonefile( name, zonefile_string=None, txid=None, interac
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
-    fd, path = tempfile.mkstemp()
-    os.write(fd, zonefile_json)
-    os.close(fd)
+    path = None
+    if zonefile_string:
+        fd, path = tempfile.mkstemp()
+        os.write(fd, zonefile_string)
+        os.close(fd)
 
-    log.debug("Stored JSON to {}".format(path))
+        log.debug("Stored JSON to {}".format(path))
 
     args = CLIArgs()
     args.name = name
@@ -831,10 +833,11 @@ def blockstack_cli_sync_zonefile( name, zonefile_string=None, txid=None, interac
 
     resp = cli_sync_zonefile( args, config_path=config_path, proxy=test_proxy, interactive=interactive, nonstandard=nonstandard )
 
-    try:
-        os.unlink(path)
-    except:
-        pass
+    if path:
+        try:
+            os.unlink(path)
+        except:
+            pass
 
     if 'value_hash' in resp:
         atlas_zonefiles_present.append( resp['value_hash'] )
