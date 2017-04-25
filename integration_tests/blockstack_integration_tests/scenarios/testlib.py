@@ -3138,7 +3138,7 @@ def peer_start( working_dir, port=None, command='start', args=['--foreground']):
     to communicate on the given network server.
     Return a dict with the peer information.
     """
-    args = ['blockstack-server', command] + args
+    args = ['blockstack-core', command] + args
     if port:
         args += ['--port', str(port)]
 
