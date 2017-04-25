@@ -657,31 +657,6 @@ def get_immutable_data(data_hash, data_url=None, hash_func=get_data_hash, fqu=No
     return None
 
 
-def get_file_hash( fd, hashfunc, fd_len=None ):
-    """
-    Get the hex-encoded hash of the fd's data
-    """
-
-    h = hashfunc()
-    fd.seek(0, os.SEEK_SET)
-
-    count = 0
-    while True:
-        buf = fd.read(65536)
-        if len(buf) == 0:
-            break
-
-        if fd_len is not None:
-            if count + len(buf) > fd_len:
-                buf = buf[:fd_len - count]
-
-        h.update(buf)
-        count += len(buf)
-
-    hashed = h.hexdigest()
-    return hashed
-
-
 def get_drivers_for_url(url):
     """
     Which drivers can handle this url?
