@@ -43,6 +43,8 @@ import urllib
 import hashlib
 
 import virtualchain
+from virtualchain.lib.ecdsalib import sign_digest, verify_digest
+
 import blockstack_client
 
 log = virtualchain.get_logger("blockstack-server")
@@ -98,6 +100,31 @@ def snapshot_peek_sigb64( fd, off, bytelen ):
     return sigb64
 
 
+def get_file_hash( fd, hashfunc, fd_len=None ):
+    """
+    Get the hex-encoded hash of the fd's data
+    """
+
+    h = hashfunc()
+    fd.seek(0, os.SEEK_SET)
+
+    count = 0
+    while True:
+        buf = fd.read(65536)
+        if len(buf) == 0:
+            break
+
+        if fd_len is not None:
+            if count + len(buf) > fd_len:
+                buf = buf[:fd_len - count]
+
+        h.update(buf)
+        count += len(buf)
+
+    hashed = h.hexdigest()
+    return hashed
+
+
 def fast_sync_sign_snapshot( snapshot_path, private_key, first=False ):
     """
     Append a signature to the end of a snapshot path
@@ -146,8 +173,8 @@ def fast_sync_sign_snapshot( snapshot_path, private_key, first=False ):
 
         # hash the file and sign the (bin-encoded) hash
         privkey_hex = keylib.ECPrivateKey(private_key).to_hex()
-        hash_hex = blockstack_client.storage.get_file_hash( f, hashlib.sha256, fd_len=payload_size )
-        sigb64 = blockstack_client.keys.sign_digest( hash_hex, privkey_hex, hashfunc=hashlib.sha256 )
+        hash_hex = get_file_hash( f, hashlib.sha256, fd_len=payload_size )
+        sigb64 = sign_digest( hash_hex, privkey_hex, hashfunc=hashlib.sha256 )
       
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.debug("Signed {} with {} to make {}".format(hash_hex, keylib.ECPrivateKey(private_key).public_key().to_hex(), sigb64))
@@ -427,7 +454,7 @@ def fast_sync_inspect_snapshot( snapshot_path ):
             return {'error': 'Failed to inspect snapshot'}
 
         # get the hash of the file 
-        hash_hex = blockstack_client.storage.get_file_hash(f, hashlib.sha256, fd_len=info['payload_size'])
+        hash_hex = get_file_hash(f, hashlib.sha256, fd_len=info['payload_size'])
         info['hash'] = hash_hex
 
     return info
@@ -487,7 +514,7 @@ def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBL
         ptr = info['payload_size']
 
         # get the hash of the file 
-        hash_hex = blockstack_client.storage.get_file_hash(f, hashlib.sha256, fd_len=ptr)
+        hash_hex = get_file_hash(f, hashlib.sha256, fd_len=ptr)
         
         # validate signatures over the hash
         log.debug("Verify {} bytes".format(ptr))
@@ -495,7 +522,7 @@ def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBL
         num_match = 0
         for next_pubkey in public_keys:
             for sigb64 in signatures:
-                valid = blockstack_client.keys.verify_digest( hash_hex, keylib.ECPublicKey(next_pubkey).to_hex(), sigb64, hashfunc=hashlib.sha256 ) 
+                valid = verify_digest( hash_hex, keylib.ECPublicKey(next_pubkey).to_hex(), sigb64, hashfunc=hashlib.sha256 ) 
                 if valid:
                     num_match += 1
                     if num_match >= num_required:
