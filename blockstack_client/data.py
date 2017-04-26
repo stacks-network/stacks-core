@@ -2699,14 +2699,6 @@ def datastore_mkdir_put_inodes( datastore, data_path, header_blobs, payloads, si
     creates = [True, False]     # create child
     exists = [False, True]      # parent must exist
 
-    '''    
-    header_blobs = [header_blobs[1], header_blobs[0]]
-    payloads = [payloads[1], payloads[0]]
-    signatures = [signatures[1], signatures[0]]
-    creates = [creates[1], creates[0]]
-    exists = [exists[1], exists[0]]
-    '''
-
     device_ids = datastore['device_ids']
     data_pubkey = datastore['pubkey']
     res = datastore_operation_check( data_pubkey, header_blobs, payloads, signatures, tombstones, creates, exists, device_ids, config_path=config_path )
@@ -3426,7 +3418,7 @@ def datastore_rmtree_make_inodes(api_client, datastore, data_path, data_pubkey_h
         """
         log.debug("Search {}".format(dir_inode_uuid))
         
-        res = api_client.backend_datastore_getinode(datastore, dir_inode_uuid, str(data_pubkey_hex), force=force, extended=True)
+        res = api_client.backend_datastore_getinode(datastore, dir_inode_uuid, str(data_pubkey_hex), idata=True, force=force, extended=True)
         if 'error' in res:
             return res
         
@@ -3512,16 +3504,16 @@ def datastore_rmtree_put_inodes( datastore, header_blobs, payloads, signatures, 
     Return {'error': ..., 'errno': ...} on failure
     """
     # only putting the now-empty directory
-    assert len(header_blobs) == 1, header_blobs
-    assert len(payloads) == 1, payloads
+    assert len(header_blobs) <= 1, header_blobs
+    assert len(payloads) <= 1, payloads
     assert len(signatures) <= 1
     assert len(tombstones) >= 0
 
     assert len(header_blobs) == len(payloads)
     assert len(payloads) == len(signatures)
     
-    creates = [False]
-    exists = [True]
+    creates = [False] * len(header_blobs)
+    exists = [True] * len(header_blobs)
 
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
@@ -3562,16 +3554,15 @@ def datastore_rmtree(api_client, datastore, data_path, data_privkey_hex, force=F
         inode_signatures.append( signature )
 
     signed_tombstones = sign_mutable_data_tombstones(inode_info['tombstones'], data_privkey_hex)
+    datastore_info = datastore_serialize_and_sign(datastore, data_privkey_hex)
 
     # do batches 
     for i in xrange(0, len(signed_tombstones), 10):
         ts = signed_tombstones[i:min(i+10, len(signed_tombstones))]
-        res = api_client.backend_datastore_rmtree( datastore, [], [], [], ts )
+        res = api_client.backend_datastore_rmtree( datastore_info['str'], datastore_info['sig'], [], [], [], ts )
         if 'error' in res:
             log.error("Failed to delete inodes: {}".format(res['error']))
             return res
-
-    datastore_info = datastore_serialize_and_sign(datastore, data_privkey_hex)
 
     # update root
     res = api_client.backend_datastore_rmtree( datastore_info['str'], datastore_info['sig'], inode_info['inodes'], inode_info['payloads'], inode_signatures, [] )
