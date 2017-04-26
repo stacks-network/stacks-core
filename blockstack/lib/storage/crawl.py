@@ -123,7 +123,7 @@ def get_zonefile_data_from_storage( name, zonefile_hash, drivers=None ):
 def cached_zonefile_path( zonefile_dir, zonefile_hash ):
     """
     Calculate the on-disk path to storing a zonefile's information, given the zone file hash.
-    If the zonefile hash is abcdef1234567890, then the path will be $zonefile_dir/ab/cd/ef/abcdef1234567890.txt
+    If the zonefile hash is abcdef1234567890, then the path will be $zonefile_dir/ab/cd/abcdef1234567890.txt
 
     Returns the path.
     """
