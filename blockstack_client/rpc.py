@@ -1330,20 +1330,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 res = internal.cli_datastore_getfile(datastore_id, path, '0', force, device_ids, config_path=self.server.config_path)
 
             else:
-                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, idata, force, device_ids, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, include_extended, idata, force, device_ids, config_path=self.server.config_path)
 
         elif inode_type == 'directories':
             # path requred 
             if path is not None:
                 res = internal.cli_datastore_listdir(datastore_id, path, include_extended, force, device_ids, config_path=self.server.config_path)
             else:
-                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, idata, force, device_ids, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, include_extended, idata, force, device_ids, config_path=self.server.config_path)
 
         else:
             if path is not None:
                 res = internal.cli_datastore_stat(datastore_id, path, include_extended, idata, force, device_ids, config_path=self.server.config_path)
             else:
-                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, idata, force, device_ids, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(datastore_id, inode_uuid, include_extended, idata, force, device_ids, config_path=self.server.config_path)
 
         if json_is_error(res):
             err = {'error': 'Failed to read {}: {}'.format(inode_type, res['error']), 'errno': res.get('errno', errno.EPERM)}
@@ -3884,7 +3884,7 @@ class BlockstackAPIEndpointClient(object):
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             datastore_id = data.datastore_get_id(data_pubkey)
-            url = 'http://{}:{}/v1/stores/{}/inodes?inode={}&extended={}&idata={}'.format(
+            url = 'http://{}:{}/v1/stores/{}/inodes?inode={}&extended={}&force={}&idata={}'.format(
                     self.server, self.port, datastore_id, inode_uuid, '1' if extended else '0', '1' if force else '0', '1' if idata else '0'
             )
             req = requests.get(url, timeout=self.timeout, headers=headers)
