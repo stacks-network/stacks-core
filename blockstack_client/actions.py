@@ -4840,7 +4840,7 @@ def datastore_path_stat(datastore_type, datastore_id, path, extended=False, forc
     return res
 
 
-def datastore_inode_getinode(datastore_type, datastore_id, inode_uuid, idata=False, device_ids=None, config_path=CONFIG_PATH ):
+def datastore_inode_getinode(datastore_type, datastore_id, inode_uuid, extended=False, force=False, idata=False, device_ids=None, config_path=CONFIG_PATH ):
     """
     Get an inode in a datastore or collection
     Return {'status': True, 'inode': ...} on success
@@ -4859,7 +4859,7 @@ def datastore_inode_getinode(datastore_type, datastore_id, inode_uuid, idata=Fal
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_getinode( rpc, datastore, inode_uuid, idata=idata, config_path=config_path )
+    res = datastore_getinode( rpc, datastore, inode_uuid, extended=False, force=force, idata=idata, config_path=config_path )
     return res
 
 
@@ -5106,16 +5106,22 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
     help: Get a raw inode from a datastore
     arg: datastore_id (str) 'The ID of the application user'
     arg: inode_uuid (str) 'The inode UUID'
+    opt: extended (str) 'If True, then include the path information as well'
     opt: idata (str) 'If True, then include the inode payload as well.'
     opt: force (str) 'If True, then tolerate stale inode data.'
+    opt: device_ids (str) 'CSV of device IDs, if different from what is loaded'
     """
 
     datastore_id = str(args.datastore_id)
     inode_uuid = str(args.inode_uuid)
     
+    extended = False
     force = False
     idata = False
     device_ids = None
+
+    if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
+        extended = True
 
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
@@ -5126,7 +5132,7 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
     if hasattr(args, 'device_ids') and args.device_ids:
         device_ids = device_ids.split(',')
 
-    return datastore_inode_getinode('datastore', datastore_id, inode_uuid, force=force, idata=idata, device_ids=device_ids, config_path=config_path) 
+    return datastore_inode_getinode('datastore', datastore_id, inode_uuid, extended=extended, force=force, idata=idata, device_ids=device_ids, config_path=config_path) 
 
 
 def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, force_data=False ):
