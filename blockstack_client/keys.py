@@ -260,7 +260,7 @@ def privkey_to_string(privkey_info):
     Convert private key to string
     Return None on invalid
     """
-    if is_singlesig(privkey_info):
+    if virtualchain.is_singlesig(privkey_info):
         return singlesig_privkey_to_string(privkey_info)
 
     if virtualchain.is_multisig(privkey_info):
