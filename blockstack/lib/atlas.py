@@ -41,6 +41,7 @@ import errno
 import socket
 import gc
 import subprocess
+import contextlib
 
 import blockstack_zones
 import virtualchain
@@ -256,6 +257,105 @@ PEER_TABLE_LOCK_HOLDER = None
 PEER_TABLE_LOCK_TRACEBACK = None
 ZONEFILE_QUEUE_LOCK = threading.Lock()
 DB_LOCK = threading.Lock()
+
+class AtlasPeerTableLocked(object):
+    """
+    context manager for the global atlas peer table
+    """
+    def __init__(self, given_peer_table=None):
+        self.given_peer_table = given_peer_table
+
+    def __enter__(self):
+        if self.given_peer_table is not None:
+            return self.given_peer_table
+
+        else:
+            return atlas_peer_table_lock()
+
+    def __exit__(self, ex_type, ex_value, ex_traceback):
+        if self.given_peer_table is not None:
+            return False
+
+        else:
+            atlas_peer_table_unlock()
+            return False
+
+
+class AtlasPeerQueueLocked(object):
+    """
+    context manager for the global atlas peer queue
+    """
+    def __init__(self, given_peer_queue=None):
+        self.given_peer_queue = given_peer_queue
+
+    def __enter__(self):
+        if self.given_peer_queue is not None:
+            return self.given_peer_queue
+
+        else:
+            return atlas_peer_queue_lock()
+
+    def __exit__(self, ex_type, ex_value, ex_traceback):
+        if self.given_peer_queue is not None:
+            return False
+
+        else:
+            atlas_peer_queue_unlock()
+            return False
+
+
+class AtlasZonefileQueueLocked(object):
+    """
+    context manager for the global atlas zone file queue
+    """
+    def __init__(self, given_zonefile_queue=None):
+        self.given_zonefile_queue = given_zonefile_queue
+
+    def __enter__(self):
+        if self.given_zonefile_queue is not None:
+            return self.given_zonefile_queue
+
+        else:
+            return atlas_zonefile_queue_lock()
+
+    def __exit__(self, ex_type, ex_value, ex_traceback):
+        if self.given_zonefile_queue is not None:
+            return False
+
+        else:
+            atlas_zonefile_queue_unlock()
+            return False
+
+
+class AtlasDBOpen(object):
+    """
+    context manager for opening the atlas database
+    """
+    def __init__(self, con=None, path=None):
+        if not path:
+            path = atlasdb_path()
+
+        self.con = con
+        self.path = path
+        self.opened = False
+
+    def __enter__(self):
+        if not self.con:
+            self.con = atlasdb_open(self.path)
+            assert self.con
+
+            self.opened = True
+            return self.con
+
+        else:
+            return self.con
+
+    def __exit__(self, ex_type, ex_value, ex_traceback):
+        if self.opened:
+            self.con.close()
+
+        return False
+
 
 def atlas_peer_table_lock():
     """
@@ -518,53 +618,45 @@ def atlasdb_add_zonefile_info( name, zonefile_hash, txid, present, tried_storage
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
+    with AtlasDBOpen( con=con, path=path ) as dbcon:
+        if present:
+            present = 1
+        else:
+            present = 0
 
-    if present:
-        present = 1
-    else:
-        present = 0
+        if tried_storage:
+            tried_storage = 1
+        else:
+            tried_storage = 0
 
-    if tried_storage:
-        tried_storage = 1
-    else:
-        tried_storage = 0
+        sql = "UPDATE zonefiles SET name = ?, zonefile_hash = ?, txid = ?, present = ?, tried_storage = ?, block_height = ? WHERE txid = ?;"
+        args = (name, zonefile_hash, txid, present, tried_storage, block_height, txid )
 
-    sql = "UPDATE zonefiles SET name = ?, zonefile_hash = ?, txid = ?, present = ?, tried_storage = ?, block_height = ? WHERE txid = ?;"
-    args = (name, zonefile_hash, txid, present, tried_storage, block_height, txid )
+        cur = dbcon.cursor()
+        update_res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
 
-    cur = con.cursor()
-    update_res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
+        if update_res.rowcount == 0:
+            sql = "INSERT OR IGNORE INTO zonefiles (name, zonefile_hash, txid, present, tried_storage, block_height) VALUES (?,?,?,?,?,?);"
+            args = (name, zonefile_hash, txid, present, tried_storage, block_height)
+        
+            cur = dbcon.cursor()
+            atlasdb_query_execute( cur, sql, args )
+            dbcon.commit()
 
-    if update_res.rowcount == 0:
-        sql = "INSERT OR IGNORE INTO zonefiles (name, zonefile_hash, txid, present, tried_storage, block_height) VALUES (?,?,?,?,?,?);"
-        args = (name, zonefile_hash, txid, present, tried_storage, block_height)
-    
-        cur = con.cursor()
-        atlasdb_query_execute( cur, sql, args )
-        con.commit()
+        # keep in-RAM zonefile inv coherent
+        zfbits = atlasdb_get_zonefile_bits( zonefile_hash, con=dbcon, path=path )
 
-    # keep in-RAM zonefile inv coherent
-    zfbits = atlasdb_get_zonefile_bits( zonefile_hash, con=con, path=path )
+        inv_vec = None
+        if ZONEFILE_INV is None:
+            inv_vec = ""
+        else:
+            inv_vec = ZONEFILE_INV[:]
 
-    inv_vec = None
-    if ZONEFILE_INV is None:
-        inv_vec = ""
-    else:
-        inv_vec = ZONEFILE_INV[:]
+        ZONEFILE_INV = atlas_inventory_flip_zonefile_bits( inv_vec, zfbits, present )
 
-    ZONEFILE_INV = atlas_inventory_flip_zonefile_bits( inv_vec, zfbits, present )
-
-    # keep in-RAM zonefile count coherent
-    NUM_ZONEFILES = atlasdb_zonefile_inv_length( con=con, path=path )
-
-    if close:
-        con.close()
+        # keep in-RAM zonefile count coherent
+        NUM_ZONEFILES = atlasdb_zonefile_inv_length( con=dbcon, path=path )
 
     return True
 
@@ -576,26 +668,20 @@ def atlasdb_get_lastblock( con=None, path=None ):
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
+    row = None
+    with AtlasDBOpen(con=con, path=path) as dbcon:
 
-    sql = "SELECT MAX(block_height) FROM zonefiles;"
-    args = ()
+        sql = "SELECT MAX(block_height) FROM zonefiles;"
+        args = ()
 
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
 
-    row = {}
-    for r in res:
-        row.update(r)
-        break
-
-    if close:
-        con.close()
+        row = {}
+        for r in res:
+            row.update(r)
+            break
 
     return row['MAX(block_height)']
 
@@ -609,35 +695,30 @@ def atlasdb_get_zonefile( zonefile_hash, con=None, path=None ):
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
+    ret = None
 
-    sql = "SELECT * FROM zonefiles WHERE zonefile_hash = ?;"
-    args = (zonefile_hash,)
+    with AtlasDBOpen(con=con, path=path) as dbcon:
 
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
+        sql = "SELECT * FROM zonefiles WHERE zonefile_hash = ?;"
+        args = (zonefile_hash,)
 
-    ret = {
-        'zonefile_hash': zonefile_hash,
-        'indexes': [],
-        'block_heights': [],
-        'present': False,
-        'tried_storage': False
-    }
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
 
-    for zfinfo in res:
-        ret['indexes'].append( zfinfo['inv_index'] )
-        ret['block_heights'].append( zfinfo['block_height'] )
-        ret['present'] = ret['present'] or zfinfo['present']
-        ret['tried_storage'] = ret['tried_storage'] or zfinfo['tried_storage']
+        ret = {
+            'zonefile_hash': zonefile_hash,
+            'indexes': [],
+            'block_heights': [],
+            'present': False,
+            'tried_storage': False
+        }
 
-    if close:
-        con.close()
+        for zfinfo in res:
+            ret['indexes'].append( zfinfo['inv_index'] )
+            ret['block_heights'].append( zfinfo['block_height'] )
+            ret['present'] = ret['present'] or zfinfo['present']
+            ret['tried_storage'] = ret['tried_storage'] or zfinfo['tried_storage']
 
     return ret
 
@@ -650,28 +731,21 @@ def atlasdb_find_zonefile_by_txid( txid, con=None, path=None ):
     """
     if path is None:
         path = atlasdb_path()
-
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
-
-    sql = "SELECT * FROM zonefiles WHERE txid = ?;"
-    args = (txid,)
-
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
-
+    
     ret = None
-    for zfinfo in res:
-        ret = {}
-        ret.update(zfinfo)
-        break
+    with AtlasDBOpen(con=con, path=path) as dbcon:
 
-    if close:
-        con.close()
+        sql = "SELECT * FROM zonefiles WHERE txid = ?;"
+        args = (txid,)
+
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
+
+        for zfinfo in res:
+            ret = {}
+            ret.update(zfinfo)
+            break
 
     return ret
 
@@ -687,40 +761,33 @@ def atlasdb_set_zonefile_present( zonefile_hash, present, con=None, path=None ):
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
+    was_present = None
+    with AtlasDBOpen(con=con, path=path) as dbcon:
+        if present:
+            present = 1
+        else:
+            present = 0
 
-    if present:
-        present = 1
-    else:
-        present = 0
+        sql = "UPDATE zonefiles SET present = ? WHERE zonefile_hash = ?;"
+        args = (present, zonefile_hash)
 
-    sql = "UPDATE zonefiles SET present = ? WHERE zonefile_hash = ?;"
-    args = (present, zonefile_hash)
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
 
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
+        zfbits = atlasdb_get_zonefile_bits( zonefile_hash, con=dbcon, path=path )
+        
+        inv_vec = None
+        if ZONEFILE_INV is None:
+            inv_vec = ""
+        else:
+            inv_vec = ZONEFILE_INV[:]
 
-    zfbits = atlasdb_get_zonefile_bits( zonefile_hash, con=con, path=path )
-    
-    inv_vec = None
-    if ZONEFILE_INV is None:
-        inv_vec = ""
-    else:
-        inv_vec = ZONEFILE_INV[:]
+        # did we know about this?
+        was_present = atlas_inventory_test_zonefile_bits( inv_vec, zfbits )
 
-    # did we know about this?
-    was_present = atlas_inventory_test_zonefile_bits( inv_vec, zfbits )
-
-    # keep our inventory vector coherent.
-    ZONEFILE_INV = atlas_inventory_flip_zonefile_bits( inv_vec, zfbits, present )
-
-    if close:
-        con.close()
+        # keep our inventory vector coherent.
+        ZONEFILE_INV = atlas_inventory_flip_zonefile_bits( inv_vec, zfbits, present )
 
     return was_present
 
@@ -734,26 +801,18 @@ def atlasdb_set_zonefile_tried_storage( zonefile_hash, tried_storage, con=None, 
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
+    with AtlasDBOpen(con=con, path=path) as dbcon:
+        if tried_storage:
+            tried_storage = 1
+        else:
+            tried_storage = 0
 
-    if tried_storage:
-        tried_storage = 1
-    else:
-        tried_storage = 0
+        sql = "UPDATE zonefiles SET tried_storage = ? WHERE zonefile_hash = ?;"
+        args = (tried_storage, zonefile_hash)
 
-    sql = "UPDATE zonefiles SET tried_storage = ? WHERE zonefile_hash = ?;"
-    args = (tried_storage, zonefile_hash)
-
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-
-    con.commit()
-    if close:
-        con.close()
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
 
     return True
 
@@ -766,21 +825,14 @@ def atlasdb_reset_zonefile_tried_storage( con=None, path=None ):
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
+    with AtlasDBOpen(con=con, path=path) as dbcon:
 
-    sql = "UPDATE zonefiles SET tried_storage = ? WHERE present = ?;"
-    args = (0, 0)
+        sql = "UPDATE zonefiles SET tried_storage = ? WHERE present = ?;"
+        args = (0, 0)
 
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-
-    con.commit()
-    if close:
-        con.close()
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
 
     return True
 
@@ -807,26 +859,19 @@ def atlasdb_get_zonefile_bits( zonefile_hash, con=None, path=None ):
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
+    with AtlasDBOpen(con=con, path=path) as dbcon:
 
-    sql = "SELECT inv_index FROM zonefiles WHERE zonefile_hash = ?;"
-    args = (zonefile_hash,)
+        sql = "SELECT inv_index FROM zonefiles WHERE zonefile_hash = ?;"
+        args = (zonefile_hash,)
 
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
 
-    # NOTE: zero-indexed
-    ret = []
-    for r in res:
-        ret.append( r['inv_index'] - 1 )
-
-    if close:
-        con.close()
+        # NOTE: zero-indexed
+        ret = []
+        for r in res:
+            ret.append( r['inv_index'] - 1 )
 
     return ret
 
@@ -867,17 +912,9 @@ def atlasdb_sync_zonefiles( db, start_block, zonefile_dir=None, validate=True, p
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
-
-    atlasdb_queue_zonefiles( con, db, start_block, zonefile_dir=zonefile_dir, validate=validate )
-    atlasdb_cache_zonefile_info( con=con )
-
-    if close:
-        con.close()
+    with AtlasDBOpen(con=con, path=path) as dbcon:
+        atlasdb_queue_zonefiles( dbcon, db, start_block, zonefile_dir=zonefile_dir, validate=validate )
+        atlasdb_cache_zonefile_info( con=dbcon )
 
     return True
 
@@ -904,89 +941,66 @@ def atlasdb_add_peer( peer_hostport, discovery_time=None, peer_table=None, con=N
 
     peer_slot = int( hashlib.sha256("%s%s" % (sk, peer_host)).hexdigest(), 16 ) % PEER_MAX_DB
 
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
-
-    # if the peer is already present, then abort
-    if peer_hostport in peer_table.keys():
-        log.debug("%s already in the peer table" % peer_hostport)
-
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
-
-        return True
-
-    # connect to the db if we have to
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
+    with AtlasDBOpen(con=con, path=path) as dbcon:
 
-    if discovery_time is None:
-        discovery_time = int(time.time())
-   
-    # not in the table yet.  See if we can evict someone
-    if ping_on_evict:
+        if discovery_time is None:
+            discovery_time = int(time.time())
 
-        # don't hold the lock across network I/O
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
+        do_evict_and_ping = False
 
-        sql = "SELECT peer_hostport FROM peers WHERE peer_slot = ?;"
-        args = (peer_slot,)
+        with AtlasPeerTableLocked(peer_table) as ptbl:
 
-        cur = con.cursor()
-        res = atlasdb_query_execute( cur, sql, args )
-        con.commit()
+            # if the peer is already present, then we're done
+            if peer_hostport in ptbl.keys():
+                log.debug("%s already in the peer table" % peer_hostport)
+                return True
+           
+            # not in the table yet.  See if we can evict someone
+            if ping_on_evict:
+                do_evict_and_ping = True
 
-        old_hostports = []
-        for row in res:
-            old_hostport = res['peer_hostport']
-            old_hostports.append( old_hostport )
 
-        for old_hostport in old_hostports:
-            # is this other peer still alive?
-            res = atlas_peer_ping( old_hostport )
-            if res:
-                log.debug("Peer %s is still alive; will not replace" % (old_hostport))
-                
-                if close:
-                    con.close()
+        if do_evict_and_ping:
+            # evict someone
+            # don't hold the peer table lock across network I/O
+            sql = "SELECT peer_hostport FROM peers WHERE peer_slot = ?;"
+            args = (peer_slot,)
 
-                return False
+            cur = dbcon.cursor()
+            res = atlasdb_query_execute( cur, sql, args )
+            dbcon.commit()
 
-        # re-acquire
-        if locked:
-            peer_table = atlas_peer_table_lock()
+            old_hostports = []
+            for row in res:
+                old_hostport = res['peer_hostport']
+                old_hostports.append( old_hostport )
 
-    log.debug("Add peer '%s' discovered at %s (slot %s)" % (peer_hostport, discovery_time, peer_slot))
+            for old_hostport in old_hostports:
+                # is this other peer still alive?
+                res = atlas_peer_ping( old_hostport )
+                if res:
+                    log.debug("Peer %s is still alive; will not replace" % (old_hostport))
+                    return False
 
-    # peer is dead (or we don't care).  Can insert or update
-    sql = "INSERT OR REPLACE INTO peers (peer_hostport, peer_slot, discovery_time) VALUES (?,?,?);"
-    args = (peer_hostport, peer_slot, discovery_time)
+        # insert new peer
+        with AtlasPeerTableLocked(peer_table) as ptbl:
 
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
+            log.debug("Add peer '%s' discovered at %s (slot %s)" % (peer_hostport, discovery_time, peer_slot))
 
-    if close:
-        con.close()
+            # peer is dead (or we don't care).  Can insert or update
+            sql = "INSERT OR REPLACE INTO peers (peer_hostport, peer_slot, discovery_time) VALUES (?,?,?);"
+            args = (peer_hostport, peer_slot, discovery_time)
 
-    # add to peer table as well
-    atlas_init_peer_info( peer_table, peer_hostport, blacklisted=False, whitelisted=False )
-    
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+            cur = dbcon.cursor()
+            res = atlasdb_query_execute( cur, sql, args )
+            dbcon.commit()
 
+            # add to peer table as well
+            atlas_init_peer_info( ptbl, peer_hostport, blacklisted=False, whitelisted=False )
+        
     return True
 
 
@@ -995,41 +1009,27 @@ def atlasdb_remove_peer( peer_hostport, con=None, path=None, peer_table=None ):
     Remove a peer from the peer db and (if given) peer table.
     """
   
-    # connect to the db if we have to
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
+    # remove from db
+    with AtlasDBOpen(con=con, path=path) as dbcon:
 
-    log.debug("Delete peer '%s'" % peer_hostport)
+        log.debug("Delete peer '%s'" % peer_hostport)
 
-    sql = "DELETE FROM peers WHERE peer_hostport = ?;"
-    args = (peer_hostport,)
+        sql = "DELETE FROM peers WHERE peer_hostport = ?;"
+        args = (peer_hostport,)
 
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
-
-    if close:
-        con.close()
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
 
     # remove from the peer table as well
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
+    with AtlasPeerTableLocked(peer_table) as ptbl:
 
-    if peer_table.has_key(peer_hostport):
-        if not atlas_peer_is_whitelisted( peer_hostport, peer_table=peer_table ) and not atlas_peer_is_blacklisted( peer_hostport, peer_table=peer_table ):
-            del peer_table[peer_hostport]
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+        if ptbl.has_key(peer_hostport):
+            if not atlas_peer_is_whitelisted( peer_hostport, peer_table=ptbl ) and not atlas_peer_is_blacklisted( peer_hostport, peer_table=ptbl ):
+                del ptbl[peer_hostport]
 
     return True
 
@@ -1041,29 +1041,22 @@ def atlasdb_num_peers( con=None, path=None ):
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
+    with AtlasDBOpen(con=con, path=path) as dbcon:
 
-    sql = "SELECT MAX(peer_index) FROM peers;"
-    args = ()
+        sql = "SELECT MAX(peer_index) FROM peers;"
+        args = ()
 
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
 
-    ret = []
-    for row in res:
-        tmp = {}
-        tmp.update(row)
-        ret.append(tmp)
+        ret = []
+        for row in res:
+            tmp = {}
+            tmp.update(row)
+            ret.append(tmp)
 
-    assert len(ret) == 1
-
-    if close:
-        con.close()
+        assert len(ret) == 1
 
     return ret[0]['MAX(peer_index)']
 
@@ -1072,16 +1065,10 @@ def atlas_get_peer( peer_hostport, peer_table=None ):
     """
     Get the given peer's info
     """
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
 
-    ret = peer_table.get(peer_hostport, None)
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+    ret = None
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        ret = ptbl.get(peer_hostport, None)
 
     return ret
 
@@ -1094,36 +1081,30 @@ def atlasdb_get_random_peer( con=None, path=None ):
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
-
     ret = {}
 
-    num_peers = atlasdb_num_peers( con=con )
-    if num_peers is None or num_peers == 0:
-        # no peers
-        ret['peer_hostport'] = None
+    with AtlasDBOpen(con=con, path=path) as dbcon:
 
-    else:
-        r = random.randint(1, num_peers)
+        num_peers = atlasdb_num_peers( con=con )
+        if num_peers is None or num_peers == 0:
+            # no peers
+            ret['peer_hostport'] = None
 
-        sql = "SELECT * FROM peers WHERE peer_index = ?;"
-        args = (r,)
+        else:
+            r = random.randint(1, num_peers)
 
-        cur = con.cursor()
-        res = atlasdb_query_execute( cur, sql, args )
-        con.commit()
+            sql = "SELECT * FROM peers WHERE peer_index = ?;"
+            args = (r,)
 
-        ret = {'peer_hostport': None}
-        for row in res:
-            ret.update( row )
-            break
+            cur = dbcon.cursor()
+            res = atlasdb_query_execute( cur, sql, args )
+            dbcon.commit()
 
-    if close:
-        con.close()
+            ret = {'peer_hostport': None}
+            for row in res:
+                ret.update( row )
+                break
+
 
     return ret['peer_hostport']
 
@@ -1135,31 +1116,24 @@ def atlasdb_get_old_peers( now, con=None, path=None ):
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
+    with AtlasDBOpen(con=con, path=path) as dbcon:
 
-    if now is None:
-        now = time.time()
+        if now is None:
+            now = time.time()
 
-    expire = now - atlas_peer_max_age()
-    sql = "SELECT * FROM peers WHERE discovery_time < ?";
-    args = (expire,)
+        expire = now - atlas_peer_max_age()
+        sql = "SELECT * FROM peers WHERE discovery_time < ?";
+        args = (expire,)
 
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
 
-    rows = []
-    for row in res:
-        tmp = {}
-        tmp.update(row)
-        rows.append(tmp)
-
-    if close:
-        con.close()
+        rows = []
+        for row in res:
+            tmp = {}
+            tmp.update(row)
+            rows.append(tmp)
 
     return rows
 
@@ -1171,24 +1145,16 @@ def atlasdb_renew_peer( peer_hostport, now, con=None, path=None ):
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
+    with AtlasDBOpen(con=con, path=path) as dbcon:
+        if now is None:
+            now = time.time()
 
-    if now is None:
-        now = time.time()
+        sql = "UPDATE peers SET discovery_time = ? WHERE peer_hostport = ?;"
+        args = (now, peer_hostport)
 
-    sql = "UPDATE peers SET discovery_time = ? WHERE peer_hostport = ?;"
-    args = (now, peer_hostport)
-
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
-
-    if close:
-        con.close()
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
 
     return True
 
@@ -1202,30 +1168,23 @@ def atlasdb_load_peer_table( con=None, path=None ):
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
+    with AtlasDBOpen(con=con, path=path) as dbcon:
 
-    sql = "SELECT * FROM peers;"
-    args = ()
+        sql = "SELECT * FROM peers;"
+        args = ()
 
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
 
-    # build it up 
-    count = 0
-    for row in res:
-       if count > 0 and count % 100 == 0:
-           log.debug("Loaded %s peers..." % count)
+        # build it up 
+        count = 0
+        for row in res:
+           if count > 0 and count % 100 == 0:
+               log.debug("Loaded %s peers..." % count)
 
-       atlas_init_peer_info( peer_table, row['peer_hostport'] )
-       count += 1
-
-    if close:
-        con.close()
+           atlas_init_peer_info( peer_table, row['peer_hostport'] )
+           count += 1
 
     return peer_table
 
@@ -1299,6 +1258,7 @@ def atlasdb_init( path, db, peer_seeds, peer_blacklist, validate=False, zonefile
         atlasdb_cache_zonefile_info( con=con )
         con.close()
 
+    log.debug("peer_table: {}".format(peer_table.keys()))
     # whitelist and blacklist
     for peer_url in peer_seeds:
         host, port = url_to_host_port( peer_url )
@@ -1307,6 +1267,7 @@ def atlasdb_init( path, db, peer_seeds, peer_blacklist, validate=False, zonefile
         if peer_hostport not in peer_table.keys():
             atlasdb_add_peer( peer_hostport, path=path, peer_table=peer_table )
 
+        log.debug("peer_table: {}".format(peer_table.keys()))
         peer_table[peer_hostport]['whitelisted'] = True
 
     for peer_url in peer_blacklist:
@@ -1316,6 +1277,7 @@ def atlasdb_init( path, db, peer_seeds, peer_blacklist, validate=False, zonefile
         if peer_hostport not in peer_table.keys():
             atlasdb_add_peer( peer_hostport, path=path, peer_table=peer_table )
         
+        log.debug("peer_table: {}".format(peer_table.keys()))
         peer_table[peer_hostport]['blacklisted'] = True
 
     return peer_table
@@ -1341,27 +1303,20 @@ def atlasdb_zonefile_inv_list( bit_offset, bit_length, con=None, path=None ):
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
+    with AtlasDBOpen(con=con, path=path) as dbcon:
 
-    sql = "SELECT * FROM zonefiles LIMIT ? OFFSET ?;"
-    args = (bit_length, bit_offset)
+        sql = "SELECT * FROM zonefiles LIMIT ? OFFSET ?;"
+        args = (bit_length, bit_offset)
 
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
 
-    ret = []
-    for row in res:
-        tmp = {}
-        tmp.update(row)
-        ret.append(tmp)
-
-    if close:
-        con.close()
+        ret = []
+        for row in res:
+            tmp = {}
+            tmp.update(row)
+            ret.append(tmp)
 
     return ret
 
@@ -1373,37 +1328,30 @@ def atlasdb_zonefile_inv_length( con=None, path=None ):
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
+    with AtlasDBOpen(con=con, path=path) as dbcon:
 
-    sql = "SELECT MAX(inv_index) FROM zonefiles;"
-    args = ()
+        sql = "SELECT MAX(inv_index) FROM zonefiles;"
+        args = ()
 
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
 
-    ret = []
-    for row in res:
-        try:
-            if row[0] is None:
-                ret.append( {'MAX(inv_index)': 0} )
-                break
+        ret = []
+        for row in res:
+            try:
+                if row[0] is None:
+                    ret.append( {'MAX(inv_index)': 0} )
+                    break
 
-        except:
-            pass
+            except:
+                pass
 
-        tmp = {}
-        tmp.update(row)
-        ret.append(tmp)
+            tmp = {}
+            tmp.update(row)
+            ret.append(tmp)
 
-    assert len(ret) == 1
-
-    if close:
-        con.close()
+        assert len(ret) == 1
 
     if ret[0]['MAX(inv_index)'] is None:
         return 0
@@ -1421,27 +1369,20 @@ def atlasdb_zonefile_find_missing( bit_offset, bit_count, con=None, path=None ):
     if path is None:
         path = atlasdb_path()
 
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
+    with AtlasDBOpen(con=con, path=path) as dbcon:
 
-    sql = "SELECT * FROM zonefiles WHERE present = 0 LIMIT ? OFFSET ?;"
-    args = (bit_count, bit_offset)
+        sql = "SELECT * FROM zonefiles WHERE present = 0 LIMIT ? OFFSET ?;"
+        args = (bit_count, bit_offset)
 
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
 
-    ret = []
-    for row in res:
-        tmp = {}
-        tmp.update(row)
-        ret.append(tmp)
-
-    if close:
-        con.close()
+        ret = []
+        for row in res:
+            tmp = {}
+            tmp.update(row)
+            ret.append(tmp)
 
     return ret
 
@@ -1592,17 +1533,8 @@ def atlas_peer_ping( peer_hostport, timeout=None, peer_table=None ):
         pass
 
     # update health
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
-
-    if peer_table.has_key(peer_hostport):
-        atlas_peer_update_health( peer_hostport, ret, peer_table=peer_table )
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        atlas_peer_update_health( peer_hostport, ret, peer_table=ptbl )
 
     return ret
 
@@ -1644,17 +1576,9 @@ def atlas_peer_getinfo( peer_hostport, timeout=None, peer_table=None ):
         log.error("Failed to get response from %s" % peer_hostport)
 
     # update health
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
-
-    if peer_table.has_key(peer_hostport):
-        atlas_peer_update_health( peer_hostport, (res is not None), peer_table=peer_table )
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        if ptbl.has_key(peer_hostport):
+            atlas_peer_update_health( peer_hostport, (res is not None), peer_table=ptbl )
 
     return res
 
@@ -1686,29 +1610,21 @@ def atlas_get_live_neighbors( remote_peer_hostport, peer_table=None, min_health=
     (i.e. neighbors we've contacted before)
     """
 
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        alive_peers = []
+        for peer_hostport in ptbl.keys():
+            if peer_hostport == remote_peer_hostport:
+                continue
 
-    alive_peers = []
-    for peer_hostport in peer_table.keys():
-        if peer_hostport == remote_peer_hostport:
-            continue
+            num_reqs = atlas_peer_get_request_count( peer_hostport, peer_table=ptbl )
+            if num_reqs < min_request_count:
+                continue
 
-        num_reqs = atlas_peer_get_request_count( peer_hostport, peer_table=peer_table )
-        if num_reqs < min_request_count:
-            continue
+            health = atlas_peer_get_health( peer_hostport, peer_table=ptbl )
+            if health < min_health:
+                continue
 
-        health = atlas_peer_get_health( peer_hostport, peer_table=peer_table )
-        if health < min_health:
-            continue
-
-        alive_peers.append( peer_hostport )
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+            alive_peers.append( peer_hostport )
 
     random.shuffle(alive_peers)
     return alive_peers
@@ -1723,16 +1639,9 @@ def atlas_get_all_neighbors( peer_table=None ):
         raise Exception("This method is only available when testing with the Atlas network simulator")
 
     ret = {}
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
 
-    ret = copy.deepcopy(peer_table)
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        ret = copy.deepcopy(ptbl)
 
     # make zonefile inventories printable
     for peer_hostport in ret.keys():
@@ -1778,27 +1687,19 @@ def atlas_peer_get_health( peer_hostport, peer_table=None ):
     Get the health score for a peer.
     Health is: (number of responses received / number of requests sent) 
     """
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        # availability score: number of responses / number of requests
+        num_responses = 0
+        num_requests = 0
+        if ptbl.has_key(peer_hostport):
+            for (t, r) in ptbl[peer_hostport]['time']:
+                num_requests += 1
+                if r:
+                    num_responses += 1
 
-    # availability score: number of responses / number of requests
-    num_responses = 0
-    num_requests = 0
-    if peer_table.has_key(peer_hostport):
-        for (t, r) in peer_table[peer_hostport]['time']:
-            num_requests += 1
-            if r:
-                num_responses += 1
-
-    availability_score = 0.0
-    if num_requests > 0:
-        availability_score = float(num_responses) / float(num_requests)
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+        availability_score = 0.0
+        if num_requests > 0:
+            availability_score = float(num_responses) / float(num_requests)
 
     return availability_score
 
@@ -1807,26 +1708,14 @@ def atlas_peer_get_request_count( peer_hostport, peer_table=None ):
     """
     How many times have we contacted this peer?
     """
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        if peer_hostport not in ptbl.keys():
+            return 0
 
-    if peer_hostport not in peer_table.keys():
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
-
-        return 0
-
-    count = 0
-    for (t, r) in peer_table[peer_hostport]['time']:
-        if r:
-            count += 1
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+        count = 0
+        for (t, r) in ptbl[peer_hostport]['time']:
+            if r:
+                count += 1
 
     return count
 
@@ -1836,23 +1725,13 @@ def atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=None ):
     What's the zonefile inventory vector for this peer?
     Return None if not defined
     """
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
+    inv = None
 
-    if peer_hostport not in peer_table.keys():
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        if peer_hostport not in ptbl.keys():
+            return None
 
-        return None
-
-    inv = peer_table[peer_hostport]['zonefile_inv']
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+        inv = ptbl[peer_hostport]['zonefile_inv']
 
     return inv
 
@@ -1861,23 +1740,11 @@ def atlas_peer_set_zonefile_inventory( peer_hostport, peer_inv, peer_table=None 
     """
     Set this peer's zonefile inventory
     """
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        if peer_hostport not in ptbl.keys():
+            return None 
 
-    if peer_hostport not in peer_table.keys():
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
-
-        return None 
-
-    peer_table[peer_hostport]['zonefile_inv'] = peer_inv
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+        ptbl[peer_hostport]['zonefile_inv'] = peer_inv
 
     return peer_inv
 
@@ -1886,23 +1753,13 @@ def atlas_peer_is_blacklisted( peer_hostport, peer_table=None ):
     """
     Is a peer blacklisted?
     """
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
+    ret = None
 
-    if peer_hostport not in peer_table.keys():
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        if peer_hostport not in ptbl.keys():
+            return None 
 
-        return None 
-
-    ret = peer_table[peer_hostport].get("blacklisted", False)
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+        ret = ptbl[peer_hostport].get("blacklisted", False)
 
     return ret
 
@@ -1911,23 +1768,12 @@ def atlas_peer_is_whitelisted( peer_hostport, peer_table=None ):
     """
     Is a peer whitelisted
     """
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
+    ret = None
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        if peer_hostport not in ptbl.keys():
+            return None 
 
-    if peer_hostport not in peer_table.keys():
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
-        
-        return None 
-
-    ret = peer_table[peer_hostport].get("whitelisted", False)
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+        ret = ptbl[peer_hostport].get("whitelisted", False)
 
     return ret
 
@@ -1942,35 +1788,23 @@ def atlas_peer_update_health( peer_hostport, received_response, peer_table=None 
     or use the given health info if set.
     """
 
-    locked = False
-    if peer_table is None:
-        locked = True 
-        peer_table = atlas_peer_table_lock()
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        if peer_hostport not in ptbl.keys():
+            return False
 
-    if peer_hostport not in peer_table.keys():
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
+        # record that we contacted this peer, and whether or not we useful info from it
+        now = time_now()
 
-        return False
+        # update timestamps; remove old data
+        new_times = []
+        for (t, r) in ptbl[peer_hostport]['time']:
+            if t + atlas_peer_lifetime_interval() < now:
+                continue
+            
+            new_times.append((t, r))
 
-    # record that we contacted this peer, and whether or not we useful info from it
-    now = time_now()
-
-    # update timestamps; remove old data
-    new_times = []
-    for (t, r) in peer_table[peer_hostport]['time']:
-        if t + atlas_peer_lifetime_interval() < now:
-            continue
-        
-        new_times.append((t, r))
-
-    new_times.append((now, received_response))
-    peer_table[peer_hostport]['time'] = new_times
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+        new_times.append((now, received_response))
+        ptbl[peer_hostport]['time'] = new_times
 
     return True
 
@@ -2087,55 +1921,34 @@ def atlas_peer_sync_zonefile_inventory( my_hostport, peer_hostport, maxlen, time
         timeout = atlas_inv_timeout()
 
     peer_inv = ""
+    bit_offset = None
 
-    locked = False
-    if peer_table is None:
-        locked = True    
-        peer_table = atlas_peer_table_lock()
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        if peer_hostport not in ptbl.keys():
+            return None 
 
-    if peer_hostport not in peer_table.keys():
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
+        peer_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=ptbl )
 
-        return None 
+        bit_offset = (len(peer_inv) - 1) * 8      # i.e. re-obtain the last byte
+        if bit_offset < 0:
+            bit_offset = 0
 
-    peer_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=peer_table )
-
-    bit_offset = (len(peer_inv) - 1) * 8      # i.e. re-obtain the last byte
-    if bit_offset < 0:
-        bit_offset = 0
-
-    else:
-        peer_inv = peer_inv[:-1]
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+        else:
+            peer_inv = peer_inv[:-1]
 
     peer_inv = atlas_peer_download_zonefile_inventory( my_hostport, peer_hostport, maxlen, bit_offset=bit_offset, timeout=timeout, peer_table=peer_table )
-   
-    if locked:
-        peer_table = atlas_peer_table_lock()
+  
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        if peer_hostport not in ptbl.keys():
+            log.debug("%s no longer a peer" % peer_hostport)
+            return None 
 
-    if peer_hostport not in peer_table.keys():
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
+        inv_str = atlas_inventory_to_string(peer_inv)
+        if len(inv_str) > 40:
+            inv_str = inv_str[:40] + "..."
 
-        log.debug("%s no longer a peer" % peer_hostport)
-        return None 
-
-    inv_str = atlas_inventory_to_string(peer_inv)
-    if len(inv_str) > 40:
-        inv_str = inv_str[:40] + "..."
-
-    log.debug("Set zonefile inventory %s: %s" % (peer_hostport, inv_str))
-    atlas_peer_set_zonefile_inventory( peer_hostport, peer_inv, peer_table=peer_table ) # NOTE: may have trailing 0's for padding
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+        log.debug("Set zonefile inventory %s: %s" % (peer_hostport, inv_str))
+        atlas_peer_set_zonefile_inventory( peer_hostport, peer_inv, peer_table=ptbl ) # NOTE: may have trailing 0's for padding
 
     return peer_inv
 
@@ -2166,44 +1979,22 @@ def atlas_peer_refresh_zonefile_inventory( my_hostport, peer_hostport, byte_offs
 
     maxlen = len(local_inv)
 
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        if peer_hostport not in ptbl.keys():
+            return False
 
-    if peer_hostport not in peer_table.keys():
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
-
-        return False
-
-    # reset the peer's zonefile inventory, back to offset
-    cur_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=peer_table )
-    atlas_peer_set_zonefile_inventory( peer_hostport, cur_inv[:byte_offset], peer_table=peer_table )
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+        # reset the peer's zonefile inventory, back to offset
+        cur_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=ptbl )
+        atlas_peer_set_zonefile_inventory( peer_hostport, cur_inv[:byte_offset], peer_table=ptbl )
 
     inv = atlas_peer_sync_zonefile_inventory( my_hostport, peer_hostport, maxlen, timeout=timeout, peer_table=peer_table )
 
-    if locked:
-        peer_table = atlas_peer_table_lock()
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        if peer_hostport not in ptbl.keys():
+            return False
 
-    if peer_hostport not in peer_table.keys():
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
-            
-        return False
-
-    # Update refresh time (even if we fail)
-    peer_table[peer_hostport]['zonefile_inventory_last_refresh'] = time_now()
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+        # Update refresh time (even if we fail)
+        ptbl[peer_hostport]['zonefile_inventory_last_refresh'] = time_now()
 
     if inv is not None:
         inv_str = atlas_inventory_to_string(inv)
@@ -2224,31 +2015,19 @@ def atlas_peer_has_fresh_zonefile_inventory( peer_hostport, peer_table=None ):
     Does the given atlas node have a fresh zonefile inventory?
     """
 
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
-
-    if peer_hostport not in peer_table.keys():
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
-
-        return False
-
     fresh = False
-    now = time_now()
-    peer_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=peer_table )
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        if peer_hostport not in ptbl.keys():
+            return False
 
-    # NOTE: zero-length or None peer inventory means the peer is simply dead, but we've pinged it
-    if  peer_table[peer_hostport].has_key('zonefile_inventory_last_refresh') and \
-        peer_table[peer_hostport]['zonefile_inventory_last_refresh'] + atlas_peer_ping_interval() > now:
+        now = time_now()
+        peer_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=ptbl )
 
-        fresh = True
+        # NOTE: zero-length or None peer inventory means the peer is simply dead, but we've pinged it
+        if  ptbl[peer_hostport].has_key('zonefile_inventory_last_refresh') and \
+            ptbl[peer_hostport]['zonefile_inventory_last_refresh'] + atlas_peer_ping_interval() > now:
 
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+            fresh = True
 
     return fresh
 
@@ -2265,20 +2044,12 @@ def atlas_peer_set_zonefile_status( peer_hostport, zonefile_hash, present, zonef
     if zonefile_bits is None:
         zonefile_bits = atlasdb_get_zonefile_bits( zonefile_hash, con=con, path=path )
 
-    locked = False
-    if peer_table is None:
-        locked = True    
-        peer_table = atlas_peer_table_lock()
-
-    if peer_table.has_key(peer_hostport):
-        peer_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=peer_table )
-        peer_inv = atlas_inventory_flip_zonefile_bits( peer_inv, zonefile_bits, present )
-        atlas_peer_set_zonefile_inventory( peer_hostport, peer_inv, peer_table=peer_table )
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        if ptbl.has_key(peer_hostport):
+            peer_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=ptbl )
+            peer_inv = atlas_inventory_flip_zonefile_bits( peer_inv, zonefile_bits, present )
+            atlas_peer_set_zonefile_inventory( peer_hostport, peer_inv, peer_table=ptbl )
                 
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
-
     return
 
 
@@ -2330,51 +2101,43 @@ def atlas_find_missing_zonefile_availability( peer_table=None, con=None, path=No
         # none!
         return ret
 
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        # do any other peers have this zonefile?
+        for zfinfo in missing:
+            popularity = 0
+            byte_index = (zfinfo['inv_index'] - 1) / 8
+            bit_index = 7 - ((zfinfo['inv_index'] - 1) % 8)
+            peers = []
 
-    # do any other peers have this zonefile?
-    for zfinfo in missing:
-        popularity = 0
-        byte_index = (zfinfo['inv_index'] - 1) / 8
-        bit_index = 7 - ((zfinfo['inv_index'] - 1) % 8)
-        peers = []
+            if not ret.has_key(zfinfo['zonefile_hash']):
+                ret[zfinfo['zonefile_hash']] = {
+                    'names': [],
+                    'txid': zfinfo['txid'],
+                    'indexes': [],
+                    'popularity': 0,
+                    'peers': [],
+                    'tried_storage': False
+                }
 
-        if not ret.has_key(zfinfo['zonefile_hash']):
-            ret[zfinfo['zonefile_hash']] = {
-                'names': [],
-                'txid': zfinfo['txid'],
-                'indexes': [],
-                'popularity': 0,
-                'peers': [],
-                'tried_storage': False
-            }
+            for peer_hostport in ptbl.keys():
+                peer_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=ptbl )
+                if len(peer_inv) <= byte_index:
+                    # too new for this peer
+                    continue
 
-        for peer_hostport in peer_table.keys():
-            peer_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=peer_table )
-            if len(peer_inv) <= byte_index:
-                # too new for this peer
-                continue
+                if (ord(peer_inv[byte_index]) & (1 << bit_index)) == 0:
+                    # this peer doesn't have it
+                    continue
 
-            if (ord(peer_inv[byte_index]) & (1 << bit_index)) == 0:
-                # this peer doesn't have it
-                continue
+                if peer_hostport not in ret[zfinfo['zonefile_hash']]['peers']:
+                    popularity += 1
+                    peers.append( peer_hostport )
 
-            if peer_hostport not in ret[zfinfo['zonefile_hash']]['peers']:
-                popularity += 1
-                peers.append( peer_hostport )
-
-        ret[zfinfo['zonefile_hash']]['names'].append( zfinfo['name'] )
-        ret[zfinfo['zonefile_hash']]['indexes'].append( zfinfo['inv_index']-1 )
-        ret[zfinfo['zonefile_hash']]['popularity'] += popularity
-        ret[zfinfo['zonefile_hash']]['peers'] += peers
-        ret[zfinfo['zonefile_hash']]['tried_storage'] = zfinfo['tried_storage']
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+            ret[zfinfo['zonefile_hash']]['names'].append( zfinfo['name'] )
+            ret[zfinfo['zonefile_hash']]['indexes'].append( zfinfo['inv_index']-1 )
+            ret[zfinfo['zonefile_hash']]['popularity'] += popularity
+            ret[zfinfo['zonefile_hash']]['peers'] += peers
+            ret[zfinfo['zonefile_hash']]['tried_storage'] = zfinfo['tried_storage']
 
     return ret
 
@@ -2398,24 +2161,14 @@ def atlas_peer_has_zonefile( peer_hostport, zonefile_hash, zonefile_bits=None, c
     else:
         bits = zonefile_bits
 
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
+    zonefile_inv = None
 
-    if peer_hostport not in peer_table.keys():
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        if peer_hostport not in ptbl.keys():
+            return False
 
-        return False
-
-    zonefile_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=peer_table )
+        zonefile_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=ptbl )
     
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
-
     res = atlas_inventory_test_zonefile_bits( zonefile_inv, bits )
     return res
 
@@ -2561,27 +2314,19 @@ def atlas_rank_peers_by_health( peer_list=None, peer_table=None, with_zero_reque
     Optionally return [(health, peer)] list instead of just [peer] list (@with_rank)
     """
 
-    locked = False
-    if peer_table is None:
-        locked = True    
-        peer_table = atlas_peer_table_lock()
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        if peer_list is None:
+            peer_list = ptbl.keys()[:]
 
-    if peer_list is None:
-        peer_list = peer_table.keys()[:]
+        peer_health_ranking = []    # (health score, peer hostport)
+        for peer_hostport in peer_list:
+            reqcount = atlas_peer_get_request_count( peer_hostport, peer_table=ptbl )
+            if reqcount == 0 and not with_zero_requests:
+                continue
 
-    peer_health_ranking = []    # (health score, peer hostport)
-    for peer_hostport in peer_list:
-        reqcount = atlas_peer_get_request_count( peer_hostport, peer_table=peer_table )
-        if reqcount == 0 and not with_zero_requests:
-            continue
-
-        health_score = atlas_peer_get_health( peer_hostport, peer_table=peer_table)
-        peer_health_ranking.append( (health_score, peer_hostport) )
+            health_score = atlas_peer_get_health( peer_hostport, peer_table=ptbl)
+            peer_health_ranking.append( (health_score, peer_hostport) )
     
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
-
     # sort on health
     peer_health_ranking.sort()
     peer_health_ranking.reverse()
@@ -2602,34 +2347,27 @@ def atlas_rank_peers_by_data_availability( peer_list=None, peer_table=None, loca
     This is used to select neighbors.
     """
 
-    locked = False
-    if peer_table is None:
-        locked = True    
-        peer_table = atlas_peer_table_lock()
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        if peer_list is None:
+            peer_list = ptbl.keys()[:]
 
-    if peer_list is None:
-        peer_list = peer_table.keys()[:]
+        if local_inv is None:
+            # what's my inventory?
+            inv_len = atlasdb_zonefile_inv_length( con=con, path=path )
+            local_inv = atlas_make_zonefile_inventory( 0, inv_len, con=con, path=path )
 
-    if local_inv is None:
-        # what's my inventory?
-        inv_len = atlasdb_zonefile_inv_length( con=con, path=path )
-        local_inv = atlas_make_zonefile_inventory( 0, inv_len, con=con, path=path )
+        peer_availability_ranking = []    # (health score, peer hostport)
+        for peer_hostport in peer_list:
 
-    peer_availability_ranking = []    # (health score, peer hostport)
-    for peer_hostport in peer_list:
+            peer_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=ptbl )
 
-        peer_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=peer_table )
+            # ignore peers that we don't have an inventory for
+            if len(peer_inv) == 0:
+                continue
 
-        # ignore peers that we don't have an inventory for
-        if len(peer_inv) == 0:
-            continue
-
-        availability_score = atlas_inventory_count_missing( local_inv, peer_inv )
-        peer_availability_ranking.append( (availability_score, peer_hostport) )
+            availability_score = atlas_inventory_count_missing( local_inv, peer_inv )
+            peer_availability_ranking.append( (availability_score, peer_hostport) )
     
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
 
     # sort on availability
     peer_availability_ranking.sort()
@@ -2648,39 +2386,25 @@ def atlas_peer_enqueue( peer_hostport, peer_table=None, peer_queue=None, max_nei
     Return False if not added
     """
 
-    peer_lock = False
-    table_lock = False
+    present = False
 
-    if peer_table is None:
-        table_lock = True
-        peer_table = atlas_peer_table_lock()
-
-    present = (peer_hostport in peer_table.keys())
-
-    if table_lock:
-        atlas_peer_table_unlock()
-        peer_table = None
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        present = (peer_hostport in ptbl.keys())
 
     if present:
         # nothing to do 
         return False
 
-    if peer_queue is None:
-        peer_lock = True
-        peer_queue = atlas_peer_queue_lock()
-
     res = False
-    if not present:
-        if max_neighbors is None:
-            max_neighbors = atlas_max_neighbors()
+    with AtlasPeerQueueLocked(peer_queue) as pq:
 
-        if len(peer_queue) < atlas_max_new_peers(max_neighbors):
-            peer_queue.append( peer_hostport )
-            res = True
+        if not present:
+            if max_neighbors is None:
+                max_neighbors = atlas_max_neighbors()
 
-    if peer_lock:
-        atlas_peer_queue_unlock()
-        peer_queue = None
+            if len(pq) < atlas_max_new_peers(max_neighbors):
+                pq.append( peer_hostport )
+                res = True
 
     return res
 
@@ -2689,19 +2413,11 @@ def atlas_peer_dequeue_all( peer_queue=None ):
     """
     Get all queued peers
     """
-    peer_lock = False
-
-    if peer_queue is None:
-        peer_lock = True
-        peer_queue = atlas_peer_queue_lock()
 
     peers = []
-    while len(peer_queue) > 0:
-        peers.append( peer_queue.pop(0) )
-
-    if peer_lock:
-        atlas_peer_queue_unlock()
-        peer_queue = None
+    with AtlasPeerQueueLocked(peer_queue) as pq:
+        while len(pq) > 0:
+            peers.append( pq.pop(0) )
 
     return peers
 
@@ -2717,21 +2433,14 @@ def atlas_zonefile_find_push_peers( zonefile_hash, peer_table=None, zonefile_bit
             # we don't even know about it
             return []
 
-    table_locked = False
-    if peer_table is None:
-        table_locked = True
-        peer_table = atlas_peer_table_lock()
-
     push_peers = []
-    for peer_hostport in peer_table.keys():
-        zonefile_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=peer_table )
-        res = atlas_inventory_test_zonefile_bits( zonefile_inv, zonefile_bits )
-        if res:
-            push_peers.append( peer_hostport )
-
-    if table_locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+    
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        for peer_hostport in ptbl.keys():
+            zonefile_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=ptbl )
+            res = atlas_inventory_test_zonefile_bits( zonefile_inv, zonefile_bits )
+            if res:
+                push_peers.append( peer_hostport )
 
     return push_peers
 
@@ -2745,7 +2454,6 @@ def atlas_zonefile_push_enqueue( zonefile_hash, name, txid, zonefile_data, zonef
     Return True if we enqueued it
     Return False if not
     """
-    zonefile_queue_locked = False
     res = False
 
     bits = atlasdb_get_zonefile_bits( zonefile_hash, path=path, con=con )
@@ -2753,24 +2461,19 @@ def atlas_zonefile_push_enqueue( zonefile_hash, name, txid, zonefile_data, zonef
         # invalid hash
         return
 
-    if zonefile_queue is None:
-        zonefile_queue_locked = True
-        zonefile_queue = atlas_zonefile_queue_lock()
+    with AtlasZonefileQueueLocked(zonefile_queue) as zfq:
 
-    if len(zonefile_queue) < MAX_QUEUED_ZONEFILES: 
-        zfdata = {
-            'zonefile_hash': zonefile_hash,
-            'zonefile': zonefile_data,
-            'name': name,
-            'txid': txid
-        }
+        if len(zfq) < MAX_QUEUED_ZONEFILES: 
+            zfdata = {
+                'zonefile_hash': zonefile_hash,
+                'zonefile': zonefile_data,
+                'name': name,
+                'txid': txid
+            }
 
-        zonefile_queue.append( zfdata )
-        res = True
+            zfq.append( zfdata )
+            res = True
     
-    if zonefile_queue_locked:
-        atlas_zonefile_queue_unlock()
-            
     return res
 
 
@@ -2779,17 +2482,10 @@ def atlas_zonefile_push_dequeue( zonefile_queue=None ):
     Dequeue a zonefile's information to replicate
     Return None if there are none queued
     """
-    zonefile_queue_locked = False
-    if zonefile_queue is None:
-        zonefile_queue = atlas_zonefile_queue_lock()
-        zonefile_queue_locked = True
-
     ret = None
-    if len(zonefile_queue) > 0:
-        ret = zonefile_queue.pop(0)
-
-    if zonefile_queue_locked:
-        atlas_zonefile_queue_unlock()
+    with AtlasZonefileQueueLocked(zonefile_queue) as zfq:
+        if len(zfq) > 0:
+            ret = zfq.pop(0)
 
     return ret
 
@@ -2832,16 +2528,8 @@ def atlas_zonefile_push( my_hostport, peer_hostport, zonefile_data, timeout=None
         log.exception(e)
         log.error("Failed to push zonefile %s to %s" % (zonefile_hash, peer_hostport))
 
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
-
-    atlas_peer_update_health( peer_hostport, status, peer_table=peer_table )
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
+    with AtlasPeerTableLocked(peer_table) as ptbl:
+        atlas_peer_update_health( peer_hostport, status, peer_table=ptbl )
 
     return status
     
@@ -3114,18 +2802,13 @@ class AtlasPeerCrawler( threading.Thread ):
         Get the current set of peers
         """
         # get current peers
-        locked = False
-        if peer_table is None:
-            locked = True
-            peer_table = atlas_peer_table_lock()
+        current_peers = None
 
-        current_peers = peer_table.keys()[:]
-
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
+        with AtlasPeerTableLocked(peer_table) as ptbl:
+            current_peers = ptbl.keys()[:]
 
         return current_peers
+
 
     def canonical_new_peer_list( self, peers_to_add ):
         """
@@ -3353,25 +3036,20 @@ class AtlasHealthChecker( threading.Thread ):
         peer_hostports = []
         stale_peers = []
 
-        lock = False
-        if peer_table is None:
-            lock = True
-            peer_table = atlas_peer_table_lock()
+        num_peers = None
+        peer_hostports = None
 
-        num_peers = len(peer_table.keys())
-        peer_hostports = peer_table.keys()[:]
+        with AtlasPeerTableLocked(peer_table) as ptbl:
+            num_peers = len(ptbl.keys())
+            peer_hostports = ptbl.keys()[:]
 
-        # who are we going to ping?
-        # someone we haven't pinged in a while, chosen at random
-        for peer in peer_hostports:
-            if not atlas_peer_has_fresh_zonefile_inventory( peer, peer_table=peer_table ):
-                # haven't talked to this peer in a while
-                stale_peers.append(peer)
-                log.debug("Peer %s has a stale zonefile inventory" % peer)
-
-        if lock:
-            atlas_peer_table_unlock()
-            peer_table = None
+            # who are we going to ping?
+            # someone we haven't pinged in a while, chosen at random
+            for peer in peer_hostports:
+                if not atlas_peer_has_fresh_zonefile_inventory( peer, peer_table=ptbl ):
+                    # haven't talked to this peer in a while
+                    stale_peers.append(peer)
+                    log.debug("Peer %s has a stale zonefile inventory" % peer)
 
         if len(stale_peers) > 0:
             log.debug("Refresh zonefile inventories for %s peers" % len(stale_peers))
@@ -3456,47 +3134,39 @@ class AtlasZonefileCrawler( threading.Thread ):
         Return the list of zonefile hashes stored.
         """
         ret = []
-        close = False
 
-        if con is None:
-            close = True
-            con = atlasdb_open( path )
-            assert con is not None
+        with AtlasDBOpen(con=con, path=path) as dbcon:
 
-        for fetched_zfhash, zonefile_txt in zonefiles.items():
-           
-            if fetched_zfhash not in peer_zonefile_hashes:
-                # unsolicited
-                log.warn("%s: Unsolicited zonefile %s" % (self.hostport, fetched_zfhash))
-                continue
+            for fetched_zfhash, zonefile_txt in zonefiles.items():
+               
+                if fetched_zfhash not in peer_zonefile_hashes:
+                    # unsolicited
+                    log.warn("%s: Unsolicited zonefile %s" % (self.hostport, fetched_zfhash))
+                    continue
 
-            zfnames = zonefile_names.get(fetched_zfhash, None)
-            if zfnames is None:
-                # unsolicited
-                log.warn("%s: Unknown zonefile %s" % (self.hostport, fetched_zfhash))
-                continue
+                zfnames = zonefile_names.get(fetched_zfhash, None)
+                if zfnames is None:
+                    # unsolicited
+                    log.warn("%s: Unknown zonefile %s" % (self.hostport, fetched_zfhash))
+                    continue
 
-            zftxid = zonefile_txids.get(fetched_zfhash, None)
-            if zftxid is None:
-                # not paid for
-                log.warn("%s: Unpaid zonefile %s" % (self.hostport, fetched_zfhash))
-                continue
+                zftxid = zonefile_txids.get(fetched_zfhash, None)
+                if zftxid is None:
+                    # not paid for
+                    log.warn("%s: Unpaid zonefile %s" % (self.hostport, fetched_zfhash))
+                    continue
 
-            # pick a name
-            zfinfo = atlasdb_find_zonefile_by_txid( zftxid, path=path, con=con )
-            if zfinfo is None:
-                # don't know about this txid 
-                log.warn("%s: Unknown txid %s for %s" % (self.hostport, zftxid, fetched_zfhash))
-                continue
+                # pick a name
+                zfinfo = atlasdb_find_zonefile_by_txid( zftxid, path=path, con=dbcon )
+                if zfinfo is None:
+                    # don't know about this txid 
+                    log.warn("%s: Unknown txid %s for %s" % (self.hostport, zftxid, fetched_zfhash))
+                    continue
 
-            rc = self.store_zonefile_data( fetched_zfhash, zftxid, zonefile_txt, peer_hostport, con, path )
-            if rc:
-                # don't ask for it again
-                ret.append( fetched_zfhash )
-
-
-        if close:
-            con.close()
+                rc = self.store_zonefile_data( fetched_zfhash, zftxid, zonefile_txt, peer_hostport, dbcon, path )
+                if rc:
+                    # don't ask for it again
+                    ret.append( fetched_zfhash )
 
         return ret
 
@@ -3509,31 +3179,25 @@ class AtlasZonefileCrawler( threading.Thread ):
         Return False if not
         """
         rc = None
-        close = False
-        if con is None:
-            close = True
-            con = atlasdb_open( path )
-            assert con is not None
 
-        # is this zonefile available via storage?
-        log.debug("Try loading %s from storage" % zfhash)
+        with AtlasDBOpen(con=con, path=path) as dbcon:
 
-        zonefile_info = atlas_get_zonefile_data_from_storage( name, zfhash, self.zonefile_storage_drivers )
+            # is this zonefile available via storage?
+            log.debug("Try loading %s from storage" % zfhash)
 
-        # tried loading from storage
-        atlasdb_set_zonefile_tried_storage( zfhash, True, con=con, path=path )
+            zonefile_info = atlas_get_zonefile_data_from_storage( name, zfhash, self.zonefile_storage_drivers )
 
-        if 'error' in zonefile_info:
-            log.error("%s: Failed to get zonefile '%s' from storage" % (self.hostport, zfhash))
-            rc = False
+            # tried loading from storage
+            atlasdb_set_zonefile_tried_storage( zfhash, True, con=dbcon, path=path )
 
-        else:
-            # got it! remember it
-            log.debug("%s: got %s from storage" % (self.hostport, zfhash))
-            rc = self.store_zonefile_data( zfhash, txid, zonefile_info['zonefile_data'], "storage", con, path )
+            if 'error' in zonefile_info:
+                log.error("%s: Failed to get zonefile '%s' from storage" % (self.hostport, zfhash))
+                rc = False
 
-        if close:
-            con.close()
+            else:
+                # got it! remember it
+                log.debug("%s: got %s from storage" % (self.hostport, zfhash))
+                rc = self.store_zonefile_data( zfhash, txid, zonefile_info['zonefile_data'], "storage", dbcon, path )
 
         return rc
 
@@ -3578,18 +3242,12 @@ class AtlasZonefileCrawler( threading.Thread ):
             path = self.path
 
         num_fetched = 0
-        locked = False
+        missing_zinfo = None
+        peer_hostports = None
 
-        if peer_table is None:
-            locked = True
-            peer_table = atlas_peer_table_lock()
-
-        missing_zfinfo = atlas_find_missing_zonefile_availability( peer_table=peer_table, path=path )
-        peer_hostports = peer_table.keys()[:]
-
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
+        with AtlasPeerTableLocked(peer_table) as ptbl: 
+            missing_zfinfo = atlas_find_missing_zonefile_availability( peer_table=ptbl, path=path )
+            peer_hostports = ptbl.keys()[:]
 
         # ask for zonefiles in rarest-first order
         zonefile_ranking = [ (missing_zfinfo[zfhash]['popularity'], zfhash) for zfhash in missing_zfinfo.keys() ]
@@ -3696,21 +3354,16 @@ class AtlasZonefileCrawler( threading.Thread ):
                 else:
                     log.debug("%s: no data received from %s" % (self.hostport, peer_hostport))
 
-                if locked:
-                    peer_table = atlas_peer_table_lock()
+                with AtlasPeerTableLocked() as ptbl:
+                    # if the node didn't actually have these zonefiles, then 
+                    # update their inventories so we don't ask for them again.
+                    for zfh in peer_zonefile_hashes:
+                        log.debug("%s: %s did not have %s" % (self.hostport, peer_hostport, zfh))
+                        atlas_peer_set_zonefile_status( peer_hostport, zfh, False, zonefile_bits=missing_zfinfo[zfh]['indexes'], peer_table=ptbl )
 
-                # if the node didn't actually have these zonefiles, then 
-                # update their inventories so we don't ask for them again.
-                for zfh in peer_zonefile_hashes:
-                    log.debug("%s: %s did not have %s" % (self.hostport, peer_hostport, zfh))
-                    atlas_peer_set_zonefile_status( peer_hostport, zfh, False, zonefile_bits=missing_zfinfo[zfh]['indexes'], peer_table=peer_table )
+                        if zfh in zonefile_origins[peer_hostport]:
+                            zonefile_origins[peer_hostport].remove( zfh )
 
-                    if zfh in zonefile_origins[peer_hostport]:
-                        zonefile_origins[peer_hostport].remove( zfh )
-
-                if locked:
-                    atlas_peer_table_unlock()
-                    peer_table = None
 
             # done with this zonefile
             if zfhash in zonefile_hashes:
@@ -3802,17 +3455,11 @@ class AtlasZonefilePusher(threading.Thread):
         if not rc:
             log.error("Failed to replicate zonefile %s to external storage" % zonefile_hash)
 
+        peers = None
+        
         # see if we can send this somewhere
-        table_locked = False
-        if peer_table is None:
-            peer_table = atlas_peer_table_lock()
-            table_locked = True
-
-        peers = atlas_zonefile_find_push_peers( zfhash, peer_table=peer_table, zonefile_bits=zfbits )
-
-        if table_locked:
-            atlas_peer_table_unlock()
-            peer_table = None
+        with AtlasPeerTableLocked(peer_table) as ptbl:
+            peers = atlas_zonefile_find_push_peers( zfhash, peer_table=ptbl, zonefile_bits=zfbits )
 
         if len(peers) == 0:
             # everyone has it
