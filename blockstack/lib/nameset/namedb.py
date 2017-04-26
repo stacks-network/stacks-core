@@ -571,7 +571,9 @@ class BlockstackDB( virtualchain.StateEngine ):
     def check_preorder_collision( self, preorder_hash, block_id, checked_ops ):
         """
         Are there any colliding preorders in this block?
-        Set the '__collided__' flag if so, so we don't commit them.
+        Set the '__collided__' flag and related flags if so, so we don't commit them.
+
+        Not called directly; called by the @state_preorder() decorator in blockstack.lib.operations.preorder and blockstack.lib.operations.namespacepreorder
         """
 
         return self.check_collision( "preorder_hash", preorder_hash, block_id, checked_ops, OPCODE_PREORDER_OPS )
@@ -580,7 +582,9 @@ class BlockstackDB( virtualchain.StateEngine ):
     def check_name_collision( self, name, block_id, checked_ops ):
         """
         Are there any colliding names in this block?
-        Set the '__collided__' flag if so, so we don't commit them.
+        Set the '__collided__' flag and related flags if so, so we don't commit them.
+        
+        Not called directly; called by the @state_create() decorator in blockstack.lib.operations.register
         """
 
         return self.check_collision( "name", name, block_id, checked_ops, OPCODE_NAME_STATE_CREATIONS )
@@ -589,6 +593,9 @@ class BlockstackDB( virtualchain.StateEngine ):
     def check_namespace_collision( self, namespace_id, block_id, checked_ops ):
         """
         Are there any colliding namespaces in this block?
+        Set the '__collided__' flag and related flags if so, so we don't commit them
+        
+        Not called directly; called by the @state_create() decorator in blockstack.lib.operations.namespacereveal
         """
 
         return self.check_collision( "namespace_id", namespace_id, block_id, checked_ops, OPCODE_NAMESPACE_STATE_CREATIONS )
@@ -597,7 +604,7 @@ class BlockstackDB( virtualchain.StateEngine ):
     def check_noop_collision( self, name, block_id, checked_ops ):
         """
         No-op collision detector.
-        Meant for name-import
+        Meant for name-import (used by its @state_create() decorator)
         """
         log.warn("No-op collision detection for '%s'" % name)
         return False
@@ -1249,6 +1256,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         Record a nameop as collided in some collision state.
         """
 
+        # these are supposed to have been put here by nameop_set_collided
         history_id_key = nameop.get('__collided_history_id_key__', None)
         history_id = nameop.get('__collided_history_id__', None)
 
@@ -1422,7 +1430,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         # cannot have collided 
         if BlockstackDB.nameop_is_collided( nameop ):
-            log.debug("Not commiting '%s', since it collided" % commit_preorder['preorder_hash'])
+            log.debug("Not commiting '%s', since it collided" % nameop)
             self.log_reject( block_id, nameop['vtxindex'], nameop['op'], nameop )
             return []
 
