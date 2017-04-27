@@ -21,13 +21,7 @@
     along with Blockstack-client.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import socket
-import base64
-import json
-import storage
 import config
-import posixpath
-import jsontokens
 import jsonschema
 from jsonschema.exceptions import ValidationError
 import re
@@ -38,10 +32,11 @@ from virtualchain.lib.ecdsalib import *
 
 from .schemas import *
 from .constants import BLOCKSTACK_TEST, CONFIG_PATH, BLOCKSTACK_DEBUG
-from .keys import HDWallet, get_pubkey_hex
 import scripts
 
-log = config.get_logger()
+from .logger import get_logger
+
+log = get_logger()
 
 def is_user_zonefile(d):
     """
