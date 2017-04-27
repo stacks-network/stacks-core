@@ -684,17 +684,6 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
         log.info("Atlas zonefile checks pass!")
 
-    """
-    # verify data URLs 
-    rc = testlib.check_data_urls()
-    if not rc:
-        log.error("Data URL check fails")
-        shutdown_procedure()
-        return rc
-
-    log.info("Data URL check pass!")
-    """
-
     shutdown_procedure()
     return True
 
