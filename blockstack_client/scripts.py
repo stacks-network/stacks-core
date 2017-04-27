@@ -24,23 +24,20 @@
 from binascii import hexlify, unhexlify
 from decimal import *
 
-import hashlib
 import virtualchain
 
-from hashlib import sha256
 from binascii import hexlify, unhexlify
 
 from virtualchain.lib.ecdsalib import *
 from virtualchain.lib.hashing import *
 
-from virtualchain import tx_script_to_asm, tx_extend, \
-        tx_sign_all_unsigned_inputs, tx_sign_input
+from virtualchain import tx_extend, tx_sign_input
 
 from .b40 import *
-from .constants import MAGIC_BYTES, NAME_OPCODES, LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID, TX_MIN_CONFIRMATIONS, BLOCKSTACK_TEST
+from .constants import MAGIC_BYTES, NAME_OPCODES, LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID, TX_MIN_CONFIRMATIONS
 from .keys import *
-from .backend.utxo import get_unspents 
-from .config import get_logger
+from .utxo import get_unspents 
+from .logger import get_logger
 
 log = get_logger('blockstack-client')
 
