@@ -25,7 +25,6 @@
 import sys
 import os
 import boto
-import errno
 import zlib
 import time
 from ConfigParser import SafeConfigParser
@@ -409,7 +408,6 @@ if __name__ == "__main__":
    
    import keylib
    import json 
-   import blockstack_client
    import virtualchain
    from virtualchain.lib.hashing import hex_hash160
    
