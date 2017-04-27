@@ -23,18 +23,12 @@
 import sqlite3
 import traceback
 import os
-import sys
 import json
 import base64
 import time
 import random
 
-from ..config import DEFAULT_QUEUE_PATH, QUEUE_LENGTH_TO_MONITOR, PREORDER_MAX_CONFIRMATIONS, CONFIG_PATH
-from ..proxy import get_default_proxy
-
-from ..storage import get_zonefile_data_hash
-from ..profile import get_name_zonefile
-from ..proxy import is_name_registered, is_name_owner, has_zonefile_hash
+from ..constants import DEFAULT_QUEUE_PATH, PREORDER_MAX_CONFIRMATIONS, CONFIG_PATH
 from .blockchain import get_block_height, get_tx_confirmations, is_tx_rejected, is_tx_accepted
 
 QUEUE_SQL = """
@@ -45,11 +39,8 @@ CREATE TABLE entries( fqu STRING NOT NULL,
                       PRIMARY KEY(fqu,queue_id) );
 """
 
-
-from ..utils import pretty_print as pprint
-
-from ..config import QUEUE_LENGTH_TO_MONITOR, MAX_TX_CONFIRMATIONS
-from ..config import get_logger
+from ..config import MAX_TX_CONFIRMATIONS
+from ..logger import get_logger
 
 log = get_logger()
 
@@ -264,6 +255,8 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
     Return True on success
     Raise on error
     """
+    from ..storage import get_zonefile_data_hash
+
     new_entry = {}
 
     # required for all queues
@@ -437,6 +430,8 @@ def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     TODO: add integration test to ensure our failsafe works
     """
     
+    from ..profile import get_name_zonefile
+
     rows = queuedb_findall("update", path=path)
     to_remove = []
     for rowdata in rows:
