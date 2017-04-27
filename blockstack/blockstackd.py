@@ -21,31 +21,23 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import argparse
-import logging
 import os
 import sys
-import subprocess
 import signal
 import json
-import datetime
 import traceback
-import httplib
 import time
 import socket
 import math
 import random
 import shutil
-import tempfile
 import binascii
-import copy
 import atexit
 import threading
 import errno
 import blockstack_zones
 import keylib
 import base64
-import urllib2
 import gc
 import jsonschema
 from jsonschema import ValidationError
@@ -63,8 +55,6 @@ log = virtualchain.get_logger("blockstack-core")
 
 import blockstack_client
 
-from ConfigParser import SafeConfigParser
-
 from lib import nameset as blockstack_state_engine
 from lib import get_db_state
 from lib.config import REINDEX_FREQUENCY 
@@ -77,14 +67,15 @@ import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
 from lib.consensus import *
 
-from blockstack_client.constants import BLOCKSTACK_TEST
-
 # global variables, for use with the RPC server
 bitcoind = None
 rpc_server = None
 storage_pusher = None
 gc_thread = None
 has_indexer = True
+
+from blockstack_client.utils import url_to_host_port, atlas_inventory_to_string
+from blockstack_client import queue_findone, queue_findall, queue_removeall, queue_append
 
 GC_EVENT_THRESHOLD = 15
 
@@ -1421,7 +1412,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if user_data_pubkey is not None:
             try:
                 user_data = blockstack_client.parse_signed_data( data_txt, user_data_pubkey )
-                assert type(user_data) in [dict], "Failed to parse data"
+                if os.environ.get("BLOCKSTACK_TEST") == "1":
+                    log.debug("Loaded {}".format(user_data))
+
             except Exception, e:
                 log.exception(e)
                 log.debug("Failed to authenticate data")
@@ -1436,27 +1429,47 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
             try:
                 user_data = blockstack_client.parse_signed_data( data_txt, None, public_key_hash=owner_addr )
-                assert type(user_data) in [dict], "Failed to parse data"
-
-                # seems to have worked
-                data_jwt = json.loads(data_txt)
-                if type(data_jwt) == list:
-                    data_jwt = data_jwt[0]
-
-                user_data_pubkey = data_jwt['parentPublicKey']
-
             except Exception, e:
                 log.exception(e)
                 log.debug("Failed to authenticate data")
                 return {'error': 'Failed to authenticate data'}
 
+        # profiles and v1 data will be parsed out to a mutable data dict.
+        # v2 data will be parsed out to a serialized mutable data blob
+        if isinstance(user_data, (str, unicode)):
+            try:
+                user_data = json.loads(user_data)
+            except:
+                log.debug("Failed to parse mutable data blob")
+                return {'error': 'Failed to parse mutable data blob'}
+
+        # must be a dict with a 'timestamp' field (either a profile or a mutable data blob)
+        user_data_schema = {
+            'type': 'object',
+            'properties': {
+                'timestamp': {
+                    'type': 'number',
+                    'minimum': 0,
+                },
+            },
+        }
+
+        try:
+            jsonschema.validate(user_data, user_data_schema)
+        except Exception as e:
+            log.debug("Failed to validate user data")
+            if os.environ.get("BLOCKSTACK_TEST") == "1":
+                log.exception(e)
+
+            return {'error': 'Invalid mutable data blob'}
+
         # authentic!  try to verify via timestamp
         res = self.verify_data_timestamp( user_data )
         if 'error' in res:
             log.debug("Failed to verify with timestamp.")
-            return {'error': 'Invalid timestamp', 'reason': 'timestamp', 'data_pubkey': user_data_pubkey, 'zonefile': zonefile_dict}
+            return {'error': 'Invalid timestamp', 'reason': 'timestamp', 'zonefile': zonefile_dict}
 
-        return {'status': True, 'data': user_data, 'data_pubkey': user_data_pubkey}
+        return {'status': True, 'data': user_data}
 
 
     def rpc_put_profile(self, name, profile_txt, prev_profile_hash_or_ignored, sigb64_or_ignored, **con_info ):
@@ -1869,8 +1882,10 @@ class BlockstackStoragePusher( threading.Thread ):
             fq_data_id = str(payload['fq_data_id'])
             data_txt = str(payload['data_txt'])
 
-            log.debug("mutable datum: {}".format(entry['profile']))
-            log.debug("mutable datum txt: {}".format(data_txt))
+            if os.environ.get("BLOCKSTACK_TEST") == "1":
+                log.debug("mutable datum: {}".format(entry['profile']))
+                log.debug("mutable datum txt: {}".format(data_txt))
+
         except AssertionError:
             
             # profile 
@@ -1887,7 +1902,7 @@ class BlockstackStoragePusher( threading.Thread ):
         
         success = store_mutable_data_to_storage( blockchain_id, fq_data_id, data_txt, profile=profile, required=storage_drivers, skip=['blockstack_server'])
         if not success:
-            log.error("Failed to store data for {} ({} bytes)".format(blockchain_id, len(data_txt)))
+            log.error("Failed to store data for {} ({} bytes) (rc = {})".format(blockchain_id, len(data_txt), success))
             queue_removeall( entries, path=self.queue_path )
             return False
 
@@ -2583,6 +2598,11 @@ def check_and_set_envars( argv ):
 
                 elif i + 1 < len(argv):
                     value = argv[i+1]
+
+                    # shift down
+                    for j in xrange(i, len(argv) - 1):
+                        argv[i] = argv[i+1]
+
                     i += 1
 
                 else:
