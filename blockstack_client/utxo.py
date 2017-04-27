@@ -21,39 +21,34 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os
-import sys
 from ConfigParser import SafeConfigParser
-import logging
-import json
-import traceback
 
 from virtualchain import AuthServiceProxy
 
-from .blockstack_core import BlockstackCoreUTXOClient
-from .blockcypher import BlockcypherClient
-from .bitcoind_utxo import BitcoindClient
-from .blockchain_info import BlockchainInfoClient
-from .blockstack_explorer import BlockstackExplorerClient, BLOCKSTACK_EXPLORER_URL
-from .blockstack_utxo import BlockstackUTXOClient, BLOCKSTACK_UTXO_URL
+from backend.utxo.blockstack_core import BlockstackCoreUTXOClient
+from backend.utxo.blockcypher import BlockcypherClient
+from backend.utxo.bitcoind_utxo import BitcoindClient
+from backend.utxo.blockchain_info import BlockchainInfoClient
+from backend.utxo.blockstack_explorer import BlockstackExplorerClient, BLOCKSTACK_EXPLORER_URL
+from backend.utxo.blockstack_utxo import BlockstackUTXOClient
 
-from .blockstack_core import get_unspents as blockstack_core_get_unspents
-from .blockstack_core import broadcast_transaction as blockstack_core_broadcast_transaction
+from backend.utxo.blockstack_core import get_unspents as blockstack_core_get_unspents
+from backend.utxo.blockstack_core import broadcast_transaction as blockstack_core_broadcast_transaction
 
-from .blockcypher import get_unspents as blockcypher_get_unspents
-from .blockcypher import broadcast_transaction as blockcypher_broadcast_transaction
+from backend.utxo.blockcypher import get_unspents as blockcypher_get_unspents
+from backend.utxo.blockcypher import broadcast_transaction as blockcypher_broadcast_transaction
 
-from .bitcoind_utxo import get_unspents as bitcoind_utxo_get_unspents
-from .bitcoind_utxo import broadcast_transaction as bitcoind_utxo_broadcast_transaction
+from backend.utxo.bitcoind_utxo import get_unspents as bitcoind_utxo_get_unspents
+from backend.utxo.bitcoind_utxo import broadcast_transaction as bitcoind_utxo_broadcast_transaction
 
-from .blockchain_info import get_unspents as blockchain_info_get_unspents
-from .blockchain_info import broadcast_transaction as blockchain_info_broadcast_transaction
+from backend.utxo.blockchain_info import get_unspents as blockchain_info_get_unspents
+from backend.utxo.blockchain_info import broadcast_transaction as blockchain_info_broadcast_transaction
 
-from .blockstack_explorer import get_unspents as blockstack_explorer_get_unspents
-from .blockstack_explorer import broadcast_transaction as blockstack_explorer_broadcast_transaction
+from backend.utxo.blockstack_explorer import get_unspents as blockstack_explorer_get_unspents
+from backend.utxo.blockstack_explorer import broadcast_transaction as blockstack_explorer_broadcast_transaction
 
-from .blockstack_utxo import get_unspents as blockstack_utxo_get_unspents
-from .blockstack_utxo import broadcast_transaction as blockstack_utxo_broadcast_transaction
+from backend.utxo.blockstack_utxo import get_unspents as blockstack_utxo_get_unspents
+from backend.utxo.blockstack_utxo import broadcast_transaction as blockstack_utxo_broadcast_transaction
 
 DEBUG = True
 FIRST_BLOCK_MAINNET = 373601        # well-known value for blockstack-server; doesn't ever change
