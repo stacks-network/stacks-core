@@ -21,15 +21,7 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os
-import sys
-import requests
-import json
-import traceback
-
-from .insight_api import _get_unspents as get_unspents
-from .insight_api import _broadcast_transaction as broadcast_transaction
-from .insight_api import InsightClient
+from .insight_api import InsightClient, _get_unspents, _broadcast_transaction
 
 BLOCKSTACK_UTXO_URL = "https://utxo.blockstack.org"
 
@@ -37,4 +29,6 @@ class BlockstackUTXOClient(InsightClient):
     def __init__(self, url=BLOCKSTACK_UTXO_URL):
         super(BlockstackUTXOClient, self).__init__(url)
 
+get_unspents = _get_unspents
+broadcast_transaction = _broadcast_transaction
 
