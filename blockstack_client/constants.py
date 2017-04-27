@@ -25,7 +25,6 @@ from __future__ import print_function
 """
 
 import os
-import sys
 import json
 import tempfile
 import subprocess
@@ -346,6 +345,8 @@ APPROX_TX_IN_P2PKH_LEN = 150
 APPROX_TX_OUT_P2PKH_LEN = 40
 APPROX_TX_IN_P2SH_LEN = 300
 APPROX_TX_OUT_P2SH_LEN = 40
+
+TX_MAX_FEE = int(5 * 1e5)
 
 # hardened children indexes
 ACCOUNT_SIGNING_KEY_INDEX = 0
