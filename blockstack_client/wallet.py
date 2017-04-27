@@ -26,7 +26,6 @@ from __future__ import print_function
 import time
 import json
 import os
-import sys
 import shutil
 import virtualchain
 import copy
@@ -62,13 +61,14 @@ from .constants import (
 )
 
 from .proxy import get_names_owned_by_address, get_default_proxy
-from .rpc import local_api_connect 
 from .schemas import *
 
 import virtualchain
 from virtualchain.lib.ecdsalib import *
 
-log = config.get_logger()
+from .logger import get_logger
+
+log = get_logger()
 
 
 def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
@@ -845,6 +845,8 @@ def is_wallet_unlocked(config_dir=CONFIG_DIR):
     Determine whether or not the wallet is unlocked.
     Do so by asking the local RPC backend daemon
     """
+    from .rpc import local_api_connect 
+
     config_path = os.path.join(config_dir, CONFIG_FILENAME)
     local_proxy = local_api_connect(config_path=config_path)
     conf = config.get_config(config_path)
@@ -872,6 +874,8 @@ def get_wallet(config_path=CONFIG_PATH):
     Returns the wallet data on success
     Returns None on error
     """
+    from .rpc import local_api_connect 
+
     local_proxy = local_api_connect(config_path=config_path)
     conf = config.get_config(config_path)
 
@@ -918,6 +922,8 @@ def save_keys_to_memory( wallet_keys, config_path=CONFIG_PATH ):
     Return {'status': True} on success
     Return {'error': ...} on error
     """
+    from .rpc import local_api_connect 
+
     proxy = local_api_connect(config_path=config_path)
 
     log.debug('Saving keys to memory')
