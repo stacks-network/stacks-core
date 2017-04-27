@@ -30,8 +30,6 @@ from binascii import hexlify, unhexlify
 import blockstack_client
 from blockstack_client.operations import *
 
-from register import FIELDS as register_FIELDS
-
 # consensus hash fields (ORDER MATTERS!)
 FIELDS = [
      'preorder_hash',       # hash(name,sender,register_addr) 
