@@ -26,14 +26,11 @@ from __future__ import print_function
 
 import os
 import sys
-import traceback
 import errno
 import time
 import atexit
 import socket
-import inspect
 import requests
-import uuid
 import random
 import posixpath
 import SocketServer
@@ -51,7 +48,6 @@ import shutil
 from jsonschema import ValidationError
 from schemas import *
 
-from types import ModuleType
 import keylib
 from keylib import *
 
@@ -64,16 +60,13 @@ import backend.blockchain as backend_blockchain
 import proxy
 from proxy import json_is_error, json_is_exception
 
-from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION
+from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE
 from .method_parser import parse_methods
 import app
-import assets
 import data
-import resolve
 import zonefile
 import wallet
 import keys
-import user as user_db
 from utils import daemonize 
 
 log = blockstack_config.get_logger()
@@ -549,13 +542,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'pattern': OP_BASE58CHECK_PATTERN,
                 },
                 'min_confs': {
-                    'type': 'integer'
+                    'type': 'integer',
+                    'minimum': 0,
                 },
                 'tx_fee': {
                     'type': 'integer',
+                    'minimum': 0,
+                    'maximum': TX_MAX_FEE,
                 },
                 'cost_satoshis': {
                     'type': 'integer',
+                    'minimum': 0,
                 },
             },
             'required': [
@@ -585,7 +582,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.warning("Using payment UTXOs with as few as {} confirmations".format(min_confs))
 
         if tx_fee is not None:
-            if tx_fee > (5 * 1e5):
+            if tx_fee > TX_MAX_FEE:
                 # this is a bug...
                 log.error("Absurd tx fee {}".format(tx_fee))
                 return self._reply_json({'error': 'Absurd transaction fee'}, status_code=401)
@@ -766,6 +763,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 },
                 'tx_fee': {
                     'type': 'integer',
+                    'minimum': 0,
+                    'maximum': TX_MAX_FEE
                 },
             },
             'required': [
@@ -797,7 +796,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         tx_fee = request.get('tx_fee', None)
         if tx_fee is not None:
-            if tx_fee > (5 * 1e5):
+            if tx_fee > TX_MAX_FEE:
                 # this is a bug...
                 log.error("Absurd tx fee {}".format(tx_fee))
                 return self._reply_json({'error': 'Absurd transaction fee'}, status_code=401)
@@ -846,6 +845,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 },
                 'tx_fee': {
                     'type': 'integer',
+                    'minimum': 0,
+                    'maximum': TX_MAX_FEE
                 },
             },
             'additionalProperties': False,
@@ -865,7 +866,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         tx_fee = request.get('tx_fee', None)
         
         if tx_fee is not None:
-            if tx_fee > (5 * 1e5):
+            if tx_fee > TX_MAX_FEE:
                 # this is a bug...
                 log.error("Absurd tx fee {}".format(tx_fee))
                 return self._reply_json({'error': 'Absurd transaction fee'}, status_code=401)
@@ -1923,9 +1924,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 },
                 'amount': {
                     'type': 'integer',
+                    'minimum': 0,
                 },
                 'min_confs': {
                     'type': 'integer',
+                    'minimum': 0,
                 },
                 'tx_only': {
                     'type': 'boolean'
@@ -4107,7 +4110,7 @@ def local_api_server_stop(srv):
     backend.registrar.registrar_shutdown(srv.config_path)    
 
 
-def local_api_connect(api_pass=None, api_session=None, password=None, config_path=blockstack_constants.CONFIG_PATH, api_host=None, api_port=None):
+def local_api_connect(api_pass=None, api_session=None, config_path=blockstack_constants.CONFIG_PATH, api_host=None, api_port=None):
     """
     Connect to a locally-running API server.
     Return a server proxy object on success.
@@ -4152,8 +4155,8 @@ def local_api_action(command, password=None, api_pass=None, config_dir=blockstac
     * status: see if there's an API endpoint running.
     * restart: stop and start the API endpoint
 
-    Return True on success
-    Return False on error
+    Return {'status': True} on success
+    Return {'error': ...} on error
     """
 
     if command not in ['start', 'start-foreground', 'stop', 'status', 'restart']:
@@ -4164,11 +4167,18 @@ def local_api_action(command, password=None, api_pass=None, config_dir=blockstac
 
     if command == 'status':
         rc = local_api_status(config_dir=config_dir)
-        return rc
+        if rc:
+            return {'status': True}
+
+        else:
+            return {'error': 'Failed to check API status'}
 
     if command == 'stop':
         rc = local_api_stop(config_dir=config_dir)
-        return rc
+        if rc:
+            return {'status': True}
+        else:
+            return {'error': 'Failed to stop API endpoint'}
     
     config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
 
@@ -4184,8 +4194,8 @@ def local_api_action(command, password=None, api_pass=None, config_dir=blockstac
     
     if command == 'start-foreground':
         # start API server the foreground
-        rc = local_api_start(port=api_port, config_dir=config_dir, api_pass=api_pass, password=password, foreground=True)
-        return rc
+        res = local_api_start(port=api_port, config_dir=config_dir, api_pass=api_pass, password=password, foreground=True)
+        return res
 
     else:
         # use the RPC runner
@@ -4202,9 +4212,9 @@ def local_api_action(command, password=None, api_pass=None, config_dir=blockstac
         if res != 0:
             log.error("Failed to {} API endpoint: exit code {}".format(command, res))
             log.error("Error log:\n{}".format("\n".join(["  " + e for e in err.split('\n')])))
-            return False
+            return {'error': 'Failed to {} API endpoint (exit code {})'.format(command, res)}
 
-    return True
+    return {'status': True}
 
 
 def local_api_pidfile_path(config_dir=blockstack_constants.CONFIG_DIR):
@@ -4350,11 +4360,60 @@ rpc_pidpath = None
 rpc_srv = None
 
 
+def local_api_check_alive(config_path, api_host=None, api_port=None):
+    """
+    Is the local API daemon alive?
+    Return True if so
+    Return False if not, and clean up stale pidfiles
+    """
+    
+    alive = False
+    config_dir = os.path.dirname(config_path)
+
+    # already running?
+    rpc_pidpath = local_api_pidfile_path(config_dir=config_dir)
+    if os.path.exists(rpc_pidpath):
+
+        alive = True
+        pid = local_api_read_pidfile(rpc_pidpath)
+        if pid is None:
+            # failure
+            raise Exception("Failed to read PID file {}".format(rpc_pidpath))
+
+        # see if it's alive
+        try:
+            os.kill(pid, 0)
+        except OSError as oe:
+            if oe.errno == errno.ESRCH:
+                alive = False
+                log.debug("Stale PID: {}".format(rpc_pidpath))
+
+        if alive:
+            # see if we can ping it
+            rpcclient = local_api_connect(config_path=config_path, api_port=api_port, api_host=api_host)
+            try:
+                rpcclient.ping()
+                log.debug("Still alive: {}".format(rpc_pidpath))
+            except:
+                alive = False
+                log.debug("Unresponsive process: {}".format(rpc_pidpath))
+
+        if alive:
+            return True
+
+    if not alive:
+        # remove stale pid file
+        log.debug("Removing stale PID file {}".format(rpc_pidpath))
+        local_api_unlink_pidfile(rpc_pidpath)                
+
+    return False
+
+
 def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFIG_DIR, foreground=False, api_pass=None, password=None):
     """
     Start up an API endpoint
-    Return True on success
-    Return False on error
+    Return {'status': True} on success
+    Return {'error': ...} on failure
     """
 
     global rpc_pidpath, rpc_srv, running
@@ -4380,35 +4439,30 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
     wallet_path = os.path.join(config_dir, blockstack_constants.WALLET_FILENAME)
 
-    if port is None:
-        conf = blockstack_client.get_config(config_path)
-        assert conf
+    conf = blockstack_client.get_config(config_path)
+    assert conf
 
+    if port is None:
         port = int(conf['api_endpoint_port'])
 
     if host is None:
-        conf = blockstack_client.get_config(config_path)
-        assert conf
-
         host = conf.get('api_endpoint_host', 'localhost')
     
-    # already running?
     rpc_pidpath = local_api_pidfile_path(config_dir=config_dir)
-    if os.path.exists(rpc_pidpath):
-        pid = local_api_read_pidfile(rpc_pidpath)
-        print("API endpoint already running (PID {}, {})".format(pid, rpc_pidpath), file=sys.stderr)
-        return False
+
+    # already running?
+    alive = local_api_check_alive(config_path, api_host=host, api_port=port)
+    if alive:
+        print("API endpoint is already running")
+        return {'error': 'API endpoint is already running'}
 
     if not os.path.exists(wallet_path):
         print("No wallet found at {}".format(wallet_path), file=sys.stderr)
-        return False
+        return {'error': 'No wallet found at {}'.format(wallet_path)}
 
     signal.signal(signal.SIGINT, local_api_exit_handler)
     signal.signal(signal.SIGQUIT, local_api_exit_handler)
     signal.signal(signal.SIGTERM, local_api_exit_handler)
-
-    conf = blockstack_config.get_config(config_path)
-    assert conf
 
     wallet = load_wallet(
         password=password, config_path=config_path,
@@ -4418,12 +4472,12 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     if 'error' in wallet:
         log.error('Failed to load wallet: {}'.format(wallet['error']))
         print('Failed to load wallet: {}'.format(wallet['error']), file=sys.stderr)
-        return False
+        return {'error': 'Failed to load wallet: {}'.format(wallet['error'])}
 
     if wallet['migrated']:
         log.error("Wallet is in legacy format")
         print("Wallet is in legacy format.  Please migrate it first with the `setup_wallet` command.", file=sys.stderr)
-        return False
+        return {'error': 'Wallet is in legacy format.  Please migrate it first with the `setup_wallet` command.'}
 
     wallet = wallet['wallet']
     if not foreground:
@@ -4435,12 +4489,12 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
         res = daemonize(logpath, child_wait=lambda: local_api_start_wait(api_port=port, api_host=host, config_path=config_path))
         if res < 0:
             log.error("API server failed to start")
-            return False
+            return {'error': 'API endpoint failed to start'}
 
         if res > 0:
             # parent 
             log.debug("Parent {} forked intermediate child {}".format(os.getpid(), res))
-            return True
+            return {'status': True}
         
     # daemon child takes this path...
     atexit.register(local_api_atexit)
@@ -4464,13 +4518,13 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
         else:
             msg = 'Failed to open socket (socket errno {})'
             log.error(msg.format(se.errno))
-            return False
+            return {'error': 'Failed to open socket (errno {})'.format(se.errno)}
 
     log.debug("Initializing registrar...")
     state = backend.registrar.set_registrar_state(config_path=config_path)
     if state is None:
         log.error("Failed to initialize registrar: {}".format(res['error']))
-        return False
+        return {'error': 'Failed to initialize registrar: {}'.format(res['error'])}
     
     log.debug("Setting wallet...")
 
@@ -4491,7 +4545,7 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
 
     if 'error' in res:
         log.error("Failed to set wallet: {}".format(res['error']))
-        return False
+        return {'error': 'Failed to set wallet: {}'.format(res['error'])}
 
     log.debug("Setup finished")
 
@@ -4502,7 +4556,7 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     local_api_unlink_pidfile(rpc_pidpath)
     local_api_server_stop(rpc_srv)
 
-    return True
+    return {'status': True}
 
 
 def api_kill(pidpath, pid, sig, unlink_pidfile=True):
