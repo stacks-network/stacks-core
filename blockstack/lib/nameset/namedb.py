@@ -23,22 +23,16 @@
 
 import json
 import traceback
-import binascii
-import hashlib
-import math
 import keychain
 import os
 import copy
-import shutil
 import threading
 import gc
 
-from collections import defaultdict
 from . import *
 from ..config import *
 from ..operations import *
 from ..hashing import *
-from ..b40 import is_b40
 
 import virtualchain
 from db import *
