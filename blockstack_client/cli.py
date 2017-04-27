@@ -38,7 +38,6 @@ as a command-line option.
 import argparse
 import sys
 import requests
-import tempfile
 import traceback
 requests.packages.urllib3.disable_warnings()
 
@@ -47,8 +46,8 @@ logging.disable(logging.CRITICAL)
 
 from blockstack_client import config
 from blockstack_client.client import session, analytics_user_register 
-from blockstack_client.constants import WALLET_FILENAME, set_secret, serialize_secrets, write_secrets, parse_secrets, load_secrets, CONFIG_PATH, BLOCKSTACK_DEBUG
-from blockstack_client.config import CONFIG_PATH, VERSION, semver_match, get_config, client_uuid_path, get_or_set_uuid
+from blockstack_client.constants import WALLET_FILENAME, set_secret, serialize_secrets, write_secrets, load_secrets, CONFIG_PATH
+from blockstack_client.config import CONFIG_PATH, VERSION, client_uuid_path, get_or_set_uuid
 from blockstack_client.method_parser import parse_methods, build_method_subparsers
 
 from wallet import *
