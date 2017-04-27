@@ -24,7 +24,6 @@
 import json
 import os
 import time
-import re
 import jsontokens
 import blockstack_profiles
 import urllib
@@ -49,7 +48,8 @@ from .proxy import *
 from .storage import hash_zonefile
 from .zonefile import get_name_zonefile, load_name_zonefile, store_name_zonefile
 
-from .config import get_logger, get_config, get_local_device_id, get_all_device_ids
+from .logger import get_logger
+from .config import get_config, get_local_device_id, get_all_device_ids
 from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DATASTORE_SIGNING_KEY_INDEX, BLOCKSTACK_STORAGE_PROTO_VERSION
 from .schemas import *
 
@@ -950,7 +950,6 @@ def make_mutable_data_info(data_id, data_payload, device_ids=None, version=None,
 
 
 def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, version, blockchain_id=None, proxy=None, config_path=CONFIG_PATH, storage_drivers=None, storage_drivers_exclusive=False, zonefile_storage_drivers=None ):
-
     """
     put_mutable.
 
@@ -1296,7 +1295,7 @@ def datastore_get_privkey( master_data_privkey, app_domain, config_path=CONFIG_P
     return app_private_key
 
 
-def _init_datastore_info( datastore_type, datastore_pubkey, driver_names, device_ids, config_path=CONFIG_PATH ):
+def _init_datastore_info( datastore_type, datastore_pubkey, driver_names, device_ids, reader_pubkeys=[], config_path=CONFIG_PATH ):
     """
     Make the private part of a datastore record.
     Returns {'datastore': ..., 'root': ...} on success
@@ -1307,7 +1306,7 @@ def _init_datastore_info( datastore_type, datastore_pubkey, driver_names, device
     root_uuid = str(uuid.uuid4())
     datastore_id = keylib.public_key_to_address(datastore_pubkey)
 
-    root_blob = make_dir_inode_data(datastore_id, datastore_id, root_uuid, {}, device_ids, config_path=config_path, create=True )
+    root_blob = make_dir_inode_data(datastore_id, datastore_id, root_uuid, {}, device_ids, reader_pubkeys=reader_pubkeys, config_path=config_path, create=True )
     if 'error' in root_blob:
         return root_blob
 
@@ -1611,7 +1610,7 @@ def delete_datastore(api_client, datastore, datastore_privkey, config_path=CONFI
     return {'status': True}
 
 
-def get_inode_data(datastore_id, inode_uuid, inode_type, data_pubkey_hex, drivers, device_ids, config_path=CONFIG_PATH, force=False, idata=True, proxy=None ):
+def get_inode_data(datastore_id, inode_uuid, inode_type, data_pubkey_hex, drivers, device_ids, config_path=CONFIG_PATH, data_privkey=None, force=False, idata=True, proxy=None ):
     """
     Get an inode from non-local mutable storage.  Verify that it has an
     equal or later version number than the one we have locally.
@@ -1696,10 +1695,12 @@ def get_inode_data(datastore_id, inode_uuid, inode_type, data_pubkey_hex, driver
     del full_inode['data_hash']
 
     if inode_type == MUTABLE_DATUM_DIR_TYPE:
+        reader_pubkeys = None
+
         # must be a directory listing 
         try:
-            inode_info = data_blob_parse(inode_info_str)
-            full_inode['idata'] = inode_info
+            dir_idata, reader_pubkeys = inode_dir_idata_parse(inode_info_str, data_privkey)
+            full_inode['idata'] = dir_idata
             jsonschema.validate(full_inode, MUTABLE_DATUM_DIR_SCHEMA)
         except Exception as e:
             if BLOCKSTACK_DEBUG:
@@ -1713,6 +1714,9 @@ def get_inode_data(datastore_id, inode_uuid, inode_type, data_pubkey_hex, driver
             log.error("Inode {} not owned by {} (but by {})".format(full_inode['uuid'], data_address, full_inode['owner']))
             return {'error': 'Invalid owner'}
     
+        # preserve reader pubkeys 
+        full_inode['reader_pubkeys'] = reader_pubkeys
+
     else:
         # raw file (or raw inode request)
         full_inode['idata'] = inode_info_str
@@ -1874,7 +1878,7 @@ def get_inode_header(datastore_id, inode_uuid, data_pubkey_hex, drivers, device_
     return {'status': True, 'inode': inode_hdr, 'version': max(inode_hdr_version, inode_version), 'drivers': inode_drivers}
 
 
-def make_inode_header_blob( datastore_id, inode_type, owner, inode_uuid, data_hash, device_ids, min_version=None, config_path=CONFIG_PATH, create=False ):
+def make_inode_header_blob( datastore_id, inode_type, owner, inode_uuid, data_hash, device_ids, readers=[], min_version=None, config_path=CONFIG_PATH, create=False ):
     """
     Make an inode header structure for storage in mutable data.
     Return {'status': True, 'header': serialized inode header} on success.  The caller should sign this, and replicate it and the signature.
@@ -1888,6 +1892,7 @@ def make_inode_header_blob( datastore_id, inode_type, owner, inode_uuid, data_ha
         'type': inode_type,
         'owner': owner,
         'uuid': inode_uuid,
+        'readers': readers,
         'data_hash': data_hash,
         'version': version,
         'proto_version': BLOCKSTACK_STORAGE_PROTO_VERSION,
@@ -1905,32 +1910,58 @@ def make_inode_header_blob( datastore_id, inode_type, owner, inode_uuid, data_ha
     return {'status': True, 'header': data_blob_serialize(info)}
 
 
-def make_file_inode_data( datastore_id, owner, inode_uuid, data_payload_hash, device_ids, config_path=CONFIG_PATH, min_version=None, create=False ):
+def make_file_inode_data( datastore_id, owner, inode_uuid, data_payload_hash, device_ids, readers=[], config_path=CONFIG_PATH, min_version=None, create=False ):
     """
     Initialize an inode header and hash for file data
     Return {'status': True, 'header': serialized inode header} on success.  The caller should sign this, and replicate it and the signature.
     Return {'error': ...} on error
     """
-    header_blob = make_inode_header_blob( datastore_id, MUTABLE_DATUM_FILE_TYPE, owner, inode_uuid, data_payload_hash, device_ids, config_path=config_path, min_version=min_version, create=create )
+    header_blob = make_inode_header_blob( datastore_id, MUTABLE_DATUM_FILE_TYPE, owner, inode_uuid, data_payload_hash, device_ids, readers=readers, config_path=config_path, min_version=min_version, create=create )
     if 'error' in header_blob:
         return header_blob
 
     return {'status': True, 'header': header_blob['header']}
 
 
-def make_dir_inode_data( datastore_id, owner, inode_uuid, dir_listing, device_ids, config_path=CONFIG_PATH, min_version=None, create=False ):
+def make_dir_inode_data( datastore_id, owner, inode_uuid, dir_listing, device_ids, reader_pubkeys=[], config_path=CONFIG_PATH, min_version=None, create=False ):
     """
     Initialize an inode header and hash for dir data.
     Return {'status': True, 'header': serialized inode header} on success.  The caller should sign this, and replicate it and the signature.
     Return {'error': ...} on error
     """
-    idata_payload = data_blob_serialize(dir_listing)
+    idata_payload = inode_dir_idata_serialize(dir_listing, reader_pubkeys)
     data_hash = storage.hash_data_payload(idata_payload)
-    header_blob = make_inode_header_blob( datastore_id, MUTABLE_DATUM_DIR_TYPE, owner, inode_uuid, data_hash, device_ids, config_path=config_path, min_version=min_version, create=create )
+
+    readers = [keylib.public_key_to_address(rpubk) for rpubk in reader_pubkeys]
+
+    header_blob = make_inode_header_blob( datastore_id, MUTABLE_DATUM_DIR_TYPE, owner, inode_uuid, data_hash, device_ids, readers=readers, config_path=config_path, min_version=min_version, create=create )
     if 'error' in header_blob:
         return header_blob
 
     return {'status': True, 'header': header_blob['header'], 'idata': idata_payload}
+
+
+def inode_dir_idata_parse(dir_inode_info, data_privkey):
+    """
+    Given the data payload for a directory inode, extract the directory listing.
+
+    Return a data structure compatible with MUTABLE_DATUM_DIR_IDATA_SCHEMA, and the reader public keys
+    """
+
+    # TODO: decrypt with my private key, or raise an exception if it's encrypted and I can't read it
+    return (data_blob_parse(dir_inode_info), [])
+
+
+def inode_dir_idata_serialize(dir_idata, reader_pubkeys=[]):
+    """
+    Given the directory listing for an inode, and optionally a list of public keys for
+    allowed readers, serialize the directory listing.
+
+    Return the serialized idata
+    """
+
+    # TODO: serialize and encrypt with each of the public keys
+    return data_blob_serialize(dir_idata)
 
 
 def sign_inode_header_blob( header_blob, data_privkey ):
@@ -2600,7 +2631,7 @@ def datastore_serialize_and_sign( datastore, data_privkey):
     return {'str': datastore_str, 'sig': datastore_sig}
 
 
-def datastore_mkdir_make_inodes(api_client, datastore, data_path, data_pubkey, parent_dir=None, force=False, config_path=CONFIG_PATH):
+def datastore_mkdir_make_inodes(api_client, datastore, data_path, data_pubkey, reader_pubkeys=[], parent_dir=None, force=False, config_path=CONFIG_PATH):
     """
     Make a directory at the given path.  The parent directory must exist.
     Do not actually carry out the mutations; only generate the requisite inodes.
@@ -2651,12 +2682,12 @@ def datastore_mkdir_make_inodes(api_client, datastore, data_path, data_pubkey, p
     parent_dir, child_dirent = _mutable_data_dir_link( parent_dir, MUTABLE_DATUM_DIR_TYPE, name, child_uuid )
 
     # make the new inodes
-    child_dir_info = make_dir_inode_data( datastore_id, datastore_id, child_uuid, {}, device_ids, config_path=config_path, min_version=parent_dir['version'], create=True )
+    child_dir_info = make_dir_inode_data( datastore_id, datastore_id, child_uuid, {}, device_ids, reader_pubkeys=reader_pubkeys, config_path=config_path, min_version=parent_dir['version'], create=True )
     if 'error' in child_dir_info:
         log.error("Failed to create directory {}: {}".format(data_path, child_dir_info['error']))
         return {'error': 'Failed to create child directory', 'errno': errno.EIO}
 
-    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_uuid, parent_dir['idata'], device_ids, min_version=parent_dir['version'], config_path=config_path )
+    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_uuid, parent_dir['idata'], device_ids, readers=parent_dir['reader_pubkeys'], min_version=parent_dir['version'], config_path=config_path )
     if 'error' in parent_dir_info:
         log.error("Failed to update directory {}: {}".format(parent_path, parent_dir_info['error']))
         return {'error': 'Failed to create parent directory', 'errno': errno.EIO}
@@ -2807,7 +2838,7 @@ def datastore_rmdir_make_inodes(api_client, datastore, data_path, data_pubkey, p
     parent_dir_inode, dead_child = _mutable_data_dir_unlink( parent_dir_inode, name )
     min_version = max(dead_child['version'], parent_dir_inode['version'])
 
-    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_dir_uuid, parent_dir_inode['idata'], device_ids, min_version=min_version, config_path=config_path )
+    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_dir_uuid, parent_dir_inode['idata'], device_ids, readers=parent_dir_inode['reader_pubkeys'], min_version=min_version, config_path=config_path )
     if 'error' in parent_dir_info:
         log.error("Failed to update directory {}: {}".format(os.path.dirname(data_path), parent_dir_info['error']))
         return {'error': 'Failed to create parent directory', 'errno': errno.EIO}
@@ -2973,7 +3004,7 @@ def datastore_listdir(api_client, datastore, data_path, extended=False, force=Fa
     return ret
 
 
-def datastore_putfile_make_inodes(api_client, datastore, data_path, file_data_hash, data_pubkey, parent_dir=None, create=False, force=False, config_path=CONFIG_PATH ):
+def datastore_putfile_make_inodes(api_client, datastore, data_path, file_data_hash, data_pubkey, readers=[], parent_dir=None, create=False, force=False, config_path=CONFIG_PATH ):
     """
     Store a file identified by a path.
     If @create is True, then will only succeed if created.
@@ -3037,12 +3068,12 @@ def datastore_putfile_make_inodes(api_client, datastore, data_path, file_data_ha
     min_version = max(parent_dir_inode['version'], child_dirent['version'])
 
     # make the new inode info
-    child_file_info = make_file_inode_data( datastore_id, datastore_id, child_uuid, file_data_hash, device_ids, config_path=config_path, min_version=min_version, create=create )
+    child_file_info = make_file_inode_data( datastore_id, datastore_id, child_uuid, file_data_hash, device_ids, readers=[], config_path=config_path, min_version=min_version, create=create )
     if 'error' in child_file_info:
         log.error("Failed to create file {}: {}".format(data_path, child_file_info['error']))
         return {'error': 'Failed to create file', 'errno': errno.EIO}
 
-    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_uuid, parent_dir_inode['idata'], device_ids, min_version=min_version, config_path=config_path )
+    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_uuid, parent_dir_inode['idata'], device_ids, readers=parent_dir_inode['reader_pubkeys'], min_version=min_version, config_path=config_path )
     if 'error' in parent_dir_info:
         log.error("Failed to update directory {}: {}".format(parent_dirpath, parent_dir_info['error']))
         return {'error': 'Failed to create parent directory', 'errno': errno.EIO}
@@ -3187,7 +3218,7 @@ def datastore_deletefile_make_inodes(api_client, datastore, data_path, data_pubk
     min_version = max(parent_dir_inode['version'], dead_child['version'])
 
     # update the parent 
-    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_dir_uuid, parent_dir_inode['idata'], device_ids, min_version=min_version, config_path=config_path )
+    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_dir_uuid, parent_dir_inode['idata'], device_ids, readers=parent_dir_inode['reader_pubkeys'], min_version=min_version, config_path=config_path )
     if 'error' in parent_dir_info:
         log.error("Failed to update directory {}: {}".format(dir_path, parent_dir_info['error']))
         return {'error': 'Failed to create parent directory', 'errno': errno.EIO}
@@ -3472,7 +3503,7 @@ def datastore_rmtree_make_inodes(api_client, datastore, data_path, data_pubkey_h
                 inode_stack = res['stack']
 
     # clear this inode's children
-    dir_inode_info = make_dir_inode_data( datastore_id, datastore_id, dir_uuid, {}, device_ids, config_path=config_path )
+    dir_inode_info = make_dir_inode_data( datastore_id, datastore_id, dir_uuid, {}, device_ids, readers=dir_inode_info['reader_pubkeys'], config_path=config_path )
     if 'error' in dir_inode_info:
         return dir_inode_info
 
