@@ -21,14 +21,12 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import json
-import sys
-
 import virtualchain
 
 from .operations import *
 from .constants import CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DRY_RUN
-from .config import get_tx_broadcaster, get_logger
+from .config import get_tx_broadcaster
+from .logger import get_logger
 
 from .backend.blockchain import broadcast_tx
 
