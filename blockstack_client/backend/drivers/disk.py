@@ -311,8 +311,6 @@ if __name__ == "__main__":
    
    import keylib
    import virtualchain
-   import json 
-
    from virtualchain.lib.hashing import *
    
    # hack around absolute paths
