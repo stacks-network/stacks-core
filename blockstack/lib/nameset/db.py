@@ -25,18 +25,11 @@ import sqlite3
 import subprocess
 import json
 import traceback
-import binascii
-import hashlib
-import math
-import keychain
 import os
 import sys
 import copy
-import shutil
 import time
 import random
-
-from collections import defaultdict
 
 # hack around absolute paths
 curr_dir = os.path.abspath( os.path.join( os.path.dirname(__file__), ".." ) )
