@@ -30,7 +30,8 @@ from virtualchain import SPVClient
 import storage
 
 from .constants import CONFIG_PATH, VERSION
-from .config import get_logger, get_config, semver_match
+from .config import get_config, semver_match
+from .logger import get_logger
 
 log = get_logger()
 
