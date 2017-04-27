@@ -23,8 +23,6 @@
 import os
 import sys
 import json
-import simplejson
-import traceback
 import time
 import keylib
 
@@ -35,29 +33,23 @@ parent_dir = os.path.abspath(current_dir + "/../")
 from .queue import in_queue, queue_append, queue_findone
 
 from .blockchain import get_tx_confirmations
-from .blockchain import is_address_usable
-from .blockchain import can_receive_name, get_balance, get_tx_fee, get_utxos
+from .blockchain import get_tx_fee, get_utxos
 from .blockchain import get_block_height
 
-from ..utils import pretty_print as pprint
-from ..utils import pretty_dump
-
-from ..config import PREORDER_CONFIRMATIONS, DEFAULT_QUEUE_PATH, CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster, RPC_MAX_ZONEFILE_LEN, RPC_MAX_PROFILE_LEN
-from ..config import get_logger, APPROX_TX_IN_P2PKH_LEN, APPROX_TX_OUT_P2PKH_LEN, APPROX_TX_OVERHEAD_LEN, APPROX_TX_IN_P2SH_LEN, APPROX_TX_OUT_P2SH_LEN
+from ..config import PREORDER_CONFIRMATIONS, DEFAULT_QUEUE_PATH, CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster, RPC_MAX_ZONEFILE_LEN
+from ..config import APPROX_TX_IN_P2PKH_LEN, APPROX_TX_OUT_P2PKH_LEN, APPROX_TX_OVERHEAD_LEN, APPROX_TX_IN_P2SH_LEN, APPROX_TX_OUT_P2SH_LEN
 from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS, BLOCKSTACK_DRY_RUN
 
 from ..proxy import get_default_proxy
 from ..proxy import getinfo as blockstack_getinfo
 from ..proxy import get_name_cost as blockstack_get_name_cost
-from ..proxy import get_name_blockchain_record as blockstack_get_name_blockchain_record
 from ..proxy import get_namespace_blockchain_record as blockstack_get_namespace_blockchain_record
-from ..proxy import is_name_registered, is_name_owner
 
 from ..tx import sign_tx, sign_and_broadcast_tx, deserialize_tx, preorder_tx, register_tx, update_tx, transfer_tx, revoke_tx, \
         namespace_preorder_tx, namespace_reveal_tx, namespace_ready_tx, announce_tx, name_import_tx
 
 from ..scripts import tx_make_subsidizable
-from ..storage import get_blockchain_compat_hash, hash_zonefile, put_announcement, get_zonefile_data_hash
+from ..storage import get_blockchain_compat_hash, put_announcement, get_zonefile_data_hash
 
 from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration, fees_preorder, \
         fees_namespace_preorder, fees_namespace_reveal, fees_namespace_ready, fees_name_import, fees_announce
@@ -65,6 +57,7 @@ from ..operations import fees_update, fees_transfer, fees_revoke, fees_registrat
 from ..keys import get_privkey_info_params
 
 from .safety import *
+from ..logger import get_logger
 
 import virtualchain
 from virtualchain.lib.ecdsalib import ecdsa_private_key
