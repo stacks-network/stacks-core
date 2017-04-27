@@ -23,11 +23,6 @@ from __future__ import print_function
     You should have received a copy of the GNU General Public License
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
-import os
-import keylib
-import re
-import hashlib
-import posixpath
 import jsonschema
 from jsonschema.exceptions import ValidationError
 import time
@@ -38,10 +33,6 @@ import virtualchain
 from virtualchain.lib.ecdsalib import *
 
 import jsontokens
-import urllib
-import urllib2
-import wallet
-import config
 import storage
 import data
 import user as user_db
@@ -50,8 +41,6 @@ from .proxy import *
 from config import get_config
 from .constants import CONFIG_PATH, BLOCKSTACK_TEST, LENGTH_MAX_NAME
 from .schemas import *
-from keys import HDWallet, get_pubkey_hex
-
 
 def app_make_session( app_public_key, app_domain, methods, master_data_privkey, app_user_id=None, session_lifetime=None, blockchain_ids=None, config_path=CONFIG_PATH ):
     """
