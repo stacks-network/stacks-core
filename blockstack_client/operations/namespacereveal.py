@@ -22,15 +22,13 @@
 """
 
 import keylib
-from utilitybelt import is_hex
-from binascii import hexlify, unhexlify
-import types
-import json
+from binascii import hexlify
 
-from ..b40 import b40_to_hex, bin_to_b40, is_b40
+from ..b40 import is_b40
 from ..config import *
 from ..scripts import *
-   
+from ..logger import get_logger
+
 import virtualchain
 log = get_logger("blockstack-log")
 

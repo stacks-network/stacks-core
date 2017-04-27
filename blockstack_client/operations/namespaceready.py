@@ -21,12 +21,12 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from utilitybelt import is_hex
-from binascii import hexlify, unhexlify
+from binascii import hexlify
 
-from ..b40 import b40_to_hex, bin_to_b40, is_b40
+from ..b40 import is_b40
 from ..config import *
 from ..scripts import *
+from ..logger import get_logger
 
 import virtualchain
 log = get_logger("blockstack-client")
