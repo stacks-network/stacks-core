@@ -21,18 +21,18 @@
 """
 
 import os
-import sys 
 import threading
 
 from ..constants import *
 from ..keys import *
 from ..proxy import *
-from ..config import get_logger, get_utxo_provider_client
+from ..config import get_utxo_provider_client
 from ..b40 import is_b40
+from ..logger import get_logger
 
 from .blockchain import (
     get_balance, is_address_usable, get_utxos,
-    can_receive_name, get_tx_confirmations, get_tx_fee
+    can_receive_name, get_tx_fee
 )
 
 from ..scripts import UTXOException, is_name_valid, is_namespace_valid
@@ -420,7 +420,7 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         if '.' in fqu_or_ns:
             nsid = fqu_or_ns.split('.')[1]
 
-        if not is_singlesig(import_privkey):
+        if not virtualchain.is_singlesig(import_privkey):
             if BLOCKSTACK_TEST:
                 log.debug("Not a single private key: {}".format(import_privkey))
 
