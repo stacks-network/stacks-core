@@ -22,9 +22,7 @@
 """
 
 import os
-import sys
 import random
-import signal
 import base64
 import copy
 
@@ -32,8 +30,6 @@ import copy
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 
-import signal
-from time import sleep
 import json
 import socket
 import threading
@@ -43,7 +39,6 @@ import hashlib
 import keylib
 from keylib import ECPrivateKey
 
-import blockstack_profiles
 import blockstack_zones
 import virtualchain
 
@@ -52,15 +47,17 @@ from .queue import queue_cleanall, queue_find_accepted
 
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
 
-from ..keys import get_data_privkey_info, is_singlesig_hex, get_privkey_info_params 
-from ..proxy import is_name_registered, is_zonefile_hash_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost, get_atlas_peers, json_is_error
-from ..zonefile import zonefile_data_replicate, make_empty_zonefile
-from ..user import is_user_zonefile, make_empty_user_profile
-from ..storage import put_mutable_data, put_immutable_data, hash_zonefile, get_zonefile_data_hash
-from ..data import get_profile_timestamp, set_profile_timestamp
+from ..keys import get_data_privkey_info, is_singlesig_hex 
+from ..proxy import is_name_registered, is_zonefile_hash_current, get_default_proxy, get_name_blockchain_record, get_atlas_peers, json_is_error
+from ..zonefile import zonefile_data_replicate
+from ..user import is_user_zonefile
+from ..storage import put_mutable_data, get_zonefile_data_hash
+from ..data import set_profile_timestamp
 
-from ..constants import SLEEP_INTERVAL, CONFIG_PATH, DEFAULT_QUEUE_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, TX_MIN_CONFIRMATIONS
-from ..config import get_config, get_logger, url_to_host_port
+from ..constants import CONFIG_PATH, DEFAULT_QUEUE_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, TX_MIN_CONFIRMATIONS
+from ..config import get_config
+from ..utils import url_to_host_port
+from ..logger import get_logger
 
 DEBUG = True
 
