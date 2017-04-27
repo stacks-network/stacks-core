@@ -21,7 +21,7 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import json, requests, traceback
+import requests
 
 BLOCKCHAIN_API_BASE_URL = "https://blockchain.info"
 
