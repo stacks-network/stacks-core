@@ -47,7 +47,7 @@ import blockstack_client
 from blockstack_client.actions import *
 from blockstack_client.keys import *
 from blockstack_client.app import *
-from blockstack_client.config import atlas_inventory_to_string
+from blockstack_client.utils import atlas_inventory_to_string
 from blockstack_client.backend.crypto import aes_encrypt
 
 import blockstack
@@ -189,14 +189,6 @@ default_payment_wallet = None
 # all scenario wallets
 wallets = None
 
-# map data URLs to the data they put
-data_urls = {}
-
-# map data IDs to the URLs the put
-data_ids = {}
-
-# deleted data 
-deleted_urls = []
 
 class CLIArgs(object):
     pass
@@ -1140,12 +1132,10 @@ def blockstack_cli_rpc( method, rpc_args=None, rpc_kw=None, config_path=None):
     return cli_rpc( args, config_path=config_path )
 
 
-def blockstack_cli_put_mutable( name, data_id, data_json_str, password=None, config_path=None):
+def blockstack_cli_put_mutable( name, data_id, data_json_str, password=None, config_path=None, storage_drivers=None, storage_drivers_exclusive=False):
     """
     put mutable data
     """
-    global data_urls
-    global data_ids
 
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -1161,7 +1151,7 @@ def blockstack_cli_put_mutable( name, data_id, data_json_str, password=None, con
     args.data_id = data_id
     args.data = path
 
-    res = cli_put_mutable( args, config_path=config_path, password=password )
+    res = cli_put_mutable( args, config_path=config_path, password=password, storage_drivers=storage_drivers, storage_drivers_exclusive=storage_drivers_exclusive )
 
     try:
         os.unlink(path)
@@ -1171,27 +1161,6 @@ def blockstack_cli_put_mutable( name, data_id, data_json_str, password=None, con
     if 'error' in res:
         return res
 
-    """
-    assert 'url' in res, "Missing URL"
-   
-    url = res['url']
-
-    # overwrite data
-    url_no_version = '#'.join(url.split('#')[:-1])
-    replace_url = None
-    for existing_url in data_urls.keys():
-        existing_url_no_version = '#'.join(existing_url.split('#')[:-1])
-        if url_no_version == existing_url_no_version:
-            replace_url = existing_url
-            break
-
-    if replace_url:
-        log.debug("Replace {} with {}".format(replace_url, url))
-        del data_urls[replace_url]
-
-    data_urls[url] = data_json_str
-    data_ids[data_id] = url
-    """
     return res
 
 
@@ -1199,8 +1168,6 @@ def blockstack_cli_put_immutable( name, data_id, data_json_str, password=None, c
     """
     put immutable data
     """
-    global data_urls
-    global data_ids
 
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -1226,29 +1193,6 @@ def blockstack_cli_put_immutable( name, data_id, data_json_str, password=None, c
     if 'error' in res:
         return res
 
-
-    """
-    assert 'url' in res, "Missing URL"
-    assert 'hash' in res, "Missing hash"
-    
-    url = res['url']
-    up = urlparse.urlparse(url)
-
-    # process overwrite
-    for did in data_ids.keys():
-        if data_ids[did] == url:
-            del data_ids[did]
-
-    for u in data_urls.keys():
-        p = urlparse.urlparse(u)
-        if p.netloc == up.netloc:
-            # overwriting data 
-            del data_urls[u]
-
-    data_urls[url] = data_json_str
-    data_ids[data_id] = url
-    data_ids[res['hash']] = url
-    """
     return res
 
 
@@ -1347,9 +1291,6 @@ def blockstack_cli_delete_immutable( name, hash_str, config_path=CONFIG_PATH, pa
     """
     delete immutable
     """
-    global data_urls
-    global data_ids
-    global deleted_urls
 
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -1362,15 +1303,6 @@ def blockstack_cli_delete_immutable( name, hash_str, config_path=CONFIG_PATH, pa
     res = cli_delete_immutable( args, config_path=config_path, password=password )
     if 'error' in res:
         return res
-
-    # clean up
-    url = data_ids.get(hash_str)
-    if url is not None:
-        if url in data_urls.keys():
-            # don't expect this
-            del data_urls[url]
-            
-        deleted_urls.append(url)
     
     return res
 
@@ -1379,9 +1311,6 @@ def blockstack_cli_delete_mutable( name, data_id, config_path=CONFIG_PATH, passw
     """
     delete mutable
     """
-    global data_urls
-    global data_ids
-    global deleted_urls
 
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -1394,15 +1323,6 @@ def blockstack_cli_delete_mutable( name, data_id, config_path=CONFIG_PATH, passw
     res = cli_delete_mutable( args, config_path=config_path, password=password )
     if 'error' in res:
         return res
-
-    # clean up 
-    url = data_ids.get(data_id)
-    if url is not None:
-        if url in data_urls.keys():
-            # don't expect this
-            del data_urls[url]
-
-        deleted_urls.append(url)
 
     return res
     
@@ -2837,44 +2757,14 @@ def check_atlas_zonefiles( state_engine, atlasdb_path ):
             return False
 
     return True 
-        
-
-def check_data_urls():
-    """
-    Verify that all data URLs generated over the course
-    of adding data result in the designated data.
-    """
-
-    global data_urls
-    global deleted_urls
-
-    for data_url, expected_data in data_urls.iteritems():
-        log.debug("Verify URL {}".format(data_url))
-        data = blockstack_cli_get_data(data_url)
-        if 'error' in data:
-            log.error("Failed to get {}: {}".format(data_url, data['error']))
-            return False
-
-        if data['data'] != expected_data:
-            log.error("Wrong data for {}: {} ({}) != {} ({})".format(data_url, expected_data, type(expected_data), data['data'], type(data['data'])))
-            return False
-
-    for data_url in deleted_urls:
-        log.debug("Verify deleted URL {}".format(data_url))
-        data = blockstack_cli_get_data(data_url)
-        if 'error' not in data:
-            log.error("Succeeded in getting deleted data {}".format(data_url))
-            return False
-
-    return True
-
+       
 
 def get_unspents( addr ):
     """
     Get the list of unspent outputs for an address.
     """
     utxo_provider = get_utxo_client()
-    return blockstack_client.backend.utxo.get_unspents(addr, utxo_provider)
+    return blockstack_client.utxo.get_unspents(addr, utxo_provider)
 
 
 def broadcast_transaction( tx_hex ):
@@ -2882,7 +2772,7 @@ def broadcast_transaction( tx_hex ):
     Send out a raw transaction to the mock framework.
     """
     utxo_provider = get_utxo_client()
-    return blockstack_client.backend.utxo.broadcast_transaction(tx_hex, utxo_provider)
+    return blockstack_client.utxo.broadcast_transaction(tx_hex, utxo_provider)
 
 
 def decoderawtransaction( tx_hex ):
