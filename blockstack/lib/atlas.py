@@ -22,31 +22,23 @@
 """
 
 import os
-import sys
 import time
 import sqlite3
-import urllib2
-import simplejson
 import threading
 import random
-import struct
 import base64
-import shutil
 import traceback
 import copy
-import binascii
-import StringIO
 import hashlib
 import errno
 import socket
 import gc
-import subprocess
-import contextlib
 
-import blockstack_zones
 import virtualchain
 
-from blockstack_client.config import url_to_host_port, semver_match, semver_newer, atlas_inventory_to_string
+from blockstack_client.config import semver_newer
+from blockstack_client.utils import url_to_host_port, atlas_inventory_to_string
+
 from blockstack_client.proxy import \
         ping as blockstack_ping, \
         getinfo as blockstack_getinfo, \
@@ -68,7 +60,7 @@ PEER_PING_INTERVAL = 600       # 10 minutes
 PEER_MAX_AGE = 2678400         # 1 month
 PEER_CLEAN_INTERVAL = 3600     # 1 hour
 PEER_MAX_DB = 65536            # maximum number of peers in the peer db
-MIN_PEER_HEALTH = 0.5  # minimum peer health before we forget about it
+MIN_PEER_HEALTH = 0.5          # minimum peer health before we forget about it
 
 PEER_PING_TIMEOUT = 3   # number of seconds for a ping to take
 PEER_INV_TIMEOUT  = 10  # number of seconds for an inv to take
