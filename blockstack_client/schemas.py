@@ -24,7 +24,6 @@ from __future__ import print_function
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import jsonschema
 from .constants import *
 
 OP_CONSENSUS_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTH_CONSENSUS_HASH * 2)
@@ -374,10 +373,14 @@ URI_RECORD_SCHEMA = {
             'type': 'string'
         },
         'priority': {
-            'type': 'integer'
+            'type': 'integer',
+            'minimum': 0,
+            'maximum': 65535,
         },
         'weight': {
-            'type': 'integer'
+            'type': 'integer',
+            'minimum': 0,
+            'maximum': 65535,
         },
         'target': {
             'type': 'string',
@@ -431,7 +434,9 @@ USER_ZONEFILE_SCHEMA = {
             'pattern': OP_NAME_PATTERN,
         },
         '$ttl': {
-            'type': 'integer'
+            'type': 'integer',
+            'minimum': 0,
+            'maximum': 2147483647,
         },
     },
     'required': [
@@ -461,13 +466,24 @@ MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES = {
         'type': 'string',
         'pattern': OP_UUID_PATTERN
     },
+    'readers': {
+        # who can read this inode?
+        'type': 'array',
+        'items': {
+            # hash of public key
+            'type': 'string',
+            'pattern': OP_ADDRESS_PATTERN
+        },
+    },
     'version': {
         # inode version
-        'type': 'integer'
+        'type': 'integer',
+        'minimum': 1
     },
     'proto_version': {
         # version of the protocol
-        'type': 'integer'
+        'type': 'integer',
+        'minimum': 1,
     },
 }
 
@@ -498,6 +514,7 @@ MUTABLE_DATUM_DIRENT_SCHEMA = {
         },
         'version': {
             'type': 'integer',
+            'minimum': 1,
         },
     },
     'additionalProperties': False,
@@ -508,6 +525,7 @@ MUTABLE_DATUM_DIRENT_SCHEMA = {
     ],
 }
 
+# NOTE: *unserialized* idata
 MUTABLE_DATUM_DIR_IDATA_SCHEMA = {
     'type': 'object',
     'patternProperties': {
@@ -605,10 +623,12 @@ DATA_BLOB_SCHEMA = {
             'pattern': OP_URLENCODED_PATTERN
         },
         'version': {
-            'type': 'integer'
+            'type': 'integer',
+            'minimum': 1,
         },
         'timestamp': {
-            'type': 'integer'
+            'type': 'integer',
+            'minimum': 0,
         },
         'data': {
             'anyOf': OP_ANY_TYPE_SCHEMA,
@@ -666,6 +686,7 @@ APP_SESSION_PROPERTIES.update({
     },
     'timestamp': {
         'type': 'integer',
+        'minimum': 0,
     },
     'expires': {
         'type': 'integer',
@@ -920,6 +941,8 @@ OP_HISTORY_SCHEMA = {
         },
         'base': {
             'type': 'integer',
+            'minimum': 0,
+            'maximum': 255,
         },
         'buckets': {
             'anyOf': [
@@ -938,11 +961,14 @@ OP_HISTORY_SCHEMA = {
         },
         'block_number': {
             'type': 'integer',
+            'minimum': 0,
         },
         'coeff': {
             'anyOf': [
                 {
                     'type': 'integer',
+                    'minimum': 0,
+                    'maximum': 255,
                 },
                 {
                     'type': 'null'
@@ -962,9 +988,11 @@ OP_HISTORY_SCHEMA = {
         },
         'fee': {
             'type': 'integer',
+            'minimum': 0,
         },
         'first_registered': {
             'type': 'integer',
+            'minimum': 0,
         },
         'history_snapshot': {
             'type': 'boolean',
@@ -993,6 +1021,7 @@ OP_HISTORY_SCHEMA = {
         },
         'last_renewed': {
             'type': 'integer',
+            'minimum': 0,
         },
         'op': {
             'type': 'string',
@@ -1073,6 +1102,7 @@ OP_HISTORY_SCHEMA = {
         },
         'vtxindex': {
             'type': 'integer',
+            'minimum': 0,
         },
     },
     'required': [
@@ -1089,6 +1119,7 @@ NAMEOP_SCHEMA_PROPERTIES = {
     'consensus_hash': OP_HISTORY_SCHEMA['properties']['consensus_hash'],
     'expire_block': {
         'type': 'integer',
+        'minimum': 0,
     },
     'first_registered': OP_HISTORY_SCHEMA['properties']['first_registered'],
     'history': {
@@ -1152,9 +1183,13 @@ NAMESPACE_SCHEMA_PROPERTIES = {
     },
     'no_vowel_discount': {
         'type': 'integer',
+        'minimum': 0,
+        'maximum': 15,
     },
     'nonalpha_discount': {
         'type': 'integer',
+        'minimum': 0,
+        'maximum': 15,
     },
     'op': OP_HISTORY_SCHEMA['properties']['op'],
     'ready': {
@@ -1162,17 +1197,20 @@ NAMESPACE_SCHEMA_PROPERTIES = {
     },
     'ready_block': {
         'type': 'integer',
+        'minimum': 0,
     },
     'recipient': OP_HISTORY_SCHEMA['properties']['recipient'],
     'recipient_address': OP_HISTORY_SCHEMA['properties']['recipient_address'],
     'reveal_block': {
         'type': 'integer',
+        'minimum': 0,
     },
     'sender': OP_HISTORY_SCHEMA['properties']['sender'],
     'sender_pubkey': OP_HISTORY_SCHEMA['properties']['sender_pubkey'],
     'txid': OP_HISTORY_SCHEMA['properties']['txid'],
     'version': {
         'type': 'integer',
+        'minimum': 1,
     },
     'vtxindex': OP_HISTORY_SCHEMA['properties']['vtxindex'],
 }
