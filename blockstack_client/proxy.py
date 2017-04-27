@@ -34,6 +34,7 @@ import httplib
 import base64
 import jsonschema
 from jsonschema.exceptions import ValidationError
+from utils import url_to_host_port
 
 # prevent the usual XML attacks
 xmlrpc.MAX_DATA = 10 * 1024 * 1024  # 10MiB
@@ -43,13 +44,10 @@ import storage
 import scripts
 
 from .constants import (
-    MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST
+    MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST, DEFAULT_TIMEOUT
 )
 
-import config
-from .config import (
-    get_logger, url_to_host_port, 
-)
+from .logger import get_logger
 
 from .operations import (
     nameop_history_extract, nameop_restore_from_history,
@@ -112,7 +110,7 @@ class BlockstackRPCClient(object):
     """
 
     def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN,
-                 timeout=config.DEFAULT_TIMEOUT, debug_timeline=False, **kw):
+                 timeout=DEFAULT_TIMEOUT, debug_timeline=False, **kw):
 
         self.url = 'http://{}:{}'.format(server, port)
         self.srv = TimeoutServerProxy(self.url, timeout=timeout, allow_none=True)
@@ -167,6 +165,7 @@ def get_default_proxy(config_path=CONFIG_PATH):
         return default_proxy
 
     import client
+    import config
 
     if BLOCKSTACK_CLIENT_TEST_ALTERNATIVE_CONFIG is not None:
         # feature test: make sure alternative config paths get propagated
@@ -299,6 +298,7 @@ def json_response_schema( expected_object_schema ):
                 'anyOf': [
                     {
                         'type': 'integer',
+                        'minimum': 0,
                     },
                     {
                         'type': 'null',
@@ -332,7 +332,8 @@ def getinfo(proxy=None):
         'type': 'object',
         'properties': {
             'last_block_seen': {
-                'type': 'integer'
+                'type': 'integer',
+                'minimum': 0,
             },
             'consensus': {
                 'type': 'string'
@@ -341,13 +342,15 @@ def getinfo(proxy=None):
                 'type': 'string'
             },
             'last_block_processed': {
-                'type': 'integer'
+                'type': 'integer',
+                'minimum': 0,
             },
             'server_alive': {
                 'type': 'boolean'
             },
             'zonefile_count': {
-                'type': 'integer'
+                'type': 'integer',
+                'minimum': 0,
             },
             'indexing': {
                 'type': 'boolean'
@@ -456,6 +459,7 @@ def get_name_cost(name, proxy=None):
             },
             'satoshis': {
                 'type': 'integer',
+                'minimum': 0,
             },
         },
         'required': [
@@ -499,6 +503,7 @@ def get_namespace_cost(namespace_id, proxy=None):
         'properties': {
             'satoshis': {
                 'type': 'integer',
+                'minimum': 0,
             }
         },
         'required': [
@@ -609,6 +614,7 @@ def get_num_names(proxy=None):
         'properties': {
             'count': {
                 'type': 'integer',
+                'minimum': 0,
             },
         
             },
@@ -813,7 +819,8 @@ def get_num_names_in_namespace(namespace_id, proxy=None):
         'type': 'object',
         'properties': {
             'count': {
-                'type': 'integer'
+                'type': 'integer',
+                'minimum': 0,
             },
         },
         'required': [
@@ -1088,6 +1095,7 @@ def get_block_from_consensus(consensus_hash, proxy=None):
                 'anyOf': [
                     {
                         'type': 'integer',
+                        'minimum': 0,
                     },
                     {
                         'type': 'null',
@@ -1141,6 +1149,7 @@ def get_name_history_blocks(name, proxy=None):
         'type': 'array',
         'items': {
             'type': 'integer',
+            'minimum': 0,
         },
     }
 
@@ -1282,9 +1291,11 @@ def get_op_history_rows(name, proxy=None):
                 },
                 'block_id': {
                     'type': 'integer',
+                    'minimum': 0,
                 },
                 'vtxindex': {
                     'type': 'integer',
+                    'minimum': 0,
                 },
                 'op': {
                     'type': 'string',
@@ -1309,7 +1320,8 @@ def get_op_history_rows(name, proxy=None):
         'type': 'object',
         'properties': {
             'count': {
-                'type': 'integer'
+                'type': 'integer',
+                'minimum': 0,
             },
         },
         'required': [
@@ -1428,7 +1440,8 @@ def get_nameops_affected_at(block_id, proxy=None):
         'type': 'object',
         'properties': {
             'count': {
-                'type': 'integer'
+                'type': 'integer',
+                'minimum': 0,
             },
         },
         'required': [
@@ -2054,8 +2067,8 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
                 'type': 'array',
                 'items': {
                     'type': 'integer',
-                    'minItems': len(zonefile_data_list),
-                    'maxItems': len(zonefile_data_list)
+                    'minimum': len(zonefile_data_list),
+                    'maximum': len(zonefile_data_list)
                 },
             },
         },
