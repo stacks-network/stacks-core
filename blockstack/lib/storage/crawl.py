@@ -22,11 +22,6 @@
 """
 
 import os
-import json
-import sys
-import urllib2
-import stat
-import time
 
 from ..config import *
 from ..nameset import *
@@ -35,10 +30,7 @@ from .auth import *
 from ..scripts import is_name_valid
 
 import blockstack_client
-from blockstack_client import hash_zonefile, get_zonefile_data_hash, verify_zonefile
-from blockstack_client.backend.queue import (
-        queue_append, queue_findall, queue_removeall, queue_findone
-)
+from blockstack_client import get_zonefile_data_hash, verify_zonefile
 
 import blockstack_zones
 
@@ -314,6 +306,7 @@ def store_zonefile_to_storage( zonefile_dict, required=None, skip=None, cache=Fa
         return False
 
     name = zonefile_dict.get('$origin')
+    log.debug("Store zonefile for {} to drivers '{}'".format(name, ','.join(required if required is not None else [])))
     return store_zonefile_data_to_storage( zonefile_data, required=required, skip=skip, cache=cache, zonefile_dir=zonefile_dir, name=name )
 
 
@@ -331,7 +324,8 @@ def store_mutable_data_to_storage( blockchain_id, data_id, data_txt, profile=Fal
     else:
         nocollide_data_id = '{}-{}'.format(blockchain_id, data_id)
 
-    res = blockstack_client.storage.put_mutable_data(nocollide_data_id, data_txt, None, sign=False, required=required, skip=skip, blockchain_id=blockchain_id)
+    log.debug("Store {} to drivers '{}', skipping '{}'".format('profile' if profile else 'mutable datum', ','.join(required if required is not None else []), ','.join(skip if skip is not None else [])))
+    res = blockstack_client.storage.put_mutable_data(nocollide_data_id, data_txt, sign=False, required=required, skip=skip, blockchain_id=blockchain_id)
     return res
 
 
@@ -339,9 +333,10 @@ def load_mutable_data_from_storage( blockchain_id, data_id, drivers=None ):
     """
     Load mutable data from storage.
     Used by the storage gateway logic.
+    Return 
     """
     
     nocollide_data_id = '{}-{}'.format(blockchain_id, data_id)
-    res = blockstack_client.storage.get_mutable_data(data_id, None, blockchain_id=blockchain_id, drivers=drivers, decode=False)
+    res = blockstack_client.storage.get_mutable_data(nocollide_data_id, None, blockchain_id=blockchain_id, drivers=drivers, decode=False)
     return res
    
