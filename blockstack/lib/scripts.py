@@ -21,14 +21,8 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from utilitybelt import is_hex, is_valid_int
-from binascii import hexlify, unhexlify
-from virtualchain import BitcoinPublicKey
-
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
-
-import json
 
 try:
     from .config import *
