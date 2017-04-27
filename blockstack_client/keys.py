@@ -23,29 +23,15 @@
 
 import virtualchain
 from binascii import hexlify
-import collections
-import json
-import traceback
 import re
-import sys
 
 import keylib
-from keylib import ECPrivateKey, ECPublicKey
-from keylib.hashing import bin_hash160
-from keylib.address_formatting import bin_hash160_to_address
-from keylib.key_formatting import compress, decompress
-from keylib.public_key_encoding import PubkeyType
-
-from .backend.crypto.utils import aes_encrypt, aes_decrypt
 
 from keychain import PrivateKeychain
-import base64
-import binascii
 import jsonschema
 from jsonschema.exceptions import ValidationError
-from utilitybelt import is_hex
 
-from .config import get_logger
+from .logger import get_logger
 from .constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
 
 import virtualchain
@@ -279,6 +265,8 @@ def decrypt_multisig_info(enc_multisig_info, password):
     Returns {'private_keys': ..., 'redeem_script': ..., **other_fields}
     Return {'error': ...} on error
     """
+    from .backend.crypto.utils import aes_decrypt
+
     multisig_info = {
         'private_keys': None,
         'redeem_script': None,
@@ -332,6 +320,8 @@ def decrypt_private_key_info(privkey_info, password):
     Return {'address': ..., 'private_key_info': ...} on success.
     Return {'error': ...} on error.
     """
+
+    from .backend.crypto.utils import aes_decrypt
 
     ret = {}
     if is_encrypted_multisig(privkey_info):
