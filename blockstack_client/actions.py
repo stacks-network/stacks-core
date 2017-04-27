@@ -56,12 +56,8 @@ import time
 import blockstack_zones
 import blockstack_profiles
 import requests
-import base64
 import binascii
-import jsonschema
-import threading
 from decimal import Decimal
-import uuid
 import string
 
 requests.packages.urllib3.disable_warnings()
@@ -78,8 +74,7 @@ sys.path.insert(0, parent_dir)
 from blockstack_client import (
     delete_immutable, delete_mutable, get_all_names, get_consensus_at,
     get_immutable, get_immutable_by_name, get_mutable, get_name_blockchain_record,
-    get_name_cost, get_name_zonefile,
-    get_nameops_at, get_names_in_namespace, get_names_owned_by_address,
+    get_name_zonefile, get_nameops_at, get_names_in_namespace, get_names_owned_by_address,
     get_namespace_blockchain_record, get_namespace_cost,
     is_user_zonefile, list_immutable_data_history, list_update_history,
     list_zonefile_history, lookup_snv, put_immutable, put_mutable, zonefile_data_replicate
@@ -87,36 +82,28 @@ from blockstack_client import (
 
 from blockstack_client.profile import put_profile, delete_profile, get_profile
 
-from rpc import local_api_connect, local_api_status, local_api_stop 
+from rpc import local_api_connect, local_api_status 
 import rpc as local_rpc
 import config
 
-from .config import configure_zonefile, set_advanced_mode, configure, get_utxo_provider_client, get_tx_broadcaster, get_local_device_id, get_all_device_ids
+from .config import configure_zonefile, set_advanced_mode, configure, get_utxo_provider_client, get_tx_broadcaster, get_all_device_ids
 from .constants import (
-    CONFIG_PATH, CONFIG_DIR, FIRST_BLOCK_TIME_UTC,
-    APPROX_PREORDER_TX_LEN, APPROX_REGISTER_TX_LEN,
-    APPROX_UPDATE_TX_LEN, APPROX_TRANSFER_TX_LEN,
+    CONFIG_PATH, CONFIG_DIR,
     FIRST_BLOCK_MAINNET, NAME_UPDATE,
-    BLOCKSTACK_DEBUG, BLOCKSTACK_TEST,
-    TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME,
-    LENGTH_VALUE_HASH
+    BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME
 )
 
-from .b40 import is_b40
-from .storage import get_drivers_for_url, get_driver_urls, get_storage_handlers, sign_data_payload, make_fq_data_id, \
+from .storage import get_driver_urls, get_storage_handlers, sign_data_payload, \
     get_zonefile_data_hash
 
 from .backend.blockchain import (
-    get_balance, is_address_usable, get_utxos, broadcast_tx,
-    can_receive_name, get_tx_confirmations, get_tx_fee, get_block_height
+    get_balance, get_utxos, broadcast_tx,
+    get_tx_confirmations, get_tx_fee, get_block_height
 )
 
 from .backend.registrar import get_wallet as registrar_get_wallet 
 
 from .backend.nameops import (
-    estimate_preorder_tx_fee, estimate_register_tx_fee,
-    estimate_update_tx_fee, estimate_transfer_tx_fee,
-    estimate_renewal_tx_fee, estimate_revoke_tx_fee,
     do_namespace_preorder, do_namespace_reveal, do_namespace_ready,
     do_name_import
 )
@@ -130,21 +117,19 @@ from .keys import *
 from .proxy import *
 from .client import analytics_event 
 from .scripts import UTXOException, is_name_valid, is_valid_hash, is_namespace_valid
-from .user import add_user_zonefile_url, remove_user_zonefile_url, user_zonefile_urls, \
-        make_empty_user_profile, user_zonefile_data_pubkey
+from .user import make_empty_user_profile, user_zonefile_data_pubkey
 
-from .resolve import *
 from .tx import serialize_tx, sign_tx
 from .zonefile import make_empty_zonefile, url_to_uri_record
 
 from .utils import exit_with_error, satoshis_to_btc
-from .app import app_publish, app_unpublish, app_get_config, app_get_resource, \
-        app_put_resource, app_delete_resource, app_make_session 
+from .app import app_publish, app_get_config, app_get_resource, \
+        app_put_resource, app_delete_resource 
 
-from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, get_datastore, put_datastore, delete_datastore, \
+from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, put_datastore, delete_datastore, \
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir, datastore_stat, \
-        datastore_rmtree, datastore_get_id, datastore_get_privkey, _mutable_data_make_file, \
-        verify_datastore_info, put_datastore_info, datastore_getinode, datastore_get_privkey, get_mutable_data_version, \
+        datastore_rmtree, datastore_get_id, datastore_get_privkey, \
+        datastore_getinode, datastore_get_privkey, \
         make_mutable_data_info, data_blob_serialize, make_mutable_data_tombstones, sign_mutable_data_tombstones
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
@@ -2376,13 +2361,12 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
     rpc = local_api_connect(config_path=config_path)
     if rpc is None:
         log.error("Failed to connect to API endpoint. Trying to shut it down...")
-        rc = local_rpc.local_api_action('stop', config_dir=config_dir)
-        if not rc:
+        res = local_rpc.local_api_action('stop', config_dir=config_dir)
+        if 'error' in res:
             log.error("Failed to stop API daemon")
-            return {'error': 'Failed to load wallet into API endpoint: failed to stop endpoint'}
+            return res
 
-        else:
-            return {'error': 'Failed to load wallet into API endpoint: failed to connect to endpoint'}
+        return {'status': True}
 
     try:
         wallet = decrypt_wallet(data, password, config_path=config_path)
@@ -2583,11 +2567,8 @@ def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
     if str(args.command) == 'start' and not wallet_exists(config_path=config_path):
         return {'error': 'Wallet does not exist.  Please create one with `blockstack setup`'}
 
-    rc = local_rpc.local_api_action(str(args.command), config_dir=config_dir, password=password, api_pass=api_pass)
-    if not rc:
-        return {'error': 'Failed to {} API server'.format(args.command)}
-
-    return {'status': True}
+    res = local_rpc.local_api_action(str(args.command), config_dir=config_dir, password=password, api_pass=api_pass)
+    return res
 
 
 def cli_name_import(args, interactive=True, config_path=CONFIG_PATH, proxy=None):
@@ -3271,7 +3252,7 @@ def cli_namespace_ready(args, interactive=True, config_path=CONFIG_PATH, proxy=N
     return res
 
 
-def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
+def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None, storage_drivers=None, storage_drivers_exclusive=False):
     """
     command: put_mutable advanced
     help: Put signed, versioned data into your storage providers.
@@ -3326,7 +3307,9 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
     sig = sign_data_payload(mutable_data_payload, privkey)
 
-    result = put_mutable(mutable_data_info['fq_data_id'], mutable_data_payload, pubkey, sig, mutable_data_info['version'], blockchain_id=fqu, config_path=config_path, proxy=proxy) 
+    result = put_mutable(mutable_data_info['fq_data_id'], mutable_data_payload, pubkey, sig, mutable_data_info['version'], \
+                         blockchain_id=fqu, config_path=config_path, proxy=proxy, storage_drivers=storage_drivers, storage_drivers_exclusive=storage_drivers_exclusive) 
+
     if 'error' in result:
         return result
 
