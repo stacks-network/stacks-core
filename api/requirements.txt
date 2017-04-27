@@ -1,4 +1,5 @@
-appdirs==1.4.3
+pyparsing>=2.2.0
+appdirs>=1.4.3
 asn1crypto==0.22.0
 base58==0.2.4
 basicrpc==0.0.2
@@ -21,7 +22,7 @@ Flask==0.12
 flask-crossdomain==0.1
 Flask-HTTPS==0.1.0
 Flask-SSLify==0.1.5
-functools32==3.2.3.post2
+functools32>=3.2.3
 idna==2.5
 ipaddress==1.0.18
 itsdangerous==0.24
@@ -40,7 +41,6 @@ pybitcoin==0.9.9
 pycparser==2.17
 pycrypto==2.6.1
 pylibmc==1.5.2
-pyparsing==2.2.0
 python-bitcoinrpc==0.1
 requests==2.13.0
 simplejson==3.10.0
