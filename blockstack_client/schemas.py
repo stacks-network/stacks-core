@@ -307,6 +307,20 @@ ENCRYPTED_WALLET_SCHEMA_CURRENT = {
     'additionalProperties': False,
 }
 
+# in 0.14.2 and on, we continue to tolerate the absence of a data key.
+# however, certain features will not work.
+ENCRYPTED_WALLET_SCHEMA_CURRENT_NODATAKEY = {
+    'type': 'object',
+    'properties': ENCRYPTED_WALLET_SCHEMA_CURRENT['properties'],
+    'required': [
+        'owner_addresses',
+        'payment_addresses',
+        'version',
+        'enc'
+    ],
+    'additionalProperties': False,
+}
+
 # fully-decrypted wallet schema
 WALLET_SCHEMA_PROPERTIES = {
     'data_pubkey': {
@@ -365,6 +379,22 @@ WALLET_SCHEMA_CURRENT = {
         'version'
     ],
 }
+
+# will be deprecated soon, but some features
+# like profile-loading have to keep working
+# even if the data key is missing.
+WALLET_SCHEMA_CURRENT_NODATAKEY = {
+    'type': 'object',
+    'properties': WALLET_SCHEMA_PROPERTIES,
+    'required': [
+        'owner_privkey',
+        'payment_privkey',
+        'owner_addresses',
+        'payment_addresses',
+        'version'
+    ],
+}
+
 
 URI_RECORD_SCHEMA = {
     'type': 'object',
@@ -475,6 +505,14 @@ MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES = {
             'pattern': OP_ADDRESS_PATTERN
         },
     },
+    'reader_pubkeys': {
+        # public keys
+        'type': 'array',
+        'items': {
+            'type': 'string',
+            'pattern': OP_HEX_PATTERN
+        },
+    },
     'version': {
         # inode version
         'type': 'integer',
@@ -551,28 +589,28 @@ MUTABLE_DATUM_INODE_SCHEMA = {
     'type': 'object',
     'properties': MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES,
     'additionalProperties': False,
-    'required': MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.keys()
+    'required': list(set(MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.keys()) - set(['reader_pubkeys']))
 }
 
 MUTABLE_DATUM_INODE_HEADER_SCHEMA = {
     'type': 'object',
     'properties': MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES,
     'additionalProperties': False,
-    'required': MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES.keys()
+    'required': list(set(MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES.keys()) - set(['reader_pubkeys']))
 }
 
 MUTABLE_DATUM_FILE_SCHEMA = {
     'type': 'object',
     'properties': MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES,
     'additionalProperties': False,
-    'required': MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.keys()
+    'required': list(set(MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.keys()) - set(['reader_pubkeys']))
 }
 
 MUTABLE_DATUM_DIR_SCHEMA = {
     'type': 'object',
     'properties': MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES,
     'additionalProperties': False,
-    'required': MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.keys()
+    'required': list(set(MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.keys()) - set(['reader_pubkeys']))
 }
 
 # replicated datastore
@@ -705,7 +743,7 @@ APP_SESSION_SCHEMA = {
 APP_AUTHREQUEST_SCHEMA = {
     'type': 'object',
     'properties': APP_INFO_PROPERTIES,
-    'required': list(set(APP_INFO_PROPERTIES.keys()) - set(['app_user_id','blockchain_ids'])),
+    'required': list(set(APP_INFO_PROPERTIES.keys()) - set(['app_public_key','blockchain_ids'])),
     'additionalProperties': False
 }
 
