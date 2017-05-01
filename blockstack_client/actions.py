@@ -130,7 +130,7 @@ from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, put_dat
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir, datastore_stat, \
         datastore_rmtree, datastore_get_id, datastore_get_privkey, \
         datastore_getinode, datastore_get_privkey, \
-        make_mutable_data_info, data_blob_serialize, make_mutable_data_tombstones, sign_mutable_data_tombstones
+        make_mutable_data_info, data_blob_parse, data_blob_serialize, make_mutable_data_tombstones, sign_mutable_data_tombstones
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
 
@@ -3291,29 +3291,43 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None, st
     if error:
         return {'error': error}
 
-    # this should only succeed if the zone file is well-formed,
-    # since otherwise no one would be able to get the public key.
-    zfinfo = get_name_zonefile(fqu, proxy=proxy)
-    if 'error' in zfinfo:
-        log.error("Unable to load zone file for {}: {}".format(fqu, zfinfo['error']))
-        return {'error': 'Unable to load or parse zone file for {}'.format(fqu)}
-   
-    if not user_zonefile_data_pubkey(zfinfo['zonefile']):
-        log.error("Zone file for {} has no public key".format(fqu))
-        return {'error': 'Zone file for {} has no public key'.format(fqu)}
-
     config_dir = os.path.dirname(config_path)
     privkey = None
-    if not hasattr(args, 'privkey'):
+    if not hasattr(args, 'privkey') or args.privkey is None:
+        
+        # get the data private key from the wallet.
+        # put_mutable() should only succeed if the zone file for this name
+        # has the corresponding public key, since otherwise there would be
+        # no way to authenticate this data.
+        zfinfo = get_name_zonefile(fqu, proxy=proxy)
+        if 'error' in zfinfo:
+            log.error("Unable to load zone file for {}: {}".format(fqu, zfinfo['error']))
+            return {'error': 'Unable to load or parse zone file for {}'.format(fqu)}
+       
+        if not user_zonefile_data_pubkey(zfinfo['zonefile']):
+            log.error("Zone file for {} has no public key".format(fqu))
+            return {'error': 'Zone file for {} has no public key'.format(fqu)}
+
         wallet_keys = get_wallet_keys(config_path, password)
         if 'error' in wallet_keys:
             return wallet_keys
 
-        privkey = wallet_keys['data_privkey']
+        privkey = str(wallet_keys['data_privkey'])
+        pubkey = keylib.key_formatting.compress(ecdsa_private_key(privkey).public_key().to_hex())
+        zfpubkey = keylib.key_formatting.compress(user_zonefile_data_pubkey(zfinfo['zonefile']))
+        if pubkey != zfpubkey:
+            log.error("Public key mismatch: wallet public key {} != zonefile public key {}".format(pubkey, zfpubkey))
+            return {'error': 'Public key mismatch: wallet public key {} does not match zone file public key {}'.format(pubkey, zfpubkey)}
+
     else:
         privkey = str(args.privkey)
 
-    pubkey = ECPrivateKey(privkey).public_key().to_hex()
+    try:
+        pubkey = ECPrivateKey(privkey).public_key().to_hex()
+    except:
+        if BLOCKSTACK_TEST:
+            log.error("Invalid private key {}".format(privkey))
+        return {'error': 'Failed to parse private key'}
 
     mutable_data_info = make_mutable_data_info(data_id, data, blockchain_id=fqu, config_path=config_path)
     mutable_data_payload = data_blob_serialize(mutable_data_info)
@@ -3376,8 +3390,10 @@ def cli_get_mutable(args, config_path=CONFIG_PATH, proxy=None):
     help: Get signed, versioned data from storage providers.
     arg: name (str) 'The blockchain ID that owns the data'
     arg: data_id (str) 'The name of the data'
+    opt: data_pubkey (str) 'The public key to use to verify the data'
     """
-    result = get_mutable(str(args.data_id), proxy=proxy, config_path=config_path, blockchain_id=str(args.name))
+    data_pubkey = str(args.data_pubkey) if hasattr(args, 'data_pubkey') and getattr(args, 'data_pubkey') is not None else None
+    result = get_mutable(str(args.data_id), proxy=proxy, config_path=config_path, blockchain_id=str(args.name), data_pubkey=data_pubkey)
     if 'error' in result:
         return result
 
@@ -3408,30 +3424,6 @@ def cli_get_immutable(args, config_path=CONFIG_PATH, proxy=None):
         'data': result['data'],
         'hash': result['hash']
     }
-
-
-def cli_get_data(args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None):
-    """
-    command: get_data advanced
-    help: Fetch Blockstack data using a blockstack:// URL.
-    arg: url (str) 'The Blockstack URL'
-    """
-    proxy = get_default_proxy() if proxy is None else proxy
-    password = get_default_password(password)
-    
-    url = str(args.url)
-
-    try:
-        res = blockstack_url_fetch( url, proxy=proxy, config_path=config_path)
-        return res
-    except PasswordRequiredException:
-
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-    
-        res = blockstack_url_fetch( url, proxy=proxy, config_path=config_path, wallet_keys=wallet_keys)
-        return res
 
 
 def cli_list_update_history(args, config_path=CONFIG_PATH):
@@ -4443,6 +4435,9 @@ def cli_sign_data( args, config_path=CONFIG_PATH, proxy=None, password=None, int
     if BLOCKSTACK_DEBUG:
         assert storage.parse_mutable_data(res, pubkey)
 
+    if BLOCKSTACK_TEST:
+        log.debug("Verified {} with {}".format(res, pubkey))
+
     return res
 
 
@@ -4467,8 +4462,11 @@ def cli_verify_data( args, config_path=CONFIG_PATH, proxy=None, interactive=True
     if hasattr(args, 'pubkey') and args.pubkey is not None:
         pubkey = str(args.pubkey)
         try:
-            pubkey = ECPublicKey(pubkey).to_hex()
-        except:
+            pubkey = keylib.ECPublicKey(pubkey).to_hex()
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
             return {'error': 'Invalid public key'}
 
     if pubkey is None:
@@ -4500,6 +4498,9 @@ def cli_verify_data( args, config_path=CONFIG_PATH, proxy=None, interactive=True
             data = f.read().strip()
     except:
         return {'error': 'Failed to read file'}
+
+    if BLOCKSTACK_TEST:
+        log.debug("Verify {} with {}".format(data, pubkey))
 
     res = storage.parse_mutable_data(data, pubkey)
     if res is None:
@@ -5357,7 +5358,7 @@ def cli_collection_getitem( args, config_path=CONFIG_PATH, interactive=False, pa
 def cli_start_server( args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: start_server advanced
-    help: Start a Blockstack server
+    help: Start a Blockstack indexing server
     opt: foreground (str) 'If True, then run in the foreground.'
     opt: working_dir (str) 'The directory which contains the server state.'
     opt: testnet (str) 'If True, then communicate with Bitcoin testnet.'
@@ -5373,14 +5374,14 @@ def cli_start_server( args, config_path=CONFIG_PATH, interactive=False ):
 
     if args.testnet:
         testnet = str(args.testnet)
-        testnet = (testnet.lower() in ['1', 'true', 'yes', 'testnet'])
+        testnet = (testnet.lower() in ['1', 'true', 'yes', 'testnet3'])
 
-    cmds = ['blockstack-server', 'start']
+    cmds = ['blockstack-core', 'start']
     if foreground:
         cmds.append('--foreground')
 
     if testnet:
-        cmds.append('--testnet')
+        cmds.append('--testnet3')
 
     # TODO: use subprocess
     if working_dir is not None:
@@ -5402,13 +5403,13 @@ def cli_start_server( args, config_path=CONFIG_PATH, interactive=False ):
 def cli_stop_server( args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: stop_server advanced
-    help: Stop a running Blockstack server
+    help: Stop a running Blockstack indexing server
     opt: working_dir (str) 'The directory which contains the server state.'
     """
 
     working_dir = args.working_dir
 
-    cmds = ['blockstack-server', 'stop']
+    cmds = ['blockstack-core', 'stop']
 
     if working_dir is not None:
         working_dir_envar = 'VIRTUALCHAIN_WORKING_DIR="{}"'.format(working_dir)
