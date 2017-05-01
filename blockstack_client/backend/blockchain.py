@@ -128,7 +128,7 @@ def get_tx_fee( tx_hex, config_path=CONFIG_PATH ):
         fee = float(fee) 
 
         # / 2048, since tx_hex is a hex string (otherwise / 1024, since it's BTC per kb)
-        return round((fee * (len(tx_hex) / 2048.0)) * 10**8)
+        return int(round((fee * (len(tx_hex) / 2048.0)) * 10**8))
     except Exception, e:
         log.exception(e)
         log.debug("Failed to estimate fee")
