@@ -72,7 +72,7 @@ def scenario( wallets, **kw ):
 
     # wait for the poller to pick it up
     print >> sys.stderr, "Waiting 10 seconds for the backend to submit the register"
-    time.sleep(10)
+    time.sleep(15)
 
 
     # wait for the register to get confirmed 
@@ -84,7 +84,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
-    time.sleep(10)
+    time.sleep(15)
 
     # wait for update to get confirmed 
     for i in xrange(0, 12):
@@ -95,7 +95,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
-    time.sleep(10)
+    time.sleep(15)
 
     # send an update, changing the zonefile
     data_pubkey = wallet['data_pubkey']
@@ -120,7 +120,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowedge the update"
-    time.sleep(10)
+    time.sleep(15)
 
     # transfer to a new address 
     resp = testlib.blockstack_cli_transfer( "foo.test", wallets[4].addr, "0123456789abcdef" )
@@ -138,7 +138,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge the transfer"
-    time.sleep(10)
+    time.sleep(15)
 
 
 def check( state_engine ):

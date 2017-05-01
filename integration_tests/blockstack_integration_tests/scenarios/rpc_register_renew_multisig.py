@@ -76,7 +76,7 @@ def scenario( wallets, **kw ):
 
     # wait for the poller to pick it up
     print >> sys.stderr, "Waiting 10 seconds for the backend to submit the register"
-    time.sleep(10)
+    time.sleep(15)
 
 
     # wait for the register to get confirmed 
@@ -88,7 +88,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
-    time.sleep(10)
+    time.sleep(15)
 
     # wait for initial update to get confirmed 
     for i in xrange(0, 12):
@@ -99,7 +99,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
-    time.sleep(10)
+    time.sleep(15)
 
     # what's the name's renewal block?
     proxy = testlib.make_proxy()
@@ -135,7 +135,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowedge the update"
-    time.sleep(10)
+    time.sleep(15)
     # wait for it to go through 
     for i in xrange(0, 12):
         # warn the serialization checker that this changes behavior from 0.13
@@ -160,7 +160,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
         
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge the renewal"
-    time.sleep(10)
+    time.sleep(15)
 
     proxy = testlib.make_proxy()
     res = blockstack_client.get_name_blockchain_record( "foo.test", proxy=proxy )
