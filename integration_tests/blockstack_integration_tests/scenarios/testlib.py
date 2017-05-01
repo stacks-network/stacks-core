@@ -1149,7 +1149,7 @@ def blockstack_cli_rpc( method, rpc_args=None, rpc_kw=None, config_path=None):
     return cli_rpc( args, config_path=config_path )
 
 
-def blockstack_cli_put_mutable( name, data_id, data_json_str, password=None, config_path=None, storage_drivers=None, storage_drivers_exclusive=False):
+def blockstack_cli_put_mutable( name, data_id, data_json_str, password=None, config_path=None, storage_drivers=None, storage_drivers_exclusive=False, private_key=None):
     """
     put mutable data
     """
@@ -1167,6 +1167,7 @@ def blockstack_cli_put_mutable( name, data_id, data_json_str, password=None, con
     args.name = name
     args.data_id = data_id
     args.data = path
+    args.privkey = private_key
 
     res = cli_put_mutable( args, config_path=config_path, password=password, storage_drivers=storage_drivers, storage_drivers_exclusive=storage_drivers_exclusive )
 
@@ -1214,7 +1215,7 @@ def blockstack_cli_put_immutable( name, data_id, data_json_str, password=None, c
 
 
 
-def blockstack_cli_get_mutable( name, data_id, config_path=None):
+def blockstack_cli_get_mutable( name, data_id, config_path=None, public_key=None):
     """
     get mutable data
     """
@@ -1226,6 +1227,7 @@ def blockstack_cli_get_mutable( name, data_id, config_path=None):
 
     args.name = name
     args.data_id = data_id
+    args.data_pubkey = public_key
 
     return cli_get_mutable( args, config_path=config_path )
 
@@ -1246,19 +1248,58 @@ def blockstack_cli_get_immutable( name, data_id_or_hash, config_path=None):
     return cli_get_immutable( args, config_path=config_path )
 
 
-def blockstack_cli_get_data( url, config_path=None):
+def blockstack_cli_sign_data( data_str, private_key=None, config_path=None):
     """
-    get data by url
+    sign data
     """
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
-    args = CLIArgs()
-    
-    args.url = url
+    fd, path = tempfile.mkstemp()
+    os.write(fd, data_str)
+    os.close(fd)
 
-    return cli_get_data( args, config_path=config_path )
+    args = CLIArgs()
+    args.path = path
+    args.privkey = private_key
+
+    res = cli_sign_data(args, config_path=config_path)
+
+    try:
+        os.unlink(path)
+    except:
+        pass
+
+    return res
+
+
+def blockstack_cli_verify_data(name, data_str, public_key=None, config_path=None):
+    """
+    verify data
+    """
+
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    fd, path = tempfile.mkstemp()
+    os.write(fd, data_str)
+    os.close(fd)
+
+    args = CLIArgs()
+    args.path = path
+    args.name = name
+    args.pubkey = public_key
+
+    res = cli_verify_data(args, config_path=config_path)
+
+    try:
+        os.unlink(path)
+    except:
+        pass
+
+    return res
 
 
 def blockstack_cli_list_update_history( name, config_path=CONFIG_PATH):
