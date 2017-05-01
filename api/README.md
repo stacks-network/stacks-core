@@ -58,7 +58,7 @@ TODO: authRequestToken format
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
-| Get all names | GET /v1/names | names | - | 
+| Get all names | GET /v1/names?page=xxx | names | The `page=xxx` is required (xxx is an integer) | 
 | Register name | POST /v1/names | register | Payload: {"name": NAME} | 
 | Get name info | GET /v1/names/{name} | names | - | 
 | Get name history | GET /v1/names/{name}/history | names | - | 
@@ -79,11 +79,7 @@ TODO: authRequestToken format
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
 | Get all namespaces | GET /v1/namespaces | namespaces | - | 
-| Create namespace | POST /v1/namespaces | namespace_registration | NOT IMPLEMENTED | 
-| Launch namespace | PUT /v1/namespaces/{tld} | namespace_registration | NOT IMPLEMENTED | 
-| Get namespace names | GET /v1/namespaces/{tld}/names | namespaces | - | 
-| Pre-register a name | POST /v1/namespaces/{tld}/names | namespace_registration | NOT IMPLEMENTED | 
-| Update pre-registered name | PUT /v1/namespaces/{tld}/names/{name} | namespace_registration | NOT IMPLEMENTED | 
+| Get namespace names | GET /v1/namespaces/{tld}/names?page=xxx | namespaces | The `page=xxx` is required (xxx is an integer) |
 
 ### Prices
 
@@ -103,15 +99,7 @@ TODO: authRequestToken format
 | Get pending transactions | GET /v1/blockchains/{blockchainName}/pending | blockchains | - |
 
 ## Identity API
-
-### Profiles
-
-| Method  | API Call | API family | Notes | 
-| ------------- | ------------- | ------------- | ------------- |
-| Create profile | POST /v1/profiles | profile_write | Payload: `{"name": NAME, "profile": PROFILE}`.  Wallet must own the name. | 
-| Get profile | GET /v1/profiles/{name} | profile_read | - |
-| Delete profile | DELETE /v1/profiles/{name} | profile_write | Wallet must own {name} | 
-| Update profile | PATCH /v1/profiles/{name} | profile_write | Payload: `{"blockchain_id": NAME, "profile": PROFILE }`.  Wallet must own the name | 
+NOT IMPLEMENTED YET
 
 ### Datastores
 
@@ -133,6 +121,7 @@ TODO: authRequestToken format
 | Delete file (rm) | DELETE /v1/stores/{storeID}/files?path={path} | store_write | Only works on the datastore for the application indicated by the session | 
 
 ### Collections
+NOT IMPLEMENTED YET; STUBS ONLY
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
