@@ -428,6 +428,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         except ValidationError as ve:
             if BLOCKSTACK_TEST or BLOCKSTACK_DEBUG:
                 log.exception(ve)
+                if BLOCKSTACK_TEST:
+                    log.debug("Invalid decoded token: {}".format(decoded_token['payload']))
 
             log.debug("Invalid token")
             return self._send_headers(status_code=401, content_type='text/plain')
@@ -4403,8 +4405,9 @@ def local_api_check_alive(config_path, api_host=None, api_port=None):
 
     if not alive:
         # remove stale pid file
-        log.debug("Removing stale PID file {}".format(rpc_pidpath))
-        local_api_unlink_pidfile(rpc_pidpath)                
+        if os.path.exists(rpc_pidpath):
+            log.debug("Removing stale PID file {}".format(rpc_pidpath))
+            local_api_unlink_pidfile(rpc_pidpath)                
 
     return False
 
@@ -4520,15 +4523,6 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
             log.error(msg.format(se.errno))
             return {'error': 'Failed to open socket (errno {})'.format(se.errno)}
 
-    log.debug("Initializing registrar...")
-    state = backend.registrar.set_registrar_state(config_path=config_path)
-    if state is None:
-        log.error("Failed to initialize registrar: {}".format(res['error']))
-        return {'error': 'Failed to initialize registrar: {}'.format(res['error'])}
-    
-    log.debug("Setting wallet...")
-
-    # NOTE: test that wallets without data keys still work
     assert wallet.has_key('owner_addresses')
     assert wallet.has_key('owner_privkey')
     assert wallet.has_key('payment_addresses')
@@ -4536,17 +4530,12 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     assert wallet.has_key('data_pubkeys')
     assert wallet.has_key('data_privkey')
 
-    res = backend.registrar.set_wallet(
-        (wallet['payment_addresses'][0], wallet['payment_privkey']),
-        (wallet['owner_addresses'][0], wallet['owner_privkey']),
-        (wallet['data_pubkeys'][0], wallet['data_privkey']),
-        config_path=config_path
-    )
-
-    if 'error' in res:
-        log.error("Failed to set wallet: {}".format(res['error']))
-        return {'error': 'Failed to set wallet: {}'.format(res['error'])}
-
+    log.debug("Initializing registrar...")
+    state = backend.registrar.set_registrar_state(config_path=config_path, wallet_keys=wallet)
+    if state is None:
+        log.error("Failed to initialize registrar: {}".format(res['error']))
+        return {'error': 'Failed to initialize registrar: {}'.format(res['error'])}
+    
     log.debug("Setup finished")
 
     running = True
