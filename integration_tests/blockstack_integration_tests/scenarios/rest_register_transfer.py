@@ -27,7 +27,6 @@ import urllib2
 import json
 import blockstack_client
 import blockstack_profiles
-import blockstack_gpg
 import sys
 import keylib
 import time
@@ -99,7 +98,7 @@ def scenario( wallets, **kw ):
 
     # make a session 
     datastore_pk = keylib.ECPrivateKey(wallets[-1].privkey).to_hex()
-    res = testlib.blockstack_cli_app_signin(datastore_pk, 'register.app', ['names', 'register', 'prices', 'zonefiles', 'blockchain', 'node_read'])
+    res = testlib.blockstack_cli_app_signin(datastore_pk, 'register.app', ['names', 'register', 'transfer', 'prices', 'zonefiles', 'blockchain', 'node_read'])
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
