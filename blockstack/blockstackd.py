@@ -2575,6 +2575,10 @@ def check_and_set_envars( argv ):
             'arg': False,
             'envar': 'BLOCKSTACK_TESTNET'
         },
+        '--testnet3': {
+            'arg': False,
+            'envar': 'BLOCKSTACK_TESTNET3'
+        },
     }
 
     cli_envs = {}
