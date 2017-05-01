@@ -28,6 +28,7 @@ import blockstack_client
 import blockstack_profiles
 import time
 import sys
+import keylib
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -89,10 +90,12 @@ dataset_change = "This is the mutated dataset"
 
 zonefile_hash = None
 zonefile_hash_2 = None
+wallet_keys = None
+wallet_keys_2 = None
 
 def scenario( wallets, **kw ):
 
-    global put_result, wallet_keys, legacy_profile, zonefile_hash, zonefile_hash_2
+    global put_result, wallet_keys, wallet_keys_2, legacy_profile, zonefile_hash, zonefile_hash_2
 
     wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[8].privkey, wallets[3].privkey, None )
     wallet_keys_2 = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[9].privkey, wallets[6].privkey, None )
@@ -133,7 +136,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    # migrate profiles 
+    # migrate profiles, but no zone file keys
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys, zonefile_has_data_key=False )
     if 'error' in res:
         res['test'] = 'Failed to initialize foo.test profile'
@@ -189,10 +192,20 @@ def scenario( wallets, **kw ):
         print 'failed to start API: {}'.format(res)
         return False
 
-    # see that put_mutable works
+    # put_mutable should fail on its own, since we have no privat ekey 
     put_result = testlib.blockstack_cli_put_mutable( "bar.test", "hello_world_mutable", json.dumps({'hello': 'world'}, sort_keys=True), password='0123456789abcdef')
+    if 'error' not in put_result:
+        print json.dumps(put_result, indent=4, sort_keys=True)
+        print "accidentally succeeded to put_mutable with no public key in zone file"
+        return False
+
+    # see that put_mutable works, if we give a private key
+    put_result = testlib.blockstack_cli_put_mutable( "bar.test", "hello_world_mutable", json.dumps({'hello': 'world'}, sort_keys=True),
+                                                      password='0123456789abcdef', private_key=wallet_keys_2['data_privkey'])
+
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True )
+        return False
     
     testlib.next_block( **kw )
      
@@ -274,8 +287,19 @@ def check( state_engine ):
 
             return False
 
-    # can get mutable data 
+    # can get mutable data with owner address
     res = testlib.blockstack_cli_get_mutable( "bar.test", "hello_world_mutable" )
+
+    if 'error' in res:
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False
+    
+    if json.loads(res['data']) != {'hello': 'world'}:
+        print 'invalid data: {}'.format(res['data'])
+        return False
+
+    # can get mutable data with explicit public key
+    res = testlib.blockstack_cli_get_mutable( "bar.test", "hello_world_mutable", public_key=keylib.ECPrivateKey(wallet_keys_2['data_privkey']).public_key().to_hex() )
     print 'mutable: {}'.format(res)
 
     if 'error' in res:
