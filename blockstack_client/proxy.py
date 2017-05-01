@@ -965,8 +965,15 @@ def get_consensus_at(block_height, proxy=None):
         'type': 'object',
         'properties': {
             'consensus': {
-                'type': 'string',
-                'pattern': OP_CONSENSUS_HASH_PATTERN,
+                'anyOf': [
+                    {
+                        'type': 'string',
+                        'pattern': OP_CONSENSUS_HASH_PATTERN,
+                    },
+                    {
+                        'type': 'null'
+                    },
+                ],
             },
         },
         'required': [
@@ -995,6 +1002,10 @@ def get_consensus_at(block_height, proxy=None):
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
+
+    if resp['consensus'] is None:
+        # node hasn't processed this block 
+        return {'error': 'The node has not processed block {}'.format(block_height)}
 
     return resp['consensus']
 
