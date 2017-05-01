@@ -98,7 +98,14 @@ class HDWallet(object):
         return self.priv_keychain.private_key()
 
 
-    def get_child_privkey(self, index=0):
+    def _encode_child_privkey(self, child_privkey, compressed=True):
+        """
+        Make sure the private key given is compressed or not compressed
+        """
+        return set_privkey_compressed(child_privkey, compressed=compressed)
+
+
+    def get_child_privkey(self, index=0, compressed=True):
         """
         Get a hardened child private key
         @index is the child index
@@ -111,7 +118,7 @@ class HDWallet(object):
             if BLOCKSTACK_TEST:
                 log.debug("Child {} of {} is cached".format(index, self.keychain_key))
 
-            return KEY_CACHE[self.keychain_key][index]
+            return self._encode_child_privkey(KEY_CACHE[self.keychain_key][index], compressed=compressed)
 
         # expensive...
         child = self.priv_keychain.hardened_child(index)
@@ -119,9 +126,10 @@ class HDWallet(object):
         if not KEY_CACHE.has_key(self.keychain_key):
             KEY_CACHE[self.keychain_key] = {}
 
-        KEY_CACHE[self.keychain_key][index] = child.private_key()
-
-        return child.private_key()
+        child_privkey = self._encode_child_privkey(child.private_key(), compressed=compressed)
+        
+        KEY_CACHE[self.keychain_key][index] = child_privkey
+        return child_privkey
 
 
     def get_master_address(self):
@@ -130,7 +138,7 @@ class HDWallet(object):
 
         hex_privkey = self.get_master_privkey()
         hex_pubkey = get_pubkey_hex(hex_privkey)
-        return keylib.public_key_to_address(hex_pubkey)
+        return virtualchain.address_reencode(keylib.public_key_to_address(hex_pubkey))
 
 
     def get_child_address(self, index=0):
@@ -144,12 +152,13 @@ class HDWallet(object):
         if self.child_addresses is not None:
             return self.child_addresses[index]
 
+        # force decompressed...
         hex_privkey = self.get_child_privkey(index)
         hex_pubkey = get_pubkey_hex(hex_privkey)
-        return keylib.public_key_to_address(hex_pubkey)
+        return virtualchain.address_reencode(keylib.public_key_to_address(hex_pubkey))
 
 
-    def get_child_keypairs(self, count=1, offset=0, include_privkey=False):
+    def get_child_keypairs(self, count=1, offset=0, include_privkey=False, compressed=True):
         """
         Returns (privkey, address) keypairs
 
@@ -166,7 +175,7 @@ class HDWallet(object):
             address = self.get_child_address(index)
 
             if include_privkey:
-                hex_privkey = self.get_child_privkey(index)
+                hex_privkey = self.get_child_privkey(index, compressed=compressed)
                 keypairs.append((address, hex_privkey))
             else:
                 keypairs.append(address)
