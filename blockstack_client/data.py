@@ -26,6 +26,7 @@ import os
 import time
 import jsontokens
 import blockstack_profiles
+import blockstack_zones
 import urllib
 import virtualchain
 import posixpath
@@ -547,8 +548,17 @@ def data_blob_serialize( data_blob ):
     return json.dumps(data_blob, sort_keys=True)
 
 
+def data_blob_sign( data_blob_str, data_privkey ):
+    """
+    Sign a serialized data blob
+    Returns the signature
+    """
+    sig = storage.sign_data_payload(data_blob_str, data_privkey)
+    return sig
+
+
 def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_address=None, data_hash=None, storage_drivers=None,
-                         proxy=None, ver_min=None, ver_max=None, force=False, urls=None, device_ids=None,
+                         proxy=None, ver_min=None, ver_max=None, force=False, urls=None, device_ids=None, is_fq_data_id=False,
                          config_path=CONFIG_PATH):
     """
     get_mutable 
@@ -570,13 +580,17 @@ def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_a
     proxy = get_default_proxy(config_path) if proxy is None else proxy
     conf = get_config(path=config_path)
     
-    # find all possible fqids for this datum
-    fq_data_ids = []
     if device_ids is None or device_ids == []:
         device_ids = get_all_device_ids(config_path=config_path)
 
-    for device_id in device_ids:
-        fq_data_ids.append( storage.make_fq_data_id(device_id, data_id) )
+    # find all possible fqids for this datum
+    fq_data_ids = []
+    if is_fq_data_id:
+        fq_data_ids = [data_id]
+
+    else:
+        for device_id in device_ids:
+            fq_data_ids.append( storage.make_fq_data_id(device_id, data_id) )
 
     local_device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
     if not local_device_id:
@@ -604,7 +618,7 @@ def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_a
 
     if storage_drivers is None:
         storage_drivers = get_read_storage_drivers(config_path)
-        log.debug("Using default stroage drivers {}".format(','.join(storage_drivers)))
+        log.debug("Using default storge drivers {}".format(','.join(storage_drivers)))
 
     expected_version = 0
 
@@ -896,14 +910,14 @@ def verify_mutable_data_tombstones( tombstones, data_pubkey, device_ids=None ):
     return True
 
 
-def make_mutable_data_info(data_id, data_payload, device_ids=None, version=None, timestamp=None, blockchain_id=None, min_version=None, config_path=CONFIG_PATH, create=False):
+def make_mutable_data_info(data_id, data_payload, device_ids=None, version=None, timestamp=None, blockchain_id=None, min_version=None, config_path=CONFIG_PATH, create=False, is_fq_data_id=False):
     """
     Make mutable data to serialize, sign, and store.
     data_payload must be a string.
 
     This is a client-side method.
 
-    Return {'status': True, 'fq_data_id': ..., 'data': ..., 'version': ..., 'timestamp': ..., 'tombstones': ...} on success
+    Return {'fq_data_id': ..., 'data': ..., 'version': ..., 'timestamp': ...} on success
     Return {'error': ...} on error
     """
     conf = get_config(path=config_path)
@@ -919,7 +933,10 @@ def make_mutable_data_info(data_id, data_payload, device_ids=None, version=None,
         device_ids = [device_id]
 
     # v2 mutable data from this device
-    fq_data_id = storage.make_fq_data_id(device_id, data_id)
+    if not is_fq_data_id:
+        fq_data_id = storage.make_fq_data_id(device_id, data_id)
+    else:
+        fq_data_id = data_id
 
     # get the version to use across all devices
     if version is None:
@@ -953,8 +970,10 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, versi
     """
     put_mutable.
 
-    given a fully-qualified data identifier (i.e. prefixed by the device ID), a serialized data payload from make_mutable_data, a public key, a signature, and a version,
+    Given a fully-qualified data identifier (i.e. prefixed by the device ID), a serialized data payload from make_mutable_data, a public key, a signature, and a version,
     store it with the configured storage providers.
+
+    This is a very low-level method.  DO NOT USE UNLESS YOU KNOW WHAT YOU ARE DOING
 
     ** Consistency **
 
@@ -1121,7 +1140,7 @@ def delete_immutable(blockchain_id, data_key, data_id=None, proxy=None, txid=Non
 
 def delete_mutable(data_id, signed_data_tombstones, proxy=None, storage_drivers=None,
                             device_ids=None, delete_version=True, storage_drivers_exclusive=False,
-                            blockchain_id=None, config_path=CONFIG_PATH):
+                            blockchain_id=None, is_fq_data_id=False, config_path=CONFIG_PATH):
     """
     delete_mutable
 
@@ -1142,9 +1161,13 @@ def delete_mutable(data_id, signed_data_tombstones, proxy=None, storage_drivers=
         device_ids = get_all_device_ids(config_path=config_path)
 
     fq_data_ids = []
-    for device_id in device_ids:
-        fq_data_id = storage.make_fq_data_id(device_id, data_id)
-        fq_data_ids.append(fq_data_id)
+    if is_fq_data_id:
+        fq_data_ids = [data_id]
+
+    else:
+        for device_id in device_ids:
+            fq_data_id = storage.make_fq_data_id(device_id, data_id)
+            fq_data_ids.append(fq_data_id)
    
     if storage_drivers is None:
         storage_drivers = get_write_storage_drivers(config_path)
@@ -2687,7 +2710,7 @@ def datastore_mkdir_make_inodes(api_client, datastore, data_path, data_pubkey, r
         log.error("Failed to create directory {}: {}".format(data_path, child_dir_info['error']))
         return {'error': 'Failed to create child directory', 'errno': errno.EIO}
 
-    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_uuid, parent_dir['idata'], device_ids, readers=parent_dir['reader_pubkeys'], min_version=parent_dir['version'], config_path=config_path )
+    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_uuid, parent_dir['idata'], device_ids, reader_pubkeys=parent_dir['reader_pubkeys'], min_version=parent_dir['version'], config_path=config_path )
     if 'error' in parent_dir_info:
         log.error("Failed to update directory {}: {}".format(parent_path, parent_dir_info['error']))
         return {'error': 'Failed to create parent directory', 'errno': errno.EIO}
@@ -2838,7 +2861,7 @@ def datastore_rmdir_make_inodes(api_client, datastore, data_path, data_pubkey, p
     parent_dir_inode, dead_child = _mutable_data_dir_unlink( parent_dir_inode, name )
     min_version = max(dead_child['version'], parent_dir_inode['version'])
 
-    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_dir_uuid, parent_dir_inode['idata'], device_ids, readers=parent_dir_inode['reader_pubkeys'], min_version=min_version, config_path=config_path )
+    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_dir_uuid, parent_dir_inode['idata'], device_ids, reader_pubkeys=parent_dir_inode['reader_pubkeys'], min_version=min_version, config_path=config_path )
     if 'error' in parent_dir_info:
         log.error("Failed to update directory {}: {}".format(os.path.dirname(data_path), parent_dir_info['error']))
         return {'error': 'Failed to create parent directory', 'errno': errno.EIO}
@@ -3073,7 +3096,7 @@ def datastore_putfile_make_inodes(api_client, datastore, data_path, file_data_ha
         log.error("Failed to create file {}: {}".format(data_path, child_file_info['error']))
         return {'error': 'Failed to create file', 'errno': errno.EIO}
 
-    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_uuid, parent_dir_inode['idata'], device_ids, readers=parent_dir_inode['reader_pubkeys'], min_version=min_version, config_path=config_path )
+    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_uuid, parent_dir_inode['idata'], device_ids, reader_pubkeys=parent_dir_inode['reader_pubkeys'], min_version=min_version, config_path=config_path )
     if 'error' in parent_dir_info:
         log.error("Failed to update directory {}: {}".format(parent_dirpath, parent_dir_info['error']))
         return {'error': 'Failed to create parent directory', 'errno': errno.EIO}
@@ -3218,7 +3241,7 @@ def datastore_deletefile_make_inodes(api_client, datastore, data_path, data_pubk
     min_version = max(parent_dir_inode['version'], dead_child['version'])
 
     # update the parent 
-    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_dir_uuid, parent_dir_inode['idata'], device_ids, readers=parent_dir_inode['reader_pubkeys'], min_version=min_version, config_path=config_path )
+    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_dir_uuid, parent_dir_inode['idata'], device_ids, reader_pubkeys=parent_dir_inode['reader_pubkeys'], min_version=min_version, config_path=config_path )
     if 'error' in parent_dir_info:
         log.error("Failed to update directory {}: {}".format(dir_path, parent_dir_info['error']))
         return {'error': 'Failed to create parent directory', 'errno': errno.EIO}
@@ -3503,7 +3526,7 @@ def datastore_rmtree_make_inodes(api_client, datastore, data_path, data_pubkey_h
                 inode_stack = res['stack']
 
     # clear this inode's children
-    dir_inode_info = make_dir_inode_data( datastore_id, datastore_id, dir_uuid, {}, device_ids, readers=dir_inode_info['reader_pubkeys'], config_path=config_path )
+    dir_inode_info = make_dir_inode_data( datastore_id, datastore_id, dir_uuid, {}, device_ids, reader_pubkeys=dir_inode['reader_pubkeys'], config_path=config_path )
     if 'error' in dir_inode_info:
         return dir_inode_info
 
