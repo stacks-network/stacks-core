@@ -2684,8 +2684,12 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
     reveal_addr = None
     
     try:
+        # force compresssed 
+        ns_privkey = set_privkey_compressed(ns_privkey, compressed=True)
+        ns_reveal_privkey = set_privkey_compressed(ns_reveal_privkey, compressed=True)
+
         keylib.ECPrivateKey(ns_privkey)
-        reveal_addr = virtualchain.get_privkey_address(ns_privkey)
+        reveal_addr = virtualchain.get_privkey_address(ns_reveal_privkey)
     except:
         return {'error': 'Invalid namespace private key'}
     
@@ -2699,8 +2703,11 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
         "IMPORTANT:  PLEASE READ THESE INSTRUCTIONS CAREFULLY\n",
         "\n",
         "You are about to preorder the namespace '{}'.  It will cost about {} BTC ({} satoshi).\n".format(nsid, fees['total_estimated_cost']['btc'], fees['total_estimated_cost']['satoshis']),
+        'The address {} will be used to pay the fee'.format(virtualchain.get_privkey_address(ns_privkey)),
+        'The address {} will be used to reveal the namespace.'.format(reveal_addr),
+        'MAKE SURE YOU KEEP THE PRIVATE KEYS FOR BOTH ADDRESSES\n',
         "\n",
-        "Before you do, there are some things you should know.\n".format(nsid),
+        "Before you preorder this namespace, there are some things you should know.\n".format(nsid),
         "\n",
         "* Once you preorder the namespace, you will need to reveal it within 144 blocks (about 24 hours).\n",
         "  If you do not do so, then the namespace fee is LOST FOREVER and someone else can preorder it.\n",
@@ -2952,6 +2959,10 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         return {'error': 'Invalid namespace ID'}
 
     try:
+        # force compresssed 
+        ns_privkey = set_privkey_compressed(privkey, compressed=True)
+        ns_reveal_privkey = set_privkey_compressed(reveal_privkey, compressed=True)
+
         ecdsa_private_key(privkey)
         reveal_addr = virtualchain.get_privkey_address(reveal_privkey)
     except:
@@ -3201,6 +3212,9 @@ def cli_namespace_ready(args, interactive=True, config_path=CONFIG_PATH, proxy=N
         return {'error': 'Invalid namespace ID'}
     
     try:
+        # force compresssed 
+        reveal_privkey = set_privkey_compressed(reveal_privkey, compressed=True)
+
         reveal_addr = virtualchain.get_privkey_address(reveal_privkey)
     except:
         return {'error': 'Invalid private keys'}
@@ -3539,7 +3553,6 @@ def cli_delete_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None)
     signed_data_tombstones = sign_mutable_data_tombstones(data_tombstones, privkey)
 
     result = delete_mutable(data_id, signed_data_tombstones, proxy=proxy, device_ids=device_ids, config_path=config_path)
-    result = delete_mutable(str(args.data_id), blockchain_id=str(args.name), proxy=proxy)
     return result
 
 
