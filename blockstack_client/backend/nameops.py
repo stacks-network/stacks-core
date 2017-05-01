@@ -399,7 +399,6 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
     except ValueError as ve:
         if BLOCKSTACK_TEST:
             log.exception(ve)
-            print >> sys.stderr, "payment key info: %s" % str(payment_privkey_info)
 
         log.error("Insufficient funds:  Not enough inputs to make an update transaction.")
         return None
