@@ -630,12 +630,29 @@ def blockstack_cli_register( name, password, recipient_address=None, zonefile=No
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
+    path = None
+    if zonefile:
+        fd, path = tempfile.mkstemp()
+        os.write(fd, zonefile)
+        os.close(fd)
+
+    log.debug("Stored zonefile to {}".format(path))
+
     args = CLIArgs()
     args.name = name
     args.recipient = recipient_address
-    args.zonefile = zonefile
+
+    if zonefile:
+        args.zonefile = path
 
     resp = cli_register( args, config_path=config_path, password=password, interactive=False, proxy=test_proxy )
+
+    if zonefile:
+        try:
+            os.unlink(path)
+        except:
+            pass
+
     if 'error' not in resp:
         assert 'transaction_hash' in resp
 
@@ -656,7 +673,7 @@ def blockstack_cli_update( name, zonefile_json, password, nonstandard=True, conf
     os.write(fd, zonefile_json)
     os.close(fd)
 
-    log.debug("Stored JSON to {}".format(path))
+    log.debug("Stored zonefile to {}".format(path))
 
     args = CLIArgs()
     args.name = name
@@ -870,7 +887,7 @@ def blockstack_cli_price( name, password, config_path=None):
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
-    args.name = name
+    args.name_or_namespace = name
     return cli_price( args, config_path=config_path, proxy=test_proxy, password=password )
 
 
@@ -1433,7 +1450,7 @@ def blockstack_cli_get_namespace_cost( namespace_id, config_path=CONFIG_PATH):
     return cli_get_namespace_cost( args, config_path=config_path )
 
 
-def blockstack_cli_get_all_names( offset=None, count=None, config_path=CONFIG_PATH):
+def blockstack_cli_get_all_names( page, config_path=CONFIG_PATH):
     """
     get all names
     """
@@ -1443,13 +1460,12 @@ def blockstack_cli_get_all_names( offset=None, count=None, config_path=CONFIG_PA
 
     args = CLIArgs()
 
-    args.offset = offset
-    args.count = count
+    args.page = page
 
     return cli_get_all_names( args, config_path=config_path )
 
 
-def blockstack_cli_get_names_in_namespace( namespace_id, offset=None, count=None, config_path=CONFIG_PATH):
+def blockstack_cli_get_names_in_namespace( namespace_id, page, config_path=CONFIG_PATH):
     """
     get names in a particular namespace
     """
@@ -1458,10 +1474,9 @@ def blockstack_cli_get_names_in_namespace( namespace_id, offset=None, count=None
     config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
-
+    
     args.namespace_id = namespace_id
-    args.offset = offset
-    args.count = count
+    args.page = page
 
     return cli_get_names_in_namespace( args, config_path=config_path )
 
@@ -2213,9 +2228,9 @@ def make_legacy_013_wallet( owner_privkey, payment_privkey, password ):
     decrypted_legacy_wallet = blockstack_client.keys.make_wallet_keys(owner_privkey=owner_privkey, payment_privkey=payment_privkey)
     encrypted_legacy_wallet = {
         'owner_addresses': decrypted_legacy_wallet['owner_addresses'],
-        'encrypted_owner_privkey': blockstack_client.keys.encrypt_private_key_info(owner_privkey, password)['encrypted_private_key_info']['private_key_info'],
+        'encrypted_owner_privkey': encrypt_private_key_info(owner_privkey, password)['encrypted_private_key_info']['private_key_info'],
         'payment_addresses': decrypted_legacy_wallet['payment_addresses'],
-        'encrypted_payment_privkey': blockstack_client.keys.encrypt_private_key_info(payment_privkey, password)['encrypted_private_key_info']['private_key_info'],
+        'encrypted_payment_privkey': encrypt_private_key_info(payment_privkey, password)['encrypted_private_key_info']['private_key_info'],
     }
     return encrypted_legacy_wallet
 
@@ -2232,11 +2247,11 @@ def make_legacy_014_wallet( owner_privkey, payment_privkey, data_privkey, passwo
     encrypted_legacy_wallet = {
         'data_pubkey': ECPrivateKey(data_privkey).public_key().to_hex(),
         'data_pubkeys': [ECPrivateKey(data_privkey).public_key().to_hex()],
-        'data_privkey': blockstack_client.keys.encrypt_private_key_info(data_privkey, password)['encrypted_private_key_info']['private_key_info'],
+        'data_privkey': encrypt_private_key_info(data_privkey, password)['encrypted_private_key_info']['private_key_info'],
         'owner_addresses': decrypted_legacy_wallet['owner_addresses'],
-        'encrypted_owner_privkey': blockstack_client.keys.encrypt_private_key_info(owner_privkey, password)['encrypted_private_key_info']['private_key_info'],
+        'encrypted_owner_privkey': encrypt_private_key_info(owner_privkey, password)['encrypted_private_key_info']['private_key_info'],
         'payment_addresses': decrypted_legacy_wallet['payment_addresses'],
-        'encrypted_payment_privkey': blockstack_client.keys.encrypt_private_key_info(payment_privkey, password)['encrypted_private_key_info']['private_key_info'],
+        'encrypted_payment_privkey': encrypt_private_key_info(payment_privkey, password)['encrypted_private_key_info']['private_key_info'],
         'version': '0.14.0'
     }
     return encrypted_legacy_wallet
