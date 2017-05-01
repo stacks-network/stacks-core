@@ -86,9 +86,11 @@ def get_registrar_state(config_path=None, proxy=None):
     return (state, config_path, proxy)
 
 
-def set_registrar_state(config_path=None):
+def set_registrar_state(config_path=None, wallet_keys=None):
     """
-    Set singleton state 
+    Set singleton state and start the registrar thread.
+    Return the registrar state on success
+    Return None on error
     """
     global __registrar_state
     assert config_path is not None
@@ -100,6 +102,22 @@ def set_registrar_state(config_path=None):
 
     log.info("Initialize Registrar State from %s" % (config_path))
     __registrar_state = RegistrarState(config_path)
+
+    if wallet_keys:
+        log.info("Setting wallet keys")
+
+        res = set_wallet(
+            (wallet_keys['payment_addresses'][0], wallet_keys['payment_privkey']),
+            (wallet_keys['owner_addresses'][0], wallet_keys['owner_privkey']),
+            (wallet_keys['data_pubkeys'][0], wallet_keys['data_privkey']),
+            config_path=config_path
+        )
+
+        if 'error' in res:
+            log.error("Failed to set wallet: {}".format(res['error']))
+            __registrar_state = None
+            return None
+
     __registrar_state.start()
     return __registrar_state
 
@@ -950,15 +968,6 @@ class RegistrarState(object):
     def join(self):
         log.debug("Registrar worker join")
         self.registrar_worker.join()
-
-
-# RPC method: backend_ping
-def ping():
-    """
-    Check if RPC daemon is alive
-    """
-    data = {'status': 'alive'}
-    return data
 
 
 # RPC method: backend_state
