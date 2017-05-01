@@ -294,20 +294,6 @@ def parse_signed_data_tombstone( tombstone_data ):
     return {'id': parts2[0], 'signature': parts2[1]}
 
 
-def make_mutable_data_tombstone( fq_data_id, data_privkey ):
-    """
-    Make a mutable data tombstone
-    """
-    return make_data_tombstone( fq_data_id, data_privkey )
-
-
-def make_immutable_data_tombstone( data_hash, txid, data_privkey ):
-    """
-    Make an immutable data tombstone
-    """
-    return make_data_tombstone( data_hash + txid, data_privkey )
-
-
 def serialize_mutable_data(data_text_or_json, data_privkey=None, data_pubkey=None, data_signature=None, profile=False):
     """
     Generate a serialized mutable data record from the given information.
@@ -997,7 +983,7 @@ def delete_immutable_data(data_hash, txid, privkey=None, signed_data_tombstone=N
         data_hash = str(data_hash)
         txid = str(txid)
 
-        ts = make_immutable_data_tombstone(data_hash, txid)
+        ts = make_data_tombstone('immutable:{}:{}'.format(data_hash, txid))
         signed_data_tombstone = sign_data_tombstone( ts, privkey )
         
     for handler in storage_handlers:
@@ -1041,8 +1027,8 @@ def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None,
     fq_data_id = str(fq_data_id)
     if signed_data_tombstone is None:
         assert privatekey
-        ts = make_mutable_data_tombstone(fq_data_id)
-        signed_data_tombstone = sign_data_tombstone(ts, privatekey)
+        ts = make_data_tombstone(fq_data_id)
+        signed_data_tombstone = sign_data_tombstone(ts, privkey)
 
     required_successes = 0
 
