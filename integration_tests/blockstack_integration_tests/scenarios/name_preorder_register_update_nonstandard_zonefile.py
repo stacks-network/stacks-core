@@ -132,7 +132,7 @@ def scenario( wallets, **kw ):
     print "wait 10 seconds for update to go through"
     time.sleep(10)
 
-    rc = blockstack_client.storage.put_immutable_data( None, result_1['transaction_hash'], data_hash=legacy_hash, data_text=legacy_txt )
+    rc = blockstack_client.storage.put_immutable_data( legacy_txt, result_1['transaction_hash'], data_hash=legacy_hash )
     assert rc is not None
 
     testlib.next_block( **kw )

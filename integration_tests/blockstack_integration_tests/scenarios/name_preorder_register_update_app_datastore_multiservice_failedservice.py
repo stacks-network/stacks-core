@@ -30,7 +30,6 @@ import urllib2
 import json
 import blockstack_client
 import blockstack_profiles
-import blockstack_gpg
 import sys
 import errno
 import keylib

@@ -27,7 +27,6 @@ import urllib2
 import json
 import blockstack_client
 import blockstack_profiles
-import blockstack_gpg
 import sys
 import keylib
 from keylib import ECPrivateKey, ECPublicKey
@@ -140,7 +139,8 @@ def scenario( wallets, **kw ):
         return False
 
     # sign in 
-    res = testlib.blockstack_cli_app_signin("ping.app", "node_read")
+    pk = 'ce100586279d3b127b7dcc137fcc2f18b272bb2b43bdaea3584d0ea17087ec0201'
+    res = testlib.blockstack_cli_app_signin(pk, "ping.app", ["node_read"])
     if 'error' in res:
         res['test'] = 'Failed to signin: {}'.format(res['error'])
         print json.dumps(res, indent=4, sort_keys=True)
@@ -156,7 +156,7 @@ def scenario( wallets, **kw ):
         error = True
         return False
 
-    if res['response'] != {'status': 'alive'}:
+    if res['response']['status'] != 'alive':
         print "failed to GET /api/v1/ping"
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
