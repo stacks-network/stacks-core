@@ -126,7 +126,9 @@ class InternalAPITestCase(APITestCase):
     def setUp(self):
         self.app = ForwardingClient("http://localhost:6270")
 
-def get_auth_header(key = API_PASSWORD):
+def get_auth_header(key = None):
+    if key is None:
+        key = API_PASSWORD
     return {'Authorization' : 'bearer {}'.format(key)}
 
 def check_data(cls, data, required_keys={}):
@@ -356,7 +358,8 @@ class BlockChains(APITestCase):
         data = self.get_request("/v1/blockchains/bitcoin/consensus",
                                 headers = {} , status_code=200)
         self.assertRegexpMatches(data['consensus_hash'], schemas.OP_CONSENSUS_HASH_PATTERN)
-    def test_name_history(self):
+    def no_test_name_history(self):
+        """ this is currently an unimplemented endpoint """
         data = self.get_request("/v1/blockchains/bitcoin/names/muneeb.id/history",
                                 headers = {} , status_code=405)
     def test_names_pending(self):
@@ -478,6 +481,13 @@ def test_main(args = []):
         del args[ainx]
         global APP
         APP = ForwardingClient(args[ainx])
+        del args[ainx]
+
+    if "--api_password" in args:
+        ainx = args.index("--api_password")
+        del args[ainx]
+        global API_PASSWORD
+        API_PASSWORD = args[ainx]
         del args[ainx]
 
     if len(args) == 0 or args[0] == "--all":
