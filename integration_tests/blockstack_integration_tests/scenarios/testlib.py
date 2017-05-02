@@ -1302,6 +1302,21 @@ def blockstack_cli_verify_data(name, data_str, public_key=None, config_path=None
     return res
 
 
+def blockstack_cli_get_public_key(name, config_path=None):
+    """
+    get pubkey
+    """
+
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    args.name = name
+    res = cli_get_public_key(args, config_path=config_path)
+    return res
+
+
 def blockstack_cli_list_update_history( name, config_path=CONFIG_PATH):
     """
     list value hash history
@@ -2940,7 +2955,12 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
 
         # empty
         user_profile = blockstack_client.user.make_empty_user_profile()
-        user_zonefile = blockstack_client.zonefile.make_empty_zonefile(name, wallet_keys['data_pubkey'])
+        user_zonefile = None
+        if zonefile_has_data_key:
+            user_zonefile = blockstack_client.zonefile.make_empty_zonefile(name, wallet_keys['data_pubkey'])
+        else:
+            log.debug("Will not set zone file public key")
+            user_zonefile = blockstack_client.zonefile.make_empty_zonefile(name, None)
 
     else:
         user_profile = res['profile']
@@ -2950,16 +2970,22 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
             user_zonefile_json = json.loads(user_zonefile_txt)
             if blockstack_profiles.is_profile_in_legacy_format(user_zonefile_json):
                 user_profile = blockstack_profiles.get_person_from_legacy_format(user_zonefile_json)
-                
-            user_zonefile = blockstack_client.zonefile.make_empty_zonefile(name, wallet_keys['data_pubkey'])
-        except Exception as e:
-            log.exception(e)
+               
+            user_zonefile = None
+            if zonefile_has_data_key:
+                user_zonefile = blockstack_client.zonefile.make_empty_zonefile(name, wallet_keys['data_pubkey'])
+            else:
+                log.debug("Will not set zonefile public key")
+                user_zonefile = blockstack_client.zonefile.make_empty_zonefile(name, None)
+
+        except ValueError:
+            # not JSON
             user_zonefile = blockstack_zones.parse_zone_file(user_zonefile_txt)
 
-    if not zonefile_has_data_key:
-        # remove the TXT record with the public key
-        log.debug("Remvoe zonefile public key")
-        user_zonefile = blockstack_client.user.user_zonefile_remove_data_pubkey(user_zonefile)
+    # add public key, if absent 
+    if blockstack_client.user.user_zonefile_data_pubkey(user_zonefile) is None and zonefile_has_data_key:
+        log.debug("Adding zone file public key")
+        user_zonefile = blockstack_client.user.user_zonefile_set_data_pubkey(user_zonefile, keylib.ECPrivateKey(wallet_keys['data_privkey']).public_key().to_hex())
 
     payment_privkey_info = blockstack_client.get_payment_privkey_info( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     owner_privkey_info = blockstack_client.get_owner_privkey_info( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
@@ -2967,7 +2993,6 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
 
     assert data_privkey_info is not None
     assert 'error' not in data_privkey_info, str(data_privkey_info)
-
     assert virtualchain.is_singlesig(data_privkey_info)
 
     user_zonefile_hash = blockstack_client.hash_zonefile( user_zonefile )
