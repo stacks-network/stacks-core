@@ -25,6 +25,7 @@ import json
 import sys
 import os
 import urllib2
+import hashlib
 from .constants import DEFAULT_BLOCKSTACKD_PORT
 from .logger import get_logger
 
@@ -189,6 +190,7 @@ def url_to_host_port(url, port=DEFAULT_BLOCKSTACKD_PORT):
 
     return parts[0], port
 
+
 def atlas_inventory_to_string( inv ):
     """
     Inventory to string (bitwise big-endian)
@@ -205,4 +207,19 @@ def atlas_inventory_to_string( inv ):
 
     return ret
 
+
+def streq_constant(s1, s2):
+    """
+    constant-time string comparison.
+    Return True if equal
+    Return False if not equal
+    """
+    res = 0
+    s1h = hashlib.sha256(s1).digest()
+    s2h = hashlib.sha256(s2).digest()
+    for s1c, s2c in zip(s1h, s2h):
+        # will xor to 0 for each char if equal
+        res |= ord(s1c) ^ ord(s2c)
+
+    return res == 0
 
