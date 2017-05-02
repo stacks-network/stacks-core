@@ -49,6 +49,7 @@ def serialize_tx(inputs, outputs):
         'version': 1
     }
 
+    # log.debug("serialize tx: {}".format(json.dumps(txobj, indent=4, sort_keys=True)))
     txstr = virtualchain.btc_tx_serialize(txobj)
     return txstr
 
