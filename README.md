@@ -21,11 +21,14 @@ For more info on Blockstack see: http://github.com/blockstack/blockstack
 
 ## Quick Start
 
-The fastest way to get started with Blockstack is with pip.
+The fastest way to get started with Blockstack is with `pip`.
+
+You should use `pip2` if you have it instead of `pip`, since Blockstack requires Python 2.
 
 For Debian & Ubuntu:
 ```
 $ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools libgmp3-dev
+$ sudo pip2 install pyparsing
 $ sudo pip2 install blockstack --upgrade
 ```
 For SUSE and openSUSE
