@@ -394,11 +394,18 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
             new_argv += ['--secrets', str(fd)]
 
+        new_argv = [sys.executable] + new_argv
         if cli_debug:
-            print("Re-exec as `{}`".format( " ".join(new_argv)), file=sys.stderr)
+            print("Re-exec as `{}`".format(", ".join([
+                '"{}"'.format(i) for i in new_argv])), file=sys.stderr)
 
-        os.execv( new_argv[0], new_argv )
-    
+        try:
+            os.execv(new_argv[0], new_argv)
+        except:
+            import traceback as tb
+            tb.print_exc()
+            sys.exit(1)
+
     # load secrets
     if arg_info['args'].has_key('secret_fd'):
         fd_str = arg_info['args']['secret_fd']
