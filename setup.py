@@ -52,6 +52,7 @@ setup(
         'simplejson>=3.8.2',
         'jsonschema>=2.5.1',
         'scrypt>=0.8.0',
+        'pyparsing>=2.2.0',     # not required, but causes problems if not installed properly
         'basicrpc>=0.0.2',      # DHT storage driver
         'boto>=2.38.0',         # S3 storage driver
         'dropbox>=7.1.1',       # Dropbox driver
