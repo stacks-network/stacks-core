@@ -459,7 +459,7 @@ def get_data_privkey(user_zonefile, wallet_keys=None, config_path=CONFIG_PATH):
     data_privkey = wallet['data_privkey']
 
     # NOTE: uncompresssed
-    wallet_data_pubkey = get_pubkey_hex(str(data_privkey))
+    wallet_data_pubkey = keylib.key_formatting.decompress(get_pubkey_hex(str(data_privkey)))
 
     if zonefile_data_pubkey is None and wallet_data_pubkey is not None:
         # zone file does not have a data key set.
@@ -471,10 +471,10 @@ def get_data_privkey(user_zonefile, wallet_keys=None, config_path=CONFIG_PATH):
         elif virtualchain.is_multisig(owner_privkey_info):
             owner_privkey = owner_privkey_info['private_keys'][0]
 
-        owner_pubkey = get_pubkey_hex(str(owner_privkey))
+        owner_pubkey = keylib.key_formatting.decompress(get_pubkey_hex(str(owner_privkey)))
         if owner_pubkey != wallet_data_pubkey:
             # doesn't match. no data key 
-            return {'error': 'No zone file key, and data key does not match owner key'}
+            return {'error': 'No zone file key, and data key does not match owner key ({} != {})'.format(owner_pubkey, wallet_data_pubkey)}
         
     return str(data_privkey)
 
