@@ -34,6 +34,7 @@ import copy
 import time
 import shutil
 import requests
+import keylib
 
 from binascii import hexlify
 from ConfigParser import SafeConfigParser
@@ -1056,7 +1057,7 @@ def configure_zonefile(name, zonefile, data_pubkey ):
     """
 
     from .zonefile import make_empty_zonefile
-    from .user import user_zonefile_data_pubkey, user_zonefile_urls, add_user_zonefile_url, remove_user_zonefile_url, swap_user_zonefile_urls
+    from .user import user_zonefile_data_pubkey, user_zonefile_set_data_pubkey, user_zonefile_remove_data_pubkey, user_zonefile_urls, add_user_zonefile_url, remove_user_zonefile_url, swap_user_zonefile_urls
     from .storage import get_drivers_for_url
 
     if zonefile is None:
@@ -1111,13 +1112,14 @@ def configure_zonefile(name, zonefile, data_pubkey ):
         print('(a) Add profile URL')
         print('(b) Remove profile URL')
         print('(c) Swap URL order')
-        print('(d) Save zonefile')
-        print('(e) Do not save zonefile')
+        print('(d) Set or change public key')
+        print('(e) Save zonefile')
+        print('(f) Do not save zonefile')
         print('')
 
         selection = raw_input('Selection: ').lower()
 
-        if selection == 'd':
+        if selection == 'f':
             do_update = False
             break
 
@@ -1221,10 +1223,41 @@ def configure_zonefile(name, zonefile, data_pubkey ):
                 print("Bad selection")
 
         elif selection == 'd':
+            # change public key 
+            while True:
+                try:
+                    pubkey = raw_input("New ECDSA public key (empty for None): ")
+
+                    if len(pubkey) > 0:
+                        pubkey = keylib.ECPublicKey(pubkey).to_hex()
+
+                except KeyboardInterrupt:
+                    running = False
+                    print("Keyboard interrupt")
+                    return None
+
+                except:
+                    print("Invalid public key")
+                    continue
+
+                new_zonefile = None
+
+                if len(pubkey) == 0:
+                    # delete public key
+                    new_zonefile = user_zonefile_remove_data_pubkey(zonefile)
+
+                else:
+                    # set public key 
+                    new_zonefile = user_zonefile_set_data_pubkey(zonefile, pubkey)
+
+                zonefile = new_zonefile
+                break
+
+        elif selection == 'e':
             # save zonefile
             break
 
-        elif selection == 'e':
+        elif selection == 'f':
             # do not save zonefile 
             return None
 
