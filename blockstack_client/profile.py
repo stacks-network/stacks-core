@@ -282,16 +282,16 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
             urls = user_db.user_zonefile_urls(user_zonefile)
 
         user_profile = storage.get_mutable_data(
-            name, user_data_pubkey,
+            name, user_data_pubkey, blockchain_id=name,
             data_address=data_address, owner_address=owner_address,
             urls=urls, drivers=profile_storage_drivers, decode=decode_profile,
         )
 
         if user_profile is None or json_is_error(user_profile):
             if user_profile is None:
-                log.debug('WARN: no user profile for {}'.format(name))
+                log.error('no user profile for {}'.format(name))
             else:
-                log.debug('WARN: failed to load profile for {}: {}'.format(name, user_profile['error']))
+                log.error('failed to load profile for {}: {}'.format(name, user_profile['error']))
 
             return None, {'error': 'Failed to load user profile'}
 
