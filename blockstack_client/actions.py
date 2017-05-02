@@ -1186,8 +1186,8 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
                  cost_satoshis=None, interactive=True, password=None, proxy=None):
     """
     command: register
-    help: Register a name
-    arg: name (str) 'The name to register'
+    help: Register a blockchain ID
+    arg: name (str) 'The blockchain ID to register'
     opt: zonefile (str) 'The path to the zone file for this name'
     opt: recipient (str) 'The recipient address, if not this wallet'
     opt: min_confs (int) 'The minimum number of confirmations on the initial preorder'
@@ -1371,7 +1371,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
     """
     command: update
-    help: Set the zone file for a name
+    help: Set the zone file for a blockchain ID
     arg: name (str) 'The name to update.'
     opt: data (str) 'A path to a file with the zone file data.'
     opt: nonstandard (str) 'If true, then do not validate or parse the zone file.'
@@ -1512,9 +1512,9 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False, proxy=None, tx_fee=None):
     """
     command: transfer
-    help: Transfer a name to a new address
+    help: Transfer a blockchain ID to a new owner
     arg: name (str) 'The name to transfer'
-    arg: address (str) 'The address to receive the name'
+    arg: address (str) 'The address (base58check-encoded pubkey hash) to receive the name'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1567,8 +1567,8 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
 def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None, cost_satoshis=None, tx_fee=None):
     """
     command: renew
-    help: Renew a name
-    arg: name (str) 'The name to renew'
+    help: Renew a blockchain ID
+    arg: name (str) 'The blockchain ID to renew'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1680,8 +1680,8 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
 def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None, tx_fee=None):
     """
     command: revoke
-    help: Revoke a name
-    arg: name (str) 'The name to revoke'
+    help: Revoke a blockchain ID
+    arg: name (str) 'The blockchain ID to revoke'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1751,8 +1751,8 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
                 proxy=None, interactive=True, force=False, tx_fee=None):
     """
     command: migrate
-    help: Migrate a name-linked profile to the latest zonefile and profile format
-    arg: name (str) 'The name to migrate'
+    help: Migrate a legacy blockchain-linked profile to the latest zonefile and profile format
+    arg: name (str) 'The blockchain ID with the profile to migrate'
     opt: force (str) 'Reset the zone file no matter what.'
     """
 
@@ -1951,6 +1951,29 @@ def cli_setup_wallet(args, config_path=CONFIG_PATH, password=None, interactive=T
 
     ret['status'] = True
     return ret
+
+
+def cli_get_public_key(args, config_path=CONFIG_PATH, proxy=None):
+    """
+    command: get_public_key
+    help: Get the ECDSA public key for a blockchain ID
+    arg: name (str) 'The blockchain ID'
+    """
+    # reply ENODATA if we can't load the zone file
+    # reply EINVAL if we can't parse the zone file
+
+    fqu = str(args.name)
+    zfinfo = get_name_zonefile(fqu, proxy=proxy)
+    if 'error' in zfinfo:
+        log.error("unable to load zone file for {}: {}".format(fqu, zfinfo['error']))
+        return {'error': 'unable to load or parse zone file for {}'.format(fqu), 'errno': errno.ENODATA}
+   
+    if not user_zonefile_data_pubkey(zfinfo['zonefile']):
+        log.error("zone file for {} has no public key".format(fqu))
+        return {'error': 'zone file for {} has no public key'.format(fqu), 'errno': errno.EINVAL}
+
+    zfpubkey = keylib.key_formatting.decompress(user_zonefile_data_pubkey(zfinfo['zonefile']))
+    return {'public_key': zfpubkey}
 
 
 def cli_set_advanced_mode(args, config_path=CONFIG_PATH):
@@ -3301,12 +3324,12 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None, st
         # no way to authenticate this data.
         zfinfo = get_name_zonefile(fqu, proxy=proxy)
         if 'error' in zfinfo:
-            log.error("Unable to load zone file for {}: {}".format(fqu, zfinfo['error']))
-            return {'error': 'Unable to load or parse zone file for {}'.format(fqu)}
+            log.error("unable to load zone file for {}: {}".format(fqu, zfinfo['error']))
+            return {'error': 'unable to load or parse zone file for {}'.format(fqu)}
        
         if not user_zonefile_data_pubkey(zfinfo['zonefile']):
-            log.error("Zone file for {} has no public key".format(fqu))
-            return {'error': 'Zone file for {} has no public key'.format(fqu)}
+            log.error("zone file for {} has no public key".format(fqu))
+            return {'error': 'zone file for {} has no public key'.format(fqu)}
 
         wallet_keys = get_wallet_keys(config_path, password)
         if 'error' in wallet_keys:
@@ -3316,8 +3339,8 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None, st
         pubkey = keylib.key_formatting.compress(ecdsa_private_key(privkey).public_key().to_hex())
         zfpubkey = keylib.key_formatting.compress(user_zonefile_data_pubkey(zfinfo['zonefile']))
         if pubkey != zfpubkey:
-            log.error("Public key mismatch: wallet public key {} != zonefile public key {}".format(pubkey, zfpubkey))
-            return {'error': 'Public key mismatch: wallet public key {} does not match zone file public key {}'.format(pubkey, zfpubkey)}
+            log.error("public key mismatch: wallet public key {} != zonefile public key {}".format(pubkey, zfpubkey))
+            return {'error': 'public key mismatch: wallet public key {} does not match zone file public key {}'.format(pubkey, zfpubkey)}
 
     else:
         privkey = str(args.privkey)
