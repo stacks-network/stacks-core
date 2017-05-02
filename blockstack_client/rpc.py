@@ -67,7 +67,7 @@ import data
 import zonefile
 import wallet
 import keys
-from utils import daemonize 
+from utils import daemonize, streq_constant 
 
 log = blockstack_config.get_logger()
 
@@ -322,7 +322,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Not 'bearer' auth")
             return False
 
-        if auth_parts[1] != self.server.api_pass:
+        if not streq_constant(auth_parts[1], self.server.api_pass):
             # wrong token
             log.debug("Wrong API password")
             return False
@@ -946,6 +946,30 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         self._reply_json(resp, status_code=202)
         return
+
+    
+    def GET_name_public_key( self, ses, path_info, name ):
+        """
+        Get a name's current zone file public key
+        Reply {'public_key': ...} on success
+        Reply 404 if the zone file has no public key
+        Reply 503 on failure to fetch data
+        """
+        internal = self.server.get_internal_proxy()
+        resp = internal.cli_get_public_key(name)
+        if json_is_error(resp):
+            if resp.has_key('errno'):
+                if resp['errno'] == errno.EINVAL:
+                    # no public key in zone file
+                    return self._reply_json({'error': resp['error']}, status_code=404)
+
+                elif resp['errno'] == errno.ENODATA:
+                    # failed to load
+                    return self._reply_json({'error': resp['error']}, status_code=503)
+            
+            return self._reply_json({'error': resp['error']}, status_code=500)
+
+        return self._reply_json(resp)
 
 
     def GET_name_zonefile( self, ses, path_info, name ):
@@ -2302,7 +2326,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
     def GET_blockchain_unspents( self, ses, path_info, blockchain_name, address ):
         """
-        Handle GET /blockchains/:blockchain_name/:address/unspents
+        Handle GET /blockchains/:blockchain_name/:address/unspent
         Takes min_confirmations= as a query-string arg.
 
         Reply 200 and the list of unspent outputs or current address states
@@ -2606,6 +2630,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'desc': 'transfer names to new addresses',
                         'auth_session': True,
                         'auth_pass': True,
+                        'need_data_key': False,
+                    },
+                },
+            },
+            r'^/v1/names/({})/public_key$'.format(NAME_CLASS): {
+                'routes': {
+                    'GET': self.GET_name_public_key,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'zonefiles',
+                        'desc': 'read name public key from zone file',
+                        'auth_session': False,
+                        'auth_pass': False,
                         'need_data_key': False,
                     },
                 },
