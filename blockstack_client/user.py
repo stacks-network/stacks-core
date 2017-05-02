@@ -126,6 +126,9 @@ def user_zonefile_set_data_pubkey(user_zonefile, pubkey_hex, key_prefix='pubkey:
 
     user_zonefile.setdefault('txt', [])
 
+    # compressed...
+    pubkey_hex = keylib.key_formatting.compress(pubkey_hex)
+
     txt = '{}{}'.format(key_prefix, str(pubkey_hex))
 
     for txtrec in user_zonefile['txt']:
