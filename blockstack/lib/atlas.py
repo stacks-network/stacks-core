@@ -3490,7 +3490,7 @@ class AtlasZonefilePusher(threading.Thread):
 
 
 
-def atlas_node_start( my_hostname, my_portnum, atlasdb_path=None, zonefile_dir=None, zonefile_storage_drivers=[] ):
+def atlas_node_start( my_hostname, my_portnum, atlasdb_path=None, zonefile_dir=None, zonefile_storage_drivers=[], zonefile_storage_drivers_write=[] ):
     """
     Start up the atlas node.
     Return a bundle of atlas state
@@ -3498,7 +3498,8 @@ def atlas_node_start( my_hostname, my_portnum, atlasdb_path=None, zonefile_dir=N
     atlas_state = {}
     atlas_state['peer_crawler'] = AtlasPeerCrawler( my_hostname, my_portnum )
     atlas_state['health_checker'] = AtlasHealthChecker( my_hostname, my_portnum, path=atlasdb_path )
-    atlas_state['zonefile_crawler'] = AtlasZonefileCrawler( my_hostname, my_portnum, zonefile_storage_drivers=zonefile_storage_drivers, path=atlasdb_path, zonefile_dir=zonefile_dir )
+    atlas_state['zonefile_crawler'] = AtlasZonefileCrawler( my_hostname, my_portnum, zonefile_storage_drivers=zonefile_storage_drivers,
+                                                            zonefile_storage_drivers_write=zonefile_storage_drivers_write, path=atlasdb_path, zonefile_dir=zonefile_dir )
     # atlas_state['zonefile_pusher'] = AtlasZonefilePusher( my_hostname, my_portnum, path=atlasdb_path, zonefile_storage_drivers=zonefile_storage_drivers, zonefile_dir=zonefile_dir )
 
     # start them all up
