@@ -974,7 +974,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return self.success_response( {'block_id': block_id} )
 
 
-    def get_zonefile_data( self, config, zonefile_hash, zonefile_storage_drivers, name=None ):
+    def get_zonefile_data( self, config, zonefile_hash, name=None ):
         """
         Get a zonefile by hash
         Return the serialized zonefile on success
@@ -997,7 +997,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return None
        
 
-    def get_zonefile_data_by_name( self, conf, name, zonefile_storage_drivers, name_rec=None ):
+    def get_zonefile_data_by_name( self, conf, name, name_rec=None ):
         """
         Get a zonefile by name
         Return the serialized zonefile on success
@@ -1020,7 +1020,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return None
 
         # find zonefile 
-        zonefile_data = self.get_zonefile_data( conf, zonefile_hash, zonefile_storage_drivers, name=name )
+        zonefile_data = self.get_zonefile_data( conf, zonefile_hash, name=name )
         if zonefile_data is None:
             return None
 
@@ -1049,8 +1049,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             log.error("Too many requests (%s)" % len(zonefile_hashes))
             return {'error': 'Too many requests'}
 
-        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
-
         ret = {}
         for zonefile_hash in zonefile_hashes:
             if type(zonefile_hash) not in [str, unicode]:
@@ -1058,7 +1056,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 return {'error': 'Not a zonefile hash'}
 
         for zonefile_hash in zonefile_hashes:
-            zonefile_data = self.get_zonefile_data( conf, zonefile_hash, zonefile_storage_drivers )
+            zonefile_data = self.get_zonefile_data( conf, zonefile_hash )
             if zonefile_data is None:
                 continue
 
@@ -1090,8 +1088,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if len(names) > 100:
             return {'error': 'Too many requests'}
         
-        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
-
         ret = {}
         for name in names:
             if type(name) not in [str, unicode]:
@@ -1101,7 +1097,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 return {'error': 'Invalid name'}
 
         for name in names:
-            zonefile_data = self.get_zonefile_data_by_name( conf, name, zonefile_storage_drivers )
+            zonefile_data = self.get_zonefile_data_by_name( conf, name )
             if zonefile_data is None:
                 continue
 
@@ -1138,7 +1134,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         zonefile_dir = conf.get("zonefiles", None)
         saved = []
         db = get_db_state()
-        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
 
         for zonefile_data in zonefile_datas:
           
@@ -1253,7 +1248,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return name_rec
 
         # find zonefile 
-        zonefile_data = self.get_zonefile_data_by_name( conf, name, zonefile_storage_drivers, name_rec=name_rec )
+        zonefile_data = self.get_zonefile_data_by_name( conf, name, name_rec=name_rec )
         if zonefile_data is None:
             return {'error': 'No zonefile'}
 
@@ -1393,7 +1388,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'error': 'No such name'}
 
         # find zonefile 
-        zonefile_data = self.get_zonefile_data_by_name( conf, name, zonefile_storage_drivers, name_rec=name_rec )
+        zonefile_data = self.get_zonefile_data_by_name( conf, name, name_rec=name_rec )
         if zonefile_data is None:
             log.debug("No zonefile for '%s'" % name)
             return {'error': 'No zonefile'}
@@ -1720,8 +1715,11 @@ class BlockstackStoragePusher( threading.Thread ):
 
         self.zonefile_dir = conf.get('zonefile_dir', None)
         self.zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
+        self.zonefile_storage_drivers_write = conf['zonefile_storage_drivers_write'].split(",")
         self.profile_storage_drivers = conf['profile_storage_drivers'].split(",")
+        self.profile_storage_drivers_write = conf['profile_storage_drivers_write'].split(",")
         self.data_storage_drivers = conf['data_storage_drivers'].split(',')
+        self.data_storage_drivers_write = conf['data_storage_drivers_write'].split(',')
         self.atlasdb_path = conf.get('atlasdb_path', None)
 
         self.zonefile_queue_id = "push-zonefile"
@@ -1733,13 +1731,25 @@ class BlockstackStoragePusher( threading.Thread ):
             log.warn("Removing 'blockstack_server' from zone file storage drivers")
             self.zonefile_storage_drivers.remove('blockstack_server')
 
+        if 'blockstack_server' in self.zonefile_storage_drivers_write:
+            log.warn("Removing 'blockstack_server' from zone file storage write drivers")
+            self.zonefile_storage_drivers_write.remove('blockstack_server')
+
         if 'blockstack_server' in self.profile_storage_drivers:
             log.warn("Removing 'blockstack_server' from profile storage drivers")
             self.profile_storage_drivers.remove('blockstack_server')
 
+        if 'blockstack_server' in self.profile_storage_drivers_write:
+            log.warn("Removing 'blockstack_server' from profile storage write drivers")
+            self.profile_storage_drivers_write.remove('blockstack_server')
+
         if 'blockstack_server' in self.data_storage_drivers:
             log.warn("Removing 'blockstack_server' from data storage drivers")
             self.data_storage_drivers.remove('blockstack_server')
+
+        if 'blockstack_server' in self.data_storage_drivers_write:
+            log.warn("Removing 'blockstack_server' from data storage write drivers")
+            self.data_storage_drivers_write.remove('blockstack_server')
 
 
     def enqueue_zonefile( self, txid, zonefile_hash, zonefile_data ):
@@ -1840,7 +1850,7 @@ class BlockstackStoragePusher( threading.Thread ):
             return False
 
         entry = entries[0]
-        res = store_zonefile_data_to_storage( str(entry['zonefile']), entry['tx_hash'], required=self.zonefile_storage_drivers, skip=['blockstack_server'], cache=False, zonefile_dir=self.zonefile_dir, tx_required=False )
+        res = store_zonefile_data_to_storage( str(entry['zonefile']), entry['tx_hash'], required=self.zonefile_storage_drivers_write, skip=['blockstack_server'], cache=False, zonefile_dir=self.zonefile_dir, tx_required=False )
         if not res:
             log.error("Failed to store zonefile {} ({} bytes)".format(entry['zonefile_hash'], len(entry['zonefile'])))
             return False
@@ -1940,6 +1950,7 @@ class BlockstackStoragePusher( threading.Thread ):
 
             if not res_zonefile and not res_profile and not res_data:
                 time.sleep(1.0)
+                gc_thread.gc_event()                
                 continue
 
             else:
@@ -2086,12 +2097,14 @@ def atlas_start( blockstack_opts, db, port ):
         atlas_blacklist = filter( lambda x: len(x) > 0, blockstack_opts['atlas_blacklist'].split(","))
         zonefile_dir = blockstack_opts.get('zonefiles', None)
         zonefile_storage_drivers = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers'].split(","))
+        zonefile_storage_drivers_write = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers_write'].split(","))
         my_hostname = blockstack_opts['atlas_hostname']
 
         initial_peer_table = atlasdb_init( blockstack_opts['atlasdb_path'], db, atlas_seed_peers, atlas_blacklist, validate=True, zonefile_dir=zonefile_dir )
         atlas_peer_table_init( initial_peer_table )
 
-        atlas_state = atlas_node_start( my_hostname, port, atlasdb_path=blockstack_opts['atlasdb_path'], zonefile_storage_drivers=zonefile_storage_drivers, zonefile_dir=zonefile_dir )
+        atlas_state = atlas_node_start( my_hostname, port, atlasdb_path=blockstack_opts['atlasdb_path'],
+                                        zonefile_storage_drivers=zonefile_storage_drivers, zonefile_storage_drivers_write=zonefile_storage_drivers_write, zonefile_dir=zonefile_dir )
 
     return atlas_state
 

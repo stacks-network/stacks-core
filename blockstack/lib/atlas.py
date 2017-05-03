@@ -3087,12 +3087,13 @@ class AtlasZonefileCrawler( threading.Thread ):
     zonefiles that we don't have.
     """
 
-    def __init__(self, my_host, my_port, zonefile_storage_drivers=[], path=None, zonefile_dir=None):
+    def __init__(self, my_host, my_port, zonefile_storage_drivers=[], zonefile_storage_drivers_write=[], path=None, zonefile_dir=None):
         threading.Thread.__init__(self)
         self.running = False
         self.hostport = "%s:%s" % (my_host, my_port)
         self.path = path 
         self.zonefile_storage_drivers = zonefile_storage_drivers
+        self.zonefile_storage_drivers_write = zonefile_storage_drivers_write
         self.zonefile_dir = zonefile_dir
         self.last_storage_reset = time_now()
         if self.path is None:
@@ -3106,7 +3107,7 @@ class AtlasZonefileCrawler( threading.Thread ):
         Return True on success
         Return False on error
         """
-        rc = store_zonefile_data_to_storage( zonefile_data, txid, required=self.zonefile_storage_drivers, cache=True, zonefile_dir=self.zonefile_dir, tx_required=False )
+        rc = store_zonefile_data_to_storage( zonefile_data, txid, required=self.zonefile_storage_drivers_write, cache=True, zonefile_dir=self.zonefile_dir, tx_required=False )
         if not rc:
             log.error("%s: Failed to store zonefile %s" % (self.hostport, fetched_zfhash))
 
