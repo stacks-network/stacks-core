@@ -2363,6 +2363,9 @@ def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None
     # put supervisor pid file
     put_pidfile( pid_file, os.getpid() )
 
+    # start GC 
+    gc_start()
+
     # clear indexing state
     set_indexing( False )
 
@@ -2377,12 +2380,9 @@ def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None
     atexit.register( blockstack_exit, atlas_state )
   
     db.close()
-
+    
     # start storage 
     storage_start( blockstack_opts )
-
-    # start GC 
-    gc_start()
 
     # start API server
     rpc_start(port)
