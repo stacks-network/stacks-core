@@ -12,21 +12,25 @@ The tests cover the following repositories, and must be installed prior to runni
 
 * [virtualchain](https://github.com/blockstack/virtualchain)
 * [blockstack-core](https://github.com/blockstack/blockstack-core)
-* [blockstack-cli](https://github.com/blockstack/blockstack-cli)
-* [blockstack-file](https://github.com/blockstack/blockstack-files)
-* [blockstack-gpg](https://github.com/blockstack/blockstack-gpg)
 * [blockstack-zones](https://github.com/blockstack/dns-zone-file-py)
+* [keylib-py](https://github.com/blockstack/keylib-py)
+* [keychain-manager-py](https://github.com/blockstack/keychain-manager-py)
 * [blockstack-profiles](https://github.com/blockstack/blockstack-profiles-py)
-
-The `get_started.sh` script in the root directory will fetch and install the latest branches of all the required Blockstack packages.
-**If you want to install the latest branches alongside the stable Blockstack packages, you should use a virtual environment.**
 
 In addition, you must install the Bitcoin daemon and CLI tool.
 
 Getting Started
 ---------------
 
-Once all of the required packages are installed (see `get_started.sh`), you can run individual test scenarios.  Test scenarios
+To install the test framework, first install `blockstack-core` and all of its
+dependencies.  Then, do the following to install the integration tests:
+
+```
+    $ cd integration_tests/
+    $ ./setup.py build && sudo ./setup.py install
+```
+
+Once all of the required packages are installed you can run individual test scenarios.  Test scenarios
 are organized as Python modules, which can be imported from `blockstack_integration_tests.scenarios`.  For example, the following
 command runs the test that will create a `.test` namespace, preorder and register the name `foo.test`, set its zonefile hash, 
 and create an empty profile for it:
