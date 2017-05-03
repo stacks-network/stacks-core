@@ -765,7 +765,7 @@ def bitcoin_regtest_reset():
         log.error("Failed to connect to bitcoind")
         return False
 
-    # generate 150 blocks (50 BTC coinbase each), and confirm them
+    # generate 250 blocks (50 BTC coinbase each), and confirm them
     bitcoind = virtualchain.connect_bitcoind(opts)
     res = bitcoind.generate(TEST_FIRST_BLOCK_HEIGHT-1)
     if len(res) != TEST_FIRST_BLOCK_HEIGHT-1:
