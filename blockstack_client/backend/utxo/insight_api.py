@@ -38,8 +38,9 @@ class InsightClient(object):
         try:
             req = requests.get(url)
             resp = req.json()
-        except:
-            raise Exception("Failed to query UTXOs")
+        except Exception as e:
+            log.error("Failed to query UTXos")
+            raise
 
         # format...
         try:
@@ -61,8 +62,9 @@ class InsightClient(object):
 
         try:
             req = requests.post(url, data=data, headers=headers)
-        except:
-            raise Exception("Failed to send transaction")
+        except Exception as e:
+            log.error("Failed to send transaction")
+            raise
 
         try:
             resp = req.json()
