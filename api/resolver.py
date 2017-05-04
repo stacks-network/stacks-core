@@ -44,6 +44,7 @@ from blockstack_profiles import get_profile_from_tokens
 from blockstack_zones import parse_zone_file
 
 from blockstack_client.proxy import get_name_blockchain_record
+import blockstack_client.profile
 
 from api.utils import cache_control, get_mc_client
 
@@ -242,33 +243,21 @@ def resolve_zone_file_to_profile(zone_file, address_or_public_key):
     return profile, None
 
 
-def format_profile(profile, username, address, refresh=False):
+def format_profile(profile, username, zone_file, refresh=False):
     """ Process profile data and
         1) Insert verifications
         2) Check if profile data is valid JSON
     """
 
     data = {}
-    zone_file = profile
 
     if 'error' in profile:
         data['profile'] = {}
         data['error'] = profile['error']
         data['verifications'] = []
-        data['owner_address'] = address
         data['zone_file'] = zone_file
 
         return data
-
-    try:
-        profile, error = resolve_zone_file_to_profile(zone_file, address)
-    except:
-        if 'message' in profile:
-            data['profile'] = json.loads(profile)
-            data['verifications'] = []
-            data['owner_address'] = address
-            data['zone_file'] = zone_file
-            return data
 
     if profile is None:
         data['profile'] = {}
@@ -296,7 +285,6 @@ def format_profile(profile, username, address, refresh=False):
                                                  refresh=refresh)
 
     data['zone_file'] = zone_file
-    data['owner_address'] = address
 
     return data
 
@@ -320,33 +308,25 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
         dht_cache_reply = None
 
     if dht_cache_reply is None:
-
         try:
-            bs_resp = get_name_blockchain_record(username + "." + namespace)
+            profile, zonefile = blockstack_client.profile.get_profile("{}.{}".format(username, namespace))
         except:
             abort(500, "Connection to blockstack-server %s:%s timed out" % (BLOCKSTACKD_IP, BLOCKSTACKD_PORT))
 
-        if bs_resp is None or 'error' in bs_resp:
+        if profile is None or 'error' in zonefile:
+            log.error("{}".format(zonefile))
             abort(404)
-
-        if 'value_hash' in bs_resp:
-            profile_hash = bs_resp['value_hash']
-            dht_response = fetch_from_dht(profile_hash)
-
-            dht_data = {}
-            dht_data['dht_response'] = dht_response
-            dht_data['owner_address'] = bs_resp['address']
-
-            if MEMCACHED_ENABLED or refresh:
-                log.debug("Memcache set DHT: %s" % username)
-                mc.set("dht_" + str(username), json.dumps(dht_data),
-                       int(time() + MEMCACHED_TIMEOUT))
-        else:
-            dht_data = {"error": "Not found"}
+            
+        prof_data = {'response' : profile}
+     
+        if MEMCACHED_ENABLED or refresh:
+            log.debug("Memcache set DHT: %s" % username)
+            mc.set("dht_" + str(username), json.dumps(data),
+                   int(time() + MEMCACHED_TIMEOUT))
     else:
-        dht_data = json.loads(dht_cache_reply)
+        prof_data = json.loads(dht_cache_reply)
 
-    data = format_profile(dht_data['dht_response'], username, dht_data['owner_address'])
+    data = format_profile(prof_data['response'], username, zonefile)
 
     return data
 
