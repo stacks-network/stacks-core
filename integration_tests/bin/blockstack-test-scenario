@@ -40,7 +40,7 @@ log = virtualchain.get_logger("blockstack-test-scenario")
 from virtualchain.lib.blockchain.bitcoin_blockchain import JSONRPCException
 
 TEST_RPC_PORT = 16264
-TEST_CLIENT_RPC_PORT = 16268
+TEST_CLIENT_RPC_PORT = int(os.environ.get("BLOCKSTACK_TEST_CLIENT_RPC_PORT", 16268))
 BLOCKSTACK_STORAGE_DRIVERS = "disk"
 
 if os.environ.get("BLOCKSTACK_STORAGE_DRIVERS", None) is not None:
