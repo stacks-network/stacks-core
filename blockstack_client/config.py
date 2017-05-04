@@ -1058,7 +1058,10 @@ def configure_zonefile(name, zonefile, data_pubkey ):
     """
 
     from .zonefile import make_empty_zonefile
-    from .user import user_zonefile_data_pubkey, user_zonefile_set_data_pubkey, user_zonefile_remove_data_pubkey, user_zonefile_urls, add_user_zonefile_url, remove_user_zonefile_url, swap_user_zonefile_urls
+    from .user import user_zonefile_data_pubkey, user_zonefile_set_data_pubkey, user_zonefile_remove_data_pubkey, \
+            user_zonefile_urls, add_user_zonefile_url, remove_user_zonefile_url, swap_user_zonefile_urls, \
+            add_user_zonefile_txt, remove_user_zonefile_txt, user_zonefile_txts
+
     from .storage import get_drivers_for_url
 
     if zonefile is None:
@@ -1082,6 +1085,10 @@ def configure_zonefile(name, zonefile, data_pubkey ):
         urls = user_zonefile_urls(zonefile) 
         if urls is None:
             urls = []
+
+        txts = user_zonefile_txts(zonefile)
+        if txts is None:
+            txts = []
 
         url_drivers = {}
 
@@ -1109,18 +1116,35 @@ def configure_zonefile(name, zonefile, data_pubkey ):
             print('(none)')
 
         print('')
+    
+        # don't count the public key...
+        print("TXT records ({}):".format(len(txts) - (1 if public_key else 0)))
+        if len(txts) > 0:
+            for i in xrange(0, len(txts)):
+                # skip public key
+                if txts[i]['name'] == 'pubkey':
+                    continue
+
+                print('{} "{}"'.format(txts[i]['name'], txts[i]['txt']))
+
+        else:
+            print("(none)")
+
+        print('')
         print('What would you like to do?')
         print('(a) Add profile URL')
         print('(b) Remove profile URL')
         print('(c) Swap URL order')
-        print('(d) Set or change public key')
-        print('(e) Save zonefile')
-        print('(f) Do not save zonefile')
+        print('(d) Add TXT record')
+        print('(e) Remove TXT record')
+        print('(f) Set or change public key')
+        print('(g) Save zonefile')
+        print('(h) Do not save zonefile')
         print('')
 
         selection = raw_input('Selection: ').lower()
 
-        if selection == 'f':
+        if selection == 'h':
             do_update = False
             break
 
@@ -1221,9 +1245,56 @@ def configure_zonefile(name, zonefile, data_pubkey ):
                     zonefile = new_zonefile
                     break
 
-                print("Bad selection")
 
         elif selection == 'd':
+            # add txt record 
+            while True:
+                try:
+                    txtrec_name = raw_input("New TXT record name: ")
+                    txtrec_txt = raw_input("New TXT record data: ")
+                except KeyboardInterrupt:
+                    running = False
+                    print("Keyboard interrupt")
+                    return None
+
+                if txtrec_name == 'pubkey':
+                    print("Change the ECDSA key explicitly")
+                    break
+
+                new_zonefile = add_user_zonefile_txt(zonefile, txtrec_name, txtrec_txt)
+                if new_zonefile is None:
+                    print("Duplicate TXT record")
+                    break
+
+                else:
+                    zonefile = new_zonefile
+                    break
+
+
+        elif selection == 'e':
+            # remove txt record 
+            while True:
+                try:
+                    txtrec_name = raw_input('Name of TXT record to remove: ')
+                except KeyboardInterrupt:
+                    running = False
+                    print("Keyboard interrupt")
+                    return None
+
+                if txtrec_name == 'pubkey':
+                    print("Change the ECDSA key explicitly")
+                    break
+
+                new_zonefile = remove_user_zonefile_txt(zonefile, txtrec_name)
+                if new_zonefile is None:
+                    print("No such TXT record")
+                    break
+
+                else:
+                    zonefile = new_zonefile
+                    break
+
+        elif selection == 'f':
             # change public key 
             while True:
                 try:
@@ -1254,11 +1325,11 @@ def configure_zonefile(name, zonefile, data_pubkey ):
                 zonefile = new_zonefile
                 break
 
-        elif selection == 'e':
+        elif selection == 'g':
             # save zonefile
             break
 
-        elif selection == 'f':
+        elif selection == 'h':
             # do not save zonefile 
             return None
 
