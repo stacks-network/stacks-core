@@ -25,7 +25,9 @@ import sys
 import requests
 import json
 import traceback
+from ...logger import get_logger
 
+log = get_logger("insight-api")
 
 class InsightClient(object):
     def __init__(self, url):
@@ -35,6 +37,7 @@ class InsightClient(object):
     def get_unspents(self, address):
         url = self.url + '/insight-api/addr/{}/utxo'.format(address)
         resp = None
+        log.debug("GET {}".format(url))
         try:
             req = requests.get(url)
             resp = req.json()
@@ -59,6 +62,8 @@ class InsightClient(object):
         
         req = None
         resp = None
+
+        log.debug("POST {}".format(url))
 
         try:
             req = requests.post(url, data=data, headers=headers)
