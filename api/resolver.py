@@ -309,7 +309,9 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
 
     if dht_cache_reply is None:
         try:
-            profile, zonefile = blockstack_client.profile.get_profile("{}.{}".format(username, namespace))
+            profile, zonefile = blockstack_client.profile.get_profile(
+                "{}.{}".format(username, namespace),
+                use_legacy = True)
         except:
             abort(500, "Connection to blockstack-server %s:%s timed out" % (BLOCKSTACKD_IP, BLOCKSTACKD_PORT))
 
