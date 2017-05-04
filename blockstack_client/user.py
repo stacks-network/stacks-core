@@ -26,6 +26,7 @@ import jsonschema
 from jsonschema.exceptions import ValidationError
 import re
 import keylib
+import copy
 
 import virtualchain
 from virtualchain.lib.ecdsalib import *
@@ -179,6 +180,20 @@ def user_zonefile_urls(user_zonefile):
     return ret
 
 
+def user_zonefile_txts(user_zonefile):
+    """
+    Given a user's zonefile, get the txt records.
+    Return [{'name': name, 'txt': txt}]
+    """
+    assert is_user_zonefile(user_zonefile)
+
+    if 'txt' not in user_zonefile:
+        return None
+
+    ret = copy.deepcopy(user_zonefile.get('txt', []))
+    return ret
+
+
 def add_user_zonefile_url(user_zonefile, url):
     """
     Add a url to a zonefile
@@ -219,6 +234,52 @@ def remove_user_zonefile_url(user_zonefile, url):
         target = urirec.get('target', '')
         if target.strip('"') == url:
             user_zonefile['uri'].remove(urirec)
+
+    return user_zonefile
+
+
+def add_user_zonefile_txt(user_zonefile, txt_name, txt_data):
+    """
+    Add a TXT record to a zone file
+    Return the new zone file on success
+    Return None on duplicate or error
+    """
+
+    assert is_user_zonefile(user_zonefile)
+    user_zonefile.setdefault('txt', [])
+
+    # avoid duplicates
+    for txtrec in user_zonefile['txt']:
+        name = txtrec['name']
+        if txt_name == name:
+            return None
+
+    new_txtrec = {
+        'name': txt_name,
+        'txt': txt_data
+    }
+
+    user_zonefile['txt'].append(new_txtrec)
+    assert is_user_zonefile(user_zonefile)
+    return user_zonefile
+
+
+def remove_user_zonefile_txt(user_zonefile, txt_name):
+    """
+    Remove a TXT record from a zone file.
+    Return the new zone file on success.
+    Return None on not found
+    """
+
+    assert is_user_zonefile(user_zonefile)
+    
+    if 'txt' not in user_zonefile:
+        return None
+
+    for txtrec in user_zonefile['txt']:
+        name = txtrec['name']
+        if name == txt_name:
+            user_zonefile['txt'].remove(txtrec)
 
     return user_zonefile
 
