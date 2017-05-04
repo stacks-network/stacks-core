@@ -38,7 +38,6 @@ as a command-line option.
 import argparse
 import sys
 import requests
-import tempfile
 import traceback
 requests.packages.urllib3.disable_warnings()
 
@@ -47,8 +46,8 @@ logging.disable(logging.CRITICAL)
 
 from blockstack_client import config
 from blockstack_client.client import session, analytics_user_register 
-from blockstack_client.constants import WALLET_FILENAME, set_secret, serialize_secrets, write_secrets, parse_secrets, load_secrets, CONFIG_PATH, BLOCKSTACK_DEBUG
-from blockstack_client.config import CONFIG_PATH, VERSION, semver_match, get_config, client_uuid_path, get_or_set_uuid
+from blockstack_client.constants import WALLET_FILENAME, set_secret, serialize_secrets, write_secrets, load_secrets, CONFIG_PATH
+from blockstack_client.config import CONFIG_PATH, VERSION, client_uuid_path, get_or_set_uuid
 from blockstack_client.method_parser import parse_methods, build_method_subparsers
 
 from wallet import *
@@ -395,11 +394,18 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
             new_argv += ['--secrets', str(fd)]
 
+        new_argv = [sys.executable] + new_argv
         if cli_debug:
-            print("Re-exec as `{}`".format( " ".join(new_argv)), file=sys.stderr)
+            print("Re-exec as `{}`".format(", ".join([
+                '"{}"'.format(i) for i in new_argv])), file=sys.stderr)
 
-        os.execv( new_argv[0], new_argv )
-    
+        try:
+            os.execv(new_argv[0], new_argv)
+        except:
+            import traceback as tb
+            tb.print_exc()
+            sys.exit(1)
+
     # load secrets
     if arg_info['args'].has_key('secret_fd'):
         fd_str = arg_info['args']['secret_fd']

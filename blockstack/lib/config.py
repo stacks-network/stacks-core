@@ -26,11 +26,10 @@ import sys
 import copy
 import socket
 from ConfigParser import SafeConfigParser
-import json
 
 import blockstack_client
 from blockstack_client.version import __version__
-from blockstack_client.config import DEFAULT_OP_RETURN_FEE, DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_VALUE, DEFAULT_FEE_PER_KB, url_to_host_port
+from blockstack_client.utils import url_to_host_port
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
@@ -57,7 +56,7 @@ NAME_PREORDER_EXPIRE = BLOCKS_PER_DAY
 AVERAGE_BLOCKS_PER_HOUR = MINUTES_PER_HOUR/AVERAGE_MINUTES_PER_BLOCK
 
 FAST_SYNC_PUBLIC_KEYS = [
-    '02edbaa730f241960bcd1a50c718fac7f9d4874f460c1f6db0a3941094e7685ef9'
+    '023fa2e30724998010764529bda23213061c8e758d7095e1883bed8006844daaec'
 ]
 
 

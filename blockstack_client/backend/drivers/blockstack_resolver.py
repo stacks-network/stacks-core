@@ -24,18 +24,14 @@
 # use Blockstack Labs as a read-only reader for zonefile/profile data
 
 import os
-import sys 
-import traceback
-import logging
 import json
 import requests
 from ConfigParser import SafeConfigParser
 
-import blockstack_zones
 import virtualchain
 from virtualchain.lib.hashing import *
 
-from common import get_logger, DEBUG
+from common import get_logger
 
 log = get_logger("blockstack-storage-driver-blockstack-s3-readonly")
 

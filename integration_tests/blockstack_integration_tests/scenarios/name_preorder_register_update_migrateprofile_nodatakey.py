@@ -125,10 +125,10 @@ def scenario( wallets, **kw ):
     result_2 = testlib.blockstack_name_update( "bar.test", legacy_hash, wallets[6].privkey )
     testlib.next_block( **kw )
 
-    rc = blockstack_client.storage.put_immutable_data( None, result_1['transaction_hash'], data_hash=legacy_hash, data_text=legacy_txt )
+    rc = blockstack_client.storage.put_immutable_data( legacy_txt, result_1['transaction_hash'], data_hash=legacy_hash )
     assert rc is not None
 
-    rc = blockstack_client.storage.put_immutable_data( None, result_2['transaction_hash'], data_hash=legacy_hash, data_text=legacy_txt )
+    rc = blockstack_client.storage.put_immutable_data( legacy_txt, result_2['transaction_hash'], data_hash=legacy_hash )
     assert rc is not None
 
     testlib.next_block( **kw )

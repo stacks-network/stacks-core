@@ -21,13 +21,11 @@
 """
 
 
-import os
 import base64
 
 import scrypt
-
-# TODO: deprecate use of Pycrypto by 0.16
-from Crypto.Cipher import AES
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
 
 from binascii import hexlify, unhexlify
 
@@ -64,11 +62,13 @@ def aes_decrypt_legacy(payload, secret):
 
     try:
         PADDING = '{'
-        DecodeAES = lambda c, e: c.decrypt(base64.b64decode(e)).rstrip(PADDING)
 
         secret = ensure_length(secret)
-        cipher = AES.new(unhexlify(secret))
-        res = DecodeAES(cipher, payload)
+        cipher = Cipher(algorithms.AES(unhexlify(secret)), modes.ECB(),
+                        backend = default_backend())
+        decryptor = cipher.decryptor()
+        res = decryptor.update(base64.b64decode(payload)) + decryptor.finalize()
+        res = res.rstrip(PADDING)
         return res
     except:
         return None

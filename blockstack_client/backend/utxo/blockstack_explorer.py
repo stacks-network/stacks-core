@@ -21,15 +21,7 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os
-import sys
-import requests
-import json
-import traceback
-
-from .insight_api import _get_unspents as get_unspents
-from .insight_api import _broadcast_transaction as broadcast_transaction
-from .insight_api import InsightClient
+from .insight_api import InsightClient, _get_unspents, _broadcast_transaction
 
 BLOCKSTACK_EXPLORER_URL = "https://explorer.blockstack.org"
 
@@ -37,4 +29,7 @@ class BlockstackExplorerClient(InsightClient):
     def __init__(self, url=BLOCKSTACK_EXPLORER_URL):
         super(BlockstackExplorerClient, self).__init__(url)
 
+
+get_unspents = _get_unspents
+broadcast_transaction = _broadcast_transaction
 

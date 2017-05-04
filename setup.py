@@ -50,10 +50,8 @@ setup(
         'defusedxml>=0.4.1',
         'keylib>=0.0.5',
         'mixpanel>=4.3.1',
-        'pycrypto>=2.6.1',
         'simplejson>=3.8.2',
         'jsonschema>=2.5.1',
-        'fastecdsa>=1.3.2',
         'scrypt>=0.8.0',
         'basicrpc>=0.0.2',      # DHT storage driver
         'boto>=2.38.0',         # S3 storage driver

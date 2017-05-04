@@ -23,29 +23,15 @@
 
 import virtualchain
 from binascii import hexlify
-import collections
-import json
-import traceback
 import re
-import sys
 
 import keylib
-from keylib import ECPrivateKey, ECPublicKey
-from keylib.hashing import bin_hash160
-from keylib.address_formatting import bin_hash160_to_address
-from keylib.key_formatting import compress, decompress
-from keylib.public_key_encoding import PubkeyType
-
-from .backend.crypto.utils import aes_encrypt, aes_decrypt
 
 from keychain import PrivateKeychain
-import base64
-import binascii
 import jsonschema
 from jsonschema.exceptions import ValidationError
-from utilitybelt import is_hex
 
-from .config import get_logger
+from .logger import get_logger
 from .constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
 
 import virtualchain
@@ -112,7 +98,14 @@ class HDWallet(object):
         return self.priv_keychain.private_key()
 
 
-    def get_child_privkey(self, index=0):
+    def _encode_child_privkey(self, child_privkey, compressed=True):
+        """
+        Make sure the private key given is compressed or not compressed
+        """
+        return set_privkey_compressed(child_privkey, compressed=compressed)
+
+
+    def get_child_privkey(self, index=0, compressed=True):
         """
         Get a hardened child private key
         @index is the child index
@@ -125,7 +118,7 @@ class HDWallet(object):
             if BLOCKSTACK_TEST:
                 log.debug("Child {} of {} is cached".format(index, self.keychain_key))
 
-            return KEY_CACHE[self.keychain_key][index]
+            return self._encode_child_privkey(KEY_CACHE[self.keychain_key][index], compressed=compressed)
 
         # expensive...
         child = self.priv_keychain.hardened_child(index)
@@ -133,9 +126,10 @@ class HDWallet(object):
         if not KEY_CACHE.has_key(self.keychain_key):
             KEY_CACHE[self.keychain_key] = {}
 
-        KEY_CACHE[self.keychain_key][index] = child.private_key()
-
-        return child.private_key()
+        child_privkey = self._encode_child_privkey(child.private_key(), compressed=compressed)
+        
+        KEY_CACHE[self.keychain_key][index] = child_privkey
+        return child_privkey
 
 
     def get_master_address(self):
@@ -144,7 +138,7 @@ class HDWallet(object):
 
         hex_privkey = self.get_master_privkey()
         hex_pubkey = get_pubkey_hex(hex_privkey)
-        return keylib.public_key_to_address(hex_pubkey)
+        return virtualchain.address_reencode(keylib.public_key_to_address(hex_pubkey))
 
 
     def get_child_address(self, index=0):
@@ -158,12 +152,13 @@ class HDWallet(object):
         if self.child_addresses is not None:
             return self.child_addresses[index]
 
+        # force decompressed...
         hex_privkey = self.get_child_privkey(index)
         hex_pubkey = get_pubkey_hex(hex_privkey)
-        return keylib.public_key_to_address(hex_pubkey)
+        return virtualchain.address_reencode(keylib.public_key_to_address(hex_pubkey))
 
 
-    def get_child_keypairs(self, count=1, offset=0, include_privkey=False):
+    def get_child_keypairs(self, count=1, offset=0, include_privkey=False, compressed=True):
         """
         Returns (privkey, address) keypairs
 
@@ -180,7 +175,7 @@ class HDWallet(object):
             address = self.get_child_address(index)
 
             if include_privkey:
-                hex_privkey = self.get_child_privkey(index)
+                hex_privkey = self.get_child_privkey(index, compressed=compressed)
                 keypairs.append((address, hex_privkey))
             else:
                 keypairs.append(address)
@@ -260,7 +255,7 @@ def privkey_to_string(privkey_info):
     Convert private key to string
     Return None on invalid
     """
-    if is_singlesig(privkey_info):
+    if virtualchain.is_singlesig(privkey_info):
         return singlesig_privkey_to_string(privkey_info)
 
     if virtualchain.is_multisig(privkey_info):
@@ -279,6 +274,8 @@ def decrypt_multisig_info(enc_multisig_info, password):
     Returns {'private_keys': ..., 'redeem_script': ..., **other_fields}
     Return {'error': ...} on error
     """
+    from .backend.crypto.utils import aes_decrypt
+
     multisig_info = {
         'private_keys': None,
         'redeem_script': None,
@@ -332,6 +329,8 @@ def decrypt_private_key_info(privkey_info, password):
     Return {'address': ..., 'private_key_info': ...} on success.
     Return {'error': ...} on error.
     """
+
+    from .backend.crypto.utils import aes_decrypt
 
     ret = {}
     if is_encrypted_multisig(privkey_info):
@@ -460,7 +459,7 @@ def get_data_privkey(user_zonefile, wallet_keys=None, config_path=CONFIG_PATH):
     data_privkey = wallet['data_privkey']
 
     # NOTE: uncompresssed
-    wallet_data_pubkey = get_pubkey_hex(str(data_privkey))
+    wallet_data_pubkey = keylib.key_formatting.decompress(get_pubkey_hex(str(data_privkey)))
 
     if zonefile_data_pubkey is None and wallet_data_pubkey is not None:
         # zone file does not have a data key set.
@@ -472,10 +471,10 @@ def get_data_privkey(user_zonefile, wallet_keys=None, config_path=CONFIG_PATH):
         elif virtualchain.is_multisig(owner_privkey_info):
             owner_privkey = owner_privkey_info['private_keys'][0]
 
-        owner_pubkey = get_pubkey_hex(str(owner_privkey))
+        owner_pubkey = keylib.key_formatting.decompress(get_pubkey_hex(str(owner_privkey)))
         if owner_pubkey != wallet_data_pubkey:
             # doesn't match. no data key 
-            return {'error': 'No zone file key, and data key does not match owner key'}
+            return {'error': 'No zone file key, and data key does not match owner key ({} != {})'.format(owner_pubkey, wallet_data_pubkey)}
         
     return str(data_privkey)
 

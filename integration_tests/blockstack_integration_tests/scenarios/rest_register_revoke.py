@@ -27,7 +27,6 @@ import urllib2
 import json
 import blockstack_client
 import blockstack_profiles
-import blockstack_gpg
 import sys
 import keylib
 import time
@@ -100,7 +99,7 @@ def scenario( wallets, **kw ):
 
     # make a session 
     datastore_pk = keylib.ECPrivateKey(wallets[-1].privkey).to_hex()
-    res = testlib.blockstack_cli_app_signin(datastore_pk, 'register.app', ['names', 'register', 'prices', 'zonefiles', 'blockchain', 'node_read'])
+    res = testlib.blockstack_cli_app_signin(datastore_pk, 'register.app', ['names', 'register', 'prices', 'revoke', 'zonefiles', 'blockchain', 'node_read'])
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
@@ -172,7 +171,7 @@ def scenario( wallets, **kw ):
     zonefile_hash = res['response']['zonefile_hash']
 
     # present?
-    res = testlib.blockstack_REST_call('GET', '/v1/names', ses )
+    res = testlib.blockstack_REST_call('GET', '/v1/names?page=0', ses )
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'failed to list names'
         print json.dumps(res)

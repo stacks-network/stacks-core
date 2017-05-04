@@ -25,7 +25,6 @@
 
 import os
 import sys 
-import traceback
 import logging
 import xmlrpclib
 import json
@@ -33,13 +32,11 @@ import re
 import base64
 from ConfigParser import SafeConfigParser
 
-import blockstack_zones
-
 # stop common XML attacks 
 from defusedxml import xmlrpc
 xmlrpc.monkey_patch()
 
-from common import get_logger, DEBUG
+from common import get_logger
 
 SERVER_NAME = None
 SERVER_PORT = None 
@@ -158,7 +155,7 @@ def get_data( data_id, zonefile=False, fqu=None ):
         return None
 
 
-def put_data( data_id, data_txt, zonefile=False, fqu=None ):
+def put_data( data_id, data_txt, zonefile=False, fqu=None, profile=False ):
     """
     Put data or a zonefile to the server.
     """
@@ -178,7 +175,7 @@ def put_data( data_id, data_txt, zonefile=False, fqu=None ):
         log.error("Driver does not support putting a zonefile")
         return False
         
-    elif fqu is not None and data_id == fqu:
+    elif profile:
         log.debug("Replicate profile for %s" % data_id)
 
         # data_txt must be a sufficiently small JSON blob
@@ -286,7 +283,7 @@ def put_immutable_handler( key, data, txid, **kw ):
     return put_data( key, data, zonefile=True )
 
 def put_mutable_handler( data_id, data_bin, **kw ):
-    return put_data( data_id, data_bin, zonefile=False, fqu=kw.get('fqu', None) )
+    return put_data( data_id, data_bin, zonefile=False, fqu=kw.get('fqu', None), profile=kw.get('profile', False) )
 
 def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
     return True

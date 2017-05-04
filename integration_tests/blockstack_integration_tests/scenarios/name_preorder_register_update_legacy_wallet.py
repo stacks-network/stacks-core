@@ -80,6 +80,8 @@ def scenario( wallets, **kw ):
     payment_address = str(res['payment_address'])
     owner_address = str(res['owner_address'])
 
+    print "fund {}".format(payment_address)
+    
     # fill wallet with 5 BTC
     res = testlib.send_funds( wallets[3].privkey, 5 * 10**8, payment_address )
     if 'error' in res:

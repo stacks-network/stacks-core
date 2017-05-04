@@ -95,7 +95,7 @@ def scenario( wallets, **kw ):
         print 'failed to start API: {}'.format(res)
         return False
 
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", json.dumps(datasets[0], sort_keys=True), proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
         return False
@@ -115,7 +115,7 @@ def scenario( wallets, **kw ):
     time.sleep(10)
 
     print "put hello_world_2"
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_2", datasets[1], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_2", json.dumps(datasets[1], sort_keys=True), proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
         return False
@@ -135,7 +135,7 @@ def scenario( wallets, **kw ):
     time.sleep(10)
 
     print "put hello_world_3"
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3", datasets[2], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3", json.dumps(datasets[2], sort_keys=True), proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
         return False
@@ -154,7 +154,7 @@ def scenario( wallets, **kw ):
 
     # should succeed (name collision)
     datasets[0]['newdata'] = "asdf"
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", json.dumps(datasets[0], sort_keys=True), proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
         return False

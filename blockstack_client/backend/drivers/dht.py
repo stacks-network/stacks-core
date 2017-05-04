@@ -26,7 +26,6 @@ import sys
 import traceback
 
 import types
-import re
 import socket
 from basicrpc import Proxy
 

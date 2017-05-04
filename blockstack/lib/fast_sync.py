@@ -21,33 +21,20 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import logging
 import os
-import sys
-import json
-import datetime
-import traceback
-import time
-import math
-import random
 import shutil
 import tempfile
-import binascii
-import copy
-import threading
-import errno
 import base64
 import keylib
-import subprocess
 import urllib
 import hashlib
+import tarfile
 
 import virtualchain
-import blockstack_client
+from virtualchain.lib.ecdsalib import sign_digest, verify_digest
 
 log = virtualchain.get_logger("blockstack-server")
 
-import nameset as blockstack_state_engine
 import nameset.virtualchain_hooks as virtualchain_hooks
 
 import config
@@ -98,6 +85,31 @@ def snapshot_peek_sigb64( fd, off, bytelen ):
     return sigb64
 
 
+def get_file_hash( fd, hashfunc, fd_len=None ):
+    """
+    Get the hex-encoded hash of the fd's data
+    """
+
+    h = hashfunc()
+    fd.seek(0, os.SEEK_SET)
+
+    count = 0
+    while True:
+        buf = fd.read(65536)
+        if len(buf) == 0:
+            break
+
+        if fd_len is not None:
+            if count + len(buf) > fd_len:
+                buf = buf[:fd_len - count]
+
+        h.update(buf)
+        count += len(buf)
+
+    hashed = h.hexdigest()
+    return hashed
+
+
 def fast_sync_sign_snapshot( snapshot_path, private_key, first=False ):
     """
     Append a signature to the end of a snapshot path
@@ -146,8 +158,8 @@ def fast_sync_sign_snapshot( snapshot_path, private_key, first=False ):
 
         # hash the file and sign the (bin-encoded) hash
         privkey_hex = keylib.ECPrivateKey(private_key).to_hex()
-        hash_hex = blockstack_client.storage.get_file_hash( f, hashlib.sha256, fd_len=payload_size )
-        sigb64 = blockstack_client.keys.sign_digest( hash_hex, privkey_hex, hashfunc=hashlib.sha256 )
+        hash_hex = get_file_hash( f, hashlib.sha256, fd_len=payload_size )
+        sigb64 = sign_digest( hash_hex, privkey_hex, hashfunc=hashlib.sha256 )
       
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.debug("Signed {} with {} to make {}".format(hash_hex, keylib.ECPrivateKey(private_key).public_key().to_hex(), sigb64))
@@ -165,6 +177,66 @@ def fast_sync_sign_snapshot( snapshot_path, private_key, first=False ):
         os.fsync(f.fileno())
 
     return True
+
+
+def fast_sync_snapshot_compress( snapshot_dir, export_path ):
+    """
+    Given the path to a directory, compress it and export it to the
+    given path.
+
+    Return {'status': True} on success
+    Return {'error': ...} on failure
+    """
+
+    snapshot_dir = os.path.abspath(snapshot_dir)
+    export_path = os.path.abspath(export_path)
+    if os.path.exists(export_path):
+        return {'error': 'Snapshot path exists: {}'.format(export_path)}
+
+    old_dir = os.getcwd()
+    
+    count_ref = [0]
+
+    def print_progress(tarinfo):
+        count_ref[0] += 1
+        if count_ref[0] % 100 == 0:
+            log.debug("{} files...".format(count_ref[0]))
+
+        return tarinfo
+
+    try:
+        os.chdir(snapshot_dir)
+        with tarfile.TarFile.bz2open(export_path, "w") as f:
+            f.add(".", filter=print_progress)
+
+    except:
+        os.chdir(old_dir)
+        raise
+    
+    finally:
+        os.chdir(old_dir)
+
+    return {'status': True}
+
+
+def fast_sync_snapshot_decompress( snapshot_path, output_dir ):
+    """
+    Given the path to a snapshot file, decompress it and 
+    write its contents to the given output directory
+
+    Return {'status': True} on success
+    Return {'error': ...} on failure
+    """
+    if not tarfile.is_tarfile(snapshot_path):
+        return {'error': 'Not a tarfile-compatible archive: {}'.format(snapshot_path)}
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    with tarfile.TarFile.bz2open(snapshot_path, 'r') as f:
+        tarfile.TarFile.extractall(f, path=output_dir)
+
+    return {'status': True}
 
 
 def fast_sync_snapshot( export_path, private_key, block_number ):
@@ -236,7 +308,7 @@ def fast_sync_snapshot( export_path, private_key, block_number ):
     _zonefile_copy_progress = _zonefile_copy_progress_outer()
 
     # make sure we have the apppriate tools
-    tools = ['tar', 'bzip2', 'mv', 'sqlite3']
+    tools = ['sqlite3']
     for tool in tools:
         rc = os.system("which {} > /dev/null".format(tool))
         if rc != 0:
@@ -312,16 +384,15 @@ def fast_sync_snapshot( export_path, private_key, block_number ):
 
     # compress
     export_path = os.path.abspath(export_path)
-    cmd = "cd '{}' && tar cf 'snapshot.tar' * && bzip2 'snapshot.tar' && mv 'snapshot.tar.bz2' '{}'".format(tmpdir, export_path)
-    log.debug("Compressing: {}".format(cmd))
-    rc = os.system(cmd)
-    if rc != 0:
-        log.error("Failed to compress {}. Exit code {}. Command: \"{}\"".format(tmpdir, rc, cmd))
+    res = fast_sync_snapshot_compress(tmpdir, export_path)
+    if 'error' in res:
+        log.error("Faield to compress {} to {}: {}".format(tmpdir, export_path, res['error']))
         _cleanup(tmpdir)
         return False
 
     log.debug("Wrote {} bytes".format(os.stat(export_path).st_size))
 
+    # sign
     rc = fast_sync_sign_snapshot( export_path, private_key, first=True )
     if not rc:
         log.error("Failed to sign snapshot {}".format(export_path))
@@ -427,7 +498,7 @@ def fast_sync_inspect_snapshot( snapshot_path ):
             return {'error': 'Failed to inspect snapshot'}
 
         # get the hash of the file 
-        hash_hex = blockstack_client.storage.get_file_hash(f, hashlib.sha256, fd_len=info['payload_size'])
+        hash_hex = get_file_hash(f, hashlib.sha256, fd_len=info['payload_size'])
         info['hash'] = hash_hex
 
     return info
@@ -442,14 +513,6 @@ def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBL
     Verify that at least `num_required` public keys in `public_keys` signed.
     NOTE: `public_keys` needs to be in the same order as the private keys that signed.
     """
-
-    # make sure we have the apppriate tools
-    tools = ['tar', 'bzip2', 'mv']
-    for tool in tools:
-        rc = os.system("which {} > /dev/null".format(tool))
-        if rc != 0:
-            log.error("'{}' command not found".format(tool))
-            return False
 
     if working_dir is None:
         working_dir = virtualchain.get_working_dir()
@@ -487,7 +550,7 @@ def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBL
         ptr = info['payload_size']
 
         # get the hash of the file 
-        hash_hex = blockstack_client.storage.get_file_hash(f, hashlib.sha256, fd_len=ptr)
+        hash_hex = get_file_hash(f, hashlib.sha256, fd_len=ptr)
         
         # validate signatures over the hash
         log.debug("Verify {} bytes".format(ptr))
@@ -495,7 +558,7 @@ def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBL
         num_match = 0
         for next_pubkey in public_keys:
             for sigb64 in signatures:
-                valid = blockstack_client.keys.verify_digest( hash_hex, keylib.ECPublicKey(next_pubkey).to_hex(), sigb64, hashfunc=hashlib.sha256 ) 
+                valid = verify_digest( hash_hex, keylib.ECPublicKey(next_pubkey).to_hex(), sigb64, hashfunc=hashlib.sha256 ) 
                 if valid:
                     num_match += 1
                     if num_match >= num_required:
@@ -503,8 +566,8 @@ def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBL
                     
                     log.debug("Public key {} matches {} ({})".format(next_pubkey, sigb64, hash_hex))
                     signatures.remove(sigb64)
-
-                elif os.environ.get("BLOCKSTACK_TEST") == "1":
+                
+                else:
                     log.debug("Public key {} does NOT match {} ({})".format(next_pubkey, sigb64, hash_hex))
 
         # enough signatures?
@@ -514,11 +577,9 @@ def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBL
 
     # decompress
     import_path = os.path.abspath(import_path)
-    cmd = "cd '{}' && tar xf '{}'".format(working_dir, import_path)
-    log.debug(cmd)
-    rc = os.system(cmd)
-    if rc != 0:
-        log.error("Failed to decompress. Exit code {}. Command: {}".format(rc, cmd))
+    res = fast_sync_snapshot_decompress(import_path, working_dir)
+    if 'error' in res:
+        log.error("Failed to decompress {} to {}: {}".format(import_path, working_dir, res['error']))
         return False
 
     # restore from backup

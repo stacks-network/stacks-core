@@ -29,6 +29,7 @@ import sys
 import os
 import blockstack_client
 import blockstack_zones
+import keylib
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -148,7 +149,7 @@ def check( state_engine ):
 
     # zonefile has the right data public key 
     zonefile_pubk = blockstack_client.user.user_zonefile_data_pubkey( zonefile )
-    if zonefile_pubk != wallets[4].pubkey_hex or zonefile_pubk is None:
+    if keylib.key_formatting.compress(zonefile_pubk) != keylib.key_formatting.compress(wallets[4].pubkey_hex) or zonefile_pubk is None:
         print 'pubkey mismatch: {} != {}'.format(zonefile_pubk, wallets[4].pubkey_hex)
         return False
 

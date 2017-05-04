@@ -142,8 +142,6 @@ are divided as follows:
 # initialization for the `storage_init()` method below.
 
 import os
-import sys 
-import traceback
 import logging
 from common import get_logger, DEBUG
 from ConfigParser import SafeConfigParser

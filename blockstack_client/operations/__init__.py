@@ -22,10 +22,6 @@
 """
 
 import copy
-
-from ..config import *
-import copy
-
 import preorder
 import register
 import transfer
@@ -81,6 +77,8 @@ from .namespacepreorder import snv_consensus_extras as namespace_preorder_consen
 from .namespacereveal import snv_consensus_extras as namespace_reveal_consensus_extras
 from .namespaceready import snv_consensus_extras as namespace_ready_consensus_extras
 from .announce import snv_consensus_extras as announce_consensus_extras
+
+from ..config import *
 
 # NOTE: these all have the same signatures
 SNV_CONSENSUS_EXTRA_METHODS = {

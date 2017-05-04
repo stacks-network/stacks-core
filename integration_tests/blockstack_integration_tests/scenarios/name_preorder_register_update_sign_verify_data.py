@@ -24,6 +24,7 @@
 import testlib
 import pybitcoin
 import json
+import time
 import blockstack_client
 import sys
 
@@ -33,7 +34,7 @@ wallets = [
     testlib.Wallet( "5Kg5kJbQHvk1B64rJniEmgbD83FpZpbw2RjdAZEzTefs9ihN3Bz", 100000000000 ),
     testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 100000000000 ),
     testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 ),
-    testlib.Wallet( "5KaSTdRgMfHLxSKsiWhF83tdhEj2hqugxdBNPUAw5NU8DMyBJji", 100000000000 )
+    testlib.Wallet( "5J5uAKL8s62hddganFJaCkWi3Me7PFoc7fks9hAzjtWG1NDjmUK", 100000000000 )
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
@@ -53,6 +54,10 @@ def scenario( wallets, **kw ):
 
     global put_result, wallet_keys, datasets, zonefile_hash, dataset_change
 
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
+    test_proxy = testlib.TestAPIProxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    wallet_keys = wallet
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -68,10 +73,6 @@ def scenario( wallets, **kw ):
     
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
-
-    test_proxy = testlib.TestAPIProxy()
-    blockstack_client.set_default_proxy( test_proxy )
-    wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
 
     # migrate profile
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
@@ -89,39 +90,33 @@ def scenario( wallets, **kw ):
     
     testlib.next_block( **kw )
 
-    put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_1", json.dumps(datasets[0], sort_keys=True), password="0123456789abcdef")
-    if 'error' in put_result:
-        print json.dumps(put_result, indent=4, sort_keys=True)
-        return False
+    # sign some data 
+    for dataset in datasets:
+        data_str = json.dumps(dataset, sort_keys=True)
 
-    testlib.next_block( **kw )
+        print "\nsign {} with {}, verify with {}\n".format(data_str, wallets[4].privkey, wallets[4].pubkey_hex)
 
-    put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_2", json.dumps(datasets[1], sort_keys=True), password="0123456789abcdef")
-    if 'error' in put_result:
-        print json.dumps(put_result, indent=4, sort_keys=True)
-        return False
-
-    put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_3", json.dumps(datasets[2], sort_keys=True), password="0123456789abcdef")
-    if 'error' in put_result:
-        print json.dumps(put_result, indent=4, sort_keys=True)
-        return False
-
-    # increment version too
-    datasets[0]['buf'] = []
-    for i in xrange(0, 5):
-        datasets[0]["dataset_change"] = dataset_change
-        datasets[0]['buf'].append(i)
-
-        put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_1", json.dumps(datasets[0], sort_keys=True), password="0123456789abcdef")
-        if 'error' in put_result:
-            print json.dumps(put_result, indent=4, sort_keys=True )
+        res = testlib.blockstack_cli_sign_data(data_str)
+        if 'error' in res:
+            print json.dumps(res, indent=4, sort_keys=True)
             return False
 
-    # now delete everything 
-    for i in xrange(0, len(datasets)):
-        delete_result = testlib.blockstack_cli_delete_mutable("foo.test", "hello_world_%s" % (i+1), password="0123456789abcdef")
-        if 'error' in delete_result:
-            print json.dumps(delete_result, indent=4, sort_keys=True)
+        res = testlib.blockstack_cli_verify_data("foo.test", res)
+        if 'error' in res:
+            print json.dumps(res, indent=4, sort_keys=True)
+            return False
+
+        print "\nsign {} with {}, verify with {}\n".format(data_str, wallets[0].privkey, wallets[0].pubkey_hex)
+
+        # try with explicit keys 
+        res = testlib.blockstack_cli_sign_data(data_str, private_key=wallets[0].privkey)
+        if 'error' in res:
+            print json.dumps(res, indent=4, sort_keys=True)
+            return False
+
+        res = testlib.blockstack_cli_verify_data("foo.test", res, public_key=wallets[0].pubkey_hex)
+        if 'error' in res:
+            print json.dumps(res, indent=4, sort_keys=True)
             return False
 
     testlib.next_block( **kw )
@@ -168,19 +163,15 @@ def check( state_engine ):
         print "Invalid zonefile hash"
         return False 
 
-    # have no data
+    # have right data 
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
+    res = testlib.blockstack_cli_lookup("foo.test")
+    if 'error' in res:
+        print 'error looking up profile: {}'.format(res)
+        return False
 
-    for i in xrange(0, len(datasets)):
-        print "get hello_world_%s" % (i+1)
-        dat = testlib.blockstack_cli_get_mutable( "foo.test", "hello_world_%s" % (i+1) )
-        if dat is not None and 'error' not in dat:
-            print "still have '%s'\n%s" % ("hello_world_%s" % (i+1), json.dumps(dat,indent=4,sort_keys=True))
-            return False
+    assert 'profile' in res
+    assert 'zonefile' in res
 
-        if 'error' in dat and dat['error'] != 'Failed to fetch mutable data':
-            print json.dumps(dat, indent=4, sort_keys=True)
-            return False
-    
     return True

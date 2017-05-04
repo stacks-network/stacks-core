@@ -24,9 +24,11 @@
 import json
 import sys
 import os
-import signal
+import urllib2
+import hashlib
+from .constants import DEFAULT_BLOCKSTACKD_PORT
+from .logger import get_logger
 
-from config import get_logger
 log = get_logger('blockstack-client')
 
 def exit_with_error(error_message, help_message=None):
@@ -155,3 +157,69 @@ def daemonize( logpath, child_wait=None ):
         return -1
 
     return 0
+
+
+def url_to_host_port(url, port=DEFAULT_BLOCKSTACKD_PORT):
+    """
+    Given a URL, turn it into (host, port).
+    Return (None, None) on invalid URL
+    """
+    if not url.startswith('http://') or not url.startswith('https://'):
+        url = 'http://' + url
+
+    urlinfo = urllib2.urlparse.urlparse(url)
+    hostport = urlinfo.netloc
+
+    parts = hostport.split('@')
+    if len(parts) > 2:
+        return None, None
+
+    if len(parts) == 2:
+        hostport = parts[1]
+
+    parts = hostport.split(':')
+    if len(parts) > 2:
+        return None, None
+
+    if len(parts) == 2:
+        try:
+            port = int(parts[1])
+            assert 0 < port < 65535, 'Invalid port'
+        except TypeError:
+            return None, None
+
+    return parts[0], port
+
+
+def atlas_inventory_to_string( inv ):
+    """
+    Inventory to string (bitwise big-endian)
+    """
+    ret = ""
+    for i in xrange(0, len(inv)):
+        for j in xrange(0, 8):
+            bit_index = 1 << (7 - j)
+            val = (ord(inv[i]) & bit_index)
+            if val != 0:
+                ret += "1"
+            else:
+                ret += "0"
+
+    return ret
+
+
+def streq_constant(s1, s2):
+    """
+    constant-time string comparison.
+    Return True if equal
+    Return False if not equal
+    """
+    res = 0
+    s1h = hashlib.sha256(s1).digest()
+    s2h = hashlib.sha256(s2).digest()
+    for s1c, s2c in zip(s1h, s2h):
+        # will xor to 0 for each char if equal
+        res |= ord(s1c) ^ ord(s2c)
+
+    return res == 0
+

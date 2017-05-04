@@ -29,7 +29,7 @@ import sys
 import traceback
 import config as blockstack_config
 import constants as blockstack_constants
-from rpc import local_api_start, local_api_stop, local_api_status
+from rpc import local_api_start, local_api_stop 
 
 
 if __name__ == '__main__':
@@ -67,8 +67,8 @@ if __name__ == '__main__':
         assert passwd, "No wallet password given"
         assert api_pass, "No API password given"
 
-        rc = local_api_start(port=portnum, config_dir=config_dir, api_pass=api_pass, password=passwd)
-        if not rc:
+        res = local_api_start(port=portnum, config_dir=config_dir, api_pass=api_pass, password=passwd)
+        if 'error' in res:
             sys.exit(1)
 
         sys.exit(0)
@@ -77,8 +77,8 @@ if __name__ == '__main__':
         assert passwd, "No wallet password given"
         assert api_pass, "No API password given"
 
-        rc = local_api_start(port=portnum, config_dir=config_dir, api_pass=api_pass, password=passwd, foreground=True)
-        if not rc:
+        res = local_api_start(port=portnum, config_dir=config_dir, api_pass=api_pass, password=passwd, foreground=True)
+        if 'error' in res:
             sys.exit(1)
 
         sys.exit(0)
@@ -90,8 +90,8 @@ if __name__ == '__main__':
         else:
             assert passwd, "No wallet password given"
             assert api_pass, "No API password given"
-            rc = local_api_start(port=portnum, config_dir=config_dir, api_pass=api_pass, password=passwd)
-            if not rc:
+            res = local_api_start(port=portnum, config_dir=config_dir, api_pass=api_pass, password=passwd)
+            if 'error' in res:
                 sys.exit(1)
 
             sys.exit(0)

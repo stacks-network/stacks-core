@@ -684,17 +684,6 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
         log.info("Atlas zonefile checks pass!")
 
-    """
-    # verify data URLs 
-    rc = testlib.check_data_urls()
-    if not rc:
-        log.error("Data URL check fails")
-        shutdown_procedure()
-        return rc
-
-    log.info("Data URL check pass!")
-    """
-
     shutdown_procedure()
     return True
 
@@ -798,10 +787,11 @@ def fill_wallet( bitcoind, wallet, value ):
     if type(wallet.privkey) in [str, unicode]:
         # single private key
         testnet_wif = virtualchain.BitcoinPrivateKey(wallet.privkey).to_wif()
-        bitcoind.importprivkey(testnet_wif, "")
-
         addr = virtualchain.BitcoinPublicKey(wallet.pubkey_hex).address()
-        log.debug("Fill %s with %s" % (addr, value ))
+
+        log.debug("Fill %s (%s) (%s) with %s" % (addr, wallet.privkey, testnet_wif, value ))
+
+        bitcoind.importprivkey(testnet_wif, "")
         bitcoind.sendtoaddress( addr, value )
 
     else:

@@ -180,7 +180,7 @@ def check( state_engine ):
             print "still have '%s'\n%s" % ("hello_world_%s" % (i+1), json.dumps(dat,indent=4,sort_keys=True))
             return False
 
-        if 'error' in dat and dat['error'] != 'Failed to look up mutable datum':
+        if 'error' in dat and dat['error'] != 'Failed to fetch mutable data':
             print json.dumps(dat, indent=4, sort_keys=True)
             return False
 

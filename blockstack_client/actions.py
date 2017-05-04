@@ -56,12 +56,8 @@ import time
 import blockstack_zones
 import blockstack_profiles
 import requests
-import base64
 import binascii
-import jsonschema
-import threading
 from decimal import Decimal
-import uuid
 import string
 
 requests.packages.urllib3.disable_warnings()
@@ -78,8 +74,7 @@ sys.path.insert(0, parent_dir)
 from blockstack_client import (
     delete_immutable, delete_mutable, get_all_names, get_consensus_at,
     get_immutable, get_immutable_by_name, get_mutable, get_name_blockchain_record,
-    get_name_cost, get_name_zonefile,
-    get_nameops_at, get_names_in_namespace, get_names_owned_by_address,
+    get_name_zonefile, get_nameops_at, get_names_in_namespace, get_names_owned_by_address,
     get_namespace_blockchain_record, get_namespace_cost,
     is_user_zonefile, list_immutable_data_history, list_update_history,
     list_zonefile_history, lookup_snv, put_immutable, put_mutable, zonefile_data_replicate
@@ -87,36 +82,28 @@ from blockstack_client import (
 
 from blockstack_client.profile import put_profile, delete_profile, get_profile
 
-from rpc import local_api_connect, local_api_status, local_api_stop 
+from rpc import local_api_connect, local_api_status 
 import rpc as local_rpc
 import config
 
-from .config import configure_zonefile, set_advanced_mode, configure, get_utxo_provider_client, get_tx_broadcaster, get_local_device_id, get_all_device_ids
+from .config import configure_zonefile, set_advanced_mode, configure, get_utxo_provider_client, get_tx_broadcaster, get_all_device_ids
 from .constants import (
-    CONFIG_PATH, CONFIG_DIR, FIRST_BLOCK_TIME_UTC,
-    APPROX_PREORDER_TX_LEN, APPROX_REGISTER_TX_LEN,
-    APPROX_UPDATE_TX_LEN, APPROX_TRANSFER_TX_LEN,
+    CONFIG_PATH, CONFIG_DIR,
     FIRST_BLOCK_MAINNET, NAME_UPDATE,
-    BLOCKSTACK_DEBUG, BLOCKSTACK_TEST,
-    TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME,
-    LENGTH_VALUE_HASH
+    BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME
 )
 
-from .b40 import is_b40
-from .storage import get_drivers_for_url, get_driver_urls, get_storage_handlers, sign_data_payload, make_fq_data_id, \
+from .storage import get_driver_urls, get_storage_handlers, sign_data_payload, \
     get_zonefile_data_hash
 
 from .backend.blockchain import (
-    get_balance, is_address_usable, get_utxos, broadcast_tx,
-    can_receive_name, get_tx_confirmations, get_tx_fee, get_block_height
+    get_balance, get_utxos, broadcast_tx,
+    get_tx_confirmations, get_tx_fee, get_block_height
 )
 
 from .backend.registrar import get_wallet as registrar_get_wallet 
 
 from .backend.nameops import (
-    estimate_preorder_tx_fee, estimate_register_tx_fee,
-    estimate_update_tx_fee, estimate_transfer_tx_fee,
-    estimate_renewal_tx_fee, estimate_revoke_tx_fee,
     do_namespace_preorder, do_namespace_reveal, do_namespace_ready,
     do_name_import
 )
@@ -130,22 +117,20 @@ from .keys import *
 from .proxy import *
 from .client import analytics_event 
 from .scripts import UTXOException, is_name_valid, is_valid_hash, is_namespace_valid
-from .user import add_user_zonefile_url, remove_user_zonefile_url, user_zonefile_urls, \
-        make_empty_user_profile, user_zonefile_data_pubkey
+from .user import make_empty_user_profile, user_zonefile_data_pubkey
 
-from .resolve import *
 from .tx import serialize_tx, sign_tx
 from .zonefile import make_empty_zonefile, url_to_uri_record
 
 from .utils import exit_with_error, satoshis_to_btc
-from .app import app_publish, app_unpublish, app_get_config, app_get_resource, \
-        app_put_resource, app_delete_resource, app_make_session 
+from .app import app_publish, app_get_config, app_get_resource, \
+        app_put_resource, app_delete_resource 
 
-from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, get_datastore, put_datastore, delete_datastore, \
+from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, put_datastore, delete_datastore, \
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir, datastore_stat, \
-        datastore_rmtree, datastore_get_id, datastore_get_privkey, _mutable_data_make_file, \
-        verify_datastore_info, put_datastore_info, datastore_getinode, datastore_get_privkey, get_mutable_data_version, \
-        make_mutable_data_info, data_blob_serialize, make_mutable_data_tombstones, sign_mutable_data_tombstones
+        datastore_rmtree, datastore_get_id, datastore_get_privkey, \
+        datastore_getinode, datastore_get_privkey, \
+        make_mutable_data_info, data_blob_parse, data_blob_serialize, make_mutable_data_tombstones, sign_mutable_data_tombstones
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
 
@@ -1201,8 +1186,8 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
                  cost_satoshis=None, interactive=True, password=None, proxy=None):
     """
     command: register
-    help: Register a name
-    arg: name (str) 'The name to register'
+    help: Register a blockchain ID
+    arg: name (str) 'The blockchain ID to register'
     opt: zonefile (str) 'The path to the zone file for this name'
     opt: recipient (str) 'The recipient address, if not this wallet'
     opt: min_confs (int) 'The minimum number of confirmations on the initial preorder'
@@ -1386,7 +1371,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
     """
     command: update
-    help: Set the zone file for a name
+    help: Set the zone file for a blockchain ID
     arg: name (str) 'The name to update.'
     opt: data (str) 'A path to a file with the zone file data.'
     opt: nonstandard (str) 'If true, then do not validate or parse the zone file.'
@@ -1527,9 +1512,9 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False, proxy=None, tx_fee=None):
     """
     command: transfer
-    help: Transfer a name to a new address
+    help: Transfer a blockchain ID to a new owner
     arg: name (str) 'The name to transfer'
-    arg: address (str) 'The address to receive the name'
+    arg: address (str) 'The address (base58check-encoded pubkey hash) to receive the name'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1582,8 +1567,8 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
 def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None, cost_satoshis=None, tx_fee=None):
     """
     command: renew
-    help: Renew a name
-    arg: name (str) 'The name to renew'
+    help: Renew a blockchain ID
+    arg: name (str) 'The blockchain ID to renew'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1695,8 +1680,8 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
 def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None, tx_fee=None):
     """
     command: revoke
-    help: Revoke a name
-    arg: name (str) 'The name to revoke'
+    help: Revoke a blockchain ID
+    arg: name (str) 'The blockchain ID to revoke'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1766,8 +1751,8 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
                 proxy=None, interactive=True, force=False, tx_fee=None):
     """
     command: migrate
-    help: Migrate a name-linked profile to the latest zonefile and profile format
-    arg: name (str) 'The name to migrate'
+    help: Migrate a legacy blockchain-linked profile to the latest zonefile and profile format
+    arg: name (str) 'The blockchain ID with the profile to migrate'
     opt: force (str) 'Reset the zone file no matter what.'
     """
 
@@ -1966,6 +1951,29 @@ def cli_setup_wallet(args, config_path=CONFIG_PATH, password=None, interactive=T
 
     ret['status'] = True
     return ret
+
+
+def cli_get_public_key(args, config_path=CONFIG_PATH, proxy=None):
+    """
+    command: get_public_key
+    help: Get the ECDSA public key for a blockchain ID
+    arg: name (str) 'The blockchain ID'
+    """
+    # reply ENODATA if we can't load the zone file
+    # reply EINVAL if we can't parse the zone file
+
+    fqu = str(args.name)
+    zfinfo = get_name_zonefile(fqu, proxy=proxy)
+    if 'error' in zfinfo:
+        log.error("unable to load zone file for {}: {}".format(fqu, zfinfo['error']))
+        return {'error': 'unable to load or parse zone file for {}'.format(fqu), 'errno': errno.ENODATA}
+   
+    if not user_zonefile_data_pubkey(zfinfo['zonefile']):
+        log.error("zone file for {} has no public key".format(fqu))
+        return {'error': 'zone file for {} has no public key'.format(fqu), 'errno': errno.EINVAL}
+
+    zfpubkey = keylib.key_formatting.decompress(user_zonefile_data_pubkey(zfinfo['zonefile']))
+    return {'public_key': zfpubkey}
 
 
 def cli_set_advanced_mode(args, config_path=CONFIG_PATH):
@@ -2376,13 +2384,12 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
     rpc = local_api_connect(config_path=config_path)
     if rpc is None:
         log.error("Failed to connect to API endpoint. Trying to shut it down...")
-        rc = local_rpc.local_api_action('stop', config_dir=config_dir)
-        if not rc:
+        res = local_rpc.local_api_action('stop', config_dir=config_dir)
+        if 'error' in res:
             log.error("Failed to stop API daemon")
-            return {'error': 'Failed to load wallet into API endpoint: failed to stop endpoint'}
+            return res
 
-        else:
-            return {'error': 'Failed to load wallet into API endpoint: failed to connect to endpoint'}
+        return {'status': True}
 
     try:
         wallet = decrypt_wallet(data, password, config_path=config_path)
@@ -2583,11 +2590,8 @@ def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
     if str(args.command) == 'start' and not wallet_exists(config_path=config_path):
         return {'error': 'Wallet does not exist.  Please create one with `blockstack setup`'}
 
-    rc = local_rpc.local_api_action(str(args.command), config_dir=config_dir, password=password, api_pass=api_pass)
-    if not rc:
-        return {'error': 'Failed to {} API server'.format(args.command)}
-
-    return {'status': True}
+    res = local_rpc.local_api_action(str(args.command), config_dir=config_dir, password=password, api_pass=api_pass)
+    return res
 
 
 def cli_name_import(args, interactive=True, config_path=CONFIG_PATH, proxy=None):
@@ -2703,8 +2707,12 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
     reveal_addr = None
     
     try:
+        # force compresssed 
+        ns_privkey = set_privkey_compressed(ns_privkey, compressed=True)
+        ns_reveal_privkey = set_privkey_compressed(ns_reveal_privkey, compressed=True)
+
         keylib.ECPrivateKey(ns_privkey)
-        reveal_addr = virtualchain.get_privkey_address(ns_privkey)
+        reveal_addr = virtualchain.get_privkey_address(ns_reveal_privkey)
     except:
         return {'error': 'Invalid namespace private key'}
     
@@ -2718,8 +2726,11 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
         "IMPORTANT:  PLEASE READ THESE INSTRUCTIONS CAREFULLY\n",
         "\n",
         "You are about to preorder the namespace '{}'.  It will cost about {} BTC ({} satoshi).\n".format(nsid, fees['total_estimated_cost']['btc'], fees['total_estimated_cost']['satoshis']),
+        'The address {} will be used to pay the fee'.format(virtualchain.get_privkey_address(ns_privkey)),
+        'The address {} will be used to reveal the namespace.'.format(reveal_addr),
+        'MAKE SURE YOU KEEP THE PRIVATE KEYS FOR BOTH ADDRESSES\n',
         "\n",
-        "Before you do, there are some things you should know.\n".format(nsid),
+        "Before you preorder this namespace, there are some things you should know.\n".format(nsid),
         "\n",
         "* Once you preorder the namespace, you will need to reveal it within 144 blocks (about 24 hours).\n",
         "  If you do not do so, then the namespace fee is LOST FOREVER and someone else can preorder it.\n",
@@ -2971,6 +2982,10 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         return {'error': 'Invalid namespace ID'}
 
     try:
+        # force compresssed 
+        ns_privkey = set_privkey_compressed(privkey, compressed=True)
+        ns_reveal_privkey = set_privkey_compressed(reveal_privkey, compressed=True)
+
         ecdsa_private_key(privkey)
         reveal_addr = virtualchain.get_privkey_address(reveal_privkey)
     except:
@@ -3220,6 +3235,9 @@ def cli_namespace_ready(args, interactive=True, config_path=CONFIG_PATH, proxy=N
         return {'error': 'Invalid namespace ID'}
     
     try:
+        # force compresssed 
+        reveal_privkey = set_privkey_compressed(reveal_privkey, compressed=True)
+
         reveal_addr = virtualchain.get_privkey_address(reveal_privkey)
     except:
         return {'error': 'Invalid private keys'}
@@ -3271,7 +3289,7 @@ def cli_namespace_ready(args, interactive=True, config_path=CONFIG_PATH, proxy=N
     return res
 
 
-def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
+def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None, storage_drivers=None, storage_drivers_exclusive=False):
     """
     command: put_mutable advanced
     help: Put signed, versioned data into your storage providers.
@@ -3296,29 +3314,43 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     if error:
         return {'error': error}
 
-    # this should only succeed if the zone file is well-formed,
-    # since otherwise no one would be able to get the public key.
-    zfinfo = get_name_zonefile(fqu, proxy=proxy)
-    if 'error' in zfinfo:
-        log.error("Unable to load zone file for {}: {}".format(fqu, zfinfo['error']))
-        return {'error': 'Unable to load or parse zone file for {}'.format(fqu)}
-   
-    if not user_zonefile_data_pubkey(zfinfo['zonefile']):
-        log.error("Zone file for {} has no public key".format(fqu))
-        return {'error': 'Zone file for {} has no public key'.format(fqu)}
-
     config_dir = os.path.dirname(config_path)
     privkey = None
-    if not hasattr(args, 'privkey'):
+    if not hasattr(args, 'privkey') or args.privkey is None:
+        
+        # get the data private key from the wallet.
+        # put_mutable() should only succeed if the zone file for this name
+        # has the corresponding public key, since otherwise there would be
+        # no way to authenticate this data.
+        zfinfo = get_name_zonefile(fqu, proxy=proxy)
+        if 'error' in zfinfo:
+            log.error("unable to load zone file for {}: {}".format(fqu, zfinfo['error']))
+            return {'error': 'unable to load or parse zone file for {}'.format(fqu)}
+       
+        if not user_zonefile_data_pubkey(zfinfo['zonefile']):
+            log.error("zone file for {} has no public key".format(fqu))
+            return {'error': 'zone file for {} has no public key'.format(fqu)}
+
         wallet_keys = get_wallet_keys(config_path, password)
         if 'error' in wallet_keys:
             return wallet_keys
 
-        privkey = wallet_keys['data_privkey']
+        privkey = str(wallet_keys['data_privkey'])
+        pubkey = keylib.key_formatting.compress(ecdsa_private_key(privkey).public_key().to_hex())
+        zfpubkey = keylib.key_formatting.compress(user_zonefile_data_pubkey(zfinfo['zonefile']))
+        if pubkey != zfpubkey:
+            log.error("public key mismatch: wallet public key {} != zonefile public key {}".format(pubkey, zfpubkey))
+            return {'error': 'public key mismatch: wallet public key {} does not match zone file public key {}'.format(pubkey, zfpubkey)}
+
     else:
         privkey = str(args.privkey)
 
-    pubkey = ECPrivateKey(privkey).public_key().to_hex()
+    try:
+        pubkey = ECPrivateKey(privkey).public_key().to_hex()
+    except:
+        if BLOCKSTACK_TEST:
+            log.error("Invalid private key {}".format(privkey))
+        return {'error': 'Failed to parse private key'}
 
     mutable_data_info = make_mutable_data_info(data_id, data, blockchain_id=fqu, config_path=config_path)
     mutable_data_payload = data_blob_serialize(mutable_data_info)
@@ -3326,7 +3358,9 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
     sig = sign_data_payload(mutable_data_payload, privkey)
 
-    result = put_mutable(mutable_data_info['fq_data_id'], mutable_data_payload, pubkey, sig, mutable_data_info['version'], blockchain_id=fqu, config_path=config_path, proxy=proxy) 
+    result = put_mutable(mutable_data_info['fq_data_id'], mutable_data_payload, pubkey, sig, mutable_data_info['version'], \
+                         blockchain_id=fqu, config_path=config_path, proxy=proxy, storage_drivers=storage_drivers, storage_drivers_exclusive=storage_drivers_exclusive) 
+
     if 'error' in result:
         return result
 
@@ -3379,8 +3413,10 @@ def cli_get_mutable(args, config_path=CONFIG_PATH, proxy=None):
     help: Get signed, versioned data from storage providers.
     arg: name (str) 'The blockchain ID that owns the data'
     arg: data_id (str) 'The name of the data'
+    opt: data_pubkey (str) 'The public key to use to verify the data'
     """
-    result = get_mutable(str(args.data_id), proxy=proxy, config_path=config_path, blockchain_id=str(args.name))
+    data_pubkey = str(args.data_pubkey) if hasattr(args, 'data_pubkey') and getattr(args, 'data_pubkey') is not None else None
+    result = get_mutable(str(args.data_id), proxy=proxy, config_path=config_path, blockchain_id=str(args.name), data_pubkey=data_pubkey)
     if 'error' in result:
         return result
 
@@ -3411,30 +3447,6 @@ def cli_get_immutable(args, config_path=CONFIG_PATH, proxy=None):
         'data': result['data'],
         'hash': result['hash']
     }
-
-
-def cli_get_data(args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None):
-    """
-    command: get_data advanced
-    help: Fetch Blockstack data using a blockstack:// URL.
-    arg: url (str) 'The Blockstack URL'
-    """
-    proxy = get_default_proxy() if proxy is None else proxy
-    password = get_default_password(password)
-    
-    url = str(args.url)
-
-    try:
-        res = blockstack_url_fetch( url, proxy=proxy, config_path=config_path)
-        return res
-    except PasswordRequiredException:
-
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-    
-        res = blockstack_url_fetch( url, proxy=proxy, config_path=config_path, wallet_keys=wallet_keys)
-        return res
 
 
 def cli_list_update_history(args, config_path=CONFIG_PATH):
@@ -3556,7 +3568,6 @@ def cli_delete_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None)
     signed_data_tombstones = sign_mutable_data_tombstones(data_tombstones, privkey)
 
     result = delete_mutable(data_id, signed_data_tombstones, proxy=proxy, device_ids=device_ids, config_path=config_path)
-    result = delete_mutable(str(args.data_id), blockchain_id=str(args.name), proxy=proxy)
     return result
 
 
@@ -4447,6 +4458,9 @@ def cli_sign_data( args, config_path=CONFIG_PATH, proxy=None, password=None, int
     if BLOCKSTACK_DEBUG:
         assert storage.parse_mutable_data(res, pubkey)
 
+    if BLOCKSTACK_TEST:
+        log.debug("Verified {} with {}".format(res, pubkey))
+
     return res
 
 
@@ -4471,8 +4485,11 @@ def cli_verify_data( args, config_path=CONFIG_PATH, proxy=None, interactive=True
     if hasattr(args, 'pubkey') and args.pubkey is not None:
         pubkey = str(args.pubkey)
         try:
-            pubkey = ECPublicKey(pubkey).to_hex()
-        except:
+            pubkey = keylib.ECPublicKey(pubkey).to_hex()
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
             return {'error': 'Invalid public key'}
 
     if pubkey is None:
@@ -4504,6 +4521,9 @@ def cli_verify_data( args, config_path=CONFIG_PATH, proxy=None, interactive=True
             data = f.read().strip()
     except:
         return {'error': 'Failed to read file'}
+
+    if BLOCKSTACK_TEST:
+        log.debug("Verify {} with {}".format(data, pubkey))
 
     res = storage.parse_mutable_data(data, pubkey)
     if res is None:
@@ -4840,7 +4860,7 @@ def datastore_path_stat(datastore_type, datastore_id, path, extended=False, forc
     return res
 
 
-def datastore_inode_getinode(datastore_type, datastore_id, inode_uuid, idata=False, device_ids=None, config_path=CONFIG_PATH ):
+def datastore_inode_getinode(datastore_type, datastore_id, inode_uuid, extended=False, force=False, idata=False, device_ids=None, config_path=CONFIG_PATH ):
     """
     Get an inode in a datastore or collection
     Return {'status': True, 'inode': ...} on success
@@ -4859,7 +4879,7 @@ def datastore_inode_getinode(datastore_type, datastore_id, inode_uuid, idata=Fal
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_getinode( rpc, datastore, inode_uuid, idata=idata, config_path=config_path )
+    res = datastore_getinode( rpc, datastore, inode_uuid, extended=False, force=force, idata=idata, config_path=config_path )
     return res
 
 
@@ -5106,16 +5126,22 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
     help: Get a raw inode from a datastore
     arg: datastore_id (str) 'The ID of the application user'
     arg: inode_uuid (str) 'The inode UUID'
+    opt: extended (str) 'If True, then include the path information as well'
     opt: idata (str) 'If True, then include the inode payload as well.'
     opt: force (str) 'If True, then tolerate stale inode data.'
+    opt: device_ids (str) 'CSV of device IDs, if different from what is loaded'
     """
 
     datastore_id = str(args.datastore_id)
     inode_uuid = str(args.inode_uuid)
     
+    extended = False
     force = False
     idata = False
     device_ids = None
+
+    if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
+        extended = True
 
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
@@ -5126,7 +5152,7 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
     if hasattr(args, 'device_ids') and args.device_ids:
         device_ids = device_ids.split(',')
 
-    return datastore_inode_getinode('datastore', datastore_id, inode_uuid, force=force, idata=idata, device_ids=device_ids, config_path=config_path) 
+    return datastore_inode_getinode('datastore', datastore_id, inode_uuid, extended=extended, force=force, idata=idata, device_ids=device_ids, config_path=config_path) 
 
 
 def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, force_data=False ):
@@ -5355,7 +5381,7 @@ def cli_collection_getitem( args, config_path=CONFIG_PATH, interactive=False, pa
 def cli_start_server( args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: start_server advanced
-    help: Start a Blockstack server
+    help: Start a Blockstack indexing server
     opt: foreground (str) 'If True, then run in the foreground.'
     opt: working_dir (str) 'The directory which contains the server state.'
     opt: testnet (str) 'If True, then communicate with Bitcoin testnet.'
@@ -5371,14 +5397,14 @@ def cli_start_server( args, config_path=CONFIG_PATH, interactive=False ):
 
     if args.testnet:
         testnet = str(args.testnet)
-        testnet = (testnet.lower() in ['1', 'true', 'yes', 'testnet'])
+        testnet = (testnet.lower() in ['1', 'true', 'yes', 'testnet3'])
 
-    cmds = ['blockstack-server', 'start']
+    cmds = ['blockstack-core', 'start']
     if foreground:
         cmds.append('--foreground')
 
     if testnet:
-        cmds.append('--testnet')
+        cmds.append('--testnet3')
 
     # TODO: use subprocess
     if working_dir is not None:
@@ -5400,13 +5426,13 @@ def cli_start_server( args, config_path=CONFIG_PATH, interactive=False ):
 def cli_stop_server( args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: stop_server advanced
-    help: Stop a running Blockstack server
+    help: Stop a running Blockstack indexing server
     opt: working_dir (str) 'The directory which contains the server state.'
     """
 
     working_dir = args.working_dir
 
-    cmds = ['blockstack-server', 'stop']
+    cmds = ['blockstack-core', 'stop']
 
     if working_dir is not None:
         working_dir_envar = 'VIRTUALCHAIN_WORKING_DIR="{}"'.format(working_dir)

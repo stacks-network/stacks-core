@@ -21,15 +21,8 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os
-import sys
-import json
-import blockstack_zones
-
-import blockstack_client
-
 import virtualchain
-from blockstack_client import hash_zonefile, get_zonefile_data_hash
+from blockstack_client import get_zonefile_data_hash
 
 log = virtualchain.get_logger("blockstack-server")
 

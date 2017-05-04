@@ -22,10 +22,8 @@
 """
 
 import os
-import sys
 import virtualchain
 import json
-import traceback
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -33,21 +31,10 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 from ..constants import TX_EXPIRED_INTERVAL, TX_CONFIRMATIONS_NEEDED, TX_MIN_CONFIRMATIONS
 from ..constants import MAXIMUM_NAMES_PER_ADDRESS
-from ..constants import BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT
 from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DRY_RUN
-from ..constants import MINIMUM_BALANCE, CONFIG_PATH
+from ..constants import CONFIG_PATH
 
-from ..config import get_logger, get_utxo_provider_client, get_tx_broadcaster
-
-from ..utils import satoshis_to_btc
-from ..utils import pretty_print as pprint
-
-from ..proxy import get_default_proxy
-from ..proxy import get_names_owned_by_address as blockstack_get_names_owned_by_address
-
-from ..scripts import tx_get_unspents
-
-from .utxo import broadcast_transaction
+from ..logger import get_logger
 
 log = get_logger() 
 
@@ -141,7 +128,7 @@ def get_tx_fee( tx_hex, config_path=CONFIG_PATH ):
         fee = float(fee) 
 
         # / 2048, since tx_hex is a hex string (otherwise / 1024, since it's BTC per kb)
-        return round((fee * (len(tx_hex) / 2048.0)) * 10**8)
+        return int(round((fee * (len(tx_hex) / 2048.0)) * 10**8))
     except Exception, e:
         log.exception(e)
         log.debug("Failed to estimate fee")
@@ -183,6 +170,9 @@ def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmati
     Return {'error': ...} on failure
     """
 
+    from ..scripts import tx_get_unspents
+    from ..config import get_utxo_provider_client
+
     if min_confirmations != TX_MIN_CONFIRMATIONS:
         log.warning("Using a different number of confirmations ({}) instead of default ({})".format(min_confirmations, TX_MIN_CONFIRMATIONS))
 
@@ -214,6 +204,9 @@ def broadcast_tx(tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None):
     Return {'status': True, 'transaction_hash': ...} on success.  Include 'tx': ... if BLOCKSTACK_DRY_RUN is set.
     Return {'error': ...} on failure.
     """
+    from ..config import get_tx_broadcaster
+    from ..utxo import broadcast_transaction
+
     if tx_broadcaster is None:
         tx_broadcaster = get_tx_broadcaster(config_path=config_path)
 
@@ -309,6 +302,9 @@ def can_receive_name( address, proxy=None ):
     """
     Can an address receive a name?
     """
+    from ..proxy import get_default_proxy
+    from ..proxy import get_names_owned_by_address as blockstack_get_names_owned_by_address
+
     if proxy is None:
         proxy = get_default_proxy()
 

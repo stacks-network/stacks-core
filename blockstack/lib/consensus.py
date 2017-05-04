@@ -21,29 +21,15 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import logging
-import os
-import sys
 import json
-import datetime
-import traceback
-import time
-import math
-import random
-import shutil
 import tempfile
-import binascii
 import copy
-import threading
-import errno
 
 import virtualchain
-import blockstack_client
 
 log = virtualchain.get_logger("blockstack-server")
 
 import nameset as blockstack_state_engine
-import nameset.virtualchain_hooks as virtualchain_hooks
 
 import config
 

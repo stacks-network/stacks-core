@@ -20,7 +20,6 @@
     You should have received a copy of the GNU General Public License
     along with Blockstack-client.  If not, see <http://www.gnu.org/licenses/>.
 """
-
 import app
 import client
 import config
@@ -53,18 +52,13 @@ from data import set_data_pubkey
 from storage import get_announcement, put_announcement, verify_zonefile
 from profile import get_profile, put_profile, delete_profile
 
-from config import get_logger, get_config, get_utxo_provider_client, get_tx_broadcaster, default_bitcoind_opts
+from logger import get_logger
+from config import get_config, get_utxo_provider_client, get_tx_broadcaster, default_bitcoind_opts
 from constants import CONFIG_PATH, CONFIG_FILENAME, USER_ZONEFILE_TTL, DEFAULT_API_PORT, get_secret, set_secret
-
-from resolve import blockstack_mutable_data_url as make_mutable_data_url
-from resolve import blockstack_immutable_data_url as make_immutable_data_url 
-from resolve import blockstack_data_url_parse as parse_data_url
-from resolve import BlockstackURLHandle, BlockstackHandler
 
 from storage import get_data_hash, get_blockchain_compat_hash, get_zonefile_data_hash
 from storage import get_storage_handlers, lookup_storage_handler, hash_zonefile
 from storage import parse_mutable_data as parse_signed_data
-from keys import sign_raw_data, verify_raw_data, sign_digest, verify_digest 
 
 from wallet import get_payment_addresses_and_balances, get_owner_addresses_and_names, load_wallet, get_wallet
 
@@ -76,10 +70,12 @@ from backend.blockchain import get_utxos, broadcast_tx
 
 from operations import *
 from backend.nameops import *
-
+from utxo import get_unspents, broadcast_transaction
 from scripts import UTXOException, is_name_valid
 
 from utils import daemonize
+
+from backend.queue import in_queue, queue_append, queue_findone, queue_findall, queue_removeall 
 
 # legacy compatibility
 from virtualchain import SPVClient

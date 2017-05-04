@@ -22,9 +22,7 @@
 """
 
 import os
-import sys
 import random
-import signal
 import base64
 import copy
 
@@ -32,8 +30,6 @@ import copy
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 
-import signal
-from time import sleep
 import json
 import socket
 import threading
@@ -43,7 +39,6 @@ import hashlib
 import keylib
 from keylib import ECPrivateKey
 
-import blockstack_profiles
 import blockstack_zones
 import virtualchain
 
@@ -52,15 +47,17 @@ from .queue import queue_cleanall, queue_find_accepted
 
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
 
-from ..keys import get_data_privkey_info, is_singlesig_hex, get_privkey_info_params 
-from ..proxy import is_name_registered, is_zonefile_hash_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost, get_atlas_peers, json_is_error
-from ..zonefile import zonefile_data_replicate, make_empty_zonefile
-from ..user import is_user_zonefile, make_empty_user_profile
-from ..storage import put_mutable_data, put_immutable_data, hash_zonefile, get_zonefile_data_hash
-from ..data import get_profile_timestamp, set_profile_timestamp
+from ..keys import get_data_privkey_info, is_singlesig_hex 
+from ..proxy import is_name_registered, is_zonefile_hash_current, get_default_proxy, get_name_blockchain_record, get_atlas_peers, json_is_error
+from ..zonefile import zonefile_data_replicate
+from ..user import is_user_zonefile
+from ..storage import put_mutable_data, get_zonefile_data_hash
+from ..data import set_profile_timestamp
 
-from ..constants import SLEEP_INTERVAL, CONFIG_PATH, DEFAULT_QUEUE_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, TX_MIN_CONFIRMATIONS
-from ..config import get_config, get_logger, url_to_host_port
+from ..constants import CONFIG_PATH, DEFAULT_QUEUE_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, TX_MIN_CONFIRMATIONS
+from ..config import get_config
+from ..utils import url_to_host_port
+from ..logger import get_logger
 
 DEBUG = True
 
@@ -89,9 +86,11 @@ def get_registrar_state(config_path=None, proxy=None):
     return (state, config_path, proxy)
 
 
-def set_registrar_state(config_path=None):
+def set_registrar_state(config_path=None, wallet_keys=None):
     """
-    Set singleton state 
+    Set singleton state and start the registrar thread.
+    Return the registrar state on success
+    Return None on error
     """
     global __registrar_state
     assert config_path is not None
@@ -103,6 +102,22 @@ def set_registrar_state(config_path=None):
 
     log.info("Initialize Registrar State from %s" % (config_path))
     __registrar_state = RegistrarState(config_path)
+
+    if wallet_keys:
+        log.info("Setting wallet keys")
+
+        res = set_wallet(
+            (wallet_keys['payment_addresses'][0], wallet_keys['payment_privkey']),
+            (wallet_keys['owner_addresses'][0], wallet_keys['owner_privkey']),
+            (wallet_keys['data_pubkeys'][0], wallet_keys['data_privkey']),
+            config_path=config_path
+        )
+
+        if 'error' in res:
+            log.error("Failed to set wallet: {}".format(res['error']))
+            __registrar_state = None
+            return None
+
     __registrar_state.start()
     return __registrar_state
 
@@ -953,15 +968,6 @@ class RegistrarState(object):
     def join(self):
         log.debug("Registrar worker join")
         self.registrar_worker.join()
-
-
-# RPC method: backend_ping
-def ping():
-    """
-    Check if RPC daemon is alive
-    """
-    data = {'status': 'alive'}
-    return data
 
 
 # RPC method: backend_state

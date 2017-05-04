@@ -22,22 +22,18 @@
 """
 
 import json
-import time
-import copy
 import blockstack_profiles
 import blockstack_zones
 import base64
 import socket
-import virtualchain
 from keylib import ECPrivateKey
-import jsonschema
-from jsonschema import ValidationError
 
 from .proxy import *
 import storage
 import user as user_db
 
-from .config import get_logger, get_config
+from .config import get_config
+from .logger import get_logger
 from .constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 
 log = get_logger()
@@ -106,7 +102,7 @@ def make_empty_zonefile(username, data_pubkey, urls=None):
         'txt': [],
         'uri': [],
         '$origin': username,
-        '$ttl': config.USER_ZONEFILE_TTL,
+        '$ttl': USER_ZONEFILE_TTL,
     }
 
     if data_pubkey is not None:

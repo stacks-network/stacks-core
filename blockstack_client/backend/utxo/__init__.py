@@ -28,5 +28,3 @@ import blockchain_info
 import blockcypher
 import blockstack_explorer
 import blockstack_utxo
-
-from utxo import *

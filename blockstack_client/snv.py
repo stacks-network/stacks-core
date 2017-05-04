@@ -35,7 +35,7 @@ from virtualchain import SPVClient
 
 from utilitybelt import is_hex
 
-from .config import get_logger
+from .logger import get_logger
 from .constants import (
     FIRST_BLOCK_MAINNET, NAME_OPCODES,
     OPFIELDS, BLOCKCHAIN_ID_MAGIC, NAME_PREORDER,

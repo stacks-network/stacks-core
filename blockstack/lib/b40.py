@@ -21,7 +21,7 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from utilitybelt import is_hex, change_charset, charset_to_hex, hex_to_charset
+from utilitybelt import charset_to_hex, hex_to_charset
 import re
 import string
 from binascii import hexlify, unhexlify

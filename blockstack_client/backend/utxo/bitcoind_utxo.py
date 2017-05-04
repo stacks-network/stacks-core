@@ -22,7 +22,7 @@
 """
 
 import httplib
-from virtualchain import AuthServiceProxy, script_hex_to_address
+from virtualchain import AuthServiceProxy
 from .blockchain_client import BlockchainClient
 
 from decimal import Decimal

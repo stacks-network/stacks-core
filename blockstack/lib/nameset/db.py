@@ -25,18 +25,11 @@ import sqlite3
 import subprocess
 import json
 import traceback
-import binascii
-import hashlib
-import math
-import keychain
 import os
 import sys
 import copy
-import shutil
 import time
 import random
-
-from collections import defaultdict
 
 # hack around absolute paths
 curr_dir = os.path.abspath( os.path.join( os.path.dirname(__file__), ".." ) )
@@ -228,6 +221,9 @@ def sqlite3_backup( src_path, dest_path ):
     rc = None
     backoff = 1.0
 
+    out = None
+    err = None
+
     try:
         while True:
             log.debug("{}".format(" ".join(sqlite3_cmd)))
@@ -235,13 +231,13 @@ def sqlite3_backup( src_path, dest_path ):
             out, err = p.communicate()
             rc = p.wait()
 
-            if os.WIFEXITED(rc) and os.WEXITSTATUS(rc) != 0 and "database is locked" in err.lower():
+            if os.WIFEXITED(rc) and os.WEXITSTATUS(rc) != 0 and ("database is locked" in out.lower() or "database is locked" in err.lower()):
                 # try again
                 log.error("Database {} is locked; trying again in {} seconds".format(src_path, backoff))
                 time.sleep(backoff)
                 backoff += 2 * backoff + random.random() * random.randint(0, int(backoff))
                 continue
-
+ 
             else:
                 break
 
@@ -251,12 +247,13 @@ def sqlite3_backup( src_path, dest_path ):
 
     if not os.WIFEXITED(rc):
         # bad exit 
-        log.error("{} exit code {:x}".format(sqlite3_path, rc))
+        # failed for some other reason
+        log.error("Backup failed: out='{}', err='{}', rc={}".format(out, err, rc))
         return False
     
     if os.WEXITSTATUS(rc) != 0:
         # bad exit
-        log.error("{} exited {}".format(sqlite3_path, rc))
+        log.error("Backup failed: out='{}', err='{}', exit={}".format(out, err, os.WEXITSTATUS(rc)))
         return False
 
     return True
