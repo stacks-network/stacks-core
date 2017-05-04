@@ -2424,6 +2424,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._send_headers(status_code=401, content_type='text/plain')
 
 
+    def GET_help(self, session, path_info):
+        """
+        Top-level GET request
+        """
+        template = """<html><header></header><body>Blockstack RESTful API<br><a href="https://github.com/blockstack/blockstack-core/tree/master/api">Documentation</a></body></html>"""
+        self._send_headers(status_code=200, content_type='text/html')
+        self.wfile.write(template)
+        return
+
+
     def _dispatch(self, method_name):
         """
         Top-level dispatch method
@@ -3197,6 +3207,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'POST': {
                         'name': 'test',
                         'desc': 'issue test framework commands',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
+                    },
+                },
+            },
+            r'^/$': {
+                'routes': {
+                    'GET': self.GET_help,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': '',
+                        'desc': 'help',
                         'auth_session': False,
                         'auth_pass': False,
                         'need_data_key': False,
