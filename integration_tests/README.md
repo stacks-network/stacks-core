@@ -85,7 +85,7 @@ the following environment variables:
      $ export BLOCKSTACK_DEBUG=1   # print debug-level output in the CLI; great for troubleshooting
      $ 
      $ # this tells the CLI where to find the test-generated config file
-     $ export BLOCKSTACK_CLIENT_CONFIG=/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.name_preorder_register/client/client.ini
+     $ export BLOCKSTACK_CLIENT_CONFIG=/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.rpc_register/client/client.ini
 ```
 
 Once set, you can use the Blockstack CLI as normal, and it will interact with the test case's Blockstack Core node:
@@ -119,6 +119,22 @@ Once set, you can use the Blockstack CLI as normal, and it will interact with th
          }
      }
 ```
+
+Tips and Tricks
+---------------
+
+* All state for a given test is located under `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/`, where `${SCENARIO_NAME}` is the name of the test (e.g. `rpc_register`).
+
+* The API server's log file is located at `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/client/api_endpoint.log`.
+
+* The API server's PID file is located at `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/client/api_endpoint.pid`.
+
+* The API server's wallet file is located at `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/client/wallet.json`.
+
+* If something goes wrong, the API server may not start.  You can start it with `blockstack api start`, and stop it with `blockstack api stop`.
+
+* If for some reason you need to (re)start the API daemon, the default wallet password is `0123456789abcdef`.
+
 
 Examples
 --------
