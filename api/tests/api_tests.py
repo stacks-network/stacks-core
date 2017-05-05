@@ -367,7 +367,7 @@ class BlockChains(APITestCase):
                                 headers = {} , status_code=200)
         self.assertIn("queues", data)
     def test_operations(self):
-        data = self.get_request("/v1/blockchains/bitcoin/operations/462453",
+        data = self.get_request("/v1/blockchains/bitcoin/operations/456383",
                                 headers = {} , status_code=200)
 
         to_check = {"address" : schemas.OP_ADDRESS_PATTERN,
