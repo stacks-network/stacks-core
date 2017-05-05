@@ -66,7 +66,30 @@ else:
 
 mc = get_mc_client()
 
-def fetch_proofs(profile, username, profile_ver=2, refresh=False):
+# copied and patched from proofs.py
+def site_data_to_fixed_proof_url(account, zonefile):
+    service = account['service']
+    proof = None
+    if (service in zonefile and 'proof' in zonefile[service]):
+        proof = zonefile[service]['proof']
+        if isinstance(proof, dict):
+            if 'url' in proof:
+                proof = proof['url']
+            elif 'id' in proof and 'username' in zonefile[service]:
+                username = zonefile[service]['username']
+                if service == "twitter":
+                    proof = "https://twitter.com/" + username + "/status/" + proof["id"]
+                elif service == "github":
+                    proof = "https://gist.github.com/" + username + "/" + proof["id"]
+                elif service == "facebook":
+                    proof = "https://facebook.com/" + username + "/posts/" + proof["id"]
+            else:
+                proof = None
+    if proof:
+        account['proofUrl'] = proof
+
+
+def fetch_proofs(profile, username, profile_ver=2, zonefile = None, refresh=False):
     """ Get proofs for a profile and:
         a) check cached entries
         b) check which version of profile we're using
@@ -77,6 +100,12 @@ def fetch_proofs(profile, username, profile_ver=2, refresh=False):
         proofs_cache_reply = mc.get("proofs_" + str(username))
     else:
         proofs_cache_reply = None
+
+    # fix up missing proofUrls
+    for account in profile['account']:
+        if ('proofType' in account and account['proofType'] == 'http'
+            and 'proofUrl' not in account):
+            site_data_to_fixed_proof_url(account, zonefile)
 
     if proofs_cache_reply is None:
 
@@ -152,7 +181,8 @@ def format_profile(profile, fqa, zone_file, refresh=False):
 
     if not profile_in_legacy_format:
         data['verifications'] = fetch_proofs(data['profile'], username,
-                                             profile_ver=3, refresh=refresh)
+                                             profile_ver=3, zonefile=zone_file,
+                                             refresh=refresh)
     else:
         if type(profile) is not dict:
             data['profile'] = json.loads(profile)
@@ -257,8 +287,10 @@ def get_users(usernames):
 
     for username in usernames:
         if "." not in username:
-            username = "{}.{}".format(username, 'id')
-        profile = get_profile(username, refresh=refresh)
+            fqa = "{}.{}".format(username, 'id')
+        else:
+            fqa = username
+        profile = get_profile(fqa, refresh=refresh)
 
         if 'error' in profile:
             if len(usernames) == 1:
