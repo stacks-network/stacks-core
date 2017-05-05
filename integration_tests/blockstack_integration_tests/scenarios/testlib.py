@@ -497,7 +497,7 @@ def blockstack_client_initialize_wallet( password, payment_privkey, owner_privke
 
         print "\nstarting API daemon\n"
 
-        res = blockstack_client.rpc.local_api_start(api_pass=conf['api_password'], port=int(conf['api_endpoint_port']), config_dir=os.path.dirname(config_path), password="0123456789abcdef")
+        res = blockstack_client.rpc.local_api_start(api_pass=conf['api_password'], port=int(conf['api_endpoint_port']), config_dir=os.path.dirname(config_path), password=password)
         if not res:
             if exception:
                 raise Exception("Failed to start API daemon")

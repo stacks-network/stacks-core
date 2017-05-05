@@ -12,21 +12,25 @@ The tests cover the following repositories, and must be installed prior to runni
 
 * [virtualchain](https://github.com/blockstack/virtualchain)
 * [blockstack-core](https://github.com/blockstack/blockstack-core)
-* [blockstack-cli](https://github.com/blockstack/blockstack-cli)
-* [blockstack-file](https://github.com/blockstack/blockstack-files)
-* [blockstack-gpg](https://github.com/blockstack/blockstack-gpg)
 * [blockstack-zones](https://github.com/blockstack/dns-zone-file-py)
+* [keylib-py](https://github.com/blockstack/keylib-py)
+* [keychain-manager-py](https://github.com/blockstack/keychain-manager-py)
 * [blockstack-profiles](https://github.com/blockstack/blockstack-profiles-py)
-
-The `get_started.sh` script in the root directory will fetch and install the latest branches of all the required Blockstack packages.
-**If you want to install the latest branches alongside the stable Blockstack packages, you should use a virtual environment.**
 
 In addition, you must install the Bitcoin daemon and CLI tool.
 
 Getting Started
 ---------------
 
-Once all of the required packages are installed (see `get_started.sh`), you can run individual test scenarios.  Test scenarios
+To install the test framework, first install `blockstack-core` and all of its
+dependencies.  Then, do the following to install the integration tests:
+
+```
+    $ cd integration_tests/
+    $ ./setup.py build && sudo ./setup.py install
+```
+
+Once all of the required packages are installed you can run individual test scenarios.  Test scenarios
 are organized as Python modules, which can be imported from `blockstack_integration_tests.scenarios`.  For example, the following
 command runs the test that will create a `.test` namespace, preorder and register the name `foo.test`, set its zonefile hash, 
 and create an empty profile for it:
@@ -81,7 +85,7 @@ the following environment variables:
      $ export BLOCKSTACK_DEBUG=1   # print debug-level output in the CLI; great for troubleshooting
      $ 
      $ # this tells the CLI where to find the test-generated config file
-     $ export BLOCKSTACK_CLIENT_CONFIG=/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.name_preorder_register/client/client.ini
+     $ export BLOCKSTACK_CLIENT_CONFIG=/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.rpc_register/client/client.ini
 ```
 
 Once set, you can use the Blockstack CLI as normal, and it will interact with the test case's Blockstack Core node:
@@ -115,6 +119,22 @@ Once set, you can use the Blockstack CLI as normal, and it will interact with th
          }
      }
 ```
+
+Tips and Tricks
+---------------
+
+* All state for a given test is located under `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/`, where `${SCENARIO_NAME}` is the name of the test (e.g. `rpc_register`).
+
+* The API server's log file is located at `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/client/api_endpoint.log`.
+
+* The API server's PID file is located at `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/client/api_endpoint.pid`.
+
+* The API server's wallet file is located at `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/client/wallet.json`.
+
+* If something goes wrong, the API server may not start.  You can start it with `blockstack api start`, and stop it with `blockstack api stop`.
+
+* If for some reason you need to (re)start the API daemon, the default wallet password is `0123456789abcdef`.
+
 
 Examples
 --------

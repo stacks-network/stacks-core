@@ -100,6 +100,7 @@ def get_zonefile_data_from_storage( name, zonefile_hash, drivers=None ):
     Return the zonefile dict on success.
     Raise on error
     """
+    log.debug("Get zonefile {} for {} using '{}'".format(zonefile_hash, name, ",".join(drivers if drivers is not None else ["(all)"])))
     zonefile_txt = blockstack_client.storage.get_immutable_data( zonefile_hash, hash_func=blockstack_client.get_blockchain_compat_hash, fqu=name, zonefile=True, drivers=drivers )
     if zonefile_txt is None:
         raise Exception("Failed to get valid zonefile data")
