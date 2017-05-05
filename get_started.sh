@@ -1,6 +1,6 @@
 #!/bin/sh
 
-BLOCKSTACK_VERSION="0.14.1"
+BLOCKSTACK_VERSION="0.14.2"
 VENV_DIR="$(pwd)/blockstack-$BLOCKSTACK_VERSION"
 LOGPATH="/tmp/blockstack_${BLOCKSTACK_VERSION}_get_started.log"
 
@@ -90,21 +90,6 @@ test -x "$(which virtualenv)" || exit_missing_executable "virtualenv" "'pip inst
 
 # need libpython-dev
 find_header "python2.7/Python.h" || exit_missing_sysdep "python-dev"
-
-# need libgmp 
-find_library "libgmp.so" || exit_missing_sysdep "libgmp"
-
-# need libgmp-dev
-find_header "gmp.h" || exit_missing_sysdep "libgmp-dev"
-
-# need libssl 
-find_library "libssl.so" || exit_missing_sysdep "libssl"
-
-# need libcrypto 
-find_library "libcrypto.so" || exit_missing_sysdep "libcrypto"
-
-# need libssl-dev
-find_header "openssl/crypto.h" || exit_missing_sysdep "libssl-dev"
 
 # need libffi
 find_library "libffi.so" || exit_missing_sysdep "libffi"
