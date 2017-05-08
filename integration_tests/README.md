@@ -159,6 +159,8 @@ Troubleshooting
 
 * If your API endpoint fails to start, you should check the `api_endpoint.log` file in order to verify that the API daemon didn't crash or misbehave.
 
+* You can verify that your API endpoint is running with `curl http://localhost:16268`.  You should get back a simple HTML page.
+
 * Test output can be lengthy.  If you want to preserve it, we recommend `tee(1)`-ing it to a log file.
 
 Examples
