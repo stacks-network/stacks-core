@@ -11,3 +11,11 @@ dependencies:
           LDFLAGS: /usr/local/opt/openssl/lib/libcrypto.a /usr/local/opt/openssl/lib/libssl.a 
           CPPFLAGS: -I/usr/local/opt/openssl/include
     - pip install git+https://github.com/blockstack/virtualchain.git@rc-0.14.2
+  post:
+    - pip install -r api/requirements.txt
+test:
+  pre:
+    - blockstack setup -y --password PASSWORD --debug
+    - blockstack start --debug
+  override:
+    - python -m api.tests.api_tests
