@@ -3,4 +3,8 @@ machine:
     - sudo -H pip install --upgrade virtualenv
 dependencies:
   pre:
-    - brew install openssl
+    - brew install openssl --build-bottle
+    - pip install scrypt:
+        environment:
+	  LDFLAGS: -L/usr/local/opt/openssl/lib 
+    	  CPPFLAGS: -I/usr/local/opt/openssl/include
