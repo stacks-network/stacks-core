@@ -6,5 +6,5 @@ dependencies:
     - brew install openssl --build-bottle
     - pip install scrypt:
         environment:
-	  LDFLAGS: -L/usr/local/opt/openssl/lib 
-    	  CPPFLAGS: -I/usr/local/opt/openssl/include
+          LDFLAGS: -L/usr/local/opt/openssl/lib
+          CPPFLAGS: -I/usr/local/opt/openssl/include
