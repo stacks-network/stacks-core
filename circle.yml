@@ -4,7 +4,7 @@ machine:
 dependencies:
   pre:
     - brew install openssl
-    - pip install git+https://github.com/kantai/py-scrypt.git:
+    - sudo pip install git+https://github.com/kantai/py-scrypt.git:
         environment:
           PYSCRYPT_NO_LINK_FLAGS: "1"
           LDFLAGS: /usr/local/opt/openssl/lib/libcrypto.a /usr/local/opt/openssl/lib/libssl.a 
