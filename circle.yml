@@ -19,4 +19,4 @@ test:
     - blockstack setup -y --password PASSWORD --debug
     - blockstack api start -y --password PASSWORD --debug
   override:
-    - ../virtualenvs/venv-system/bin/nosetests api.tests.api_tests api.tests.resolver_tests
+    - ../virtualenvs/venv-system/bin/nosetests --with-xunit api.tests.api_tests api.tests.resolver_tests
