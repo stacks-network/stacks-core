@@ -18,4 +18,4 @@ test:
     - blockstack setup -y --password PASSWORD --debug
     - blockstack api start -y --password PASSWORD --debug
   override:
-    - python -m api.tests.api_tests
+    - ../virtualenvs/venv-system/bin/python -m api.tests.api_tests PingTest LookupUsersTest NamespaceTest BlockChains Prices NamesOwnedTest NameHistoryTest AuthInternal BlockChainsInternal Zonefiles WalletInternal NodeInternal ResolverTestCase
