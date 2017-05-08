@@ -3,9 +3,8 @@ machine:
     - sudo -H pip install --upgrade virtualenv
 dependencies:
   pre:
-    - brew install hg
     - brew install openssl
-    - pip install hg+https://bitbucket.org/kantai/py-scrypt:
+    - pip install git+https://github.com/kantai/py-scrypt.git:
         environment:
           PYSCRYPT_NO_LINK_FLAGS: "1"
           LDFLAGS: /usr/local/opt/openssl/lib/libcrypto.a /usr/local/opt/openssl/lib/libssl.a 
