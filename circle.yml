@@ -11,13 +11,11 @@ dependencies:
           CPPFLAGS: -I/usr/local/opt/openssl/include
     - ../virtualenvs/venv-system/bin/pip install git+https://github.com/blockstack/virtualchain.git@rc-0.14.2
 compile:
-  override:
-    - ../virtualenvs/venv-system/bin/pip install .
   post:
     - ../virtualenvs/venv-system/bin/pip install -r api/requirements.txt
 test:
   pre:
     - blockstack setup -y --password PASSWORD --debug
-    - blockstack start --debug
+    - blockstack api start -y --password PASSWORD --debug
   override:
     - python -m api.tests.api_tests
