@@ -328,18 +328,6 @@ class SearchAPITest(APITestCase):
 
         api.config.SEARCH_API_ENDPOINT_ENABLED = original
 
-    def test_search_server(self):
-        u = "muneeb"
-        if not api.config.SEARCH_API_ENDPOINT_ENABLED:
-            print("skipping search server test")
-            return
-        data = self.get_request(self.search_url(u),
-                                headers = {}, status_code=200)
-
-        self.assertTrue(len(data['results']) > 0)
-        self.assertIn(u, data['results'][0]['username'])
-        self.assertIn("profile", data['results'][0].keys())
-
 class TestAPILandingPageExamples(APITestCase):
     def test_endpoints(self):
         from api.utils import get_api_calls

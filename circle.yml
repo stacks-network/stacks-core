@@ -13,9 +13,10 @@ dependencies:
 compile:
   post:
     - ../virtualenvs/venv-system/bin/pip install -r api/requirements.txt
+    - ../virtualenvs/venv-system/bin/pip install nose
 test:
   pre:
     - blockstack setup -y --password PASSWORD --debug
     - blockstack api start -y --password PASSWORD --debug
   override:
-    - ../virtualenvs/venv-system/bin/python -m api.tests.api_tests PingTest LookupUsersTest NamespaceTest BlockChains Prices NamesOwnedTest NameHistoryTest AuthInternal BlockChainsInternal Zonefiles WalletInternal NodeInternal ResolverTestCase
+    - ../virtualenvs/venv-system/bin/nosetests api.tests.api_tests api.tests.resolver_tests
