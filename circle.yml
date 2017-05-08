@@ -4,17 +4,17 @@ machine:
     - brew install openssl
 dependencies:
   pre:
-    - ./virtualenvs/venv-system/bin/pip install git+https://github.com/kantai/py-scrypt.git:
+    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/kantai/py-scrypt.git:
         environment:
           PYSCRYPT_NO_LINK_FLAGS: "1"
           LDFLAGS: /usr/local/opt/openssl/lib/libcrypto.a /usr/local/opt/openssl/lib/libssl.a 
           CPPFLAGS: -I/usr/local/opt/openssl/include
-    - ./virtualenvs/venv-system/bin/pip install git+https://github.com/blockstack/virtualchain.git@rc-0.14.2
+    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/blockstack/virtualchain.git@rc-0.14.2
 compile:
   override:
-    - ./virtualenvs/venv-system/bin/pip install .
+    - ../virtualenvs/venv-system/bin/pip install .
   post:
-    - ./virtualenvs/venv-system/bin/pip install -r api/requirements.txt
+    - ../virtualenvs/venv-system/bin/pip install -r api/requirements.txt
 test:
   pre:
     - blockstack setup -y --password PASSWORD --debug
