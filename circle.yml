@@ -20,4 +20,4 @@ test:
     - blockstack api start -y --password PASSWORD --debug
   override:
     - mkdir $CIRCLE_TEST_REPORTS/django
-    - ../virtualenvs/venv-system/bin/python -m api.tests.api_tests --xunit-path "$CIRCLE_TEST_REPORTS/django/" PingTest LookupUsersTest NamespaceTest BlockChains Prices NamesOwnedTest NameHistoryTest AuthInternal BlockChainsInternal Zonefiles WalletInternal NodeInternal
+    - ../virtualenvs/venv-system/bin/python -m api.tests.api_tests --xunit-path "$CIRCLE_TEST_REPORTS/django/" PingTest LookupUsersTest NamespaceTest BlockChains Prices NamesOwnedTest NameHistoryTest AuthInternal BlockChainsInternal Zonefiles WalletInternal NodeInternal ResolverTestCase
