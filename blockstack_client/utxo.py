@@ -30,7 +30,7 @@ from backend.utxo.blockcypher import BlockcypherClient
 from backend.utxo.bitcoind_utxo import BitcoindClient
 from backend.utxo.blockchain_info import BlockchainInfoClient
 from backend.utxo.blockstack_explorer import BlockstackExplorerClient, BLOCKSTACK_EXPLORER_URL
-from backend.utxo.blockstack_utxo import BlockstackUTXOClient
+from backend.utxo.blockstack_utxo import BlockstackUTXOClient, BLOCKSTACK_UTXO_URL
 
 from backend.utxo.blockstack_core import get_unspents as blockstack_core_get_unspents
 from backend.utxo.blockstack_core import broadcast_transaction as blockstack_core_broadcast_transaction
@@ -51,7 +51,7 @@ from backend.utxo.blockstack_utxo import get_unspents as blockstack_utxo_get_uns
 from backend.utxo.blockstack_utxo import broadcast_transaction as blockstack_utxo_broadcast_transaction
 
 DEBUG = True
-FIRST_BLOCK_MAINNET = 373601        # well-known value for blockstack-server; doesn't ever change
+FIRST_BLOCK_MAINNET = 373601        # well-known value for blockstack-core; doesn't ever change
 
 
 SUPPORTED_UTXO_PROVIDERS = [ "blockcypher", "blockchain_info", "bitcoind_utxo", "blockstack_core", "blockstack_explorer", "blockstack_utxo" ]
@@ -351,7 +351,7 @@ def default_blockstack_utxo_opts( config_file=None ):
     parser = SafeConfigParser()
     parser.read(config_file)
 
-    url = BLOCKSTACK_EXPLORER_URL
+    url = BLOCKSTACK_UTXO_URL
 
     provider_secs = find_service_provider_sections(config_file, 'blockstack_utxo')
     if len(provider_secs) > 0:
