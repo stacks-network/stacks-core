@@ -90,7 +90,9 @@ class APITestCase(unittest.TestCase):
         t_end = time.time()
         print("\r{}get time: {}s".format("\t"*9, t_end - t_start))
         if not resp.status_code == status_code:
-            print("{} => {} ".format(endpoint, resp.status_code))
+            print("Bad status code: {} => {} ".format(endpoint, resp.status_code))
+            print("REQUEST ===> {} + {} <===".format(endpoint, headers))
+            print("RESPONSE ===>\n {} \n<===".format(resp.data))
 
         self.assertEqual(resp.status_code, status_code)
         if no_json:

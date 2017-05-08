@@ -19,4 +19,5 @@ test:
     - blockstack setup -y --password PASSWORD --debug
     - blockstack api start -y --password PASSWORD --debug
   override:
-    - ../virtualenvs/venv-system/bin/nosetests --with-xunit api.tests.api_tests api.tests.resolver_tests
+    - mkdir $CIRCLE_TEST_REPORTS/django
+    - ../virtualenvs/venv-system/bin/nosetests --xunit-file="$CIRCLE_TEST_REPORTS/django/api_tests.xml" api.tests.api_tests api.tests.resolver_tests --ignore-files="search_tests.py"
