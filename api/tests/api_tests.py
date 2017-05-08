@@ -88,7 +88,7 @@ class APITestCase(unittest.TestCase):
         t_start = time.time()
         resp = self.app.get(endpoint, headers = headers)
         t_end = time.time()
-        print("\r{}get time: {}s".format("\t"*9, t_end - t_start))
+        print("\nget {} time: {}s".format(endpoint, t_end - t_start))
         if not resp.status_code == status_code:
             print("Bad status code: {} => {} ".format(endpoint, resp.status_code))
             print("REQUEST ===> {} + {} <===".format(endpoint, headers))
@@ -110,7 +110,7 @@ class APITestCase(unittest.TestCase):
         t_start = time.time()
         resp = self.app.post(endpoint, data = json.dumps(payload), headers = headers)
         t_end = time.time()
-        print("\r{}post time: {}s".format("\t"*9, t_end - t_start))
+        print("\npost {} time: {}s".format(endpoint, t_end - t_start))
         if not resp.status_code == status_code:
             print("{} => {} ".format(endpoint, resp.status_code))
 
@@ -473,6 +473,16 @@ def test_main(args = []):
         APP = ForwardingClient(args[ainx])
         del args[ainx]
 
+    test_runner = test_support.run_unittest
+
+    if "--xunit-path" in args:
+        ainx = args.index("--xunit-path")
+        del args[ainx]
+        from xmlrunner import XMLTestRunner
+        test_runner = XMLTestRunner(output=args[ainx]).run
+        del args[ainx]
+#        test_runner = lambda *tests: [runner.run(t) for t in tests]
+
     if "--api_password" in args:
         ainx = args.index("--api_password")
         del args[ainx]
@@ -483,7 +493,10 @@ def test_main(args = []):
     if len(args) == 0 or args[0] == "--all":
         args = [ testname for testname in test_map.keys() ]
 
-    test_support.run_unittest( *[test_map[test_name] for test_name in args] )
+    test_suite = unittest.TestSuite()
+    for test_name in args:
+        test_suite.addTest( unittest.TestLoader().loadTestsFromTestCase(test_map[test_name]) )
+    test_runner( test_suite )
 
 if __name__ == '__main__':
     test_main(sys.argv[1:])

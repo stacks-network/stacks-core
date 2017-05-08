@@ -13,11 +13,11 @@ dependencies:
 compile:
   post:
     - ../virtualenvs/venv-system/bin/pip install -r api/requirements.txt
-    - ../virtualenvs/venv-system/bin/pip install nose
+    - ../virtualenvs/venv-system/bin/pip install xmlrunner
 test:
   pre:
     - blockstack setup -y --password PASSWORD --debug
     - blockstack api start -y --password PASSWORD --debug
   override:
     - mkdir $CIRCLE_TEST_REPORTS/django
-    - ../virtualenvs/venv-system/bin/nosetests --xunit-file="$CIRCLE_TEST_REPORTS/django/api_tests.xml" api.tests.api_tests api.tests.resolver_tests --ignore-files="search_tests.py"
+    - ../virtualenvs/venv-system/bin/python -m api.tests.api_tests --xunit-path "$CIRCLE_TEST_REPORTS/django/" PingTest LookupUsersTest NamespaceTest BlockChains Prices NamesOwnedTest NameHistoryTest AuthInternal BlockChainsInternal Zonefiles WalletInternal NodeInternal
