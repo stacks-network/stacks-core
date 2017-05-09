@@ -407,7 +407,7 @@ def test_main(args = []):
         print("Failure of the ping test means the rest of the unit tests will " +
               "fail. Is the blockstack api daemon running? (did you run " +
               "`blockstack api start`)")
-        return
+        sys.exit(1)
 
     if len(args) == 1 and args[0] == "--list":
         print("Tests supported: ")

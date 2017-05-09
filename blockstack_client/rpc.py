@@ -4505,7 +4505,8 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     log.info("uname:     {}".format(" ".join(platform.uname())))
     log.info("System:    {}".format(platform.system()))
     log.info("Processor: {}".format(platform.processor()))
-    log.info("pip:\n{}".format(out))
+    if BLOCKSTACK_DEBUG:
+        log.info("pip:\n{}".format(out))
 
     import blockstack_client
     from blockstack_client.wallet import load_wallet
