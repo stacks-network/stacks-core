@@ -724,6 +724,9 @@ def cli_get_registrar_info(args, config_path=CONFIG_PATH, queues=None):
         log.error("Failed to contact Blockstack daemon")
         return {'error': 'Failed to contact blockstack daemon.  Please ensure that it is running with the `api` command.'}
 
+    if 'error' in current_state:
+        return current_state
+
     queue_types = dict( [(queue_name, []) for queue_name in queues] )
 
     def format_queue_entry(entry):
@@ -846,6 +849,8 @@ def get_server_info(config_path=CONFIG_PATH, get_local_info=False):
     queue_info = cli_get_registrar_info(None, config_path=config_path)
     if 'error' not in queue_info:
         result['queues'] = queue_info
+    else:
+        return queue_info
 
     return result
 
