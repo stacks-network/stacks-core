@@ -3553,6 +3553,11 @@ class BlockstackAPIEndpointClient(object):
         except:
             resp = {'error': 'No JSON response', 'http_status': req.status_code}
 
+        if req.status_code == 403:
+            resp['error'] = ('Authentication to API service failed. Are you ' +
+                             'using the correct API password or do you need to pass the ' +
+                             'correct one with --api_password ?')
+            del resp['http_status']
         return resp
 
     
