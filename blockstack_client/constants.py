@@ -25,6 +25,7 @@ from __future__ import print_function
 """
 
 import os
+import sys
 import json
 import tempfile
 import subprocess
@@ -59,6 +60,11 @@ TX_MIN_CONFIRMATIONS = 6
 if os.environ.get("BLOCKSTACK_TEST", None) is not None:
     # test environment
     TX_MIN_CONFIRMATIONS = 0
+    print('TEST ACTIVE: TX_MIN_CONFIRMATIONS = {}'.format(TX_MIN_CONFIRMATIONS))
+
+if os.environ.get("BLOCKSTACK_MIN_CONFIRMATIONS", None) is not None:
+    TX_MIN_CONFIRMATIONS = int(os.environ['BLOCKSTACK_MIN_CONFIRMATIONS'])
+    print("Set TX_MIN_CONFIRMATIONS to {}".format(TX_MIN_CONFIRMATIONS), file=sys.stderr)
 
 VERSION = __version__
 SERIES_VERSION = "{}.{}.{}".format(__version_major__, __version_minor__, __version_patch__)
@@ -110,12 +116,6 @@ if (BLOCKSTACK_TESTNET or BLOCKSTACK_TESTNET3) and BLOCKSTACK_TESTNET_FIRST_BLOC
     print("TESTNET ACTIVE: FIRST_BLOCK_MAINNET = {}".format(FIRST_BLOCK_MAINNET))
 
 FIRST_BLOCK_TIME_UTC = 1441737751
-
-TX_MIN_CONFIRMATIONS = 6
-if BLOCKSTACK_TEST:
-    # test environment
-    TX_MIN_CONFIRMATIONS = 0
-    print('TEST ACTIVE: TX_MIN_CONFIRMATIONS = {}'.format(TX_MIN_CONFIRMATIONS))
 
 # borrowed from Blockstack
 # Opcodes
