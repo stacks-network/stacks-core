@@ -125,6 +125,7 @@ class TestAPIProxy(object):
             "api_password": client_config['api_password'],
         }
         self.spv_headers_path = utxo_opts['spv_headers_path']
+        self.min_confirmations = blockstack_client.constants.TX_MIN_CONFIRMATIONS
 
         if not os.path.exists(self.conf['metadata']):
             os.makedirs(self.conf['metadata'], 0700)
@@ -264,6 +265,7 @@ def make_proxy(password=None, config_path=None):
     # add in some UTXO goodness 
     proxy.get_unspents = get_unspents
     proxy.broadcast_transaction = broadcast_transaction
+    proxy.min_confirmations = int(os.environ.get("BLOCKSTACK_MIN_CONFIRMATIONS", blockstack_client.constants.TX_MIN_CONFIRMATIONS))
 
     return proxy
 
@@ -2711,7 +2713,7 @@ def snv_all_names( state_engine ):
                 txid = txid_sequence[j]
                 err = error_sequence[j]
 
-                if err is not None:
+                if err is not None and txid is not None:
                     raise Exception("Test misconfigured: error '%s' at block %s" % (err, block_id))
 
                 log.debug("Verify %s %s" % (opcode, txid))
@@ -2795,15 +2797,16 @@ def check_atlas_zonefiles( state_engine, atlasdb_path ):
         if api_call.method not in ["update", "name_import"]:
             continue
      
-        name = api_call.name
+        name = api_call.name 
         block_id = api_call.block_id
-        value_hash = api_call.result['value_hash']
- 
+
         if name in snv_fail:
             continue
 
         if name in snv_fail_at.get(block_id, []):
             continue
+
+        value_hash = api_call.result['value_hash']
 
         log.debug("Verify Atlas zonefile hash %s for %s in '%s' at %s" % (value_hash, name, api_call.method, block_id))
 

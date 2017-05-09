@@ -101,7 +101,6 @@ def estimate_dust_fee( tx, fee_estimator ):
     """
     tx_inputs, tx_outputs = deserialize_tx(tx)
     dust_fee, op_fee = fee_estimator( tx_inputs, tx_outputs )
-    log.debug("dust_fee is %s" % dust_fee)
     return dust_fee
 
 
@@ -231,7 +230,7 @@ def subsidize_or_pad_transaction( unsigned_tx, owner_address, owner_privkey_para
     return signed_subsidized_tx
 
 
-def estimate_preorder_tx_fee( name, name_cost, owner_address, payment_addr, utxo_client, min_payment_confs=TX_MIN_CONFIRMATIONS, owner_privkey_params=(None, None), config_path=CONFIG_PATH, include_dust=False ):
+def estimate_preorder_tx_fee( name, name_cost, owner_address, payment_addr, utxo_client, owner_privkey_params=(None, None), config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a preorder.
     Optionally include the dust fees as well.
@@ -248,11 +247,11 @@ def estimate_preorder_tx_fee( name, name_cost, owner_address, payment_addr, utxo
     fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
 
     try:
-        unsigned_tx = preorder_tx( name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client, min_payment_confs=min_payment_confs )
+        unsigned_tx = preorder_tx( name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client )
         assert unsigned_tx
     except (ValueError, AssertionError) as e:
         # unfunded payment addr
-        unsigned_tx = preorder_tx( name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client, safety=False, subsidize=True, min_payment_confs=min_payment_confs )
+        unsigned_tx = preorder_tx( name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client, safety=False, subsidize=True )
         assert unsigned_tx
 
         pad_len = estimate_owner_output_length(owner_address)
@@ -270,7 +269,7 @@ def estimate_preorder_tx_fee( name, name_cost, owner_address, payment_addr, utxo
     if include_dust:
         dust_fee = estimate_dust_fee( signed_subsidized_tx, fees_preorder )
         assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
+        log.debug("Additional preorder dust fee: %s" % dust_fee)
         tx_fee += dust_fee
 
     return tx_fee
@@ -315,7 +314,7 @@ def estimate_register_tx_fee( name, owner_addr, payment_addr, utxo_client, owner
     if include_dust:
         dust_fee = estimate_dust_fee( signed_subsidized_tx, fees_registration )
         assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
+        log.debug("Additional register dust fee: %s" % dust_fee)
         tx_fee += dust_fee
 
     return tx_fee
@@ -355,7 +354,7 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_priv
     if include_dust:
         dust_fee = estimate_dust_fee( unsigned_tx, fees_registration )   # must be unsigned_tx, without subsidy
         assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
+        log.debug("Additional renewal dust fee: %s" % dust_fee)
         tx_fee += dust_fee
 
     return tx_fee
@@ -426,7 +425,7 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
     if include_dust:
         dust_fee = estimate_dust_fee( unsigned_tx, fees_update )    # must be unsigned tx, without subsidy
         assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
+        log.debug("Additional update dust fee: %s" % dust_fee)
         tx_fee += dust_fee
 
     return tx_fee
@@ -492,7 +491,7 @@ def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, utxo_cl
     if include_dust:
         dust_fee = estimate_dust_fee( unsigned_tx, fees_transfer )  # must be unsigned tx, without subsidy
         assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
+        log.debug("Additional transfer dust fee: %s" % dust_fee)
         tx_fee += dust_fee
 
     return tx_fee
@@ -550,18 +549,18 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
         log.error("Failed to get tx fee")
         return None
 
+    log.debug("revoke tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx)/2, int(tx_fee)))
+
     if include_dust:
         dust_fee = estimate_dust_fee( unsigned_tx, fees_revoke )    # must be unsigned tx, without subsidy
         assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
+        log.debug("Additional revoke dust fee: %s" % dust_fee)
         tx_fee += dust_fee
-
-    log.debug("revoke tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx)/2, int(tx_fee)))
 
     return tx_fee
 
 
-def estimate_name_import_tx_fee( fqu, reveal_addr, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
+def estimate_name_import_tx_fee( fqu, reveal_addr, recipient_address, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a name import.
     Return the number of satoshis on success
@@ -573,11 +572,21 @@ def estimate_name_import_tx_fee( fqu, reveal_addr, utxo_client, config_path=CONF
 
     fake_privkey = '5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX'   # fake private key (NOTE: NAME_IMPORT only supports p2pkh)
     fake_zonefile_hash = '20b512149140494c0f7d565023973226908f6940'
-    fake_recipient_address = virtualchain.address_reencode('1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q')
 
     try:
-        unsigned_tx = name_import_tx( fqu, fake_recipient_address, fake_zonefile_hash, reveal_addr, utxo_client )
+        try:
+            unsigned_tx = name_import_tx( fqu, recipient_address, fake_zonefile_hash, reveal_addr, utxo_client )
+
+        except AssertionError, ae:
+            unsigned_tx = name_import_tx( fqu, recipient_address, fake_zonefile_hash, reveal_addr, utxo_client, safety=False )
+            assert unsigned_tx
+            
+            # fake owner UTXO
+            pad_len = estimate_owner_output_length(reveal_addr)
+            unsigned_tx += "00" * pad_len
+
         signed_tx = sign_tx( unsigned_tx, fake_privkey )
+
     except ValueError, ve:
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(ve)
@@ -590,13 +599,13 @@ def estimate_name_import_tx_fee( fqu, reveal_addr, utxo_client, config_path=CONF
         log.error("Failed to get tx fee")
         return None
 
+    log.debug("name import tx %s bytes, %s satoshis txfee" % (len(signed_tx)/2, int(tx_fee)))
+
     if include_dust:
         dust_fee = estimate_dust_fee( signed_tx, fees_name_import )
         assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
+        log.debug("Additional name import dust fee: %s" % dust_fee)
         tx_fee += dust_fee
-
-    log.debug("name import tx %s bytes, %s satoshis txfee" % (len(signed_tx)/2, int(tx_fee)))
 
     return tx_fee
 
@@ -616,8 +625,18 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
     fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
 
     try:
-        unsigned_tx = namespace_preorder_tx( namespace_id, fake_reveal_address, cost, fake_consensus_hash, payment_address, utxo_client )
+        try:
+            unsigned_tx = namespace_preorder_tx( namespace_id, fake_reveal_address, cost, fake_consensus_hash, payment_address, utxo_client )
+        except AssertionError as ae:
+            unsigned_tx = namespace_preorder_tx( namespace_id, fake_reveal_address, cost, fake_consensus_hash, payment_address, utxo_client, safety=False )
+            assert unsigned_tx
+            
+            # fake payer input
+            pad_len = estimate_owner_output_length(payment_address)
+            unsigned_tx += "00" * pad_len
+
         signed_tx = sign_tx( unsigned_tx, fake_privkey )
+
     except ValueError, ve:
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(ve)
@@ -630,14 +649,15 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
         log.error("Failed to get tx fee")
         return None
     
+    log.debug("namespace preorder tx %s bytes, %s satoshis" % (len(signed_tx)/2, int(tx_fee)))
+
     dust_fee = 0
     if include_dust:
         dust_fee = estimate_dust_fee( signed_tx, fees_namespace_preorder )
         assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
+        log.debug("Additional namespace preorder dust fee: %s" % dust_fee)
         tx_fee += dust_fee
 
-    log.debug("namespace preorder tx %s bytes, %s satoshis" % (len(signed_tx)/2, int(tx_fee)))
     return tx_fee
 
 
@@ -655,8 +675,18 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
     fake_reveal_address = virtualchain.address_reencode('1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q')
 
     try:
-        unsigned_tx = namespace_reveal_tx( namespace_id, fake_reveal_address, 1, 2, 3, [4,5,6,7,8,9,10,11,12,13,14,15,0,1,2,3], 4, 5, payment_address, utxo_client )
+        try:
+            unsigned_tx = namespace_reveal_tx( namespace_id, fake_reveal_address, 1, 2, 3, [4,5,6,7,8,9,10,11,12,13,14,15,0,1,2,3], 4, 5, payment_address, utxo_client )
+        except AssertionError as ae:
+            unsigned_tx = namespace_reveal_tx( namespace_id, fake_reveal_address, 1, 2, 3, [4,5,6,7,8,9,10,11,12,13,14,15,0,1,2,3], 4, 5, payment_address, utxo_client, safety=False )
+            assert unsigned_tx
+
+            # fake payer input
+            pad_len = estimate_owner_output_length(payment_address)
+            unsigned_tx += "00" * pad_len
+
         signed_tx = sign_tx( unsigned_tx, fake_privkey )
+
     except ValueError, ve:
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(ve)
@@ -674,7 +704,7 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
     if include_dust:
         dust_fee = estimate_dust_fee( signed_tx, fees_namespace_reveal )
         assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
+        log.debug("Additional namespace reveal dust fee: %s" % dust_fee)
         tx_fee += dust_fee
 
     return tx_fee
@@ -695,8 +725,18 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
     fake_privkey = ecdsa_private_key('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_READY only supports p2pkh)
 
     try:
-        unsigned_tx = namespace_ready_tx( namespace_id, reveal_addr, utxo_client )
+        try:
+            unsigned_tx = namespace_ready_tx( namespace_id, reveal_addr, utxo_client )
+        except AssertionError as ae:
+            unsigned_tx = namespace_ready_tx( namespace_id, reveal_addr, utxo_client, safety=False)
+            assert unsigned_tx
+
+            # fake payer input
+            pad_len = estimate_owner_output_length(payment_address)
+            unsigned_tx += "00" * pad_len
+
         signed_tx = sign_tx( unsigned_tx, fake_privkey )
+
     except ValueError, ve:
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(ve)
@@ -709,14 +749,14 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
         log.error("Failed to get tx fee")
         return None
 
+    log.debug("namespace ready tx %s bytes, %s satoshis txfee" % (len(signed_tx)/2, int(tx_fee)))
+
     dust_fee = 0
     if include_dust:
         dust_fee = estimate_dust_fee( signed_tx, fees_namespace_ready )
         assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
+        log.debug("Additional namespace ready dust fee: %s" % dust_fee)
         tx_fee += dust_fee
-
-    log.debug("namespace ready tx %s bytes, %s satoshis txfee" % (len(signed_tx)/2, int(tx_fee)))
 
     return tx_fee
 
@@ -735,8 +775,18 @@ def estimate_announce_tx_fee( sender_address, utxo_client, sender_privkey_params
     fake_announce_hash = '20b512149140494c0f7d565023973226908f6940'
 
     try:
-        unsigned_tx = announce_tx( fake_announce_hash, sender_address, utxo_client )
+        try:
+            unsigned_tx = announce_tx( fake_announce_hash, sender_address, utxo_client )
+        except AssertionError as ae:
+            unsigned_tx = announce_tx( fake_announce_hash, sender_address, utxo_client, safety=False)
+            assert unsigned_tx
+
+            # fake payer input
+            pad_len = estimate_owner_output_length(sender_address)
+            unsigned_tx += "00" * pad_len
+
         signed_tx = sign_tx( unsigned_tx, fake_privkey )
+
     except ValueError, ve:
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(ve)
@@ -754,7 +804,7 @@ def estimate_announce_tx_fee( sender_address, utxo_client, sender_privkey_params
     if include_dust:
         dust_fee = estimate_dust_fee( signed_tx, fees_announce )
         assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
+        log.debug("Additional announce dust fee: %s" % dust_fee)
         tx_fee += dust_fee
 
     return tx_fee
@@ -925,7 +975,7 @@ def do_blockchain_tx( unsigned_tx, privkey_info=None, config_path=CONFIG_PATH, t
 
 def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, utxo_client, tx_broadcaster, tx_fee=None,
                  config_path=CONFIG_PATH, owner_address=None, payment_address=None, payment_utxos=None,
-                 min_payment_confs=TX_MIN_CONFIRMATIONS, proxy=None, consensus_hash=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
+                 proxy=None, consensus_hash=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
     Preorder a name.
 
@@ -961,10 +1011,12 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
 
     utxo_client = build_utxo_client( utxo_client=utxo_client, address=payment_address, utxos=payment_utxos )
     assert utxo_client, "Unable to build UTXO client"
+    
+    min_confirmations = utxo_client.min_confirmations
 
     if not dry_run and (safety_checks or (cost_satoshis is None or tx_fee is None)):
         # find tx fee, and do sanity checks
-        res = check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
+        res = check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
             log.error("Failed to check preorder: {}".format(res['error']))
             return res
@@ -990,7 +1042,7 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     log.debug("Preordering (%s, %s, %s), for %s, tx_fee = %s" % (fqu, payment_address, owner_address, cost_satoshis, tx_fee))
 
     try:
-        unsigned_tx = preorder_tx( fqu, payment_address, owner_address, cost_satoshis, consensus_hash, utxo_client, tx_fee=tx_fee, min_payment_confs=min_payment_confs )
+        unsigned_tx = preorder_tx( fqu, payment_address, owner_address, cost_satoshis, consensus_hash, utxo_client, tx_fee=tx_fee )
     except ValueError as ve:
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
@@ -1039,10 +1091,12 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
 
     utxo_client = build_utxo_client( utxo_client=utxo_client, address=payment_address, utxos=payment_utxos )
     assert utxo_client, "Unable to build UTXO client"
-       
+    
+    min_confirmations = utxo_client.min_confirmations
+
     if not dry_run and (safety_checks or tx_fee is None):
         # find tx fee, and do sanity checks
-        res = check_register(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
+        res = check_register(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
             log.error("Failed to check register: {}".format(res['error']))
             return res
@@ -1111,9 +1165,11 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
     utxo_client = build_utxo_client( utxo_client=utxo_client, address=owner_address, utxos=owner_utxos )
     assert utxo_client, "Unable to build UTXO client"
 
+    min_confirmations = utxo_client.min_confirmations
+
     if not dry_run and (safety_checks or tx_fee is None):
         # find tx fee, and do sanity checks
-        res = check_update(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
+        res = check_update(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
             log.error("Failed to check update: {}".format(res['error']))
             return res
@@ -1196,9 +1252,11 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
     owner_address = virtualchain.get_privkey_address(owner_privkey_info)
     payment_address = virtualchain.get_privkey_address(payment_privkey_info)
 
+    min_confirmations = utxo_client.min_confirmations
+
     if not dry_run and (safety_checks or tx_fee is None):
         # find tx fee, and do sanity checks
-        res = check_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
+        res = check_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
             log.error("Failed to check transfer: {}".format(res['error']))
             return res
@@ -1263,9 +1321,11 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     owner_address = virtualchain.get_privkey_address( owner_privkey_info )
     payment_address = virtualchain.get_privkey_address( payment_privkey_info )
 
+    min_confirmations = utxo_client.min_confirmations 
+
     if not dry_run and (safety_checks or (renewal_fee is None or tx_fee is None)):
         # find tx fee, and do sanity checks
-        res = check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
+        res = check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
             log.error("Failed to check renewal: {}".format(res['error']))
             return res
@@ -1321,8 +1381,10 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
     owner_address = virtualchain.get_privkey_address(owner_privkey_info)
     payment_address = virtualchain.get_privkey_address(payment_privkey_info)
 
+    min_confirmations = utxo_client.min_confirmations
+
     if not dry_run and (safety_checks or tx_fee is None):
-        res = check_revoke(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy)
+        res = check_revoke(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
             log.error("Failed to check revoke: {}".format(res['error']))
             return res
@@ -1369,8 +1431,10 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
     fqu = str(fqu)
     payment_address = None
     
+    min_confirmations = utxo_client.min_confirmations
+
     if not dry_run and (safety_checks or tx_fee is None):
-        res = check_name_import(fqu, importer_privkey_info, recipient_address, config_path=config_path, proxy=proxy)
+        res = check_name_import(fqu, importer_privkey_info, recipient_address, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
             log.error("Failed to check name import: {}".format(res['error']))
             return res
@@ -1419,8 +1483,10 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
     fqu = str(namespace_id)
     payment_address = None
 
+    min_confirmations = utxo_client.min_confirmations
+
     if not dry_run and (safety_checks or tx_fee is None):
-        res = check_namespace_preorder(namespace_id, payment_privkey_info, reveal_address, config_path=config_path, proxy=proxy )
+        res = check_namespace_preorder(namespace_id, payment_privkey_info, reveal_address, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations )
         if 'error' in res and safety_checks:
             log.error("Failed to check namespace preorder: {}".format(res['error']))
             return res
@@ -1476,8 +1542,10 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
     fqu = str(namespace_id)
     payment_address = None
 
+    min_confirmations = utxo_client.min_confirmations
+
     if not dry_run and (safety_checks or tx_fee is None):
-        res = check_namespace_reveal(namespace_id, payment_privkey_info, reveal_address, config_path=config_path, proxy=proxy )
+        res = check_namespace_reveal(namespace_id, payment_privkey_info, reveal_address, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations )
         if 'error' in res and safety_checks:
             log.error("Failed to check namespace preorder: {}".format(res['error']))
             return res
@@ -1521,8 +1589,10 @@ def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broad
     fqu = str(namespace_id)
     reveal_address = None
 
+    min_confirmations = utxo_client.min_confirmations
+
     if not dry_run and (safety_checks or tx_fee is None):
-        res = check_namespace_ready(namespace_id, reveal_privkey_info, config_path=config_path, proxy=proxy )
+        res = check_namespace_ready(namespace_id, reveal_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations )
         if 'error' in res and safety_checks:
             log.error("Failed to check namespace preorder: {}".format(res['error']))
             return res
@@ -1627,7 +1697,7 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, tx_fee=N
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    utxo_client = get_utxo_provider_client( config_path=config_path )
+    utxo_client = get_utxo_provider_client( config_path=config_path, min_confirmations=min_payment_confs )
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
     owner_address = virtualchain.get_privkey_address( owner_privkey_info )
@@ -1644,7 +1714,7 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, tx_fee=N
 
     try:
         resp = do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost, utxo_client, tx_broadcaster,
-                            tx_fee=tx_fee, min_payment_confs=min_payment_confs, config_path=CONFIG_PATH )
+                            tx_fee=tx_fee, config_path=CONFIG_PATH )
 
     except Exception, e:
         log.exception(e)

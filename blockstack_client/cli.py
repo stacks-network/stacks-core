@@ -463,7 +463,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             exit_with_error("Failed to inspect wallet at {}".format(wallet_path))
 
         if res['migrate'] or res['format'] != 'current':
-            if sys.argv[1] != 'setup_wallet':
+            if len(sys.argv) <= 1 or sys.argv[1] != 'setup_wallet':
                 exit_with_error("Wallet is in legacy format.  Please unlock and migrate it with `blockstack setup_wallet`.")
 
     advanced_mode = conf['blockstack-client'].get('advanced_mode', False)
