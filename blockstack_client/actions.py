@@ -533,6 +533,9 @@ def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_priv
     if not res:
         return {'error': 'Failed to get the requisite operation fees'}
 
+    if 'error' in res:
+        return res
+
     # do queries 
     sg.run_tasks()
 
@@ -1226,6 +1229,8 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
 
     if min_payment_confs is None:
         min_payment_confs = TX_MIN_CONFIRMATIONS
+    else:
+        log.debug("Use UTXOs with a minimum of {} confirmations".format(min_payment_confs))
 
     if transfer_address:
         if not re.match(OP_BASE58CHECK_PATTERN, transfer_address):
@@ -1298,7 +1303,6 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
 
         else:
             cost_satoshis = opchecks['name_price']
-
 
     if interactive and os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
         try:
