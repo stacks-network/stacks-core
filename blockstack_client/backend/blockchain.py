@@ -163,22 +163,45 @@ def is_tx_rejected(tx_hash, tx_sent_at_height, config_path=CONFIG_PATH):
     return False
 
 
-def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=TX_MIN_CONFIRMATIONS):
+def get_utxo_client_and_min_confirmations(config_path=None, utxo_client=None, min_confirmations=None):
+    """
+    Get a utxo client and the minimum number of required confirmations
+    returns (utxo_client, min_confs)
+    """
+
+    from ..config import get_utxo_provider_client
+
+    if utxo_client is None:
+        if min_confirmations is None:
+            min_confirmations = TX_MIN_CONFIRMATIONS 
+            log.debug("Defaulting to {} confirmations".format(min_confirmations))
+
+        if min_confirmations != TX_MIN_CONFIRMATIONS:
+            log.warning("Using a different number of confirmations ({}) instead of default ({})".format(min_confirmations, TX_MIN_CONFIRMATIONS))
+
+        utxo_client = get_utxo_provider_client(config_path=config_path, min_confirmations=min_confirmations)
+   
+    if min_confirmations is None:
+        min_confirmations = utxo_client.min_confirmations
+
+    return (utxo_client, min_confirmations)
+
+
+def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=None):
     """ 
-    Given an address get unspent outputs (UTXOs)
+    Given an address get unspent outputs (UTXOs).
+    
+    If utxo_client is not None, then its min_confirmations value will be used to filter unconfirmed transactions.
+    Otherwise, min_confirmations will be used (at least one must be given).
+
     Return array of UTXOs on success
     Return {'error': ...} on failure
     """
 
     from ..scripts import tx_get_unspents
-    from ..config import get_utxo_provider_client
 
-    if min_confirmations != TX_MIN_CONFIRMATIONS:
-        log.warning("Using a different number of confirmations ({}) instead of default ({})".format(min_confirmations, TX_MIN_CONFIRMATIONS))
+    utxo_client, min_confirmations = get_utxo_client_and_min_confirmations(config_path=config_path, utxo_client=utxo_client, min_confirmations=min_confirmations)
 
-    if utxo_client is None:
-        utxo_client = get_utxo_provider_client(config_path=config_path)
-   
     data = []
     try:
         data = tx_get_unspents( address, utxo_client )
@@ -192,7 +215,7 @@ def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmati
     ret = []
     for utxo in data:
         if 'confirmations' in utxo:
-            if int(utxo['confirmations']) >= min_confirmations:
+            if int(utxo['confirmations']) >= utxo_client.min_confirmations:
                 ret.append(utxo)
 
     return ret
@@ -248,9 +271,13 @@ def broadcast_tx(tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None):
     return resp
 
 
-def get_balance(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=TX_MIN_CONFIRMATIONS):
+def get_balance(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=None):
     """
-    Check if BTC key being used has enough balance on unspents
+    Check if BTC key being used has enough balance on unspents.
+
+    If utxo_client is not None, then its min_confirmations will be used to select confirmed transactions.
+    Otherwise, min_confirmations will be used.
+
     Returns value in satoshis on success
     Return None on failure
     """
@@ -263,44 +290,55 @@ def get_balance(address, config_path=CONFIG_PATH, utxo_client=None, min_confirma
     satoshi_amount = 0
 
     for utxo in data:
-
-        if 'confirmations' in utxo:
-            if int(utxo['confirmations']) < min_confirmations:
-                # doesn't count
-                continue
-
         if 'value' in utxo:
             satoshi_amount += utxo['value']
 
     return satoshi_amount
 
 
-def is_address_usable(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=TX_MIN_CONFIRMATIONS):
+def is_address_usable(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=None):
     """
-    Check if an address is usable (i.e. it has no unconfirmed transactions)
-    """
-    try:
-        unspents = get_utxos(address, config_path=config_path, utxo_client=None, min_confirmations=min_confirmations)
-        if 'error' in unspents:
-            log.error("Failed to get UTXOs for %s: %s" % (address, unspents['error']))
-            return False
+    Check if an address is usable (i.e. it has no unconfirmed transactions).
 
-    except Exception as e:
+    Return True if the address has no unconfirmed transactions.
+    Return False otherwise.
+    """
+
+    from ..scripts import tx_get_unspents
+
+    utxo_client, min_confirmations = get_utxo_client_and_min_confirmations(config_path=config_path, utxo_client=utxo_client, min_confirmations=min_confirmations)
+    if min_confirmations == 0:
+        # doesn't matter
+        log.warning("Address {} useable with zero confirmations".format(address))
+        return True
+    
+    log.debug("Verify that address {} has no UTXOs with less than {} confirmations".format(address, min_confirmations))
+
+    data = []
+    try:
+        data = tx_get_unspents( address, utxo_client, min_confirmations=0 )
+    except Exception, e:
         log.exception(e)
+        log.debug("Failed to get UTXOs for %s" % address)
         return False
 
-    for unspent in unspents:
-
+    for unspent in data:
         if 'confirmations' in unspent:
             if int(unspent['confirmations']) < min_confirmations:
+                log.debug("Address {} is not usable: UTXO {},{} has {} confirmations".format(address, unspent['outpoint']['hash'], unspent['outpoint']['index'], unspent['confirmations']))
                 return False
 
+    log.debug("Address {}'s UTXOs all have at least {} confirmations".format(address, min_confirmations))
     return True
 
 
 def can_receive_name( address, proxy=None ):
     """
     Can an address receive a name?
+    It must have no more than MAXIMUM_NAMES_PER_ADDRESS.
+
+    Return True if so
+    Return False if not
     """
     from ..proxy import get_default_proxy
     from ..proxy import get_names_owned_by_address as blockstack_get_names_owned_by_address
