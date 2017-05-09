@@ -4382,7 +4382,7 @@ def local_api_start_wait( api_host='localhost', api_port=DEFAULT_API_PORT, confi
 
     # ping it
     running = False
-    for i in range(1, 4):
+    for i in range(1, 10):
         log.debug("Attempt {} to ping API server".format(i))
         try:
             local_proxy = local_api_connect(api_host=api_host, api_port=api_port, config_path=config_path)
