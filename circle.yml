@@ -21,4 +21,4 @@ test:
     - mkdir $CIRCLE_TEST_REPORTS/django
     - ../virtualenvs/venv-system/bin/python -m blockstack_integration_tests.live_tests.api_tests --xunit-path "$CIRCLE_TEST_REPORTS/django/" --all
   post:
-    - blockstack api stop
+    - blockstack api stop -y
