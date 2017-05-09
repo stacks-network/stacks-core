@@ -4265,7 +4265,11 @@ def local_api_action(command, password=None, api_pass=None, config_dir=blockstac
         # start API server the foreground
         res = local_api_start(port=api_port, config_dir=config_dir, api_pass=api_pass, password=password, foreground=True)
         return res
-
+    elif command == 'start':
+        res = local_api_start(port=api_port, config_dir=config_dir, api_pass=api_pass, 
+                              password=password, foreground=False) 
+        if 'error' in res:
+            return res
     else:
         # use the RPC runner
         argv = [sys.executable, '-m', 'blockstack_client.rpc_runner', str(command), str(api_port), str(config_dir)]

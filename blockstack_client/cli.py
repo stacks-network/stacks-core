@@ -394,7 +394,8 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
             new_argv += ['--secrets', str(fd)]
 
-        new_argv = [sys.executable] + new_argv
+        if os.path.basename(sys.executable).lower().startswith('python'):
+            new_argv = [sys.executable] + new_argv
         if cli_debug:
             print("Re-exec as `{}`".format(", ".join([
                 '"{}"'.format(i) for i in new_argv])), file=sys.stderr)

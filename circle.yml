@@ -22,3 +22,10 @@ test:
     - ../virtualenvs/venv-system/bin/python -m blockstack_integration_tests.live_tests.api_tests --xunit-path "$CIRCLE_TEST_REPORTS/django/" --all
   post:
     - blockstack api stop -y
+deployment:
+  osx_single_file:
+    branch: [osx-single-file-build]
+    commands:
+      - ../virtualenvs/venv-system/bin/pip install pyinstaller
+      - ../virtualenvs/venv-system/bin/pyinstaller --onefile blockstack.osx.spec
+      - cp dist/blockstack $CIRCLE_ARTIFACTS
