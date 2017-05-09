@@ -4492,10 +4492,11 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
 
     global rpc_pidpath, rpc_srv, running
 
-    p = subprocess.Popen("pip freeze", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    out, err = p.communicate()
-    if p.returncode != 0:
-        raise Exception("Failed to run `pip freeze`")
+    if BLOCKSTACK_DEBUG:
+        p = subprocess.Popen("pip freeze", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out, err = p.communicate()
+        if p.returncode != 0:
+            raise Exception("Failed to run `pip freeze`")
 
     log.info("API server version {} starting...".format(SERIES_VERSION))
     log.info("Machine:   {}".format(platform.machine()))
