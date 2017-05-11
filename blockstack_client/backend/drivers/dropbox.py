@@ -28,9 +28,10 @@ import urlparse
 import zlib
 import logging
 import posixpath
+import urllib
 
 from ConfigParser import SafeConfigParser
-from common import get_logger, DEBUG
+from common import get_logger, DEBUG, compress_chunk, decompress_chunk
 
 def import_non_local(name, custom_name=None):
     import imp, sys
@@ -54,20 +55,6 @@ DROPBOX_TOKEN = None
 DROPBOX_COMPRESS = False
 
 BLOCKSTACK_DEBUG = (os.environ.get("BLOCKSTACK_DEBUG") == "1")
-
-def compress_chunk( chunk_buf ):
-    """
-    compress a chunk of data
-    """
-    data = zlib.compress(chunk_buf, 9)
-    return data
-
-def decompress_chunk( chunk_buf ):
-    """
-    decompress a chunk of data
-    """
-    data = zlib.decompress(chunk_buf)
-    return data
 
 
 def put_chunk( dbx, name, chunk_buf ):
@@ -145,14 +132,14 @@ def get_url_type(url):
     # is this a direct URL to a dropbox resource,
     # or is this a URL generated with get_mutable_url()?
     urlparts = urlparse.urlparse(url)
-    urlpath = posixpath.normpath(urlparts.path)
+    urlpath = posixpath.normpath( urllib.unquote(urlparts.path) )
     urlpath_parts = urlpath.strip('/').split('/')
 
     if len(urlpath_parts) != 2:
         log.error("Invalid URL {}".format(url))
         return None
 
-    if urlpath_parts[0] == 'fake-url':
+    if urlpath_parts[0] == 'blockstack':
         return ('dropbox', urlpath_parts[1])
 
     else:
@@ -270,8 +257,8 @@ def make_mutable_url( data_id ):
     The URL here is a misnomer, since only Dropbox.com
     can create public URLs.
     """
-    data_id = data_id.replace('/', '-2f')
-    url = "https://www.dropbox.com/fake-url/{}".format(data_id)
+    data_id = urllib.quote( data_id.replace('/', '-2f') )
+    url = "https://www.dropbox.com/blockstack/{}".format(data_id)
     return url
 
 
