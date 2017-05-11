@@ -61,7 +61,8 @@ def put_chunk( dbx, name, chunk_buf ):
     """
     Put a chunk into dropbox.
     Compress it first.
-    Return the URL
+    Return True on success
+    Return False on error
     """
     if DROPBOX_COMPRESS:
         compressed_chunk = compress_chunk(chunk_buf)
@@ -72,15 +73,18 @@ def put_chunk( dbx, name, chunk_buf ):
 
     try:
         file_info = dbx.files_upload(compressed_chunk, '/{}'.format(name), mode=dropbox.files.WriteMode('overwrite'))
+
+        # make it shared
         link_info = dbx.sharing_create_shared_link("/{}".format(name), short_url=False)
-        return link_info.url
+        log.debug("File {} available at {}".format(name, link_info.url))
+        return True
 
     except Exception, e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
         log.error("Failed to save {} to Dropbox".format(name))
-        return None
+        return False
         
 
 def get_chunk_via_http(url):
