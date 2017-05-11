@@ -324,10 +324,18 @@ def serialize_mutable_data(data_text_or_json, data_privkey=None, data_pubkey=Non
         assert data_privkey or (data_pubkey and data_signature)
 
         if data_signature is None:
-            data_text_or_json = str(data_text_or_json)
-            data_signature = sign_data_payload( data_text_or_json, data_privkey )
+            data_str = None
+            if isinstance(data_text_or_json, (str, unicode)):
+                data_str = str(data_text_or_json)
+            else:
+                data_str = json.dumps(data_text_or_json)
+
+            data_signature = sign_data_payload( data_str, data_privkey )
 
         # make sure it's compressed
+        if data_pubkey is None:
+            data_pubkey = get_pubkey_hex(data_privkey)
+
         pubkey_hex_compressed = keylib.key_formatting.compress(data_pubkey)
         data_payload = serialize_data_payload( data_text_or_json )
         res = "bsk2.{}.{}.{}".format(pubkey_hex_compressed, data_signature, data_payload)

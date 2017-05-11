@@ -50,6 +50,8 @@ from backend.utxo.blockstack_explorer import broadcast_transaction as blockstack
 from backend.utxo.blockstack_utxo import get_unspents as blockstack_utxo_get_unspents
 from backend.utxo.blockstack_utxo import broadcast_transaction as blockstack_utxo_broadcast_transaction
 
+from constants import TX_MIN_CONFIRMATIONS
+
 DEBUG = True
 FIRST_BLOCK_MAINNET = 373601        # well-known value for blockstack-core; doesn't ever change
 
@@ -373,7 +375,7 @@ def default_blockstack_utxo_opts( config_file=None ):
     return blockstack_explorer_opts
 
 
-def connect_utxo_provider( utxo_opts ):
+def connect_utxo_provider( utxo_opts, min_confirmations=TX_MIN_CONFIRMATIONS ):
    """
    Set up and return a UTXO provider client.
    """
@@ -388,22 +390,24 @@ def connect_utxo_provider( utxo_opts ):
        raise Exception("Unsupported UTXO provider '%s'" % utxo_provider)
 
    elif utxo_provider == "blockcypher":
-       return BlockcypherClient( utxo_opts['api_token'] )
+       return BlockcypherClient( utxo_opts['api_token'], min_confirmations=min_confirmations )
 
    elif utxo_provider == "blockchain_info":
-       return BlockchainInfoClient( utxo_opts['api_token'] )
+       return BlockchainInfoClient( utxo_opts['api_token'], min_confirmations=min_confirmations )
 
    elif utxo_provider == "bitcoind_utxo":
-       return BitcoindClient( utxo_opts['rpc_username'], utxo_opts['rpc_password'], use_https=utxo_opts['use_https'], server=utxo_opts['server'], port=utxo_opts['port'], version_byte=utxo_opts['version_byte'] )
+       return BitcoindClient( utxo_opts['rpc_username'], utxo_opts['rpc_password'], use_https=utxo_opts['use_https'],
+                              server=utxo_opts['server'], port=utxo_opts['port'], version_byte=utxo_opts['version_byte'],
+                              min_confirmations=min_confirmations )
 
    elif utxo_provider == "blockstack_core":
-       return BlockstackCoreUTXOClient( utxo_opts['server'], utxo_opts['port'] )
+       return BlockstackCoreUTXOClient( utxo_opts['server'], utxo_opts['port'], min_confirmations=min_confirmations )
 
    elif utxo_provider == "blockstack_explorer":
-       return BlockstackExplorerClient( url=utxo_opts['url'] )
+       return BlockstackExplorerClient( url=utxo_opts['url'], min_confirmations=min_confirmations )
 
    elif utxo_provider == "blockstack_utxo":
-       return BlockstackUTXOClient( url=utxo_opts['url'] )
+       return BlockstackUTXOClient( url=utxo_opts['url'], min_confirmations=min_confirmations )
 
    else:
        raise Exception("Unrecognized UTXO provider '%s'" % utxo_provider )

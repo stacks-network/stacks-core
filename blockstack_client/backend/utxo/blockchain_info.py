@@ -28,14 +28,15 @@ BLOCKCHAIN_API_BASE_URL = "https://blockchain.info"
 from .blockchain_client import BlockchainClient
 
 class BlockchainInfoClient(BlockchainClient):
-    def __init__(self, api_key=None, timeout=30):
+    def __init__(self, api_key=None, timeout=30, min_confirmations=None):
         self.type = 'blockchain.info'
         self.timeout = timeout
         if api_key:
             self.auth = (api_key, '')
         else:
             self.auth = None
-
+        
+        self.min_confirmations = min_confirmations
 
 def reverse_hash(hash, hex_format=True):
     """ hash is in hex or binary format

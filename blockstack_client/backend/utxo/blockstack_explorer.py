@@ -26,8 +26,8 @@ from .insight_api import InsightClient, _get_unspents, _broadcast_transaction
 BLOCKSTACK_EXPLORER_URL = "https://explorer.blockstack.org"
 
 class BlockstackExplorerClient(InsightClient):
-    def __init__(self, url=BLOCKSTACK_EXPLORER_URL):
-        super(BlockstackExplorerClient, self).__init__(url)
+    def __init__(self, url=BLOCKSTACK_EXPLORER_URL, min_confirmations=None):
+        super(BlockstackExplorerClient, self).__init__(url, min_confirmations=min_confirmations)
 
 
 get_unspents = _get_unspents

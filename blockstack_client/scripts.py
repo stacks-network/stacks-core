@@ -20,7 +20,7 @@
     You should have received a copy of the GNU General Public License
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
-
+import json
 from binascii import hexlify, unhexlify
 from decimal import *
 
@@ -311,15 +311,20 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
     return subsidized_tx
 
 
-def tx_get_unspents(address, utxo_client, min_confirmations=TX_MIN_CONFIRMATIONS):
+def tx_get_unspents(address, utxo_client, min_confirmations=None):
     """
     Given an address get unspent outputs (UTXOs)
     Return array of UTXOs on success
     Raise UTXOException on error
     """
 
-    if min_confirmations is None:
-        min_confirmations = TX_MIN_CONFIRMATIONS
+    if utxo_client is not None:
+        if min_confirmations is None:
+            min_confirmations = utxo_client.min_confirmations
+
+        if min_confirmations is None:
+            min_confirmations = TX_MIN_CONFIRMATIONS
+            log.debug("Defaulting to {} min confirmations".format(min_confirmations))
 
     if min_confirmations != TX_MIN_CONFIRMATIONS:
         log.warning("Using UTXOs with {} confirmations instead of the default {}".format(min_confirmations, TX_MIN_CONFIRMATIONS))
@@ -327,7 +332,7 @@ def tx_get_unspents(address, utxo_client, min_confirmations=TX_MIN_CONFIRMATIONS
     data = get_unspents(address, utxo_client)
 
     try:
-        assert type(data) == list, "No UTXO list returned"
+        assert type(data) == list, "No UTXO list returned (got {})".format(type(data))
         for d in data:
             assert isinstance(d, dict), 'Invalid UTXO information returned'
             assert 'value' in d, 'Missing value in UTXOs from {}'.format(address)
@@ -335,6 +340,7 @@ def tx_get_unspents(address, utxo_client, min_confirmations=TX_MIN_CONFIRMATIONS
     except AssertionError, ae:
         log.exception(ae)
         raise UTXOException()
-
+    
     # filter minimum confirmations
-    return [d for d in data if d.get('confirmations', 0) >= min_confirmations]
+    ret = [d for d in data if d.get('confirmations', 0) >= min_confirmations]
+    return ret

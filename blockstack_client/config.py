@@ -607,7 +607,7 @@ def set_advanced_mode(status, config_path=CONFIG_PATH):
     return write_config_field(config_path, 'blockstack-client', 'advanced_mode', str(status))
 
 
-def get_utxo_provider_client(config_path=CONFIG_PATH):
+def get_utxo_provider_client(config_path=CONFIG_PATH, min_confirmations=TX_MIN_CONFIRMATIONS):
     """
     Get or instantiate our blockchain UTXO provider's client.
     Return None if we were unable to connect
@@ -618,7 +618,7 @@ def get_utxo_provider_client(config_path=CONFIG_PATH):
     reader_opts = opts['blockchain-reader']
 
     try:
-        utxo_provider = connect_utxo_provider(reader_opts)
+        utxo_provider = connect_utxo_provider(reader_opts, min_confirmations=min_confirmations)
         return utxo_provider
     except Exception as e:
         log.exception(e)
@@ -883,7 +883,7 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
         if ret.has_key(sec):
             for field_name in env_overrides[sec].keys():
                 new_value = env_overrides[sec][field_name]
-                if new_value is not None:
+                if new_value is not None and new_value != ret[sec][field_name]:
                     log.debug("Override {}.{} from {} to {}".format(sec, field_name, ret[sec][field_name], new_value))
                     ret[sec][field_name] = new_value
 

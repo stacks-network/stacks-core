@@ -30,7 +30,7 @@ from .blockchain_client import BlockchainClient
 
 
 class BlockcypherClient(BlockchainClient):
-    def __init__(self, api_key=None, timeout=30):
+    def __init__(self, api_key=None, timeout=30, min_confirmations=None):
         self.type = 'blockcypher.com'
         if api_key:
             self.auth = (api_key, '')
@@ -38,7 +38,7 @@ class BlockcypherClient(BlockchainClient):
             self.auth = None
 
         self.timeout = timeout
-
+        self.min_confirmations = min_confirmations
 
 def format_unspents(unspents):
 

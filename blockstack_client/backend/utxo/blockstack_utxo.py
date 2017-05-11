@@ -26,8 +26,8 @@ from .insight_api import InsightClient, _get_unspents, _broadcast_transaction
 BLOCKSTACK_UTXO_URL = "https://utxo.blockstack.org"
 
 class BlockstackUTXOClient(InsightClient):
-    def __init__(self, url=BLOCKSTACK_UTXO_URL):
-        super(BlockstackUTXOClient, self).__init__(url)
+    def __init__(self, url=BLOCKSTACK_UTXO_URL, min_confirmations=None):
+        super(BlockstackUTXOClient, self).__init__(url, min_confirmations=min_confirmations)
 
 get_unspents = _get_unspents
 broadcast_transaction = _broadcast_transaction
