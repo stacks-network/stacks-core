@@ -34,7 +34,7 @@ from boto.s3.key import Key
 import logging
 logging.getLogger('boto').setLevel(logging.CRITICAL)
 
-from common import get_logger, DEBUG
+from common import get_logger, DEBUG, compress_chunk, decompress_chunk
 
 log = get_logger("blockstack-storage-driver-s3")
 
@@ -44,22 +44,6 @@ AWS_BUCKET = "blockstack-server-profiles"
 AWS_ACCESS_KEY_ID = None 
 AWS_SECRET_ACCESS_KEY = None
 AWS_COMPRESS = True
-
-#-------------------------
-def compress_chunk( chunk_buf ):
-    """
-    compress a chunk of data
-    """
-    data = zlib.compress(chunk_buf, 9)
-    return data
-
-#-------------------------
-def decompress_chunk( chunk_buf ):
-    """
-    decompress a chunk of data
-    """
-    data = zlib.decompress(chunk_buf)
-    return data
 
 #-------------------------
 def get_bucket( bucket_name ):
