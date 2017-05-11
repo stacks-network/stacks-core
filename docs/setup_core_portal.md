@@ -3,7 +3,7 @@
 
 Install required binaries in Ubuntu:
 
-`sudo apt update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools curl libgmp3-dev`
+`sudo apt update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools curl build-essential`
 
 
 If you'd like to use a virtualenv to install Blockstack, you can do that
