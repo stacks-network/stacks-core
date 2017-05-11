@@ -23,6 +23,7 @@
 
 import logging
 import os
+import zlib
 
 if os.environ.get("BLOCKSTACK_DEBUG", None) is not None:
     DEBUG = True
@@ -60,3 +61,22 @@ def get_logger(name=None):
     return log
 
 
+def compress_chunk( chunk_buf ):
+    """
+    compress a chunk of data
+    """
+    data = zlib.compress(chunk_buf, 9)
+    return data
+
+def decompress_chunk( chunk_buf ):
+    """
+    decompress a chunk of data
+    """
+    data = zlib.decompress(chunk_buf)
+    return data
+
+def get_driver_settings_dir(config_path, driver_name):
+    """
+    driver-specific state
+    """
+    return os.path.join( os.path.dirname(config_path), "drivers/{}".format(driver_name))
