@@ -41,6 +41,7 @@ GDRIVE_FOLDER_ID = None
 GDRIVE_COMPRESS = False
 GDRIVE_HANDLE = None
 GDRIVE_SETTINGS_PATH = None
+RELOAD_DRIVE = False
 
 GDRIVE_SETTINGS_YAML_TEMPLATE = """
 client_config_backend: file
@@ -55,23 +56,35 @@ def make_config_file_contents(config_file_path, credentials_path):
     return GDRIVE_SETTINGS_YAML_TEMPLATE.format(config_file_path, credentials_path)
 
 
-def get_gdrive_handle(settings_path=None):
+def get_gdrive_handle(settings_path=None, folder_name=None):
     """
-    Sign into google drive
+    Sign into google drive, and set a few global variables
+    that will be used in subsequent storage calls.
     """
+    global GDRIVE_HANDLE, RELOAD_DRIVE
+
+    if RELOAD_DRIVE:
+        # trigger reload
+        GDRIVE_HANDLE = None
+        RELOAD_DRIVE = False
+
+    if GDRIVE_HANDLE is not None:
+        return GDRIVE_HANDLE
+
     if settings_path is None:
         assert GDRIVE_SETTINGS_PATH
         settings_path = GDRIVE_SETTINGS_PATH
 
-    global GDRIVE_HANDLE
-    if GDRIVE_HANDLE is not None:
-        return GDRIVE_HANDLE
+    if folder_name is None:
+        assert GDRIVE_FOLDER_NAME
+        folder_name = GDRIVE_FOLDER_NAME
 
     gauth = GoogleAuth(settings_file=settings_path)
     gauth.LocalWebserverAuth()
     drive = GoogleDrive(gauth)
 
     GDRIVE_HANDLE = drive
+    GDRIVE_FOLDER_ID = get_blockstack_folder_id(GDRIVE_HANDLE, folder_name)
 
     return drive
 
@@ -98,7 +111,7 @@ def get_blockstack_folder_id(drive, folder):
 
 def get_chunk_via_http(url):
     """
-    Get a shared Dropbox URL's data
+    Get a shared Google Drive URL's data
     Return the data on success
     Return None on failure
     """
@@ -125,11 +138,19 @@ def get_chunk_via_gdrive(drive, data_id):
         fid = get_blockstack_folder_id(drive, GDRIVE_FOLDER_NAME)
         GDRIVE_FOLDER_ID = fid
 
-    flist = drive.ListFile({'q': "title='{}' and '{}' in parents".format(data_id, GDRIVE_FOLDER_ID)}).GetList()
-    for f in flist:
-        if f['title'] == data_id:
-            return f.GetContentString()
+    try:
+        flist = drive.ListFile({'q': "title='{}' and '{}' in parents".format(data_id, GDRIVE_FOLDER_ID)}).GetList()
+        for f in flist:
+            if f['title'] == data_id:
+                return f.GetContentString()
+    
+    except Exception as e:
+        if DEBUG:
+            log.exception(e)
 
+        log.error("Failed to get {} from Google Drive".format(data_id))
+        return False
+    
     # not found
     log.debug("Not found: {}".format(data_id))
     return None
@@ -143,7 +164,7 @@ def get_url_type(url):
     Return None, None on invalid URL
     """
 
-    # is this a direct URL to a dropbox resource,
+    # is this a direct URL to a google drive resource,
     # or is this a URL generated with get_mutable_url()?
     urlparts = urlparse.urlparse(url)
     urlpath = posixpath.normpath(urlparts.path)
@@ -231,14 +252,15 @@ def put_chunk( drive, name, chunk_buf ):
 
         f.Upload()
         f.InsertPermission({'type': 'anyone', 'value': 'anyone', 'role': 'reader'})
-        return f['webContentLink']
+        log.debug("File {} available at {}".format(name, f['webContentLink']))
+        return True
 
     except Exception, e:
         if DEBUG:
             log.exception(e)
 
         log.error("Failed to save {} to Google Drive".format(name))
-        return None
+        return False
 
 
 def delete_chunk( drive, name ):
@@ -254,11 +276,19 @@ def delete_chunk( drive, name ):
 
     name = urllib.quote(name.replace( "/", r"-2f" ))
 
-    flist = drive.ListFile({'q': 'title="{}" and "{}" in parents'.format(name, GDRIVE_FOLDER_ID)}).GetList()
-    for f in flist:
-        if f['title'] == name:
-            f.Delete()
-            return True
+    try:
+        flist = drive.ListFile({'q': 'title="{}" and "{}" in parents'.format(name, GDRIVE_FOLDER_ID)}).GetList()
+        for f in flist:
+            if f['title'] == name:
+                f.Delete()
+                return True
+
+    except Exception as e:
+        if DEBUG:
+            log.exception(e)
+
+        log.error("Failed to delete {} from Google Drive".format(name))
+        return False
 
     return False
     
@@ -266,7 +296,7 @@ def delete_chunk( drive, name ):
 def handles_url( url ):
     """
     Do we handle this URL?
-    Must point to a dropbox link
+    Must point to a Google Drive link
     """
     urltype, urlres = get_url_type(url)
     if urltype is None and urlres is None:
@@ -337,14 +367,13 @@ def storage_init(conf):
     """
     Initialize google drive storage driver
     """
-    global GDRIVE_FOLDER_NAME, GDRIVE_FOLDER_ID, GDRIVE_COMPRESS, GDRIVE_SETTINGS_PATH
+    global GDRIVE_FOLDER_NAME, GDRIVE_FOLDER_ID, GDRIVE_COMPRESS, GDRIVE_SETTINGS_PATH, RELOAD_DRIVE
     
     settings_path = None
     config_path = conf['path']
-    reload_drive = False
 
     if GDRIVE_FOLDER_ID is None or GDRIVE_HANDLE is None:
-        reload_drive = True
+        RELOAD_DRIVE = True
 
     if os.path.exists( config_path ):
 
@@ -369,7 +398,7 @@ def storage_init(conf):
                 settings_path = parser.get('gdrive', 'settings')
 
             if parser.get('gdrive', 'folder') != GDRIVE_FOLDER_NAME:
-                reload_drive = True
+                RELOAD_DRIVE = True
             
             GDRIVE_FOLDER_NAME = parser.get('gdrive', 'folder')
             
@@ -388,6 +417,7 @@ def storage_init(conf):
         if not os.path.exists(settings_dir):
             try:
                 os.makedirs(settings_dir)
+                os.chmod(settings_dir, 0700)
             except Exception as e:
                 if DEBUG:
                     log.exception(e)
@@ -402,11 +432,6 @@ def storage_init(conf):
             f.write(config_file_text)
 
     GDRIVE_SETTINGS_PATH = settings_path
-
-    if reload_drive:
-        GDRIVE_HANDLE = get_gdrive_handle(settings_path)
-        GDRIVE_FOLDER_ID = get_blockstack_folder_id(GDRIVE_HANDLE, GDRIVE_FOLDER_NAME)
-
     return True
 
 
