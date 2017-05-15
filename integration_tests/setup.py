@@ -28,6 +28,7 @@ setup(
     include_package_data=True,
     install_requires=[
         'blockstack>=0.14.2',
+        'pybitcoin>=0.9.8',
         'xmlrunner>=1.7.7'
     ],
     classifiers=[
