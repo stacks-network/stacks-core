@@ -146,7 +146,7 @@ datastore record, if it exists.  The public datastore record
 contains information like who owns the datastore, when it was created, and which
 drivers should be used to load and store its data.
 
-![Gaia connect](docs/figures/gaia-connect.png)
+![Gaia connect](/docs/figures/gaia-connect.png)
 
 Suppose the user signing into `foo.app` does not yet have a datastore, and wants
 to store her data on storage providers `A`, `B`, and `C`.  Then, the following
@@ -241,7 +241,7 @@ via the relevant drivers.
 
 For example, fetching the file `/bar` works as follows:
 
-![Gaia getFile](docs/figures/gaia-getfile.png)
+![Gaia getFile](/docs/figures/gaia-getfile.png)
 
 1. Resolve the root directory (blue paths)
 
@@ -277,7 +277,7 @@ and sign and replicate it and its header.
 For example, suppose the client attempts to write the data `"hello world"` to `/bar`.
 To do so:
 
-![Gaia putFile](docs/figures/gaia-putfile.png)
+![Gaia putFile](/docs/figures/gaia-putfile.png)
 
 1. The client executes `listDir()` on the parent directory, `/` (blue paths).
 
