@@ -23,6 +23,12 @@ test:
   post:
     - blockstack api stop -y
 deployment:
+  tarball_venv:
+    branch: [osx-single-file-build]
+    commands:
+      - virtualenv --relocatable ../virtualenvs/venv-system
+      - cp -r ../virtualenvs/venv-system ../blockstack-venv
+      - tar -czvf $CIRCLE_ARTIFACTS/blockstack-venv.tar.gz ../blockstack-venv
   osx_single_file:
     branch: [osx-single-file-build]
     commands:
