@@ -64,7 +64,7 @@ then
     sudo apt install -y curl xclip
     curl -sL https://deb.nodesource.com/setup_7.x | sudo -E bash -
     sudo apt update 
-    sudo apt install -y python-pip python-dev libssl-dev libffi-dev rng-tools curl build-essential git firefox nodejs
+    sudo apt install -y python-pip python-dev libssl-dev libffi-dev rng-tools curl build-essential git nodejs
     sudo pip install virtualenv
 fi
 
@@ -103,7 +103,7 @@ echo "#!/bin/bash" > $START_PORTAL_NAME
 echo "cd \"$DIR/blockstack-portal\"" >> $START_PORTAL_NAME
 echo "\"$CORE_VENV/bin/python\" \"$CORE_VENV/bin/blockstack\" api status -y | grep 'true' > /dev/null" >> $START_PORTAL_NAME
 echo "if [ \$? -ne 0 ]; then" >> $START_PORTAL_NAME
-echo "\"$CORE_VENV/bin/python\" \"$CORE_VENV/bin/blockstack\" api start -y" >> $START_PORTAL_NAME
+echo "\"$CORE_VENV/bin/python\" \"$CORE_VENV/bin/blockstack\" api start -y --debug" >> $START_PORTAL_NAME
 echo "fi" >> $START_PORTAL_NAME
 echo "npm run dev-proxy 2>&1 > /tmp/rundev_proxy_out &" >> $START_PORTAL_NAME
 echo "echo \"\$!\" > /tmp/devproxy.pid" >> $START_PORTAL_NAME
@@ -116,6 +116,7 @@ echo "echo 'Running... connect at localhost:3000'" >> $START_PORTAL_NAME
 
 echo "#!/bin/bash" > $STOP_PORTAL_NAME
 echo "tokill=\$(cat /tmp/dev.pid)" >> $STOP_PORTAL_NAME
+echo "echo 'Terminating process group of \$tokill'" >> $STOP_PORTAL_NAME
 echo "kill -s SIGTERM -\$(ps -o pgid= \$tokill | cut -d\\  -f2)" >> $STOP_PORTAL_NAME
 echo "echo 'Killed Blockstack Portal'" >> $STOP_PORTAL_NAME
 
