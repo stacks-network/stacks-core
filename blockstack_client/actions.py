@@ -3867,7 +3867,7 @@ def cli_put_profile(args, config_path=CONFIG_PATH, password=None, proxy=None, fo
     )
     required_storage_drivers = required_storage_drivers.split()
 
-    user_zonefile = get_name_zonefile(name, proxy=proxy, wallet_keys=wallet_keys)
+    user_zonefile = get_name_zonefile(name, proxy=proxy)
     if 'error' in user_zonefile:
         return user_zonefile
 
