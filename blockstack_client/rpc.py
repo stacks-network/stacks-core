@@ -2006,7 +2006,15 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         res = internal.cli_withdraw(address, amount, message, min_confs, tx_only, config_path=self.server.config_path, interactive=False, wallet_keys=self.server.wallet_keys)
         if 'error' in res:
             log.debug("Failed to transfer balance: {}".format(res['error']))
-            return self._reply_json({'error': 'Failed to transfer balance: {}'.format(res['error'])}, status_code=500)
+            error_msg = {'error': 'Failed to transfer balance: {}'.format(res['error'])}
+
+            if res.has_key('errno') and res['errno'] == errno.EIO:
+                # network-level error: failed to broadcast
+                return self._reply_json(error_msg, status_code=503)
+
+            else:
+                # bad input
+                return self._reply_json(error_msg, status_code=400)
 
         return self._reply_json(res)
 
