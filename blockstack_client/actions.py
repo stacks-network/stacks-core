@@ -1468,6 +1468,9 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
             if not proceed:
                 return {'error': 'Zone file not updated'}
 
+            else:
+                nonstandard = True
+
         user_data_txt = zonefile_data
         if zonefile_data is not None:
             user_data_hash = get_zonefile_data_hash(zonefile_data)
@@ -4754,7 +4757,7 @@ def delete_datastore_by_type( datastore_type, datastore_privkey, force=False, co
 def datastore_file_get(datastore_type, datastore_id, path, extended=False, force=False, device_ids=None, config_path=CONFIG_PATH ):
     """
     Get a file from a datastore or collection.
-    Return {'status': True, 'file': ...} on success
+    Return {'status': True, 'data': ...} on success
     Return {'error': ...} on error
     """
     # connect 
@@ -4849,7 +4852,7 @@ def datastore_dir_list(datastore_type, datastore_id, path, extended=False, force
     return res
 
 
-def datastore_path_stat(datastore_type, datastore_id, path, extended=False, force=False, idata=False, device_ids=None, config_path=CONFIG_PATH ):
+def datastore_path_stat(datastore_type, datastore_id, path, extended=False, force=False, device_ids=None, config_path=CONFIG_PATH ):
     """
     Stat a path in a datastore or collection
     Return {'status': True, 'inode': ...} on success
@@ -4868,7 +4871,7 @@ def datastore_path_stat(datastore_type, datastore_id, path, extended=False, forc
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_stat( rpc, datastore, path, extended=extended, force=force, idata=idata, config_path=config_path )
+    res = datastore_stat( rpc, datastore, path, extended=extended, force=force, config_path=config_path )
     return res
 
 
@@ -5041,7 +5044,7 @@ def cli_datastore_rmtree( args, config_path=CONFIG_PATH, interactive=False ):
 
 def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False ):
     """
-    command: datastore_getfile advanced
+    command: datastore_getfile advanced raw
     help: Get a file from a datastore.
     arg: datastore_id (str) 'The ID of the application datastore'
     arg: path (str) 'The path to the file to load'
@@ -5065,7 +5068,15 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False ):
     if hasattr(args, 'device_ids') and args.device_ids:
         device_ids = args.device_ids.split(',')
 
-    return datastore_file_get('datastore', datastore_id, path, extended=extended, force=force, device_ids=device_ids, config_path=config_path)
+    res = datastore_file_get('datastore', datastore_id, path, extended=extended, force=force, device_ids=device_ids, config_path=config_path)
+    if json_is_error(res):
+        return res
+
+    if not extended:
+        # just the data
+        return res['data']
+
+    return res
 
 
 def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
@@ -5094,7 +5105,14 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
     if hasattr(args, 'device_ids') and args.device_ids:
         device_ids = args.device_ids.split(',')
 
-    return datastore_dir_list('datastore', datastore_id, path, extended=extended, force=force, device_ids=device_ids, config_path=config_path )
+    res = datastore_dir_list('datastore', datastore_id, path, extended=extended, force=force, device_ids=device_ids, config_path=config_path )
+    if json_is_error(res):
+        return res
+
+    if not extended:
+        return res['data']
+
+    return res
 
 
 def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
@@ -5104,7 +5122,6 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     arg: datastore_id (str) 'The datastore ID'
     arg: path (str) 'The path to the file or directory to stat'
     opt: extended (str) 'If True, then include the path information as well'
-    opt: idata (str) 'If True, then include the inode data as well'
     opt: force (str) 'If True, then tolerate stale inode data.'
     opt: device_ids (str) 'CSV of device IDs, if different from what is loaded'
     """
@@ -5114,7 +5131,6 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     path = str(args.path)
     extended = False
     force = False
-    idata = False
     device_ids = None
 
     if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
@@ -5123,13 +5139,17 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
 
-    if hasattr(args, 'idata') and args.idata.lower() in ['1', 'true']:
-        idata = True
-
     if hasattr(args, 'device_ids') and args.device_ids:
         device_ids = args.device_ids.split(',')
 
-    return datastore_path_stat('datastore', datastore_id, path, extended=extended, force=force, idata=idata, device_ids=device_ids, config_path=config_path) 
+    res = datastore_path_stat('datastore', datastore_id, path, extended=extended, force=force, device_ids=device_ids, config_path=config_path) 
+    if json_is_error(res):
+        return res
+
+    if not extended:
+        return res['data']
+
+    return res
 
 
 def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
