@@ -148,7 +148,7 @@ def scenario( wallets, **kw ):
             print 'failed to stat {}: {}'.format(dpath, res['error'])
             return False
 
-        if res['inode']['type'] != blockstack_client.schemas.MUTABLE_DATUM_DIR_TYPE:
+        if res['type'] != blockstack_client.schemas.MUTABLE_DATUM_DIR_TYPE:
             print 'not a directory: {}, {}'.format(dpath, res)
             return False
 
@@ -160,14 +160,14 @@ def scenario( wallets, **kw ):
             print 'failed to listdir {}: {}'.format(dpath, res['error'])
             return False
 
-        res = res['dir']
-        if len(res['idata'].keys()) != len(expected):
-            print 'invalid directory: expected:\n{}\ngot:\n{}\n'.format(expected, res['idata'])
+        print res
+        if len(res['children'].keys()) != len(expected):
+            print 'invalid directory: expected:\n{}\ngot:\n{}\n'.format(expected, res)
             return False
 
         for child in expected: 
-            if not res['idata'].has_key(child):
-                print 'invalid directory: missing {} in {}'.format(child, res['idata'])
+            if not res['children'].has_key(child):
+                print 'invalid directory: missing {} in {}'.format(child, res)
                 return False
 
     # put files 
@@ -187,7 +187,7 @@ def scenario( wallets, **kw ):
             print 'failed to stat {}: {}'.format(dpath, res['error'])
             return False
 
-        if res['inode']['type'] != blockstack_client.schemas.MUTABLE_DATUM_FILE_TYPE:
+        if res['type'] != blockstack_client.schemas.MUTABLE_DATUM_FILE_TYPE:
             print 'not a file: {}, {}'.format(dpath, res)
             return False
 
@@ -199,14 +199,13 @@ def scenario( wallets, **kw ):
             print 'failed to listdir {}: {}'.format(dpath, res['error'])
             return False
 
-        res = res['dir']
-        if len(res['idata'].keys()) != len(expected):
-            print 'invalid directory: expected:\n{}\ngot:\n{}\n'.format(expected, res['idata'])
+        if len(res['children'].keys()) != len(expected):
+            print 'invalid directory: expected:\n{}\ngot:\n{}\n'.format(expected, res)
             return False
 
         for child in expected: 
-            if not res['idata'].has_key(child):
-                print 'invalid directory: missing {} in {}'.format(child, res['idata'])
+            if not res['children'].has_key(child):
+                print 'invalid directory: missing {} in {}'.format(child, res)
                 return False
      
     # get files
@@ -217,8 +216,7 @@ def scenario( wallets, **kw ):
             print 'failed to getfile {}: {}'.format(dpath, res['error'])
             return False
 
-        res = res['file']
-        if res['idata'] != '{} hello {}'.format(file_data, dpath):
+        if res != '{} hello {}'.format(file_data, dpath):
             print 'failed to read {}'.format(dpath)
             return False
 
@@ -239,8 +237,7 @@ def scenario( wallets, **kw ):
             print 'failed to getfile {}: {}'.format(dpath, res['error'])
             return False
 
-        res = res['file']
-        if res['idata'] != '{} hello 2 {}'.format(file_data, dpath):
+        if res != '{} hello 2 {}'.format(file_data, dpath):
             print 'failed to read {}'.format(dpath)
             return False
 
@@ -284,14 +281,13 @@ def scenario( wallets, **kw ):
             print 'failed to listdir {}: {}'.format(dpath, res['error'])
             return False
 
-        res = res['dir']
-        if len(res['idata'].keys()) != len(expected):
-            print 'invalid directory: expected:\n{}\ngot:\n{}\n'.format(expected, res['idata'])
+        if len(res['children'].keys()) != len(expected):
+            print 'invalid directory: expected:\n{}\ngot:\n{}\n'.format(expected, res)
             return False
 
         for child in expected: 
-            if not res['idata'].has_key(child):
-                print 'invalid directory: missing {} in {}'.format(child, res['idata'])
+            if not res['children'].has_key(child):
+                print 'invalid directory: missing {} in {}'.format(child, res)
                 return False
 
     # remove directories 
@@ -345,9 +341,8 @@ def scenario( wallets, **kw ):
         print 'failed to listdir /: {}'.format(res['error'])
         return False
 
-    res = res['dir']
-    if len(res['idata'].keys()) > 0:
-        print 'root still has children: {}'.format(res['idata'].keys())
+    if len(res['children'].keys()) > 0:
+        print 'root still has children: {}'.format(res['children'].keys())
         return False
 
     # delete datastore 

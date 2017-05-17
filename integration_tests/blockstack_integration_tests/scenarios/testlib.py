@@ -1860,20 +1860,7 @@ def blockstack_cli_datastore_getfile( datastore_id, path, config_path=None, forc
     args.force = '1' if force else '0'
 
     data = cli_datastore_getfile( args, config_path=config_path, interactive=interactive )
-
-    # backwards-compatibility
-    if json_is_error(data):
-        return data
-
-    else:
-        res = {
-            'status': True,
-            'file': {
-                'idata': data
-            },
-        }
-        return res
-
+    return data
 
 
 def blockstack_cli_datastore_putfile( datastore_privkey, path, data, data_path=None, interactive=False, force=False, proxy=None, config_path=None):
