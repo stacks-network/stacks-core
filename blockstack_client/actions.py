@@ -514,6 +514,9 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         return {'status': True, 'tx': tx}
 
     res = broadcast_tx( tx, config_path=config_path )
+    if 'error' in res:
+        res['errno'] = errno.EIO
+
     return res
     
 
