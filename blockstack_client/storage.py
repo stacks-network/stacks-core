@@ -324,12 +324,8 @@ def serialize_mutable_data(data_text_or_json, data_privkey=None, data_pubkey=Non
         assert data_privkey or (data_pubkey and data_signature)
 
         if data_signature is None:
-            data_str = None
-            if isinstance(data_text_or_json, (str, unicode)):
-                data_str = str(data_text_or_json)
-            else:
-                data_str = json.dumps(data_text_or_json)
-
+            assert isinstance(data_text_or_json, (str, unicode)), "data must be a string"
+            data_str = str(data_text_or_json)
             data_signature = sign_data_payload( data_str, data_privkey )
 
         # make sure it's compressed
@@ -343,7 +339,7 @@ def serialize_mutable_data(data_text_or_json, data_privkey=None, data_pubkey=Non
         return res
 
 
-def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash=None, data_hash=None):
+def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash=None, data_hash=None, raw=False):
     """
     Version 2 parser
     Parse a piece of mutable data back into the serialized payload.
@@ -353,51 +349,64 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
     Return None on error
     """
 
-    parts = mutable_data_json_txt.split(".", 3)
-    if len(parts) != 4:
-        log.debug("Malformed data: {}".format(mutable_data_json_txt))
-        return None 
-    
-    if parts[0] != 'bsk2':
-        log.debug("Not v2 data")
-        return None
+    pubk_hex = None
+    sig_b64 = None
+    data_txt = None
+    original_data_txt = None
 
-    pubk_hex = str(parts[1])
-    sig_b64 = str(parts[2])
-    data_txt = str(parts[3])
+    if not raw:
+        # format: bsk2.pubkey.sigb64.data_len:data,
+        parts = mutable_data_json_txt.split(".", 3)
+        if len(parts) != 4:
+            log.debug("Malformed data: {}".format(mutable_data_json_txt))
+            return None 
+        
+        if parts[0] != 'bsk2':
+            log.debug("Not v2 data")
+            return None
 
-    # basic sanity checks
-    if not re.match('^[0-9a-fA-F]+$', pubk_hex):
-        log.debug("Not a v2 mutable datum: Invalid public key")
-        return None 
+        pubk_hex = str(parts[1])
+        sig_b64 = str(parts[2])
+        data_txt = str(parts[3])
 
-    if not re.match(schemas.OP_BASE64_PATTERN_SECTION, sig_b64):
-        log.debug("Not a v2 mutable datum: Invalid signature data")
-        return None
+        # basic sanity checks
+        if not re.match('^[0-9a-fA-F]+$', pubk_hex):
+            log.debug("Not a v2 mutable datum: Invalid public key")
+            return None 
 
-    try:
-        sig_bin = base64.b64decode(sig_b64)
-    except:
-        log.error("Incorrect base64-encoding")
-        return None
+        if not re.match(schemas.OP_BASE64_PATTERN_SECTION, sig_b64):
+            log.debug("Not a v2 mutable datum: Invalid signature data")
+            return None
 
-    # data_txt must be a netstring (format: 'len(payload):payload,')
-    serialized_len = len(data_txt)
-    data_txt = parse_data_payload(data_txt)
-    if data_txt is None:
-        log.debug("Invalid data payload of {} bytes".format(serialized_len))
-        return None
+        try:
+            sig_bin = base64.b64decode(sig_b64)
+        except:
+            log.error("Incorrect base64-encoding")
+            return None
+
+        # data_txt must be a netstring (format: 'len(payload):payload,')
+        serialized_len = len(data_txt)
+        original_data_txt = data_txt[:]
+        data_txt = parse_data_payload(data_txt)
+        if data_txt is None:
+            log.debug("Invalid data payload of {} bytes".format(serialized_len))
+            return None
+
+    else:
+        data_txt = mutable_data_json_txt
+        original_data_txt = mutable_data_json_txt
 
     # shortcut: if hash is given, we're done 
     if data_hash is not None:
-        dh = hash_data_payload( data_txt )
+        dh = hash_data_payload( str(data_txt) )
         if dh == data_hash:
             # done!
             log.debug("Verified with hash {}".format(data_hash))
             return data_txt
 
         else:
-            log.debug("Hash mismatch: expected {}, got {}".format(data_hash, dh))
+            log.debug("Hash mismatch: expected {}, got {}\noriginal_data_text ({}): '{}'\nlen(original_data_text): {}\nparsed payload: '{}'\nhash_data_payload: {}".format(
+                data_hash, dh, type(original_data_txt), original_data_txt, len(original_data_txt), parse_data_payload(original_data_txt), hash_data_payload(data_txt)))
 
     # validate 
     if keylib.key_formatting.get_pubkey_format(pubk_hex) == 'hex_compressed':
@@ -448,7 +457,7 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
     return None
 
 
-def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, data_hash=None):
+def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, data_hash=None, bsk_version=None):
     """
     Given the serialized JSON for a piece of mutable data,
     parse it into a JSON document.  Verify that it was
@@ -461,8 +470,14 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, 
     """
     
     # newer version?
-    if mutable_data_json_txt.startswith("bsk2."):
-        return parse_mutable_data_v2(mutable_data_json_txt, public_key, public_key_hash=public_key_hash, data_hash=data_hash)
+    if mutable_data_json_txt.startswith("bsk2.") or bsk_version == 2:
+        raw = False
+        if not mutable_data_json_txt.startswith("bsk2."):
+            # raw data; will authenticate with data hash
+            raw = True
+            assert data_hash
+
+        return parse_mutable_data_v2(mutable_data_json_txt, public_key, public_key_hash=public_key_hash, data_hash=data_hash, raw=raw)
         
     # legacy parser
     assert public_key is not None or public_key_hash is not None, 'Need a public key or public key hash'
@@ -675,7 +690,7 @@ def get_driver_urls( fq_data_id, storage_drivers ):
 
 
 def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data_hash=None,
-                     owner_address=None, blockchain_id=None, drivers=None, decode=True):
+                     owner_address=None, blockchain_id=None, drivers=None, decode=True, bsk_version=None):
     """
     Low-level call to get mutable data, given a fully-qualified data name.
     
@@ -702,7 +717,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
                 h for h in storage_handlers if h.__name__ == d
             )
 
-    log.debug('get_mutable_data {} fqu={}'.format(fq_data_id, fqu))
+    log.debug('get_mutable_data {} fqu={} bsk_version={}'.format(fq_data_id, fqu, bsk_version))
     for storage_handler in handlers_to_use:
         if not getattr(storage_handler, 'get_mutable_handler', None):
             continue
@@ -767,12 +782,12 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
                 data = None
                 if data_pubkey is not None or data_address is not None or data_hash is not None:
                     data = parse_mutable_data(
-                        data_txt, data_pubkey, public_key_hash=data_address, data_hash=data_hash
+                        data_txt, data_pubkey, public_key_hash=data_address, data_hash=data_hash, bsk_version=bsk_version
                     )
 
                 if data is None and owner_address is not None:
                     data = parse_mutable_data(
-                        data_txt, None, public_key_hash=owner_address
+                        data_txt, None, public_key_hash=owner_address, bsk_version=bsk_version
                     )
 
                 if data is None:
@@ -868,7 +883,7 @@ def put_immutable_data(data_text, txid, data_hash=None, required=None, skip=None
     return None if successes == 0 and required_successes == len(set(required) - set(skip)) else data_hash
 
 
-def put_mutable_data(fq_data_id, data_text_or_json, sign=True, data_privkey=None, data_pubkey=None, data_signature=None, profile=False, blockchain_id=None, required=None, skip=None, required_exclusive=False):
+def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_privkey=None, data_pubkey=None, data_signature=None, profile=False, blockchain_id=None, required=None, skip=None, required_exclusive=False):
     """
     Given the unserialized data, store it into our mutable data stores.
     Do so in a best-effort way.  This method fails if all storage providers fail,
@@ -877,6 +892,8 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, data_privkey=None
     @required: list of required drivers to use.  All of them must succeed for this method to succeed.
     @skip: list of drivers we can skip.  None of them will be tried.
     @required_exclusive: if True, then only the required drivers will be tried (none of the loaded but not-required drivers will be invoked)
+    @sign: if True, then a private key is required.  if False, then simply store the data without serializing it or including a public key and signature.
+    @raw: If True, then the data will be put as-is without any ancilliary metadata.  Requires sign=False
 
     Return True on success
     Return False on error
@@ -884,6 +901,10 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, data_privkey=None
 
     global storage_handlers
     assert len(storage_handlers) > 0, "No storage handlers initialized"
+
+    # sanity check: only take structured data if this is a profile 
+    if not isinstance(data_text_or_json, (str, unicode)):
+        assert profile, "Structured data is only supported when profile=True"
 
     required = [] if required is None else required
     skip = [] if skip is None else skip
@@ -910,13 +931,13 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, data_privkey=None
         assert data_signature is not None
 
     serialized_data = None
-    if sign:
+    if sign or not raw:
         serialized_data = serialize_mutable_data(data_text_or_json, data_privkey=data_privkey, data_pubkey=data_pubkey, data_signature=data_signature, profile=profile)
     else:
         serialized_data = data_text_or_json
     
     if BLOCKSTACK_TEST:
-        log.debug("data: {}".format(serialized_data))
+        log.debug("data ({}): {}".format(type(serialized_data), serialized_data))
 
     successes = 0
     required_successes = 0
