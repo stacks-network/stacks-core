@@ -1354,13 +1354,22 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if inode_type == 'files':
             if path is not None:
-                res = internal.cli_datastore_getfile(datastore_id, path, '0', force, device_ids, config_path=self.server.config_path)
+                res = internal.cli_datastore_getfile(datastore_id, path, include_extended, force, device_ids, config_path=self.server.config_path)
+
+                if 'error' not in res:
+                    # base64-encode the result, if we're returning extended information
+                    if include_extended != '0':
+                        res['inode_info']['inode']['idata'] = base64.b64encode(res['inode_info']['inode']['idata'])
 
             else:
                 res = internal.cli_datastore_getinode(datastore_id, inode_uuid, include_extended, idata, force, device_ids, config_path=self.server.config_path)
 
+                if 'error' not in res and idata:
+                    # base64-encode the result 
+                    res['inode']['idata'] = base64.b64encode(res['inode']['idata'])
+
+
         elif inode_type == 'directories':
-            # path requred 
             if path is not None:
                 res = internal.cli_datastore_listdir(datastore_id, path, include_extended, force, device_ids, config_path=self.server.config_path)
             else:
@@ -1368,7 +1377,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         else:
             if path is not None:
-                res = internal.cli_datastore_stat(datastore_id, path, include_extended, idata, force, device_ids, config_path=self.server.config_path)
+                res = internal.cli_datastore_stat(datastore_id, path, include_extended, force, device_ids, config_path=self.server.config_path)
             else:
                 res = internal.cli_datastore_getinode(datastore_id, inode_uuid, include_extended, idata, force, device_ids, config_path=self.server.config_path)
 
@@ -1378,25 +1387,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         if inode_type == 'files':
-
-            self._send_headers(status_code=200, content_type='application/octet-stream')
-            self.wfile.write(res)
-
-        elif inode_type == 'directories':
-
-            if include_extended == '1':
-                self._reply_json(res)
-
-            else:
-                self._reply_json(res['dir']['idata'])
-
-        else:
             
-            if include_extended == '1':
-                self._reply_json(res)
+            if include_extended == '0':
+                self._send_headers(status_code=200, content_type='application/octet-stream')
+                self.wfile.write(res)
 
             else:
-                self._reply_json(res['inode'])
+                self._reply_json(res)
+        
+        else:
+            self._reply_json(res)
 
         return
 
@@ -1509,7 +1509,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             res = data.datastore_mkdir_put_inodes( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_info['signatures'], inode_info['tombstones'], config_path=self.server.config_path )
 
         elif operation == 'putfile':
-            res = data.datastore_putfile_put_inodes( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_info['signatures'], inode_info['tombstones'],
+            # payloads will be base64-encoded
+            payloads_b64 = inode_info['payloads']
+            payloads = None
+            try:
+                payloads = [base64.b64decode(p) for p in payloads_b64]
+            except:
+                log.error("putfile: Inode payloads must be base64-encoded")
+                return self._reply_json({'error': 'putfile: inode payloads must be base64-encoded'}, status_code=401)
+
+            res = data.datastore_putfile_put_inodes( datastore, data_path, inode_info['inodes'], payloads, inode_info['signatures'], inode_info['tombstones'],
                                                      create=create, exist=exist, config_path=self.server.config_path )
 
         elif operation == 'rmdir':
@@ -3558,6 +3567,7 @@ class BlockstackAPIEndpointClient(object):
                              'using the correct API password or do you need to pass the ' +
                              'correct one with --api_password ?')
             del resp['http_status']
+
         return resp
 
     
@@ -3901,7 +3911,7 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_datastore_lookup(self, datastore, path, data_pubkey, idata=True, force=False, extended=False):
+    def backend_datastore_lookup(self, datastore, inode_type, path, data_pubkey, idata=True, force=False, extended=False):
         """
         Look up a path and its inodes
         Return {'status': True, 'inode_info': ...} on success.
@@ -3921,8 +3931,8 @@ class BlockstackAPIEndpointClient(object):
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             datastore_id = data.datastore_get_id(data_pubkey)
-            url = 'http://{}:{}/v1/stores/{}/inodes?path={}&extended={}&force={}&idata={}'.format(
-                    self.server, self.port, datastore_id, urllib.quote(path), '1' if extended else '0', '1' if force else '0', '1' if idata else '0',
+            url = 'http://{}:{}/v1/stores/{}/{}?path={}&extended={}&force={}&idata={}'.format(
+                    self.server, self.port, datastore_id, inode_type, urllib.quote(path), '1' if extended else '0', '1' if force else '0', '1' if idata else '0',
             )
 
             log.debug("lookup: {}".format(url))
@@ -3931,9 +3941,32 @@ class BlockstackAPIEndpointClient(object):
 
             if not json_is_error(res):
                 if extended:
-                    jsonschema.validate(res, DATASTORE_LOOKUP_EXTENDED_RESPONSE_SCHEMA)
+                    try:
+                        jsonschema.validate(res, DATASTORE_LOOKUP_EXTENDED_RESPONSE_SCHEMA)
+                    except ValidationError as ve:
+                        if BLOCKSTACK_DEBUG:
+                            log.exception(ve)
+
+                        return {'error': 'Server did not reply with an extended lookup response'}
+
+                    # decode if file 
+                    if res['inode_info']['inode']['type'] == MUTABLE_DATUM_FILE_TYPE and idata:
+                        assert inode_type == 'files'
+                        res['inode_info']['inode']['idata'] = base64.b64decode(res['inode_info']['inode']['idata'])
+                   
                 else:
-                    jsonschema.validate(res, DATASTORE_LOOKUP_RESPONSE_SCHEMA)
+                    try:
+                        jsonschema.validate(res, DATASTORE_LOOKUP_RESPONSE_SCHEMA)
+                    except ValidationError as ve:
+                        if BLOCKSTACK_DEBUG:
+                            log.exception(ve)
+
+                        return {'error': 'Server did not reply with a lookup response'}
+
+                    # decode if file 
+                    if inode_type == 'files':
+                        res['data'] = base64.b64decode(res['data'])
+
 
             return res
 
@@ -3941,7 +3974,7 @@ class BlockstackAPIEndpointClient(object):
     def backend_datastore_getinode(self, datastore, inode_uuid, data_pubkey, extended=False, force=False, idata=False ):
         """
         Get a raw inode
-        Return {'status': True, 'inode_indo': ...} on success
+        Return {'status': True, 'inode_info': ...} on success
         Return {'error': ...} on failure
         """
         if is_api_server(self.config_dir):
@@ -3960,7 +3993,12 @@ class BlockstackAPIEndpointClient(object):
                     self.server, self.port, datastore_id, inode_uuid, '1' if extended else '0', '1' if force else '0', '1' if idata else '0'
             )
             req = requests.get(url, timeout=self.timeout, headers=headers)
-            return self.get_response(req)
+            resp = self.get_response(req)
+            if not resp.has_key('error') and idata and resp['inode']['type'] == MUTABLE_DATUM_FILE_TYPE:
+                # decode 
+                resp['inode']['idata'] = base64.b64decode(resp['inode']['idata'])
+
+            return resp
 
 
     def backend_datastore_mkdir(self, datastore_str, datastore_sig, path, inodes, payloads, signatures, tombstones ):
@@ -4008,13 +4046,16 @@ class BlockstackAPIEndpointClient(object):
             if 'error' in res:
                 return res
 
+            # putfile will do base64-encoding
+            payloads_b64 = [base64.b64encode(p) for p in payloads]
+
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             request = {
                 'datastore_str': datastore_str,
                 'datastore_sig': datastore_sig,
                 'inodes': inodes,
-                'payloads': payloads,
+                'payloads': payloads_b64,
                 'signatures': signatures,
                 'tombstones': tombstones,
             }
