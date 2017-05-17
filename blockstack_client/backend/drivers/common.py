@@ -68,6 +68,7 @@ def compress_chunk( chunk_buf ):
     data = zlib.compress(chunk_buf, 9)
     return data
 
+
 def decompress_chunk( chunk_buf ):
     """
     decompress a chunk of data
@@ -75,8 +76,54 @@ def decompress_chunk( chunk_buf ):
     data = zlib.decompress(chunk_buf)
     return data
 
+
 def get_driver_settings_dir(config_path, driver_name):
     """
     driver-specific state
     """
     return os.path.join( os.path.dirname(config_path), "drivers/{}".format(driver_name))
+
+
+def setup_scratch_space(scratch_dir):
+    """
+    Set up download scratch space
+    Return True on success
+    Return False on error
+    """
+    if not os.path.exists(scratch_dir):
+        try:
+            os.makedirs(scratch_dir)
+            os.chmod(scratch_dir, 0700)
+        except Exception as e:
+            if DEBUG:
+                log.exception(e)
+
+            log.error("Failed to create scratch directory")
+            return False
+
+    else:
+        # make sure we have the right mode 
+        sb = os.stat(scratch_dir)
+        if sb.st_mode != 0700:
+            os.chmod(scratch_dir, 0700)
+
+        # clear it out
+        for name in os.listdir(scratch_dir):
+            fp = os.path.join(scratch_dir, name)
+            try:
+                os.unlink(fp)
+            except:
+                pass
+
+    return True
+
+
+def make_scratch_file(dirp):
+    """
+    Make a scratch file at a given path.
+    Return the path
+    """
+    scratch_fd, scratch_path = tempfile.mkstemp(dir=dirp)
+    os.close(scratch_fd)
+    return scratch_path
+
