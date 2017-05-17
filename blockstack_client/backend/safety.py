@@ -209,7 +209,7 @@ class ScatterGather(object):
         return self.results
 
 
-    def run_tasks(self, single_thread=True):
+    def run_tasks(self, single_thread=False):
         """
         Run all queued tasks, wait for them all to finish,
         and return the set of results
