@@ -506,7 +506,7 @@ MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES = {
         },
     },
     'reader_pubkeys': {
-        # public keys
+        # public keys (loaded at run-time, not stored)
         'type': 'array',
         'items': {
             'type': 'string',
@@ -538,6 +538,13 @@ MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES.update({
 MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
 MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
 
+MUTABLE_DATUM_INODE_HEADER_SCHEMA = {
+    'type': 'object',
+    'properties': MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES,
+    'additionalProperties': False,
+    'required': list(set(MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES.keys()) - set(['reader_pubkeys']))  # headers only include reader pubkey hashes
+}
+
 MUTABLE_DATUM_DIRENT_SCHEMA = {
     'type': 'object',
     'properties': {
@@ -566,19 +573,30 @@ MUTABLE_DATUM_DIRENT_SCHEMA = {
 # NOTE: *unserialized* idata
 MUTABLE_DATUM_DIR_IDATA_SCHEMA = {
     'type': 'object',
-    'patternProperties': {
-        # maps name to UUID, links, and type
-        OP_URLENCODED_NOSLASH_PATTERN: MUTABLE_DATUM_DIRENT_SCHEMA
+    'properties': {
+        'children': {
+            'type': 'object',
+            'patternProperties': {
+                # maps name to UUID, links, and type
+                OP_URLENCODED_NOSLASH_PATTERN: MUTABLE_DATUM_DIRENT_SCHEMA
+            },
+        },
+        'header': MUTABLE_DATUM_INODE_HEADER_SCHEMA,
     },
+    'required': [
+        'children',
+        'header',
+    ],
     'additionalProperties': False,
 }
 
+MUTABLE_DATUM_FILE_IDATA_SCHEMA = {
+    'type': 'string',
+    'pattern': OP_BASE64_PATTERN
+}
+
 MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.update({
-    'idata': {
-        # raw data as b64
-        'type': 'string',
-        'pattern': OP_BASE64_PATTERN,
-    },
+    'idata': MUTABLE_DATUM_FILE_IDATA_SCHEMA
 })
 
 MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.update({
@@ -589,28 +607,22 @@ MUTABLE_DATUM_INODE_SCHEMA = {
     'type': 'object',
     'properties': MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES,
     'additionalProperties': False,
-    'required': list(set(MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.keys()) - set(['reader_pubkeys']))
+    'required': list(set(MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.keys()) - set(['reader_pubkeys']))    # public keys are loaded at runtime, not stored
 }
 
-MUTABLE_DATUM_INODE_HEADER_SCHEMA = {
-    'type': 'object',
-    'properties': MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES,
-    'additionalProperties': False,
-    'required': list(set(MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES.keys()) - set(['reader_pubkeys']))
-}
 
 MUTABLE_DATUM_FILE_SCHEMA = {
     'type': 'object',
     'properties': MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES,
     'additionalProperties': False,
-    'required': list(set(MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.keys()) - set(['reader_pubkeys']))
+    'required': list(set(MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.keys()) - set(['reader_pubkeys']))    # public keys are loaded at runtime, not stored
 }
 
 MUTABLE_DATUM_DIR_SCHEMA = {
     'type': 'object',
     'properties': MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES,
     'additionalProperties': False,
-    'required': list(set(MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.keys()) - set(['reader_pubkeys']))
+    'required': list(set(MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.keys()) - set(['reader_pubkeys']))     # public keys are loaded at runtime, not stored
 }
 
 # replicated datastore
@@ -793,14 +805,18 @@ CREATE_DATASTORE_INFO_SCHEMA = {
         'datastore_blob': {
             'type': 'string',
         },
-        'root_blob': {
+        'root_blob_header': {
+            'type': 'string',
+        },
+        'root_blob_idata': {
             'type': 'string',
         },
     },
     'additionalProperties': False,
     'required': [
         'datastore_blob',
-        'root_blob',
+        'root_blob_header',
+        'root_blob_idata',
     ],
 }
 
@@ -929,10 +945,10 @@ DATASTORE_LOOKUP_INODE_SCHEMA = {
 DATASTORE_LOOKUP_RESPONSE_SCHEMA = {
     'type': 'object',
     'properties': {
-        'inode': {
+        'data': {
             'anyOf': [
-                MUTABLE_DATUM_DIR_SCHEMA,
-                MUTABLE_DATUM_FILE_SCHEMA,
+                MUTABLE_DATUM_DIR_IDATA_SCHEMA,
+                MUTABLE_DATUM_FILE_IDATA_SCHEMA,
                 MUTABLE_DATUM_INODE_HEADER_SCHEMA,
             ],
         },
@@ -942,7 +958,7 @@ DATASTORE_LOOKUP_RESPONSE_SCHEMA = {
     },
     'additionalProperties': False,
     'required': [
-        'inode_info',
+        'data',
         'status',
     ],
 }
@@ -964,8 +980,8 @@ DATASTORE_LOOKUP_EXTENDED_RESPONSE_SCHEMA = {
     },
     'additionalProperties': False,
     'required': [
-        'inode_info',
         'path_info',
+        'inode_info',
         'status',
     ],
 }
