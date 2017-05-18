@@ -1808,7 +1808,7 @@ def blockstack_cli_datastore_rmtree( datastore_privkey, path, config_path=None, 
     return cli_datastore_rmtree( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_listdir(datastore_id, path, config_path=None, force=False, interactive=False ):
+def blockstack_cli_datastore_listdir(datastore_id, path, blockchain_id=None, config_path=None, force=False, interactive=False ):
     """
     listdir
     """
@@ -1819,6 +1819,9 @@ def blockstack_cli_datastore_listdir(datastore_id, path, config_path=None, force
 
     args = CLIArgs()
     
+    if blockchain_id:
+        args.blockchain_id = blockchain_id
+
     args.datastore_id = datastore_id
     args.path = path 
     args.force = '1' if force else '0'
@@ -1826,7 +1829,7 @@ def blockstack_cli_datastore_listdir(datastore_id, path, config_path=None, force
     return cli_datastore_listdir( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_stat( datastore_id, path, config_path=None, force=False, interactive=False ):
+def blockstack_cli_datastore_stat( datastore_id, path, blockchain_id=None, config_path=None, force=False, interactive=False ):
     """
     stat
     """
@@ -1837,6 +1840,9 @@ def blockstack_cli_datastore_stat( datastore_id, path, config_path=None, force=F
 
     args = CLIArgs()
     
+    if blockchain_id:
+        args.blockchain_id = blockchain_id
+
     args.datastore_id = datastore_id
     args.path = path 
     args.force = '1' if force else '0'
@@ -1844,7 +1850,7 @@ def blockstack_cli_datastore_stat( datastore_id, path, config_path=None, force=F
     return cli_datastore_stat( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_getfile( datastore_id, path, config_path=None, force=False, interactive=False ):
+def blockstack_cli_datastore_getfile( datastore_id, path, blockchain_id=None, config_path=None, force=False, interactive=False ):
     """
     getfile
     """
@@ -1855,6 +1861,9 @@ def blockstack_cli_datastore_getfile( datastore_id, path, config_path=None, forc
 
     args = CLIArgs()
     
+    if blockchain_id:
+        args.blockchain_id = blockchain_id
+
     args.datastore_id = datastore_id
     args.path = path
     args.force = '1' if force else '0'
