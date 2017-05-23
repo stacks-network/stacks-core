@@ -58,7 +58,7 @@ OP_USER_ID_CLASS = r'[a-zA-Z0-9\-_.%]'
 OP_DATASTORE_ID_CLASS = r'[a-zA-Z0-9\-_.~%]'
 OP_USER_ID_PATTERN = r'^({}+)$'.format(OP_USER_ID_CLASS)
 OP_DATASTORE_ID_PATTERN = r'^({}+)$'.format(OP_DATASTORE_ID_CLASS)
-OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/]+)$'
+OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
 
 OP_ANY_TYPE_SCHEMA = [
     {
@@ -710,8 +710,16 @@ APP_INFO_PROPERTIES = {
         },
     },
     'app_domain': {
-        'type': 'string',
-        'pattern': OP_URLENCODED_PATTERN,
+        'anyOf': [
+            {
+                'type': 'string',
+                'pattern': OP_URLENCODED_PATTERN,
+            },
+            {
+                'type': 'string',
+                'pattern': OP_URI_TARGET_PATTERN,
+            },
+        ]
     },
     'methods': {
         'type': 'array',
