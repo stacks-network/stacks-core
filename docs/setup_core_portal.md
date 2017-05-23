@@ -87,3 +87,28 @@ You can copy your api password to your clipboard with this command:
 grep api_password ~/.blockstack/client.ini | sed 's/api_password = //g' | xclip -selection clipboard
 ```
 
+## Setting up a protocol handler
+
+If you'd like your browser to automatically handle links with the `blockstack:` protocol specifier, you will need to register a protocol handler with your desktop environment. In Ubuntu/Gnome, this can be done by creating a file 
+
+`~/.local/share/applications/blockstack.desktop`
+
+With the following contents:
+
+```
+[Desktop Entry]
+Type=Application
+Terminal=false
+Exec=bash -c 'xdg-open http://localhost:3000/auth?authRequest=$(echo "%u" | sed s/blockstack://)'
+Name=Blockstack-Portal
+MimeType=x-scheme-handler/blockstack;
+```
+
+Then you need to make this file executable, and register it as a protocol handler.
+
+```
+$ chmod +x ~/.local/share/applications/blockstack.desktop
+$ xdg-mime default blockstack.desktop x-scheme-handler/blockstack
+```
+
+Now, `blockstack:` protocol URLs should get handled by your Blockstack Portal. If you're running Portal in your browser's private mode, you may have to copy and paste the link, as this protocol handler will try to open in a regular browser window.
