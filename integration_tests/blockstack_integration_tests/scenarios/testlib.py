@@ -2426,6 +2426,7 @@ def get_balance( addr ):
     Get the address balance
     """
     inputs = blockstack_client.backend.blockchain.get_utxos(addr)
+    log.debug("UTXOS of {} are {}".format(addr, inputs))
     return sum([inp['value'] for inp in inputs])
 
 
