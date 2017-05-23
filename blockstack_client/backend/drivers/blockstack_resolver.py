@@ -111,7 +111,7 @@ def get_profile( fqu ):
     return json.dumps([ret])
 
 
-def storage_init(conf):
+def storage_init(conf, **kw):
     # read config options from the config file, if given 
     global STORAGE_URL, RESOLVER_URL
 

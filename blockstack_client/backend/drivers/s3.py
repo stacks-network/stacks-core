@@ -240,7 +240,7 @@ def delete_chunk( chunk_path ):
 # ---------------------------------------------------------
 
 
-def storage_init(conf):
+def storage_init(conf, **kw):
     """
     S3 implementation of the storage_init API call.
     Do one-time global setup: read our S3 API tokens and bucket name.

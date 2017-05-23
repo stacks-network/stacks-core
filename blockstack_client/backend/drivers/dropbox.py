@@ -54,10 +54,8 @@ log = get_logger("blockstack-storage-drivers-dropbox")
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
 DROPBOX_TOKEN = None
-DROPBOX_COMPRESS = False
-CONFIG_PATH = None
-SETUP_INDEX = False
 INDEX_DIRNAME = "index"
+DVCONF = None
 
 BLOCKSTACK_DEBUG = (os.environ.get("BLOCKSTACK_DEBUG") == "1")
 
@@ -73,384 +71,82 @@ def dropbox_url_reformat(url):
     return url
 
 
-def index_make_bucket(bucket):
+def dropbox_put_chunk( dvconf, chunk_buf, name ):
     """
-    Make an index bucket.
-    Return the URL
-    """
-    try:
-        dbx = dropbox.Dropbox(DROPBOX_TOKEN)
-        log.debug("Make index bucket {}".format(bucket))
+    Driver-level call to put data.
 
-        index_page = {}
-        index_page_data = serialize_index_page(index_page)
-        dbx.files_upload(index_page_data, bucket)
-        link_info = dbx.sharing_create_shared_link(bucket, short_url=False)
+    Returns the URL to the data stored on success.
+    Returns None on error
+    """
+    driver_info = dvconf['driver_info']
+    dropbox_token = driver_info['dropbox_token']
+    dbx = dropbox.Dropbox(dropbox_token)
+
+    try:
+        file_info = dbx.files_upload(chunk_buf, name, mode=dropbox.files.WriteMode('overwrite'))
+
+        # share it 
+        link_info = dbx.sharing_create_shared_link(name, short_url=False)
         url = dropbox_url_reformat(link_info.url)
+
+        log.debug("{} available at {}".format(name, url))
         return url
     except Exception as e:
         if DEBUG:
             log.exception(e)
 
-        log.error("Failed to make bucket {}".format(bucket))
+        log.error("Failed to save {} bytes to {} in Dropbox".format(len(chunk_buf), name))
         return None
 
 
-def index_setup():
-    """
-    Set up our index if we haven't already
-    Return the index manifest URL on success
-    Return True if already setup
-    Return False on error
-    """
-    global SETUP_INDEX, CONFIG_PATH, DROPBOX_TOKEN
-    assert CONFIG_PATH
-    settings_dir = get_driver_settings_dir(CONFIG_PATH, "dropbox")
-    assert os.path.exists(settings_dir)
-
-    index_manifest_url_path = os.path.join(settings_dir, 'index_manifest_url')
-    if os.path.exists(index_manifest_url_path):
-        url = None
-        with open(index_manifest_url_path, 'r') as f:
-            url = f.read().strip()
-
-        return url
-
-    index_bucket_names = get_index_bucket_names()
-    fq_index_bucket_names = ['/' + os.path.join(INDEX_DIRNAME, p) for p in index_bucket_names]
-
-    index_manifest = {}
-    for b in fq_index_bucket_names:
-        bucket_url = index_make_bucket(b)
-        if bucket_url is None:
-            log.error("Failed to create bucket {}".format(b))
-            return False
-
-        index_manifest[b] = bucket_url
-
-    # save index manifest 
-    index_manifest_data = serialize_index_page(index_manifest)
-    index_manifest_url = None
-    try:
-        dbx = dropbox.Dropbox(DROPBOX_TOKEN)
-        dbx.files_upload(index_manifest_data, "/{}/index.manifest".format(INDEX_DIRNAME))
-        link_info = dbx.sharing_create_shared_link("/{}/index.manifest".format(INDEX_DIRNAME), short_url=False)
-        index_manifest_url = dropbox_url_reformat(link_info.url)
-    except Exception as e:
-        if DEBUG:
-            log.exception(e)
-
-        log.error("Failed to create index manifest")
-        return False
-
-    try:
-        # flag it on disk
-        log.debug("Save index manifest URL {} to {}".format(index_manifest_url, index_manifest_url_path))
-        with open(index_manifest_url_path, 'w') as f:
-            f.write(index_manifest_url)
-
-    except:
-        return False
-
-    SETUP_INDEX = True
-    return index_manifest_url
-
-
-def index_get_page(**kw):
-    """
-    Get an index page
-    Return the dict on success
-    Return None on error
-    """
-    url = kw.get('url')
-    dbx = kw.get('dbx')
-    path = kw.get('path')
-
-    assert url or (dbx and path)
-    
-    serialized_index_page = None
-    if url:
-        log.debug("Fetch index page {}".format(url))
-        serialized_index_page = get_chunk_via_http(url)
-    else:
-        log.debug("Fetch index page {} via Dropbox".format(path))
-        serialized_index_page = get_chunk_via_dropbox(dbx, path)
-
-    if serialized_index_page is None:
-        # failed to get index
-        log.error("Failed to get index page {}".format(path))
-        return None
-    
-    log.debug("Fetched {} bytes (type {})".format(len(serialized_index_page), type(serialized_index_page)))
-    index_page = parse_index_page(serialized_index_page)
-    if index_page is None:
-        # invalid
-        log.error("Invalid index page {}".format(path))
-        return None
-
-    return index_page
-
-
-def index_set_page(dbx, path, index_page):
-    """
-    Store an index page
-    Return True on success
-    Return False on error
-    """
-    assert index_setup()
-
-    new_serialized_index_page = serialize_index_page(index_page)
-    rc = put_chunk(dbx, path, new_serialized_index_page, raw=True, index=False)
-    if not rc:
-        # failed 
-        log.error("Failed to store index page {}".format(path))
-        return False
-
-    return True  
-
-
-def index_insert( dbx, name, url ):
-    """
-    Insert a url into the index.
-    Return True on success
-    Return False if not.
-    """
-    assert index_setup()
-
-    path = get_index_page_path(name, INDEX_DIRNAME)
-    index_page = index_get_page(dbx=dbx, path=path)
-    if index_page is None:
-        index_page = {}
-
-    index_page[name] = url
-    return index_set_page(dbx, path, index_page)
-    
-
-def index_remove( dbx, name, url ):
-    """
-    Remove a url from the index.
-    Return True on success
-    Return False if not.
-    """
-    assert index_setup()
-
-    path = get_index_page_path(name, INDEX_DIRNAME)
-    index_page = index_get_page(dbx=dbx, path=path)
-    if index_page is None:
-        log.error("Failed to get index page {}".format(path))
-        return False
-
-    if name not in index_page:
-        # already gone
-        return True
-
-    del index_page[name]
-    return index_set_page(dbx, path, index_page)
-
-
-def index_lookup( index_manifest_url, name ):
-    """
-    Given the name, find the URL
-    Return the URL on success
-    Return None on error
-    """
-    path = get_index_page_path(name, INDEX_DIRNAME)
-    manifest_page = index_get_page(url=index_manifest_url)
-    if manifest_page is None:
-        log.error("Failed to get manifest page {}".format(index_manifest_url))
-        return None
-
-    if path not in manifest_page.keys():
-        log.error("Bucket {} not in manifest".format(bucket))
-        return None
-
-    bucket_url = manifest_page[path]
-    index_page = index_get_page(url=bucket_url)
-    if index_page is None:
-        log.error("Failed to get index page {}".format(path))
-        return None
-
-    return index_page.get(name, None)
-
-
-def put_chunk( dbx, path, chunk_buf, raw=False, index=True ):
-    """
-    Put a chunk into dropbox.
-    Compress it first.
-    Return True on success
-    Return False on error
-    """
-    if DROPBOX_COMPRESS and not raw:
-        compressed_chunk = compress_chunk(chunk_buf)
-    else:
-        compressed_chunk = chunk_buf
-
-    try:
-        file_info = dbx.files_upload(compressed_chunk, path, mode=dropbox.files.WriteMode('overwrite'))
-
-        # make it shared
-        link_info = dbx.sharing_create_shared_link(path, short_url=False)
-        url = dropbox_url_reformat(link_info.url)
-
-        log.debug("{} available at {}".format(path, url))
-
-        # preserve listing
-        if index:
-            name = os.path.basename(path)
-            rc = index_insert( dbx, name, url )
-            if not rc:
-                log.error("Failed to insert {}, {}".format(name, url))
-                return False
-
-        return True
-
-    except Exception, e:
-        if BLOCKSTACK_DEBUG:
-            log.exception(e)
-
-        log.error("Failed to save {} to Dropbox".format(path))
-        return False
-
-
-def get_chunk_via_dropbox(dbx, data_path):
-    """
-    Get a mutable datum by data ID, using a Dropbox handle
-    data_path must be the full path to the data
-
-    Return the data on success
-    Return None on failure
-    """
-    try:
-        metadata, req = dbx.files_download(data_path)
-        if req.status_code != 200:
-            log.debug("Dropbox files_download {} status code {}".format(data_path, req.status_code))
-            return None
-
-        return req.text
-    except Exception, e:
-        log.error("Failed to load {}".format(data_path))
-        return None
-
-
-def get_url_type(url):
-    """
-    How do we handle this URL?
-    Return ('http', url) if we use http to get this data
-    Return ('dropbox', data_id) if we use dropbox to get this data
-    Return None, None on invalid URL
-    """
-
-    # is this a direct URL to a dropbox resource,
-    # or is this a URL generated with get_mutable_url()?
-    urlparts = urlparse.urlparse(url)
-    urlpath = posixpath.normpath( urllib.unquote(urlparts.path) )
-    urlpath_parts = urlpath.strip('/').split('/')
-
-    if len(urlpath_parts) != 2:
-        log.error("Invalid URL {}".format(url))
-        return None
-
-    if urlpath_parts[0] == 'blockstack':
-        return ('dropbox', urlpath_parts[1])
-
-    else:
-        return ('http', url)
-
-
-def get_chunk(url, blockchain_id, index_manifest_url=None):
-    """
-    Get a chunk from dropbox, given its URL and the blockchain ID that owns the target data.
-    Decompress and return it.
-    """
-    res = None
-    data = None
-
-    urltype, urlres = get_url_type(url)
-    if urltype is None and urlres is None:
-        log.error("Invalid URL {}".format(url))
-        return None
-
-    if urltype == 'dropbox':
-        
-        # look through the index for this URL
-        if blockchain_id is not None:
-            # find manifest URL
-            log.debug("Find index manifest URL for {}".format(blockchain_id))
-
-            if index_manifest_url is None:
-                try:
-                    index_manifest_url = get_index_manifest_url(blockchain_id, "dropbox", CONFIG_PATH)
-                except Exception as e:
-                    if DEBUG:
-                        log.exception(e)
-
-                    log.error("Failed to get index manifest URL for {}".format(blockchain_id))
-                    return None
-
-                if index_manifest_url is None:
-                    log.error("Profile for {} is not connected to '{}'".format(blockchain_id, 'dropbox'))
-                    return None
-
-            # go get the url for this data
-            data_url = index_lookup(index_manifest_url, urlres)
-            if data_url is None:
-                log.error("No data URL from index for '{}'".format(urlres))
-                return None
-    
-            log.debug("Fetch {} via HTTP at {}".format(urlres, data_url))
-            data = get_chunk_via_http(data_url)
-
-        else:
-            # assuming we want to talk to our dropbox
-            global DROPBOX_TOKEN
-            assert DROPBOX_TOKEN
-            dbx = dropbox.Dropbox(DROPBOX_TOKEN)
-
-            log.debug("Fetch {} via dropbox ({})".format(url, urlres))
-            data = get_chunk_via_dropbox(dbx, '/{}'.format(urlres))
-
-    else:
-
-        # request via HTTP
-        log.debug("Fetch {} via HTTP".format(url))
-        data = get_chunk_via_http(url)
-
-    if data is None:
-        return None
-
-    # decompress 
-    if DROPBOX_COMPRESS:
-        try:
-            res = decompress_chunk(data)
-        except:
-            res = data
-            
-    else:
-        res = data
-
-    return res
-
-
-def delete_chunk(dbx, name):
+def dropbox_delete_chunk(dvconf, name):
     """
     Delete a chunk from dropbox
     Return True on success
+    Return False on error
     """
     
-    name = name.replace( "/", r"-2f" )
+    driver_info = dvconf['driver_info']
+    dropbox_token = driver_info['dropbox_token']
+    dbx = dropbox.Dropbox(dropbox_token)
+
     try:
-        dbx.files_delete("/{}".format(name))
+        dbx.files_delete(name)
         return True
     except Exception, e:
         log.exception(e)
         return False
+
+
+def dropbox_get_chunk(dvconf, name):
+    """
+    Get a chunk via dropbox
+    Return the data on success
+    Return None on error
+    """
+
+    driver_info = dvconf['driver_info']
+    dropbox_token = driver_info['dropbox_token']
+    dbx = dropbox.Dropbox(dropbox_token)
+
+    try:
+        metadata, req = dbx.files_download(name)
+        if req.status_code != 200:
+            log.debug("Dropbox files_download {} status code {}".format(name, req.status_code))
+            return None
+
+        return req.text
+    except Exception, e:
+        log.error("Failed to load {}".format(name))
+        return None
     
 
-def storage_init(conf):
+def storage_init(conf, index=False, force_index=False):
     """
     Initialize dropbox storage driver
     """
-    global DROPBOX_TOKEN, CONFIG_PATH
+    global DROPBOX_TOKEN, DVCONF
+    compress = False
     config_path = conf['path']
 
     if os.path.exists( config_path ):
@@ -468,27 +164,22 @@ def storage_init(conf):
                 DROPBOX_TOKEN = parser.get('dropbox', 'token')
 
             if parser.has_option('dropbox', 'compress'):
-                DROPBOX_COMPRESS = (parser.get('dropbox', 'compress').lower() in ['1', 'true', 'yes'])
+                compress = (parser.get('dropbox', 'compress').lower() in ['1', 'true', 'yes'])
 
     # need the token 
     if DROPBOX_TOKEN is None:
         log.error("Config file '%s': section 'dropbox' is missing 'token'")
         return False
 
-    # make settings dir 
-    dirp = get_driver_settings_dir(config_path, 'dropbox')
-    try:
-        if not os.path.exists(dirp):
-            os.makedirs(dirp)
-            os.chmod(dirp, 0700)
-    except Exception as e:
-        if DEBUG:
-            log.exception(e)
+    # set up driver 
+    DVCONF = driver_config("dropbox", config_path, dropbox_get_chunk, dropbox_put_chunk, dropbox_delete_chunk, driver_info={'dropbox_token': DROPBOX_TOKEN}, index_stem=INDEX_DIRNAME, compress=compress)
+    if index:
+        # instantiate the index 
+        url = index_setup(DVCONF, force=force_index)
+        if not url:
+            log.error("Failed to set up index")
+            return False
 
-        log.error("Failed to create settings dir {}".format(dirp))
-        return False
-
-    CONFIG_PATH = config_path
     return True
 
 
@@ -503,7 +194,7 @@ def handles_url( url ):
         return False
 
     urlparts = urlparse.urlparse(url)
-    return urlparts.netlock.endswith(".dropbox.com")
+    return urlparts.netloc.endswith(".dropbox.com")
     
 
 def make_mutable_url( data_id ):
@@ -523,66 +214,87 @@ def get_immutable_handler( key, **kw ):
     """
     Get data by hash
     """
+    blockchain_id = kw.get('fqu', None)
+    index_manifest_url = kw.get('index_manifest_url', None)
+    
     name = 'immutable-{}'.format(key)
     name = name.replace('/', r'-2f')
-    return get_chunk('https://www.dropbox.com/blockstack/{}'.format(name), kw.get('fqu'), index_manifest_url=kw.get('index_manifest_url'))
+   
+    path = '/{}'.format(name)
+    return get_indexed_data(DVCONF, blockchain_id, path, index_manifest_url=index_manifest_url)
 
 
 def get_mutable_handler( url, **kw ):
     """
     Get data by URL
     """
-    return get_chunk(url, kw.get('fqu'), index_manifest_url=kw.get('index_manifest_url'))
+    blockchain_id = kw.get('fqu', None)
+    index_manifest_url = kw.get('index_manifest_url', None)
+
+    urltype, urlres = get_url_type(url)
+    if urltype is None and urlres is None:
+        log.error("Invalid URL {}".format(url))
+        return None
+
+    if urltype == 'blockstack':
+        # get via index
+        urlres = urlres.replace('/', r'-2f')
+        path = '/{}'.format(urlres)
+        return get_indexed_data(DVCONF, blockchain_id, path, index_manifest_url=index_manifest_url)
+
+    else:
+        # raw dropbox url 
+        return http_get_data(DVCONF, url)
 
 
 def put_immutable_handler( key, data, txid, **kw ):
     """
     Put data by hash and txid
     """
-    global DROPBOX_TOKEN
-    assert DROPBOX_TOKEN
-    dbx = dropbox.Dropbox(DROPBOX_TOKEN)
-
+    global DVCONF
     name = 'immutable-{}'.format(key)
     name = name.replace('/', r'-2f')
 
     path = '/{}'.format(name)
-    return put_chunk(dbx, path, data)
+    return put_indexed_data(DVCONF, path, data)
 
 
 def put_mutable_handler( data_id, data_bin, **kw ):
     """
     Put data by file ID
     """
-    global DROPBOX_TOKEN
-    assert DROPBOX_TOKEN
-    dbx = dropbox.Dropbox(DROPBOX_TOKEN)
-    
+    global DVCONF
+
     data_id = data_id.replace('/', r'-2f')
     path = '/{}'.format(data_id)
 
-    return put_chunk(dbx, path, data_bin)
+    return put_indexed_data(DVCONF, path, data_bin)
 
 
 def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
     """
     Delete by hash
     """
-    global DROPBOX_TOKEN
-    assert DROPBOX_TOKEN
-    dbx = dropbox.Dropbox(DROPBOX_TOKEN)
-    return delete_chunk(dbx, "immutable-{}".format(key))
+    global DVCONF
+    
+    name = 'immutable-{}'.format(key)
+    name = name.replace('/', r'-2f')
+    path = '/{}'.format(name)
+
+    return delete_indexed_data(DVCONF, path)
 
 
 def delete_mutable_handler( data_id, signature, **kw ):
     """
     Delete by data ID
     """
-    global DROPBOX_TOKEN
-    assert DROPBOX_TOKEN
-    dbx = dropbox.Dropbox(DROPBOX_TOKEN)
-    return delete_chunk(dbx, data_id.format(data_id))
+    global DVCONF
     
+    data_id = data_id.replace('/', r'-2f')
+    path = '/{}'.format(data_id)
+
+    return delete_indexed_data(DVCONF, path)
+
 
 if __name__ == "__main__":
      
@@ -625,7 +337,7 @@ if __name__ == "__main__":
    if not rc:
       raise Exception("Failed to initialize")
   
-   index_manifest_url = index_setup()
+   index_manifest_url = index_setup(DVCONF)
    assert index_manifest_url
 
    if len(sys.argv) > 1:
@@ -679,7 +391,7 @@ if __name__ == "__main__":
       print "get {}".format(hash_data(d))
       rd = get_immutable_handler( hash_data( d ), index_manifest_url=index_manifest_url, fqu='test.id' )
       if rd != d:
-         raise Exception("get_mutable_handler('%s'): '%s' != '%s'" % (hash_data(d), d, rd))
+         raise Exception("get_immutable_handler('%s'): '%s' != '%s'" % (hash_data(d), d, rd))
       
    # get_mutable_handler
    print "get_mutable_handler"

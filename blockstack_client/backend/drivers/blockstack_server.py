@@ -211,7 +211,7 @@ def put_data( data_id, data_txt, zonefile=False, fqu=None, profile=False ):
         return False
 
 
-def storage_init(conf):
+def storage_init(conf, **kw):
     # read config options from the config file, if given 
     global SERVER_NAME, SERVER_PORT
 
