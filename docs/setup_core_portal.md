@@ -1,9 +1,9 @@
 # Install Script
 
-We provide a (script)[../images/scripts/ubuntu-17.04.sh] which will
+We provide a [script](../images/scripts/ubuntu-17.04.sh) which will
 perform all the steps outlined in this doc, creating a virtualenv of
-core and installing portal in a subdirectory. It additionally creates some
-scripts for starting core and portal together.
+Blockstack Core and installing Portal in a subdirectory. It additionally creates some
+scripts for starting Core and Portal together.
 
 However, if you'd like to customize your install, step through it 
 yourself, or you are on a different distro, continue on with this doc!
