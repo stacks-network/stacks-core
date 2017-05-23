@@ -134,13 +134,13 @@ def load_storage(module_name):
     return storage_impl
 
 
-def register_storage(storage_impl, conf):
+def register_storage(storage_impl, conf, **driver_kw):
     """
     Register a storage implementation.
     """
     rc = storage.register_storage(storage_impl)
     if rc:
-        rc = storage_impl.storage_init(conf)
+        rc = storage_impl.storage_init(conf, **driver_kw)
 
     return rc
 
