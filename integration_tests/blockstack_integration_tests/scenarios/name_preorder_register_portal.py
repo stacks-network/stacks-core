@@ -54,10 +54,10 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "id", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    testlib.blockstack_name_preorder( "foo.id", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_preorder( "demo.id", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
-    testlib.blockstack_name_register( "foo.id", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_register( "demo.id", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
 
@@ -80,13 +80,13 @@ def check( state_engine ):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "foo.id", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
+    preorder = state_engine.get_name_preorder( "demo.id", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
     if preorder is not None:
         print "preorder exists"
         return False
     
     # registered 
-    name_rec = state_engine.get_name( "foo.id" )
+    name_rec = state_engine.get_name( "demo.id" )
     if name_rec is None:
         print "name does not exist"
         return False 
