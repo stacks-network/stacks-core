@@ -474,6 +474,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         change = 0
         if amt is None:
             # total transfer, minus tx fee
+            log.debug("No amount given; assuming all ({})".format(total_value - tx_fee))
             amt = total_value - tx_fee
             if amt < 0:
                 log.error("Dust: total value = {}, tx fee = {}".format(total_value, tx_fee))
@@ -481,6 +482,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
             
         else:
             change = virtualchain.calculate_change_amount(inputs, amt, tx_fee)
+            log.debug("Withdraw {}, tx fee {}".format(amt, tx_fee))
 
         outputs = [
             {'script': virtualchain.make_payment_script(recipient_addr),
@@ -509,6 +511,8 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
 
     if tx_only:
         return {'status': True, 'tx': tx}
+
+    log.debug("Withdraw {} from {} to {}".format(amount, send_addr, recipient_addr))
 
     res = broadcast_tx( tx, config_path=config_path )
     return res
