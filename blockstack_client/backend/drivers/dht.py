@@ -137,7 +137,7 @@ def dht_put_data(data_key, data_value):
 # Begin plugin implementation
 # ---------------------------------------------------------
 
-def storage_init(conf):
+def storage_init(conf, **kw):
     """
     DHT implementation of the storage_init API call.
     Given the blockstack API proxy, set up any persistent state.

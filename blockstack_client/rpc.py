@@ -47,6 +47,7 @@ import platform
 import shutil
 from jsonschema import ValidationError
 from schemas import *
+import client as bsk_client
 
 import keylib
 from keylib import *
@@ -439,6 +440,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         session_lifetime = DEFAULT_SESSION_LIFETIME
         app_public_key = str(decoded_token['payload']['app_public_key'])
         blockchain_ids = decoded_token['payload'].get('blockchain_ids', None)
+
+        log.debug("app_public_key: {}".format(app_public_key))
 
         # it needs to be at least self-signed
         # TODO: non-reusable public keys?
@@ -979,7 +982,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 500 on failure to fetch data
         """
         internal = self.server.get_internal_proxy()
-        resp = internal.cli_get_name_zonefile(name, "true")
+        resp = internal.cli_get_name_zonefile(name, "true", raw=False)
         if json_is_error(resp):
             self._reply_json({"error": resp['error']}, status_code=500)
             return
@@ -1167,11 +1170,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         blockchain_id is usually a necessary query argument
         """
-        
+       
+        '''
         if datastore_id != ses['app_user_id']:
             log.debug("Invalid datastore ID: {} != {}".format(datastore_id, ses['app_user_id']))
             return self._reply_json({'error': 'Invalid datastore ID'}, status_code=403)
-    
+        '''
+
         device_ids = '' 
         if path_info['qs_values'].has_key('device_ids'):
             device_ids = path_info['qs_values']['device_ids']
@@ -1222,11 +1227,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
          
         res = data.verify_datastore_info( datastore_info, sigs_info, datastore_pubkey_hex )
         if not res:
+            log.debug("Failed to verify datastore signature with {}".format(datastore_pubkey_hex))
             return self._reply_json({'error': 'Unable to verify datastore info with {}'.format(datastore_pubkey_hex)}, status_code=403)
 
         res = data.put_datastore_info( datastore_info, sigs_info, root_tombstones, config_path=self.server.config_path )
         if 'error' in res:
-            return self._reply_json({'error': 'Failed to store datastore info'})
+            return self._reply_json({'error': 'Failed to store datastore info'}, status_code=503)
 
         return self._reply_json({'status': True})
 
@@ -1332,8 +1338,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 500 if we fail to load the datastore record for some other reason than the above
         Reply 503 on failure to load data from storage providers
         """
+        '''
         if datastore_id != ses['app_user_id']:
-            return self._reply_json({'error': 'Invalid user', 'errno': errno.EINVAL}, status=403)
+            return self._reply_json({'error': 'Invalid user', 'errno': errno.EINVAL}, status_code=403)
+        '''
 
         if inode_type not in ['files', 'directories', 'inodes']:
             self._reply_json({'error': 'Invalid request', 'errno': errno.EINVAL}, status_code=401)
@@ -2234,6 +2242,61 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
+    def POST_node_driver_init(self, ses, path_info):
+        """
+        DANGEROUS
+
+        Initialize a storage driver explicitly, including instantiating its index.
+        qs values:
+        * driver (str): the name of the driver
+        * index (0, 1): set up the index as well as the driver
+        * force (0, 1): (DANGEROUS) forcibly set up the index, even if it appears to already exist
+
+        Reply 200 on success, with the index manifest URL
+        Reply 401 if the driver is invalid
+        Reply 500 if the driver fails to initialize
+        """
+        qs_values = path_info['qs_values']
+        driver_name = qs_values.get('driver', '')
+        instantiate_index = qs_values.get('index', '0')
+        force_instantiate_index = qs_values.get('force', '0')
+
+        if len(driver_name) == 0:
+            return self._reply_json({'error': 'Missing driver name'}, status_code=401)
+
+        instantiate_index = (instantiate_index == '1')
+        force_instantiate_index = (force_instantiate_index == '1')
+        
+        # TODO: don't load just anything...
+        driver_mod = bsk_client.load_storage(driver_name)
+        if driver_mod is None:
+            return self._reply_json({'error': 'Invalid driver'}, status_code=401)
+
+        conf = None
+        try:
+            conf = blockstack_config.read_config_file(config_path=self.server.config_path)
+            assert conf
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            return self._reply_json({'error': 'Failed to read config file'}, status_code=500)
+        
+        # instantiate...
+        try:
+            res = bsk_client.register_storage(driver_mod, conf, index=instantiate_index, force_index=force_instantiate_index)
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            return self._reply_json({'error': 'Driver failed to initialize'}, status_code=500)
+
+        if not res:
+            return self._reply_json({'error': 'Driver failed to initialize'}, status_code=500)
+
+        return self._reply_json({'status': True}, status_code=200)
+    
+
     def GET_blockchain_ops( self, ses, path_info, blockchain_name, blockheight ):
         """
         Get the name's historic name operations
@@ -2987,6 +3050,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
+            r'^/v1/node/drivers$'.format(URLENCODING_CLASS): {
+                'routes': {
+                    'POST': self.POST_node_driver_init,
+                },
+                'whitelist': {
+                    'POST': {
+                        'name': '',
+                        'desc': 'Initialize a driver',
+                        'auth_session': False,
+                        'auth_pass': True,
+                        'need_data_key': False,
+                    },
+                },
+            },
             r'^/v1/prices/namespaces/({})$'.format(NAMESPACE_CLASS): {
                 'routes': {
                     'GET': self.GET_prices_namespace,
@@ -3321,9 +3398,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
             # is this method allowed?
             if whitelist_info['name'] not in allowed_methods:
-                # this method is not allowed
-                log.info("Unauthorized method call to {}".format(path_info['path']))
-                return self._send_headers(status_code=403, content_type='text/plain')
+                if os.environ.get("BLOCKSTACK_TEST_NOAUTH_SESSION") != '1':
+                    # this method is not allowed
+                    log.info("Unauthorized method call to {}".format(path_info['path']))
+                    return self._send_headers(status_code=403, content_type='text/plain')
+
+                else:
+                    log.warning("No-session-authentication environment variable set; skipping...")
 
             authorized = True
             log.debug("Authenticated with session")

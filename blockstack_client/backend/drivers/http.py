@@ -26,7 +26,7 @@ from common import get_logger
 
 log = get_logger("blockstack-storage-drivers-http")
 
-def storage_init(conf):
+def storage_init(conf, **kw):
     return True
 
 def handles_url( url ):

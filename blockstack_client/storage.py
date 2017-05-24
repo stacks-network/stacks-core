@@ -735,6 +735,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
 
             try:
                 new_url = storage_handler.make_mutable_url(fq_data_id)
+                log.debug("{} available at {}".format(fq_data_id, new_url))
             except Exception as e:
                 log.exception(e)
                 continue
@@ -754,6 +755,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
                     continue
 
                 if storage_handler.handles_url(url):
+                    log.debug("{} supports URL {}".format(storage_handler.__name__, url))
                     try_urls.append(url)
 
         for url in try_urls:

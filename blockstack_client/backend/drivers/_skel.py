@@ -143,17 +143,28 @@ are divided as follows:
 
 import os
 import logging
-from common import get_logger, DEBUG
+from common import *
 from ConfigParser import SafeConfigParser
 
 log = get_logger("blockstack-storage-skel")
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
-def storage_init(conf):
+def storage_init(conf, **kwargs):
    """
    This method initializes the storage driver.
    It may be called multiple times, so if you need idempotency,
    you'll need to implement it yourself.
+
+   kwargs can include:
+   * index (True/False): whether or not to instantiate a storage index.  This is useful
+   for systems like Dropbox where you cannot construct a URL to a piece of data, given
+   the data name (i.e. Dropbox has to do it for you).  If you are making a driver for
+   such a storage system, you should honor this flag by calling `driver_config()` to make
+   a driver configuration structure for the index, and then call `index_setup()` to create
+   the index (defined in .common.py).
+   * force_index (True/False): If True, then the driver should call `index_setup()`
+   even if the index already exists.  THIS SHOULD ERASE THE EXISTING INDEX.  If this flag
+   is given, then this is the desired effect.
 
    Return True on successful initialization
    Return False on error.
@@ -174,6 +185,20 @@ def storage_init(conf):
        # TODO load config here
 
    # TODO do initialization here
+   # example of driver_config() and index_setup:
+   #
+   # dvconf = driver_config(
+   #        "name of your driver",
+   #        "path to the config file (i.e. conf['path'])"
+   #        callable to load a chunk of data via this driver (takes driver config and chunk ID as arguments and returns the data),
+   #        callable to store a chunk of data via this driver (takes the driver config, chunk ID, and chunk data and returns the URL),
+   #        callable to delete a chunk of data via this driver (takes the driver config and chunk ID and returns True/False),
+   #        driver_info={a dict of driver-specific information, like API keys},
+   #        index_stem="the prefix for all index-related metadata, like "/blockstack/index' or similar",
+   #        compress=True/False
+   # )
+   # 
+   # index_setup(dvconf, force=force_index)
    return True 
 
 
@@ -226,7 +251,8 @@ def get_immutable_handler( data_hash, **kw ):
    make_mutable_url().
 
    **kw contains hints from Blockstack about the nature of the request.
-   TODO: document them here.
+   Including:
+   * fqu (string): the fully-qualified username (i.e. the blockchain ID)
 
    Returns the data on success.  It must hash to data_hash (sha256)
    Returns None on error.  Does not raise an exception.
@@ -241,7 +267,8 @@ def get_mutable_handler( url, **kw ):
    make_mutable_url().
 
    **kw contains hints from Blockstack about the nature of the request.
-   TODO: document them here.
+   Including:
+   * fqu (string): the fully-qualified username (i.e. the blockchain ID)
 
    Drivers are encouraged but not required to implement this method.
 
@@ -266,7 +293,9 @@ def put_immutable_handler( data_hash, data_txt, txid, **kw ):
    data hash returns the given data here.
 
    **kw contains hints from Blockstack about the nature of the request.
-   TODO: document these.
+   Including:
+   * fqu (string): the fully-qualified username (i.e. the blockchain ID)
+   * zonefile (True/False): whether or not this is a zone file hash
 
    Drivers are encouraged but not required to implement this method.
    Read-only data sources like HTTP servers would not implement this
@@ -304,7 +333,10 @@ def put_mutable_handler( data_id, data_txt, **kw ):
 
    The data_txt argument is the data itself (as a string).
    **kw contains hints from the Blockstack implementation.
-   TODO: document these.
+   Including:
+   * fqu (string): the fully-qualified username (i.e. the blockchain ID)
+   * zonefile (True/False): whether or not this is a zone file being stored
+   * profile (True/False): whether or not this is a profile being stored
 
    Returns True on successful store
    Returns False on error.  Does not raise an exception
@@ -331,8 +363,11 @@ def delete_immutable_handler( data_hash, txid, tombstone, **kw ):
    guarantees may find it useful in order to NACK outstanding
    writes.
 
+   You can use blockstack_client.storage.parse_data_tombstone() to parse a tombstone.
+
    **kw are hints from Blockstack to the driver.
-   TODO: document these
+   Including:
+   * fqu (string): the fully-qualified username (i.e. the blockchain ID)
 
    Returns True on successful deletion
    Returns False on failure.  Does not raise an exception.
@@ -354,8 +389,11 @@ def delete_mutable_handler( data_id, tombstone, **kw ):
    ignore this; it's meant for use with storage systems with
    weak consistency guarantees.
 
+   You can use blockstack_client.storage.parse_data_tombstone() to parse a tombstone.
+
    **kw are hints from Blockstack to the driver.
-   TODO: document these
+   Including:
+   * fqu (string): the fully-qualified username (i.e. the blockchain ID)
 
    Returns True on successful deletion
    Returns False on failure.  Does not raise an exception.

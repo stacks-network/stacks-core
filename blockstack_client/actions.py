@@ -477,6 +477,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         change = 0
         if amt is None:
             # total transfer, minus tx fee
+            log.debug("No amount given; assuming all ({})".format(total_value - tx_fee))
             amt = total_value - tx_fee
             if amt < 0:
                 log.error("Dust: total value = {}, tx fee = {}".format(total_value, tx_fee))
@@ -484,6 +485,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
             
         else:
             change = virtualchain.calculate_change_amount(inputs, amt, tx_fee)
+            log.debug("Withdraw {}, tx fee {}".format(amt, tx_fee))
 
         outputs = [
             {'script': virtualchain.make_payment_script(recipient_addr),
@@ -512,6 +514,10 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
 
     if tx_only:
         return {'status': True, 'tx': tx}
+    
+    log.debug("Withdraw {} from {} to {}".format(amount, send_addr, recipient_addr))
+
+    log.debug("Withdraw {} from {} to {}".format(amount, send_addr, recipient_addr))
 
     res = broadcast_tx( tx, config_path=config_path )
     if 'error' in res:
@@ -3653,13 +3659,15 @@ def cli_lookup_snv(args, config_path=CONFIG_PATH):
     return result
 
 
-def cli_get_name_zonefile(args, config_path=CONFIG_PATH):
+def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True):
     """
-    command: get_name_zonefile advanced
+    command: get_name_zonefile advanced raw
     help: Get a name's zonefile
     arg: name (str) 'The name to query'
     opt: json (str) 'If true is given, try to parse as JSON'
     """
+    # the 'raw' kwarg is set by the API daemon to False to get back structured data
+
     parse_json = getattr(args, 'json', 'false')
     parse_json = parse_json is not None and parse_json.lower() in ['true', '1']
 
@@ -3679,8 +3687,12 @@ def cli_get_name_zonefile(args, config_path=CONFIG_PATH):
             result['zonefile'] = new_zonefile
         except:
             result['warning'] = 'Non-standard zonefile'
+    
+    if raw:
+        return result['zonefile']
 
-    return result
+    else:
+        return result
 
 
 def cli_get_names_owned_by_address(args, config_path=CONFIG_PATH):

@@ -2373,6 +2373,26 @@ def start_api(password):
 
     return {'status': True}
 
+
+def stop_api():
+    """
+    Stop API server
+    """
+    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
+    assert config_path is not None
+    
+    config_dir = os.path.dirname(config_path)
+
+    conf = blockstack_client.get_config(config_path)
+    port = int(conf['api_endpoint_port'])
+    api_pass = conf['api_password']
+
+    res = blockstack_client.rpc.local_api_stop(config_dir=config_dir)
+    if not res:
+        return {'error': 'Failed to stop API server'}
+
+    return {'status': True}
+
     
 def instantiate_wallet():
     """
@@ -2424,6 +2444,7 @@ def get_balance( addr ):
     Get the address balance
     """
     inputs = blockstack_client.backend.blockchain.get_utxos(addr)
+    log.debug("UTXOS of {} are {}".format(addr, inputs))
     return sum([inp['value'] for inp in inputs])
 
 
@@ -2944,6 +2965,7 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
 
     user_profile = None
     user_zonefile = None
+    user_zonefile_txt = None
 
     res = blockstack_cli_lookup(name, config_path=config_path)
     if 'error' in res:
@@ -2960,6 +2982,8 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
         else:
             log.debug("Will not set zone file public key")
             user_zonefile = blockstack_client.zonefile.make_empty_zonefile(name, None)
+
+        user_zonefile_txt = blockstack_zones.make_zone_file(user_zonefile)
 
     else:
         user_profile = res['profile']
@@ -3024,6 +3048,7 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
         'zonefile_hash': user_zonefile_hash,
         'transaction_hash': res['transaction_hash'],
         'zonefile': user_zonefile,
+        'zonefile_txt': user_zonefile_txt,
         'profile': user_profile
     }
 

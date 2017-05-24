@@ -363,7 +363,7 @@ def delete_mutable_handler( data_id, signature, **kw ):
     return delete_chunk(drive, data_id.format(data_id))
     
 
-def storage_init(conf):
+def storage_init(conf, **kw):
     """
     Initialize google drive storage driver
     """

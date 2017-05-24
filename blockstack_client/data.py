@@ -1418,10 +1418,12 @@ def verify_datastore_info( datastore_info, sigs, datastore_pubkey_hex, config_pa
 
     res = storage.verify_data_payload( datastore_info['datastore_blob'], datastore_pubkey_hex, sigs['datastore_sig'] )
     if not res:
+        log.debug("Failed to verify datastore blob payload with {} and {}".format(datastore_pubkey_hex, sigs['datastore_sig']))
         return False
 
     res = storage.verify_data_payload( datastore_info['root_blob_header'], datastore_pubkey_hex, sigs['root_sig'] )
     if not res:
+        log.debug("Failed to verify root inode blob payload with {} and {}".format(datastore_pubkey_hex, sigs['root_sig']))
         return False
 
     root_header_mutable_data = data_blob_parse(datastore_info['root_blob_header'])

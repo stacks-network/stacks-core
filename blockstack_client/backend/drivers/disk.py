@@ -44,7 +44,7 @@ else:
 
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
-def storage_init(conf):
+def storage_init(conf, **kw):
    """
    Local disk implementation of the storage_init API call.
    Do one-time global setup--i.e. make directories.
