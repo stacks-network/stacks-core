@@ -395,6 +395,14 @@ def check_datastore_directories_absent(datastore_id, blockchain_id):
     return True
 
 
+def setup_storage_dirs(blockchain_ids):
+    # set up storage directories
+    for blockchain_id in blockchain_ids:
+        if not os.path.exists("/tmp/blockstack-integration-test-storage-{}".format(blockchain_id)):
+            os.makedirs("/tmp/blockstack-integration-test-storage-{}/immutable".format(blockchain_id))
+            os.makedirs("/tmp/blockstack-integration-test-storage-{}/mutable".format(blockchain_id))
+
+
 def scenario( wallets, **kw ):
 
     global wallet_keys, wallet_keys_2, wallet_keychain, error, index_file_data, resource_data
@@ -429,7 +437,9 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.blockstack_name_register( "bar.test", wallets[3].privkey, wallets[4].addr )
     testlib.next_block( **kw )
-    
+   
+    setup_storage_dirs(['foo.test', 'bar.test'])
+
     # migrate profiles 
     # BUT! make sure we store the profile for foo.test into both foo.test's and bar.test's storage directories!
     os.environ['TEST_BLOCKSTACK_TEST_DISK_ROOT'] = '/tmp/blockstack-integration-test-storage-foo.test'
