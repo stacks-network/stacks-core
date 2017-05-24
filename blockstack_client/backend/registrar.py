@@ -1080,8 +1080,6 @@ def get_wallet(config_path=None, proxy=None):
     for the time that server is alive
     Return the wallet (as a JSON dict) on success
     Return {'error':...} on error
-
-    If we're testing, we will tolerate the absence of the data key.
     """
 
     state, config_path, proxy = get_registrar_state(config_path=config_path, proxy=proxy)

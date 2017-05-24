@@ -122,7 +122,7 @@ from .user import make_empty_user_profile, user_zonefile_data_pubkey
 from .tx import serialize_tx, sign_tx
 from .zonefile import make_empty_zonefile, url_to_uri_record
 
-from .utils import exit_with_error, satoshis_to_btc
+from .utils import exit_with_error, satoshis_to_btc, ScatterGather
 from .app import app_publish, app_get_config, app_get_resource, \
         app_put_resource, app_delete_resource 
 
@@ -514,6 +514,9 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         return {'status': True, 'tx': tx}
 
     res = broadcast_tx( tx, config_path=config_path )
+    if 'error' in res:
+        res['errno'] = errno.EIO
+
     return res
     
 
@@ -1467,6 +1470,9 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
             proceed = prompt_invalid_zonefile()
             if not proceed:
                 return {'error': 'Zone file not updated'}
+
+            else:
+                nonstandard = True
 
         user_data_txt = zonefile_data
         if zonefile_data is not None:
@@ -4684,7 +4690,7 @@ def create_datastore_by_type( datastore_type, datastore_privkey, drivers=None, c
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    res = rpc.backend_datastore_get(datastore_id)
+    res = rpc.backend_datastore_get(None, datastore_id)
     if 'error' not in res:
         # already exists
         log.error("Datastore exists")
@@ -4702,7 +4708,7 @@ def create_datastore_by_type( datastore_type, datastore_privkey, drivers=None, c
     return {'status': True}
 
 
-def get_datastore_by_type( datastore_type, datastore_id, config_path=CONFIG_PATH, device_ids=None ):
+def get_datastore_by_type( datastore_type, blockchain_id, datastore_id, config_path=CONFIG_PATH, device_ids=None ):
     """
     Get a datastore or collection.
     Return the datastore object on success
@@ -4712,7 +4718,7 @@ def get_datastore_by_type( datastore_type, datastore_id, config_path=CONFIG_PATH
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id, device_ids=device_ids)
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids=device_ids)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -4735,7 +4741,7 @@ def delete_datastore_by_type( datastore_type, datastore_privkey, force=False, co
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id)
+    datastore_info = rpc.backend_datastore_get(None, datastore_id)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -4751,10 +4757,10 @@ def delete_datastore_by_type( datastore_type, datastore_privkey, force=False, co
     return {'status': True}
 
 
-def datastore_file_get(datastore_type, datastore_id, path, extended=False, force=False, device_ids=None, config_path=CONFIG_PATH ):
+def datastore_file_get(datastore_type, blockchain_id, datastore_id, path, extended=False, force=False, device_ids=None, config_path=CONFIG_PATH ):
     """
     Get a file from a datastore or collection.
-    Return {'status': True, 'file': ...} on success
+    Return {'status': True, 'data': ...} on success
     Return {'error': ...} on error
     """
     # connect 
@@ -4762,7 +4768,7 @@ def datastore_file_get(datastore_type, datastore_id, path, extended=False, force
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id, device_ids=device_ids)
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids=device_ids)
     if 'error' in datastore_info:
         if 'errno' not in datastore_info:
             datastore_info['errno'] = errno.EPERM
@@ -4773,7 +4779,7 @@ def datastore_file_get(datastore_type, datastore_id, path, extended=False, force
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_getfile( rpc, datastore, path, extended=extended, force=force, config_path=config_path )
+    res = datastore_getfile( rpc, blockchain_id, datastore, path, extended=extended, force=force, config_path=config_path )
     return res
 
 
@@ -4802,7 +4808,7 @@ def datastore_file_put(datastore_type, datastore_privkey, path, data, create=Fal
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id, device_ids=device_ids)
+    datastore_info = rpc.backend_datastore_get(None, datastore_id, device_ids=device_ids)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -4817,7 +4823,7 @@ def datastore_file_put(datastore_type, datastore_privkey, path, data, create=Fal
     return res
 
 
-def datastore_dir_list(datastore_type, datastore_id, path, extended=False, force=False, device_ids=None, config_path=CONFIG_PATH ):
+def datastore_dir_list(datastore_type, blockchain_id, datastore_id, path, extended=False, force=False, device_ids=None, config_path=CONFIG_PATH ):
     """
     List a directory in a datastore or collection
     Return {'status': True, 'dir': ...} on success
@@ -4829,7 +4835,7 @@ def datastore_dir_list(datastore_type, datastore_id, path, extended=False, force
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id, device_ids=device_ids)
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids=device_ids)
     if 'error' in datastore_info:
         if 'errno' not in datastore_info:
             datastore_info['errno'] = errno.EPERM
@@ -4845,11 +4851,11 @@ def datastore_dir_list(datastore_type, datastore_id, path, extended=False, force
         if path != '/':
             return {'error': 'Invalid argument: collections do not have directories', 'errno': errno.EINVAL}
 
-    res = datastore_listdir( rpc, datastore, path, extended=extended, force=force, config_path=config_path )
+    res = datastore_listdir( rpc, blockchain_id, datastore, path, extended=extended, force=force, config_path=config_path )
     return res
 
 
-def datastore_path_stat(datastore_type, datastore_id, path, extended=False, force=False, idata=False, device_ids=None, config_path=CONFIG_PATH ):
+def datastore_path_stat(datastore_type, blockchain_id, datastore_id, path, extended=False, force=False, device_ids=None, config_path=CONFIG_PATH ):
     """
     Stat a path in a datastore or collection
     Return {'status': True, 'inode': ...} on success
@@ -4860,7 +4866,7 @@ def datastore_path_stat(datastore_type, datastore_id, path, extended=False, forc
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id, device_ids=device_ids)
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids=device_ids)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -4868,11 +4874,11 @@ def datastore_path_stat(datastore_type, datastore_id, path, extended=False, forc
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_stat( rpc, datastore, path, extended=extended, force=force, idata=idata, config_path=config_path )
+    res = datastore_stat( rpc, blockchain_id, datastore, path, extended=extended, force=force, config_path=config_path )
     return res
 
 
-def datastore_inode_getinode(datastore_type, datastore_id, inode_uuid, extended=False, force=False, idata=False, device_ids=None, config_path=CONFIG_PATH ):
+def datastore_inode_getinode(datastore_type, blockchain_id, datastore_id, inode_uuid, extended=False, force=False, idata=False, device_ids=None, config_path=CONFIG_PATH ):
     """
     Get an inode in a datastore or collection
     Return {'status': True, 'inode': ...} on success
@@ -4883,7 +4889,7 @@ def datastore_inode_getinode(datastore_type, datastore_id, inode_uuid, extended=
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id, device_ids=device_ids)
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids=device_ids)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -4891,7 +4897,7 @@ def datastore_inode_getinode(datastore_type, datastore_id, inode_uuid, extended=
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_getinode( rpc, datastore, inode_uuid, extended=False, force=force, idata=idata, config_path=config_path )
+    res = datastore_getinode( rpc, blockchain_id, datastore, inode_uuid, extended=False, force=force, idata=idata, config_path=config_path )
     return res
 
 
@@ -4899,15 +4905,22 @@ def cli_get_datastore( args, config_path=CONFIG_PATH ):
     """
     command: get_datastore advanced
     help: Get a datastore record
+    arg: blockchain_id (str) 'The ID of the owner' 
     arg: datastore_id (str) 'The application datastore ID'
     opt: device_ids (str) 'The CSV of device IDs to consider'
     """
-    datastore_id = str(args.datastore_id)    
+    blockchain_id = getattr(args, 'blockchain_id', '')
+    if len(blockchain_id) == 0:
+        blockchain_id = None
+    else:
+        blockchain_id = str(blockchain_id)
+
+    datastore_id = str(args.datastore_id)
     device_ids = []
     if hasattr(args, 'device_ids') and args.device_ids:
         device_ids = args.device_ids.split(',')
 
-    return get_datastore_by_type('datastore', datastore_id, device_ids=device_ids, config_path=config_path )
+    return get_datastore_by_type('datastore', blockchain_id, datastore_id, device_ids=device_ids, config_path=config_path )
 
 
 def cli_create_datastore( args, config_path=CONFIG_PATH ):
@@ -4960,7 +4973,7 @@ def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False ):
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id)
+    datastore_info = rpc.backend_datastore_get(None, datastore_id)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -4998,7 +5011,7 @@ def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False ):
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id)
+    datastore_info = rpc.backend_datastore_get(None, datastore_id)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -5028,7 +5041,7 @@ def cli_datastore_rmtree( args, config_path=CONFIG_PATH, interactive=False ):
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id)
+    datastore_info = rpc.backend_datastore_get(None, datastore_id)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -5041,8 +5054,9 @@ def cli_datastore_rmtree( args, config_path=CONFIG_PATH, interactive=False ):
 
 def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False ):
     """
-    command: datastore_getfile advanced
+    command: datastore_getfile advanced raw
     help: Get a file from a datastore.
+    arg: blockchain_id (str) 'The ID of the datastore owner'
     arg: datastore_id (str) 'The ID of the application datastore'
     arg: path (str) 'The path to the file to load'
     opt: extended (str) 'If True, then include the full inode and parent information as well.'
@@ -5050,6 +5064,12 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False ):
     opt: device_ids (str) 'CSV of device IDs, if different from what is loaded'
     """
 
+    blockchain_id = getattr(args, 'blockchain_id', '')
+    if len(blockchain_id) == 0:
+        blockchain_id = None
+    else:
+        blockchain_id = str(blockchain_id)
+
     datastore_id = str(args.datastore_id)
     path = str(args.path)
     extended = False
@@ -5065,13 +5085,22 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False ):
     if hasattr(args, 'device_ids') and args.device_ids:
         device_ids = args.device_ids.split(',')
 
-    return datastore_file_get('datastore', datastore_id, path, extended=extended, force=force, device_ids=device_ids, config_path=config_path)
+    res = datastore_file_get('datastore', blockchain_id, datastore_id, path, extended=extended, force=force, device_ids=device_ids, config_path=config_path)
+    if json_is_error(res):
+        return res
+
+    if not extended:
+        # just the data
+        return res['data']
+
+    return res
 
 
 def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: datastore_listdir advanced
     help: List a directory in the datastore.
+    arg: blockchain_id (str) 'The ID of the datastore owner'
     arg: datastore_id (str) 'The ID of the application datastore'
     arg: path (str) 'The path to the directory to list'
     opt: extended (str) 'If True, then include the full inode and parent information as well.'
@@ -5079,6 +5108,12 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
     opt: device_ids (str) 'CSV of device IDs, if different from what is loaded'
     """
 
+    blockchain_id = getattr(args, 'blockchain_id', '')
+    if len(blockchain_id) == 0:
+        blockchain_id = None
+    else:
+        blockchain_id = str(blockchain_id)
+
     datastore_id = str(args.datastore_id)
     path = str(args.path)
     extended = False
@@ -5094,27 +5129,39 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
     if hasattr(args, 'device_ids') and args.device_ids:
         device_ids = args.device_ids.split(',')
 
-    return datastore_dir_list('datastore', datastore_id, path, extended=extended, force=force, device_ids=device_ids, config_path=config_path )
+    res = datastore_dir_list('datastore', blockchain_id, datastore_id, path, extended=extended, force=force, device_ids=device_ids, config_path=config_path )
+    if json_is_error(res):
+        return res
+
+    if not extended:
+        return res['data']
+
+    return res
 
 
 def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: datastore_stat advanced
     help: Stat a file or directory in the datastore
+    arg: blockchain_id (str) 'The ID of the datastore owner'
     arg: datastore_id (str) 'The datastore ID'
     arg: path (str) 'The path to the file or directory to stat'
     opt: extended (str) 'If True, then include the path information as well'
-    opt: idata (str) 'If True, then include the inode data as well'
     opt: force (str) 'If True, then tolerate stale inode data.'
     opt: device_ids (str) 'CSV of device IDs, if different from what is loaded'
     """
+
+    blockchain_id = getattr(args, 'blockchain_id', '')
+    if len(blockchain_id) == 0:
+        blockchain_id = None
+    else:
+        blockchain_id = str(blockchain_id)
 
     path = str(args.path)
     datastore_id = str(args.datastore_id)
     path = str(args.path)
     extended = False
     force = False
-    idata = False
     device_ids = None
 
     if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
@@ -5123,19 +5170,24 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
 
-    if hasattr(args, 'idata') and args.idata.lower() in ['1', 'true']:
-        idata = True
-
     if hasattr(args, 'device_ids') and args.device_ids:
         device_ids = args.device_ids.split(',')
 
-    return datastore_path_stat('datastore', datastore_id, path, extended=extended, force=force, idata=idata, device_ids=device_ids, config_path=config_path) 
+    res = datastore_path_stat('datastore', blockchain_id, datastore_id, path, extended=extended, force=force, device_ids=device_ids, config_path=config_path) 
+    if json_is_error(res):
+        return res
+
+    if not extended:
+        return res['data']
+
+    return res
 
 
 def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
     """
     command: datastore_getinode advanced
     help: Get a raw inode from a datastore
+    arg: blockchain_id (str) 'The ID of the datastore owner'
     arg: datastore_id (str) 'The ID of the application user'
     arg: inode_uuid (str) 'The inode UUID'
     opt: extended (str) 'If True, then include the path information as well'
@@ -5143,6 +5195,12 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
     opt: force (str) 'If True, then tolerate stale inode data.'
     opt: device_ids (str) 'CSV of device IDs, if different from what is loaded'
     """
+
+    blockchain_id = getattr(args, 'blockchain_id', '')
+    if len(blockchain_id) == 0:
+        blockchain_id = None
+    else:
+        blockchain_id = str(blockchain_id)
 
     datastore_id = str(args.datastore_id)
     inode_uuid = str(args.inode_uuid)
@@ -5164,7 +5222,7 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
     if hasattr(args, 'device_ids') and args.device_ids:
         device_ids = device_ids.split(',')
 
-    return datastore_inode_getinode('datastore', datastore_id, inode_uuid, extended=extended, force=force, idata=idata, device_ids=device_ids, config_path=config_path) 
+    return datastore_inode_getinode('datastore', blockchain_id, datastore_id, inode_uuid, extended=extended, force=force, idata=idata, device_ids=device_ids, config_path=config_path) 
 
 
 def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, force_data=False ):
@@ -5217,7 +5275,7 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False ):
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(datastore_id, device_ids=device_ids)
+    datastore_info = rpc.backend_datastore_get(None, datastore_id, device_ids=device_ids)
     if 'error' in datastore_info:
         datastore_info['errno'] = errno.EPERM
         return datastore_info
@@ -5256,10 +5314,11 @@ def cli_get_collection( args, config_path=CONFIG_PATH, proxy=None, password=None
     """
     command: get_collection advanced
     help: Get a collection record
+    arg: blockchain_id (str) 'The ID of the owner'
     arg: collection_name (str) 'The name of the collection'
     """
     collection_domain = str(args.collection_name)
-    return get_datastore_by_type('collection', collection_domain, config_path=config_path )
+    return get_datastore_by_type('collection', blockchain_id, collection_domain, config_path=config_path )
 
 
 def cli_create_collection( args, config_path=CONFIG_PATH, proxy=None, password=None, master_data_privkey=None ):
@@ -5299,6 +5358,7 @@ def cli_collection_listitems(args, config_path=CONFIG_PATH, password=None, inter
     """
     command: collection_items advanced
     help: List the contents of a collection
+    arg: blockchain_id (str) 'The ID of the collection owner'
     arg: collection_domain (str) 'The domain of this collection'
     arg: path (str) 'The path to the directory to list'
     """
@@ -5308,10 +5368,16 @@ def cli_collection_listitems(args, config_path=CONFIG_PATH, password=None, inter
 
     password = get_default_password(password)
 
+    blockchain_id = getattr(args, 'blockchain_id', '')
+    if len(blockchain_id) == 0:
+        blockchain_id = None
+    else:
+        blockchain_id = str(blockchain_id)
+
     collection_domain = str(args.collection_domain)
     path = str(args.path)
 
-    res = datastore_dir_list('collection', collection_domain, '/', config_path=config_path, proxy=proxy)
+    res = datastore_dir_list('collection', blockchain_id, collection_domain, '/', config_path=config_path, proxy=proxy)
     if 'error' in res:
         return res
 
@@ -5329,6 +5395,7 @@ def cli_collection_statitem(args, config_path=CONFIG_PATH, interactive=False, pr
     """
     command: collection_statitem advanced
     help: Stat an item in a collection
+    arg: blockchain_id (str) 'The ID of the collection owner'
     arg: collection_id (str) 'The ID of this collection'
     arg: item_id (str) 'The name of the item to stat'
     """
@@ -5338,10 +5405,16 @@ def cli_collection_statitem(args, config_path=CONFIG_PATH, interactive=False, pr
 
     password = get_default_password(password)
 
+    blockchain_id = getattr(args, 'blockchain_id', '')
+    if len(blockchain_id) == 0:
+        blockchain_id = None
+    else:
+        blockchain_id = str(blockchain_id)
+
     collection_id = str(args.collection_id)
     item_id = str(args.item_id)
 
-    return datastore_path_stat('collection', collection_id, '/{}'.format(item_id), proxy=proxy, config_path=config_path)
+    return datastore_path_stat('collection', blockchain_id, collection_id, '/{}'.format(item_id), proxy=proxy, config_path=config_path)
 
 
 def cli_collection_putitem(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, force_data=False, master_data_privkey=None ):
@@ -5374,6 +5447,7 @@ def cli_collection_getitem( args, config_path=CONFIG_PATH, interactive=False, pa
     """
     command: collection_getitem advanced
     help: Get an item from a collection.
+    arg: blockchain_id (str) 'The ID of the datastore owner'
     arg: collection_domain (str) 'The domain of this collection'
     arg: item_id (str) 'The item to fetch'
     """
@@ -5384,10 +5458,16 @@ def cli_collection_getitem( args, config_path=CONFIG_PATH, interactive=False, pa
     password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
+    blockchain_id = getattr(args, 'blockchain_id', '')
+    if len(blockchain_id) == 0:
+        blockchain_id = None
+    else:
+        blockchain_id = str(blockchain_id)
+    
     collection_domain = str(args.collection_domain)
     item_id = str(args.item_id)
 
-    return datastore_file_get('collection', collection_domain, '/{}'.format(item_id), password=password, config_path=config_path, proxy=proxy)
+    return datastore_file_get('collection', blockchain_id, collection_domain, '/{}'.format(item_id), password=password, config_path=config_path, proxy=proxy)
 
 
 def cli_start_server( args, config_path=CONFIG_PATH, interactive=False ):

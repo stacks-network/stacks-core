@@ -33,7 +33,7 @@ import time
 
 import onedrivesdk
 from onedrivesdk.helpers import GetAuthCodeServer
-from common import get_driver_settings_dir, DEBUG, get_logger, compress_chunk, decompress_chunk
+from common import get_driver_settings_dir, DEBUG, get_logger, compress_chunk, decompress_chunk, setup_scratch_space, make_scratch_file
 
 from ConfigParser import SafeConfigParser
 
@@ -145,16 +145,6 @@ def get_chunk_via_http(url):
         return None
 
 
-def make_scratch_file():
-    """
-    Make a scratch file at a given path.
-    Return the path
-    """
-    scratch_fd, scratch_path = tempfile.mkstemp(dir=DOWNLOAD_SCRATCH_SPACE)
-    os.close(scratch_fd)
-    return scratch_path
-
-
 def get_chunk_via_onedrive(drive, data_id):
     """
     Get data via Onedrive's API
@@ -173,7 +163,7 @@ def get_chunk_via_onedrive(drive, data_id):
 
         ONEDRIVE_FOLDER_ID = fid
     
-    scratch_path = make_scratch_file()
+    scratch_path = make_scratch_file(DOWNLOAD_SCRATCH_SPACE)
 
     try:
         drive.item(drive='me', id=ONEDRIVE_FOLDER_ID).children[data_id].download(scratch_path)
@@ -245,7 +235,9 @@ def put_chunk( drive, name, chunk_buf ):
     Return True on success
     Return False on error
     """
-    global ONEDRIVE_FOLDER_ID
+    global ONEDRIVE_FOLDER_ID, DOWNLOAD_SCRATCH_SPACE
+    assert DOWNLOAD_SCRATCH_SPACE
+
     if ONEDRIVE_COMPRESS:
         compressed_chunk = compress_chunk(chunk_buf)
     else:
@@ -264,7 +256,7 @@ def put_chunk( drive, name, chunk_buf ):
 
         fid = ONEDRIVE_FOLDER_ID
    
-    scratch_path = make_scratch_file()
+    scratch_path = make_scratch_file(DOWNLOAD_SCRATCH_SPACE)
     with open(scratch_path, 'w') as f:
         f.write(chunk_buf)
 
@@ -413,40 +405,6 @@ def delete_mutable_handler( data_id, signature, **kw ):
     """
     drive = get_onedrive_handle()
     return delete_chunk(drive, data_id.format(data_id))
-
-
-def setup_scratch_space(scratch_dir):
-    """
-    Set up download scratch space
-    Return True on success
-    Return False on error
-    """
-    if not os.path.exists(scratch_dir):
-        try:
-            os.makedirs(scratch_dir)
-            os.chmod(scratch_dir, 0700)
-        except Exception as e:
-            if DEBUG:
-                log.exception(e)
-
-            log.error("Failed to create scratch directory")
-            return False
-
-    else:
-        # make sure we have the right mode 
-        sb = os.stat(scratch_dir)
-        if sb.st_mode != 0700:
-            os.chmod(scratch_dir, 0700)
-
-        # clear it out
-        for name in os.listdir(scratch_dir):
-            fp = os.path.join(scratch_dir, name)
-            try:
-                os.unlink(fp)
-            except:
-                pass
-
-    return True
 
 
 def storage_init(conf):
