@@ -38,13 +38,23 @@ if os.environ.get("BLOCKSTACK_DEBUG", None) is not None:
 else:
     DEBUG = False
 
+INDEX_VERSION_STRING = '1'
 
 INDEX_PAGE_SCHEMA = {
     'type': 'object',
-    'patternProperties': {
-        r'^([a-zA-Z0-9\-_.~%/]+)$': {
+    'properties': {
+        'version': {
             'type': 'string',
-            'pattern': r'^([a-z0-9+]+://[a-zA-Z0-9\-_.~%/?&=]+)$'
+            'pattern': '^{}$'.format(INDEX_VERSION_STRING),
+        },
+        'data': {
+            'type': 'object',            
+            'patternProperties': {
+                r'^([a-zA-Z0-9\-_.~%/]+)$': {
+                    'type': 'string',
+                    'pattern': r'^([a-z0-9+]+://[a-zA-Z0-9\-_.~%/?&=]+)$'
+                },
+            },
         },
     },
 }
@@ -195,7 +205,7 @@ def parse_index_page(index_page_data):
     try:
         page_data = json.loads(str(index_page_data))
         jsonschema.validate(page_data, INDEX_PAGE_SCHEMA)
-        return page_data
+        return page_data['data']
 
     except Exception as e:
         if DEBUG:
@@ -205,11 +215,16 @@ def parse_index_page(index_page_data):
         return None
 
 
-def serialize_index_page(index_page):
+def serialize_index_page(index_page_data):
     """
     Serialize an index page
     Return the serialized byte buffer
     """
+    index_page = {
+        'version': INDEX_VERSION_STRING,
+        'data': index_page_data
+    }
+
     return str(json.dumps(index_page, sort_keys=True))
 
 
@@ -411,7 +426,7 @@ def index_setup(dvconf, force=False):
 
 def index_get_cached_page(blockchain_id, url):
     """
-    Get a cached index page
+    Get cached index page data
     Return the cached page on success
     Return None on error
     """
@@ -441,7 +456,7 @@ def index_get_cached_manifest_url(blockchain_id, driver_name):
 
 def index_set_cached_page(blockchain_id, url, data):
     """
-    Insert a page into the index page cache
+    Insert a page's data into the index page cache
     """
     global INDEX_CACHE
     if not INDEX_CACHE.has_key(blockchain_id):
