@@ -360,7 +360,7 @@ def delete_mutable_handler( data_id, tombstone, **kw ):
    Returns True on successful deletion
    Returns False on failure.  Does not raise an exception.
    """
-   False
+   return False
 
    
 if __name__ == "__main__":
