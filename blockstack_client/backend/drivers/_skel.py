@@ -78,7 +78,7 @@ determine how to replicate data.
     is listed here by default since writes to disk are invisible to other clients.
 
 In order for `put` to work on mutable data, there must be at least one driver listed in
-blockstack-client.storage_drivers_required_write that is NOT listed
+blockstack-client.storage_drivers_required_write that is NOT listed in
 blockstack-client.storage_drivers_local.
 
 There are no long-term plans for creating more sophisticated replication strategies.  This
