@@ -26,6 +26,9 @@
 import os
 import sys
 import traceback
+import requests
+import urllib
+import urlparse
 import logging
 from common import get_logger, DEBUG
 from ConfigParser import SafeConfigParser
@@ -33,8 +36,12 @@ from ConfigParser import SafeConfigParser
 log = get_logger("blockstack-storage-driver-sia")
 log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
 
+SIAD_HOST = None
+SIAD_PORT = None
+SIAD_PASSWD = None
 
-def storage_init(conf):
+
+def storage_init(config):
     """
     This method initializes the storage driver.
     It may be called multiple times, so if you need idempotency,
@@ -44,10 +51,11 @@ def storage_init(conf):
     Return False on error.
     """
 
-    # path to the CLI's configuration file (where you can stash driver-specific configuration)
-    config_path = conf['path']
-    if os.path.exists(config_path):
+    global SIAD_HOST, SIAD_PORT, SIAD_PASSWD
 
+    # path to the CLI's configuration file (where you can stash driver-specific configuration)
+    config_path = config['path']
+    if os.path.exists(config_path):
         parser = SafeConfigParser()
 
         try:
@@ -56,13 +64,25 @@ def storage_init(conf):
             log.exception(e)
             return False
 
-            # TODO load config here
+        if parser.has_section('sia'):
+            if parser.has_option('sia', 'host'):
+                SIAD_HOST = parser.get('sia', 'host')
 
-    # TODO do initialization here
+            if parser.has_option('sia', 'port'):
+                SIAD_PORT = parser.get('sia', 'port')
+
+            if parser.has_option('sia', 'passwd'):
+                SIAD_PASSWD = parser.get('sia', 'passwd')
+
+    if SIAD_HOST is None or SIAD_PORT is None or SIAD_PASSWD is None:
+        log.error(
+            "Config file '%s': section 'sia' is missing 'host', 'port', and/or 'passwd'" % config_path)
+        return False
+
     return True
 
 
-def handles_url(url):
+def handles_url(uri):
     """
     Does this storage driver handle this kind of URL?
 
@@ -75,7 +95,8 @@ def handles_url(url):
     is to check if the URL matches a particular regex.
     """
 
-    return False
+    parts = urlparse.urlparse(uri)
+    return parts.netlock.endswith("sia.tech")
 
 
 def make_mutable_url(data_id):
@@ -95,7 +116,9 @@ def make_mutable_url(data_id):
     Returns a string
     """
 
-    return None
+    data_id = urllib.quote(data_id.replace('/', '-2f'))  # Hex code for forward slash.
+
+    return "http://sia.tech/%s" % data_id
 
 
 def get_immutable_handler(data_hash, **kw):
@@ -138,7 +161,7 @@ def get_mutable_handler(url, **kw):
     return None
 
 
-def put_immutable_handler(data_hash, data_txt, txid, **kw):
+def put_immutable_handler(key, data, txid, **kw):
     """
     Store data that was written by the immutable data API.
     That is, the user updated their zone file and added a data
@@ -164,7 +187,7 @@ def put_immutable_handler(data_hash, data_txt, txid, **kw):
     return False
 
 
-def put_mutable_handler(data_id, data_txt, **kw):
+def put_mutable_handler(data_id, data, **kw):
     """
     Store (signed) data to this storage provider.  The only requirement
     is that a call to get_mutable_url(data_id) must generate a URL that
@@ -198,7 +221,7 @@ def put_mutable_handler(data_id, data_txt, **kw):
     return False
 
 
-def delete_immutable_handler(data_hash, txid, tombstone, **kw):
+def delete_immutable_handler(key, txid, tombstone, **kw):
     """
     Delete immutable data.  Called when the user removed a datum's hash
     from their zone file, and the driver must now go and remove the data
@@ -288,6 +311,7 @@ if __name__ == "__main__":
     def hash_data(d):
         return hex_hash160(d)
 
+
     rc = storage_init(conf)
     if not rc:
         raise Exception("Failed to initialize")
@@ -315,77 +339,77 @@ if __name__ == "__main__":
         if not rc:
             raise Exception("put_immutable_handler('%s') failed" % d)
 
-    # put_mutable_handler
-    print "put_mutable_handler"
-    for i in xrange(0, len(test_data)):
-
-        d_id, d, n, s, url = test_data[i]
-
-        data_url = make_mutable_url(d_id)
-
-        print 'store {} with {}'.format(d_id, data_privkey)
-        data_json = serialize_mutable_data(json.dumps({"id": d_id, "nonce": n, "data": d}), data_privkey)
-
-        rc = put_mutable_handler(d_id, data_json)
-        if not rc:
-            raise Exception("put_mutable_handler('%s', '%s') failed" % (d_id, d))
-
-        test_data[i][4] = data_url
-
-    # get_immutable_handler
-    print "get_immutable_handler"
-    for i in xrange(0, len(test_data)):
-
-        d_id, d, n, s, url = test_data[i]
-
-        print "get {}".format(hash_data(d))
-        rd = get_immutable_handler(hash_data(d))
-        if rd != d:
-            raise Exception("get_mutable_handler('%s'): '%s' != '%s'" % (hash_data(d), d, rd))
-
-    # get_mutable_handler
-    print "get_mutable_handler"
-    for i in xrange(0, len(test_data)):
-
-        d_id, d, n, s, url = test_data[i]
-
-        print "get {}".format(d_id)
-        rd_json = get_mutable_handler(url)
-        if rd_json is None:
-            raise Exception("Failed to get data {}".format(d_id))
-
-        rd = parse_mutable_data(rd_json, data_pubkey)
-        if rd is None:
-            raise Exception("Failed to parse mutable data '%s'" % rd_json)
-
-        rd = json.loads(rd)
-        if rd['id'] != d_id:
-            raise Exception("Data ID mismatch: '%s' != '%s'" % (rd['id'], d_id))
-
-        if rd['nonce'] != n:
-            raise Exception("Nonce mismatch: '%s' != '%s'" % (rd['nonce'], n))
-
-        if rd['data'] != d:
-            raise Exception("Data mismatch: '%s' != '%s'" % (rd['data'], d))
-
-    # delete_immutable_handler
-    print "delete_immutable_handler"
-    for i in xrange(0, len(test_data)):
-
-        d_id, d, n, s, url = test_data[i]
-
-        print "delete {}".format(hash_data(d))
-        rc = delete_immutable_handler(hash_data(d), "unused", "unused")
-        if not rc:
-            raise Exception("delete_immutable_handler('%s' (%s)) failed" % (hash_data(d), d))
-
-    # delete_mutable_handler
-    print "delete_mutable_handler"
-    for i in xrange(0, len(test_data)):
-
-        d_id, d, n, s, url = test_data[i]
-
-        print "delete {}".format(d_id)
-        rc = delete_mutable_handler(d_id, "unused")
-        if not rc:
-            raise Exception("delete_mutable_handler('%s') failed" % d_id)
+            # # put_mutable_handler
+            # print "put_mutable_handler"
+            # for i in xrange(0, len(test_data)):
+            #
+            #     d_id, d, n, s, url = test_data[i]
+            #
+            #     data_url = make_mutable_url(d_id)
+            #
+            #     print 'store {} with {}'.format(d_id, data_privkey)
+            #     data_json = serialize_mutable_data(json.dumps({"id": d_id, "nonce": n, "data": d}), data_privkey)
+            #
+            #     rc = put_mutable_handler(d_id, data_json)
+            #     if not rc:
+            #         raise Exception("put_mutable_handler('%s', '%s') failed" % (d_id, d))
+            #
+            #     test_data[i][4] = data_url
+            #
+            # # get_immutable_handler
+            # print "get_immutable_handler"
+            # for i in xrange(0, len(test_data)):
+            #
+            #     d_id, d, n, s, url = test_data[i]
+            #
+            #     print "get {}".format(hash_data(d))
+            #     rd = get_immutable_handler(hash_data(d))
+            #     if rd != d:
+            #         raise Exception("get_mutable_handler('%s'): '%s' != '%s'" % (hash_data(d), d, rd))
+            #
+            # # get_mutable_handler
+            # print "get_mutable_handler"
+            # for i in xrange(0, len(test_data)):
+            #
+            #     d_id, d, n, s, url = test_data[i]
+            #
+            #     print "get {}".format(d_id)
+            #     rd_json = get_mutable_handler(url)
+            #     if rd_json is None:
+            #         raise Exception("Failed to get data {}".format(d_id))
+            #
+            #     rd = parse_mutable_data(rd_json, data_pubkey)
+            #     if rd is None:
+            #         raise Exception("Failed to parse mutable data '%s'" % rd_json)
+            #
+            #     rd = json.loads(rd)
+            #     if rd['id'] != d_id:
+            #         raise Exception("Data ID mismatch: '%s' != '%s'" % (rd['id'], d_id))
+            #
+            #     if rd['nonce'] != n:
+            #         raise Exception("Nonce mismatch: '%s' != '%s'" % (rd['nonce'], n))
+            #
+            #     if rd['data'] != d:
+            #         raise Exception("Data mismatch: '%s' != '%s'" % (rd['data'], d))
+            #
+            # # delete_immutable_handler
+            # print "delete_immutable_handler"
+            # for i in xrange(0, len(test_data)):
+            #
+            #     d_id, d, n, s, url = test_data[i]
+            #
+            #     print "delete {}".format(hash_data(d))
+            #     rc = delete_immutable_handler(hash_data(d), "unused", "unused")
+            #     if not rc:
+            #         raise Exception("delete_immutable_handler('%s' (%s)) failed" % (hash_data(d), d))
+            #
+            # # delete_mutable_handler
+            # print "delete_mutable_handler"
+            # for i in xrange(0, len(test_data)):
+            #
+            #     d_id, d, n, s, url = test_data[i]
+            #
+            #     print "delete {}".format(d_id)
+            #     rc = delete_mutable_handler(d_id, "unused")
+            #     if not rc:
+            #         raise Exception("delete_mutable_handler('%s') failed" % d_id)
