@@ -110,16 +110,16 @@ NOT IMPLEMENTED YET
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
 | Create store for this session | POST /v1/stores | store_write | Creates a datastore for the application indicated by the session |
-| Get store metadata | GET /v1/stores/{storeID} | store_admin | - | 
+| Get store metadata | GET /v1/stores/{storeID} | - | - | 
 | Delete store | DELETE /v1/stores/{storeID} | store_write | Deletes all files and directories in the store as well |
 | - | - | - | - |
-| Get inode info (stat) | GET /v1/stores/{storeID}/inodes?path={path} | store_read | - | 
+| Get inode info (stat) | GET /v1/stores/{storeID}/inodes?path={path} | - | - | 
 | - | - | - | - |
-| Get directory files (ls) | GET /v1/stores/{storeID}/directories?path={path} | store_read | Returns structured inode data | 
+| Get directory files (ls) | GET /v1/stores/{storeID}/directories?path={path} | - | Returns structured inode data | 
 | Create directory (mkdir) | POST /v1/stores/{storeID}/directories?path={path} | store_write | Only works on the datastore for the application indicated by the session | 
 | Delete directory (rmdir) | DELETE /v1/stores/{storeID}/directories?path={path} | store_write | Only works on the datastore for the application indicated by the session | 
 | - | - | - | - |
-| Get file data (cat) | GET /v1/stores/{storeID}/files?path={path} | store_read | Returns `application/octet-stream` data | 
+| Get file data (cat) | GET /v1/stores/{storeID}/files?path={path} | -f | Returns `application/octet-stream` data | 
 | Create file | POST /v1/stores/{storeID}/files?path={path} | store_write | Uploads `application/octet-stream` raw file data.  Only works on the datastore for the application indicated by the session. | 
 | Update file | PUT /v1/stores/{storeID}/files?path={path} | store_write | Uploads `application/octet-stream` raw file data.  Only works on the datastore for the application indicated by the session. | 
 | Delete file (rm) | DELETE /v1/stores/{storeID}/files?path={path} | store_write | Only works on the datastore for the application indicated by the session | 
