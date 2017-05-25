@@ -27,6 +27,10 @@ Each application specifies in advance which family of API calls it will need to 
 | Delete a config section | DELETE /v1/node/config/{section} | - | Requires pre-shared secret in the `Authorization:` header. |
 | - | - | - | - |
 | Get registrar state | GET /v1/node/registrar/state | - | Requires pre-shared secret in the `Authorization:` header. |
+| - | - | - | - |
+| Initialize a driver (DANGEROUS) | POST /v1/node/drivers | - | Takes the following query strings: `driver={name of driver}`, `index={0 or 1}`, and `force={0 or 1}` (DANGEROUS) |
+| List driver-specific fields to set | GET /v1/node/drivers/{driver_name}/settings | - | - |
+| Set driver-specific fields | POST /v1/node/drivers/{driver_name}/settings | - | Takes a JSON object with `key=value` pairs |
 
 ### Wallet
 
@@ -119,6 +123,7 @@ NOT IMPLEMENTED YET
 | Create file | POST /v1/stores/{storeID}/files?path={path} | store_write | Uploads `application/octet-stream` raw file data.  Only works on the datastore for the application indicated by the session. | 
 | Update file | PUT /v1/stores/{storeID}/files?path={path} | store_write | Uploads `application/octet-stream` raw file data.  Only works on the datastore for the application indicated by the session. | 
 | Delete file (rm) | DELETE /v1/stores/{storeID}/files?path={path} | store_write | Only works on the datastore for the application indicated by the session | 
+
 
 ### Collections
 NOT IMPLEMENTED YET; STUBS ONLY
