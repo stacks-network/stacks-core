@@ -39,6 +39,7 @@ log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
 SIAD_HOST = None
 SIAD_PORT = None
 SIAD_PASSWD = None
+USER_AGENT = "Sia-Agent/blockstack-driver-sia"
 
 
 def storage_init(config):
@@ -161,6 +162,33 @@ def get_mutable_handler(url, **kw):
     return None
 
 
+def upload(key, data, txid):
+    global SIAD_HOST, SIAD_PORT, USER_AGENT, SIAD_PASSWD
+
+    siad = "http://%s:%s/renter/upload/%s" % (SIAD_HOST, SIAD_PORT, key)
+
+    import tempfile
+    with tempfile.NamedTemporaryFile() as temp:
+        log.debug("[%s] Preparing upload to siad @ %s..." % (txid, siad))
+
+        temp.write(data)
+        temp.flush()
+        r = requests.post(siad, params={
+            'source': temp.name
+        }, headers={
+            'user-agent': USER_AGENT
+        }, auth=('', SIAD_PASSWD))
+
+        log.debug("[%s] Uploading to siad @ %s..." % (txid, r.url))
+
+        ok = r.status_code == requests.codes.ok
+
+        if not ok:
+            log.debug("failed to upload file to siad. Status: %s - Response: %s", r.status_code, r.json())
+
+        return ok
+
+
 def put_immutable_handler(key, data, txid, **kw):
     """
     Store data that was written by the immutable data API.
@@ -184,7 +212,7 @@ def put_immutable_handler(key, data, txid, **kw):
     Returns False on failure.  Does not raise an exception
     """
 
-    return False
+    return upload(key, data, txid)
 
 
 def put_mutable_handler(data_id, data, **kw):
