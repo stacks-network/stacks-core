@@ -141,7 +141,7 @@ def get_immutable_handler(data_hash, **kw):
     Returns None on error.  Does not raise an exception.
     """
 
-    return None
+    return download("immutable-%s" % data_hash)
 
 
 def get_mutable_handler(url, **kw):
@@ -159,21 +159,24 @@ def get_mutable_handler(url, **kw):
     Return None on error.  Does not raise an exception.
     """
 
-    return None
+    key = urlparse.urlparse(url).path[1:]
+    return download(key)
 
 
 def upload(key, data, txid):
     global SIAD_HOST, SIAD_PORT, USER_AGENT, SIAD_PASSWD
 
-    siad = "http://%s:%s/renter/upload/%s" % (SIAD_HOST, SIAD_PORT, key)
+    key = urllib.quote(key.replace( "/", r"-2f" ))
+
+    siaUpload = "http://%s:%s/renter/upload/%s" % (SIAD_HOST, SIAD_PORT, key)
 
     import tempfile
     with tempfile.NamedTemporaryFile() as temp:
-        log.debug("[%s] Preparing upload to siad @ %s..." % (txid, siad))
+        log.debug("[%s] Preparing upload to siad @ %s..." % (txid, siaUpload))
 
         temp.write(data)
         temp.flush()
-        r = requests.post(siad, params={
+        r = requests.post(siaUpload, params={
             'source': temp.name
         }, headers={
             'user-agent': USER_AGENT
@@ -187,6 +190,61 @@ def upload(key, data, txid):
             log.debug("failed to upload file to siad. Status: %s - Response: %s", r.status_code, r.json())
 
         return ok
+
+
+def download(key):
+    global SIAD_HOST, SIAD_PORT, USER_AGENT, SIAD_PASSWD
+
+    key = urllib.quote(key.replace("/", r"-2f"))
+
+    siaDownload = "http://%s:%s/renter/download/%s" % (SIAD_HOST, SIAD_PORT, key)
+
+    log.debug("[%s] Preparing download from siad @ %s..." % siaDownload)
+
+    from os.path import expanduser
+    home = expanduser("~")
+
+    r = requests.get(siaDownload, params={
+        'destination': home
+    }, headers={
+        'user-agent': USER_AGENT
+    }, auth=('', SIAD_PASSWD))
+
+    log.debug("Downloaded from siad @ %s..." % r.url)
+
+    ok = r.status_code == requests.codes.ok
+
+    if not ok:
+        log.debug("failed to download file from siad. Status: %s - Response: %s", r.status_code, r.json())
+        return None
+
+    # TODO: This needs to probably read in the file that siad downloads to the destination.
+
+    return None
+
+
+def delete(key, txid):
+    global SIAD_HOST, SIAD_PORT, USER_AGENT, SIAD_PASSWD
+
+    key = urllib.quote(key.replace("/", r"-2f"))
+
+    siaDelete = "http://%s:%s/renter/delete/%s" % (SIAD_HOST, SIAD_PORT, key)
+
+    log.debug("[%s] Preparing to delete from siad @ %s..." % (txid, siaDelete))
+
+    r = requests.post(siaDelete, headers={
+        'user-agent': USER_AGENT
+    }, auth=('', SIAD_PASSWD))
+
+    log.debug("Delete attempt from siad @ %s..." % r.url)
+
+    ok = r.status_code == requests.codes.ok
+
+    if not ok:
+        log.debug("failed to delete file from siad. Status: %s - Response: %s", r.status_code, r.json())
+        return False
+
+    return True
 
 
 def put_immutable_handler(key, data, txid, **kw):
@@ -212,7 +270,7 @@ def put_immutable_handler(key, data, txid, **kw):
     Returns False on failure.  Does not raise an exception
     """
 
-    return upload(key, data, txid)
+    return upload("immutable-%s" % key, data, txid)
 
 
 def put_mutable_handler(data_id, data, **kw):
@@ -246,7 +304,7 @@ def put_mutable_handler(data_id, data, **kw):
     Returns False on error.  Does not raise an exception
     """
 
-    return False
+    return upload(data_id, data, None)
 
 
 def delete_immutable_handler(key, txid, tombstone, **kw):
@@ -274,7 +332,7 @@ def delete_immutable_handler(key, txid, tombstone, **kw):
     Returns False on failure.  Does not raise an exception.
     """
 
-    return False
+    return delete("immutable-%s" % key, txid)
 
 
 def delete_mutable_handler(data_id, tombstone, **kw):
@@ -296,7 +354,8 @@ def delete_mutable_handler(data_id, tombstone, **kw):
     Returns True on successful deletion
     Returns False on failure.  Does not raise an exception.
     """
-    False
+
+    return delete(data_id, None)
 
 
 if __name__ == "__main__":
