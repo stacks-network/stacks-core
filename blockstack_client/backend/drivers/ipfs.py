@@ -23,11 +23,8 @@
 
 import sys
 import os
-import io
 import re
-import tempfile
 import zlib
-import time
 import json
 import logging
 import ipfsapi
@@ -41,15 +38,17 @@ IPFS_SERVER   = 'localhost'
 IPFS_PORT     = '5001'
 IPFS_COMPRESS = True
 
+ipfs_api = None
+
 def ipfs_key_gen(key):
-    ''' 
+    """ 
     We need a custom wraper for this API endpoint, because the ipfsapi does not provide it, yet
     Instead of checking whether a key exists before creating it,
     We create it, and ignore the error that throws if it exists already.
-    '''
-    api = ipfsapi.connect('127.0.0.1', 5001)
+    """
+
     try:
-      r = api._client.request('/key/gen', (key,), decoder='json', opts={'type':'rsa','size':'2048'})
+      r = ipfs_api._client.request('/key/gen', (key,), decoder='json', opts={'type':'rsa','size':'2048'})
     except ipfsapi.exceptions.ErrorResponse:
       # An exception is thrown when the key already exists, we ignore it
       pass
@@ -61,38 +60,33 @@ def write_chunk( chunk_path, chunk_buf, is_mutable ):
     Return True on success 
     Return False on error, and log an exception
     """
-    
-    api = ipfsapi.connect(IPFS_SERVER, IPFS_PORT)
 
     rc = True
-    begin = None
-    end = None
-    size = None
+
+    if IPFS_COMPRESS:            
+      compressed_data = compress_chunk( chunk_buf )
+    else:
+      compressed_data = chunk_buf
+
     try:
-        if IPFS_COMPRESS:            
-            compressed_data = compress_chunk( chunk_buf )
-        else:
-            compressed_data = chunk_buf
-
-        size = len(compressed_data)
-
-        begin = time.time()
-        h = api.add_str( compressed_data, decoder='json' )
-        if is_mutable:
-          if os.environ.get("BLOCKSTACK_TEST") == "1":
-            log.debug("[DEBUG] ipfs.publish_name %s: %s" % (chunk_path, chunk_buf))
-          r = api.name_publish( h, opts = {'key': 'mutable-{}'.format(chunk_path.replace( "/", r"\x2f" ))})
-          if os.environ.get("BLOCKSTACK_TEST") == "1":
-            log.debug("[DEBUG] ipfs.publish_name returned " % (r))
-        end = time.time()
-        
+      h = ipfs_api.add_str( compressed_data, decoder='json' )        
     except Exception, e:
-        log.error("Failed to write '%s'" % chunk_path)
+      log.error("Failed to write '%s'" % chunk_path)
+      log.exception(e)
+      rc = False
+
+    if is_mutable:
+      if os.environ.get("BLOCKSTACK_TEST") == "1":
+        log.debug("[DEBUG] ipfs.publish_name %s: %s" % (chunk_path, chunk_buf))
+      try:
+        r = ipfs_api.name_publish( h, opts = {'key': 'mutable-{}'.format(chunk_path.replace( "/", r"\x2f" ))})
+      except Exception, e:
+        log.error("Failed to publish '%s'" % chunk_path)
         log.exception(e)
         rc = False
+      if os.environ.get("BLOCKSTACK_TEST") == "1":
+        log.debug("[DEBUG] ipfs.publish_name returned " % (r))
 
-    if os.environ.get("BLOCKSTACK_TEST") == "1" and rc:
-        log.debug("[BENCHMARK] s3.write_chunk %s: %s" % (size, end - begin))
     return rc
 
 #-------------------------
@@ -104,34 +98,29 @@ def read_chunk( chunk_path, is_mutable ):
     Return None on error, and log an exception.
     """
     
-    api = ipfsapi.connect(IPFS_SERVER, IPFS_PORT)
-
     data = None
-    begin = None
-    end = None
-    size = None
-    try:
-        begin = time.time()
-        if is_mutable:
-          r = api.name_resolve( chunk_path )
-          url = r['Path']
-        else:
-          url = chunk_path
-        compressed_data = api.cat(url)
-        end = time.time()
-        size = len(compressed_data)
 
-        try:
-            data = decompress_chunk( compressed_data )
-        except:
-            data = compressed_data
+    url = chunk_path
+
+    if is_mutable:
+      try:
+        r = ipfs_api.name_resolve( chunk_path )
+        url = r['Path']
+      except Exception, e:
+        log.error("Failed to resolve '%s'" % chunk_path)
+        log.exception(e)
+
+    try:
+      compressed_data = ipfs_api.cat(url)
+      try:
+        data = decompress_chunk( compressed_data )
+      except:
+        data = compressed_data
         
     except Exception, e:
         log.error("Failed to read '%s'" % chunk_path)
         log.exception(e)
         
-    if os.environ.get("BLOCKSTACK_TEST") == "1":
-        log.debug("[BENCHMARK] s3.read_chunk %s: %s" % (size, end - begin))
     return data
 
 #-------------------------
@@ -143,18 +132,19 @@ def delete_chunk( chunk_path, is_mutable ):
     Return False on error.
     """
     
-    api = ipfsapi.connect(IPFS_SERVER, IPFS_PORT)
-
     rc = True
 
+    url = chunk_path
     if is_mutable:
-      r = api.name_resolve( chunk_path )
-      url = r['Path']
-    else:
-      url = chunk_path
+      try:
+        r = ipfs_api.name_resolve( chunk_path )
+        url = r['Path']
+      except Exception, e:
+        log.error("Failed to resolve '%s'" % chunk_path)
+        log.exception(e)
 
     try:
-        api.pin_rm( url )
+        ipfs_api.pin_rm( url )
     except Exception, e:
         log.error("Failed to delete '%s'" % chunk_path)
         log.exception(e)
@@ -167,7 +157,7 @@ def storage_init(conf, **kwargs):
    """
    Initialize IPFS storage driver
    """
-   global IPFS_SERVER, IPFS_PORT, IPFS_COMPRESS
+   global IPFS_SERVER, IPFS_PORT, IPFS_COMPRESS, ipfs_api
 
    # path to the CLI's configuration file (where you can stash driver-specific configuration)
    config_path = conf['path']
@@ -190,7 +180,9 @@ def storage_init(conf, **kwargs):
                 IPFS_PORT = parser.get('ipfs', 'port')
             
             if parser.has_option('ipfs', 'compress'):
-                AWS_COMPRESS = (parser.get('ipfs', 'compress', 'false').lower() in ['true', '1'])
+                IPFS_COMPRESS = (parser.get('ipfs', 'compress', 'false').lower() in ['true', '1'])
+
+   ipfs_api = ipfsapi.connect( IPFS_SERVER, IPFS_PORT )
 
    return True 
 
@@ -207,10 +199,12 @@ def handles_url( url ):
     matches what your driver does.  Another common strategy
     is to check if the URL matches a particular regex.
     """
-    pattern = re.compile("Qm[1-9A-HJ-NP-Za-km-z]{44}")
-    if pattern.match(url):
+    if url.startswith("/ipfs/") or url.startswith("/ipns/"):
       return True
     else:
+      # if it starts with a valid CID: https://github.com/ipld/cid
+      #   return True
+      # else
       return False
 
 
@@ -218,14 +212,20 @@ def make_mutable_url( data_id ):
     """
     Get data by URL
     """
-    api = ipfsapi.connect(IPFS_SERVER, IPFS_PORT)
-
     key = 'mutable-{}'.format(data_id.replace( "/", r"\x2f" ))
 
     ipfs_key_gen( key )
    
-    r = api.name_publish( hash_data(''), opts = {'key':key})
-    return r['Name']
+    url = None
+
+    try:
+      r = ipfs_api.name_publish( hash_data(''), opts = {'key':key})
+      url = r['Name']
+    except Exception, e:
+      log.error("Failed to publish '%s'" % chunk_path)
+      log.exception(e)
+    
+    return url
    
 
 def get_immutable_handler( data_hash, **kw ):
@@ -267,6 +267,24 @@ def delete_mutable_handler( data_id, tombstone, **kw ):
     """
     return delete_chunk( data_id, True )
 
+def hash_data( d ):
+
+  h = None
+
+  if IPFS_COMPRESS:
+    try:            
+      h = ipfs_api.add_str(compress_chunk(d), opts={'only-hash':True})
+    except:
+      log.error("Failed to get hash for '%s'" % chunk_path)
+      log.exception(e)
+  else:
+    try:
+      h = ipfs_api.add_str(d, opts={'only-hash':True})
+    except:
+      log.error("Failed to get hash for '%s'" % chunk_path)
+      log.exception(e)
+        
+  return h
    
 if __name__ == "__main__":
    """
@@ -298,20 +316,12 @@ if __name__ == "__main__":
    data_privkey = pk.to_hex()
    data_pubkey = pk.public_key().to_hex()
 
-   api = ipfsapi.connect(IPFS_SERVER, IPFS_PORT)
-
    test_data = [
       ["my_first_datum",        "hello world",                              1, "unused", None],
       ["/my/second/datum",      "hello world 2",                            2, "unused", None],
       ["user\"_profile",        '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
       ["empty_string",          "",                                         4, "unused", None],
    ]
-
-   def hash_data( d ):
-      if IPFS_COMPRESS:            
-        return api.add_str(compress_chunk(d), opts={'only-hash':True})
-      else:
-        return api.add_str(d, opts={'only-hash':True})
    
    rc = storage_init(conf)
    if not rc:
@@ -354,7 +364,7 @@ if __name__ == "__main__":
          raise Exception("put_mutable_handler('%s', '%s') failed" % (d_id, d))
      
       test_data[i][4] = data_url
-   
+
    # get_immutable_handler
    print "get_immutable_handler"
    for i in xrange(0, len(test_data)):
@@ -387,7 +397,7 @@ if __name__ == "__main__":
       
       if rd['data'] != d:
          raise Exception("Data mismatch: '%s' != '%s'" % (rd['data'], d))
-      
+   
    # delete_immutable_handler
    print "delete_immutable_handler"
    for i in xrange(0, len(test_data)):
