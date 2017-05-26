@@ -377,7 +377,7 @@ if __name__ == "__main__":
 
     import keylib
     import json
-    from pybitcoin import hex_hash160
+    from virtualchain.lib.hashing import hex_hash160
 
     # hack around absolute paths
     current_dir = os.path.abspath(os.path.dirname(__file__))
