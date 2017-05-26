@@ -176,18 +176,24 @@ def upload(key, data, txid):
 
         temp.write(data)
         temp.flush()
-        r = requests.post(sia_upload, params={
-            'source': temp.name
-        }, headers={
-            'user-agent': USER_AGENT
-        }, auth=('', SIAD_PASSWD))
 
-        log.debug("[%s] Uploading to siad @ %s..." % (txid, r.url))
+        ok = False
 
-        ok = r.status_code == requests.codes.no_content
+        try:
+            r = requests.post(sia_upload, params={
+                'source': temp.name
+            }, headers={
+                'user-agent': USER_AGENT
+            }, auth=('', SIAD_PASSWD))
 
-        if not ok:
-            log.debug("failed to upload file to siad. Status: %s - Response: %s", r.status_code, r.json())
+            log.debug("[%s] Uploading to siad @ %s..." % (txid, r.url))
+
+            ok = r.status_code == requests.codes.no_content
+
+            if not ok:
+                log.debug("failed to upload file to siad. Status: %s - Response: %s", r.status_code, r.json())
+        except Exception as e:
+            log.exception(e)
 
         return ok
 
@@ -199,26 +205,30 @@ def download(key):
 
     sia_download = "http://%s:%s/renter/download/%s" % (SIAD_HOST, SIAD_PORT, key)
 
-    log.debug("[%s] Preparing download from siad @ %s..." % sia_download)
+    log.debug("Preparing download from siad @ %s..." % sia_download)
 
     import tempfile
     with tempfile.NamedTemporaryFile() as temp:
-        r = requests.get(sia_download, params={
-            'destination': temp.name
-        }, headers={
-            'user-agent': USER_AGENT
-        }, auth=('', SIAD_PASSWD))
+        try:
+            r = requests.get(sia_download, params={
+                'destination': temp.name
+            }, headers={
+                'user-agent': USER_AGENT
+            }, auth=('', SIAD_PASSWD))
 
-        log.debug("Downloaded %s from siad @ %s..." % (temp.name, r.url))
+            log.debug("Downloaded %s from siad @ %s..." % (temp.name, r.url))
 
-        ok = r.status_code == requests.codes.no_content
+            ok = r.status_code == requests.codes.no_content
 
-        if not ok:
-            log.debug("failed to download file from siad. Status: %s - Response: %s", r.status_code, r.json())
+            if not ok:
+                log.debug("failed to download file from siad. Status: %s - Response: %s", r.status_code, r.json())
+                return None
+
+            temp.seek(0)
+            return temp.read()
+        except Exception as e:
+            log.exception(e)
             return None
-
-        temp.seek(0)
-        return temp.read()
 
 
 def delete(key, txid):
@@ -230,19 +240,23 @@ def delete(key, txid):
 
     log.debug("[%s] Preparing to delete from siad @ %s..." % (txid, sia_delete))
 
-    r = requests.post(sia_delete, headers={
-        'user-agent': USER_AGENT
-    }, auth=('', SIAD_PASSWD))
+    ok = False
 
-    log.debug("Delete attempt from siad @ %s..." % r.url)
+    try:
+        r = requests.post(sia_delete, headers={
+            'user-agent': USER_AGENT
+        }, auth=('', SIAD_PASSWD))
 
-    ok = r.status_code == requests.codes.no_content
+        log.debug("Delete attempt from siad @ %s..." % r.url)
 
-    if not ok:
-        log.debug("failed to delete file from siad. Status: %s - Response: %s", r.status_code, r.json())
-        return False
+        ok = r.status_code == requests.codes.no_content
 
-    return True
+        if not ok:
+            log.debug("failed to delete file from siad. Status: %s - Response: %s", r.status_code, r.json())
+    except Exception as e:
+        log.exception(e)
+
+    return ok
 
 
 def put_immutable_handler(key, data, txid, **kw):
