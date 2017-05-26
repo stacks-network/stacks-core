@@ -184,7 +184,7 @@ def upload(key, data, txid):
 
         log.debug("[%s] Uploading to siad @ %s..." % (txid, r.url))
 
-        ok = r.status_code == requests.codes.ok
+        ok = r.status_code == requests.codes.no_content
 
         if not ok:
             log.debug("failed to upload file to siad. Status: %s - Response: %s", r.status_code, r.json())
@@ -211,7 +211,7 @@ def download(key):
 
         log.debug("Downloaded %s from siad @ %s..." % (temp.name, r.url))
 
-        ok = r.status_code == requests.codes.ok
+        ok = r.status_code == requests.codes.no_content
 
         if not ok:
             log.debug("failed to download file from siad. Status: %s - Response: %s", r.status_code, r.json())
@@ -236,7 +236,7 @@ def delete(key, txid):
 
     log.debug("Delete attempt from siad @ %s..." % r.url)
 
-    ok = r.status_code == requests.codes.ok
+    ok = r.status_code == requests.codes.no_content
 
     if not ok:
         log.debug("failed to delete file from siad. Status: %s - Response: %s", r.status_code, r.json())
