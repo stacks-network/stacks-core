@@ -207,28 +207,38 @@ def download(key):
 
     log.debug("Preparing download from siad @ %s..." % sia_download)
 
-    import tempfile
-    with tempfile.NamedTemporaryFile() as temp:
+    from os.path import expanduser
+    destination = expanduser("~") + "/%s" % key
+
+    try:
+        r = requests.get(sia_download, params={
+            'destination': destination
+        }, headers={
+            'user-agent': USER_AGENT
+        }, auth=('', SIAD_PASSWD))
+
+        log.debug("Downloaded %s from siad @ %s..." % (destination, r.url))
+
+        ok = r.status_code == requests.codes.no_content
+
+        if not ok:
+            log.debug("failed to download file from siad. Status: %s - Response: %s", r.status_code, r.json())
+            return None
+
+        contents = None
+
+        with open(destination) as downloaded:
+            contents = downloaded.read()
+
         try:
-            r = requests.get(sia_download, params={
-                'destination': temp.name
-            }, headers={
-                'user-agent': USER_AGENT
-            }, auth=('', SIAD_PASSWD))
-
-            log.debug("Downloaded %s from siad @ %s..." % (temp.name, r.url))
-
-            ok = r.status_code == requests.codes.no_content
-
-            if not ok:
-                log.debug("failed to download file from siad. Status: %s - Response: %s", r.status_code, r.json())
-                return None
-
-            temp.seek(0)
-            return temp.read()
+            os.remove(destination)
         except Exception as e:
             log.exception(e)
-            return None
+
+        return contents
+    except Exception as e:
+        log.exception(e)
+        return None
 
 
 def delete(key, txid):
