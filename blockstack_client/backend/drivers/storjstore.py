@@ -106,6 +106,7 @@ def storage_init(conf, index=False, force_index=False):
 
 
     STORJ_BUCKET = storj_get_bucket(STORJ_USER, STORJ_PASSWD, bucket_name)
+    log.debug("Bucket id is %s", STORJ_BUCKET)
     if STORJ_BUCKET is None:
         log.error("Invalid storj bucket %s", bucket_name)
 
@@ -138,7 +139,9 @@ def storj_put_chunk(chunk_buf, name):
         uploader.file_upload(STORJ_BUCKET, file_path, file_dir)
         os.unlink(file_path)
         file_id = storj_get_file(STORJ_USER, STORJ_PASSWD, STORJ_BUCKET, name)
-        return "storj:///blockstack/{}".format(file_id)
+        url = "storj:///blockstack/{}".format(file_id)
+        log.debug("Stored file %s at %s", name, url)
+        return url
     except Exception as e:
         if DEBUG:
             log.exception(e)
@@ -156,6 +159,7 @@ def storj_delete_chunk(name):
 
     try:
         file_id = storj_get_file(STORJ_USER, STORJ_PASSWD, STORJ_BUCKET, name)
+        log.debug("Deleting file %s at id %s", name, file_id)
         if file_id is None:
             return False
         client = http.Client(STORJ_USER, STORJ_PASSWD)
@@ -174,6 +178,7 @@ def storj_get_chunk(name):
     """
 
     file_id = storj_get_file(STORJ_USER,STORJ_PASSWD, STORJ_BUCKET, name)
+    log.debug("Downloading file %s with id %s", name, file_id)
     data = None
     try:
         downloader = Downloader(STORJ_USER, STORJ_PASSWD)
