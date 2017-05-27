@@ -43,10 +43,55 @@ log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 STORJ_USER = None
 STORJ_PASSWD = None
 STORJ_BUCKET = None
+STORJ_CONN = None
 TMP_DIR = None
 
-def dump2file(name, data):
-    tmp_dir = TMP_DIR
+class StorjAPI:
+    def __init__(self, user, passwd, bucket_id, tmp_dir):
+        self.user = user
+        self.passwd = passwd
+        self.bucket_id = bucket_id
+        self.tmp_dir = tmp_dir
+
+        self.init()
+
+    def write(self, name, data):
+        file_id = storj_get_file_id(self.user, self.passwd, self.bucket_id, name)
+        log.debug("Storing file %s at id %s", name, file_id)
+        file_path, file_dir = dump2file(name, data, self.tmp_dir)
+        self.uploader.file_upload(self.bucket_id, file_path, self.tmp_dir)
+        os.unlink(file_path)
+        return file_id
+
+    def read(self, name):
+        data = None
+        file_id = storj_get_file_id(self.user, self.passwd, self.bucket_id, name)
+        log.debug("Downloading file %s with id %s", name, file_id)
+        self.downloader.download_begin(self.bucket_id, file_id)
+        path = os.path.join(self.downloader.destination_file_path, name)
+        with open(path) as f:
+            data = f.read()
+        os.unlink(path)
+        return data
+
+    def remove(self, name):
+        file_id = storj_get_file_id(self.user, self.passwd, self.bucket_id, name)
+        log.debug("Deleting file %s at id %s", name, file_id)
+        self.deleter.file_remove(self.bucket_id, file_id)
+
+    def init(self):
+        self.uploader = Uploader(self.user, self.passwd)
+        self.downloader = Downloader(self.user, self.passwd)
+        self.deleter = http.Client(self.user, self.passwd)
+
+    def reset(self):
+        try:
+            self.init()
+        except Exception, e:
+            log.exception(e)
+
+
+def dump2file(name, data, tmp_dir):
     tmp_file = os.path.join(tmp_dir, name)
     with open(tmp_file, 'w') as f:
         f.write(data)
@@ -57,13 +102,13 @@ def storj_encode_name(name):
     return name.replace( "/", r"-2f" )
 
 
-def storj_get_bucket(user, passwd, name):
+def storj_get_bucket_id(user, passwd, name):
     """
     Ref: https://storj.github.io/core/lib_utils.js.html
     """
     return rip160sha256(user+name)[:24]
 
-def storj_get_file(user, passwd, bucket_id, name):
+def storj_get_file_id(user, passwd, bucket_id, name):
     """
     Ref: https://storj.github.io/core/lib_utils.js.html
     """
@@ -73,7 +118,7 @@ def storage_init(conf, index=False, force_index=False):
     """
     Initialize storage driver for storj
     """
-    global TMP_DIR, STORJ_USER, STORJ_PASSWD, STORJ_BUCKET
+    global TMP_DIR, STORJ_USER, STORJ_PASSWD, STORJ_BUCKET, STORJ_CONN
     config_path = conf['path']
 
     if os.path.exists( config_path ):
@@ -105,7 +150,7 @@ def storage_init(conf, index=False, force_index=False):
         return False
 
 
-    STORJ_BUCKET = storj_get_bucket(STORJ_USER, STORJ_PASSWD, bucket_name)
+    STORJ_BUCKET = storj_get_bucket_id(STORJ_USER, STORJ_PASSWD, bucket_name)
     log.debug("Bucket id is %s", STORJ_BUCKET)
     if STORJ_BUCKET is None:
         log.error("Invalid storj bucket %s", bucket_name)
@@ -120,6 +165,12 @@ def storage_init(conf, index=False, force_index=False):
             if DEBUG:
                 log.exception(e)
 
+    try:
+        STORJ_CONN = StorjAPI(STORJ_USER, STORJ_PASSWD, STORJ_BUCKET, TMP_DIR)
+    except Exception as e:
+        if DEBUG:
+            log.exception(e)
+        return False
 
     return True
 
@@ -131,18 +182,13 @@ def storj_put_chunk(chunk_buf, name):
     Return None on error
     """
 
-    name = storj_encode_name(name)
-    file_path, file_dir = dump2file(name, chunk_buf)
 
     try:
-        uploader = Uploader(STORJ_USER, STORJ_PASSWD)
-        uploader.file_upload(STORJ_BUCKET, file_path, file_dir)
-        os.unlink(file_path)
-        file_id = storj_get_file(STORJ_USER, STORJ_PASSWD, STORJ_BUCKET, name)
-        url = "storj:///blockstack/{}".format(file_id)
-        log.debug("Stored file %s at %s", name, url)
-        return url
+        name = storj_encode_name(name)
+        file_id = STORJ_CONN.write(name, chunk_buf)
+        return "storj:///blockstack/{}".format(file_id)
     except Exception as e:
+        STORJ_CONN.reset()
         if DEBUG:
             log.exception(e)
 
@@ -158,14 +204,10 @@ def storj_delete_chunk(name):
     """
 
     try:
-        file_id = storj_get_file(STORJ_USER, STORJ_PASSWD, STORJ_BUCKET, name)
-        log.debug("Deleting file %s at id %s", name, file_id)
-        if file_id is None:
-            return False
-        client = http.Client(STORJ_USER, STORJ_PASSWD)
-        client.file_remove(STORJ_BUCKET, file_id)
+        STORJ_CONN.remove(name, chunk_buf)
         return True
     except Exception, e:
+        STORJ_CONN.reset()
         log.exception(e)
         return False
 
@@ -177,20 +219,10 @@ def storj_get_chunk(name):
     Return None on error
     """
 
-    file_id = storj_get_file(STORJ_USER,STORJ_PASSWD, STORJ_BUCKET, name)
-    log.debug("Downloading file %s with id %s", name, file_id)
-    data = None
     try:
-        downloader = Downloader(STORJ_USER, STORJ_PASSWD)
-        downloader.download_begin(STORJ_BUCKET, file_id)
-        path = os.path.join(downloader.destination_file_path, name)
-        with open(path) as f:
-            data = f.read()
-
-        os.unlink(path)
-        return data
-
+        return STORJ_CONN.read(name)
     except Exception, e:
+        STORJ_CONN.reset()
         log.error("Failed to load {}".format(name))
         return None
 
