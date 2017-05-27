@@ -34,6 +34,7 @@ from storj.uploader import Uploader
 from storj.downloader import Downloader
 from storj import http
 from common import get_driver_settings_dir
+from common import rip160sha256
 
 log = get_logger("blockstack-storage-driver-storj")
 
@@ -57,24 +58,16 @@ def storj_encode_name(name):
 
 
 def storj_get_bucket(user, passwd, name):
-    client = http.Client(user, passwd)
-    for bucket in client.bucket_list():
-        if bucket.name == name:
-            return bucket.id
-
-    return None
-
+    """
+    Ref: https://storj.github.io/core/lib_utils.js.html
+    """
+    return rip160sha256(user+name)[:24]
 
 def storj_get_file(user, passwd, bucket_id, name):
-    client = http.Client(user, passwd)
-    file_id = None
-
-    for f in client.bucket_files(bucket_id):
-        if f["filename"] == name:
-            file_id = f["id"]
-
-    return file_id
-
+    """
+    Ref: https://storj.github.io/core/lib_utils.js.html
+    """
+    return rip160sha256(bucket_id+name)[:24]
 
 def storage_init(conf, index=False, force_index=False):
     """
@@ -189,6 +182,7 @@ def storj_get_chunk(name):
         with open(path) as f:
             data = f.read()
 
+        os.unlink(path)
         return data
 
     except Exception, e:

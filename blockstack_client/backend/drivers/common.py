@@ -32,6 +32,8 @@ import jsonschema
 import urlparse
 import posixpath
 import urllib
+from Crypto.Hash import RIPEMD
+import hashlib
 
 if os.environ.get("BLOCKSTACK_DEBUG", None) is not None:
     DEBUG = True
@@ -1083,3 +1085,11 @@ def lookup_index_manifest_url( blockchain_id, driver_name, config_path ):
             return url
 
     return None
+
+def rip160sha256(data):
+    h1 = hashlib.sha256()
+    h2 = RIPEMD.new()
+
+    h1.update(data)
+    h2.update(h1.digest())
+    return h2.hexdigest()
