@@ -45,7 +45,11 @@ def url_to_uri(url):
     return url
 
 
-def connect_to_daemon():
+
+def storage_init(conf, **kwargs):
+    """
+    Initialize IPFS storage driver
+    """
     global ipfs
 
     SERVER = 'localhost'
@@ -69,17 +73,9 @@ def connect_to_daemon():
 
     try:
         ipfs = ipfsapi.connect(SERVER, PORT)
-        return True
     except:
         ipfs = None
         return False
-
-
-def storage_init(conf, **kwargs):
-    """
-    Initialize IPFS storage driver
-    """
-    connect_to_daemon()
 
     existingKeys = ipfs._client.request('/key/list', decoder='json')['Keys']
     if "blockstack" not in [key['Name'] for key in existingKeys]:
