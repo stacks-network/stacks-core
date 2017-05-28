@@ -1,12 +1,12 @@
 #!/bin/bash
 
-BRANCH="rc-0.14.0"
+BRANCH="master"
 if [ $# -ge 2 ]; then 
    BRANCH="$1"
    shift 1
 fi
 
-for repo in dns-zone-file-py blockstack-profiles-py virtualchain blockstack-cli blockstack-core blockstack-files blockstack-gpg blockstack-integration-tests; do
+for repo in dns-zone-file-py blockstack-profiles-py virtualchain blockstack-core blockstack-files blockstack-gpg; do
    git clone "https://github.com/blockstack/$repo"
    pushd "$repo"
    git checkout "$BRANCH"
