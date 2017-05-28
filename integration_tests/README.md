@@ -12,7 +12,6 @@ The tests cover the following repositories, and must be installed prior to runni
 
 * [virtualchain](https://github.com/blockstack/virtualchain)
 * [blockstack-core](https://github.com/blockstack/blockstack-core)
-* [blockstack-cli](https://github.com/blockstack/blockstack-cli)
 * [blockstack-file](https://github.com/blockstack/blockstack-files)
 * [blockstack-gpg](https://github.com/blockstack/blockstack-gpg)
 * [blockstack-zones](https://github.com/blockstack/dns-zone-file-py)
