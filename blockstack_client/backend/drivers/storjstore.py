@@ -57,6 +57,13 @@ class StorjAPI:
 
     def write(self, name, data):
         file_id = storj_get_file_id(self.user, self.passwd, self.bucket_id, name)
+        try:
+            meta = self.deleter.file_metadata(self.bucket_id,file_id)
+            if meta.filename == name:
+                self.deleter.file_remove(self.bucket_id, file_id)
+        except:
+            pass
+
         log.debug("Storing file %s at id %s", name, file_id)
         file_path, file_dir = dump2file(name, data, self.tmp_dir)
         self.uploader.file_upload(self.bucket_id, file_path, self.tmp_dir)
