@@ -211,7 +211,7 @@ def storj_delete_chunk(name):
     """
 
     try:
-        STORJ_CONN.remove(name, chunk_buf)
+        STORJ_CONN.remove(name)
         return True
     except Exception, e:
         STORJ_CONN.reset()
