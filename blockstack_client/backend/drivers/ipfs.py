@@ -26,7 +26,7 @@ from common import get_logger, DEBUG
 from ConfigParser import SafeConfigParser
 
 import ipfsapi
-
+import requests
 
 EMPTY_STRING_HASH = 'QmaRwA91m9Rdfaq9u3FH1fdMVxw1wFPjKL38czkWMxh3KB'
 
@@ -45,10 +45,7 @@ def url_to_uri(url):
     return url
 
 
-def storage_init(conf, **kwargs):
-    """
-    Initialize IPFS storage driver
-    """
+def connect_to_daemon():
     global ipfs
 
     SERVER = 'localhost'
@@ -72,11 +69,17 @@ def storage_init(conf, **kwargs):
 
     try:
         ipfs = ipfsapi.connect(SERVER, PORT)
+        return True
     except:
         ipfs = None
-        SERVER = None
-        PORT = None
+        return False
 
+
+def storage_init(conf, **kwargs):
+    """
+    Initialize IPFS storage driver
+    """
+    connect_to_daemon()
 
     existingKeys = ipfs._client.request('/key/list', decoder='json')['Keys']
     if "blockstack" not in [key['Name'] for key in existingKeys]:
@@ -123,7 +126,11 @@ def get_immutable_handler( data_hash, **kw ):
     """
     try:
         return ipfs.cat(data_hash)
-    except:
+    except Exception as ex:
+        if ex.__class__.__name__ == 'NewConnectionError':
+            return requests.get('https://ipfs.io/ipfs/' + data_hash).text
+        else:
+            return None
         return None
 
 def get_mutable_handler( url, **kw ):
@@ -135,7 +142,10 @@ def get_mutable_handler( url, **kw ):
     try:
         data_hash = ipfs.name_resolve(url)['Path']
     except:
-        return None
+        if ex.__class__.__name__ == 'NewConnectionError':
+            return requests.get('https://ipfs.io' + url).text
+        else:
+            return None
 
     return get_immutable_handler(data_hash)
 
@@ -145,7 +155,7 @@ def put_immutable_handler( data_hash, data_txt, txid, **kw ):
     Add String to IPFS
     """
     try:
-        ipfs.add_str( data_txt, decoder='json' )      
+        ipfs.add_str( data_txt )      
         return True  
     except:
         return False
