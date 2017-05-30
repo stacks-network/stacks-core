@@ -24,14 +24,15 @@ test:
     - blockstack api stop -y
 deployment:
   tarball_venv:
-    branch: [osx-single-file-build, rc-0.14.2, master]
+    branch: [rc-0.14.2, master]
     commands:
       - virtualenv --relocatable ../virtualenvs/venv-system
       - cp -r ../virtualenvs/venv-system ./blockstack-venv
       - tar -czvf $CIRCLE_ARTIFACTS/blockstack-venv.tar.gz blockstack-venv
   osx_single_file:
-    branch: []
+    branch: [osx-single-file-build]
     commands:
       - ../virtualenvs/venv-system/bin/pip install pyinstaller
-      - ../virtualenvs/venv-system/bin/pyinstaller --onefile blockstack.osx.spec
-      - cp dist/blockstack $CIRCLE_ARTIFACTS
+      - ../virtualenvs/venv-system/bin/pyinstaller blockstack.osx.spec
+      - cd dist && tar -czvf blockstack-pyinstaller.tar.gz blockstack
+      - cp -r dist/blockstack $CIRCLE_ARTIFACTS
