@@ -146,7 +146,7 @@ import logging
 from common import get_logger, DEBUG
 from ConfigParser import SafeConfigParser
 
-log = get_logger("blockstack-storage-skel")
+log = get_logger("blockstack-storage-drivers-skel")
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
 def storage_init(conf):
