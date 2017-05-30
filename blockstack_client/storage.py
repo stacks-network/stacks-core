@@ -30,6 +30,7 @@ import hashlib
 import urllib
 import urllib2
 import base64
+import time
 
 import blockstack_zones
 import blockstack_profiles
@@ -248,8 +249,8 @@ def parse_data_tombstone( signed_tombstone ):
         return {'error': 'Missing signature'}
 
     tombstone_data, sigb64 = parts[0], parts[1]
-    if not tombstone_data.startswith('delete:'):
-        return {'error': 'Missing delete: crib'}
+    if not tombstone_data.startswith('delete-'):
+        return {'error': 'Missing `delete` crib'}
 
     tombstone_payload = tombstone_data[len('delete:'):]
     return {'tombstone_payload': tombstone_payload, 'sigb64': sigb64}
@@ -270,28 +271,46 @@ def verify_data_tombstone( signed_tombstone, data_pubkey ):
 def make_data_tombstone( tombstone_data ):
     """
     Make a serialized tombstone.
+    Format is `delete-${millis since epoch date}:${tombstone data}`
     """
-    return 'delete:{}'.format(tombstone_data)
+    return 'delete-{}:{}'.format(int(time.time() * 1000), tombstone_data)
 
 
 def parse_signed_data_tombstone( tombstone_data ):
     """
     extract the data ID and signature from a signed tombstone
-    return {'id': data ID, 'signature': sig} on success
+    return {'id': data ID, 'signature': sig, 'timestamp': ts} on success
+       `ts` will be the number of milliseconds since the epoch date
     Return None on error
     """
     parts1 = tombstone_data.split(":", 1)
     if len(parts1) != 2:
         return None
 
-    if parts1[0] != 'delete':
+    if not parts1[0].startswith('delete'):
+        return None
+    
+    if parts1[0].count('-') != 1:
+        return None
+
+    header_parts = parts1[0].split('-')
+    if len(header_parts) != 2:
+        return None
+
+    if header_parts[0] != 'delete':
+        return None
+
+    ts = None
+    try:
+        ts = int(header_parts[1])
+    except ValueError:
         return None
 
     parts2 = parts1[1].rsplit(":", 1)
     if len(parts2) != 2:
         return None 
 
-    return {'id': parts2[0], 'signature': parts2[1]}
+    return {'id': parts2[0], 'signature': parts2[1], 'timestamp': ts}
 
 
 def serialize_mutable_data(data_text_or_json, data_privkey=None, data_pubkey=None, data_signature=None, profile=False):
