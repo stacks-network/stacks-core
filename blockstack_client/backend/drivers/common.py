@@ -68,7 +68,7 @@ def get_logger(name=None):
     Get logger
     """
 
-    level = logging.CRITICAL
+    level = logging.INFO
     if DEBUG:
         logging.disable(logging.NOTSET)
         level = logging.DEBUG
@@ -745,12 +745,16 @@ def _get_indexed_data_impl( dvconf, blockchain_id, name, raw=False, index_manife
     index_stem = dvconf['index_stem']
     index_pages = {}
     cache_hit = False
+    given_manifest_url = False
 
     if index_manifest_url is None:
         # try cache
         index_manifest_url = index_get_cached_manifest_url(blockchain_id, driver_name)
         if index_manifest_url is not None:
             cache_hit = True
+
+    else:
+        given_manifest_url = True
 
     if index_manifest_url is None:
         # not cached, or didn't check
@@ -806,7 +810,8 @@ def _get_indexed_data_impl( dvconf, blockchain_id, name, raw=False, index_manife
         for (url, page) in index_pages.items():
             index_set_cached_page(blockchain_id, url, page)
 
-        index_set_cached_manifest_url(blockchain_id, driver_name, index_manifest_url)
+        if not given_manifest_url:
+            index_set_cached_manifest_url(blockchain_id, driver_name, index_manifest_url)
 
     return data, None
 
