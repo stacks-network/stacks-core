@@ -107,7 +107,7 @@ determine how to replicate data.
     is listed here by default since writes to disk are invisible to other clients.
 
 In order for `put` to work on mutable data, there must be at least one driver listed in
-blockstack-client.storage_drivers_required_write that is NOT listed
+blockstack-client.storage_drivers_required_write that is NOT listed in
 blockstack-client.storage_drivers_local.
 
 There are no long-term plans for creating more sophisticated replication strategies.  This
@@ -219,7 +219,7 @@ import logging
 from common import *
 from ConfigParser import SafeConfigParser
 
-log = get_logger("blockstack-storage-skel")
+log = get_logger("blockstack-storage-drivers-skel")
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
 def storage_init(conf, **kwargs):
@@ -471,7 +471,7 @@ def delete_mutable_handler( data_id, tombstone, **kw ):
    Returns True on successful deletion
    Returns False on failure.  Does not raise an exception.
    """
-   False
+   return False
 
    
 if __name__ == "__main__":

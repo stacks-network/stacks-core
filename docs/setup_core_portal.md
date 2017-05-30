@@ -99,7 +99,7 @@ With the following contents:
 [Desktop Entry]
 Type=Application
 Terminal=false
-Exec=bash -c 'xdg-open http://localhost:3000/auth?authRequest=$(echo "%u" | sed s/blockstack://)'
+Exec=bash -c 'xdg-open http://localhost:3000/auth?authRequest=$(echo "%u" | sed s,blockstack:/*,,)'
 Name=Blockstack-Portal
 MimeType=x-scheme-handler/blockstack;
 ```
