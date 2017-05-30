@@ -80,7 +80,12 @@ def dropbox_put_chunk( dvconf, chunk_buf, name ):
     """
     driver_info = dvconf['driver_info']
     dropbox_token = driver_info['dropbox_token']
+    if dropbox_token is None:
+        log.warn("No dropbox token set")
+        return None
+
     dbx = dropbox.Dropbox(dropbox_token)
+    chunk_buf = str(chunk_buf)
 
     try:
         file_info = dbx.files_upload(chunk_buf, name, mode=dropbox.files.WriteMode('overwrite'))
@@ -108,6 +113,10 @@ def dropbox_delete_chunk(dvconf, name):
     
     driver_info = dvconf['driver_info']
     dropbox_token = driver_info['dropbox_token']
+    if dropbox_token is None:
+        log.warn("No dropbox token set")
+        return None
+
     dbx = dropbox.Dropbox(dropbox_token)
 
     try:
@@ -127,6 +136,10 @@ def dropbox_get_chunk(dvconf, name):
 
     driver_info = dvconf['driver_info']
     dropbox_token = driver_info['dropbox_token']
+    if dropbox_token is None:
+        log.warn("No dropbox token set")
+        return None
+
     dbx = dropbox.Dropbox(dropbox_token)
 
     try:
@@ -168,8 +181,7 @@ def storage_init(conf, index=False, force_index=False):
 
     # need the token 
     if DROPBOX_TOKEN is None:
-        log.error("Config file '%s': section 'dropbox' is missing 'token'")
-        return False
+        log.warn("Config file '{}': section 'dropbox' is missing 'token'.  Write access will be disabled".format(config_path))
 
     # set up driver 
     DVCONF = driver_config("dropbox", config_path, dropbox_get_chunk, dropbox_put_chunk, dropbox_delete_chunk, driver_info={'dropbox_token': DROPBOX_TOKEN}, index_stem=INDEX_DIRNAME, compress=compress)
