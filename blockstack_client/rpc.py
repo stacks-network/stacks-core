@@ -3238,7 +3238,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 },
                 'whitelist': {
                     'GET': {
-                        'name': 'store_admin',
+                        'name': '',
                         'desc': 'Get an app user\'s datastore metadata',
                         'auth_session': True,
                         'auth_pass': True,
@@ -3255,7 +3255,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 },
                 'whitelist': {
                     'GET': {
-                        'name': 'store_read',
+                        'name': '',
                         'desc': 'read files and list directories in the app user\'s data store',
                         'auth_session': True,
                         'auth_pass': True,
