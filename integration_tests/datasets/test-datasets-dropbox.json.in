@@ -4,7 +4,7 @@
         "data": "hello world",
         "kwargs": {
            "fqu": "judecn.id",
-           "index_manifest_url": "@MANIFEST_URL@"
+           "index_manifest_url": "@MANIFEST_URI@"
         }
     },
     {
@@ -12,7 +12,7 @@
         "data": "hello world 2",
         "kwargs": {
             "fqu": "judecn.id",
-            "index_manifest_url": "@MANIFEST_URL@"
+            "index_manifest_url": "@MANIFEST_URI@"
         }
     },
     {
@@ -21,7 +21,7 @@
         "kwargs": {
             "profile": true,
             "fqu": "judecn.id",
-            "index_manifest_url": "@MANIFEST_URL@"
+            "index_manifest_url": "@MANIFEST_URI@"
         }
     },
     {
@@ -30,7 +30,7 @@
         "kwargs": {
             "fqu": "judecn.id",
             "zonefile": true,
-            "index_manifest_url": "@MANIFEST_URL@"
+            "index_manifest_url": "@MANIFEST_URI@"
         }
     },
     {
@@ -38,7 +38,7 @@
         "data": "",
         "kwargs": {
            "fqu": "judecn.id",
-           "index_manifest_url": "@MANIFEST_URL@"
+           "index_manifest_url": "@MANIFEST_URI@"
         }
     }
 ]
