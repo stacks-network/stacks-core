@@ -1,0 +1,44 @@
+[
+    {
+        "data_id": "my_first_datum",
+        "data": "hello world",
+        "kwargs": {
+           "fqu": "judecn.id",
+           "index_manifest_url": "@MANIFEST_URL@"
+        }
+    },
+    {
+        "data_id": "/my/second/datum",
+        "data": "hello world 2",
+        "kwargs": {
+            "fqu": "judecn.id",
+            "index_manifest_url": "@MANIFEST_URL@"
+        }
+    },
+    {
+        "data_id": "user\"_profile",
+        "data": "{'name': {'formatted': 'judecn'}, 'v': '2'}",
+        "kwargs": {
+            "profile": true,
+            "fqu": "judecn.id",
+            "index_manifest_url": "@MANIFEST_URL@"
+        }
+    },
+    {
+        "data_id": "zonefile",
+        "data": "$ORIGIN judecn.id\n$TTL 3600\npubkey TXT \"pubkey:data:04cabba0b5b9a871dbaa11c044066e281c5feb57243c7d2a452f06a0d708613a46ced59f9f806e601b3353931d1e4a98d7040127f31016311050bedc0d4f1f62ff\"\n_file URI 10 1 \"file:///home/jude/.blockstack/storage-disk/mutable/judecn.id\"\n_https._tcp URI 10 1 \"https://blockstack.s3.amazonaws.com/judecn.id\"\n_http._tcp URI 10 1 \"http://node.blockstack.org:6264/RPC2#judecn.id\"\n_dht._udp URI 10 1 \"dht+udp://fc4d9c1481a6349fe99f0e3dd7261d67b23dadc5\"\n",
+        "kwargs": {
+            "fqu": "judecn.id",
+            "zonefile": true,
+            "index_manifest_url": "@MANIFEST_URL@"
+        }
+    },
+    {
+        "data_id": "empty string",
+        "data": "",
+        "kwargs": {
+           "fqu": "judecn.id",
+           "index_manifest_url": "@MANIFEST_URL@"
+        }
+    }
+]
