@@ -546,6 +546,12 @@ def scenario( wallets, **kw ):
     datastore_id_res = testlib.blockstack_cli_datastore_get_id( bar_datastore_pk )
     bar_datastore_id = datastore_id_res['datastore_id']
 
+    # activate foo.test 
+    res = activate_account("foo.test", foo_datastore_pk)
+    if not res:
+        print 'failed to start API for bar.test: {}'.format(res)
+        return False
+
     # set up foo.test's datastore 
     res = setup_datastore(wallets[-1].privkey, "foo.test", 1)
     if not res:
