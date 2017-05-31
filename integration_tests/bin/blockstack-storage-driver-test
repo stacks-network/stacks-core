@@ -365,6 +365,7 @@ def main(argv):
     config_path = blockstack_client.constants.CONFIG_PATH
     force_index = False
     index = False
+    driver_name = args.driver_module.rsplit('.', 1)[-1]
 
     driver_mod = load_driver(args.driver_module)
 
@@ -409,6 +410,12 @@ def main(argv):
         parser.print_help()
         sys.exit(1)
 
+    if index:
+        # print out the driver's index manifest url
+        print ""
+        print "    index manifest URI: {}".format(blockstack_client.backend.drivers.common.index_settings_get_index_manifest_url(driver_name, config_path))
+        print ""
+    
 
 if __name__ == "__main__":
     main(sys.argv)
