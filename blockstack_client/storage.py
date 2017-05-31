@@ -252,7 +252,12 @@ def parse_data_tombstone( signed_tombstone ):
     if not tombstone_data.startswith('delete-'):
         return {'error': 'Missing `delete` crib'}
 
-    tombstone_payload = tombstone_data[len('delete:'):]
+    # strip `delete-${timestamp}:`
+    tombstone_payload_parts = tombstone_data.split(':', 1)
+    if len(tombstone_payload_parts) != 2:
+        return {'error': 'Invalid `delete` crib'}
+
+    tombstone_payload = tombstone_payload_parts[1]
     return {'tombstone_payload': tombstone_payload, 'sigb64': sigb64}
 
 
@@ -736,6 +741,16 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
                 h for h in storage_handlers if h.__name__ == d
             )
 
+    # ripemd160(sha256(pubkey))
+    data_pubkey_hashes = []
+    for a in filter(lambda x: x is not None, [data_address, owner_address]):
+        try:
+            h = keylib.b58check.b58check_decode(str(a)).encode('hex')
+            data_pubkey_hashes.append(h)
+        except:
+            log.debug("Invalid address '{}'".format(a))
+            continue
+
     log.debug('get_mutable_data {} fqu={} bsk_version={}'.format(fq_data_id, fqu, bsk_version))
     for storage_handler in handlers_to_use:
         if not getattr(storage_handler, 'get_mutable_handler', None):
@@ -782,7 +797,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
 
             log.debug('Try {} ({})'.format(storage_handler.__name__, url))
             try:
-                data_txt = storage_handler.get_mutable_handler(url, fqu=fqu)
+                data_txt = storage_handler.get_mutable_handler(url, fqu=fqu, data_pubkey=data_pubkey, data_pubkey_hashes=data_pubkey_hashes)
             except UnhandledURLException as uue:
                 # handler doesn't handle this URL
                 msg = 'Storage handler {} does not handle URLs like {}'

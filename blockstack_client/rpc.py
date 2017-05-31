@@ -3240,9 +3240,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': '',
                         'desc': 'Get an app user\'s datastore metadata',
-                        'auth_session': True,
-                        'auth_pass': True,
-                        'need_data_key': True,
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                 },
             },
@@ -3257,9 +3257,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': '',
                         'desc': 'read files and list directories in the app user\'s data store',
-                        'auth_session': True,
-                        'auth_pass': True,
-                        'need_data_key': True,
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
                     },
                     'POST': {
                         'name': 'store_write',

@@ -1401,7 +1401,11 @@ def sign_datastore_info( datastore_info, datastore_privkey_hex, config_path=CONF
     root_tombstones = make_inode_tombstones( datastore_id, root_uuid, device_ids )
     signed_tombstones = sign_mutable_data_tombstones( root_tombstones, datastore_privkey_hex )
 
-    return {'datastore_sig': datastore_sig, 'root_sig': root_sig, 'root_tombstones': signed_tombstones}
+    ret = {'datastore_sig': datastore_sig, 'root_sig': root_sig, 'root_tombstones': signed_tombstones}
+    if BLOCKSTACK_TEST:
+        assert verify_datastore_info(datastore_info, ret, get_pubkey_hex(datastore_privkey_hex), config_path=config_path)
+
+    return ret
 
 
 def verify_datastore_info( datastore_info, sigs, datastore_pubkey_hex, config_path=CONFIG_PATH ):
@@ -1419,6 +1423,9 @@ def verify_datastore_info( datastore_info, sigs, datastore_pubkey_hex, config_pa
     res = storage.verify_data_payload( datastore_info['datastore_blob'], datastore_pubkey_hex, sigs['datastore_sig'] )
     if not res:
         log.debug("Failed to verify datastore blob payload with {} and {}".format(datastore_pubkey_hex, sigs['datastore_sig']))
+        if BLOCKSTACK_TEST:
+            log.debug("datastore_info: {}".format(json.dumps(datastore_info)))
+
         return False
 
     res = storage.verify_data_payload( datastore_info['root_blob_header'], datastore_pubkey_hex, sigs['root_sig'] )
@@ -3254,7 +3261,9 @@ def datastore_deletefile_make_inodes(api_client, datastore, data_path, data_pubk
     min_version = max(parent_dir_inode['version'], dead_child['version'])
 
     # update the parent 
-    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_dir_uuid, parent_dir_inode['idata']['children'], device_ids, reader_pubkeys=parent_dir_inode['reader_pubkeys'], min_version=min_version, config_path=config_path )
+    parent_dir_info = make_dir_inode_data( datastore_id, datastore_id, parent_dir_uuid, parent_dir_inode['idata']['children'], device_ids,
+                                           reader_pubkeys=parent_dir_inode['reader_pubkeys'], min_version=min_version, config_path=config_path )
+
     if 'error' in parent_dir_info:
         log.error("Failed to update directory {}: {}".format(dir_path, parent_dir_info['error']))
         return {'error': 'Failed to create parent directory', 'errno': errno.EIO}
