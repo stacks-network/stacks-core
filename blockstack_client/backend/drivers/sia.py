@@ -227,11 +227,16 @@ def download(key):
 
         contents = None
 
-        with open(destination) as downloaded:
-            contents = downloaded.read()
+        downloaded = open(destination)
 
         try:
             os.remove(destination)
+        except Exception as e:
+            log.exception(e)
+
+        try:
+            contents = downloaded.read()
+            downloaded.close()
         except Exception as e:
             log.exception(e)
 
