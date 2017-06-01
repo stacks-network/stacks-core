@@ -61,7 +61,7 @@ for script, analysis in zip(scripts_all[1:], analysis_others):
         EXE(pyz,
             analysis.scripts,
             name = script_name(script),
-            **exe_kwargs)
+            **exe_kwargs))
 
 coll_args = [exe] + exe_others + [a.binaries, a.zipfiles, a.datas]
 coll_kwargs = {name : 'blockstack',
