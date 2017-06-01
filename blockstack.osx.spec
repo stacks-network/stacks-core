@@ -64,7 +64,7 @@ for script, analysis in zip(scripts_all[1:], analysis_others):
             **exe_kwargs))
 
 coll_args = [exe] + exe_others + [a.binaries, a.zipfiles, a.datas]
-coll_kwargs = {name : 'blockstack',
-               strip : False,
-               upx : True} 
+coll_kwargs = {"name" : 'blockstack',
+               "strip" : False,
+               "upx" : True} 
 coll = COLLECT(*coll_args, **coll_kwargs)
