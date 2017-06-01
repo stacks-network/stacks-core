@@ -10,7 +10,6 @@ dependencies:
           LDFLAGS: /usr/local/opt/openssl/lib/libcrypto.a /usr/local/opt/openssl/lib/libssl.a 
           CPPFLAGS: -I/usr/local/opt/openssl/include
     - ../virtualenvs/venv-system/bin/pip install git+https://github.com/blockstack/virtualchain.git@rc-0.14.2
-    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/kantai/jsontokens-py.git --upgrade
 compile:
   post:
     - ../virtualenvs/venv-system/bin/pip install ./integration_tests
