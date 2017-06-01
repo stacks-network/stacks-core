@@ -23,6 +23,7 @@
 
 import sys
 import os
+import io
 import re
 import zlib
 import json
@@ -68,24 +69,20 @@ def write_chunk( chunk_path, chunk_buf, is_mutable ):
     else:
       compressed_data = chunk_buf
 
-    try:
-      h = ipfs_api.add_str( compressed_data, decoder='json' )        
-    except Exception, e:
-      log.error("Failed to write '%s'" % chunk_path)
-      log.exception(e)
-      rc = False
-
     if is_mutable:
-      if os.environ.get("BLOCKSTACK_TEST") == "1":
-        log.debug("[DEBUG] ipfs.publish_name %s: %s" % (chunk_path, chunk_buf))
       try:
-        r = ipfs_api.name_publish( h, opts = {'key': 'mutable-{}'.format(chunk_path.replace( "/", r"\x2f" ))})
+        r = ipfs_api.files_write( chunk_path, io.BytesIO(compressed_data), create = True )
       except Exception, e:
-        log.error("Failed to publish '%s'" % chunk_path)
+        log.error("Failed to write (mutable) '%s'" % chunk_path)
         log.exception(e)
         rc = False
-      if os.environ.get("BLOCKSTACK_TEST") == "1":
-        log.debug("[DEBUG] ipfs.publish_name returned " % (r))
+    else:
+      try:
+        h = ipfs_api.add_str( compressed_data )        
+      except Exception, e:
+        log.error("Failed to write '%s'" % chunk_path)
+        log.exception(e)
+        rc = False
 
     return rc
 
@@ -99,58 +96,27 @@ def read_chunk( chunk_path, is_mutable ):
     """
     
     data = None
-
-    url = chunk_path
+    compressed_data = None
 
     if is_mutable:
       try:
-        r = ipfs_api.name_resolve( chunk_path )
-        url = r['Path']
+        compressed_data = ipfs_api.files_read( chunk_path )
       except Exception, e:
-        log.error("Failed to resolve '%s'" % chunk_path)
+        log.error("Failed to read file '%s'" % chunk_path)
         log.exception(e)
-
-    try:
-      compressed_data = ipfs_api.cat(url)
+    else:
       try:
-        data = decompress_chunk( compressed_data )
-      except:
-        data = compressed_data
-        
-    except Exception, e:
+        compressed_data = ipfs_api.cat( chunk_path )
+      except Exception, e:
         log.error("Failed to read '%s'" % chunk_path)
         log.exception(e)
-        
-    return data
-
-#-------------------------
-def delete_chunk( chunk_path, is_mutable ):
-    """
-    Delete a chunk of data from IPFS.
-    
-    Return True on success 
-    Return False on error.
-    """
-    
-    rc = True
-
-    url = chunk_path
-    if is_mutable:
-      try:
-        r = ipfs_api.name_resolve( chunk_path )
-        url = r['Path']
-      except Exception, e:
-        log.error("Failed to resolve '%s'" % chunk_path)
-        log.exception(e)
 
     try:
-        ipfs_api.pin_rm( url )
-    except Exception, e:
-        log.error("Failed to delete '%s'" % chunk_path)
-        log.exception(e)
-        rc = False
-
-    return rc
+      data = decompress_chunk( compressed_data )
+    except:
+      data = compressed_data
+        
+    return data
 
 
 def storage_init(conf, **kwargs):
@@ -184,6 +150,20 @@ def storage_init(conf, **kwargs):
 
    ipfs_api = ipfsapi.connect( IPFS_SERVER, IPFS_PORT )
 
+   # need the blockstack_id
+   blockstack_id = kwargs.get('fqu', None)
+   if blockstack_id is None:
+      log.error("Blockstack.id is missing to initalize IPFS storage driver'")
+      return False
+
+   d = '/blockstack/'+blockstack_id
+
+   try:
+    ipfs_api.files_mkdir( d, parents = True)
+   except Exception, e:
+      log.error("Failed to create directory '%s' within the MFS" % d)
+      log.exception(e)
+
    return True 
 
 
@@ -208,32 +188,21 @@ def handles_url( url ):
       return False
 
 
-def make_mutable_url( data_id ):
+def make_mutable_url( data_id, **kw ):
     """
     Get data by URL
     """
-    key = 'mutable-{}'.format(data_id.replace( "/", r"\x2f" ))
-
-    ipfs_key_gen( key )
+    blockstack_id = kw.get('fqu', None)
+    if blockstack_id is None:
+      return '/blockstack/' + data_id.replace( "/", r"\x2f" )
+    else:
+      return '/blockstack/' + blockstack_id + '/' + data_id.replace( "/", r"\x2f" )
    
-    url = None
-
-    try:
-      r = ipfs_api.name_publish( hash_data(''), opts = {'key':key})
-      url = r['Name']
-    except Exception, e:
-      log.error("Failed to publish '%s'" % chunk_path)
-      log.exception(e)
-    
-    return url
-   
-
 def get_immutable_handler( data_hash, **kw ):
     """
     Get data by hash
     """
     return read_chunk( data_hash, False )
-
 
 def get_mutable_handler( url, **kw ):
     """
@@ -251,21 +220,37 @@ def put_mutable_handler( data_id, data_txt, **kw ):
     """
     Put data by dynamic hash
     """
-    return write_chunk( data_id, data_txt, True )
+    blockchain_id = kw.get('fqu', None)
+    if blockchain_id is None:
+      return False
+    else:
+      mutable_data_id = "/blockstack/" + blockchain_id + "/" + data_id.replace( "/", r"\x2f" )
+      return write_chunk( mutable_data_id, data_txt, True )
    
-
 def delete_immutable_handler( data_hash, txid, tombstone, **kw ):
     """
     Delete by hash
     """
-    return delete_chunk( data_hash, False )
-
-
+    try:
+        ipfs_api.pin_rm( data_hash )
+    except Exception, e:
+        log.error("Failed to delete '%s'" % data_hash )
+        log.exception(e)
+        return False
+    return True
+    
 def delete_mutable_handler( data_id, tombstone, **kw ):
     """
     Delete by dynamic hash
     """
-    return delete_chunk( data_id, True )
+    try:
+      ipfs_api.files_rm( data_id )
+    except Exception, e:
+      log.error("Failed to delete file '%s'" % data_id )
+      log.exception(e)
+      return False
+    return True
+
 
 def hash_data( d ):
 
@@ -274,14 +259,14 @@ def hash_data( d ):
   if IPFS_COMPRESS:
     try:            
       h = ipfs_api.add_str(compress_chunk(d), opts={'only-hash':True})
-    except:
-      log.error("Failed to get hash for '%s'" % chunk_path)
+    except Exception, e:
+      log.error("Failed to get hash for '%s'" % d )
       log.exception(e)
   else:
     try:
       h = ipfs_api.add_str(d, opts={'only-hash':True})
-    except:
-      log.error("Failed to get hash for '%s'" % chunk_path)
+    except Exception, e:
+      log.error("Failed to get hash for '%s'" % d )
       log.exception(e)
         
   return h
@@ -323,7 +308,7 @@ if __name__ == "__main__":
       ["empty_string",          "",                                         4, "unused", None],
    ]
    
-   rc = storage_init(conf)
+   rc = storage_init(conf, fqu = 'test.id')
    if not rc:
       raise Exception("Failed to initialize")
   
@@ -347,19 +332,18 @@ if __name__ == "__main__":
       rc = put_immutable_handler( hash_data( d ), d, "unused" )
       if not rc:
          raise Exception("put_immutable_handler('%s') failed" % d)
-      
-      
+           
    # put_mutable_handler
    print "put_mutable_handler"
    for i in xrange(0, len(test_data)):
 
       d_id, d, n, s, url = test_data[i]
       
-      data_url = make_mutable_url( d_id )
+      data_url = make_mutable_url( d_id, fqu = 'test.id' )
        
       data_json = serialize_mutable_data( json.dumps({"id": d_id, "nonce": n, "data": d}), data_privkey )
       
-      rc = put_mutable_handler( d_id, data_json )
+      rc = put_mutable_handler( d_id, data_json, fqu = 'test.id' )
       if not rc:
          raise Exception("put_mutable_handler('%s', '%s') failed" % (d_id, d))
      
@@ -370,7 +354,7 @@ if __name__ == "__main__":
    for i in xrange(0, len(test_data)):
       
       d_id, d, n, s, url = test_data[i]
-      
+
       rd = get_immutable_handler( hash_data( d ) )
       if rd != d:
          raise Exception("get_immutable_handler('%s'): '%s' != '%s'" % (hash_data(d), d, rd))
