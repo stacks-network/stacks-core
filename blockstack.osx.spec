@@ -9,8 +9,7 @@ build_path_osx = os.path.dirname(SPECPATH)
 
 build_path = build_path_osx
 
-a = Analysis(['bin/blockstack', 'bin/blockstack-core',
-              'integration_tests/bin/blockstack-test-scenario'],
+a = Analysis(['bin/blockstack', 'bin/blockstack-core'],
              pathex=[build_path],
              binaries=[],
              datas=[],
@@ -29,13 +28,28 @@ a = Analysis(['bin/blockstack', 'bin/blockstack-core',
 pyz = PYZ(a.pure, a.zipped_data,
              cipher=block_cipher)
 
-exe = COLLECT(pyz,
-              a.scripts,
-              a.binaries,
-              a.zipfiles,
-              a.datas,
-              name='blockstack',
-              debug=False,
-              strip=False,
-              upx=True,
-              console=True )
+exe = EXE(pyz,
+          a.scripts,
+          exclude_binaries=True,
+          name='blockstack',
+          debug=False,
+          strip=False,
+          upx=True,
+          console=True)
+
+exe2 = EXE(pyz,
+          a.scripts,
+          exclude_binaries=True,
+          name='blockstack-core',
+          debug=False,
+          strip=False,
+          upx=True,
+          console=True)
+
+coll = COLLECT(exe,
+               a.binaries,
+               a.zipfiles,
+               a.datas,
+               name='blockstack',
+               strip=False,
+               upx=True)
