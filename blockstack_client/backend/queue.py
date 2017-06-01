@@ -551,11 +551,12 @@ def queue_cleanall(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     """
 
     cleanup_preorder_queue(path=path, config_path=config_path)
-    cleanup_register_queue(path=path, config_path=config_path)
-    cleanup_update_queue(path=path, config_path=config_path )
-    cleanup_transfer_queue(path=path, config_path=config_path )
-    cleanup_renew_queue(path=path, config_path=config_path)
-    cleanup_revoke_queue(path=path, config_path=config_path)
+    # These are disabled for now, since the registrar should do this automatically
+    #cleanup_register_queue(path=path, config_path=config_path)
+    #cleanup_update_queue(path=path, config_path=config_path )
+    #cleanup_transfer_queue(path=path, config_path=config_path )
+    #cleanup_renew_queue(path=path, config_path=config_path)
+    #cleanup_revoke_queue(path=path, config_path=config_path)
 
 
 def get_queue_state(queue_ids=None, limit=None, path=DEFAULT_QUEUE_PATH):
