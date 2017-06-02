@@ -27,6 +27,7 @@ from jsonschema.exceptions import ValidationError
 import re
 import keylib
 import copy
+import urlparse
 
 import virtualchain
 from virtualchain.lib.ecdsalib import *
@@ -177,7 +178,16 @@ def user_zonefile_urls(user_zonefile):
         if 'target' in urirec:
             ret.append(urirec['target'].strip('"'))
 
-    return ret
+    # if there's no scheme, then assume https://
+    fixed_urls = []
+    for url in ret:
+        parts = urlparse.urlparse(url)
+        if len(parts.scheme) == 0:
+            url = 'https://' + url
+
+        fixed_urls.append(url)
+
+    return fixed_urls
 
 
 def user_zonefile_txts(user_zonefile):
