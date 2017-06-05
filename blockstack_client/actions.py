@@ -426,6 +426,9 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         else:
             tx_only = False
 
+    else:
+        tx_only = False
+
     if not re.match(OP_BASE58CHECK_PATTERN, recipient_addr):
         log.debug("recipient = {}".format(recipient_addr))
         return {'error': 'Invalid address'}
@@ -529,6 +532,9 @@ def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_priv
 
     if not res:
         return {'error': 'Failed to get the requisite operation fees'}
+
+    if 'error' in res:
+        return res
 
     # do queries 
     sg.run_tasks()
@@ -721,6 +727,9 @@ def cli_get_registrar_info(args, config_path=CONFIG_PATH, queues=None):
         log.error("Failed to contact Blockstack daemon")
         return {'error': 'Failed to contact blockstack daemon.  Please ensure that it is running with the `api` command.'}
 
+    if 'error' in current_state:
+        return current_state
+
     queue_types = dict( [(queue_name, []) for queue_name in queues] )
 
     def format_queue_entry(entry):
@@ -843,6 +852,8 @@ def get_server_info(config_path=CONFIG_PATH, get_local_info=False):
     queue_info = cli_get_registrar_info(None, config_path=config_path)
     if 'error' not in queue_info:
         result['queues'] = queue_info
+    else:
+        return queue_info
 
     return result
 
@@ -1223,6 +1234,8 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
 
     if min_payment_confs is None:
         min_payment_confs = TX_MIN_CONFIRMATIONS
+    else:
+        log.debug("Use UTXOs with a minimum of {} confirmations".format(min_payment_confs))
 
     if transfer_address:
         if not re.match(OP_BASE58CHECK_PATTERN, transfer_address):
@@ -1295,7 +1308,6 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
 
         else:
             cost_satoshis = opchecks['name_price']
-
 
     if interactive and os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
         try:

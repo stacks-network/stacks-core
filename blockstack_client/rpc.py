@@ -3553,6 +3553,11 @@ class BlockstackAPIEndpointClient(object):
         except:
             resp = {'error': 'No JSON response', 'http_status': req.status_code}
 
+        if req.status_code == 403:
+            resp['error'] = ('Authentication to API service failed. Are you ' +
+                             'using the correct API password or do you need to pass the ' +
+                             'correct one with --api_password ?')
+            del resp['http_status']
         return resp
 
     
@@ -4382,7 +4387,7 @@ def local_api_start_wait( api_host='localhost', api_port=DEFAULT_API_PORT, confi
 
     # ping it
     running = False
-    for i in range(1, 4):
+    for i in range(1, 10):
         log.debug("Attempt {} to ping API server".format(i))
         try:
             local_proxy = local_api_connect(api_host=api_host, api_port=api_port, config_path=config_path)

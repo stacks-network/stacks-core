@@ -54,6 +54,13 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
     Returns the API proxy object.
     """
 
+    if set_global:
+        if server_host is not None:
+            os.environ['BLOCKSTACK_CLI_SERVER_HOST'] = server_host
+
+        if server_port is not None:
+            os.environ['BLOCKSTACK_CLI_SERVER_PORT'] = str(server_port)
+
     if conf is None:
         conf = get_config(config_path)
         if conf is None:

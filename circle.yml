@@ -1,0 +1,24 @@
+machine:
+  pre:
+    - sudo -H pip install --upgrade virtualenv
+    - brew install openssl
+dependencies:
+  pre:
+    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/kantai/py-scrypt.git:
+        environment:
+          PYSCRYPT_NO_LINK_FLAGS: "1"
+          LDFLAGS: /usr/local/opt/openssl/lib/libcrypto.a /usr/local/opt/openssl/lib/libssl.a 
+          CPPFLAGS: -I/usr/local/opt/openssl/include
+    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/blockstack/virtualchain.git@rc-0.14.2
+compile:
+  post:
+    - ../virtualenvs/venv-system/bin/pip install ./integration_tests
+test:
+  pre:
+    - blockstack setup -y --password PASSWORD
+    - blockstack api start -y --password PASSWORD
+  override:
+    - mkdir $CIRCLE_TEST_REPORTS/django
+    - ../virtualenvs/venv-system/bin/python -m blockstack_integration_tests.live_tests.api_tests --xunit-path "$CIRCLE_TEST_REPORTS/django/" --all
+  post:
+    - blockstack api stop -y

@@ -28,6 +28,7 @@ setup(
     include_package_data=True,
     install_requires=[
         'blockstack>=0.14.2',
+        'xmlrunner>=1.7.7'
     ],
     classifiers=[
         'Intended Audience :: Developers',

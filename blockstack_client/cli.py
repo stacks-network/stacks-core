@@ -378,17 +378,17 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
                 print("Set {} to {}".format(envar, enval), file=sys.stderr)
 
             os.environ[envar] = enval
-   
+
+    # set secrets...
+    for secvar, secval in arg_info['secrets'].items():
+        set_secret(secvar, secval)
+
     # re-exec?
     if arg_info['re-exec']:
  
         new_argv = arg_info['new_argv']
 
         if len(arg_info['secrets']) > 0:
-            # set secrets...
-            for secvar, secval in arg_info['secrets'].items():
-                set_secret(secvar, secval)
-
             secbuf = serialize_secrets()
             fd = write_secrets(secbuf)
 
@@ -462,7 +462,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             exit_with_error("Failed to inspect wallet at {}".format(wallet_path))
 
         if res['migrate'] or res['format'] != 'current':
-            if sys.argv[1] != 'setup_wallet':
+            if len(sys.argv) <= 1 or sys.argv[1] != 'setup_wallet':
                 exit_with_error("Wallet is in legacy format.  Please unlock and migrate it with `blockstack setup_wallet`.")
 
     advanced_mode = conf['blockstack-client'].get('advanced_mode', False)

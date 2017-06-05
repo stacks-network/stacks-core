@@ -30,9 +30,10 @@ from ...logger import get_logger
 log = get_logger("insight-api")
 
 class InsightClient(object):
-    def __init__(self, url):
+    def __init__(self, url, min_confirmations=None):
         assert url
         self.url = url
+        self.min_confirmations = min_confirmations
 
     def get_unspents(self, address):
         url = self.url + '/insight-api/addr/{}/utxo'.format(address)
@@ -47,7 +48,9 @@ class InsightClient(object):
 
         # format...
         try:
-            return format_unspents(resp)
+            unspents = format_unspents(resp)
+            log.debug("{} has {} UTXOs".format(address, len(unspents)))
+            return unspents
         except Exception as e:
             traceback.print_exc()
             raise ValueError("Invalid UTXO response")

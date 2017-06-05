@@ -26,8 +26,10 @@ class BlockchainClient(object):
         'blockcypher.com', etc.
         Auth object is a two item tuple.
     """
+
     def __init__(self, type, auth=None, timeout=None):
         self.type = type
+
         if isinstance(auth, tuple) and len(auth) == 2:
             self.auth = auth
         else:
