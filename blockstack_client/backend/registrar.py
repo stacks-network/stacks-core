@@ -44,6 +44,7 @@ import virtualchain
 
 from .queue import get_queue_state, in_queue, queue_removeall
 from .queue import queue_cleanall, queue_find_accepted
+from .queue import queue_add_error_msg
 
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
 
@@ -583,6 +584,7 @@ class RegistrarWorker(threading.Thread):
                 else:
                     # will try again 
                     log.error("Failed to transfer {} to {}: {}".format(update['fqu'], update['transfer_address'], res.get('error')))
+                    queue_add_error_msg('update', update['fqu'], res.get('error'), path=queue_path)
                     ret = {'error': 'Not all names transferred'}
 
             else:
