@@ -4,7 +4,7 @@
     Implements an IPFS driver for blockstack.
     An index is used for translating names to content addressing names used in IPFS.
     Assumptions:
-    - Writing user runs it's IPFS node with a pub/priv key pair tagged with it's blockstack id
+    - Writing user runs an IPFS node with a pub/priv key pair tagged with it's blockstack id
       (used for the IPNS entry to have a fixed url for the index)
 """
 
@@ -14,7 +14,8 @@ from ConfigParser import SafeConfigParser
 
 import ipfsapi
 
-from blockstack_client.backend.drivers.ipfsindex import ipfs_put_indexed_data, ipfs_get_indexed_data, ipfs_index_setup
+from blockstack_client.backend.drivers.ipfsindex import ipfs_put_indexed_data, ipfs_get_indexed_data, ipfs_index_setup, \
+    ipfs_delete_indexed_data
 from common import *
 
 log = get_logger("blockstack-storage-drivers-ipfs")
@@ -330,7 +331,7 @@ def storage_init(conf, index=False, force_index=False, **kwargs):
             if parser.has_option('ipfs', 'compress'):
                 compress = (parser.get('ipfs', 'compress').lower() in ['1', 'true', 'yes'])
 
-    # blockstack id for identifying the ipfs key used for the IPNS url
+    # blockstack id for identifying the ipfs key used for the IPNS url (Only used For writes/deletes)
     blockstack_id = kwargs.get('fqu', None)
 
     # set up driver
@@ -361,7 +362,6 @@ def handles_url(url):
 
 def make_mutable_url(data_id):
     """
-    TODO:rewrite
     The URL here is a misnomer, since ipfs has content hash addressing.
 
     This URL here will instruct get_chunk() to go and search through
@@ -445,7 +445,7 @@ def delete_immutable_handler(key, txid, sig_key_txid, **kw):
     name = name.replace('/', r'-2f')
     path = '/{}'.format(name)
 
-    return delete_indexed_data(DVCONF, path)
+    return ipfs_delete_indexed_data(DVCONF, path)
 
 
 def delete_mutable_handler(data_id, signature, **kw):
@@ -457,7 +457,7 @@ def delete_mutable_handler(data_id, signature, **kw):
     data_id = data_id.replace('/', r'-2f')
     path = '/{}'.format(data_id)
 
-    return delete_indexed_data(DVCONF, path)
+    return ipfs_delete_indexed_data(DVCONF, path)
 
 
 if __name__ == "__main__":
@@ -477,7 +477,8 @@ if __name__ == "__main__":
     config.set('ipfs', 'compress', '1')
     with open("temp.config", 'w') as config_file:
         config.write(config_file)
-    os.mkdir("drivers")
+    if not os.path.exists("drivers"):
+        os.mkdir("drivers")
     os.mkdir("drivers/ipfs")
     with open("drivers/ipfs/index_manifest_url", 'w') as config_file:
         config_file.write(DEFAULT_GATEAWAY + "/ipns/%s" % demo_hash)
@@ -496,3 +497,26 @@ if __name__ == "__main__":
             print "Failed :("
     finally:
         shutil.rmtree("drivers")
+
+    import time
+
+
+    print "IPNS waiting......."
+    time.sleep(80)
+    # Try Read Only User
+    config = ConfigParser.SafeConfigParser()
+    config.add_section('ipfs')
+    config.set('ipfs', 'server', 'localhost')
+    config.set('ipfs', 'port', '5001')
+    config.set('ipfs', 'compress', '1')
+    with open("temp.config", 'w') as config_file:
+        config.write(config_file)
+    storage_init(conf={'path': 'temp.config'}, index=False, force_index=False)
+    print "Fetch data"
+    out = get_immutable_handler("test", fqu='demo.io', index_manifest_url=(DEFAULT_GATEAWAY + "/ipns/%s" % demo_hash))
+    print "Result: %s" % out
+
+    if out == data:
+        print "Success :D"
+    else:
+        print "Failed :("
