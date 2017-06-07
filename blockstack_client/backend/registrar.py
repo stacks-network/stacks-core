@@ -228,7 +228,7 @@ class RegistrarWorker(threading.Thread):
 
         log.debug("update({}, zonefile={}, profile={}, transfer_address={})".format(name_data['fqu'], name_data.get('zonefile'), name_data.get('profile'), name_data.get('transfer_address'))) 
         res = update( name_data['fqu'], name_data.get('zonefile'), name_data.get('profile'),
-                      name_data.get('zonefile_hash'), name_data.get('transfer_address'), None, config_path=config_path, proxy=proxy )
+                      name_data.get('zonefile_hash'), name_data.get('transfer_address'), config_path=config_path, proxy=proxy )
 
         assert 'success' in res
 
@@ -573,7 +573,7 @@ class RegistrarWorker(threading.Thread):
             if update.get("transfer_address") is not None:
                 log.debug("Transfer {} to {}".format(update['fqu'], update['transfer_address']))
 
-                res = transfer( update['fqu'], update['transfer_address'], None, config_path=config_path, proxy=proxy )
+                res = transfer( update['fqu'], update['transfer_address'], config_path=config_path, proxy=proxy )
                 assert 'success' in res
                 
                 if res['success']:
@@ -1111,7 +1111,7 @@ def get_wallet(config_path=None, proxy=None):
 
 
 # RPC method: backend_preorder
-def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_payment_confs, tx_fee, proxy=None, config_path=CONFIG_PATH):
+def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_payment_confs, proxy=None, config_path=CONFIG_PATH):
     """
     Send preorder transaction and enter it in queue.
     Queue up additional state so we can update and transfer it as well.
@@ -1150,10 +1150,10 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
         'profile': profile,
     }
     
-    log.debug("async_preorder({}, zonefile_data={}, profile={}, transfer_address={}, tx_fee={})".format(fqu, zonefile_data, profile, transfer_address, tx_fee)) 
+    log.debug("async_preorder({}, zonefile_data={}, profile={}, transfer_address={})".format(fqu, zonefile_data, profile, transfer_address)) 
     resp = async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost_satoshis,
                           name_data=name_data, min_payment_confs=min_payment_confs,
-                          proxy=proxy, config_path=config_path, queue_path=state.queue_path, tx_fee=tx_fee)
+                          proxy=proxy, config_path=config_path, queue_path=state.queue_path)
 
     if 'error' not in resp:
         data['success'] = True
@@ -1174,7 +1174,7 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
 
 
 # RPC method: backend_update
-def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, tx_fee, config_path=CONFIG_PATH, proxy=None ):
+def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, config_path=CONFIG_PATH, proxy=None ):
     """
     Send a new zonefile hash.  Queue the zonefile data for subsequent replication.
     zonefile_txt_b64 must be b64-encoded so we can send it over RPC sanely
@@ -1211,7 +1211,7 @@ def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, tx_fee,
             'transfer_address': transfer_address
         }
 
-        log.debug("async_update({}, zonefile_data={}, profile={}, transfer_address={}, tx_fee={})".format(fqu, zonefile_txt, profile, transfer_address, tx_fee)) 
+        log.debug("async_update({}, zonefile_data={}, profile={}, transfer_address={})".format(fqu, zonefile_txt, profile, transfer_address)) 
         resp = async_update(fqu, zonefile_txt, profile,
                             owner_privkey_info,
                             payment_privkey_info,
@@ -1219,8 +1219,7 @@ def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, tx_fee,
                             zonefile_hash=zonefile_hash,
                             proxy=proxy,
                             config_path=config_path,
-                            queue_path=state.queue_path,
-                            tx_fee=tx_fee)
+                            queue_path=state.queue_path)
 
     else:
         return {'success': True, 'warning': "The zonefile has not changed, so no update sent."}
@@ -1251,7 +1250,7 @@ def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, tx_fee,
 
 
 # RPC method: backend_transfer
-def transfer(fqu, transfer_address, tx_fee, config_path=CONFIG_PATH, proxy=None ):
+def transfer(fqu, transfer_address, config_path=CONFIG_PATH, proxy=None ):
     """
     Send transfer transaction.
     Keeps the zonefile data.
@@ -1281,8 +1280,7 @@ def transfer(fqu, transfer_address, tx_fee, config_path=CONFIG_PATH, proxy=None 
                           payment_privkey_info,
                           proxy=proxy,
                           config_path=config_path,
-                          queue_path=state.queue_path,
-                          tx_fee=tx_fee)
+                          queue_path=state.queue_path)
 
     if 'error' not in resp:
         data['success'] = True
@@ -1302,7 +1300,7 @@ def transfer(fqu, transfer_address, tx_fee, config_path=CONFIG_PATH, proxy=None 
 
 
 # RPC method: backend_renew
-def renew( fqu, renewal_fee, tx_fee, config_path=CONFIG_PATH, proxy=None ):
+def renew( fqu, renewal_fee, config_path=CONFIG_PATH, proxy=None ):
     """
     Renew a name
 
@@ -1331,8 +1329,7 @@ def renew( fqu, renewal_fee, tx_fee, config_path=CONFIG_PATH, proxy=None ):
     resp = async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee,
                        proxy=proxy,
                        config_path=config_path,
-                       queue_path=state.queue_path,
-                       tx_fee=tx_fee)
+                       queue_path=state.queue_path)
 
     if 'error' not in resp:
 
@@ -1354,7 +1351,7 @@ def renew( fqu, renewal_fee, tx_fee, config_path=CONFIG_PATH, proxy=None ):
 
 
 # RPC method: backend_revoke
-def revoke( fqu, tx_fee, config_path=CONFIG_PATH, proxy=None ):
+def revoke( fqu, config_path=CONFIG_PATH, proxy=None ):
     """
     Revoke a name
 
@@ -1383,8 +1380,7 @@ def revoke( fqu, tx_fee, config_path=CONFIG_PATH, proxy=None ):
     resp = async_revoke(fqu, owner_privkey_info, payment_privkey_info,
                         proxy=proxy,
                         config_path=config_path,
-                        queue_path=state.queue_path,
-                        tx_fee=tx_fee)
+                        queue_path=state.queue_path)
 
     if 'error' not in resp:
 
