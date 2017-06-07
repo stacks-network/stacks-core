@@ -261,7 +261,7 @@ def tx_make_subsidization_output(payer_utxo_inputs, payer_address, op_fee, dust_
     }
 
 
-def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_client, tx_fee=0, subsidy_address=None):
+def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, fee_per_byte, utxo_client, tx_fee=0, subsidy_address=None):
     """
     Given an unsigned serialized transaction from Blockstack, make it into a subsidized transaction
     for the client to go sign off on.
@@ -275,6 +275,8 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
     Returns None if we can't get subsidy info
     Raise ValueError if there are not enough inputs to subsidize
     """
+
+    from .backend.blockchain import select_utxos
   
     subsidy_info = tx_get_subsidy_info(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_client, tx_fee=tx_fee, subsidy_address=subsidy_address)
     if 'error' in subsidy_info:
@@ -288,18 +290,51 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
     tx_fee = subsidy_info['tx_fee']
     tx_inputs = subsidy_info['ins']
 
-    # NOTE: virtualchain-formatted output; values are still in satoshis!
-    subsidy_output = tx_make_subsidization_output(
-        payer_utxo_inputs, payer_address, op_fee, dust_fee + tx_fee
-    )
 
-    # add our inputs and output (recall: virtualchain-formatted; so values are fundamental units (i.e. satoshis))
-    subsidized_tx = tx_extend(blockstack_tx, payer_utxo_inputs, [subsidy_output])
+    def _make_subsidized_from(inputs, _tx_fee):
+        # NOTE: virtualchain-formatted output; values are still in satoshis!
+        subsidy_output = tx_make_subsidization_output(
+            inputs, payer_address, op_fee, dust_fee + _tx_fee
+        )
+
+        # add our inputs and output (recall: virtualchain-formatted; so values are fundamental units (i.e. satoshis))
+        subsidized_tx = tx_extend(blockstack_tx, inputs, [subsidy_output])
+        return subsidized_tx
+
+
+    subsidized_tx = None
+    consumed_inputs = None
+
+    # try to minimize the number of UTXOs we'll consume
+    running_tx_fee = 0
+    found = False
+    log.debug("{} has {} UTXOs; will need to fund at least {} + {} + {} = {}".format(payer_address, len(payer_utxo_inputs), op_fee, dust_fee, tx_fee, op_fee + dust_fee + tx_fee))
+
+    for i in xrange(0, len(payer_utxo_inputs)):
+        consumed_inputs = payer_utxo_inputs[0:i+1]
+        running_tx_fee = 0
+        try:
+            subsidized_tx = _make_subsidized_from(consumed_inputs, tx_fee)
+            running_tx_fee = fee_per_byte * len(subsidized_tx) / 2      # / 2 since it's a hex string
+            log.debug("TX fee for UTXOs 0-{} is {}; running total expense is {}".format(i+1, running_tx_fee, running_tx_fee + tx_fee + op_fee + dust_fee))
+            subsidized_tx = _make_subsidized_from(consumed_inputs, running_tx_fee + tx_fee)
+            found = True
+            log.debug("Consumed UTXOs 0-{}".format(i+1))
+            break
+
+        except ValueError:
+            # nope
+            log.debug("Not enough value in UTXOs 0-{} (tx fee so far: {})".format(i+1, running_tx_fee))
+            continue
+
+    if not found:
+        # no solution found
+        raise ValueError("Not enough value in all the UTXOs for {}".format(payer_address))
 
     # sign each of our inputs with our key, but use
     # SIGHASH_ANYONECANPAY so the client can sign its inputs
     if subsidy_key_info is not None:
-        for i in range(len(payer_utxo_inputs)):
+        for i in range(len(consumed_inputs)):
             idx = i + len(tx_inputs)
             subsidized_tx = tx_sign_input(
                 subsidized_tx, idx, subsidy_key_info, hashcode=virtualchain.SIGHASH_ANYONECANPAY
