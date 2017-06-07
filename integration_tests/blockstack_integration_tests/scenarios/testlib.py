@@ -380,11 +380,7 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
     
-    tx_fee = None
-    if not safety_checks:
-        tx_fee = 3000
-
-    resp = blockstack_client.do_name_import( name, privatekey, recipient_address, update_hash, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, tx_fee=tx_fee )
+    resp = blockstack_client.do_name_import( name, privatekey, recipient_address, update_hash, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "name_import", name, resp ) )
     return resp
 
@@ -2430,6 +2426,13 @@ def get_balance( addr ):
     inputs = blockstack_client.backend.blockchain.get_utxos(addr)
     return sum([inp['value'] for inp in inputs])
 
+
+def get_utxos( addr ):
+    """
+    Get the address balance
+    """
+    inputs = blockstack_client.backend.blockchain.get_utxos(addr)
+    return inputs
 
 def send_funds_tx( privkey, satoshis, payment_addr ):
     """
