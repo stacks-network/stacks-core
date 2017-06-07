@@ -32,7 +32,7 @@ from ..logger import get_logger
 
 from .blockchain import (
     get_balance, is_address_usable, get_utxos,
-    can_receive_name, get_tx_fee
+    can_receive_name, get_tx_fee_per_byte
 )
 
 from ..scripts import UTXOException, is_name_valid, is_namespace_valid
@@ -239,8 +239,8 @@ class ScatterGather(object):
         return self.results
 
 
-def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privkey_info, owner_privkey_info, required_checks=[],
-                            min_confirmations=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH,
+def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
+                            required_checks=[], min_confirmations=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH,
                             transfer_address=None, owner_address=None, proxy=None):
     """
     Do a sanity check on carrying out a sequence of operations on a given name.
@@ -505,7 +505,7 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         sg.add_task( req, check_names[req] )
 
     # add tasks for fees
-    res = get_operation_fees(fqu_or_ns, operations, sg, payment_privkey_info, owner_privkey_info,
+    res = get_operation_fees(fqu_or_ns, operations, sg, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
                              payment_address=payment_address, owner_address=owner_address, transfer_address=transfer_address,
                              min_payment_confs=min_confirmations, config_path=config_path, proxy=proxy )
 
@@ -553,7 +553,7 @@ def interpret_operation_sanity_checks( operations, scatter_gather ):
     return reply
 
 
-def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_info, owner_privkey_info,
+def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
                        proxy=None, config_path=CONFIG_PATH, payment_address=None,
                        min_payment_confs=TX_MIN_CONFIRMATIONS, owner_address=None, transfer_address=None):
     """
@@ -667,7 +667,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
 
             insufficient_funds = False
             preorder_tx_fee = estimate_preorder_tx_fee(
-                name_or_ns, name_cost, owner_address, payment_address, utxo_client,
+                name_or_ns, name_cost, owner_address, payment_address, tx_fee_per_byte, utxo_client,
                 owner_privkey_params=owner_privkey_params,
                 config_path=config_path, include_dust=True
             )
@@ -676,7 +676,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
                 preorder_tx_fee = int(preorder_tx_fee)
             else:
                 # do our best
-                preorder_tx_fee = get_tx_fee('00' * APPROX_PREORDER_TX_LEN, config_path=config_path)
+                preorder_tx_fee = (len('00' * APPROX_PREORDER_TX_LEN) * tx_fee_per_byte) / 2
                 insufficient_funds = True
 
             return {'status': True, 'name_cost': name_cost, 'tx_fee': preorder_tx_fee, 'insufficient': insufficient_funds}
@@ -702,7 +702,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
 
             insufficient_funds = False
             register_tx_fee = estimate_register_tx_fee(
-                name_or_ns, owner_address, payment_address, utxo_client,
+                name_or_ns, owner_address, payment_address, tx_fee_per_byte, utxo_client,
                 owner_privkey_params=owner_privkey_params,
                 config_path=config_path, include_dust=True
             )
@@ -710,7 +710,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
             if register_tx_fee is not None:
                 register_tx_fee = int(register_tx_fee)
             else:
-                register_tx_fee = get_tx_fee('00' * APPROX_REGISTER_TX_LEN, config_path=config_path)
+                register_tx_fee = (len('00' * APPROX_REGISTER_TX_LEN) * tx_fee_per_byte) / 2
                 insufficient_funds = True
             
             return {'status': True, 'tx_fee': register_tx_fee, 'insufficient': insufficient_funds}
@@ -736,7 +736,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
             insufficient_funds = False
             estimate = False
             update_tx_fee = estimate_update_tx_fee(
-                name_or_ns, payment_privkey_info, owner_address, utxo_client,
+                name_or_ns, payment_privkey_info, owner_address, tx_fee_per_byte, utxo_client,
                 owner_privkey_params=owner_privkey_params,
                 config_path=config_path, payment_address=payment_address, include_dust=True
             )
@@ -745,7 +745,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
                 update_tx_fee = int(update_tx_fee)
             
             else:
-                update_tx_fee = get_tx_fee('00' * APPROX_UPDATE_TX_LEN, config_path=config_path)
+                update_tx_fee = (len('00' * APPROX_UPDATE_TX_LEN) * tx_fee_per_byte) / 2
                 insufficient_funds = True
 
             if payment_privkey_info is None:
@@ -780,7 +780,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
                 estimate = False
 
                 transfer_tx_fee = estimate_transfer_tx_fee(
-                    name_or_ns, payment_privkey_info, owner_address, utxo_client,
+                    name_or_ns, payment_privkey_info, owner_address, tx_fee_per_byte, utxo_client,
                     owner_privkey_params=owner_privkey_params,
                     config_path=config_path, payment_address=payment_address, include_dust=True
                 )
@@ -789,7 +789,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
                     transfer_tx_fee = int(transfer_tx_fee)
                 
                 else:
-                    transfer_tx_fee = get_tx_fee('00' * APPROX_TRANSFER_TX_LEN, config_path=config_path)
+                    transfer_tx_fee = (len('00' * APPROX_TRANSFER_TX_LEN) * tx_fee_per_byte) / 2
                     insufficient_funds = True
 
                 if payment_privkey_info is None:
@@ -822,7 +822,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
             estimate = False
 
             tx_fee = estimate_revoke_tx_fee(
-                name_or_ns, payment_privkey_info, owner_address, utxo_client,
+                name_or_ns, payment_privkey_info, owner_address, tx_fee_per_byte, utxo_client,
                 owner_privkey_params=owner_privkey_params,
                 config_path=config_path, include_dust=True
             )
@@ -831,7 +831,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
                 tx_fee = int(tx_fee)
             
             else:
-                tx_fee = get_tx_fee('00' * APPROX_REVOKE_TX_LEN, config_path=config_path)
+                tx_fee = (len('00' * APPROX_REVOKE_TX_LEN) * tx_fee_per_byte) / 2
                 insufficient_funds = True
 
             if payment_privkey_info is None:
@@ -869,7 +869,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
             estimate = False
 
             tx_fee = estimate_renewal_tx_fee(
-                name_or_ns, name_cost, payment_privkey_info, owner_privkey_info, utxo_client,
+                name_or_ns, name_cost, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client,
                 config_path=config_path, include_dust=True
             )
 
@@ -877,7 +877,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
                 tx_fee = int(tx_fee)
             
             else:
-                tx_fee = get_tx_fee('00' * APPROX_RENEWAL_TX_LEN, config_path=config_path)
+                tx_fee = (len('00' * APPROX_RENEWAL_TX_LEN) * tx_fee_per_byte) / 2
                 insufficient_funds = True
 
             if payment_privkey_info is None:
@@ -913,13 +913,13 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
 
         try:
             utxo_client = get_utxo_provider_client(config_path=config_path, min_confirmations=min_payment_confs)
-            tx_fee = estimate_namespace_preorder_tx_fee( name_or_ns, namespace_cost, payment_address, utxo_client, config_path=config_path, include_dust=True )
+            tx_fee = estimate_namespace_preorder_tx_fee( name_or_ns, namespace_cost, payment_address, tx_fee_per_byte, utxo_client, config_path=config_path, include_dust=True )
             
             if tx_fee is not None:
                 tx_fee = int(tx_fee)
 
             else:
-                tx_fee = get_tx_fee('00' * APPROX_NAMESPACE_PREORDER_TX_LEN, config_path=config_path)
+                tx_fee = (len('00' * APPROX_NAMESPACE_PREORDER_TX_LEN) * tx_fee_per_byte) / 2
                 insufficient_funds = True
 
             return {'status': True, 'namespace_cost': namespace_cost, 'tx_fee': tx_fee, 'insufficient': insufficient_funds, 'estimate': estimate}
@@ -945,13 +945,13 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
 
         try:
             utxo_client = get_utxo_provider_client(config_path=config_path, min_confirmations=min_payment_confs)
-            tx_fee = estimate_namespace_reveal_tx_fee( name_or_ns, payment_address, utxo_client, config_path=config_path, include_dust=True )
+            tx_fee = estimate_namespace_reveal_tx_fee( name_or_ns, payment_address, tx_fee_per_byte, utxo_client, config_path=config_path, include_dust=True )
 
             if tx_fee is not None:
                 tx_fee = int(tx_fee)
 
             else:
-                tx_fee = get_tx_fee('00' * APPROX_NAMESPACE_REVEAL_TX_LEN, config_path=config_path)
+                tx_fee = (len('00' * APPROX_NAMESPACE_REVEAL_TX_LEN) * tx_fee_per_byte) / 2
                 insufficient_funds = True
 
             return {'status': True, 'tx_fee': tx_fee, 'insufficient': insufficient_funds, 'estimate': estimate}
@@ -977,13 +977,13 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
 
         try:
             utxo_client = get_utxo_provider_client(config_path=config_path, min_confirmations=min_payment_confs)
-            tx_fee = estimate_namespace_ready_tx_fee( name_or_ns, payment_address, utxo_client, config_path=config_path, include_dust=True )
+            tx_fee = estimate_namespace_ready_tx_fee( name_or_ns, payment_address, tx_fee_per_byte, utxo_client, config_path=config_path, include_dust=True )
             
             if tx_fee is not None:
                 tx_fee = int(tx_fee)
 
             else:
-                tx_fee = get_tx_fee('00' * APPROX_NAMESPACE_READY_TX_LEN, config_path=config_path)
+                tx_fee = (len('00' * APPROX_NAMESPACE_READY_TX_LEN) * tx_fee_per_byte) / 2
                 insufficient_funds = True
 
             return {'status': True, 'tx_fee': tx_fee, 'insufficient': insufficient_funds, 'estimate': estimate}
@@ -1012,13 +1012,13 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
 
         try:
             utxo_client = get_utxo_provider_client(config_path=config_path, min_confirmations=min_payment_confs)
-            tx_fee = estimate_name_import_tx_fee( name_or_ns, payment_address, transfer_address, utxo_client, config_path=config_path, include_dust=True )
+            tx_fee = estimate_name_import_tx_fee( name_or_ns, payment_address, transfer_address, tx_fee_per_byte, utxo_client, config_path=config_path, include_dust=True )
 
             if tx_fee is not None:
                 tx_fee = int(tx_fee)
 
             else:
-                tx_fee = get_tx_fee('00' * APPROX_NAME_IMPORT_TX_LEN, config_path=config_path)
+                tx_fee = (len('00' * APPROX_NAME_IMPORT_TX_LEN) * tx_fee_per_byte) / 2
                 insufficient_funds = True
 
             return {'status': True, 'tx_fee': tx_fee, 'insufficient': insufficient_funds, 'estimate': estimate}
@@ -1181,24 +1181,30 @@ def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey
     log.debug("Check {} on {}: test {}".format(', '.join(operations), fqu_or_ns, ', '.join(required_checks)))
 
     payment_address = virtualchain.get_privkey_address(payment_privkey_info)
+    
+    # first things first: get fee per byte 
+    tx_fee_per_byte = get_tx_fee_per_byte(config_path=config_path)
+    if tx_fee_per_byte is None:
+        log.error("Unable to calculate fee per byte")
+        return {'error': 'Unable to get fee estimate'}
 
     sg = ScatterGather()
 
-    res = operation_sanity_checks(fqu_or_ns, operations, sg, payment_privkey_info, owner_privkey_info,
+    res = operation_sanity_checks(fqu_or_ns, operations, sg, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
                                   required_checks=required_checks, owner_address=owner_address,
                                   min_confirmations=min_payment_confs, config_path=config_path,
                                   transfer_address=transfer_address, proxy=proxy )
 
     if 'error' in res:
         log.error("Failed to begin operation sanity checks: {}".format(res['error']))
-        return {'error': 'Failed to perform sanity checks'}
+        return {'error': 'Failed to perform sanity checks', 'tx_fee_per_byte': tx_fee_per_byte}
 
     sg.run_tasks()
 
     opchecks = interpret_operation_sanity_checks( operations, sg )
     if 'error' in opchecks:
         log.error("Failed to interpret operation sanity checks")
-        return {'error': 'Failed operation sanity checks:\n{}'.format(opchecks['error']), 'opchecks': opchecks}
+        return {'error': 'Failed operation sanity checks:\n{}'.format(opchecks['error']), 'opchecks': opchecks, 'tx_fee_per_byte': tx_fee_per_byte}
 
     failed_checks = []
     failed_check_errors = {}
@@ -1218,17 +1224,18 @@ def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey
                     ','.join(operations),
                     '\n'.join(['  * check "{}" failed.  {}'.format(check, failed_check_errors.get(res_name, "")) for check in failed_checks])
                 ),
-                'opchecks': opchecks}
+                'opchecks': opchecks,
+                'tx_fee_per_byte': tx_fee_per_byte}
 
     balance = sg.get_result('get_balance')['status']
 
     if balance < opchecks['total_estimated_cost']:
         msg = 'Address {} does not have enough balance (need {}, have {}).'
         msg = msg.format(payment_address, opchecks['total_estimated_cost'], balance)
-        return {'error': msg, 'opchecks': opchecks}
+        return {'error': msg, 'opchecks': opchecks, 'tx_fee_per_byte': tx_fee_per_byte}
 
     # checks pass!
-    return {'status': True, 'opchecks': opchecks}
+    return {'status': True, 'opchecks': opchecks, 'tx_fee_per_byte': tx_fee_per_byte}
 
 
 def _check_op(fqu_or_ns, operation, required_checks, owner_privkey_info, payment_privkey_info, owner_address=None, transfer_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
@@ -1244,16 +1251,17 @@ def _check_op(fqu_or_ns, operation, required_checks, owner_privkey_info, payment
                             transfer_address=transfer_address, owner_address=owner_address, required_checks=required_checks, config_path=config_path, proxy=proxy )
 
     opchecks = res.get('opchecks', None)
+    tx_fee_per_byte = res.get('tx_fee_per_byte', None)
     tx_fee = None
 
     if opchecks:
         tx_fee = opchecks.get('total_tx_fees', None)
 
     if 'error' in res:
-        return {'error': res['error'], 'tx_fee': tx_fee, 'opchecks': opchecks}
+        return {'error': res['error'], 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
 
     else:
-        return {'status': True, 'tx_fee': tx_fee, 'opchecks': opchecks}
+        return {'status': True, 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
 
 
 def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
@@ -1274,18 +1282,20 @@ def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info,
 
     opchecks = res.get('opchecks', None)
     tx_fee = None
+    tx_fee_per_byte = None
 
     if opchecks:
         tx_fee = opchecks.get('total_tx_fees', None)
+        tx_fee_per_byte = opchecks.get('tx_fee_per_byte', None)
 
     if 'error' in res:
-        return {'error': res['error'], 'opchecks': res.get('opchecks', None), 'tx_fee': res.get('opchecks', {}).get('total_tx_fees', None)}
+        return {'error': res['error'], 'opchecks': res.get('opchecks', None), 'tx_fee': res.get('opchecks', {}).get('total_tx_fees', None), 'tx_fee_per_byte': tx_fee_per_byte}
 
     if cost_satoshis is not None:
         if opchecks['name_price'] > cost_satoshis:
-            return {'error': 'Invalid cost: expected {}, got {}'.format(opchecks['name_price'], cost_satoshis), 'tx_fee': tx_fee, 'opchecks': opchecks}
+            return {'error': 'Invalid cost: expected {}, got {}'.format(opchecks['name_price'], cost_satoshis), 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
 
-    return {'status': True, 'tx_fee': tx_fee, 'opchecks': opchecks}
+    return {'status': True, 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
 
 
 def check_register(fqu, owner_privkey_info, payment_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
@@ -1325,19 +1335,20 @@ def check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, mi
                             required_checks=required_checks, config_path=config_path, proxy=proxy )
 
     opchecks = res.get('opchecks', None)
+    tx_fee_per_byte = res.get('tx_fee_per_byte', None)
     tx_fee = None
 
     if opchecks:
         tx_fee = opchecks.get('total_tx_fees', None)
 
     if 'error' in res:
-        return {'error': res['error'], 'opchecks': res.get('opchecks', None), 'tx_fee': res.get('opchecks', {}).get('total_tx_fees', None)}
+        return {'error': res['error'], 'opchecks': res.get('opchecks', None), 'tx_fee': res.get('opchecks', {}).get('total_tx_fees', None), 'tx_fee_per_byte': tx_fee_per_byte}
 
     if renewal_fee is not None:
         if opchecks['name_price'] > renewal_fee:
-            return {'error': 'Invalid cost: expected {}, got {}'.format(opchecks['name_price'], renewal_fee), 'tx_fee': tx_fee, 'opchecks': opchecks}
+            return {'error': 'Invalid cost: expected {}, got {}'.format(opchecks['name_price'], renewal_fee), 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
 
-    return {'status': True, 'tx_fee': tx_fee, 'opchecks': opchecks}
+    return {'status': True, 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
 
 
 def check_revoke(fqu, owner_privkey_info, payment_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
