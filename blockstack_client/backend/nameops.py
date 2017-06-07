@@ -33,7 +33,7 @@ parent_dir = os.path.abspath(current_dir + "/../")
 from .queue import in_queue, queue_append, queue_findone
 
 from .blockchain import get_tx_confirmations
-from .blockchain import get_tx_fee, get_utxos
+from .blockchain import get_utxos
 from .blockchain import get_block_height
 
 from ..config import PREORDER_CONFIRMATIONS, DEFAULT_QUEUE_PATH, CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster, RPC_MAX_ZONEFILE_LEN
@@ -126,10 +126,12 @@ def make_fake_privkey_info( privkey_params ):
         return virtualchain.make_multisig_wallet( m, n )
 
 
-def estimate_payment_bytes( payment_address, utxo_client, num_payment_sigs=None, config_path=CONFIG_PATH ):
+def estimate_payment_bytes( owner_address, payment_address, utxo_client, fees_func, num_payment_sigs=None, config_path=CONFIG_PATH ):
     """
-    Given the payment address and number of owner signatures, estimate how many
+    Given the payment address, owner address, and (optionally) the number of owner signatures, estimate how many
     extra bytes will be needed to include the payment inputs and outputs
+
+    This method is pessimistic, and assumes that all UTXOs will be consumed for the payment address.
 
     Return the number of bytes on success
     Raise ValueError if there are no UTXOs
@@ -145,6 +147,16 @@ def estimate_payment_bytes( payment_address, utxo_client, num_payment_sigs=None,
         log.error("Failed to query UTXOs for %s: %s" % payment_address, payment_utxos['error'])
         raise Exception("Failed to query UTXO provider: %s" % payment_utxos['error'])
 
+    payment_input_len = 0
+    payment_output_len = 0
+
+    if virtualchain.is_multisig_address(payment_address):
+        payment_input_len = APPROX_TX_IN_P2SH_LEN
+        payment_output_len = APPROX_TX_OUT_P2SH_LEN
+    else:
+        payment_input_len = APPROX_TX_IN_P2PKH_LEN
+        payment_output_len = APPROX_TX_IN_P2PKH_LEN
+
     num_payment_inputs = len(payment_utxos)
     if num_payment_inputs == 0:
         # assume at least one payment UTXO
@@ -158,16 +170,6 @@ def estimate_payment_bytes( payment_address, utxo_client, num_payment_sigs=None,
 
         else:
             num_payment_sigs = 1
-
-    payment_input_len = 0
-    payment_output_len = 0
-
-    if virtualchain.is_multisig_address(payment_address):
-        payment_input_len = APPROX_TX_IN_P2SH_LEN
-        payment_output_len = APPROX_TX_OUT_P2SH_LEN
-    else:
-        payment_input_len = APPROX_TX_IN_P2PKH_LEN
-        payment_output_len = APPROX_TX_IN_P2PKH_LEN
 
     # assuming they're p2pkh outputs...
     subsidy_byte_count = APPROX_TX_OVERHEAD_LEN + (num_payment_inputs * (71 + payment_input_len)) + payment_output_len # ~71 bytes for signature
@@ -193,12 +195,13 @@ def estimate_owner_output_length( owner_address, owner_num_sigs=None ):
         return APPROX_TX_OVERHEAD_LEN + APPROX_TX_IN_P2PKH_LEN + APPROX_TX_OUT_P2PKH_LEN
 
 
-def subsidize_or_pad_transaction( unsigned_tx, owner_address, owner_privkey_params, payment_privkey_info, fees_func, utxo_client, payment_address=None, config_path=CONFIG_PATH ):
+def subsidize_or_pad_transaction( unsigned_tx, owner_address, owner_privkey_params, payment_privkey_info, fees_func, tx_fee_per_byte, utxo_client, payment_address=None, config_path=CONFIG_PATH ):
     """
     Subsidize an unsigned transaction, or append the equivalent
     number of bytes (as 0's).
 
     The point is to get a byte string that is long enough.
+    If no payment_privkey_info is given, then no payment subsidy bytes will be appended
 
     Return the new transaction on success
     Raise Exception if payment_address is None and private key info is None
@@ -209,28 +212,18 @@ def subsidize_or_pad_transaction( unsigned_tx, owner_address, owner_privkey_para
 
     if payment_privkey_info is not None:
         # actually try to subsidize this tx
-        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_func, 21 * 10**14, payment_privkey_info, utxo_client )
+        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_func, 21 * 10**14, payment_privkey_info, tx_fee_per_byte, utxo_client )
         assert subsidized_tx is not None
 
-        signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
-
-        # there will be at least one more output here (the registration output), so append that too
-        pad_len = estimate_owner_output_length(owner_address)
-        signed_subsidized_tx += "00" * pad_len
-
     else:
-        # do a rough size estimation
-        if payment_address is None:
-            log.error("BUG: missing payment private key and address")
-            raise Exception("Need either payment_privkey_info or payment_address")
+        log.warning("No payment key given; assuming no payment subsidization bytes are needed")
+        subsidized_tx = unsigned_tx
 
-        num_extra_bytes = estimate_payment_bytes( payment_address, utxo_client, config_path=config_path )
-        signed_subsidized_tx = unsigned_tx + '00' * num_extra_bytes
-
+    signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
     return signed_subsidized_tx
 
 
-def estimate_preorder_tx_fee( name, name_cost, owner_address, payment_addr, utxo_client, owner_privkey_params=(None, None), config_path=CONFIG_PATH, include_dust=False ):
+def estimate_preorder_tx_fee( name, name_cost, owner_address, payment_addr, tx_fee_per_byte, utxo_client, owner_privkey_params=(None, None), config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a preorder.
     Optionally include the dust fees as well.
@@ -247,25 +240,33 @@ def estimate_preorder_tx_fee( name, name_cost, owner_address, payment_addr, utxo
     fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
 
     try:
-        unsigned_tx = preorder_tx( name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client )
-        assert unsigned_tx
-    except (ValueError, AssertionError) as e:
-        # unfunded payment addr
-        unsigned_tx = preorder_tx( name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client, safety=False, subsidize=True )
-        assert unsigned_tx
+        try:
+            unsigned_tx = preorder_tx( name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client )
+            assert unsigned_tx
+        except AssertionError as e:
+            # unfunded payment addr
+            unsigned_tx = preorder_tx( name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client, safety=False, subsidize=True )
+            assert unsigned_tx
 
-        pad_len = estimate_owner_output_length(owner_address)
-        unsigned_tx += "00" * pad_len
+            pad_len = estimate_owner_output_length(owner_address)
+            unsigned_tx += "00" * pad_len
 
-    signed_subsidized_tx = subsidize_or_pad_transaction(unsigned_tx, owner_address, owner_privkey_params, None, fees_preorder, utxo_client, payment_address=payment_addr, config_path=config_path )
+        signed_subsidized_tx = subsidize_or_pad_transaction(unsigned_tx, owner_address, owner_privkey_params, None, fees_preorder, tx_fee_per_byte, utxo_client, payment_address=payment_addr, config_path=config_path )
 
-    tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to get tx fee")
+    except ValueError as ve:
+        if BLOCKSTACK_TEST:
+            log.exception(ve)
+
+        log.error("Failed to create preorder transaction (ValueError)")
         return None
 
+    except Exception as e:
+        log.exception(e)
+        return None
+    
+    tx_fee = (len(signed_subsidized_tx) * tx_fee_per_byte) / 2
     log.debug("preorder tx %s bytes, %s satoshis" % (len(signed_subsidized_tx)/2, int(tx_fee)))
-
+    log.debug("signed subsidized tx: {}".format(signed_subsidized_tx))
     if include_dust:
         dust_fee = estimate_dust_fee( signed_subsidized_tx, fees_preorder )
         assert dust_fee is not None
@@ -275,7 +276,7 @@ def estimate_preorder_tx_fee( name, name_cost, owner_address, payment_addr, utxo
     return tx_fee
 
 
-def estimate_register_tx_fee( name, owner_addr, payment_addr, utxo_client, owner_privkey_params=(None, None), config_path=CONFIG_PATH, include_dust=False ):
+def estimate_register_tx_fee( name, owner_addr, payment_addr, tx_fee_per_byte, utxo_client, owner_privkey_params=(None, None), config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a register.
     Optionally include the dust fees as well.
@@ -292,24 +293,34 @@ def estimate_register_tx_fee( name, owner_addr, payment_addr, utxo_client, owner
     fake_privkey = make_fake_privkey_info( owner_privkey_params )
 
     try:
-        unsigned_tx = register_tx( name, payment_addr, owner_addr, utxo_client, subsidized=True )
-        assert unsigned_tx
-    except (ValueError, AssertionError) as e:
-        # no UTXOs for this owner address.  Try again and add padding for one
-        unsigned_tx = register_tx( name, payment_addr, owner_addr, utxo_client, subsidized=True, safety=False )
-        assert unsigned_tx
+        try:
+            unsigned_tx = register_tx( name, payment_addr, owner_addr, utxo_client, subsidized=True )
+            assert unsigned_tx
+        except AssertionError as e:
+            # no UTXOs for this owner address.  Try again and add padding for one
+            unsigned_tx = register_tx( name, payment_addr, owner_addr, utxo_client, subsidized=True, safety=False )
+            assert unsigned_tx
 
-        pad_len = estimate_owner_output_length(owner_addr)
-        unsigned_tx += "00" * pad_len
+            pad_len = estimate_owner_output_length(owner_addr)
+            unsigned_tx += "00" * pad_len
 
-    signed_subsidized_tx = subsidize_or_pad_transaction(unsigned_tx, owner_addr, owner_privkey_params, None, fees_registration, utxo_client, payment_address=payment_addr, config_path=config_path )
+        signed_subsidized_tx = subsidize_or_pad_transaction(unsigned_tx, owner_addr, owner_privkey_params, None, fees_registration, tx_fee_per_byte, utxo_client, payment_address=payment_addr, config_path=config_path )
+        
+    except ValueError as ve:
+        if BLOCKSTACK_TEST:
+            log.exception(ve)
 
-    tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to get tx fee")
+        log.error("Failed to create register transaction (ValueError)")
         return None
 
+    except Exception as e:
+        log.exception(e)
+        return None 
+
+    tx_fee = (len(signed_subsidized_tx) * tx_fee_per_byte) / 2
+
     log.debug("register tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx)/2, int(tx_fee)))
+    log.debug("signed subsidized tx: {}".format(signed_subsidized_tx))
 
     if include_dust:
         dust_fee = estimate_dust_fee( signed_subsidized_tx, fees_registration )
@@ -320,7 +331,7 @@ def estimate_register_tx_fee( name, owner_addr, payment_addr, utxo_client, owner
     return tx_fee
 
 
-def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_privkey_info, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
+def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a renewal.
     Optionally include the dust fees as well.
@@ -333,24 +344,34 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_priv
     owner_privkey_params = get_privkey_info_params(owner_privkey_info)
 
     try:
-        unsigned_tx = register_tx( name, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee )
-    except (AssertionError, ValueError), ve:
-        # no UTXOs for this owner address.  Try again and add padding for one
-        unsigned_tx = register_tx( name, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee, subsidized=True, safety=False )
-        assert unsigned_tx
+        try:
+            # TODO: payment address?
+            unsigned_tx = register_tx( name, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee )
+        except AssertionError as ae:
+            # no UTXOs for this owner address.  Try again and add padding for one
+            unsigned_tx = register_tx( name, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee, subsidized=True, safety=False )
+            assert unsigned_tx
 
-        pad_len = estimate_owner_output_length(owner_address)
-        unsigned_tx += "00" * pad_len
+            pad_len = estimate_owner_output_length(owner_address)
+            unsigned_tx += "00" * pad_len
+    
+        signed_subsidized_tx = subsidize_or_pad_transaction(unsigned_tx, owner_address, owner_privkey_params, payment_privkey_info, fees_registration, tx_fee_per_byte, utxo_client, payment_address=payment_address, config_path=config_path )
 
-    signed_subsidized_tx = subsidize_or_pad_transaction(unsigned_tx, owner_address, owner_privkey_params, payment_privkey_info, fees_registration, utxo_client, payment_address=payment_address, config_path=config_path )
-
-    tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to get tx fee")
+    except ValueError as ve:
+        if BLOCKSTACK_TEST:
+            log.exception(ve)
+        
+        log.error("Unable to create renewal transaction")
         return None
 
-    log.debug("renewal tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx)/2, int(tx_fee)))
+    except Exception as e:
+        log.exception(e)
+        return None
 
+    tx_fee = (len(signed_subsidized_tx) * tx_fee_per_byte) / 2
+
+    log.debug("renewal tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx)/2, int(tx_fee)))
+    log.debug("signed subsidized tx: {}".format(signed_subsidized_tx))
     if include_dust:
         dust_fee = estimate_dust_fee( unsigned_tx, fees_registration )   # must be unsigned_tx, without subsidy
         assert dust_fee is not None
@@ -360,7 +381,7 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_priv
     return tx_fee
 
 
-def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(None, None), config_path=CONFIG_PATH, payment_address=None, include_dust=False ):
+def estimate_update_tx_fee( name, payment_privkey_info, owner_address, tx_fee_per_byte, utxo_client, owner_privkey_params=(None, None), config_path=CONFIG_PATH, payment_address=None, include_dust=False ):
     """
     Estimate the transaction fee of an update.
     Optionally include the dust fees as well.
@@ -393,7 +414,7 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
             pad_len = estimate_owner_output_length(owner_address)
             unsigned_tx += "00" * pad_len
 
-        signed_subsidized_tx = subsidize_or_pad_transaction(unsigned_tx, owner_address, owner_privkey_params, payment_privkey_info, fees_update, utxo_client, payment_address=payment_address, config_path=config_path )
+        signed_subsidized_tx = subsidize_or_pad_transaction(unsigned_tx, owner_address, owner_privkey_params, payment_privkey_info, fees_update, tx_fee_per_byte, utxo_client, payment_address=payment_address, config_path=config_path )
 
     except ValueError as ve:
         if BLOCKSTACK_TEST:
@@ -406,7 +427,7 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
         if BLOCKSTACK_DEBUG:
             log.exception(ae)
 
-        log.error("Unable to create transaction")
+        log.error("Unable to create update transaction")
         return None
 
     except Exception as e:
@@ -415,12 +436,10 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
 
         return None
 
-    tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to get tx fee")
-        return None
+    tx_fee = (len(signed_subsidized_tx) * tx_fee_per_byte) / 2
 
     log.debug("update tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx)/2, int(tx_fee)))
+    log.debug("signed subsidized tx: {}".format(signed_subsidized_tx))
 
     if include_dust:
         dust_fee = estimate_dust_fee( unsigned_tx, fees_update )    # must be unsigned tx, without subsidy
@@ -431,7 +450,7 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
     return tx_fee
 
 
-def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(None, None), payment_address=None, config_path=CONFIG_PATH, include_dust=False ):
+def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, tx_fee_per_byte, utxo_client, owner_privkey_params=(None, None), payment_address=None, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a transfer.
     Optionally include the dust fees as well.
@@ -459,7 +478,7 @@ def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, utxo_cl
             pad_len = estimate_owner_output_length(owner_address)
             unsigned_tx += "00" * pad_len
 
-        signed_subsidized_tx = subsidize_or_pad_transaction(unsigned_tx, owner_address, owner_privkey_params, payment_privkey_info, fees_transfer, utxo_client, payment_address=payment_address, config_path=config_path )
+        signed_subsidized_tx = subsidize_or_pad_transaction(unsigned_tx, owner_address, owner_privkey_params, payment_privkey_info, fees_transfer, tx_fee_per_byte, utxo_client, payment_address=payment_address, config_path=config_path )
 
     except ValueError, ve:
         if os.environ.get("BLOCKSTACK_TEST") == "1":
@@ -472,7 +491,7 @@ def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, utxo_cl
         if BLOCKSTACK_DEBUG:
             log.exception(ae)
 
-        log.error("Unable to make transaction")
+        log.error("Unable to make transfer transaction")
         return None
 
     except Exception as e:
@@ -481,12 +500,9 @@ def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, utxo_cl
 
         return None
 
-    tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to get tx fee")
-        return None
-
+    tx_fee = (len(signed_subsidized_tx) * tx_fee_per_byte) / 2
     log.debug("transfer tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx)/2, int(tx_fee)))
+    log.debug("signed subsidized tx: {}".format(signed_subsidized_tx))
 
     if include_dust:
         dust_fee = estimate_dust_fee( unsigned_tx, fees_transfer )  # must be unsigned tx, without subsidy
@@ -497,7 +513,7 @@ def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, utxo_cl
     return tx_fee
 
 
-def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(None, None), config_path=CONFIG_PATH, include_dust=False ):
+def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, tx_fee_per_byte, utxo_client, owner_privkey_params=(None, None), config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a revoke.
     Optionally include the dust fees as well.
@@ -522,7 +538,7 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
             pad_len = estimate_owner_output_length(owner_address)
             unsigned_tx += "00" * pad_len
 
-        signed_subsidized_tx = subsidize_or_pad_transaction(unsigned_tx, owner_address, owner_privkey_params, payment_privkey_info, fees_revoke, utxo_client, config_path=config_path )
+        signed_subsidized_tx = subsidize_or_pad_transaction(unsigned_tx, owner_address, owner_privkey_params, payment_privkey_info, fees_revoke, tx_fee_per_byte, utxo_client, config_path=config_path )
 
     except ValueError, ve:
         if os.environ.get("BLOCKSTACK_TEST") == "1":
@@ -535,7 +551,7 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
         if BLOCKSTACK_DEBUG:
             log.exception(ae)
 
-        log.error("Unable to make transaction")
+        log.error("Unable to make revoke transaction")
         return None
 
     except Exception as e:
@@ -544,12 +560,10 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
 
         return None
 
-    tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to get tx fee")
-        return None
+    tx_fee = (len(signed_subsidized_tx) * tx_fee_per_byte) / 2
 
     log.debug("revoke tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx)/2, int(tx_fee)))
+    log.debug("signed subsidized tx: {}".format(signed_subsidized_tx))
 
     if include_dust:
         dust_fee = estimate_dust_fee( unsigned_tx, fees_revoke )    # must be unsigned tx, without subsidy
@@ -560,7 +574,7 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
     return tx_fee
 
 
-def estimate_name_import_tx_fee( fqu, reveal_addr, recipient_address, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
+def estimate_name_import_tx_fee( fqu, reveal_addr, recipient_address, tx_fee_per_byte, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a name import.
     Return the number of satoshis on success
@@ -594,12 +608,10 @@ def estimate_name_import_tx_fee( fqu, reveal_addr, recipient_address, utxo_clien
         log.error("Insufficient funds:  Not enough inputs to make an import transaction")
         return None
 
-    tx_fee = get_tx_fee( signed_tx, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to get tx fee")
-        return None
+    tx_fee = (len(signed_subsidized_tx) * tx_fee_per_byte) / 2
 
     log.debug("name import tx %s bytes, %s satoshis txfee" % (len(signed_tx)/2, int(tx_fee)))
+    log.debug("signed subsidized tx: {}".format(signed_subsidized_tx))
 
     if include_dust:
         dust_fee = estimate_dust_fee( signed_tx, fees_name_import )
@@ -610,7 +622,7 @@ def estimate_name_import_tx_fee( fqu, reveal_addr, recipient_address, utxo_clien
     return tx_fee
 
 
-def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
+def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, tx_fee_per_byte, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a namespace preorder
     Return the number of satoshis on success
@@ -644,12 +656,10 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
         log.error("Insufficient funds:  Not enough inputs to make a namespace-preorder transaction.")
         return None
 
-    tx_fee = get_tx_fee( signed_tx, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to get tx fee")
-        return None
+    tx_fee = (len(signed_tx) * tx_fee_per_byte) / 2
     
     log.debug("namespace preorder tx %s bytes, %s satoshis" % (len(signed_tx)/2, int(tx_fee)))
+    log.debug("signed (fake) tx: {}".format(signed_tx))
 
     dust_fee = 0
     if include_dust:
@@ -661,7 +671,7 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
     return tx_fee
 
 
-def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
+def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, tx_fee_per_byte, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a namespace reveal
     Return the number of satoshis on success
@@ -694,12 +704,10 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
         log.error("Insufficient funds:  Not enough inputs to make a namespace-reveal transaction.")
         return None
 
-    tx_fee = get_tx_fee( signed_tx, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to get tx fee")
-        return None
+    tx_fee = (len(signed_tx) * tx_fee_per_byte) / 2
 
     log.debug("namespace reveal tx %s bytes, %s satoshis txfee" % (len(signed_tx)/2, int(tx_fee)))
+    log.debug("signed (fake) tx: {}".format(signed_tx))
 
     if include_dust:
         dust_fee = estimate_dust_fee( signed_tx, fees_namespace_reveal )
@@ -710,7 +718,7 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
     return tx_fee
 
 
-def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
+def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, tx_fee_per_byte, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a namespace ready
     Return the number of satoshis on success
@@ -743,13 +751,11 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
 
         log.error("Insufficient funds:  Not enough inputs to make a namespace-ready transaction.")
         return None
-
-    tx_fee = get_tx_fee( signed_tx, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to get tx fee")
-        return None
+    
+    tx_fee = (len(signed_tx) * tx_fee_per_byte) / 2
 
     log.debug("namespace ready tx %s bytes, %s satoshis txfee" % (len(signed_tx)/2, int(tx_fee)))
+    log.debug("signed (fake) tx: {}".format(signed_tx))
 
     dust_fee = 0
     if include_dust:
@@ -761,7 +767,7 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
     return tx_fee
 
 
-def estimate_announce_tx_fee( sender_address, utxo_client, sender_privkey_params=(1, 1), config_path=CONFIG_PATH, include_dust=False ):
+def estimate_announce_tx_fee( sender_address, tx_fee_per_byte, utxo_client, sender_privkey_params=(1, 1), config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of an announcement tx
     Return the number of satoshis on success
@@ -794,12 +800,10 @@ def estimate_announce_tx_fee( sender_address, utxo_client, sender_privkey_params
         log.error("Insufficient funds:  Not enough inputs to make an announce transaction.")
         return None
 
-    tx_fee = get_tx_fee( signed_tx, config_path=config_path )
-    if tx_fee is None:
-        log.error("Failed to get tx fee")
-        return None
+    tx_fee = (len(signed_subsidized_tx) * tx_fee_per_byte) / 2
 
     log.debug("announce tx %s bytes, %s satoshis" % (len(signed_tx)/2, int(tx_fee)))
+    log.debug("signed (fake) tx: {}".format(signed_tx))
 
     if include_dust:
         dust_fee = estimate_dust_fee( signed_tx, fees_announce )
@@ -1022,7 +1026,7 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
             return res
 
         if tx_fee is None:
-            tx_fee = res['tx_fee']
+            tx_fee = res.get('tx_fee')
 
         if cost_satoshis is None:
             cost_satoshis = res['name_price']
@@ -1122,7 +1126,7 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
     return resp
 
 
-def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, tx_fee=None,
+def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, tx_fee_per_byte=None,
                owner_address=None, owner_utxos=None, payment_address=None, payment_utxos=None,
                config_path=CONFIG_PATH, proxy=None, consensus_hash=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
@@ -1140,7 +1144,7 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
         proxy = get_default_proxy()
 
     if dry_run:
-        assert tx_fee, 'dry run needs tx fee'
+        assert tx_fee_per_byte, 'dry run needs tx fee'
         safety_checks = False
 
     fqu = str(fqu)
@@ -1167,17 +1171,17 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
 
     min_confirmations = utxo_client.min_confirmations
 
-    if not dry_run and (safety_checks or tx_fee is None):
+    if not dry_run and (safety_checks or tx_fee_per_byte is None):
         # find tx fee, and do sanity checks
         res = check_update(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
             log.error("Failed to check update: {}".format(res['error']))
             return res
 
-        if tx_fee is None:
-            tx_fee = res['tx_fee']
+        if tx_fee_per_byte is None:
+            tx_fee_per_byte = res['tx_fee_per_byte']
 
-        assert tx_fee, "Missing tx fee"
+        assert tx_fee_per_byte, "Missing tx fee per byte"
 
     # get consensus hash
     if consensus_hash is None:
@@ -1192,11 +1196,11 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
         log.warn("Using caller-supplied consensus hash '%s'" % consensus_hash)
 
     log.debug("Updating (%s, %s)" % (fqu, zonefile_hash))
-    log.debug("<owner, payment> (%s, %s) tx_fee = %s" % (owner_address, payment_address, tx_fee))
+    log.debug("<owner, payment> (%s, %s) tx_fee_per_byte = %s" % (owner_address, payment_address, tx_fee_per_byte))
 
     unsigned_tx = None
     try:
-        unsigned_tx = update_tx( fqu, zonefile_hash, consensus_hash, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
+        unsigned_tx = update_tx( fqu, zonefile_hash, consensus_hash, owner_address, utxo_client, subsidize=True )
     except ValueError, ve:
         log.exception(ve)
         log.error("Failed to generate update TX")
@@ -1208,7 +1212,7 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
     if payment_privkey_info is not None:
         # will subsidize
         try:
-            subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * (10**6) * (10**8), payment_privkey_info, utxo_client, tx_fee=tx_fee )
+            subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * (10**6) * (10**8), payment_privkey_info, tx_fee_per_byte, utxo_client )
             assert subsidized_tx is not None
 
             unsigned_tx = subsidized_tx
@@ -1233,7 +1237,7 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
     return resp
 
 
-def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, tx_fee=None,
+def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, tx_fee_per_byte=None,
                  config_path=CONFIG_PATH, proxy=None, consensus_hash=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
     Transfer a name to a new address
@@ -1245,7 +1249,7 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
         proxy = get_default_proxy()
 
     if dry_run:
-        assert tx_fee is not None, 'Need tx fee for dry run'
+        assert tx_fee_per_byte is not None, 'Need tx fee for dry run'
         safety_checks = False
 
     fqu = str(fqu)
@@ -1254,17 +1258,17 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
 
     min_confirmations = utxo_client.min_confirmations
 
-    if not dry_run and (safety_checks or tx_fee is None):
+    if not dry_run and (safety_checks or tx_fee_per_byte is None):
         # find tx fee, and do sanity checks
         res = check_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
             log.error("Failed to check transfer: {}".format(res['error']))
             return res
 
-        if tx_fee is None:
-            tx_fee = res['tx_fee']
+        if tx_fee_per_byte is None:
+            tx_fee_per_byte = res['tx_fee_per_byte']
 
-        assert tx_fee, "Missing tx fee"
+        assert tx_fee_per_byte, "Missing tx fee"
 
     # get consensus hash
     if consensus_hash is None:
@@ -1279,8 +1283,8 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
 
     subsidized_tx = None
     try:
-        unsigned_tx = transfer_tx( fqu, transfer_address, keep_data, consensus_hash, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
-        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * (10**6) * (10**8), payment_privkey_info, utxo_client, tx_fee=tx_fee )
+        unsigned_tx = transfer_tx( fqu, transfer_address, keep_data, consensus_hash, owner_address, utxo_client, subsidize=True )
+        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * (10**6) * (10**8), payment_privkey_info, tx_fee_per_byte, utxo_client )
         assert subsidized_tx is not None
     except ValueError as ve:
         if BLOCKSTACK_DEBUG:
@@ -1296,13 +1300,13 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
         return {'error': 'Unable to create transaction'}
 
     log.debug("Transferring (%s, %s)" % (fqu, transfer_address))
-    log.debug("<owner, payment> (%s, %s) tx_fee = %s" % (owner_address, payment_address, tx_fee))
+    log.debug("<owner, payment> (%s, %s) tx_fee_per_byte = %s" % (owner_address, payment_address, tx_fee_per_byte))
 
     resp = do_blockchain_tx( subsidized_tx, privkey_info=owner_privkey_info, tx_broadcaster=tx_broadcaster, config_path=config_path, dry_run=dry_run )
     return resp
 
 
-def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster, tx_fee=None, config_path=CONFIG_PATH, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
+def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster, tx_fee_per_byte=None, config_path=CONFIG_PATH, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
     Renew a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1312,7 +1316,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
         proxy = get_default_proxy()
 
     if dry_run:
-        assert tx_fee, 'Need tx fee for dry run'
+        assert tx_fee_per_byte, 'Need tx fee for dry run'
         assert renewal_fee, 'Need renewal fee for dry run'
         safety_checks = False
 
@@ -1323,29 +1327,29 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
 
     min_confirmations = utxo_client.min_confirmations 
 
-    if not dry_run and (safety_checks or (renewal_fee is None or tx_fee is None)):
+    if not dry_run and (safety_checks or (renewal_fee is None or tx_fee_per_byte is None)):
         # find tx fee, and do sanity checks
         res = check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
             log.error("Failed to check renewal: {}".format(res['error']))
             return res
 
-        if tx_fee is None:
-            tx_fee = res['tx_fee']
+        if tx_fee_per_byte is None:
+            tx_fee_per_byte = res['tx_fee_per_byte']
 
         if renewal_fee is None:
             renewal_fee = res['name_price']
 
-        assert tx_fee, "Missing tx fee"
+        assert tx_fee_per_byte, "Missing tx-per-byte fee"
         assert renewal_fee, "Missing renewal fee"
 
-    log.debug("Renewing (%s, %s, %s), tx_fee = %s, renewal_fee = %s" % (fqu, payment_address, owner_address, tx_fee, renewal_fee))
+    log.debug("Renewing (%s, %s, %s), tx_fee_per_byte = %s, renewal_fee = %s" % (fqu, payment_address, owner_address, tx_fee_per_byte, renewal_fee))
 
     # now send it
     subsidized_tx = None
     try:
-        unsigned_tx = register_tx( fqu, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee, tx_fee=tx_fee )
-        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 ** (10**6) * (10**8), payment_privkey_info, utxo_client, tx_fee=tx_fee )
+        unsigned_tx = register_tx( fqu, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee )
+        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 ** (10**6) * (10**8), payment_privkey_info, tx_fee_per_byte, utxo_client )
         assert subsidized_tx is not None
     except ValueError as ve:
         if BLOCKSTACK_DEBUG:
@@ -1364,7 +1368,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     return resp
 
 
-def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, tx_fee=None, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True):
+def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, tx_fee_per_byte=None, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True):
     """
     Revoke a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1374,7 +1378,7 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
         proxy = get_default_proxy()
 
     if dry_run:
-        assert tx_fee, "need tx fee for dry run"
+        assert tx_fee_per_byte, "need tx fee for dry run"
         safety_checks = False
 
     fqu = str(fqu)
@@ -1383,21 +1387,21 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
 
     min_confirmations = utxo_client.min_confirmations
 
-    if not dry_run and (safety_checks or tx_fee is None):
+    if not dry_run and (safety_checks or tx_fee_per_byte is None):
         res = check_revoke(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
             log.error("Failed to check revoke: {}".format(res['error']))
             return res
 
-        if tx_fee is None:
-            tx_fee = res['tx_fee']
+        if tx_fee_per_byte is None:
+            tx_fee_per_byte = res['tx_fee_per_byte']
 
-        assert tx_fee, "Missing tx fee"
+        assert tx_fee_per_byte, "Missing tx fee"
 
     subsidized_tx = None
     try:
-        unsigned_tx = revoke_tx( fqu, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
-        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 ** (10**6) * (10**8), payment_privkey_info, utxo_client, tx_fee=tx_fee )
+        unsigned_tx = revoke_tx( fqu, owner_address, utxo_client, subsidize=True )
+        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 ** (10**6) * (10**8), payment_privkey_info, tx_fee_per_byte, utxo_client )
         assert subsidized_tx is not None
     except ValueError as ve:
         if BLOCKSTACK_DEBUG:
@@ -1413,13 +1417,13 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
         return {'error': 'Unable to create transaction'}
 
     log.debug("Revoking %s" % fqu)
-    log.debug("<owner, payment> (%s, %s) tx_fee = %s" % (owner_address, payment_address, tx_fee))
+    log.debug("<owner, payment> (%s, %s) tx_fee_per_byte = %s" % (owner_address, payment_address, tx_fee_per_byte))
 
     resp = do_blockchain_tx( subsidized_tx, privkey_info=owner_privkey_info, tx_broadcaster=tx_broadcaster, config_path=config_path, dry_run=dry_run )
     return resp
 
 
-def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, tx_fee=None, proxy=None, safety_checks=True, dry_run=BLOCKSTACK_DRY_RUN ):
+def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, tx_fee_per_byte=None, proxy=None, safety_checks=True, dry_run=BLOCKSTACK_DRY_RUN ):
     """
     Import a name
     Return {'status': True, 'transaction_hash': ..., 'value_hash': ...} on success
@@ -1431,18 +1435,21 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
     fqu = str(fqu)
     payment_address = None
     
+    tx_fee = 0
     min_confirmations = utxo_client.min_confirmations
 
-    if not dry_run and (safety_checks or tx_fee is None):
+    if not dry_run and (safety_checks or tx_fee_per_byte is None):
         res = check_name_import(fqu, importer_privkey_info, recipient_address, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
             log.error("Failed to check name import: {}".format(res['error']))
             return res
 
-        if tx_fee is None:
-            tx_fee = res['tx_fee']
-
-        assert tx_fee, "Missing tx fee"
+        if tx_fee_per_byte is None:
+            tx_fee_per_byte = res.get('tx_fee_per_byte')
+        
+        tx_fee = res.get('tx_fee')
+        assert tx_fee, 'Missing tx fee'
+        assert tx_fee_per_byte, "Missing tx fee"
 
     try:
         payment_address = virtualchain.get_privkey_address(importer_privkey_info)
@@ -1452,7 +1459,7 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
 
     unsigned_tx = None
     try:
-        unsigned_tx = name_import_tx( fqu, recipient_address, zonefile_hash, payment_address, utxo_client, tx_fee=tx_fee )
+        unsigned_tx = name_import_tx( fqu, recipient_address, zonefile_hash, payment_address, utxo_client )
     except ValueError, ve:
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
@@ -1460,7 +1467,7 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
         return {'error': 'Insufficient funds'}
 
     log.debug("Import {} with {}".format(fqu, payment_address))
-    log.debug("<payment, recipient> ({}, {}) tx_fee = {}".format(payment_address, recipient_address, tx_fee))
+    log.debug("<payment, recipient> ({}, {}) tx_fee_per_byte = {}".format(payment_address, recipient_address, tx_fee_per_byte))
 
     resp = do_blockchain_tx( unsigned_tx, privkey_info=importer_privkey_info, tx_broadcaster=tx_broadcaster, config_path=config_path, dry_run=dry_run )
     if 'error' in resp:
@@ -1471,7 +1478,7 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
 
 
 def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_address, utxo_client, tx_broadcaster,
-                           consensus_hash=None, config_path=CONFIG_PATH, tx_fee=None, proxy=None, safety_checks=True, dry_run=BLOCKSTACK_DRY_RUN ):
+                           consensus_hash=None, config_path=CONFIG_PATH, tx_fee_per_byte=None, proxy=None, safety_checks=True, dry_run=BLOCKSTACK_DRY_RUN ):
     """
     Preorder a namespace
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1484,17 +1491,21 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
     payment_address = None
 
     min_confirmations = utxo_client.min_confirmations
+    tx_fee = 0
 
-    if not dry_run and (safety_checks or tx_fee is None):
+    if not dry_run and (safety_checks or tx_fee_per_byte is None):
         res = check_namespace_preorder(namespace_id, payment_privkey_info, reveal_address, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations )
         if 'error' in res and safety_checks:
             log.error("Failed to check namespace preorder: {}".format(res['error']))
             return res
 
-        if tx_fee is None:
-            tx_fee = res['tx_fee']
+        if tx_fee_per_byte is None:
+            tx_fee_per_byte = res.get('tx_fee_per_byte')
 
-        assert tx_fee, "Missing tx fee"
+        tx_fee = res.get('tx_fee')
+
+        assert tx_fee_per_byte, "Missing tx-per-byte fee"
+        assert tx_fee, 'Missing tx fee'
 
     try:
         payment_address = virtualchain.get_privkey_address(payment_privkey_info)
@@ -1513,11 +1524,11 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
     else:
         log.warn("Using caller-supplied consensus hash '%s'" % consensus_hash)
 
-    log.debug("Preordering namespace (%s, %s, %s), tx_fee = %s" % (namespace_id, payment_address, reveal_address, tx_fee))
+    log.debug("Preordering namespace (%s, %s, %s), tx_fee_per_byte = %s" % (namespace_id, payment_address, reveal_address, tx_fee_per_byte))
 
     unsigned_tx = None
     try:
-        unsigned_tx = namespace_preorder_tx( namespace_id, reveal_address, cost, consensus_hash, payment_address, utxo_client, tx_fee=tx_fee )
+        unsigned_tx = namespace_preorder_tx( namespace_id, reveal_address, cost, consensus_hash, payment_address, utxo_client )
     except ValueError, ve:
         if os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ve)
@@ -1530,7 +1541,7 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
 
 
 def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, payment_privkey_info, utxo_client, tx_broadcaster,
-                         config_path=CONFIG_PATH, tx_fee=None, proxy=None, safety_checks=True, dry_run=BLOCKSTACK_DRY_RUN ):
+                         config_path=CONFIG_PATH, tx_fee_per_byte=None, proxy=None, safety_checks=True, dry_run=BLOCKSTACK_DRY_RUN ):
     """
     Reveal a namespace
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1542,18 +1553,22 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
     fqu = str(namespace_id)
     payment_address = None
 
+    tx_fee = 0
     min_confirmations = utxo_client.min_confirmations
 
-    if not dry_run and (safety_checks or tx_fee is None):
+    if not dry_run and (safety_checks or tx_fee_per_byte is None):
         res = check_namespace_reveal(namespace_id, payment_privkey_info, reveal_address, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations )
         if 'error' in res and safety_checks:
             log.error("Failed to check namespace preorder: {}".format(res['error']))
             return res
 
-        if tx_fee is None:
-            tx_fee = res['tx_fee']
+        if tx_fee_per_byte is None:
+            tx_fee_per_byte = res.get('tx_fee_per_byte')
 
-        assert tx_fee, "Missing tx fee"
+        tx_fee = res.get('tx_fee')
+
+        assert tx_fee_per_byte, "Missing tx fee-per-byte"
+        assert tx_fee is not None, 'Missing tx fee'
 
     try:
         payment_address = virtualchain.get_privkey_address(payment_privkey_info)
@@ -1562,10 +1577,10 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
         log.error("Invalid private key info")
         return {'error': 'Namespace reveal can only use a single private key with a P2PKH script.  Got payment address {}, reveal address {}'.format(payment_address, reveal_address)}
 
-    log.debug("Revealing namespace (%s, %s, %s), tx_fee = %s" % (namespace_id, payment_address, reveal_address, tx_fee))
+    log.debug("Revealing namespace (%s, %s, %s), tx_fee_per_byte = %s" % (namespace_id, payment_address, reveal_address, tx_fee_per_byte))
 
     try:
-        unsigned_tx = namespace_reveal_tx( namespace_id, reveal_address, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, payment_address, utxo_client, tx_fee=tx_fee )
+        unsigned_tx = namespace_reveal_tx( namespace_id, reveal_address, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, payment_address, utxo_client)
     except ValueError, ve:
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(ve)
@@ -1576,7 +1591,7 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
     return resp
 
 
-def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, tx_fee=None, proxy=None, safety_checks=True, dry_run=BLOCKSTACK_DRY_RUN ):
+def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, tx_fee_per_byte=None, proxy=None, safety_checks=True, dry_run=BLOCKSTACK_DRY_RUN ):
     """
     Open a namespace for registration
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1589,18 +1604,21 @@ def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broad
     fqu = str(namespace_id)
     reveal_address = None
 
+    tx_fee = 0
     min_confirmations = utxo_client.min_confirmations
 
-    if not dry_run and (safety_checks or tx_fee is None):
+    if not dry_run and (safety_checks or tx_fee_per_byte is None):
         res = check_namespace_ready(namespace_id, reveal_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations )
         if 'error' in res and safety_checks:
             log.error("Failed to check namespace preorder: {}".format(res['error']))
             return res
 
-        if tx_fee is None:
-            tx_fee = res['tx_fee']
+        if tx_fee_per_byte is None:
+            tx_fee_per_byte = res['tx_fee_per_byte']
 
-        assert tx_fee, "Missing tx fee"
+        tx_fee = res.get('tx_fee')
+        assert tx_fee, 'Missing tx fee'
+        assert tx_fee_per_byte, "Missing tx fee"
 
     try:
         reveal_address = virtualchain.get_privkey_address(reveal_privkey_info)
@@ -1608,10 +1626,10 @@ def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broad
         log.error("Invalid private key info")
         return {'error': 'Namespace ready can only use a single private key with a P2PKH script'}
 
-    log.debug("Readying namespace (%s, %s), tx_fee = %s" % (namespace_id, reveal_address, tx_fee) )
+    log.debug("Readying namespace (%s, %s), tx_fee_per_byte = %s" % (namespace_id, reveal_address, tx_fee_per_byte) )
 
     try:
-        unsigned_tx = namespace_ready_tx( namespace_id, reveal_address, utxo_client, tx_fee=tx_fee )
+        unsigned_tx = namespace_ready_tx( namespace_id, reveal_address, utxo_client )
     except ValueError, ve:
         if os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ve)
@@ -1678,7 +1696,7 @@ def do_announce( message_text, sender_privkey_info, utxo_client, tx_broadcaster,
 
 
 
-def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, tx_fee=None, name_data={}, min_payment_confs=TX_MIN_CONFIRMATIONS,
+def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_data={}, min_payment_confs=TX_MIN_CONFIRMATIONS,
                    proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH ):
     """
         Preorder a fqu (step #1)
@@ -1714,7 +1732,7 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, tx_fee=N
 
     try:
         resp = do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost, utxo_client, tx_broadcaster,
-                            tx_fee=tx_fee, config_path=CONFIG_PATH )
+                            config_path=CONFIG_PATH )
 
     except Exception, e:
         log.exception(e)
@@ -1740,7 +1758,7 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, tx_fee=N
     return resp
 
 
-def async_register(fqu, payment_privkey_info, owner_privkey_info, tx_fee=None, name_data={},
+def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
                    proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH, safety_checks=True):
     """
         Register a previously preordered fqu (step #2)
@@ -1790,7 +1808,7 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, tx_fee=None, n
 
     try:
         resp = do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster,
-                            tx_fee=tx_fee, config_path=config_path, proxy=proxy )
+                            config_path=config_path, proxy=proxy )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast registration transaction'}
@@ -1816,7 +1834,7 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, tx_fee=None, n
 
 
 def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privkey_info,
-                 tx_fee=None, name_data={}, config_path=CONFIG_PATH,
+                 name_data={}, config_path=CONFIG_PATH,
                  zonefile_hash=None, proxy=None, queue_path=DEFAULT_QUEUE_PATH ):
     """
         Update a previously registered fqu, using a different payment address
@@ -1869,7 +1887,7 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
     resp = {}
     try:
         resp = do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster,
-                          tx_fee=tx_fee, config_path=config_path, proxy=proxy )
+                          config_path=config_path, proxy=proxy )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast update transaction'}
@@ -1896,7 +1914,7 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
 
 
 def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_info, 
-                   tx_fee=None, config_path=CONFIG_PATH, proxy=None, queue_path=DEFAULT_QUEUE_PATH):
+                   config_path=CONFIG_PATH, proxy=None, queue_path=DEFAULT_QUEUE_PATH):
     """
         Transfer a previously registered fqu, using a different payment address.
         Preserves the zonefile.
@@ -1924,7 +1942,7 @@ def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
 
     try:
         resp = do_transfer( fqu, transfer_address, True, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster,
-                            tx_fee=tx_fee, config_path=config_path, proxy=proxy )
+                            config_path=config_path, proxy=proxy )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast transfer transaction'}
@@ -1946,7 +1964,7 @@ def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
 
 
 def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee,
-                tx_fee=None, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
+                proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
     """
         Renew an already-registered name.
 
@@ -1970,7 +1988,7 @@ def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee,
 
     try:
         resp = do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster,
-                           tx_fee=tx_fee, config_path=config_path, proxy=proxy )
+                           config_path=config_path, proxy=proxy )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast renewal transaction'}
@@ -1991,7 +2009,7 @@ def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee,
 
 
 def async_revoke(fqu, owner_privkey_info, payment_privkey_info, 
-                 tx_fee=None, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
+                 proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
     """
         Revoke a name.
 
@@ -2015,7 +2033,7 @@ def async_revoke(fqu, owner_privkey_info, payment_privkey_info,
 
     try:
         resp = do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster,
-                          tx_fee=tx_fee, config_path=config_path, proxy=proxy )
+                          config_path=config_path, proxy=proxy )
 
     except Exception, e:
         log.exception(e)
