@@ -112,6 +112,9 @@ What would you like to do?
 (1-9) 
 ```
 
+All prices are in the "fundamental unit" of the underlying blockchain (i.e.
+satoshis).
+
 As the formula describes, the name's price is a function of:
 
 * a fixed unit cost (`UNIT_COST`)
@@ -156,7 +159,7 @@ creator has sent the `ready` transaction.
 The namespace creator is able to import many names in parallel by using BIP32
 unhardened children.  The keys `$CREATOR_PKEY / 0` through
 `$CREATOR_PKEY / 299` can be used to import names.  However, the **first**
-name_import **must** use the `$CREATOR_PKEY`, since its associated public key
+`name_import` **must** use the `$CREATOR_PKEY`, since its associated public key
 will be used by the other Blockstack nodes to generate the list of valid public keys from which a valid
 `name_import` may originate.
 
