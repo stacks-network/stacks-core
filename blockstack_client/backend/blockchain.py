@@ -260,8 +260,6 @@ def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmati
             if int(utxo['confirmations']) >= utxo_client.min_confirmations:
                 ret.append(utxo)
 
-    # sort on value, largest first 
-    ret.sort(lambda x, y: -1 if x['value'] > y['value'] else 0 if x['value'] == y['value'] else 1)
     return ret
 
 
