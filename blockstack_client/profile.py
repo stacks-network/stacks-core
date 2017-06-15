@@ -27,7 +27,7 @@ import copy
 import blockstack_profiles
 import httplib
 import virtualchain
-
+import jsonschema
 import virtualchain
 from virtualchain.lib.ecdsalib import *
 import keylib
@@ -41,6 +41,8 @@ from .constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTA
 
 from .zonefile import get_name_zonefile
 from .keys import get_data_privkey_info
+from .schemas import *
+from .user import make_default_device_id_account 
 
 log = get_logger()
 
@@ -313,4 +315,231 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
 
     return user_profile, user_zonefile
 
+
+def _get_person_profile(name, proxy=None):
+    """
+    Get the person's zonefile and profile.
+    Handle legacy zonefiles, but not legacy profiles.
+    Return {'profile': ..., 'zonefile': ..., 'person': ...} on success
+    Return {'error': ...} on error
+    """
+
+    profile, zonefile = get_profile(name, proxy=proxy, use_legacy_zonefile=True)
+    if 'error' in zonefile:
+        return {'error': 'Failed to load zonefile: {}'.format(zonefile['error'])}
+
+    if blockstack_profiles.is_profile_in_legacy_format(profile):
+        return {'error': 'Legacy profile'}
+
+    person = None
+    try:
+        person = blockstack_profiles.Person(profile)
+    except Exception as e:
+        log.exception(e)
+        return {'error': 'Failed to parse profile data into a Person record'}
+    
+    return {'profile': profile, 'zonefile': zonefile, 'person': person}
+
+
+def _save_person_profile(name, zonefile, profile, wallet_keys, blockchain_id=None, proxy=None, config_path=CONFIG_PATH):
+    """
+    Save a person's profile, given information fetched with _get_person_profile
+    Return {'status': True} on success
+    Return {'error': ...} on error
+    """
+    conf = config.get_config(config_path)
+    assert conf
+
+    required_storage_drivers = conf.get(
+        'storage_drivers_required_write',
+        config.BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE
+    )
+    required_storage_drivers = required_storage_drivers.split()
+
+    res = put_profile(name, profile, user_zonefile=zonefile,
+                       wallet_keys=wallet_keys, proxy=proxy,
+                       required_drivers=required_storage_drivers, blockchain_id=name,
+                       config_path=config_path )
+
+    return res
+
+
+def profile_list_accounts(name, proxy=None):
+    """
+    Get the list of accounts in a name's Person-formatted profile.
+    Return {'accounts': ...} on success
+    Return {'error': ...} on error
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    name_info = _get_person_profile(name, proxy=proxy)
+    if 'error' in name_info:
+        return name_info
+
+    profile = name_info.pop('profile')
+    zonefile = name_info.pop('zonefile')
+    person = name_info.pop('person')
+
+    accounts = []
+    if hasattr(person, 'account'):
+        accounts = person.account
+
+    for acct in accounts:
+        try:
+            jsonschema.validate(acct, PROFILE_ACCOUNT_SCHEMA)
+            accounts.append(acct)
+        except jsonschema.ValidationError:
+            continue
+
+    return {'accounts': accounts}
+
+
+def profile_get_account(blockchain_id, service, identifier, config_path=CONFIG_PATH, proxy=None):
+    """
+    Get an account.  The first hit is returned.
+    Return {'status': True, 'account': ...} on success
+    Return {'error': ...} on error
+    """
+
+    account_info = _list_accounts(blockchain_id, proxy=proxy )
+    if 'error' in account_info:
+        return account_info
+
+    accounts = account_info['accounts']
+    for account in accounts:
+        if account['service'] == service and account['identifier'] == identifier:
+            return {'status': True, 'account': account}
+
+    return {'error': 'No such account', 'errno': errno.ENOENT}
+
+
+def profile_put_account(blockchain_id, service, identifier, content_url, extra_data, wallet_keys, config_path=CONFIG_PATH, proxy=None):
+    """
+    Save a new account to a profile.
+    Return {'status': True, 'replaced': True/False} on success
+    Return {'error': ...} on failure
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    person_info = _get_person_profile(blockchain_id, proxy=proxy)
+    if 'error' in person_info:
+        return person_info
+
+    # make data
+    new_account = {
+        'service': service,
+        'identifier': identifier,
+    }
+
+    if content_url:
+        new_account['contentUrl'] = content_url
+
+    if extra_data:
+        new_account.update(extra_data)
+
+    zonefile = person_info.pop('zonefile')
+    profile = person_info.pop('profile')
+    if not profile.has_key('account'):
+        profile['account'] = []
+
+    # overwrite existing, if given 
+    replaced = False
+    for i in xrange(0, len(profile['account'])):
+
+        account = profile['account'][i]
+
+        try:
+            jsonschema.validate(account, PROFILE_ACCOUNT_SCHEMA)
+        except jsonschema.ValidationError:
+            continue
+
+        if account['service'] == service and account['identifier'] == identifier:
+            profile['account'][i] = new_account
+            replaced = True
+            break
+
+    if not replaced:
+        profile['account'].append(new_account)
+
+    # save
+    result = _save_person_profile(blockchain_id, zonefile, profile, wallet_keys, blockchain_id=name, proxy=proxy, config_path=config_path)
+    if 'error' in result:
+        return result
+
+    return {'status': True, 'replaced': replaced}
+
+
+def profile_delete_account(blockchain_id, service, identifier, wallet_keys, config_path=CONFIG_PATH, proxy=None):
+    """
+    Delete an account, given the blockchain ID, service, and identifier
+    Return {'status': True} on success
+    Return {'error': ...} on error
+    """
+
+    person_info = _get_person_profile(blockchain_id, proxy=proxy)
+    if 'error' in person_info:
+        return person_info
+
+    zonefile = person_info['zonefile']
+    profile = person_info['profile']
+    if not profile.has_key('account'):
+        # nothing to do
+        return {'error': 'No such account'}
+
+    found = False
+    for i in xrange(0, len(profile['account'])):
+        account = profile['account'][i]
+
+        try:
+            jsonschema.validate(account, PROFILE_ACCOUNT_SCHEMA)
+        except jsonschema.ValidationError:
+            continue
+
+        if account['service'] == service and account['identifier'] == identifier:
+            profile['account'].pop(i)
+            found = True
+            break
+
+    if not found:
+        return {'error': 'No such account'}
+
+    result = _save_person_profile(blockchain_id, zonefile, profile, wallet_keys, blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
+    if 'error' in result:
+        return result
+
+    return {'status': True}
+
+
+def profile_list_device_ids( blockchain_id, proxy=None ):
+    """
+    Given a blockchain ID, identify the set of device IDs for it.
+
+    Returns {'status': True, 'device_ids': ...} on success
+    Returns {'error': ...} on error
+    """
+    raise NotImplemented("Token file logic is not implemented yet")
+
+
+def profile_add_device_id( blockchain_id, device_id, wallet_keys, config_path=CONFIG_PATH, proxy=None):
+    """
+    Add a device ID to a profile
+    Return {'status': True} on success
+    Return {'error': ...} on error
+    """
+
+    raise NotImplemented("Token file logic is not implemented yet")
+    
+
+def profile_remove_device_id( blockchain_id, device_id, wallet_keys, config_path=CONFIG_PATH, proxy=None):
+    """
+    Remove a device ID from a profile
+    Return {'status': True} on success
+    Return {'error': ...} on error
+    """
+    
+    raise NotImplemented("Token file logic is not implemented yet")
 
