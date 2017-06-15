@@ -146,23 +146,6 @@ def is_tx_accepted( tx_hash, num_needed=TX_CONFIRMATIONS_NEEDED, config_path=CON
     return False
 
 
-def is_tx_rejected(tx_hash, tx_sent_at_height, config_path=CONFIG_PATH):
-    """
-    Determine whether or not a transaction was "rejected".
-    That is, determine whether or not the transaction is still
-    unconfirmed, so the caller can do something like e.g.
-    resend it.
-    """
-    current_height = get_block_height(config_path=config_path)
-    tx_confirmations = get_tx_confirmations(tx_hash, config_path=config_path)
-
-    if (current_height - tx_sent_at_height) > TX_EXPIRED_INTERVAL and tx_confirmations == 0:
-        # if no confirmations and retry limit hits
-        return True
-
-    return False
-
-
 def get_utxo_client_and_min_confirmations(config_path=None, utxo_client=None, min_confirmations=None):
     """
     Get a utxo client and the minimum number of required confirmations
