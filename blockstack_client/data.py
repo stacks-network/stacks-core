@@ -4,7 +4,7 @@
     Blockstack-client
     ~~~~~
     copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
-    copyright: (c) 2016 by Blockstack.org
+    copyright: (c) 2016-2017 by Blockstack.org
 
     This file is part of Blockstack-client.
 
@@ -49,8 +49,8 @@ from .storage import hash_zonefile
 from .zonefile import get_name_zonefile, load_name_zonefile, store_name_zonefile
 
 from .logger import get_logger
-from .config import get_config, get_local_device_id, get_all_device_ids
-from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DATASTORE_SIGNING_KEY_INDEX, BLOCKSTACK_STORAGE_PROTO_VERSION
+from .config import get_config, get_local_device_id
+from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DATASTORE_SIGNING_KEY_INDEX, BLOCKSTACK_STORAGE_PROTO_VERSION, DEFAULT_DEVICE_ID
 from .schemas import *
 
 log = get_logger()
@@ -513,9 +513,9 @@ def data_blob_sign( data_blob_str, data_privkey ):
     return sig
 
 
-def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_address=None, data_hash=None, storage_drivers=None,
-                         proxy=None, ver_min=None, ver_max=None, force=False, urls=None, device_ids=None, is_fq_data_id=False,
-                         config_path=CONFIG_PATH):
+def get_mutable(data_id, device_ids, raw=False, blockchain_id=None, data_pubkey=None, data_address=None, data_hash=None, storage_drivers=None,
+                                     proxy=None, ver_min=None, ver_max=None, force=False, urls=None, is_fq_data_id=False,
+                                     config_path=CONFIG_PATH):
     """
     get_mutable 
 
@@ -536,9 +536,6 @@ def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_a
     proxy = get_default_proxy(config_path) if proxy is None else proxy
     conf = get_config(path=config_path)
     
-    if device_ids is None or device_ids == []:
-        device_ids = get_all_device_ids(config_path=config_path)
-
     # find all possible fqids for this datum
     fq_data_ids = []
     if is_fq_data_id:
@@ -547,11 +544,7 @@ def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_a
     else:
         for device_id in device_ids:
             fq_data_ids.append( storage.make_fq_data_id(device_id, data_id) )
-
-    local_device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
-    if not local_device_id:
-        raise Exception("No device ID defined")
-
+    
     lookup = False
     if data_address is None and data_pubkey is None and data_hash is None:
         # TODO: cut this code path
@@ -580,7 +573,7 @@ def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_a
 
     if not force:
         # require specific version min
-        version_info = get_mutable_data_version(data_id, device_ids + [local_device_id], config_path=config_path)
+        version_info = get_mutable_data_version(data_id, device_ids, config_path=config_path)
         expected_version = version_info['version']
 
     log.debug("get_mutable({}, device_ids={}, blockchain_id={}, pubkey={} ({}), addr={}, hash={}, expected_version={}, storage_drivers={})".format(
@@ -665,7 +658,7 @@ def get_mutable(data_id, raw=False, blockchain_id=None, data_pubkey=None, data_a
         log.error("Failed to fetch mutable data for {}".format(data_id))
         return {'error': 'Failed to fetch mutable data', 'stale': True}
 
-    rc = put_mutable_data_version(data_id, version, device_ids + [local_device_id], config_path=config_path)
+    rc = put_mutable_data_version(data_id, version, device_ids, config_path=config_path)
     if 'error' in rc:
         return {'error': 'Failed to store consistency information'}
 
@@ -838,6 +831,20 @@ def sign_mutable_data_tombstones( tombstones, data_privkey ):
     return [storage.sign_data_tombstone(ts, data_privkey) for ts in tombstones]
 
 
+def get_device_id_from_tombstone(tombstones):
+    """
+    Given a signed tombstone, get the device ID
+    Return the device ID string on success
+    Return None on error
+    """
+
+    res = storage.parse_data_tombstone(ts)
+    fq_data_id = res['tombstone_payload']
+    
+    device_id, data_id = storage.parse_fq_data_id(fq_data_id)
+    return device_id
+
+
 def verify_mutable_data_tombstones( tombstones, data_pubkey, device_ids=None ):
     """
     Verify all tombstones
@@ -849,12 +856,8 @@ def verify_mutable_data_tombstones( tombstones, data_pubkey, device_ids=None ):
         if not storage.verify_data_tombstone(ts, data_pubkey):
             return False
        
-        res = storage.parse_data_tombstone(ts)
-        fq_data_id = res['tombstone_payload']
-        
-        device_id, data_id = storage.parse_fq_data_id(fq_data_id)
+        device_id = get_device_id_from_tombstone(ts)
         if device_id:
-            # this was, in fact, a fqid for a datum
             ts_device_ids.append(device_id)
 
     if device_ids:
@@ -958,9 +961,13 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, versi
     conf = get_config(path=config_path)
     assert conf
 
-    device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
+    # NOTE: this will be None if the fq_data_id refers to a profile
+    device_id, _ = storage.parse_fq_data_id(fq_data_id)
     if device_id is None:
-        raise Exception("Failed to get device ID")
+        log.warning("No device ID found in {}".format(fq_data_id))
+        device_id = DEFAULT_DEVICE_ID
+    else:
+        assert device_id != DEFAULT_DEVICE_ID
 
     if storage_drivers is None:
         storage_drivers = get_write_storage_drivers(config_path)
@@ -1103,9 +1110,9 @@ def delete_immutable(blockchain_id, data_key, data_id=None, proxy=None, txid=Non
     return result
 
 
-def delete_mutable(data_id, signed_data_tombstones, proxy=None, storage_drivers=None,
-                            device_ids=None, delete_version=True, storage_drivers_exclusive=False,
-                            blockchain_id=None, is_fq_data_id=False, config_path=CONFIG_PATH):
+def delete_mutable(data_id, signed_data_tombstones, proxy=None, storage_drivers=None, device_ids=None,
+                                                    delete_version=True, storage_drivers_exclusive=False,
+                                                    blockchain_id=None, is_fq_data_id=False, config_path=CONFIG_PATH):
     """
     delete_mutable
 
@@ -1123,7 +1130,8 @@ def delete_mutable(data_id, signed_data_tombstones, proxy=None, storage_drivers=
     assert conf
 
     if device_ids is None:
-        device_ids = get_all_device_ids(config_path=config_path)
+        device_ids = filter(lambda x: x is not None, [get_device_id_from_tombstone(ts) for ts in signed_data_tombstones])
+        assert len(device_ids) == len(signd_data_tombstones), "Invalid tombstones"
 
     fq_data_ids = []
     if is_fq_data_id:
@@ -1145,6 +1153,10 @@ def delete_mutable(data_id, signed_data_tombstones, proxy=None, storage_drivers=
 
     # remove the data itself
     for signed_data_tombstone in signed_data_tombstones:
+        ts_data = storage.parse_signed_data_tombstone(signed_data_tombstone)
+        assert ts_data
+
+        fq_data_id = ts_data['id']
         rc = storage.delete_mutable_data(fq_data_id, signed_data_tombstone=signed_data_tombstone, required=storage_drivers, required_exclusive=storage_drivers_exclusive, blockchain_id=blockchain_id)
         if not rc:
             log.error("Failed to delete {} from storage providers".format(fq_data_id))
@@ -1309,7 +1321,7 @@ def _init_datastore_info( datastore_type, datastore_pubkey, driver_names, device
     return {'datastore_blob': data_blob_serialize(datastore_info), 'root_blob_header': root_blob['header'], 'root_blob_idata': root_blob['idata']}
 
 
-def get_datastore( blockchain_id, datastore_id, config_path=CONFIG_PATH, device_ids=None, proxy=None):
+def get_datastore( blockchain_id, datastore_id, device_ids, config_path=CONFIG_PATH, proxy=None):
     """
     Get a datastore's information.
     This is a server-side method.
@@ -1324,7 +1336,7 @@ def get_datastore( blockchain_id, datastore_id, config_path=CONFIG_PATH, device_
     nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
 
     data_id = '{}.datastore'.format(datastore_id)
-    datastore_info = get_mutable(data_id, blockchain_id=blockchain_id, data_address=datastore_id, device_ids=device_ids, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
+    datastore_info = get_mutable(data_id, device_ids, blockchain_id=blockchain_id, data_address=datastore_id, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
     if 'error' in datastore_info:
         log.error("Failed to load public datastore information: {}".format(datastore_info['error']))
         return {'error': 'Failed to load public datastore record', 'errno': errno.ENOENT}
@@ -1343,18 +1355,17 @@ def get_datastore( blockchain_id, datastore_id, config_path=CONFIG_PATH, device_
     return {'status': True, 'datastore': datastore}
 
 
-def make_datastore_info( datastore_type, datastore_pubkey_hex, driver_names=None, device_ids=None, config_path=CONFIG_PATH ):
+def make_datastore_info( datastore_type, datastore_pubkey_hex, device_ids, driver_names=None, config_path=CONFIG_PATH ):
     """
     Create a new datastore record with the given name, using the given account_info structure
+    This is a client-side method
+    
     Return {'datastore_blob': public datastore information, 'root_blob_header': root inode header, 'root_blob_idata': root inode data}
     Return {'error': ...} on failure
     """
     if driver_names is None:
         driver_handlers = storage.get_storage_handlers()
         driver_names = [h.__name__ for h in driver_handlers]
-
-    if device_ids is None:
-        device_ids = get_all_device_ids(config_path=config_path)
 
     datastore_info = _init_datastore_info( datastore_type, datastore_pubkey_hex, driver_names, device_ids, config_path=config_path)
     if 'error' in datastore_info:
@@ -1549,9 +1560,13 @@ def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, 
     """
     if proxy is None:
         proxy = get_default_proxy(config_path)
-
+    
+    if device_ids is None:
+        device_ids = filter(lambda x: x is not None, [get_device_id_from_tombstone(ts) for ts in datastore_tombstnoes])
+        assert len(device_ids) == len(datastore_tombstones)
+        
     # get the datastore first
-    datastore_info = get_datastore(blockchain_id, datastore_id, config_path=config_path, device_ids=device_ids, proxy=proxy )
+    datastore_info = get_datastore(blockchain_id, datastore_id, device_ids, config_path=config_path, proxy=proxy )
     if 'error' in datastore_info:
         log.error("Failed to look up datastore information for {}".format(datastore_id))
         return {'error': 'Failed to look up datastore', 'errno': errno.ENOENT}
@@ -1574,7 +1589,7 @@ def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, 
         return {'error': 'Datastore not empty', 'errno': errno.ENOTEMPTY}
 
     data_id = '{}.datastore'.format(datastore_id)
-    res = delete_mutable(data_id, signed_data_tombstones=datastore_tombstones, storage_drivers=drivers, storage_drivers_exclusive=True, proxy=proxy, config_path=config_path )
+    res = delete_mutable(data_id, datastore_tombstones, storage_drivers=drivers, storage_drivers_exclusive=True, proxy=proxy, config_path=config_path )
     if 'error' in res:
         log.error("Failed to delete datastore {}".format(datastore_id))
         return {'error': 'Failed to delete datastore', 'errno': errno.EREMOTEIO}
@@ -1683,7 +1698,7 @@ def get_inode_data(blockchain_id, datastore_id, inode_uuid, inode_type, data_pub
     res = None
     for driver_to_try in drivers_to_try:
         # try each driver, until we find one with the right hash
-        res = get_mutable(data_id, blockchain_id=blockchain_id, ver_min=ver_min, device_ids=device_ids, raw=True, data_hash=data_hash, storage_drivers=drivers_to_try, proxy=proxy, config_path=config_path)
+        res = get_mutable(data_id, device_ids, blockchain_id=blockchain_id, ver_min=ver_min, raw=True, data_hash=data_hash, storage_drivers=drivers_to_try, proxy=proxy, config_path=config_path)
         if 'error' in res:
             log.error("Failed to get inode {} from {}: {}".format(inode_uuid, ','.join(drivers_to_try), res['error']))
             if res.get('stale'):
@@ -1852,7 +1867,7 @@ def get_inode_header(blockchain_id, datastore_id, inode_uuid, data_pubkey_hex, d
     if force:
         ver_min = 0
 
-    res = get_mutable(data_id, blockchain_id=blockchain_id, ver_min=ver_min, force=force, data_pubkey=data_pubkey_hex, storage_drivers=drivers, device_ids=device_ids, proxy=proxy, config_path=config_path)
+    res = get_mutable(data_id, device_ids, blockchain_id=blockchain_id, ver_min=ver_min, force=force, data_pubkey=data_pubkey_hex, storage_drivers=drivers, proxy=proxy, config_path=config_path)
     if 'error' in res:
         log.error("Failed to get inode data {}: {}".format(inode_uuid, res['error']))
         errcode = errno.EREMOTEIO
@@ -2184,7 +2199,7 @@ def delete_inode_data( datastore, signed_tombstones, proxy=None, config_path=CON
 
         # delete inode 
         data_id = '{}.{}'.format(datastore_id, inode_uuid)
-        res = delete_mutable(data_id, signed_data_tombstones=inode_tombstones[inode_uuid]['idata_tombstones'], 
+        res = delete_mutable(data_id, inode_tombstones[inode_uuid]['idata_tombstones'], 
                              proxy=proxy, storage_drivers=drivers, storage_drivers_exclusive=True, device_ids=device_ids, config_path=config_path )
 
         if 'error' in res:
@@ -2197,7 +2212,7 @@ def delete_inode_data( datastore, signed_tombstones, proxy=None, config_path=CON
     # delete inode headers once all idata is gone
     for inode_uuid in inode_tombstones.keys():
         hdata_id = '{}.{}.hdr'.format(datastore_id, inode_uuid)
-        res = delete_mutable(hdata_id, signed_data_tombstones=inode_tombstones[inode_uuid]['header_tombstones'], 
+        res = delete_mutable(hdata_id, inode_tombstones[inode_uuid]['header_tombstones'], 
                              proxy=proxy, storage_drivers=drivers, storage_drivers_exclusive=True, device_ids=device_ids, config_path=config_path)
 
         if 'error' in res:
