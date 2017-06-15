@@ -876,7 +876,7 @@ def blockstack_cli_info(config_path=None):
     return cli_info( args, config_path=config_path, password=password )
 
 
-def blockstack_cli_price( name, password, config_path=None):
+def blockstack_cli_price( name, password, recipient_address=None, operations=None, config_path=None):
     """
     Get the price of a name
     """
@@ -886,6 +886,13 @@ def blockstack_cli_price( name, password, config_path=None):
     config_path = test_proxy.config_path if config_path is None else config_path
 
     args.name_or_namespace = name
+
+    if recipient_address:
+        args.recipient = recipient_address
+
+    if operations:
+        args.operations = ",".join(operations)
+
     return cli_price( args, config_path=config_path, proxy=test_proxy, password=password )
 
 
@@ -2406,7 +2413,7 @@ def instantiate_wallet():
     payment_address = str(wallet_info['payment_address'])
 
     # also track owner address outputs 
-    bitcoind = get_bitcoind()
+    bitcoind = connect_bitcoind()
     try:
         bitcoind.importaddress(owner_address, "", True)
     except virtualchain.JSONRPCException, je:
@@ -2445,7 +2452,7 @@ def send_funds_tx( privkey, satoshis, payment_addr ):
     payment_addr = str(payment_addr)
     log.debug("Send {} to {}".format(satoshis, payment_addr))
 
-    bitcoind = get_bitcoind()
+    bitcoind = connect_bitcoind()
 
     try:
         bitcoind.importaddress(payment_addr, "", True)
@@ -2884,6 +2891,11 @@ def get_utxo_client():
 def get_bitcoind():
     global bitcoind
     return bitcoind
+
+def connect_bitcoind():
+    test_proxy = make_proxy()
+    config_path = test_proxy.config_path
+    return blockstack_client.backend.blockchain.get_bitcoind_client(config_path=config_path) 
 
 def get_state_engine():
     global state_engine
