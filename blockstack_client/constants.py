@@ -72,6 +72,9 @@ SERIES_VERSION = "{}.{}.{}".format(__version_major__, __version_minor__, __versi
 DEFAULT_BLOCKSTACKD_PORT = 6264  # blockstack indexer port
 DEFAULT_BLOCKSTACKD_SERVER = 'node.blockstack.org'
 
+DEFAULT_DEVICE_ID = '.default'
+
+DEFAULT_API_HOST = 'localhost'
 DEFAULT_API_PORT = 6270  # API endpoint port
 
 LOG_NETWORK_PORT = 8333 # port to send log messages on (e.g. to Portal)
