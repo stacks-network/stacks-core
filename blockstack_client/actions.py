@@ -99,8 +99,8 @@ from .storage import get_driver_urls, get_storage_handlers, sign_data_payload, \
     get_zonefile_data_hash
 
 from .backend.blockchain import (
-    get_balance, get_utxos, broadcast_tx,
-    get_tx_confirmations, get_tx_fee, get_block_height
+    get_balance, get_utxos, broadcast_tx, select_utxos,
+    get_tx_confirmations, get_tx_fee, get_tx_fee_per_byte, get_block_height
 )
 
 from .backend.registrar import get_wallet as registrar_get_wallet 
@@ -477,6 +477,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         Make the transaction with the given fee
         """
         change = 0
+        selected_inputs = []
         if amt is None:
             # total transfer, minus tx fee
             log.debug("No amount given; assuming all ({})".format(total_value - tx_fee))
@@ -485,10 +486,12 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
                 log.error("Dust: total value = {}, tx fee = {}".format(total_value, tx_fee))
                 return {'error': 'Cannot withdraw dust'}
             
+            selected_inputs = select_utxos(inputs, amt)
         else:
-            change = virtualchain.calculate_change_amount(inputs, amt, tx_fee)
+            selected_inputs = select_utxos(inputs, amt)
+            change = virtualchain.calculate_change_amount(selected_inputs, amt, tx_fee)
             log.debug("Withdraw {}, tx fee {}".format(amt, tx_fee))
-
+            
         outputs = [
             {'script': virtualchain.make_payment_script(recipient_addr),
              'value': amt},
@@ -506,7 +509,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
                 {"script": virtualchain.make_data_script(binascii.hexlify(message)),
                  "value": 0} ] + outputs
 
-        serialized_tx = serialize_tx(inputs, outputs)
+        serialized_tx = serialize_tx(selected_inputs, outputs)
         signed_tx = sign_tx(serialized_tx, wallet_keys['payment_privkey'])
         return signed_tx
 
@@ -526,7 +529,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         res['errno'] = errno.EIO
 
     return res
-    
+
 
 def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_privkey_info, payment_address=None, owner_address=None, transfer_address=None, config_path=CONFIG_PATH, proxy=None ):
     """
@@ -535,9 +538,17 @@ def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_priv
     Returns a dict with each operation as a key, and the prices in BTC and satoshis.
     Returns {'error': ...} on failure
     """
+ 
+    # first things first: get fee per byte 
+    tx_fee_per_byte = get_tx_fee_per_byte(config_path=config_path)
+    if tx_fee_per_byte is None:
+        log.error("Unable to calculate fee per byte")
+        return {'error': 'Unable to get fee estimate'}
+
+    log.debug("Get operation fees for {}".format(", ".join(operations)))
 
     sg = ScatterGather()
-    res = get_operation_fees( name_or_ns, operations, sg, payment_privkey_info, owner_privkey_info,
+    res = get_operation_fees( name_or_ns, operations, sg, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
                               proxy=proxy, config_path=config_path, payment_address=payment_address,
                               owner_address=owner_address, transfer_address=transfer_address )
 
@@ -579,7 +590,7 @@ def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_priv
     return fees
 
 
-def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
+def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None, interactive=True):
     """
     command: price
     help: Get the price to register a name
@@ -640,7 +651,22 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
             if BLOCKSTACK_DEBUG is not None:
                 log.exception(e)
 
-            log.debug("Could not get wallet keys from API server")
+            log.error("Could not get wallet keys from API server")
+            return {'error': 'Could not load wallet keys from API server.  Try `blockstack api stop` and `blockstack api start`'}
+    
+    else:
+        # unlock
+        log.warning("API server is not running; unlocking wallet directly")
+        res = load_wallet(password=password, wallet_path=wallet_path, interactive=interactive, include_private=True)
+        if 'error' in res:
+            return res
+        
+        if res['migrated']:
+            return {'error': 'Wallet is in legacy format.  Please migrate it with `setup_wallet`'}
+
+        wallet_keys = res['wallet']
+        payment_privkey_info = wallet_keys['payment_privkey']
+        owner_privkey_info = wallet_keys['owner_privkey']
 
     fees = get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_privkey_info,
                                payment_address=payment_address, owner_address=owner_address, transfer_address=transfer_address, config_path=config_path, proxy=proxy )
@@ -1204,7 +1230,7 @@ def analyze_zonefile_string(fqu, zonefile_data, force_data=False, check_current=
     return ret
 
 
-def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
+def cli_register(args, config_path=CONFIG_PATH, force_data=False,
                  cost_satoshis=None, interactive=True, password=None, proxy=None):
     """
     command: register
@@ -1310,9 +1336,6 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
 
         opchecks = res['opchecks']
 
-        if tx_fee is None:
-            tx_fee = opchecks['preorder_tx_fee']
-        
         if cost_satoshis is not None:
             if opchecks['name_price'] > cost_satoshis:
                 return {'error': 'Invalid cost: expected {}, got {}'.format(opchecks['name_price'], cost_satoshis)}
@@ -1360,12 +1383,12 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
             exit(0)
 
     # forward along to RESTful server (or if we're the RESTful server, call the registrar method)
-    log.debug("Preorder {}, zonefile={}, profile={}, recipient={} min_confs={} tx_fee={}".format(fqu, user_zonefile, user_profile, transfer_address, min_payment_confs, tx_fee))
+    log.debug("Preorder {}, zonefile={}, profile={}, recipient={} min_confs={}".format(fqu, user_zonefile, user_profile, transfer_address, min_payment_confs))
     rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     try:
-        resp = rpc.backend_preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs, tx_fee )
+        resp = rpc.backend_preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1390,7 +1413,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
 
 def cli_update(args, config_path=CONFIG_PATH, password=None,
                interactive=True, proxy=None, nonstandard=False,
-               force_data=False, tx_fee=None):
+               force_data=False):
 
     """
     command: update
@@ -1511,13 +1534,13 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         user_data_hash = get_zonefile_data_hash(user_data_txt)
 
     # forward along to RESTful server (or registrar)
-    log.debug("Update {}, zonefile={}, zonefile_hash={} tx_fee={}".format(fqu, user_data_txt, user_data_hash, tx_fee))
+    log.debug("Update {}, zonefile={}, zonefile_hash={}".format(fqu, user_data_txt, user_data_hash))
     rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     try:
         # NOTE: already did safety checks
-        resp = rpc.backend_update(fqu, user_data_txt, None, None, tx_fee )
+        resp = rpc.backend_update(fqu, user_data_txt, None, None )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1535,7 +1558,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     return resp
 
 
-def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False, proxy=None, tx_fee=None):
+def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False, proxy=None):
     """
     command: transfer
     help: Transfer a blockchain ID to a new owner
@@ -1573,7 +1596,7 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     assert rpc
 
     try:
-        resp = rpc.backend_transfer(fqu, transfer_address, tx_fee )
+        resp = rpc.backend_transfer(fqu, transfer_address)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1590,7 +1613,7 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     return resp
 
 
-def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None, cost_satoshis=None, tx_fee=None):
+def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None, cost_satoshis=None):
     """
     command: renew
     help: Renew a blockchain ID
@@ -1639,9 +1662,6 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     if cost_satoshis is None:
         cost_satoshis = costs['name_price']['satoshis']
     
-    if tx_fee is None:
-        tx_fee = costs['renewal_tx_fee']['satoshis']
-    
     if not local_rpc.is_api_server(config_dir=config_dir):
         # also verify that we own the name
         _, owner_address, _ = get_addresses_from_file(config_dir=config_dir)
@@ -1684,7 +1704,7 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
 
     log.debug("Renew {} for {} BTC".format(fqu, cost_satoshis))
     try:
-        resp = rpc.backend_renew(fqu, cost_satoshis, tx_fee )
+        resp = rpc.backend_renew(fqu, cost_satoshis)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1703,7 +1723,7 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     return resp
 
 
-def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None, tx_fee=None):
+def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None):
     """
     command: revoke
     help: Revoke a blockchain ID
@@ -1757,7 +1777,7 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
     log.debug("Revoke {}".format(fqu))
 
     try:
-        resp = rpc.backend_revoke(fqu, tx_fee)
+        resp = rpc.backend_revoke(fqu)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1774,7 +1794,7 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
 
 
 def cli_migrate(args, config_path=CONFIG_PATH, password=None,
-                proxy=None, interactive=True, force=False, tx_fee=None):
+                proxy=None, interactive=True, force=False):
     """
     command: migrate
     help: Migrate a legacy blockchain-linked profile to the latest zonefile and profile format
@@ -1885,7 +1905,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     assert rpc
 
     try:
-        resp = rpc.backend_update(fqu, zonefile_txt, user_profile, None, tx_fee)
+        resp = rpc.backend_update(fqu, zonefile_txt, user_profile, None)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -2590,20 +2610,26 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
     ns_privkey = str(args.payment_privkey)
     ns_reveal_privkey = str(args.reveal_privkey)
     reveal_addr = None
-    
+   
     try:
+        ns_privkey = keylib.ECPrivateKey(ns_privkey).to_hex()
+        ns_reveal_privkey = keylib.ECPrivateKey(ns_reveal_privkey).to_hex()
+
         # force compresssed 
         ns_privkey = set_privkey_compressed(ns_privkey, compressed=True)
         ns_reveal_privkey = set_privkey_compressed(ns_reveal_privkey, compressed=True)
 
         keylib.ECPrivateKey(ns_privkey)
         reveal_addr = virtualchain.get_privkey_address(ns_reveal_privkey)
-    except:
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
         return {'error': 'Invalid namespace private key'}
     
     print("Calculating fees...")
     fees = get_price_and_fees(nsid, ['namespace_preorder', 'namespace_reveal', 'namespace_ready'], ns_privkey, ns_reveal_privkey, config_path=config_path, proxy=proxy )
-    if 'error' in fees:
+    if 'error' in fees or 'warnings' in fees:
         return fees
 
     msg = "".join([
@@ -2867,13 +2893,19 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         return {'error': 'Invalid namespace ID'}
 
     try:
+        privkey = keylib.ECPrivateKey(privkey).to_hex()
+        reveal_privkey = keylib.ECPrivateKey(reveal_privkey).to_hex()
+
         # force compresssed 
         ns_privkey = set_privkey_compressed(privkey, compressed=True)
         ns_reveal_privkey = set_privkey_compressed(reveal_privkey, compressed=True)
 
         ecdsa_private_key(privkey)
         reveal_addr = virtualchain.get_privkey_address(reveal_privkey)
-    except:
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
         return {'error': 'Invalid private keys'}
 
     infinite_lifetime = 0xffffffff       # means "infinite" to blockstack-core
@@ -3120,6 +3152,8 @@ def cli_namespace_ready(args, interactive=True, config_path=CONFIG_PATH, proxy=N
         return {'error': 'Invalid namespace ID'}
     
     try:
+        reveal_privkey = keylib.ECPrivateKey(reveal_privkey).to_hex()
+
         # force compresssed 
         reveal_privkey = set_privkey_compressed(reveal_privkey, compressed=True)
 
@@ -3642,7 +3676,7 @@ def cli_get_nameops_at(args, config_path=CONFIG_PATH):
     return result
 
 
-def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None, tx_fee=None):
+def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     """
     command: set_zonefile_hash advanced
     help: Directly set the hash associated with the name in the blockchain.
@@ -3666,12 +3700,12 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None, tx_fee=N
         return {'error': 'Not a valid zonefile hash'}
 
     # forward along to RESTful server (or registrar)
-    log.debug("Update {}, zonefile_hash={} tx_fee={}".format(fqu, zonefile_hash, tx_fee))
+    log.debug("Update {}, zonefile_hash={}".format(fqu, zonefile_hash))
     rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     try:
-        resp = rpc.backend_update(fqu, None, None, zonefile_hash, tx_fee )
+        resp = rpc.backend_update(fqu, None, None, zonefile_hash )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}

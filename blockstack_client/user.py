@@ -167,7 +167,7 @@ def user_zonefile_urls(user_zonefile):
 
         fixed_urls.append(url)
 
-    return ret
+    return fixed_urls
 
 
 def user_zonefile_txts(user_zonefile):

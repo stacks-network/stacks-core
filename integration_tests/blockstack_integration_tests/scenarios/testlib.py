@@ -380,11 +380,7 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
     
-    tx_fee = None
-    if not safety_checks:
-        tx_fee = 3000
-
-    resp = blockstack_client.do_name_import( name, privatekey, recipient_address, update_hash, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, tx_fee=tx_fee )
+    resp = blockstack_client.do_name_import( name, privatekey, recipient_address, update_hash, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "name_import", name, resp ) )
     return resp
 
@@ -880,7 +876,7 @@ def blockstack_cli_info(config_path=None):
     return cli_info( args, config_path=config_path, password=password )
 
 
-def blockstack_cli_price( name, password, config_path=None):
+def blockstack_cli_price( name, password, recipient_address=None, operations=None, config_path=None):
     """
     Get the price of a name
     """
@@ -890,6 +886,13 @@ def blockstack_cli_price( name, password, config_path=None):
     config_path = test_proxy.config_path if config_path is None else config_path
 
     args.name_or_namespace = name
+
+    if recipient_address:
+        args.recipient = recipient_address
+
+    if operations:
+        args.operations = ",".join(operations)
+
     return cli_price( args, config_path=config_path, proxy=test_proxy, password=password )
 
 
@@ -2426,7 +2429,7 @@ def instantiate_wallet():
     payment_address = str(wallet_info['payment_address'])
 
     # also track owner address outputs 
-    bitcoind = get_bitcoind()
+    bitcoind = connect_bitcoind()
     try:
         bitcoind.importaddress(owner_address, "", True)
     except virtualchain.JSONRPCException, je:
@@ -2448,6 +2451,13 @@ def get_balance( addr ):
     return sum([inp['value'] for inp in inputs])
 
 
+def get_utxos( addr ):
+    """
+    Get the address balance
+    """
+    inputs = blockstack_client.backend.blockchain.get_utxos(addr)
+    return inputs
+
 def send_funds_tx( privkey, satoshis, payment_addr ):
     """
     Make a signed transaction that will send the given number
@@ -2459,7 +2469,7 @@ def send_funds_tx( privkey, satoshis, payment_addr ):
     payment_addr = str(payment_addr)
     log.debug("Send {} to {}".format(satoshis, payment_addr))
 
-    bitcoind = get_bitcoind()
+    bitcoind = connect_bitcoind()
 
     try:
         bitcoind.importaddress(payment_addr, "", True)
@@ -2898,6 +2908,11 @@ def get_utxo_client():
 def get_bitcoind():
     global bitcoind
     return bitcoind
+
+def connect_bitcoind():
+    test_proxy = make_proxy()
+    config_path = test_proxy.config_path
+    return blockstack_client.backend.blockchain.get_bitcoind_client(config_path=config_path) 
 
 def get_state_engine():
     global state_engine

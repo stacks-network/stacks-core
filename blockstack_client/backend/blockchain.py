@@ -106,12 +106,54 @@ def get_tx_confirmations(tx_hash, config_path=CONFIG_PATH):
     return resp
 
 
+def get_tx_fee_per_byte(config_path=CONFIG_PATH):
+    """
+    Get the tx fee per byte from the underlying blockchain
+    Return the fee on success
+    Return None on error
+    """
+    bitcoind_client = get_bitcoind_client(config_path=config_path)
+    try:
+        # try to confirm in 2-3 blocks
+        fee = bitcoind_client.estimatefee(2)
+        if fee < 0:
+            # if we're testing, then use our own fee
+            if BLOCKSTACK_TEST or os.environ.get("BLOCKSTACK_TESTNET", None) == "1":
+                fee = 5500.0 / 10**8
+
+            else:
+                log.error("Failed to estimate tx fee")
+                return None
+        else:
+            log.debug("Bitcoin estimatefee(2) is {}".format(fee))
+
+        fee = float(fee)
+
+        # fee is BTC/kb.  Return satoshis/byte
+        return int(round(fee * 10**8 / 1024.0))
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error("Failed to estimate tx fee per byte")
+        return None
+
+
 def get_tx_fee( tx_hex, config_path=CONFIG_PATH ):
     """
     Get the tx fee from bitcoind
     Return the fee on success, in satoshis
     Return None on error
     """
+    fee_per_byte = get_tx_fee_per_byte(config_path=config_path)
+    if fee_per_byte is None:
+        log.error("Failed to estimate fee of {}-byte tx".format(len(tx_hex)/2))
+        return None
+
+    # need /2, since tx_hex is a string of hex characters (i.e. 2x as long as the number of bytes)
+    return fee_per_byte * len(tx_hex)/2
+    
+    '''
     bitcoind_client = get_bitcoind_client(config_path=config_path)
     try:
         # try to confirm in 2-3 blocks
@@ -133,7 +175,7 @@ def get_tx_fee( tx_hex, config_path=CONFIG_PATH ):
         log.exception(e)
         log.debug("Failed to estimate fee")
         return None
-
+    '''
 
 def is_tx_accepted( tx_hash, num_needed=TX_CONFIRMATIONS_NEEDED, config_path=CONFIG_PATH ):
     """
@@ -177,7 +219,7 @@ def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmati
     If utxo_client is not None, then its min_confirmations value will be used to filter unconfirmed transactions.
     Otherwise, min_confirmations will be used (at least one must be given).
 
-    Return array of UTXOs on success
+    Return array of UTXOs on success, sorted by largest output first
     Return {'error': ...} on failure
     """
 
@@ -204,6 +246,33 @@ def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmati
     return ret
 
 
+def select_utxos(utxos, amount, min_value=0):
+    """
+    Select the UTXOs that sum to the given amount.
+    Select the biggest UTXOs first.
+
+    Return the UTXOs on success
+    Return None if the UTXOs do not sum to a value greater than amount, subject to the given min_value
+    """
+    utxos.sort(lambda x, y: -1 if x['value'] > y['value'] else 0 if x['value'] == y['value'] else 1)
+    ret = []
+    total = 0
+    for utxo in utxos:
+        if total >= amount:
+            break
+
+        if utxo['value'] < min_value:
+            break
+
+        total += utxo['value']
+        ret.append(utxo)
+
+    if total < amount:
+        return None
+
+    return ret
+
+
 def broadcast_tx(tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None):
     """
     Send a signed transaction to the blockchain
@@ -216,8 +285,7 @@ def broadcast_tx(tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None):
     if tx_broadcaster is None:
         tx_broadcaster = get_tx_broadcaster(config_path=config_path)
 
-    if BLOCKSTACK_TEST is not None:
-        log.debug('Send {}'.format(tx_hex))
+    log.debug('Send {}-byte tx {}'.format(len(tx_hex)/2, tx_hex))
     
     resp = {}
     try:

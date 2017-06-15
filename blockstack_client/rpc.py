@@ -597,7 +597,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         zonefile_txt = request.get('zonefile', None)
         recipient_address = request.get('owner_address', None)
         min_confs = request.get('min_confs', TX_MIN_CONFIRMATIONS)
-        tx_fee = request.get('tx_fee', None)
         cost_satoshis = request.get('cost_satoshis', None)
 
         if min_confs < 0:
@@ -606,12 +605,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if min_confs != TX_MIN_CONFIRMATIONS:
             log.warning("Using payment UTXOs with as few as {} confirmations".format(min_confs))
 
-        if tx_fee is not None:
-            if tx_fee > TX_MAX_FEE:
-                # this is a bug...
-                log.error("Absurd tx fee {}".format(tx_fee))
-                return self._reply_json({'error': 'Absurd transaction fee'}, status_code=401)
-        
         # make sure we have the right encoding
         if recipient_address:
             new_addr = virtualchain.address_reencode(str(recipient_address))
@@ -631,19 +624,19 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if name in res:
             # renew
             for prop in request_schema['properties'].keys():
-                if prop in request.keys() and prop not in ['name', 'tx_fee']:
+                if prop in request.keys() and prop not in ['name']:
                     log.debug("Invalid argument {}".format(prop))
                     return self._reply_json({'error': 'Name already owned by this wallet'}, status_code=401)
 
             op = 'renew'
             log.debug("renew {}".format(name))
-            res = internal.cli_renew(name, interactive=False, cost_satoshis=cost_satoshis, tx_fee=tx_fee)
+            res = internal.cli_renew(name, interactive=False, cost_satoshis=cost_satoshis)
 
         else:
             # register
             op = 'register'
             log.debug("register {}".format(name))
-            res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs, interactive=False, force_data=True, cost_satoshis=cost_satoshis, tx_fee=tx_fee)
+            res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs, interactive=False, force_data=True, cost_satoshis=cost_satoshis)
 
         if 'error' in res:
             log.error("Failed to {} {}".format(op, name))
@@ -819,15 +812,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Re-encode {} to {}".format(new_addr, recipient_address))
             recipient_address = new_addr
 
-        tx_fee = request.get('tx_fee', None)
-        if tx_fee is not None:
-            if tx_fee > TX_MAX_FEE:
-                # this is a bug...
-                log.error("Absurd tx fee {}".format(tx_fee))
-                return self._reply_json({'error': 'Absurd transaction fee'}, status_code=401)
-
-
-        res = internal.cli_transfer(name, recipient_address, interactive=False, tx_fee=tx_fee)
+        res = internal.cli_transfer(name, recipient_address, interactive=False)
         if 'error' in res:
             log.error("Failed to transfer {}: {}".format(name, res['error']))
             self._reply_json({"error": 'Transfer failed.\n{}'.format(res['error'])}, status_code=500)
@@ -888,13 +873,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         zonefile_hash = request.get('zonefile_hash')
         zonefile_str = request.get('zonefile')
         zonefile_str_b64 = request.get('zonefile_b64')
-        tx_fee = request.get('tx_fee', None)
-        
-        if tx_fee is not None:
-            if tx_fee > TX_MAX_FEE:
-                # this is a bug...
-                log.error("Absurd tx fee {}".format(tx_fee))
-                return self._reply_json({'error': 'Absurd transaction fee'}, status_code=401)
 
         if zonefile_hash is None and zonefile_str is None and zonefile_str_b64 is None:
             log.error("No zonefile or zonefile hash received")
@@ -920,10 +898,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         res = None
         if zonefile_str is not None:
-            res = internal.cli_update(name, str(zonefile_str), "false", interactive=False, nonstandard=True, force_data=True, tx_fee=tx_fee)
+            res = internal.cli_update(name, str(zonefile_str), "false", interactive=False, nonstandard=True, force_data=True)
 
         else:
-            res = internal.cli_set_zonefile_hash(name, str(zonefile_hash), tx_fee=tx_fee)
+            res = internal.cli_set_zonefile_hash(name, str(zonefile_hash))
 
         if 'error' in res:
             log.error("Failed to update {}: {}".format(name, res['error']))
@@ -3767,14 +3745,14 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_preorder(self, fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs, tx_fee):
+    def backend_preorder(self, fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs):
         """
         Queue up a name for registration.
         """
 
         if is_api_server(self.config_dir):
             # directly invoke the registrar
-            return backend.registrar.preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs, tx_fee, config_path=self.config_path)
+            return backend.registrar.preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs, config_path=self.config_path)
 
         else:
             res = self.check_version()
@@ -3795,9 +3773,6 @@ class BlockstackAPIEndpointClient(object):
             if min_payment_confs is not None:
                 data['min_confs'] = min_payment_confs
 
-            if tx_fee is not None:
-                data['tx_fee'] = tx_fee
-
             if cost_satoshis is not None:
                 data['cost_satoshis'] = cost_satoshis
 
@@ -3806,13 +3781,13 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
     
-    def backend_update(self, fqu, zonefile_txt, profile, zonefile_hash, tx_fee):
+    def backend_update(self, fqu, zonefile_txt, profile, zonefile_hash):
         """
         Queue an update
         """
         if is_api_server(self.config_dir):
             # directly invoke the registrar 
-            return backend.registrar.update(fqu, zonefile_txt,  profile, zonefile_hash, None, tx_fee, config_path=self.config_path)
+            return backend.registrar.update(fqu, zonefile_txt,  profile, zonefile_hash, None, config_path=self.config_path)
 
         else:
             res = self.check_version()
@@ -3834,21 +3809,18 @@ class BlockstackAPIEndpointClient(object):
             if zonefile_hash is not None:
                 data['zonefile_hash'] = zonefile_hash
 
-            if tx_fee is not None:
-                data['tx_fee'] = tx_fee
-
             headers = self.make_request_headers()
             req = requests.put( 'http://{}:{}/v1/names/{}/zonefile'.format(self.server, self.port, fqu), data=json.dumps(data), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
-    def backend_transfer(self, fqu, recipient_addr, tx_fee):
+    def backend_transfer(self, fqu, recipient_addr):
         """
         Queue a transfer
         """
         if is_api_server(self.config_dir):
             # directly invoke the transfer
-            return backend.registrar.transfer(fqu, recipient_addr, tx_fee, config_path=self.config_path)
+            return backend.registrar.transfer(fqu, recipient_addr, config_path=self.config_path)
         
         else:
             res = self.check_version()
@@ -3860,21 +3832,18 @@ class BlockstackAPIEndpointClient(object):
                 'owner': recipient_addr
             }
 
-            if tx_fee:
-                data['tx_fee'] = tx_fee
-
             headers = self.make_request_headers()
             req = requests.put( 'http://{}:{}/v1/names/{}/owner'.format(self.server, self.port, fqu), data=json.dumps(data), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
-    def backend_renew(self, fqu, renewal_fee, tx_fee):
+    def backend_renew(self, fqu, renewal_fee):
         """
         Queue a renewal
         """
         if is_api_server(self.config_dir):
             # directly invoke the renew 
-            return backend.registrar.renew(fqu, renewal_fee, tx_fee, config_path=self.config_path)
+            return backend.registrar.renew(fqu, renewal_fee, config_path=self.config_path)
 
         else:
             res = self.check_version()
@@ -3886,21 +3855,18 @@ class BlockstackAPIEndpointClient(object):
                 'name': fqu,
             }
 
-            if tx_fee:
-                data['tx_fee'] = tx_fee
-
             headers = self.make_request_headers()
             req = requests.post( 'http://{}:{}/v1/names'.format(self.server, self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
-    def backend_revoke(self, fqu, tx_fee):
+    def backend_revoke(self, fqu):
         """
         Queue a revoke
         """
         if is_api_server(self.config_dir):
             # directly invoke the revoke 
-            return backend.registrar.revoke(fqu, tx_fee, config_path=self.config_path)
+            return backend.registrar.revoke(fqu, config_path=self.config_path)
 
         else:
             res = self.check_version()
