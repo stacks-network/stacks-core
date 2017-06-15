@@ -42,8 +42,8 @@ from keylib import ECPrivateKey
 import blockstack_zones
 import virtualchain
 
-from .queue import get_queue_state, in_queue, queue_removeall
-from .queue import queue_cleanall, queue_find_accepted
+from .queue import get_queue_state, in_queue, cleanup_preorder_queue
+from .queue import queue_find_accepted
 
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
 
@@ -156,7 +156,9 @@ class RegistrarWorker(threading.Thread):
         else:
             self.required_storage_drivers = self.required_storage_drivers.split(",")
 
+        queue_info = os.stat(self.queue_path)
         log.debug("Queue path:      %s" % self.queue_path)
+        log.debug("Queue info:      size=%s ctime=%s atime=%s mtime=%s" % (queue_info.st_size, queue_info.st_ctime, queue_info.st_atime, queue_info.st_mtime))
         log.debug("Poll interval:   %s" % self.poll_interval)
         log.debug("API port:        %s" % self.api_port)
         log.debug("Storage:         %s" % ",".join(self.required_storage_drivers))
@@ -373,6 +375,8 @@ class RegistrarWorker(threading.Thread):
     def clear_confirmed( cls, config_path, queue_path, proxy=None ):
         """
         Find all confirmed transactions besides preorder, register, update, and remove them from the queue.
+        Once these operations complete, there will be no subsequent operations.
+        
         Return {'status': true} on success
         Return {'error': ...} on failure
         """
@@ -383,6 +387,8 @@ class RegistrarWorker(threading.Thread):
                 log.debug("Clear %s confirmed %s operations" % (len(accepted), queue_name))
                 queue_removeall( accepted, path=queue_path )
 
+        # remove expired preorders
+        cleanup_preorder_queue(path=queue_path, config_path=config_path)
         return {'status': True}
 
     
@@ -479,7 +485,7 @@ class RegistrarWorker(threading.Thread):
 
 
     @classmethod
-    def replicate_names_data( cls, queue_path, updates, wallet_data, storage_drivers, config_path=CONFIG_PATH, proxy=None ):
+    def replicate_names_data( cls, queue_path, updates, wallet_data, storage_drivers, skip=[], config_path=CONFIG_PATH, proxy=None ):
         """
         Replicate all zonefiles and profiles for each confirmed update or name import.
         @atlas_servers should be a list of (host, port)
@@ -498,6 +504,10 @@ class RegistrarWorker(threading.Thread):
             return {'error': 'Failed to get Atlas server list'}
 
         for update in updates:
+            if update['fqu'] in skip:
+                log.debug("Skipping name {}".format(update['fqu']))
+                continue
+
             log.debug("Zone file update on '%s' (%s) is confirmed!  New hash is %s" % (update['fqu'], update['tx_hash'], update['zonefile_hash']))
             res = cls.replicate_name_data( update, atlas_servers, wallet_data, storage_drivers, config_path, proxy=proxy )
             if 'error' in res:
@@ -509,9 +519,10 @@ class RegistrarWorker(threading.Thread):
             ret['names'] = failed_names
 
         return ret
-       
+      
+
     @classmethod
-    def replicate_update_data( cls, queue_path, wallet_data, storage_drivers, config_path=CONFIG_PATH, proxy=None ):
+    def replicate_update_data( cls, queue_path, wallet_data, storage_drivers, skip=[], config_path=CONFIG_PATH, proxy=None ):
         """
         Replicate all zone files and profiles for each confirmed NAME_UPDATE
         @atlas_servers should be a list of (host, port)
@@ -525,11 +536,11 @@ class RegistrarWorker(threading.Thread):
         if len(updates) == 0:
             return {'status': True}
 
-        return cls.replicate_names_data(queue_path, updates, wallet_data, storage_drivers, config_path=config_path, proxy=proxy)
+        return cls.replicate_names_data(queue_path, updates, wallet_data, storage_drivers, skip=skip, config_path=config_path, proxy=proxy)
 
 
     @classmethod
-    def replicate_name_import_data( cls, queue_path, wallet_data, storage_drivers, config_path=CONFIG_PATH, proxy=None ):
+    def replicate_name_import_data( cls, queue_path, wallet_data, storage_drivers, skip=[], config_path=CONFIG_PATH, proxy=None ):
         """
         Replicate all zone files and profiles for each confirmed NAME_UPDATE
         @atlas_servers should be a list of (host, port)
@@ -543,7 +554,7 @@ class RegistrarWorker(threading.Thread):
         if len(name_imports) == 0:
             return {'status': True}
 
-        return cls.replicate_names_data(queue_path, name_imports, wallet_data, storage_drivers, config_path=config_path, proxy=proxy)
+        return cls.replicate_names_data(queue_path, name_imports, wallet_data, storage_drivers, skip=skip, config_path=config_path, proxy=proxy)
 
 
     @classmethod
@@ -553,21 +564,20 @@ class RegistrarWorker(threading.Thread):
         Otherwise, clear them from the update queue.
 
         Return {'status': True} on success
-        Return {'error': ...} on failure
+        Return {'error': ..., 'names': ...} on failure
         """
         if proxy is None:
             proxy = get_default_proxy(config_path=config_path)
     
+        failed = []
         ret = {'status': True}
         conf = get_config(config_path)
         assert conf
 
         updates = cls.get_confirmed_updates( config_path, queue_path )
-        if len(updates) == 0:
-            return ret
-
         for update in updates:
             if update['fqu'] in skip:
+                log.debug("Skipping {}".format(update['fqu']))
                 continue
 
             if update.get("transfer_address") is not None:
@@ -578,18 +588,23 @@ class RegistrarWorker(threading.Thread):
                 
                 if res['success']:
                     # clear from update queue
+                    log.debug("Clearing successful transfer of {} to {} from update queue".format(update['fqu'], update['transfer_address']))
                     queue_removeall( [update], path=queue_path )
 
                 else:
                     # will try again 
                     log.error("Failed to transfer {} to {}: {}".format(update['fqu'], update['transfer_address'], res.get('error')))
                     ret = {'error': 'Not all names transferred'}
+                    failed.append(update['fqu'])
 
             else:
                 # nothing more to do 
                 log.debug("Done working on {}".format(update['fqu']))
                 log.debug("Final name output: {}".format(update))
                 queue_removeall( [update], path=queue_path )
+
+        if 'error' in ret:
+            ret['names'] = failed
 
         return ret
 
@@ -778,6 +793,7 @@ class RegistrarWorker(threading.Thread):
             failed = False
             wallet_data = None
             proxy = get_default_proxy( config_path=self.config_path )
+            failed_names = []
 
             try:
                 wallet_data = get_wallet( config_path=self.config_path, proxy=proxy )
@@ -835,7 +851,6 @@ class RegistrarWorker(threading.Thread):
                 # see if we can replicate any zonefiles and profiles
                 # clear out any confirmed updates
                 log.debug("replicate all pending zone files and profiles for updates %s" % (self.queue_path))
-                failed_names = []
                 res = RegistrarWorker.replicate_update_data( self.queue_path, wallet_data, self.required_storage_drivers, config_path=self.config_path, proxy=proxy )
                 if 'error' in res:
                     log.warn("Zone file/profile replication failed for update: %s" % res['error'])
@@ -843,7 +858,7 @@ class RegistrarWorker(threading.Thread):
                     # try exponential backoff
                     failed = True
                     poll_interval = 1.0
-                    failed_names = res['names']
+                    failed_names += res['names']
 
             except Exception, e:
                 log.exception(e)
@@ -860,6 +875,7 @@ class RegistrarWorker(threading.Thread):
                     # try exponential backoff
                     failed = True
                     poll_interval = 1.0
+                    failed_names += res['names']
 
             except Exception as e:
                 log.exception(e)
@@ -870,15 +886,14 @@ class RegistrarWorker(threading.Thread):
                 # see if we can replicate any zonefiles for name imports
                 # clear out any confirmed imports
                 log.debug("replicate all pending zone files for name imports in {}".format(self.queue_path))
-                failed_names = []
-                res = RegistrarWorker.replicate_name_import_data( self.queue_path, wallet_data, self.required_storage_drivers, config_path=self.config_path, proxy=proxy )
+                res = RegistrarWorker.replicate_name_import_data( self.queue_path, wallet_data, self.required_storage_drivers, skip=failed_names, config_path=self.config_path, proxy=proxy )
                 if 'error' in res:
                     log.warn("Zone file replication failed: {}".format(res['error']))
 
                     # try exponential backoff
                     failed = True
                     poll_interval = 1.0
-                    failed_names = res['names']
+                    failed_names += res['names']
 
             except Exception, e:
                 log.exception(e)
@@ -922,10 +937,6 @@ class RegistrarWorker(threading.Thread):
                 # interrupted
                 log.debug("Sleep interrupted")
                 break
-
-            # remove expired 
-            log.debug("Cleaning all queues in %s" % self.queue_path)
-            queue_cleanall( path=self.queue_path, config_path=self.config_path )
 
         log.info("Registrar worker exited")
         self.cleanup_lockfile( self.lockfile_path )
