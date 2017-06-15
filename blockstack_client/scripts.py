@@ -269,7 +269,7 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, fee_p
     * Make sure the subsidy does not exceed the maximum subsidy fee
     * Sign our inputs with SIGHASH_ANYONECANPAY (if subsidy_key_info is not None)
 
-    @tx_fee should be in satoshis
+    @tx_fee should be in fundamental units (i.e. satoshis)
 
     Returns the transaction; signed if subsidy_key_info is given; unsigned otherwise
     Returns None if we can't get subsidy info
@@ -289,7 +289,6 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, fee_p
     dust_fee = subsidy_info['dust_fee']
     tx_fee = subsidy_info['tx_fee']
     tx_inputs = subsidy_info['ins']
-
 
     def _make_subsidized_from(inputs, _tx_fee):
         # NOTE: virtualchain-formatted output; values are still in satoshis!
@@ -378,4 +377,7 @@ def tx_get_unspents(address, utxo_client, min_confirmations=None):
     
     # filter minimum confirmations
     ret = [d for d in data if d.get('confirmations', 0) >= min_confirmations]
+    
+    # sort on value, largest first 
+    ret.sort(lambda x, y: -1 if x['value'] > y['value'] else 0 if x['value'] == y['value'] else 1)
     return ret
