@@ -80,13 +80,15 @@ from blockstack_client import (
     list_zonefile_history, lookup_snv, put_immutable, put_mutable, zonefile_data_replicate
 )
 
-from blockstack_client.profile import put_profile, delete_profile, get_profile
+from blockstack_client.profile import put_profile, delete_profile, get_profile, profile_list_device_ids, \
+        profile_add_device_id, profile_remove_device_id, profile_list_accounts, profile_get_account, \
+        profile_put_account, profile_delete_account
 
 from rpc import local_api_connect, local_api_status 
 import rpc as local_rpc
 import config
 
-from .config import configure_zonefile, set_advanced_mode, configure, get_utxo_provider_client, get_tx_broadcaster, get_all_device_ids
+from .config import configure_zonefile, set_advanced_mode, configure, get_utxo_provider_client, get_tx_broadcaster
 from .constants import (
     CONFIG_PATH, CONFIG_DIR,
     FIRST_BLOCK_MAINNET, NAME_UPDATE,
@@ -2016,77 +2018,6 @@ def cli_set_advanced_mode(args, config_path=CONFIG_PATH):
     return {'status': True}
 
 
-def _get_person_profile(name, proxy=None):
-    """
-    Get the person's zonefile and profile.
-    Handle legacy zonefiles, but not legacy profiles.
-    Return {'profile': ..., 'zonefile': ..., 'person': ...} on success
-    Return {'error': ...} on error
-    """
-
-    profile, zonefile = get_profile(name, proxy=proxy, use_legacy_zonefile=True)
-    if 'error' in zonefile:
-        return {'error': 'Failed to load zonefile: {}'.format(zonefile['error'])}
-
-    if blockstack_profiles.is_profile_in_legacy_format(profile):
-        return {'error': 'Legacy profile'}
-
-    person = None
-    try:
-        person = blockstack_profiles.Person(profile)
-    except Exception as e:
-        log.exception(e)
-        return {'error': 'Failed to parse profile data into a Person record'}
-    
-    return {'profile': profile, 'zonefile': zonefile, 'person': person}
-
-
-def _save_person_profile(name, zonefile, profile, wallet_keys, blockchain_id=None, proxy=None, config_path=CONFIG_PATH):
-    """
-    Save a person's profile, given information fetched with _get_person_profile
-    Return {'status': True} on success
-    Return {'error': ...} on error
-    """
-    conf = config.get_config(config_path)
-    assert conf
-
-    required_storage_drivers = conf.get(
-        'storage_drivers_required_write',
-        config.BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE
-    )
-    required_storage_drivers = required_storage_drivers.split()
-
-    res = put_profile(name, profile, user_zonefile=zonefile,
-                       wallet_keys=wallet_keys, proxy=proxy,
-                       required_drivers=required_storage_drivers, blockchain_id=name,
-                       config_path=config_path )
-
-    return res
-
-
-def _list_accounts(name, proxy=None):
-    """
-    Get the list of accounts in a name's Person-formatted profile.
-    Return {'accounts': ...} on success
-    Return {'error': ...} on error
-    """
-
-    name_info = _get_person_profile(name, proxy=proxy)
-    if 'error' in name_info:
-        return name_info
-
-    profile = name_info.pop('profile')
-    zonefile = name_info.pop('zonefile')
-    person = name_info.pop('person')
-
-    accounts = []
-    if hasattr(person, 'account'):
-        accounts = person.account
-
-    return {'accounts': accounts}
-
-
-# TODO: consider deprecating for 0.15
 def cli_list_accounts( args, proxy=None, config_path=CONFIG_PATH ):
     """
     command: list_accounts advanced
@@ -2098,14 +2029,13 @@ def cli_list_accounts( args, proxy=None, config_path=CONFIG_PATH ):
         proxy = get_default_proxy(config_path=config_path)
     
     name = str(args.name)
-    account_info = _list_accounts(name, proxy=proxy )
+    account_info = profile_list_accounts(name, proxy=proxy )
     if 'error' in account_info:
         return account_info
 
     return account_info['accounts']
 
 
-# TODO: consider deprecating for 0.15
 def cli_get_account( args, proxy=None, config_path=CONFIG_PATH ):
     """
     command: get_account advanced
@@ -2122,22 +2052,13 @@ def cli_get_account( args, proxy=None, config_path=CONFIG_PATH ):
     service = str(args.service)
     identifier = str(args.identifier)
 
-    account_info = _list_accounts(name, proxy=proxy )
-    if 'error' in account_info:
-        return account_info
+    res = profile_get_account(name, service, identifier, config_path=config_path, proxy=proxy)
+    if 'error' in res:
+        return {'error': res['error']}
 
-    accounts = account_info['accounts']
-    for account in accounts:
-        if not account.has_key('service') or not account.has_key('identifier'):
-            continue
-
-        if account['service'] == service and account['identifier'] == identifier:
-            return account
-
-    return {'error': 'No such account'}
+    return res['account']
 
 
-# TODO: consider deprecating for 0.15
 def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None ):
     """
     command: put_account advanced
@@ -2186,44 +2107,9 @@ def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, w
                 v = "=".join(parts[1:])
                 extra_data[k] = v
 
-    person_info = _get_person_profile(name, proxy=proxy)
-    if 'error' in person_info:
-        return person_info
-
-    # make data
-    new_account = {
-        'service': service,
-        'identifier': identifier,
-        'contentUrl': content_url,
-    }
-    new_account.update(extra_data)
-
-    zonefile = person_info.pop('zonefile')
-    profile = person_info.pop('profile')
-    if not profile.has_key('account'):
-        profile['account'] = []
-
-    # overwrite existing, if given 
-    replaced = False
-    for i in xrange(0, len(profile['account'])):
-        account = profile['account'][i]
-        if not account.has_key('service') or not account.has_key('identifier'):
-            continue
-
-        if account['service'] == service and account['identifier'] == identifier:
-            profile['account'][i] = new_account
-            replaced = True
-            break
-
-    if not replaced:
-        profile['account'].append(new_account)
-
-    # save
-    result = _save_person_profile(name, zonefile, profile, wallet_keys, blockchain_id=name, proxy=proxy, config_path=config_path)
-    return result
+    return profile_put_account(name, service, identifier, content_url, extra_data, wallet_keys, config_path=config_path, proxy=proxy)
 
 
-# TODO: consider deprecating for 0.15
 def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None ):
     """
     command: delete_account advanced
@@ -2251,32 +2137,7 @@ def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None
     if len(args.service) == 0 or len(args.identifier) == 0:
         return {'error': 'Invalid data'}
 
-    person_info = _get_person_profile(name, proxy=proxy)
-    if 'error' in person_info:
-        return person_info
-
-    zonefile = person_info['zonefile']
-    profile = person_info['profile']
-    if not profile.has_key('account'):
-        # nothing to do
-        return {'error': 'No such account'}
-
-    found = False
-    for i in xrange(0, len(profile['account'])):
-        account = profile['account'][i]
-        if not account.has_key('service') or not account.has_key('identifier'):
-            continue
-
-        if account['service'] == service and account['identifier'] == identifier:
-            profile['account'].pop(i)
-            found = True
-            break
-
-    if not found:
-        return {'error': 'No such account'}
-
-    result = _save_person_profile(name, zonefile, profile, wallet_keys, blockchain_id=name, proxy=proxy, config_path=config_path)
-    return result
+    return profile_delete_account(name, service, identifier, config_path=config_path, proxy=proxy)
 
 
 def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False):
@@ -3316,7 +3177,7 @@ def cli_namespace_ready(args, interactive=True, config_path=CONFIG_PATH, proxy=N
 def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None, storage_drivers=None, storage_drivers_exclusive=False):
     """
     command: put_mutable advanced
-    help: Put signed, versioned data into your storage providers.
+    help: Low-level method to store off-chain signed data.
     arg: name (str) 'The name that points to the zone file to use'
     arg: data_id (str) 'The name of the data'
     arg: data_path (str) 'The path to the data to store'
@@ -3434,13 +3295,23 @@ def cli_put_immutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
 def cli_get_mutable(args, config_path=CONFIG_PATH, proxy=None):
     """
     command: get_mutable advanced
-    help: Get signed, versioned data from storage providers.
+    help: Low-level method to get signed off-chain data.
     arg: name (str) 'The blockchain ID that owns the data'
     arg: data_id (str) 'The name of the data'
     opt: data_pubkey (str) 'The public key to use to verify the data'
+    opt: device_ids (str) 'A CSV of devices to query'
     """
     data_pubkey = str(args.data_pubkey) if hasattr(args, 'data_pubkey') and getattr(args, 'data_pubkey') is not None else None
-    result = get_mutable(str(args.data_id), proxy=proxy, config_path=config_path, blockchain_id=str(args.name), data_pubkey=data_pubkey)
+
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
+
+    result = get_mutable(str(args.data_id), device_ids['device_ids'], proxy=proxy, config_path=config_path, blockchain_id=str(args.name), data_pubkey=data_pubkey)
     if 'error' in result:
         return result
 
@@ -3545,7 +3416,7 @@ def cli_delete_immutable(args, config_path=CONFIG_PATH, proxy=None, password=Non
 def cli_delete_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     """
     command: delete_mutable advanced
-    help: Delete a mutable datum from a profile.
+    help: Low-level method to delete signed off-chain data.
     arg: name (str) 'The name that owns the data'
     arg: data_id (str) 'The ID of the data to remove'
     opt: privkey (str) 'If given, the data private key to use'
@@ -3587,11 +3458,10 @@ def cli_delete_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None)
 
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
 
-    device_ids = get_all_device_ids(config_path=config_path)
     data_tombstones = make_mutable_data_tombstones(device_ids, data_id) 
     signed_data_tombstones = sign_mutable_data_tombstones(data_tombstones, privkey)
 
-    result = delete_mutable(data_id, signed_data_tombstones, proxy=proxy, device_ids=device_ids, config_path=config_path)
+    result = delete_mutable(data_id, signed_data_tombstones, proxy=proxy, config_path=config_path)
     return result
 
 
@@ -4262,20 +4132,17 @@ def cli_app_signin(args, config_path=CONFIG_PATH, interactive=True):
     arg: privkey (str) 'The app-specific private key to use'
     arg: app_domain (str) 'The application domain'
     arg: api_methods (str) 'A CSV of requested methods to allow'
+    opt: blockchain_id (str) 'If given, the blockchain ID of the caller'
     """
 
     app_domain = str(args.app_domain)
     api_methods = str(args.api_methods)
     app_privkey = str(args.privkey)
 
-    session_lifetime = getattr(args, 'session_lifetime', None)
-    blockchain_ids = getattr(args, 'blockchain_ids', None)
-
-    if session_lifetime is None:
-        session_lifetime = DEFAULT_SESSION_LIFETIME
-
-    if blockchain_ids is not None:
-        blockchain_ids = blockchain_ids.split(',')
+    blockchain_id = getattr(args, 'blockchain_id', None)
+    
+    if len(blockchain_id) == 0:
+        blockchain_id = None
 
     api_methods = api_methods.split(',')
     
@@ -4604,13 +4471,16 @@ def cli_list_device_ids( args, config_path=CONFIG_PATH, proxy=None ):
     """
     command: list_device_ids advanced
     help: Get the list of known devices that write to your data stores
+    arg: blockchain_id (str) 'The blockchain ID whose devices to list'
     """
+    
+    raise NotImplemented("Missing token file parsing logic")
 
-    try:
-        device_ids = get_all_device_ids(config_path=config_path)
-        return {'device_ids': device_ids}
-    except AssertionError:
-        return {'error': 'Failed to read config file'}
+    device_ids = profile_list_device_ids(str(args.blockchain_id), proxy=proxy)
+    if 'error' in device_ids:
+        return {'error': device_ids['error']}
+
+    return device_ids['device_ids']
 
 
 def cli_get_device_id( args, config_path=CONFIG_PATH, proxy=None ):
@@ -4630,37 +4500,34 @@ def cli_add_device_id( args, config_path=CONFIG_PATH, proxy=None ):
     """
     command: add_device_id advanced
     help: Add a device that can read and write your data
+    arg: blockchain_id (str) 'The blockchain ID whose profile to update'
     arg: device_id (str) 'The ID of the device to add'
     """
-    try:
-        device_ids = get_all_device_ids(config_path=config_path)
-        device_id_str = ','.join( list(set(device_ids + [str(args.device_id)])) )
-        config.write_config_field( config_path, 'blockstack-client', 'default_devices', device_id_str )
-        return {'status': True}
-    
-    except AssertionError:
-        return {'error': 'Failed to add device'}
+    blockchain_id = str(args.blockchain_id)
+    device_id = str(args.device_id)
+
+    res = profile_add_device_id(blockchain_id, device_id, config_path=config_path, proxy=proxy)
+    if 'error' in res:
+        return {'error': res['error']}
+
+    return {'status': True}
 
 
 def cli_remove_device_id( args, config_path=CONFIG_PATH, proxy=None ):
     """
     command: remove_device_id advanced
     help: Remove a device ID so this device will ignore its data
+    arg: blockchain_id (str) 'The blockchain ID whose profile to update'
     arg: device_id (str) 'The ID of the device to remove'
     """
-    try:
-        device_id = str(args.device_id)
-        device_ids = get_all_device_ids(config_path=config_path)
-        if device_id not in device_ids:
-            return {'status': True}
+    blockchain_id = str(args.blockchain_id)
+    device_id = str(args.device_id)
 
-        device_ids.remove(device_id)
-        device_id_str = ','.join(device_ids)
-        config.write_config_field( config_path, 'blockstack-client', 'default_devices', device_id_str )
-        return {'status': True}
+    res = profile_remove_device_id(blockchain_id, device_id, config_path=config_path, proxy=proxy)
+    if 'error' in res:
+        return {'error': res['error']}
 
-    except AssertionError:
-        return {'error': 'Failed to remove device'}
+    return {'status': True}
 
 
 def _remove_datastore(rpc, datastore, datastore_privkey, rmtree=True, force=False, config_path=CONFIG_PATH ):
@@ -4688,7 +4555,7 @@ def _remove_datastore(rpc, datastore, datastore_privkey, rmtree=True, force=Fals
     return delete_datastore(rpc, datastore, datastore_privkey, config_path=config_path)
 
 
-def create_datastore_by_type( datastore_type, datastore_privkey, drivers=None, config_path=CONFIG_PATH ):
+def create_datastore_by_type( datastore_type, datastore_privkey, device_ids, drivers=None, config_path=CONFIG_PATH ):
     """
     Create a datastore or a collection for the given user with the given name.
     Return {'status': True} on success
@@ -4708,7 +4575,7 @@ def create_datastore_by_type( datastore_type, datastore_privkey, drivers=None, c
         log.error("Datastore exists")
         return {'error': 'Datastore exists', 'errno': errno.EEXIST}
 
-    datastore_info = make_datastore_info( datastore_type, datastore_pubkey, driver_names=drivers, config_path=config_path)
+    datastore_info = make_datastore_info( datastore_type, datastore_pubkey, device_ids, driver_names=drivers, config_path=config_path)
     if 'error' in datastore_info:
         return datastore_info
    
@@ -4720,7 +4587,7 @@ def create_datastore_by_type( datastore_type, datastore_privkey, drivers=None, c
     return {'status': True}
 
 
-def get_datastore_by_type( datastore_type, blockchain_id, datastore_id, config_path=CONFIG_PATH, device_ids=None ):
+def get_datastore_by_type( datastore_type, blockchain_id, datastore_id, device_ids, config_path=CONFIG_PATH ):
     """
     Get a datastore or collection.
     Return the datastore object on success
@@ -4730,7 +4597,7 @@ def get_datastore_by_type( datastore_type, blockchain_id, datastore_id, config_p
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids=device_ids)
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -4921,34 +4788,47 @@ def cli_get_datastore( args, config_path=CONFIG_PATH ):
     arg: datastore_id (str) 'The application datastore ID'
     opt: device_ids (str) 'The CSV of device IDs to consider'
     """
-    blockchain_id = getattr(args, 'blockchain_id', '')
-    if len(blockchain_id) == 0:
-        blockchain_id = None
-    else:
-        blockchain_id = str(blockchain_id)
-
+    blockchain_id = str(args.blockchain_id)
     datastore_id = str(args.datastore_id)
-    device_ids = []
-    if hasattr(args, 'device_ids') and args.device_ids:
-        device_ids = args.device_ids.split(',')
 
-    return get_datastore_by_type('datastore', blockchain_id, datastore_id, device_ids=device_ids, config_path=config_path )
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
+
+    return get_datastore_by_type('datastore', blockchain_id, datastore_id, device_ids, config_path=config_path )
 
 
-def cli_create_datastore( args, config_path=CONFIG_PATH ):
+def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None ):
     """
     command: create_datastore advanced 
     help: Make a new datastore
+    arg: blockchain_id (str) 'The blockchain ID that will own this datastore'
     arg: privkey (str) 'The ECDSA private key of the datastore'
     opt: drivers (str) 'A CSV of drivers to use.'
+    opt: device_ids (str) 'A CSV of your device IDs.'
     """
+
+    if proxy is None:
+        proxy = get_default_proxy()
 
     privkey = str(args.privkey)
     drivers = getattr(args, 'drivers', None)
     if drivers:
         drivers = drivers.split(',')
 
-    return create_datastore_by_type('datastore', privkey, drivers=drivers, config_path=config_path )
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
+
+    return create_datastore_by_type('datastore', privkey, device_ids, drivers=drivers, config_path=config_path )
 
 
 def cli_delete_datastore( args, config_path=CONFIG_PATH ):
@@ -5094,8 +4974,13 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False ):
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
 
-    if hasattr(args, 'device_ids') and args.device_ids:
-        device_ids = args.device_ids.split(',')
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
 
     res = datastore_file_get('datastore', blockchain_id, datastore_id, path, extended=extended, force=force, device_ids=device_ids, config_path=config_path)
     if json_is_error(res):
@@ -5138,8 +5023,13 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
 
-    if hasattr(args, 'device_ids') and args.device_ids:
-        device_ids = args.device_ids.split(',')
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
 
     res = datastore_dir_list('datastore', blockchain_id, datastore_id, path, extended=extended, force=force, device_ids=device_ids, config_path=config_path )
     if json_is_error(res):
@@ -5182,8 +5072,13 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
 
-    if hasattr(args, 'device_ids') and args.device_ids:
-        device_ids = args.device_ids.split(',')
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
 
     res = datastore_path_stat('datastore', blockchain_id, datastore_id, path, extended=extended, force=force, device_ids=device_ids, config_path=config_path) 
     if json_is_error(res):
@@ -5231,8 +5126,13 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
     if hasattr(args, 'idata') and args.idata.lower() in ['1', 'true']:
         idata = True
 
-    if hasattr(args, 'device_ids') and args.device_ids:
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
         device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
 
     return datastore_inode_getinode('datastore', blockchain_id, datastore_id, inode_uuid, extended=extended, force=force, idata=idata, device_ids=device_ids, config_path=config_path) 
 
@@ -5255,10 +5155,13 @@ def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, forc
     create = (str(getattr(args, "create", "")).lower() in ['1', 'create', 'true'])
     force = (str(getattr(args, 'force', '')).lower() in ['1', 'true'])
 
-    device_ids = None
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
 
-    if hasattr(args, 'device_ids') and args.device_ids:
-        device_ids = args.device_ids.split(',')
+    else:
+        raise NotImplemented("Missing token file parsing logic")
 
     return datastore_file_put('datastore', privkey, path, data, create=create, force_data=force_data, device_ids=device_ids, config_path=config_path )
 
@@ -5277,10 +5180,14 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False ):
     privkey = str(args.privkey)
     datastore_id = datastore_get_id(get_pubkey_hex(privkey))
     force = (str(getattr(args, 'force', '')).lower() in ['1', 'true'])
-    device_ids = None
 
-    if hasattr(args, 'device_ids') and args.device_ids:
-        device_ids = args.device_ids.split(',')
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
 
     # connect 
     rpc = local_api_connect(config_path=config_path)
@@ -5328,25 +5235,38 @@ def cli_get_collection( args, config_path=CONFIG_PATH, proxy=None, password=None
     help: Get a collection record
     arg: blockchain_id (str) 'The ID of the owner'
     arg: collection_name (str) 'The name of the collection'
+    arg: device_ids (str) 'The list of device IDs that can write'
     """
     collection_domain = str(args.collection_name)
-    return get_datastore_by_type('collection', blockchain_id, collection_domain, config_path=config_path )
+    device_ids = args.device_ids.split(',')
+    return get_datastore_by_type('collection', blockchain_id, collection_domain, device_ids, config_path=config_path )
 
 
 def cli_create_collection( args, config_path=CONFIG_PATH, proxy=None, password=None, master_data_privkey=None ):
     """
     command: create_collection advanced 
     help: Make a new collection for a given user.
+    arg: blockchain_id (str) 'The blockchain ID that will own this collection'
     arg: collection_domain (str) 'The domain of this collection.'
+    opt: device_ids (str) 'A CSV of your device IDs.'
     """
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
+    blockchain_id = str(args.blockchain_id)
     password = get_default_password(password)
     collection_domain = str(args.collection_domain)
 
-    return create_datastore_by_type('collection', collection_domain, proxy=proxy, config_path=config_path, password=password, master_data_privkey=master_data_privkey)
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
+
+    return create_datastore_by_type('collection', collection_domain, device_ids, proxy=proxy, config_path=config_path, password=password, master_data_privkey=master_data_privkey)
 
 
 def cli_delete_collection( args, config_path=CONFIG_PATH, proxy=None, password=None, master_data_privkey=None ):
