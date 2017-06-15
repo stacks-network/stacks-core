@@ -439,7 +439,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         methods = [str(m) for m in decoded_token['payload']['methods']]
         session_lifetime = DEFAULT_SESSION_LIFETIME
         app_public_key = str(decoded_token['payload']['app_public_key'])
-        blockchain_ids = decoded_token['payload'].get('blockchain_ids', None)
+        blockchain_id = decoded_token['payload'].get('blockchain_id', None)
+
+        this_device_id = decoded_token['payload'].get('this_device_id', None)
+        all_device_ids = decoded_token['payload'].get('all_device_ids', None)
 
         log.debug("app_public_key: {}".format(app_public_key))
 
@@ -456,8 +459,25 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Invalid token: wrong signature")
             return self._send_headers(status_code=401, content_type='text/plain')
 
+        # find device IDs 
+        if this_device_id is None:
+            # we are this device
+            pass
+
+        # what other devices?
+        if blockchain_id is not None and all_device_ids is None:
+            devinfo = profile_list_device_ids(blockchain_id)
+            if 'error' in devinfo:
+                log.error("Failed to find device IDs for {}".format(blockchain_id))
+                return self._reply_json({'error': 'No devices listed in profile for {}'.format(blockchain_id)}, status_code=401)
+
+            all_device_ids = devinfo['device_ids']
+            if this_device_id is not None:
+                if this_device_id not in all_device_ids:
+                    return self._reply_json({'error': 'Device ID {} is not present in the profile for {}'.format(this_device_id, blockchain_id)}, status_code=401) 
+
         # make the token 
-        res = app.app_make_session( app_public_key, app_domain, methods, self.server.master_data_privkey, blockchain_ids=blockchain_ids, config_path=self.server.config_path)
+        res = app.app_make_session( app_public_key, app_domain, methods, self.server.master_data_privkey, blockchain_id=blockchain_id, all_device_ids=all_device_ids, config_path=self.server.config_path)
         if 'error' in res:
             return self._reply_json({'error': 'Failed to create session: {}'.format(res['error'])}, status_code=500)
 
@@ -1171,15 +1191,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         blockchain_id is usually a necessary query argument
         """
        
-        '''
-        if datastore_id != ses['app_user_id']:
-            log.debug("Invalid datastore ID: {} != {}".format(datastore_id, ses['app_user_id']))
-            return self._reply_json({'error': 'Invalid datastore ID'}, status_code=403)
-        '''
-
         device_ids = '' 
-        if path_info['qs_values'].has_key('device_ids'):
-            device_ids = path_info['qs_values']['device_ids']
+        if not path_info['qs_values'].has_key('device_ids'):
+            return self._reply_json({'error': 'Missing device_ids query argument'}, status_code=401)
 
         blockchain_id = ''
         if path_info['qs_values'].has_key('blockchain_id'):
@@ -1291,7 +1305,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Invalid root tombstone', 'errno': errno.EINVAL}, status_code=401)
 
         # delete 
-        res = data.delete_datastore_info( datastore_id, tombstone_info['datastore_tombstones'], tombstone_info['root_tombstones'], device_ids=device_ids, config_path=self.server.config_path )
+        res = data.delete_datastore_info( datastore_id, tombstone_info['datastore_tombstones'], tombstone_info['root_tombstones'], config_path=self.server.config_path )
         if 'error' in res:
             return self._reply_json({'error': 'Failed to delete datastore info: {}'.format(res['error']), 'errno': res['errno']})
 
@@ -1660,8 +1674,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if ses['app_domain'] != app_domain:
                 return self._reply_json({'error': 'Unauthorized app domain'}, status_code=403)
 
-            blockchain_ids = ses.get('blockchain_ids', None)
-            if blockchain_ids is not None and blockchain_id not in blockchain_ids:
+            if blockchain_id != ses.get('blockchain_id', None):
                 return self._reply_json({'error': 'Unauthorized blockchain ID'}, status_code=403)
 
         qs = path_info['qs_values']
@@ -3900,7 +3913,7 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
         
 
-    def backend_signin(self, app_privkey, app_domain, app_methods, api_password=None):
+    def backend_signin(self, app_privkey, app_domain, app_methods, api_password=None, blockchain_id=None):
         """
         Sign in and set the session token.
         Cannot be used by the server (nonsensical)
@@ -3917,6 +3930,9 @@ class BlockstackAPIEndpointClient(object):
             'app_public_key': keys.get_pubkey_hex(app_privkey),
             'methods': app_methods,
         }
+        if blockchain_id:
+            request['blockchain_id'] = blockchain_id
+
         signer = jsontokens.TokenSigner()
         authreq = signer.sign(request, app_privkey)
 
@@ -3955,7 +3971,7 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_datastore_get( self, blockchain_id, datastore_id, device_ids=None ):
+    def backend_datastore_get( self, blockchain_id, datastore_id, device_ids ):
         """
         Get a datastore from the backend
         Return {'status': True, 'datastore': ...} on success
@@ -3963,7 +3979,7 @@ class BlockstackAPIEndpointClient(object):
         """
         if is_api_server(self.config_dir):
             # directly do this 
-            return data.get_datastore(blockchain_id, datastore_id, device_ids=device_ids, config_path=self.config_path)
+            return data.get_datastore(blockchain_id, datastore_id, device_ids, config_path=self.config_path)
 
         else:
             res = self.check_version()
@@ -3973,16 +3989,9 @@ class BlockstackAPIEndpointClient(object):
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
             url = 'http://{}:{}/v1/stores/{}'.format(self.server, self.port, datastore_id)
-            if device_ids:
-                if url[-1] != '?':
-                    url += '?'
-
-                url += '&device_ids={}'.format(','.join(device_ids))
+            url += '&device_ids={}'.format(','.join(device_ids))
             
             if blockchain_id:
-                if url[-1] != '?':
-                    url += '?'
-
                 url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
 
             req = requests.get( url, timeout=self.timeout, headers=headers)
