@@ -290,6 +290,16 @@ def get_url_type(url):
         return ('http', url)
 
 
+def index_make_mutable_url(host, data_id, scheme='https'):
+    """
+    Make a faux-mutable URL that will be identified
+    by the indexer as referring to indexed data.
+    """
+    data_id = urllib.quote( data_id.replace('/', '-2f') )
+    url = "{}://{}/blockstack/{}".format(scheme, host, data_id)
+    return url
+
+
 def index_make_bucket(dvconf, bucket):
     """
     Make an index bucket.
@@ -938,6 +948,106 @@ def http_get_data(dvconf, url, raw=False):
             return data
 
 
+def index_get_immutable_handler( dvconf, key, **kw ):
+    """
+    Default method to get data by hash using the index.
+    Meant for HTTP-based cloud providers.
+
+    Return the data on success
+    Return None on error
+    """
+    blockchain_id = kw.get('fqu', None)
+    index_manifest_url = kw.get('index_manifest_url', None)
+    
+    name = 'immutable-{}'.format(key)
+    name = name.replace('/', r'-2f')
+   
+    path = '/{}'.format(name)
+    return get_indexed_data(dvconf, blockchain_id, path, index_manifest_url=index_manifest_url)
+
+
+def index_get_mutable_handler( dvconf, url, default_get_data=http_get_data, **kw ):
+    """
+    Default method to get data by URL using the index.
+    Falls back to HTTP GET on failure, unless default_get_data() is given
+
+    Return the data on success
+    Return None on error
+    """
+    blockchain_id = kw.get('fqu', None)
+    index_manifest_url = kw.get('index_manifest_url', None)
+    
+
+    urltype, urlres = get_url_type(url)
+    if urltype is None and urlres is None:
+        log.error("Invalid URL {}".format(url))
+        return None
+
+    if urltype == 'blockstack':
+        # get via index
+        urlres = urlres.replace('/', r'-2f')
+        path = '/{}'.format(urlres)
+        return get_indexed_data(dvconf, blockchain_id, path, index_manifest_url=index_manifest_url)
+
+    else:
+        # raw url 
+        return http_get_data(dvconf, url)
+
+
+def index_put_immutable_handler( dvconf, key, data, txid, **kw ):
+    """
+    Put data by hash and txid, using the index.
+    Meant for HTTP-based cloud providers.
+
+    Return the URL on success
+    Return None on error
+    """
+    name = 'immutable-{}'.format(key)
+    name = name.replace('/', r'-2f')
+
+    path = '/{}'.format(name)
+    return put_indexed_data(dvconf, path, data)
+
+
+def index_put_mutable_handler( dvconf, data_id, data_bin, **kw ):
+    """
+    Put data by data ID, using the index.
+    Meant for HTTP-based cloud providers.
+
+    Return the URL on success
+    Return None on error
+    """
+    data_id = data_id.replace('/', r'-2f')
+    path = '/{}'.format(data_id)
+
+    return put_indexed_data(dvconf, path, data_bin)
+
+
+def index_delete_immutable_handler( dvconf, key, txid, sig_key_txid, **kw ):
+    """
+    Delete by hash, using the index.
+    Meant for HTTP-based cloud providers.
+
+    Return the URL on success
+    Return None on error
+    """
+    name = 'immutable-{}'.format(key)
+    name = name.replace('/', r'-2f')
+    path = '/{}'.format(name)
+
+    return delete_indexed_data(dvconf, path)
+
+
+def index_delete_mutable_handler( dvconf, data_id, signature, **kw ):
+    """
+    Delete by data ID
+    """
+    data_id = data_id.replace('/', r'-2f')
+    path = '/{}'.format(data_id)
+
+    return delete_indexed_data(dvconf, path)
+
+
 def get_zonefile_from_atlas(blockchain_id, config_path, name_record=None):
     """
     Get the zone file from the atlas network
@@ -999,6 +1109,7 @@ def lookup_index_manifest_url( blockchain_id, driver_name, config_path ):
     import blockstack_client.proxy as proxy
     import blockstack_client.user
     import blockstack_client.storage
+    import blockstack_client.schemas
 
     if blockchain_id is None:
         # try getting it directly (we should have it)
@@ -1018,7 +1129,10 @@ def lookup_index_manifest_url( blockchain_id, driver_name, config_path ):
     except:
         raise Exception("Non-standard zonefile for {}".format(blockchain_id))
 
-    # get the profile... 
+    # get the profile...
+    # we're assuming here that some of the profile URLs are at least HTTP-accessible
+    # (i.e. we can get them without having to go through the indexing system)
+    # TODO: let drivers report their 'safety'
     profile_txt = None
     urls = blockstack_client.user.user_zonefile_urls(zonefile)
     for url in urls:
@@ -1040,7 +1154,8 @@ def lookup_index_manifest_url( blockchain_id, driver_name, config_path ):
         if not profile:
             log.debug("Failed to load profile from {}".format(url))
             continue
-        
+       
+        # TODO: load this from the tokens file
         # got profile! the storage information will be listed as an account, where the 'service' is the driver name and the 'identifier' is the manifest url 
         if 'account' not in profile:
             log.error("No 'account' key in profile for {}".format(blockchain_id))
@@ -1052,20 +1167,9 @@ def lookup_index_manifest_url( blockchain_id, driver_name, config_path ):
             return None
 
         for account in accounts:
-            if not isinstance(account, dict):
-                log.debug("Invalid account")
-                continue
-
-            if not account.has_key('service'):
-                log.debug("No 'service' key in account")
-                continue
-
-            if not account.has_key('identifier'):
-                log.debug("No 'identifier' key in account")
-                continue
-
-            if not account.has_key('contentUrl'):
-                log.debug("No 'contentUrl' key in account")
+            try:
+                jsonschema.validate(account, blockstack_client.schemas.PROFILE_ACCOUNT_SCHEMA)
+            except jsonschema.ValidationError:
                 continue
 
             if account['service'] != driver_name:
@@ -1074,6 +1178,9 @@ def lookup_index_manifest_url( blockchain_id, driver_name, config_path ):
 
             if account['identifier'] != 'storage':
                 log.debug("Skipping non-storage account for '{}'".format(account['service']))
+                continue
+            
+            if not account.has_key('contentUrl'):
                 continue
 
             url = account['contentUrl']
