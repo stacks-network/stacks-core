@@ -82,4 +82,3 @@ When a lookup like `foo.bar.id` hits the resolver, the resolver will need to:
 
 A resolver may *cache* a subdomain's state by keeping a database of
 all the current subdomain records.
-
