@@ -518,7 +518,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
 
     res = broadcast_tx( tx, config_path=config_path )
     return res
-    
+
 
 def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_privkey_info, payment_address=None, owner_address=None, transfer_address=None, config_path=CONFIG_PATH, proxy=None ):
     """
@@ -533,6 +533,8 @@ def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_priv
     if tx_fee_per_byte is None:
         log.error("Unable to calculate fee per byte")
         return {'error': 'Unable to get fee estimate'}
+
+    log.debug("Get operation fees for {}".format(", ".join(operations)))
 
     sg = ScatterGather()
     res = get_operation_fees( name_or_ns, operations, sg, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
@@ -577,7 +579,7 @@ def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_priv
     return fees
 
 
-def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
+def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None, interactive=True):
     """
     command: price
     help: Get the price to register a name
@@ -638,7 +640,22 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
             if BLOCKSTACK_DEBUG is not None:
                 log.exception(e)
 
-            log.debug("Could not get wallet keys from API server")
+            log.error("Could not get wallet keys from API server")
+            return {'error': 'Could not load wallet keys from API server.  Try `blockstack api stop` and `blockstack api start`'}
+    
+    else:
+        # unlock
+        log.warning("API server is not running; unlocking wallet directly")
+        res = load_wallet(password=password, wallet_path=wallet_path, interactive=interactive, include_private=True)
+        if 'error' in res:
+            return res
+        
+        if res['migrated']:
+            return {'error': 'Wallet is in legacy format.  Please migrate it with `setup_wallet`'}
+
+        wallet_keys = res['wallet']
+        payment_privkey_info = wallet_keys['payment_privkey']
+        owner_privkey_info = wallet_keys['owner_privkey']
 
     fees = get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_privkey_info,
                                payment_address=payment_address, owner_address=owner_address, transfer_address=transfer_address, config_path=config_path, proxy=proxy )
@@ -2720,20 +2737,26 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
     ns_privkey = str(args.payment_privkey)
     ns_reveal_privkey = str(args.reveal_privkey)
     reveal_addr = None
-    
+   
     try:
+        ns_privkey = keylib.ECPrivateKey(ns_privkey).to_hex()
+        ns_reveal_privkey = keylib.ECPrivateKey(ns_reveal_privkey).to_hex()
+
         # force compresssed 
         ns_privkey = set_privkey_compressed(ns_privkey, compressed=True)
         ns_reveal_privkey = set_privkey_compressed(ns_reveal_privkey, compressed=True)
 
         keylib.ECPrivateKey(ns_privkey)
         reveal_addr = virtualchain.get_privkey_address(ns_reveal_privkey)
-    except:
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
         return {'error': 'Invalid namespace private key'}
     
     print("Calculating fees...")
     fees = get_price_and_fees(nsid, ['namespace_preorder', 'namespace_reveal', 'namespace_ready'], ns_privkey, ns_reveal_privkey, config_path=config_path, proxy=proxy )
-    if 'error' in fees:
+    if 'error' in fees or 'warnings' in fees:
         return fees
 
     msg = "".join([
@@ -2997,13 +3020,19 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         return {'error': 'Invalid namespace ID'}
 
     try:
+        privkey = keylib.ECPrivateKey(privkey).to_hex()
+        reveal_privkey = keylib.ECPrivateKey(reveal_privkey).to_hex()
+
         # force compresssed 
         ns_privkey = set_privkey_compressed(privkey, compressed=True)
         ns_reveal_privkey = set_privkey_compressed(reveal_privkey, compressed=True)
 
         ecdsa_private_key(privkey)
         reveal_addr = virtualchain.get_privkey_address(reveal_privkey)
-    except:
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
         return {'error': 'Invalid private keys'}
 
     infinite_lifetime = 0xffffffff       # means "infinite" to blockstack-core
@@ -3250,6 +3279,8 @@ def cli_namespace_ready(args, interactive=True, config_path=CONFIG_PATH, proxy=N
         return {'error': 'Invalid namespace ID'}
     
     try:
+        reveal_privkey = keylib.ECPrivateKey(reveal_privkey).to_hex()
+
         # force compresssed 
         reveal_privkey = set_privkey_compressed(reveal_privkey, compressed=True)
 
