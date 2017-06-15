@@ -24,6 +24,7 @@
 import testlib
 import pybitcoin
 import json
+import simplejson
 import blockstack_client
 
 wallets = [
@@ -36,92 +37,305 @@ wallets = [
 
 debug = False
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
+small_unspents = []
+
+def check_utxo_consumption( name_or_ns, payment_wallet, owner_wallet, data_wallet, operations, recipient_address, **kw):
+
+    global small_unspents
+
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", payment_wallet.privkey, owner_wallet.privkey, data_wallet.privkey )
+    test_proxy = testlib.TestAPIProxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    
+    # estimate the fee for the operation sequence
+    fees = testlib.blockstack_cli_price(name_or_ns, "0123456789abcdef", recipient_address=recipient_address, operations=operations)
+    if 'error' in fees:
+        return fees
+
+    print "without UTXOs:"
+    print simplejson.dumps(fees, indent=4, sort_keys=True)
+
+    # make a few small UTXOs for the payment address 
+    # count up the number of UTXOs that exist for this payment address
+    payment_utxos = testlib.get_utxos(payment_wallet.addr)
+    expected_utxo_count = len(payment_utxos)
+    for i in xrange(0, 1):
+        senders = wallets
+        for sender in senders:
+            if sender.privkey == payment_wallet.privkey:
+                continue
+
+            res = testlib.send_funds( sender.privkey, 10000, payment_wallet.addr )
+            if 'error' in res:
+                print simplejson.dumps(res, indent=4, sort_keys=True)
+                return res
+
+            expected_utxo_count += 1
+            small_unspents.append(res['transaction_hash'])
+
+        testlib.next_block(**kw)
+
+    # estimate the fee with all the UTXOs
+    fees_utxos = testlib.blockstack_cli_price(name_or_ns, "0123456789abcdef", recipient_address=recipient_address, operations=operations)
+    if 'error' in fees_utxos:
+        return fees_utxos
+
+    print "with UTXOs:"
+    print simplejson.dumps(fees_utxos, indent=4, sort_keys=True)
+   
+    # all our operations should have similar fees, regardless of the UTXO set
+    for tx_fee_key in ['{}_tx_fee'.format(op) for op in operations]:
+        fee_diff = abs(fees[tx_fee_key]['satoshis'] - fees_utxos[tx_fee_key]['satoshis'])
+        if fee_diff > 5500:
+            print 'tx fees for {} disagree by {}'.format(tx_fee_key, fee_diff)
+            return {'error': 'No appreciable fee change'}
+
+    return {'status': True, 'expected_utxo_count': expected_utxo_count}
+
+
+def spent_small_transaction(txhash):
+    """
+    Did we spend a "small" tx by mistake?
+    """
+
+    # verify that all the small UTXOs are NOT consumed
+    bitcoind = testlib.connect_bitcoind()
+    bitcoind.ping()
+
+    txdata = bitcoind.getrawtransaction(txhash, 1)
+    for vin in txdata['vin']:
+        input_tx = bitcoind.getrawtransaction(vin['txid'], 1)
+        consumed_out = input_tx['vout'][vin['vout']]
+        if consumed_out['value'] <= 0.00010001 and consumed_out['value'] >= 0.00009999:
+            print '\n{} spent small UTXO {}\n{}'.format(txhash, vin['txid'], simplejson.dumps(bitcoind.getrawtransaction(vin['txid'], 1), indent=4, sort_keys=True))
+            return True
+
+    return False
+
 
 def scenario( wallets, **kw ):
 
-    global debug, consensus
+    global debug, consensus, small_unspents
+    
+    res = check_utxo_consumption("test", wallets[0], wallets[1], wallets[2], ['namespace_preorder', 'namespace_reveal', 'namespace_ready'], wallets[1].addr, **kw)
+    if 'error' in res:
+        return False
 
+    expected_utxo_count = res['expected_utxo_count']
+
+    # do the preorder
     resp = testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     if debug or 'error' in resp:
-        print json.dumps( resp, indent=4 )
+        print simplejson.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
+    # verify that all the small UTXOs are NOT consumed
+    bitcoind = testlib.connect_bitcoind()
+    bitcoind.ping()
+
+    txdata = bitcoind.getrawtransaction(resp['transaction_hash'], 1)
+    if len(txdata['vin']) != 1:
+        print simplejson.dumps(txdata, indent=4)
+        print "wrong number of inputs: {} != 1".format(len(txdata['vin']))
+        return False
+
+    if spent_small_transaction(resp['transaction_hash']):
+        return False
+
+    # finish ordering the namespace
     resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
     if debug or 'error' in resp:
-        print json.dumps( resp, indent=4 )
+        print simplejson.dumps( resp, indent=4 )
+
+    if spent_small_transaction(resp['transaction_hash']):
+        return False
 
     testlib.next_block( **kw )
 
     resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     if debug or 'error' in resp:
-        print json.dumps( resp, indent=4 )
+        print simplejson.dumps( resp, indent=4 )
+
+    if spent_small_transaction(resp['transaction_hash']):
+        return False
 
     testlib.next_block( **kw )
+ 
+    res = check_utxo_consumption("foo.test", wallets[2], wallets[3], wallets[4], ['preorder', 'register', 'update', 'transfer'], wallets[4].addr, **kw)
+    if 'error' in res:
+        return False
+
+    expected_utxo_count = res['expected_utxo_count']
 
     resp = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
     if debug or 'error' in resp:
-        print json.dumps( resp, indent=4 )
+        print simplejson.dumps( resp, indent=4 )
+
+    if spent_small_transaction(resp['transaction_hash']):
+        return False
 
     testlib.next_block( **kw )
 
+    # verify that all the small UTXOs are NOT consumed
+    bitcoind = testlib.connect_bitcoind()
+    bitcoind.ping()
+
+    txdata = bitcoind.getrawtransaction(resp['transaction_hash'], 1)
+    if len(txdata['vin']) != 1:
+        print simplejson.dumps(txdata, indent=4)
+        print "wrong number of inputs: {} != {}".format(len(txdata['vin']), expected_utxo_count)
+        return False
+
+    # proceed to register
     resp = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     if debug or 'error' in resp:
-        print json.dumps( resp, indent=4 )
+        print simplejson.dumps( resp, indent=4 )
+
+    if spent_small_transaction(resp['transaction_hash']):
+        return False
 
     testlib.next_block( **kw )
+
+    # verify that all the UTXOs are consumed
+    bitcoind = testlib.connect_bitcoind()
+    bitcoind.ping()
+
+    txdata = bitcoind.getrawtransaction(resp['transaction_hash'], 1)
+    if len(txdata['vin']) != 1:
+        print simplejson.dumps(txdata, indent=4)
+        print "wrong number of inputs: {} != {}".format(len(txdata['vin']), expected_utxo_count)
+        return False
 
     # make a few small UTXOs for the preorder payment addr
     for i in xrange(0, 3):
-        res = testlib.send_funds( wallets[1].privkey, 100000, testlib.get_default_payment_wallet().addr)
+        res = testlib.send_funds( wallets[1].privkey, 10000, testlib.get_default_payment_wallet().addr)
         if 'error' in res:
-            print json.dumps(res, indent=4, sort_keys=True)
+            print simplejson.dumps(res, indent=4, sort_keys=True)
             return False
 
         testlib.next_block(**kw)
+        small_unspents.append(res['transaction_hash'])
 
     utxos = testlib.get_utxos(testlib.get_default_payment_wallet().addr)
     assert len(utxos) > 3
 
     resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[3].privkey )
     if debug or 'error' in resp:
-        print json.dumps( resp, indent=4 )
+        print simplejson.dumps( resp, indent=4 )
+
+    if spent_small_transaction(resp['transaction_hash']):
+        return False
 
     consensus = testlib.get_consensus_at( testlib.get_current_block(**kw), **kw)
     testlib.next_block( **kw )
 
-    # inspect the transaction: only one UTXO should have been consumed
-    txdata = testlib.get_bitcoind().getrawtransaction(resp['transaction_hash'], 1)
-    if len(txdata['vin']) > 3:
-        print json.dumps(txdata, indent=4)
+    # inspect the transaction: only 3 UTXOs should have been consumed (2 owner UTXOs and 1 payment UTXO)
+    txdata = testlib.connect_bitcoind().getrawtransaction(resp['transaction_hash'], 1)
+    if len(txdata['vin']) != 3:
+        print simplejson.dumps(txdata, indent=4)
         print "too many inputs"
         return False
 
     # make a few more small UTXOs for the preorder payment addr
     for i in xrange(0, 3):
-        res = testlib.send_funds( wallets[1].privkey, 100000, testlib.get_default_payment_wallet().addr )
+        res = testlib.send_funds( wallets[1].privkey, 10000, testlib.get_default_payment_wallet().addr )
         if 'error' in res:
-            print json.dumps(res, indent=4, sort_keys=True)
+            print simplejson.dumps(res, indent=4, sort_keys=True)
             return False
 
         testlib.next_block(**kw)
+        small_unspents.append(res['transaction_hash'])
 
     utxos = testlib.get_utxos(testlib.get_default_payment_wallet().addr)
     assert len(utxos) > 3
 
     resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey ) 
     if debug or 'error' in resp:
-        print json.dumps( resp, indent=4 )
+        print simplejson.dumps( resp, indent=4 )
 
-    # inspect the transaction: only one UTXO should have been consumed
-    txdata = testlib.get_bitcoind().getrawtransaction(resp['transaction_hash'], 1)
-    if len(txdata['vin']) > 2:
-        print json.dumps(txdata, indent=4)
+    # inspect the transaction: only 2 UTXOs should have been consumed (1 owner UTXO and 1 payment UTXO)
+    txdata = testlib.connect_bitcoind().getrawtransaction(resp['transaction_hash'], 1)
+    if len(txdata['vin']) != 2:
+        print simplejson.dumps(txdata, indent=4)
         print "too many inputs"
+        return False
+
+    if spent_small_transaction(resp['transaction_hash']):
+        return False
+
+    testlib.next_block( **kw )
+   
+    # make a few more small UTXOs for the preorder payment addr
+    for i in xrange(0, 3):
+        res = testlib.send_funds( wallets[1].privkey, 10000, testlib.get_default_payment_wallet().addr )
+        if 'error' in res:
+            print simplejson.dumps(res, indent=4, sort_keys=True)
+            return False
+
+        testlib.next_block(**kw)
+        small_unspents.append(res['transaction_hash'])
+
+    utxos = testlib.get_utxos(testlib.get_default_payment_wallet().addr)
+    assert len(utxos) > 3
+
+    resp = testlib.blockstack_name_renew( "foo.test", wallets[4].privkey )
+    if debug or 'error' in resp:
+        print simplejson.dumps( resp, indent=4 )
+
+    # inspect the transaction: only 3 UTXOs should have been consumed (2 owner UTXO and 1 payment UTXO)
+    # NOTE: produces two UTXOs: an "owner" utxo and the change for the owner address
+    txdata = testlib.connect_bitcoind().getrawtransaction(resp['transaction_hash'], 1)
+    if len(txdata['vin']) != 3:
+        print simplejson.dumps(txdata, indent=4)
+        print "too many inputs"
+        return False
+
+    if spent_small_transaction(resp['transaction_hash']):
         return False
 
     testlib.next_block( **kw )
 
+    # make a few more small UTXOs for the preorder payment addr
+    for i in xrange(0, 3):
+        res = testlib.send_funds( wallets[1].privkey, 10000, testlib.get_default_payment_wallet().addr )
+        if 'error' in res:
+            print simplejson.dumps(res, indent=4, sort_keys=True)
+            return False
+
+        testlib.next_block(**kw)
+        small_unspents.append(res['transaction_hash'])
+
+    utxos = testlib.get_utxos(testlib.get_default_payment_wallet().addr)
+    assert len(utxos) > 3
+
+    resp = testlib.blockstack_name_revoke( "foo.test", wallets[4].privkey )
+    if debug or 'error' in resp:
+        print simplejson.dumps( resp, indent=4 )
+
+    # inspect the transaction: only 3 UTXOs should have been consumed (2 owner UTXO and 1 payment UTXO)
+    txdata = testlib.connect_bitcoind().getrawtransaction(resp['transaction_hash'], 1)
+    if len(txdata['vin']) != 3:
+        print simplejson.dumps(txdata, indent=4)
+        print "too many inputs"
+        return False
+
+    if spent_small_transaction(resp['transaction_hash']):
+        return False
+
+    testlib.next_block( **kw )
+    '''
+    # all unspents should be unspent 
+    all_unspents = testlib.connect_bitcoind().listunspent()
+    all_unspent_txids = [u['txid'] for u in all_unspents]
+    valid = True
+    for i in xrange(0, len(small_unspents)):
+        unspent_txid = small_unspents[i]
+        if unspent_txid not in all_unspent_txids:
+            print "Spent small transaction {}: {}".format(i, unspent_txid)
+            valid = False
+    '''
+    
 
 def check( state_engine ):
 
@@ -152,8 +366,8 @@ def check( state_engine ):
         print "'foo.test' not registered"
         return False 
 
-    # updated, and data is preserved
-    if name_rec['value_hash'] != '11' * 20:
+    # updated, but revoked
+    if name_rec['value_hash'] is not None:
         print "'foo.test' invalid value hash"
         return False 
 
@@ -165,6 +379,11 @@ def check( state_engine ):
     # QUIRK: consensus is from NAME_UPDATE 
     if name_rec['consensus_hash'] != consensus:
         print "quirk not preserved: current consensus %s != %s" % (name_rec['consensus_hash'], consensus)
+        return False
+
+    # revoked 
+    if not name_rec['revoked']:
+        print 'Name is not revoked'
         return False
 
     return True
