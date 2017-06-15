@@ -60,6 +60,35 @@ _subd.foo TXT "pubkey:data:echex:00000000000000000000000000000000000000000000000
 
         self.assertEqual(sub["name"], "foo")
 
+    def test_parse_errs(self):
+        zf = """$ORIGIN bar.id
+$TTL 3600
+pubkey TXT "pubkey:data:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+registrar URI 10 1 "bsreg://foo.com:8234"
+_subd.foo TXT "pubkey:data:echex:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,N:3,url:https://foobar.com/profile,url:https://dropbox.com/profile2,sig:data:0,url:https://another.one.com/"
+        """
+        domain_name = "bar.id"
+        zf_json = zonefile.decode_name_zonefile(domain_name, zf)
+        self.assertRaises(subdomains.ParseError, lambda: subdomains.parse_zonefile_subdomains(zf_json))
+
+        zf = """$ORIGIN bar.id
+$TTL 3600
+pubkey TXT "pubkey:data:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+registrar URI 10 1 "bsreg://foo.com:8234"
+_subd.foo TXT "pubkey:data:echex:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,N:3,pubkey:data:echex:trythis,url:https://foobar.com/profile,url:https://dropbox.com/profile2,sig:data:0"
+        """
+        zf_json = zonefile.decode_name_zonefile(domain_name, zf)
+        self.assertRaises(subdomains.ParseError, lambda: subdomains.parse_zonefile_subdomains(zf_json))
+
+        zf = """$ORIGIN bar.id
+$TTL 3600
+pubkey TXT "pubkey:data:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+registrar URI 10 1 "bsreg://foo.com:8234"
+_subd.foo TXT "pubkey:data:echex:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,N:3,n:2,url:https://foobar.com/profile,url:https://dropbox.com/profile2,sig:data:0"
+        """
+        zf_json = zonefile.decode_name_zonefile(domain_name, zf)
+        self.assertRaises(subdomains.ParseError, lambda: subdomains.parse_zonefile_subdomains(zf_json))
+
     def test_sigs(self):
         fake_privkey_hex = "5512612ed6ef10ea8c5f9839c63f62107c73db7306b98588a46d0cd2c3d15ea5"
         sk = keylib.ECPrivateKey(fake_privkey_hex)
@@ -77,13 +106,18 @@ _subd.foo TXT "pubkey:data:echex:00000000000000000000000000000000000000000000000
             "url":"https://dropbox.com/profile2"
         }
 
-        packed_subdomain_record = subdomains.pack_and_sign_subdomain_record(subd_json, fake_privkey_hex)
-
-        print packed_subdomain_record
+        packed_subdomain_record = subdomains.pack_and_sign_subdomain_record(subd_json, sk)
 
         self.assertTrue(
             subdomains.verify_subdomain_record(packed_subdomain_record, 
                                                subdomains.encode_pubkey_entry(sk)))
+        self.assertTrue(
+            subdomains.verify_subdomain_record(packed_subdomain_record, 
+                                               subdomains.encode_pubkey_entry(pk)))
+        self.assertRaises( NotImplementedError, lambda : subdomains.encode_pubkey_entry( fake_privkey_hex ) )
+        self.assertRaises( NotImplementedError,
+                           lambda : subdomains.verify_subdomain_record(packed_subdomain_record, 
+                                                                       "data:pem:000"))
 
 if __name__ == '__main__':
     unittest.main()

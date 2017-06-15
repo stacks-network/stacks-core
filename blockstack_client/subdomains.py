@@ -24,6 +24,9 @@ import base64
 import ecdsa, hashlib
 import keylib
 
+class ParseError(Exception):
+    pass
+
 def parse_zonefile_subdomains(zonefile_json):    
     registrar_urls = [ x for x in zonefile_json["uri"] if x["name"] == "registrar" ]
 
@@ -67,7 +70,7 @@ def parse_subdomain_record(subdomain_record):
 
     return parsed
 
-def pack_and_sign_subdomain_record(subdomain_record, ecdsa_privkeyhex):
+def pack_and_sign_subdomain_record(subdomain_record, key):
     entries = []
     for k, v in subdomain_record.items():
         if "," in k or (isinstance(v, str) and "," in v):
@@ -79,7 +82,7 @@ def pack_and_sign_subdomain_record(subdomain_record, ecdsa_privkeyhex):
 
     plaintext = ",".join([ "{}:{}".format(k, v) for k,v in entries ])
 
-    signature_blob = sign(keylib.ECPrivateKey(ecdsa_privkeyhex), plaintext)
+    signature_blob = sign(key, plaintext)
 
     return plaintext + ",sig:data:" + signature_blob
 
@@ -91,13 +94,10 @@ def verify_subdomain_record(subdomain_record, prior_pubkey_entry):
 
     pk_header, pk_data = decode_pubkey_entry(prior_pubkey_entry)
 
-    print plaintext
-    print sig
-    
     if pk_header == "echex":
         return verify(keylib.ECPublicKey(pk_data), plaintext, sig)
     else:
-        raise NotImplemented("PubKey type ({}) not supported".format(pk_header))
+        raise NotImplementedError("PubKey type ({}) not supported".format(pk_header))
 
 def decode_pubkey_entry(pubkey_entry):
     assert pubkey_entry.startswith("data:")
@@ -118,7 +118,7 @@ def encode_pubkey_entry(key):
         data = key.to_hex()
         head = "echex"
     else:
-        raise NotImplemented("No support for this key type")
+        raise NotImplementedError("No support for this key type")
 
     return "data:{}:{}".format(head, data)
 
