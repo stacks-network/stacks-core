@@ -249,22 +249,6 @@ def get_local_device_id(config_dir=CONFIG_DIR):
     return get_or_set_uuid(config_dir=config_dir)
 
 
-def get_all_device_ids(config_path=CONFIG_PATH):
-    """
-    Get the list of all device IDs that use this wallet
-    The first device ID is guaranteed to be the local device ID
-    """
-    local_device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
-    device_ids = [local_device_id]
-    
-    conf = get_config(config_path)
-    assert conf
-
-    if conf.has_key('default_devices'):
-        device_ids += filter(lambda x: len(x) > 0, conf['default_devices'].split(','))
-
-    return device_ids
-
 
 def configure(config_file=CONFIG_PATH, force=False, interactive=True, set_migrate=False):
     """
@@ -709,15 +693,14 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
         parser.set('blockstack-client', 'storage_drivers_required_write', BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE)
         parser.set('blockstack-client', 'advanced_mode', 'false')
         parser.set('blockstack-client', 'api_endpoint_port', str(DEFAULT_API_PORT))
-        parser.set('blockstack-client', 'api_endpoint_host', 'localhost')
-        parser.set('blockstack-client', 'api_endpoint_bind', 'localhost')
+        parser.set('blockstack-client', 'api_endpoint_host', DEFAULT_API_HOST)
+        parser.set('blockstack-client', 'api_endpoint_bind', DEFAULT_API_HOST)
         parser.set('blockstack-client', 'queue_path', str(DEFAULT_QUEUE_PATH))
         parser.set('blockstack-client', 'poll_interval', str(DEFAULT_POLL_INTERVAL))
         parser.set('blockstack-client', 'blockchain_reader', DEFAULT_BLOCKCHAIN_READER)
         parser.set('blockstack-client', 'blockchain_writer', DEFAULT_BLOCKCHAIN_WRITER)
         parser.set('blockstack-client', 'anonymous_statistics', 'True')
         parser.set('blockstack-client', 'client_version', VERSION)
-        parser.set('blockstack-client', 'default_devices', '')
 
         api_pass = os.urandom(32)
         parser.set('blockstack-client', 'api_password', hexlify(api_pass))
