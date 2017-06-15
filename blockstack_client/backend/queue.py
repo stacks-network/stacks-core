@@ -29,7 +29,7 @@ import time
 import random
 
 from ..constants import DEFAULT_QUEUE_PATH, PREORDER_MAX_CONFIRMATIONS, CONFIG_PATH
-from .blockchain import get_block_height, get_tx_confirmations, is_tx_rejected, is_tx_accepted
+from .blockchain import get_block_height, get_tx_confirmations, is_tx_accepted
 
 QUEUE_SQL = """
 CREATE TABLE entries( fqu STRING NOT NULL,
@@ -314,15 +314,6 @@ def is_entry_accepted( entry, config_path=CONFIG_PATH ):
     return is_tx_accepted( entry['tx_hash'], config_path=config_path )
 
 
-def is_entry_rejected( entry, config_path=CONFIG_PATH ):
-    """
-    Given a queue entry, determine if it has 
-    been pending for long enough that we can
-    safely assume it won't be incorporated.
-    """
-    return is_tx_rejected( entry['tx_hash'], config_path=config_path )
-
-
 def is_preorder_expired( entry, config_path=CONFIG_PATH ):
     """
     Given a preorder entry, determine whether or
@@ -333,46 +324,6 @@ def is_preorder_expired( entry, config_path=CONFIG_PATH ):
         return True
 
     return False
-
-
-def is_register_expired( entry, config_path=CONFIG_PATH ):
-    """
-    Is a registration expired?
-    as in, is it older than its preorder?
-    """
-    return is_preorder_expired( entry, config_path=config_path )
-
-
-def is_update_expired( entry, config_path=CONFIG_PATH ):
-    """
-    Is an update expired?
-    """
-    confirmations = get_tx_confirmations(entry['tx_hash'], config_path=config_path)
-    if confirmations > MAX_TX_CONFIRMATIONS:
-        return True
-
-    return False
-
-
-def is_transfer_expired( entry, config_path=CONFIG_PATH ):
-    """
-    Is a transfer expired?
-    """
-    return is_update_expired(entry, config_path=config_path)
-
-
-def is_renew_expired( entry, config_path=CONFIG_PATH ):
-    """
-    Is a renew expired?
-    """
-    return is_update_expired(entry, config_path=config_path)
-
-
-def is_revoke_expired( entry, config_path=CONFIG_PATH ):
-    """
-    Is a revoke expired?
-    """
-    return is_update_expired(entry, config_path=CONFIG_PATH)
 
 
 def cleanup_preorder_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
@@ -395,167 +346,6 @@ def cleanup_preorder_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
 
     queue_removeall( to_remove, path=path )
     return True
-
-
-def cleanup_register_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
-    """
-    Clear out the register queue.
-    Remove rows that refer to registered names that have zonefile hashes, or to stale preorders.
-    Return True on success
-    Raise on error.
-    """
-    rows = queuedb_findall("register", path=path)
-    to_remove = []
-    for rowdata in rows:
-        entry = extract_entry(rowdata)
-
-        # clear stale register
-        if is_register_expired( entry, config_path=config_path ):
-            log.debug("Removing stale register: %s" % entry['fqu'])
-            to_remove.append(entry)
-            continue
-
-    queue_removeall( to_remove, path=path )
-    return True
-
-
-def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
-    """
-    Clear out the update queue.
-    Remove rows that refer to updates whose zonefiles have already been
-    replicated.
-    Return True on success
-    Raise on error.
-
-    TODO: add integration test to ensure our failsafe works
-    """
-    
-    from ..profile import get_name_zonefile
-
-    rows = queuedb_findall("update", path=path)
-    to_remove = []
-    for rowdata in rows:
-        entry = extract_entry(rowdata)
-        if not is_update_expired(entry, config_path=config_path):
-            # not expired yet
-            continue
-
-        # don't dequeue until we're sure the zonefile has replicated
-        zf = get_name_zonefile( entry['fqu'], raw_zonefile=True )
-        if 'error' in zf:
-            log.debug("Failed to query zonefile for %s: %s" % (entry['fqu'], zf['error']))
-            continue
-
-        zf = zf['zonefile']
-
-        if not entry.has_key('zonefile'):
-            log.debug("Database entry for %s is missing a zonefile.  Please contact the developers." % entry['fqu'])
-            continue
-
-        if zf != entry['zonefile']:
-            log.debug("Remote zonefile does not match the new zonefile for %s" % entry['fqu'])
-            continue
-
-        # looks like it's been stored
-        log.debug("Removing stale replicated update: %s" % entry['fqu'])
-        to_remove.append(entry)
-
-    queue_removeall( to_remove, path=path )
-    return True
-
-
-def cleanup_transfer_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
-    """
-    Clear out the transfer queue.
-    Remove rows that refer to transfers whose transactions have already expired.
-    Return True on success
-    Raise on error.
-    """
-    rows = queuedb_findall("transfer", path=path)
-    to_remove = []
-    for rowdata in rows:
-        entry = extract_entry(rowdata)
-        
-        fqu = entry['fqu']
-        try:
-            transfer_address = entry['transfer_address']
-        except:
-            log.debug("Transfer address not saved")
-            exit(0)
-
-        # clear stale transfer
-        if is_transfer_expired(entry, config_path=config_path):
-            log.debug("Removing tx with > max confirmations: (%s, %s, confirmations %s)"
-                      % (fqu, transfer_address, confirmations))
-
-            to_remove.append(entry)
-            continue
-
-    queue_removeall( to_remove, path=path )
-    return True
-
-
-def cleanup_renew_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
-    """
-    Clear out the renew queue.
-    Remove rows that refer to renewed names, or stale renews.
-    Return True on success
-    Raise on error
-    """
-    rows = queuedb_findall("renew", path=path)
-    to_remove = []
-    for rowdata in rows:
-        entry = extract_entry(rowdata)
-        
-        # clear stale renew
-        if is_renew_expired(entry, config_path=config_path):
-            log.debug("Removing tx with > max confirmations: (%s, confirmations %s)"
-                      % (fqu, confirmations))
-
-            to_remove.append(entry)
-            continue
-
-    queue_removeall( to_remove, path=path )
-    return True
-
-
-def cleanup_revoke_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
-    """
-    Clear out the revoke queue.
-    Remove rows that refer to revoked names, or stale revokes.
-    Return True on success
-    Raise on error
-    """
-    rows = queuedb_findall("revoke", path=path)
-    to_remove = []
-    for rowdata in rows:
-        entry = extract_entry(rowdata)
-        
-        # clear stale renew
-        if is_revoke_expired(entry, config_path=config_path):
-            log.debug("Removing tx with > max confirmations: (%s, confirmations %s)"
-                      % (fqu, confirmations))
-
-            to_remove.append(entry)
-            continue
-
-    queue_removeall( to_remove, path=path )
-    return True
-
-
-def queue_cleanall(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
-    """
-    Clean all queues
-    Return True on success
-    Raise on error
-    """
-
-    cleanup_preorder_queue(path=path, config_path=config_path)
-    cleanup_register_queue(path=path, config_path=config_path)
-    cleanup_update_queue(path=path, config_path=config_path )
-    cleanup_transfer_queue(path=path, config_path=config_path )
-    cleanup_renew_queue(path=path, config_path=config_path)
-    cleanup_revoke_queue(path=path, config_path=config_path)
 
 
 def get_queue_state(queue_ids=None, limit=None, path=DEFAULT_QUEUE_PATH):
@@ -583,25 +373,6 @@ def queue_findall( queue_id, limit=None, path=DEFAULT_QUEUE_PATH ):
     Load a single queue into RAM
     """
     return get_queue_state( queue_id, limit=limit, path=path )
-
-
-def queue_remove_expired(queue_id, path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
-    """
-    Remove expired transactions
-    from the given queue.
-    Return True on success
-    Raise on error
-    """
-    rows = queuedb_findall( queue_id, path=path )
-    to_remove = []
-    for rowdata in rows:
-        entry = extract_entry(rowdata)
-        if is_entry_rejected( entry, config_path=config_path ):
-            log.debug("TX rejected by network, removing TX: %s" % entry['tx_hash'])
-            to_remove.append(entry)
-
-    queue_removeall( to_remove, path=path )
-    return True
 
 
 def queue_removeall( entries, path=DEFAULT_QUEUE_PATH ):
