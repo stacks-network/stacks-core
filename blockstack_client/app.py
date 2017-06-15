@@ -39,14 +39,18 @@ import user as user_db
 from .proxy import *
 
 from config import get_config
-from .constants import CONFIG_PATH, BLOCKSTACK_TEST, LENGTH_MAX_NAME
+from .constants import CONFIG_PATH, BLOCKSTACK_TEST, LENGTH_MAX_NAME, DEFAULT_API_PORT, DEFAULT_API_HOST
 from .schemas import *
 
-def app_make_session( app_public_key, app_domain, methods, master_data_privkey, app_user_id=None, session_lifetime=None, blockchain_ids=None, config_path=CONFIG_PATH ):
+def app_make_session( app_public_key, app_domain, methods, master_data_privkey,
+                      api_endpoint_host=None, api_endpoint_port=None, 
+                      app_user_id=None, session_lifetime=None, blockchain_id=None,
+                      this_device_id=None, all_device_ids=None, config_path=CONFIG_PATH ):
     """
     Make a session JWT for this application.
     Verify with user private key
     Sign with master private key
+
     Return {'session': session jwt, 'session_token': session token} on success
     Return {'error': ...} on error
     """
@@ -58,6 +62,17 @@ def app_make_session( app_public_key, app_domain, methods, master_data_privkey, 
     if app_user_id is None:
         app_user_id = data.datastore_get_id(app_public_key)
 
+    if api_endpoint_host is None or api_endpoint_port is None:
+        conf = get_config(path=config_path)
+        assert conf
+        if api_endpoint_host is None:
+            api_endpoint_host = conf.get('api_endpoint_host', DEFAULT_API_HOST)
+
+        if api_endpoint_port is None:
+            api_endpoint_port = conf.get('api_endpoint_port', DEFAULT_API_PORT)
+
+    api_endpoint = '{}:{}'.format(api_endpoint_host, api_endpoint_port)
+
     ses = {
         'app_domain': app_domain,
         'methods': methods,
@@ -65,11 +80,18 @@ def app_make_session( app_public_key, app_domain, methods, master_data_privkey, 
         'app_public_key': app_public_key,
         'timestamp': int(time.time()),
         'expires': int(time.time() + session_lifetime),
+        'api_endpoint': api_endpoint,
     }
 
-    if blockchain_ids is not None:
-        ses['blockchain_ids'] = blockchain_ids
+    if blockchain_id is not None:
+        ses['blockchain_id'] = blockchain_id
 
+    if this_device_is is not None:
+        ses['this_device_id'] = this_device_id
+    
+    if all_device_ids is not None:
+        ses['all_device_ids'] = all_device_ids
+        
     jsonschema.validate(ses, APP_SESSION_SCHEMA)
 
     signer = jsontokens.TokenSigner()
