@@ -54,7 +54,7 @@ def build(message_hash):
     return packaged_script 
 
 
-def make_outputs( data, inputs, change_address, tx_fee ):
+def make_outputs( data, inputs, change_address, tx_fee, pay_fee=True ):
     """
     Make outputs for an announcement.
     Raise ValueError if there are not enough inputs to make the transaction
@@ -62,7 +62,10 @@ def make_outputs( data, inputs, change_address, tx_fee ):
 
     dust_fee = (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE + tx_fee
     op_fee = DEFAULT_DUST_FEE
-    dust_value = DEFAULT_DUST_FEE
+
+    if not pay_fee:
+        op_fee = 0
+        dust_fee = 0
     
     return [
         # main output
@@ -75,7 +78,7 @@ def make_outputs( data, inputs, change_address, tx_fee ):
     ]
 
 
-def make_transaction(message_hash, payment_addr, blockchain_client, tx_fee=0, safety=True):
+def make_transaction(message_hash, payment_addr, blockchain_client, tx_fee=0, subsidize=False, safety=True):
     
     message_hash = str(message_hash)
     payment_addr = str(payment_addr)
@@ -96,7 +99,7 @@ def make_transaction(message_hash, payment_addr, blockchain_client, tx_fee=0, sa
         assert len(inputs) > 0
 
     nulldata = build(message_hash)
-    outputs = make_outputs( nulldata, inputs, payment_addr, tx_fee )
+    outputs = make_outputs( nulldata, inputs, payment_addr, tx_fee, pay_fee=(not subsidize) )
    
     return (inputs, outputs)
 
