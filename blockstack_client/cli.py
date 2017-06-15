@@ -544,9 +544,14 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
         # interactive?
         if interactive:
+            arg_names = [mi['name'] for mi in method_info['args']]
+            opt_names = [mi['name'] for mi in method_info['opts']]
+            usage_string = 
+
             print('')
             print('Interactive prompt engaged.  Press Ctrl+C to quit')
             print('Help for "{}": {}'.format(method_info['command'], method_info['help']))
+            print('Arguments: {} {}'.format(method_info['command'], 
             print('')
 
             required_args = prompt_args(method_info['args'], prompt_func)
