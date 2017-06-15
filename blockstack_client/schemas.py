@@ -59,6 +59,7 @@ OP_DATASTORE_ID_CLASS = r'[a-zA-Z0-9\-_.~%]'
 OP_USER_ID_PATTERN = r'^({}+)$'.format(OP_USER_ID_CLASS)
 OP_DATASTORE_ID_PATTERN = r'^({}+)$'.format(OP_DATASTORE_ID_CLASS)
 OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
+OP_URI_TARGET_PATTERN_NOSCHEME = r'([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
 
 OP_ANY_TYPE_SCHEMA = [
     {
@@ -413,8 +414,16 @@ URI_RECORD_SCHEMA = {
             'maximum': 65535,
         },
         'target': {
-            'type': 'string',
-            'pattern': OP_URI_TARGET_PATTERN
+            'anyOf': [
+                {
+                    'type': 'string',
+                    'pattern': OP_URI_TARGET_PATTERN,
+                },
+                {
+                    'type': 'string',
+                    'pattern': OP_URI_TARGET_PATTERN_NOSCHEME,
+                },
+            ],
         },
         'class': {
             'type': 'string'
@@ -702,12 +711,14 @@ DATA_BLOB_SCHEMA = {
 
 # common properties to app sessions and auth requests
 APP_INFO_PROPERTIES = {
-    'blockchain_ids': {
-        'type': 'array',
-        'items': {
-            'type': 'string',
-            'pattern': OP_NAME_PATTERN,
-        },
+    'version': {
+        'type': 'integer',
+        'minimum': 1,
+        'maximum': 1,
+    },
+    'blockchain_id': {
+        'type': 'string',
+        'pattern': OP_NAME_PATTERN,
     },
     'app_domain': {
         'anyOf': [
@@ -749,13 +760,39 @@ APP_SESSION_PROPERTIES.update({
     'expires': {
         'type': 'integer',
     },
+    'api_endpoint': {
+        'type': 'string',
+        'pattern': OP_URLENCODED_PATTERN,
+    },
+    'this_device_id': {
+        'type': 'string',
+        'pattern': '.+',
+    },
+    'all_device_ids': {
+        'type': 'array',
+        'pattern': '.+',
+    },  
+})
+
+APP_AUTHREQUEST_PROPERTIES.update({
+    'app_user_id': {
+        'type': 'string',
+        'pattern': OP_URLENCODED_NOSLASH_PATTERN,
+    },
+    'timestamp': {
+        'type': 'integer',
+        'minimum': 0,
+    },
+    'expires': {
+        'type': 'integer',
+    },
 })
 
 # application session JWT payload
 APP_SESSION_SCHEMA = {
     'type': 'object',
     'properties': APP_SESSION_PROPERTIES,
-    'required': list(set(APP_SESSION_PROPERTIES.keys()) - set(['blockchain_ids'])),
+    'required': list(set(APP_SESSION_PROPERTIES.keys()) - set(['blockchain_id'])),
     'additionalProperties': False
 }
 
@@ -763,7 +800,7 @@ APP_SESSION_SCHEMA = {
 APP_AUTHREQUEST_SCHEMA = {
     'type': 'object',
     'properties': APP_INFO_PROPERTIES,
-    'required': list(set(APP_INFO_PROPERTIES.keys()) - set(['app_public_key','blockchain_ids'])),
+    'required': list(set(APP_INFO_PROPERTIES.keys()) - set(['app_public_key','blockchain_id'])),
     'additionalProperties': False
 }
 
@@ -1309,4 +1346,46 @@ NAMESPACE_SCHEMA_REQUIRED = [
     'version',
     'vtxindex'
 ]
+
+# schema for an account entry in a profile
+PROFILE_ACCOUNT_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'service': {
+            'type': 'string',
+        },
+        'identifier': {
+            'type': 'string',
+        },
+        'contentUrl': {
+            'type': 'string',
+            'pattern': OP_URI_TARGET_PATTERN,
+        },
+    },
+    'additionalProperties': True,
+    'required': [
+        'service',
+        'identifier',
+    ],
+}
+
+
+# schema for a profile's list of devices
+PROFILE_DEVICES_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'device_ids': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': '.+',    # non-zero length
+            },
+        },
+    },
+    'additionalProperties': True,
+    'required': [
+        'device_ids'
+    ],
+}
+
 
