@@ -53,6 +53,10 @@ class NetworkLogFormatter( logging.Formatter ):
     }
 
     def format(self, record):
+        msg = record.msg
+        if msg is None:
+            msg = ' '
+
         data = {
             'time': int(time.time()),
             'level': NetworkLogFormatter.level_names.get(record.levelno, 'TRACE'),
