@@ -27,12 +27,14 @@ from jsonschema.exceptions import ValidationError
 import re
 import keylib
 import copy
+import urlparse
 
 import virtualchain
 from virtualchain.lib.ecdsalib import *
 
 from .schemas import *
 from .constants import BLOCKSTACK_TEST, CONFIG_PATH, BLOCKSTACK_DEBUG
+
 import scripts
 
 from .logger import get_logger
@@ -52,27 +54,6 @@ def is_user_zonefile(d):
         if BLOCKSTACK_TEST:
             log.exception(ve)
 
-        return False
-
-
-def has_mutable_data_section(d):
-    """
-    Does the given dictionary have a mutable data section?
-    """
-    try:
-        assert isinstance(d, dict)
-        if 'data' not in d.keys():
-            return False
-
-        jsonschema.validate(d, PROFILE_MUTABLE_DATA_SCHEMA)
-        return True
-    except ValidationError as ve:
-        if BLOCKSTACK_TEST:
-            log.exception(ve)
-    
-        return False
-    
-    except AssertionError:
         return False
 
 
@@ -177,6 +158,15 @@ def user_zonefile_urls(user_zonefile):
         if 'target' in urirec:
             ret.append(urirec['target'].strip('"'))
 
+    # if there's no scheme, then assume https://
+    fixed_urls = []
+    for url in ret:
+        parts = urlparse.urlparse(url)
+        if len(parts.scheme) == 0:
+            url = 'https://' + url
+
+        fixed_urls.append(url)
+
     return ret
 
 
@@ -203,6 +193,9 @@ def add_user_zonefile_url(user_zonefile, url):
     from .zonefile import url_to_uri_record
 
     assert is_user_zonefile(user_zonefile)
+
+    # be strict--require a scheme!
+    assert re.match(OP_URI_TARGET_PATTERN, url)
 
     user_zonefile.setdefault('uri', [])
 
@@ -309,13 +302,14 @@ def swap_user_zonefile_urls(user_zonefile, url_1, url_2):
     return user_zonefile
 
 
-def make_empty_user_profile():
+def make_empty_user_profile( config_path=CONFIG_PATH ):
     """
     Given a user's name, create an empty profile.
     """
+    
     ret = {
         '@type': 'Person',
-        'accounts': [],
+        'accounts': []
     }
 
     return ret
