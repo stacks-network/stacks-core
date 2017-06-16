@@ -116,9 +116,6 @@ def estimate_input_length( privkey_info ):
     Estimate the length of a missing input
     of a transaction
     """
-    assert address
-    address = str(address)
-
     if virtualchain.is_singlesig(privkey_info):
         return APPROX_TX_OVERHEAD_LEN + APPROX_TX_IN_P2PKH_LEN
 
@@ -381,7 +378,7 @@ def estimate_register_tx_fee( name, payment_privkey_info, owner_privkey_info, tx
 
         except AssertionError as e:
             # no UTXOs for this owner address.  Try again and add padding for one
-            unsigned_tx = register_tx( name, payment_addr, owner_addr, utxo_client, subsidized=True, safety=False )
+            unsigned_tx = register_tx( name, payment_addr, owner_addr, utxo_client, subsidize=True, safety=False )
             assert unsigned_tx
 
             pad_len = estimate_input_length(payment_privkey_info)
@@ -453,7 +450,7 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_priv
 
         except AssertionError as ae:
             # no UTXOs for this owner address.  Try again and add padding for one
-            unsigned_tx = register_tx( name, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee, subsidized=True, safety=False )
+            unsigned_tx = register_tx( name, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee, subsidize=True, safety=False )
             assert unsigned_tx
 
             pad_len = estimate_input_length(payment_privkey_info) + estimate_input_length(owner_privkey_info)
