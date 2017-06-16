@@ -585,9 +585,11 @@ def get_mutable(data_id, device_ids, raw=False, blockchain_id=None, data_pubkey=
     latest_version = expected_version
 
     for fq_data_id in fq_data_ids:
-
+        
         # which storage drivers and/or URLs will we use?
         for driver in storage_drivers: 
+
+            log.debug("get_mutable_data({}) from {}".format(fq_data_id, driver))
 
             # get the mutable data itsef
             # NOTE: we only use 'bsk2' data formats; use storage.get_mutable_data() directly for loading things like profiles that have a different format.
@@ -831,14 +833,14 @@ def sign_mutable_data_tombstones( tombstones, data_privkey ):
     return [storage.sign_data_tombstone(ts, data_privkey) for ts in tombstones]
 
 
-def get_device_id_from_tombstone(tombstones):
+def get_device_id_from_tombstone(tombstone):
     """
     Given a signed tombstone, get the device ID
     Return the device ID string on success
     Return None on error
     """
 
-    res = storage.parse_data_tombstone(ts)
+    res = storage.parse_data_tombstone(tombstone)
     fq_data_id = res['tombstone_payload']
     
     device_id, data_id = storage.parse_fq_data_id(fq_data_id)
@@ -1131,7 +1133,7 @@ def delete_mutable(data_id, signed_data_tombstones, proxy=None, storage_drivers=
 
     if device_ids is None:
         device_ids = filter(lambda x: x is not None, [get_device_id_from_tombstone(ts) for ts in signed_data_tombstones])
-        assert len(device_ids) == len(signd_data_tombstones), "Invalid tombstones"
+        assert len(device_ids) == len(signed_data_tombstones), "Invalid tombstones"
 
     fq_data_ids = []
     if is_fq_data_id:
@@ -1153,8 +1155,8 @@ def delete_mutable(data_id, signed_data_tombstones, proxy=None, storage_drivers=
 
     # remove the data itself
     for signed_data_tombstone in signed_data_tombstones:
-        ts_data = storage.parse_signed_data_tombstone(signed_data_tombstone)
-        assert ts_data
+        ts_data = storage.parse_signed_data_tombstone(str(signed_data_tombstone))
+        assert ts_data, "Unparseable signed tombstone '{}'".format(signed_data_tombstone)
 
         fq_data_id = ts_data['id']
         rc = storage.delete_mutable_data(fq_data_id, signed_data_tombstone=signed_data_tombstone, required=storage_drivers, required_exclusive=storage_drivers_exclusive, blockchain_id=blockchain_id)
@@ -1562,7 +1564,7 @@ def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, 
         proxy = get_default_proxy(config_path)
     
     if device_ids is None:
-        device_ids = filter(lambda x: x is not None, [get_device_id_from_tombstone(ts) for ts in datastore_tombstnoes])
+        device_ids = filter(lambda x: x is not None, [get_device_id_from_tombstone(ts) for ts in datastore_tombstones])
         assert len(device_ids) == len(datastore_tombstones)
         
     # get the datastore first
@@ -2188,9 +2190,9 @@ def delete_inode_data( datastore, signed_tombstones, proxy=None, config_path=CON
             return {'error': 'Invalid tombstone', 'errno': errno.EINVAL}
 
         if ts_data['id'].endswith('.hdr'):
-            inode_tombstones[inode_uuid]['header_tombstones'].append(ts_data['id'])
+            inode_tombstones[inode_uuid]['header_tombstones'].append(ts)
         else:
-            inode_tombstones[inode_uuid]['idata_tombstones'].append(ts_data['id'])
+            inode_tombstones[inode_uuid]['idata_tombstones'].append(ts)
    
     failed_driver = False
 
@@ -3356,6 +3358,7 @@ def datastore_deletefile(api_client, datastore, data_path, data_privkey_hex, for
         inode_signatures.append( signature )
 
     signed_tombstones = sign_mutable_data_tombstones(inode_info['tombstones'], data_privkey_hex)
+    assert len(signed_tombstones) > 0
 
     datastore_info = datastore_serialize_and_sign(datastore, data_privkey_hex)
     res = api_client.backend_datastore_deletefile( datastore_info['str'], datastore_info['sig'], data_path, inode_info['inodes'], inode_info['payloads'], inode_signatures, signed_tombstones )
