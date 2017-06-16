@@ -1708,7 +1708,7 @@ def blockstack_cli_app_put_resource( blockchain_id, app_domain, res_path, res_fi
     return cli_app_put_resource( args, config_path=config_path, interactive=interactive, password=password, proxy=test_proxy )
 
 
-def blockstack_cli_app_signin( app_privkey, app_domain, api_methods, config_path=None ):
+def blockstack_cli_app_signin( blockchain_id, app_privkey, app_domain, api_methods, device_ids=None, public_keys=None, config_path=None ):
     """
     sign in and get a token
     """
@@ -1719,14 +1719,24 @@ def blockstack_cli_app_signin( app_privkey, app_domain, api_methods, config_path
 
     args = CLIArgs()
 
+    args.blockchain_id = blockchain_id
     args.app_domain = app_domain
     args.api_methods = ','.join(api_methods)
     args.privkey = app_privkey
 
+    if device_ids is None and public_keys is None:
+        device_ids = [blockstack_client.config.get_local_device_id()]
+        public_keys = [keylib.ECPrivateKey(app_privkey).public_key().to_hex()]
+
+    device_ids = ','.join(device_ids)
+    public_keys = ','.join(public_keys)
+    args.device_ids = device_ids
+    args.public_keys = public_keys
+
     return cli_app_signin( args, config_path=config_path )
 
 
-def blockstack_cli_create_datastore(datastore_privkey, drivers, config_path=None):
+def blockstack_cli_create_datastore(blockchain_id, datastore_privkey, drivers, device_ids=None, config_path=None):
     """
     create_datastore
     """
@@ -1737,13 +1747,19 @@ def blockstack_cli_create_datastore(datastore_privkey, drivers, config_path=None
 
     args = CLIArgs()
 
+    args.blockchain_id = blockchain_id
     args.privkey = datastore_privkey
     args.drivers = ",".join(drivers)
+
+    if device_ids is None:
+        device_ids = [blockstack_client.config.get_local_device_id()]
+        
+    args.device_ids = ','.join(device_ids)
 
     return cli_create_datastore( args, config_path=config_path)
 
 
-def blockstack_cli_delete_datastore(datastore_privkey, force=False, config_path=None):
+def blockstack_cli_delete_datastore(blockchain_id, datastore_privkey, force=False, device_ids=None, config_path=None):
     """
     delete datastore
     """
@@ -1753,13 +1769,19 @@ def blockstack_cli_delete_datastore(datastore_privkey, force=False, config_path=
         config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
+    args.blockchain_id = blockchain_id
     args.privkey = datastore_privkey
     args.force = '1' if force else '0'
+
+    if device_ids is None:
+        device_ids = [blockstack_client.config.get_local_device_id()]
+        
+    args.device_ids = ','.join(device_ids)
 
     return cli_delete_datastore( args, config_path=config_path )
 
 
-def blockstack_cli_datastore_mkdir(datastore_privkey, path, config_path=None, interactive=False ):
+def blockstack_cli_datastore_mkdir(blockchain_id, datastore_privkey, path, device_ids=None, config_path=None, interactive=False ):
     """
     mkdir
     """
@@ -1769,14 +1791,20 @@ def blockstack_cli_datastore_mkdir(datastore_privkey, path, config_path=None, in
         config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
-
+    
+    args.blockchain_id = blockchain_id
     args.path = path
     args.privkey = datastore_privkey
+
+    if device_ids is None:
+        device_ids = [blockstack_client.config.get_local_device_id()]
+        
+    args.device_ids = ','.join(device_ids)
 
     return cli_datastore_mkdir( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_rmdir( datastore_privkey, path, config_path=None, force=False, interactive=False ):
+def blockstack_cli_datastore_rmdir( blockchain_id, datastore_privkey, path, device_ids=None, config_path=None, force=False, interactive=False ):
     """
     rmdir
     """
@@ -1786,15 +1814,20 @@ def blockstack_cli_datastore_rmdir( datastore_privkey, path, config_path=None, f
         config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
-
+    args.blockchain_id = blockchain_id
     args.path = path
     args.privkey = datastore_privkey
     args.force = '1' if force else '0'
 
+    if device_ids is None:
+        device_ids = [blockstack_client.config.get_local_device_id()]
+        
+    args.device_ids = ','.join(device_ids)
+
     return cli_datastore_rmdir( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_rmtree( datastore_privkey, path, config_path=None, interactive=False ):
+def blockstack_cli_datastore_rmtree( blockchain_id, datastore_privkey, path, device_ids=None, config_path=None, interactive=False ):
     """
     rmtree
     """
@@ -1804,14 +1837,20 @@ def blockstack_cli_datastore_rmtree( datastore_privkey, path, config_path=None, 
         config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
-
+    
+    args.blockchain_id = blockchain_id
     args.path = path
     args.privkey = datastore_privkey
+
+    if device_ids is None:
+        device_ids = [blockstack_client.config.get_local_device_id()]
+        
+    args.device_ids = ','.join(device_ids)
 
     return cli_datastore_rmtree( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_listdir(datastore_id, path, blockchain_id=None, config_path=None, force=False, interactive=False ):
+def blockstack_cli_datastore_listdir(blockchain_id, datastore_id, path, device_ids=None, config_path=None, force=False, interactive=False ):
     """
     listdir
     """
@@ -1822,17 +1861,20 @@ def blockstack_cli_datastore_listdir(datastore_id, path, blockchain_id=None, con
 
     args = CLIArgs()
     
-    if blockchain_id:
-        args.blockchain_id = blockchain_id
-
+    args.blockchain_id = blockchain_id
     args.datastore_id = datastore_id
     args.path = path 
     args.force = '1' if force else '0'
 
+    if device_ids is None:
+        device_ids = [blockstack_client.config.get_local_device_id()]
+        
+    args.device_ids = ','.join(device_ids)
+
     return cli_datastore_listdir( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_stat( datastore_id, path, blockchain_id=None, config_path=None, force=False, interactive=False ):
+def blockstack_cli_datastore_stat( blockchain_id, datastore_id, path, device_ids=None, config_path=None, force=False, interactive=False ):
     """
     stat
     """
@@ -1843,17 +1885,20 @@ def blockstack_cli_datastore_stat( datastore_id, path, blockchain_id=None, confi
 
     args = CLIArgs()
     
-    if blockchain_id:
-        args.blockchain_id = blockchain_id
-
+    args.blockchain_id = blockchain_id
     args.datastore_id = datastore_id
     args.path = path 
     args.force = '1' if force else '0'
 
+    if device_ids is None:
+        device_ids = [blockstack_client.config.get_local_device_id()]
+        
+    args.device_ids = ','.join(device_ids)
+
     return cli_datastore_stat( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_getfile( datastore_id, path, blockchain_id=None, config_path=None, force=False, interactive=False ):
+def blockstack_cli_datastore_getfile( blockchain_id, datastore_id, path, device_ids=None, config_path=None, force=False, interactive=False ):
     """
     getfile
     """
@@ -1864,18 +1909,21 @@ def blockstack_cli_datastore_getfile( datastore_id, path, blockchain_id=None, co
 
     args = CLIArgs()
     
-    if blockchain_id:
-        args.blockchain_id = blockchain_id
-
+    args.blockchain_id = blockchain_id
     args.datastore_id = datastore_id
     args.path = path
     args.force = '1' if force else '0'
+
+    if device_ids is None:
+        device_ids = [blockstack_client.config.get_local_device_id()]
+        
+    args.device_ids = ','.join(device_ids)
 
     data = cli_datastore_getfile( args, config_path=config_path, interactive=interactive )
     return data
 
 
-def blockstack_cli_datastore_putfile( datastore_privkey, path, data, data_path=None, interactive=False, force=False, proxy=None, config_path=None):
+def blockstack_cli_datastore_putfile( blockchain_id, datastore_privkey, path, data, device_ids=None, data_path=None, interactive=False, force=False, proxy=None, config_path=None):
     """
     putfile
     """
@@ -1885,16 +1933,22 @@ def blockstack_cli_datastore_putfile( datastore_privkey, path, data, data_path=N
 
     args = CLIArgs()
     
+    args.blockchain_id = blockchain_id
     args.privkey = datastore_privkey
     args.path = path 
     args.data = data
     args.data_path = data_path
     args.force = '1' if force else '0'
 
+    if device_ids is None:
+        device_ids = [blockstack_client.config.get_local_device_id()]
+        
+    args.device_ids = ','.join(device_ids)
+
     return cli_datastore_putfile( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_deletefile( datastore_privkey, path, interactive=False, force=False, proxy=None, config_path=None):
+def blockstack_cli_datastore_deletefile( blockchain_id, datastore_privkey, path, device_ids=None, interactive=False, force=False, proxy=None, config_path=None):
     """
     deletefile
     """
@@ -1904,9 +1958,16 @@ def blockstack_cli_datastore_deletefile( datastore_privkey, path, interactive=Fa
 
     args = CLIArgs()
     
+    args.blockchain_id = blockchain_id
     args.privkey = datastore_privkey
     args.path = path 
     args.force = '1' if force else '0'
+
+    if device_ids is None:
+        device_ids = [blockstack_client.config.get_local_device_id()]
+        
+    args.device_ids = ','.join(device_ids)
+
 
     return cli_datastore_deletefile( args, config_path=config_path, interactive=interactive )
 

@@ -91,7 +91,7 @@ def activate_account(blockchain_id, datastore_pk):
         return False
 
     # sign in and make a token with the given blockchain ID (whose wallet must be currently set)
-    res = testlib.blockstack_cli_app_signin(datastore_pk, 'app.com', ['store_read', 'store_write', 'store_admin'])
+    res = testlib.blockstack_cli_app_signin(blockchain_id, datastore_pk, 'app.com', ['store_read', 'store_write', 'store_admin'])
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         return False
@@ -107,7 +107,7 @@ def activate_account(blockchain_id, datastore_pk):
 
 def core_signin(datastore_pk, blockchain_id):
     # sign in and make a token with the given blockchain ID (whose wallet must be currently set)
-    res = testlib.blockstack_cli_app_signin(datastore_pk, 'app.com', ['store_read', 'store_write', 'store_admin'])
+    res = testlib.blockstack_cli_app_signin(blockchain_id, datastore_pk, 'app.com', ['store_read', 'store_write', 'store_admin'])
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         return False
@@ -146,7 +146,7 @@ def setup_datastore(datastore_pk, blockchain_id, write_iteration):
         return False
 
     # make datastore 
-    res = testlib.blockstack_cli_create_datastore( datastore_pk, ['test'] )
+    res = testlib.blockstack_cli_create_datastore( blockchain_id, datastore_pk, ['test'])
     if 'error' in res:
         print "failed to create datastore: {}".format(res['error'])
         return False
@@ -154,7 +154,7 @@ def setup_datastore(datastore_pk, blockchain_id, write_iteration):
     # make directories
     for dpath in ['/dir1', '/dir2', '/dir1/dir3', '/dir1/dir3/dir4']:
         print 'mkdir {}'.format(dpath)
-        res = testlib.blockstack_cli_datastore_mkdir( datastore_pk, dpath )
+        res = testlib.blockstack_cli_datastore_mkdir( blockchain_id, datastore_pk, dpath)
         if 'error' in res:
             print 'failed to mkdir {}: {}'.format(dpath, res['error'])
             return False
@@ -162,7 +162,7 @@ def setup_datastore(datastore_pk, blockchain_id, write_iteration):
     # make directories again (should fail with EEXIST)
     for dpath in ['/dir1', '/dir2', '/dir1/dir3', '/dir1/dir3/dir4']:
         print 'mkdir {} (should fail)'.format(dpath)
-        res = testlib.blockstack_cli_datastore_mkdir( datastore_pk, dpath )
+        res = testlib.blockstack_cli_datastore_mkdir( blockchain_id, datastore_pk, dpath )
         if 'error' not in res:
             print 'accidentally succeeded to mkdir {}: {}'.format(dpath, res)
             return False
@@ -178,7 +178,7 @@ def setup_datastore(datastore_pk, blockchain_id, write_iteration):
     # stat directories 
     for dpath in ['/dir1', '/dir2', '/dir1/dir3', '/dir1/dir3/dir4']:
         print 'stat {}'.format(dpath)
-        res = testlib.blockstack_cli_datastore_stat( datastore_id, dpath, blockchain_id=blockchain_id )
+        res = testlib.blockstack_cli_datastore_stat( blockchain_id, datastore_id, dpath)
         if 'error' in res:
             print 'failed to stat {}: {}'.format(dpath, res['error'])
             return False
@@ -190,7 +190,7 @@ def setup_datastore(datastore_pk, blockchain_id, write_iteration):
     # list directories 
     for dpath, expected in [('/', ['dir1', 'dir2']), ('/dir1', ['dir3']), ('/dir1/dir3', ['dir4']), ('/dir1/dir3/dir4', [])]:
         print 'listdir {}'.format(dpath)
-        res = testlib.blockstack_cli_datastore_listdir( datastore_id, dpath, blockchain_id=blockchain_id )
+        res = testlib.blockstack_cli_datastore_listdir( blockchain_id, datastore_id, dpath)
         if 'error' in res:
             print 'failed to listdir {}: {}'.format(dpath, res['error'])
             return False
@@ -206,7 +206,7 @@ def setup_datastore(datastore_pk, blockchain_id, write_iteration):
                 return False
 
     # put files
-    res = write_datastore(datastore_pk, write_iteration)
+    res = write_datastore(blockchain_id, datastore_pk, write_iteration)
     if not res:
         print 'failed to write files (iteration {}) to {}'.format(write_iteration, datastore_id)
         return False
@@ -220,7 +220,7 @@ def setup_datastore(datastore_pk, blockchain_id, write_iteration):
     return True
 
 
-def write_datastore(datastore_pk, iteration):
+def write_datastore(blockchain_id, datastore_pk, iteration):
     """
     write some files to the datastore, over existing ones
     """
@@ -228,7 +228,7 @@ def write_datastore(datastore_pk, iteration):
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'putfile {}'.format(dpath)
         data = '{} hello {} {}'.format(file_data, iteration, dpath)
-        res = testlib.blockstack_cli_datastore_putfile( datastore_pk, dpath, data )
+        res = testlib.blockstack_cli_datastore_putfile( blockchain_id, datastore_pk, dpath, data)
         if 'error' in res:
             print 'failed to putfile {}: {}'.format(dpath, res['error'])
             return False
@@ -244,7 +244,7 @@ def read_datastore(datastore_id, blockchain_id, expected_iteration):
     # stat files
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'stat {}'.format(dpath)
-        res = testlib.blockstack_cli_datastore_stat( datastore_id, dpath, blockchain_id=blockchain_id )
+        res = testlib.blockstack_cli_datastore_stat( blockchain_id, datastore_id, dpath)
         if 'error' in res:
             print 'failed to stat {}: {}'.format(dpath, res['error'])
             return False
@@ -256,7 +256,7 @@ def read_datastore(datastore_id, blockchain_id, expected_iteration):
     # list directories again 
     for dpath, expected in [('/', ['dir1', 'dir2', 'file1', 'file2']), ('/dir1', ['dir3', 'file3']), ('/dir1/dir3', ['dir4', 'file4']), ('/dir1/dir3/dir4', ['file5'])]:
         print 'listdir {}'.format(dpath)
-        res = testlib.blockstack_cli_datastore_listdir( datastore_id, dpath, blockchain_id=blockchain_id )
+        res = testlib.blockstack_cli_datastore_listdir( blockchain_id, datastore_id, dpath)
         if 'error' in res:
             print 'failed to listdir {}: {}'.format(dpath, res['error'])
             return False
@@ -273,7 +273,7 @@ def read_datastore(datastore_id, blockchain_id, expected_iteration):
     # get files
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'getfile {}'.format(dpath)
-        res = testlib.blockstack_cli_datastore_getfile( datastore_id, dpath, blockchain_id=blockchain_id )
+        res = testlib.blockstack_cli_datastore_getfile( blockchain_id, datastore_id, dpath)
         if 'error' in res:
             print 'failed to getfile {}: {}'.format(dpath, res['error'])
             return False
@@ -285,7 +285,7 @@ def read_datastore(datastore_id, blockchain_id, expected_iteration):
     return True
 
 
-def clear_datastore_files(datastore_pk):
+def clear_datastore_files(blockchain_id, datastore_pk):
     """
     Remove all files from the datastore
     """
@@ -293,7 +293,7 @@ def clear_datastore_files(datastore_pk):
     # remove files
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'deletefile {}'.format(dpath)
-        res = testlib.blockstack_cli_datastore_deletefile( datastore_pk, dpath )
+        res = testlib.blockstack_cli_datastore_deletefile( blockchain_id, datastore_pk, dpath)
         if 'error' in res:
             print 'failed to deletefile {}: {}'.format(dpath, res['error'])
             return False
@@ -308,7 +308,7 @@ def check_datastore_files_absent(datastore_id, blockchain_id):
     # stat files (should all fail)
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'stat {} (expect failure)'.format(dpath)
-        res = testlib.blockstack_cli_datastore_stat( datastore_id, dpath, blockchain_id=blockchain_id )
+        res = testlib.blockstack_cli_datastore_stat( blockchain_id, datastore_id, dpath)
         if 'error' not in res or 'errno' not in res:
             print 'accidentally succeeded to stat {}: {}'.format(dpath, res)
             return False
@@ -320,7 +320,7 @@ def check_datastore_files_absent(datastore_id, blockchain_id):
     # get files (should all fail)
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'getfile {} (expect failure)'.format(dpath)
-        res = testlib.blockstack_cli_datastore_getfile( datastore_id, dpath, blockchain_id=blockchain_id )
+        res = testlib.blockstack_cli_datastore_getfile( blockchain_id, datastore_id, dpath)
         if 'error' not in res or 'errno' not in res:
             print 'accidentally succeeded to get {}: {}'.format(dpath, res)
             return False
@@ -332,7 +332,7 @@ def check_datastore_files_absent(datastore_id, blockchain_id):
     # list directories, 3rd time 
     for dpath, expected in [('/', ['dir1', 'dir2']), ('/dir1', ['dir3']), ('/dir1/dir3', ['dir4']), ('/dir1/dir3/dir4', [])]:
         print 'listdir {}'.format(dpath)
-        res = testlib.blockstack_cli_datastore_listdir( datastore_id, dpath, blockchain_id=blockchain_id )
+        res = testlib.blockstack_cli_datastore_listdir( blockchain_id, datastore_id, dpath)
         if 'error' in res:
             print 'failed to listdir {}: {}'.format(dpath, res['error'])
             return False
@@ -349,14 +349,14 @@ def check_datastore_files_absent(datastore_id, blockchain_id):
     return True
 
 
-def clear_datastore_directories(datastore_pk):
+def clear_datastore_directories(blockchain_id, datastore_pk):
     """
     Clear out the directories of a datastore
     """
     # remove directories 
     for dpath in ['/dir1/dir3/dir4', '/dir1/dir3', '/dir2', '/dir1']:
         print 'rmdir {}'.format(dpath)
-        res = testlib.blockstack_cli_datastore_rmdir( datastore_pk, dpath )
+        res = testlib.blockstack_cli_datastore_rmdir( blockchain_id, datastore_pk, dpath)
         if 'error' in res:
             print 'failed to rmdir {}: {}'.format(dpath, res['error'])
             return False
@@ -371,7 +371,7 @@ def check_datastore_directories_absent(datastore_id, blockchain_id):
     # stat directories (should all fail)
     for dpath in ['/dir1/dir3/dir4', '/dir1/dir3', '/dir2', '/dir1']:
         print 'stat {} (expect failure)'.format(dpath)
-        res = testlib.blockstack_cli_datastore_stat( datastore_id, dpath, blockchain_id=blockchain_id )
+        res = testlib.blockstack_cli_datastore_stat( blockchain_id, datastore_id, dpath)
         if 'error' not in res or 'errno' not in res:
             print 'accidentally succeeded to stat {}: {}'.format(dpath, res)
             return False
@@ -383,7 +383,7 @@ def check_datastore_directories_absent(datastore_id, blockchain_id):
     # list directories (should all fail) 
     for dpath, expected in [('/dir1', ['dir3']), ('/dir1/dir3', ['dir4']), ('/dir1/dir3/dir4', [])]:
         print 'listdir {} (expect failure)'.format(dpath)
-        res = testlib.blockstack_cli_datastore_listdir( datastore_id, dpath, blockchain_id=blockchain_id )
+        res = testlib.blockstack_cli_datastore_listdir( blockchain_id, datastore_id, dpath)
         if 'error' not in res or 'errno' not in res:
             print 'accidentally succeeded to list {}: {}'.format(dpath, res)
             return False
@@ -604,7 +604,7 @@ def scenario( wallets, **kw ):
 
     # have foo.test write new files 
     print '\n\nupdate foo.test datastore\n\n'
-    res = write_datastore(foo_datastore_pk, 3)
+    res = write_datastore('foo.test', foo_datastore_pk, 3)
     if not res:
         print 'failed to update foo.test datastore {}'.format(foo_datastore_id)
         return False
@@ -631,7 +631,7 @@ def scenario( wallets, **kw ):
 
     # have bar write some new files 
     print '\n\nupdate bar.test datastore\n\n'
-    res = write_datastore(bar_datastore_pk, 4)
+    res = write_datastore('bar.test', bar_datastore_pk, 4)
     if not res:
         print 'failed ot update bar.test datastore {}'.format(bar_datastore_id)
         return False
@@ -644,7 +644,7 @@ def scenario( wallets, **kw ):
 
     # delete foo's files 
     print '\n\ndelete foo.test files\n\n'
-    res = clear_datastore_files(foo_datastore_pk)
+    res = clear_datastore_files('foo.test', foo_datastore_pk)
     if not res:
         print 'failed to clear datastore {} for foo.test'.format(foo_datastore_id)
         return False
@@ -670,7 +670,7 @@ def scenario( wallets, **kw ):
     target_datastore('bar.test')
 
     # clear bar.test's files 
-    res = clear_datastore_files(bar_datastore_pk)
+    res = clear_datastore_files('bar.test', bar_datastore_pk)
     if not res:
         print 'failed to clear datastore {} for bar.test'.format(bar_datastore_id)
         return False
@@ -696,7 +696,7 @@ def scenario( wallets, **kw ):
     target_datastore("foo.test")
 
     # clear foo's directories 
-    res = clear_datastore_directories(foo_datastore_pk)
+    res = clear_datastore_directories('foo.test', foo_datastore_pk)
     if not res:
         print 'failed to clear foo.test datastore {} of directories'.format(foo_datastore_id)
         return False
@@ -722,7 +722,7 @@ def scenario( wallets, **kw ):
     target_datastore('bar.test')
 
     # clear bar's directories
-    res = clear_datastore_directories(bar_datastore_pk)
+    res = clear_datastore_directories('bar.test', bar_datastore_pk)
     if not res:
         print 'failed to clear bar.test datastore {} of directories'.format(bar_datastore_id)
         return False
@@ -746,7 +746,7 @@ def scenario( wallets, **kw ):
 
     # root should be empty in both cases
     print 'listdir {} (bar.test)'.format('/')
-    res = testlib.blockstack_cli_datastore_listdir( bar_datastore_id, '/', blockchain_id="bar.test" )
+    res = testlib.blockstack_cli_datastore_listdir( 'bar.test', bar_datastore_id, '/')
     if 'error' in res:
         print 'failed to listdir / on bar.test: {}'.format(res['error'])
         return False
@@ -762,7 +762,7 @@ def scenario( wallets, **kw ):
         return False
 
     print 'listdir {} (foo.test)'.format('/')
-    res = testlib.blockstack_cli_datastore_listdir( foo_datastore_id, '/', blockchain_id="foo.test" )
+    res = testlib.blockstack_cli_datastore_listdir( 'foo.test', foo_datastore_id, '/')
     if 'error' in res:
         print 'failed to listdir / on foo.test: {}'.format(res['error'])
         return False
