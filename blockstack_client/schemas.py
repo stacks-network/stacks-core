@@ -708,8 +708,6 @@ DATA_BLOB_SCHEMA = {
     'additionalProperties': False,
 }
 
-
-# common properties to app sessions and auth requests
 APP_INFO_PROPERTIES = {
     'version': {
         'type': 'integer',
@@ -739,20 +737,62 @@ APP_INFO_PROPERTIES = {
             'pattern': '^[a-zA-Z_][a-zA-Z0-9_.]+$'   # method name
         },
     },
-    'app_public_key': {
-        'type': 'string',
-        'pattern': OP_HEX_PATTERN,
+    'app_public_keys': {
+        'type': 'array',
+        'items': {
+            'type': 'object',
+            'properties': {
+                'public_key': {
+                    'type': 'string',
+                    'pattern': OP_HEX_PATTERN,
+                },
+                'device_id': {
+                    'type': 'string',
+                    'pattern': '.+',
+                },
+            },
+            'required': [
+                'public_key',
+                'device_id'
+            ],
+        },
     },
 }
 
-APP_SESSION_PROPERTIES = APP_INFO_PROPERTIES.copy()
-APP_AUTHREQUEST_PROPERTIES = APP_INFO_PROPERTIES.copy()
+APP_SESSION_REQUEST_PROPERTIES = APP_INFO_PROPERTIES.copy()
+APP_SESSION_REQUEST_PROPERTIES.update({
+    'app_private_key': {
+        'type': 'string',
+        'pattern': OP_HEX_PATTERN,
+    },
+    'device_id': {
+        'type': 'string',
+        'pattern': '.+',
+    },
+})
 
+APP_SESSION_PROPERTIES = APP_INFO_PROPERTIES.copy()
 APP_SESSION_PROPERTIES.update({
     'app_user_id': {
         'type': 'string',
         'pattern': OP_URLENCODED_NOSLASH_PATTERN,
     },
+    'api_endpoint': {
+        'anyOf': [
+            {
+                'type': 'string',
+                'pattern': OP_URI_TARGET_PATTERN,
+            },
+            {
+                'type': 'string',
+                'pattern': OP_URI_TARGET_PATTERN_NOSCHEME,
+            },
+        ],
+    },
+    'device_id': {
+        'type': 'string',
+        'pattern': '.+',
+    },
     'timestamp': {
         'type': 'integer',
         'minimum': 0,
@@ -760,48 +800,21 @@ APP_SESSION_PROPERTIES.update({
     'expires': {
         'type': 'integer',
     },
-    'api_endpoint': {
-        'type': 'string',
-        'pattern': OP_URLENCODED_PATTERN,
-    },
-    'this_device_id': {
-        'type': 'string',
-        'pattern': '.+',
-    },
-    'all_device_ids': {
-        'type': 'array',
-        'pattern': '.+',
-    },  
 })
 
-APP_AUTHREQUEST_PROPERTIES.update({
-    'app_user_id': {
-        'type': 'string',
-        'pattern': OP_URLENCODED_NOSLASH_PATTERN,
-    },
-    'timestamp': {
-        'type': 'integer',
-        'minimum': 0,
-    },
-    'expires': {
-        'type': 'integer',
-    },
-})
 
 # application session JWT payload
 APP_SESSION_SCHEMA = {
     'type': 'object',
     'properties': APP_SESSION_PROPERTIES,
-    'required': list(set(APP_SESSION_PROPERTIES.keys()) - set(['blockchain_id'])),
-    'additionalProperties': False
+    'required': APP_SESSION_PROPERTIES.keys(),
 }
 
 # authentication-request payload
-APP_AUTHREQUEST_SCHEMA = {
+APP_SESSION_REQUEST_SCHEMA = {
     'type': 'object',
-    'properties': APP_INFO_PROPERTIES,
-    'required': list(set(APP_INFO_PROPERTIES.keys()) - set(['app_public_key','blockchain_id'])),
-    'additionalProperties': False
+    'properties': APP_SESSION_REQUEST_PROPERTIES,
+    'required': APP_SESSION_REQUEST_PROPERTIES.keys(),
 }
 
 # app configuration schema (goes alongside the index.html file)
