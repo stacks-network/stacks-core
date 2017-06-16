@@ -156,9 +156,15 @@ class RegistrarWorker(threading.Thread):
         else:
             self.required_storage_drivers = self.required_storage_drivers.split(",")
 
-        queue_info = os.stat(self.queue_path)
         log.debug("Queue path:      %s" % self.queue_path)
-        log.debug("Queue info:      size=%s ctime=%s atime=%s mtime=%s" % (queue_info.st_size, queue_info.st_ctime, queue_info.st_atime, queue_info.st_mtime))
+
+        if os.path.exists(self.queue_path):
+            queue_info = os.stat(self.queue_path)
+            log.debug("Queue info:      size=%s ctime=%s atime=%s mtime=%s" % (queue_info.st_size, queue_info.st_ctime, queue_info.st_atime, queue_info.st_mtime))
+
+        else:
+            log.debug("Queue info:      <unknown>")
+
         log.debug("Poll interval:   %s" % self.poll_interval)
         log.debug("API port:        %s" % self.api_port)
         log.debug("Storage:         %s" % ",".join(self.required_storage_drivers))
