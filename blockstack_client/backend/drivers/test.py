@@ -257,7 +257,7 @@ def get_mutable_handler( url, **kw ):
     blockchain_id = kw.get('fqu')
   
     if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
-        return False
+        return None
 
     if not url.startswith("test://"):
         # invalid
