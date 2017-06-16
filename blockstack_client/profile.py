@@ -42,7 +42,8 @@ from .constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTA
 from .zonefile import get_name_zonefile
 from .keys import get_data_privkey_info
 from .schemas import *
-from .user import make_default_device_id_account 
+from .config import get_config
+from .constants import BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE
 
 log = get_logger()
 
@@ -347,12 +348,12 @@ def _save_person_profile(name, zonefile, profile, wallet_keys, blockchain_id=Non
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-    conf = config.get_config(config_path)
+    conf = get_config(config_path)
     assert conf
 
     required_storage_drivers = conf.get(
         'storage_drivers_required_write',
-        config.BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE
+        BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE
     )
     required_storage_drivers = required_storage_drivers.split()
 
@@ -466,7 +467,7 @@ def profile_put_account(blockchain_id, service, identifier, content_url, extra_d
         profile['account'].append(new_account)
 
     # save
-    result = _save_person_profile(blockchain_id, zonefile, profile, wallet_keys, blockchain_id=name, proxy=proxy, config_path=config_path)
+    result = _save_person_profile(blockchain_id, zonefile, profile, wallet_keys, blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
     if 'error' in result:
         return result
 
