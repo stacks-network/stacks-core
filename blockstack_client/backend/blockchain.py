@@ -32,7 +32,7 @@ parent_dir = os.path.abspath(current_dir + "/../")
 from ..constants import TX_EXPIRED_INTERVAL, TX_CONFIRMATIONS_NEEDED, TX_MIN_CONFIRMATIONS
 from ..constants import MAXIMUM_NAMES_PER_ADDRESS
 from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DRY_RUN
-from ..constants import CONFIG_PATH
+from ..constants import CONFIG_PATH, BLOCKSTACK_DEBUG
 
 from ..logger import get_logger
 

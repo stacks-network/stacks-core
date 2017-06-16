@@ -578,9 +578,19 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
     balance = sum([utxo.get('value', None) for utxo in payment_utxos])
     log.debug("Balance of {} is {} satoshis".format(payment_address, balance))
 
+    estimated_owner_inputs = []
+    estiamted_payment_inputs = []
+
     # find out what our UTXOs will look like for each operation 
-    estimated_payment_inputs = estimate_transaction_inputs(operations, payment_utxos, payment_address=payment_address)['inputs']
-    estimated_owner_inputs = estimate_transaction_inputs(operations, owner_utxos, owner_address=owner_address)['inputs']
+    if len(owner_utxos) > 0:
+        estimated_owner_inputs = estimate_transaction_inputs(operations, owner_utxos, owner_address=owner_address)['inputs']
+    else:
+        estimated_owner_inputs = [[]] * len(operations)
+
+    if len(payment_utxos) > 0:
+        estimated_payment_inputs = estimate_transaction_inputs(operations, payment_utxos, payment_address=payment_address)['inputs']
+    else:
+        estimated_payment_inputs = [[]] * len(operations)
 
     log.debug("Get total operation fees for running '{}' on {} owned by {} paid by {}".format(','.join(operations), name_or_ns, owner_address, payment_address))
 
