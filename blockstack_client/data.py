@@ -841,6 +841,10 @@ def get_device_id_from_tombstone(tombstone):
     """
 
     res = storage.parse_data_tombstone(tombstone)
+    if 'error' in res:
+        log.error("Failed to parse '{}'".format(tombstone))
+        return None
+
     fq_data_id = res['tombstone_payload']
     
     device_id, data_id = storage.parse_fq_data_id(fq_data_id)
@@ -968,8 +972,6 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, versi
     if device_id is None:
         log.warning("No device ID found in {}".format(fq_data_id))
         device_id = DEFAULT_DEVICE_ID
-    else:
-        assert device_id != DEFAULT_DEVICE_ID
 
     if storage_drivers is None:
         storage_drivers = get_write_storage_drivers(config_path)
