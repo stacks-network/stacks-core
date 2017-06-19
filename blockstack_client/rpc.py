@@ -1282,6 +1282,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             app_public_keys = ','.join( [apk['public_key'] for apk in ses['app_public_keys']] )
 
         else:
+            if qs_device_ids is None or qs_device_pubkeys is None:
+                return self._reply_json({'error': 'Missing either device_ids= or device_pubkeys= query arguments'}, status_code=401)
+
             device_ids = [urllib.unquote(dev_id) for dev_id in qs_device_ids.split(',')]
             app_public_keys = qs_device_pubkeys.split(',')
 
@@ -1505,7 +1508,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         
         if datastore_id != ses['app_user_id']:
-            return self._reply_json({'error': 'Invalid datastore ID'}, status=403)
+            return self._reply_json({'error': 'Invalid datastore ID'}, status_code=403)
 
         if inode_type not in ['files', 'directories']:
             log.debug("Invalid request: unrecognized inode type")
