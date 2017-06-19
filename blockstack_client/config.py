@@ -520,6 +520,32 @@ def write_config_file(opts, config_file):
     return True
 
 
+def write_config_section(config_path, section_name, section_data ):
+    """
+    Write a whole config section.
+    Overwrite it if it exists.
+    Return True on success
+    Return False on failure
+    """
+    if not os.path.exists(config_path):
+        return False
+
+    parser = SafeConfigParser()
+    parser.read(config_path)
+
+    if not parser.has_section(section_name):
+        parser.add_section(section_name)
+
+    for field_name, field_value in section_data.items():
+        parser.set(section_name, field_name, field_value)
+
+    with open(config_path, 'w') as fout:
+        os.fchmod(fout.fileno(), 0600)
+        parser.write(fout)
+
+    return True
+
+
 def write_config_field(config_path, section_name, field_name, field_value):
     """
     Set a particular config file field
