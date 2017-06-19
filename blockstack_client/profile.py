@@ -110,6 +110,9 @@ def put_profile(name, new_profile, blockchain_id=None, user_data_privkey=None, u
                    proxy=None, wallet_keys=None, required_drivers=None, config_path=CONFIG_PATH):
     """
     Set the new profile data.  CLIENTS SHOULD NOT CALL THIS METHOD DIRECTLY.
+
+    if user_data_privkey is given, then wallet_keys does not need to be given.
+
     Return {'status: True} on success
     Return {'error': ...} on failure.
     """
@@ -209,8 +212,11 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
     data public key, then the owner address of the name will be used to verify
     the profile's authenticity.
 
-    Returns (profile, zonefile) on success.  If include_name_record is True, then zonefile['name_record'] will be defined and will contain the user's blockchain information
-    Returns (None, {'error': ...}) on failure
+    Returns {'status': True, 'profile': profile, 'zonefile': zonefile} on success.
+    * If include_name_record is True, then include 'name_record': name_record with the user's blockchain information
+    * If include_raw_zonefile is True, then include 'raw_zonefile': raw_zonefile with unparsed zone file
+
+    Returns {'error': ...} on error
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
@@ -237,7 +243,7 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
     # is this really a legacy profile?
     if blockstack_profiles.is_profile_in_legacy_format(user_zonefile):
         if not use_legacy:
-            return (None, {'error': 'Profile is in legacy format'})
+            return {'error': 'Profile is in legacy format'}
 
         # convert it
         log.debug('Converting legacy profile to modern profile')
@@ -245,7 +251,7 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
 
     elif not user_db.is_user_zonefile(user_zonefile):
         if not use_legacy:
-            return (None, {'error': 'Name zonefile is non-standard'})
+            return {'error': 'Name zonefile is non-standard'}
 
         # not a legacy profile, but a custom profile
         log.debug('Using custom legacy profile')
@@ -267,14 +273,14 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
 
         if not use_legacy_zonefile and user_data_pubkey is None:
             # legacy zonefile without a data public key 
-            return (None, {'error': 'Name zonefile is missing a public key'})
+            return {'error': 'Name zonefile is missing a public key'}
 
         # find owner address
         if name_record is None:
             name_record = get_name_blockchain_record(name, proxy=proxy)
             if name_record is None or 'error' in name_record:
                 log.error('Failed to look up name record for "{}"'.format(name))
-                return None, {'error': 'Failed to look up name record'}
+                return {'error': 'Failed to look up name record'}
 
         assert 'address' in name_record.keys(), json.dumps(name_record, indent=4, sort_keys=True)
         owner_address = name_record['address']
@@ -296,25 +302,31 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
             else:
                 log.error('failed to load profile for {}: {}'.format(name, user_profile['error']))
 
-            return None, {'error': 'Failed to load user profile'}
+            return {'error': 'Failed to load user profile'}
 
     # finally, if the caller asked for the name record, and we didn't get a chance to look it up,
     # then go get it.
+    ret = {
+        'status': True,
+        'profile': user_profile,
+        'zonefile': user_zonefile
+    }
+
     if include_name_record:
         if name_record is None:
             name_record = get_name_blockchain_record(name, proxy=proxy)
 
         if name_record is None or 'error' in name_record:
             log.error('Failed to look up name record for "{}"'.format(name))
-            return None, {'error': 'Failed to look up name record'}
+            return {'error': 'Failed to look up name record'}
 
-        user_zonefile['name_record'] = name_record
+        ret['name_record'] = name_record
 
     if include_raw_zonefile:
         if raw_zonefile is not None:
-            user_zonefile['raw_zonefile'] = raw_zonefile
+            ret['raw_zonefile'] = raw_zonefile
 
-    return user_profile, user_zonefile
+    return ret
 
 
 def _get_person_profile(name, proxy=None):
@@ -325,9 +337,12 @@ def _get_person_profile(name, proxy=None):
     Return {'error': ...} on error
     """
 
-    profile, zonefile = get_profile(name, proxy=proxy, use_legacy_zonefile=True)
-    if 'error' in zonefile:
+    res = get_profile(name, proxy=proxy, use_legacy_zonefile=True)
+    if 'error' in res:
         return {'error': 'Failed to load zonefile: {}'.format(zonefile['error'])}
+
+    profile = res.pop('profile')
+    zonefile = res.pop('zonefile')
 
     if blockstack_profiles.is_profile_in_legacy_format(profile):
         return {'error': 'Legacy profile'}
@@ -342,9 +357,9 @@ def _get_person_profile(name, proxy=None):
     return {'profile': profile, 'zonefile': zonefile, 'person': person}
 
 
-def _save_person_profile(name, zonefile, profile, wallet_keys, blockchain_id=None, proxy=None, config_path=CONFIG_PATH):
+def _save_person_profile(name, zonefile, profile, wallet_keys, user_data_privkey=None, blockchain_id=None, proxy=None, config_path=CONFIG_PATH):
     """
-    Save a person's profile, given information fetched with _get_person_profile
+    Save a person's profile, given information fetched with _get_person_profile.
     Return {'status': True} on success
     Return {'error': ...} on error
     """
@@ -358,7 +373,7 @@ def _save_person_profile(name, zonefile, profile, wallet_keys, blockchain_id=Non
     required_storage_drivers = required_storage_drivers.split()
 
     res = put_profile(name, profile, user_zonefile=zonefile,
-                       wallet_keys=wallet_keys, proxy=proxy,
+                       wallet_keys=wallet_keys, user_data_privkey=user_data_privkey, proxy=proxy,
                        required_drivers=required_storage_drivers, blockchain_id=name,
                        config_path=config_path )
 
@@ -416,19 +431,30 @@ def profile_get_account(blockchain_id, service, identifier, config_path=CONFIG_P
     return {'error': 'No such account', 'errno': errno.ENOENT}
 
 
-def profile_put_account(blockchain_id, service, identifier, content_url, extra_data, wallet_keys, config_path=CONFIG_PATH, proxy=None):
+def profile_find_accounts(cur_profile, service, identifer):
     """
-    Save a new account to a profile.
-    Return {'status': True, 'replaced': True/False} on success
-    Return {'error': ...} on failure
+    Given an profile, find accounts that match the service and identifier
+    Returns a list of accounts on success
     """
+    accounts = [] 
+    for acct in cur_profile.get('account', []):
+        try:
+            jsonschema.validate(acct, PROFILE_ACCOUNT_SCHEMA)
+            if acct['service'] == service and acct['identifier'] == identifier:
+                accounts.append(acct)
 
-    if proxy is None:
-        proxy = get_default_proxy()
+        except jsonschema.ValidationError:
+            continue
 
-    person_info = _get_person_profile(blockchain_id, proxy=proxy)
-    if 'error' in person_info:
-        return person_info
+    return accounts
+
+
+def profile_patch_account(cur_profile, service, identifier, content_url, extra_data):
+    """
+    Patch a given profile to add an account
+    Return the new profile
+    """
+    profile = copy.deepcopy(cur_profile)
 
     # make data
     new_account = {
@@ -442,8 +468,6 @@ def profile_put_account(blockchain_id, service, identifier, content_url, extra_d
     if extra_data:
         new_account.update(extra_data)
 
-    zonefile = person_info.pop('zonefile')
-    profile = person_info.pop('profile')
     if not profile.has_key('account'):
         profile['account'] = []
 
@@ -466,15 +490,36 @@ def profile_put_account(blockchain_id, service, identifier, content_url, extra_d
     if not replaced:
         profile['account'].append(new_account)
 
+    return profile
+
+
+def profile_put_account(blockchain_id, service, identifier, content_url, extra_data, wallet_keys, user_data_privkey=None, config_path=CONFIG_PATH, proxy=None):
+    """
+    Save a new account to a profile.
+    Return {'status': True, 'replaced': True/False} on success
+    Return {'error': ...} on failure
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    person_info = _get_person_profile(blockchain_id, proxy=proxy)
+    if 'error' in person_info:
+        return person_info
+
+    zonefile = person_info.pop('zonefile')
+    profile = person_info.pop('profile')
+    profile = profile_patch_account(profile, service, identifier, content_url, extra_data)
+
     # save
-    result = _save_person_profile(blockchain_id, zonefile, profile, wallet_keys, blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
+    result = _save_person_profile(blockchain_id, zonefile, profile, wallet_keys, user_data_privkey=user_data_privkey, blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
     if 'error' in result:
         return result
 
-    return {'status': True, 'replaced': replaced}
+    return {'status': True}
 
 
-def profile_delete_account(blockchain_id, service, identifier, wallet_keys, config_path=CONFIG_PATH, proxy=None):
+def profile_delete_account(blockchain_id, service, identifier, wallet_keys, user_data_privkey=None, config_path=CONFIG_PATH, proxy=None):
     """
     Delete an account, given the blockchain ID, service, and identifier
     Return {'status': True} on success
@@ -508,7 +553,7 @@ def profile_delete_account(blockchain_id, service, identifier, wallet_keys, conf
     if not found:
         return {'error': 'No such account'}
 
-    result = _save_person_profile(blockchain_id, zonefile, profile, wallet_keys, blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
+    result = _save_person_profile(blockchain_id, zonefile, profile, wallet_keys, user_data_privkey=user_data_privkey, blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
     if 'error' in result:
         return result
 
@@ -531,7 +576,6 @@ def profile_add_device_id( blockchain_id, device_id, wallet_keys, config_path=CO
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-
     raise NotImplemented("Token file logic is not implemented yet")
     
 
@@ -541,6 +585,6 @@ def profile_remove_device_id( blockchain_id, device_id, wallet_keys, config_path
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-    
     raise NotImplemented("Token file logic is not implemented yet")
+
 
