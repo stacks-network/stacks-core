@@ -25,6 +25,7 @@ from __future__ import print_function
 """
 
 from .constants import *
+import blockstack_profiles
 
 OP_CONSENSUS_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTH_CONSENSUS_HASH * 2)
 OP_BASE58CHECK_PATTERN = r'^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$'
@@ -771,6 +772,19 @@ APP_SESSION_REQUEST_PROPERTIES.update({
     },
 })
 
+STORAGE_CLASSES = {
+    'type': 'object',
+    'patternProperties': {
+        '.+': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': '.+',
+            },
+        },
+    },
+}
+
 APP_SESSION_PROPERTIES = APP_INFO_PROPERTIES.copy()
 APP_SESSION_PROPERTIES.update({
     'app_user_id': {
@@ -792,6 +806,15 @@ APP_SESSION_PROPERTIES.update({
     'device_id': {
         'type': 'string',
         'pattern': '.+',
+    },
+    'storage': {
+        'classes': STORAGE_CLASSES,
+        'preferences': {
+            'type': 'object',
+            'patternProperties': {
+                '.+': STORAGE_CLASSES
+            },
+        },
     },
     'timestamp': {
         'type': 'integer',
@@ -1383,22 +1406,117 @@ PROFILE_ACCOUNT_SCHEMA = {
 }
 
 
-# schema for a profile's list of devices
-PROFILE_DEVICES_SCHEMA = {
+# key delegation schema 
+KEY_DELEGATION_SCHEMA = {
     'type': 'object',
     'properties': {
-        'device_ids': {
-            'type': 'array',
-            'items': {
-                'type': 'string',
-                'pattern': '.+',    # non-zero length
+        'version': {
+            'type': 'string',
+            'pattern': '^1\.0$',
+        },
+        'name': {
+            'type': 'string',
+            'pattern': OP_NAME_PATTERN,
+        },
+        'devices': {
+            'type': 'object',
+            'patternProperties': {
+                '^.+$': {
+                    'type': 'object',
+                    'properties': {
+                        'app': {
+                            'type': 'string',
+                            'pattern': OP_PUBKEY_PATTERN,
+                        },
+                        'enc': {
+                            'type': 'string',
+                            'pattern': OP_PUBKEY_PATTERN,
+                        },
+                        'sign': {
+                            'type': 'string',
+                            'pattern': OP_PUBKEY_PATTERN,
+                        },
+                        'index': {
+                            'type': 'integer',
+                            'minimum': 0,
+                            'maximum': 2**31 - 1,
+                        },
+                    },
+                    'required': [
+                        'app',
+                        'enc',
+                        'sign',
+                        'index',
+                    ],
+                    'additionalProperties': False,
+                },
             },
         },
     },
-    'additionalProperties': True,
     'required': [
-        'device_ids'
+        'version',
+        'name',
+        'devices',
     ],
+    'additionalProperties': False,
 }
 
+
+# App key bundle
+APP_KEY_BUNDLE_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'version': {
+            'type': 'string',
+            'pattern': '^1\.0$',
+        },
+        'apps': {
+            'type': 'object',
+            'patternProperties': {
+                OP_NAME_PATTERN: {
+                    'type': 'string',
+                    'pattern': OP_PUBKEY_PATTERN,
+                },
+            },
+        },
+    },
+    'required': [
+        'version',
+        'apps'
+    ],
+    'additionalProperties': False,
+}
+
+
+# Blockstack token file 
+BLOCKSTACK_TOKEN_FILE_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'version': {
+            'type': 'string',
+            'pattern': '^3\.0$',
+        },
+        'profile': blockstack_profiles.person.PERSON_SCHEMA,
+        'keys': {
+            'delegation': KEY_DELEGATION_SCHEMA,
+            'apps': {
+                'type': 'object',
+                'patternProperties': {
+                    '^.+$': APP_KEY_BUNDLE_SCHEMA
+                },
+            },
+            'required': [
+                'delegation',
+                'apps',
+            ],
+            'additionalProperties': False,
+        },
+    },
+    'required': [
+        'version',
+        'profile',
+        'keys',
+    ],
+    'additionalProperties': False,
+}
 
