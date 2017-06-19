@@ -91,6 +91,8 @@ BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = 'disk,blockstack_resolver,blockstack_server
 # storage drivers that must successfully acknowledge each write
 BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE = 'disk,blockstack_server,dht'
 
+BLOCKSTACK_STORAGE_CLASSES = ['read_public', 'read_private', 'write_public', 'write_private', 'read_local', 'write_local']
+
 DEFAULT_TIMEOUT = 30  # in secs
 
 """ transaction fee configs
