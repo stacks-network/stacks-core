@@ -67,6 +67,33 @@ should be able to do with a simple command:
 $ blockstack domain foo.id start
 ```
 
+
+#### AddSubdomain Command
+
+```
+addSubdomain("foo", "bar.id", pubkey_hex, urls)
+```
+
+This command adds a subdomain `foo` to a domain `bar.id`. This will:
+
+1. Check if the subdomain `foo` exists already on the domain.
+2. Add a record to the zonefile. 
+3. Issue zonefile update.
+
+#### UpdateSubdomain Command
+
+```
+updateSubdomain("foo", "bar.id", pubkey_hex, n, urls, signature)
+```
+
+This command updates subdomain `foo` to a domain `bar.id`. This will:
+
+1. Check if the subdomain `foo` exists already on the domain
+2. Check that n = n' + 1
+3. Check the signature 
+4. Issue zonefile update
+
+
 ### Resolver Behavior
 
 When a lookup like `foo.bar.id` hits the resolver, the resolver will need to:
