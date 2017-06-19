@@ -291,6 +291,9 @@ def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
 def delete_mutable_handler( data_id, signature, **kw ):
     return True
 
+def get_classes():
+    return ['read_public', 'write_private']
+
 if __name__ == "__main__":
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
     assert config_path is not None, "You must set BLOCKSTACK_CLIENT_CONFIG"

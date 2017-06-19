@@ -124,7 +124,7 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
     return outputs
     
 
-def make_transaction(name, preorder_addr, register_addr, blockchain_client, tx_fee=0, renewal_fee=None, subsidized=False, safety=True):
+def make_transaction(name, preorder_addr, register_addr, blockchain_client, tx_fee=0, renewal_fee=None, subsidize=False, safety=True):
     
     preorder_addr = str(preorder_addr)
     register_addr = str(register_addr)
@@ -148,7 +148,7 @@ def make_transaction(name, preorder_addr, register_addr, blockchain_client, tx_f
         assert preorder_addr == register_addr, "%s != %s" % (preorder_addr, register_addr)
         pay_fee = False
 
-    if subsidized:
+    if subsidize:
         pay_fee = False
 
     nulldata = build(name)

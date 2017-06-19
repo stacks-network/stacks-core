@@ -22,8 +22,37 @@
 """
 
 """
+Overview
+========
+
 This is a skeleton no-op driver, meant for tutorial purposes.
 It will be dynamically imported by blockstack.
+
+At the driver level, Blockstack expects a key/value store.  If a user
+does a `put`, then the data stored should be readable by any other
+user that does a `get` on the same key.  Blockstack itself chooses what
+the keys are; they are *not* derived from the data.
+
+To see what is expected, consider the following example:
+
+   Suppose Alice and Bob both use a Blockstack-powered blogging application.
+   When Alice writes a new blog post, the blogging application asks
+   Blockstack to save it.  The app gives the blogpost the application-chosen name
+   "alice_2017-05-30-15:05:30", and passes both the name and data into
+   Blockstack.  Blockstack calls into its storage drivers and saves the
+   data to each underlying storage service.
+
+   When Bob goes to read Alice's blog, his client discovers that the
+   new blog post is called "alice_2017-05-30-15:05:30".  His client
+   then asks Blockstack to load up the blogpost's contents.  Bob's
+   storage drivers use the name "alice_2017-05-30-15:05:30" to look
+   up and fetch the blog data from each service.
+
+   Later, Alice decides to delete "alice_2017-05-30-15:05:30". When
+   Bob goes to read Alice's blog, his client again fetches the blogpost
+   titled "alice_2017-05-30-15:05:30".  Since Alice has removed the
+   data from her storage providers, none of Bob's drivers return the
+   blogpost data.
 
 Background
 ==========
@@ -78,13 +107,51 @@ determine how to replicate data.
     is listed here by default since writes to disk are invisible to other clients.
 
 In order for `put` to work on mutable data, there must be at least one driver listed in
-blockstack-client.storage_drivers_required_write that is NOT listed
+blockstack-client.storage_drivers_required_write that is NOT listed in
 blockstack-client.storage_drivers_local.
 
 There are no long-term plans for creating more sophisticated replication strategies.  This
 is because more sophisticated strategies can be implemented as "meta drivers" that load
 existing drivers as modules, and forward `get` and `put` requests to them according to the
 desired strategy.
+
+Access Strategy
+===============
+
+It is up to the storage drivers to not only store the data given
+to them, but also to store any metadata required to later translate
+the app-given name back into the data that was previously stored.
+Moreover, once data is stored in Blockstack, *any* user with the
+data's name should be able to read it.
+
+Some storage systems make this easy.  For example, the `disk` and `s3`
+drivers achieve this simply by storing the data under the name given
+by the application.  Using the example in the Overview section, the 
+blogpost data for "alice_2017-05-30-15:05:30" can simply be stored as 
+a file or object with the name "alice_2017-05-30-15:05:30".
+
+This is less easy for storage systems like Dropbox, where the storage
+system creates its own URI for each piece of data stored.  In these cases,
+the driver must build and maintain an index over all of the data stored,
+so it can later translate the app-given name (i.e. "alice_2017-05-30-15:05:30")
+back into the service-given URI (i.e. "https://www.dropbox.com/s/pa4lugfa8yiuoio/profile.json?dl=1")
+on `get`.
+
+For indexing, driver developers are encouraged to use the following methods
+from `common.py` to build a co-located index:
+
+    * `get_indexed_data()`: loads data from the storage by translating an
+    app-given name into a service-specific URI.
+    * `put_indexed_data()`: stores data with a given name into the storage
+    system, and inserts an entry for it in an index alongside the data.
+    * `delete_indexed_data()`: removes data with a given name from the storage
+    system, and updates the co-located index to remove its name-to-URI link.
+    * `index_setup()`: instantiates an index (callable from the driver's
+    `storage_init()` method).
+    * `driver_config()`: sets up callbacks to be used by the indexer code
+    for loading and storing both data and pages of the index.
+
+Please see the docstrings for each of these methods in the `common.py` file.
 
 Responsibilities
 ================
@@ -134,6 +201,12 @@ are divided as follows:
     Blockstack sends and receives, and deduce things like the user's network
     location and the application being used.  If behavior confidentiality is
     required, then the driver must take additional steps to implement it.
+
+    * Optimizations.  Things like write-batching, caching, write-deferrals, and
+    so on are handled by Blockstack.  The driver should operate synchronously on 
+    both gets and puts.  Specifically, the driver should NOT attempt to cache 
+    reads, and the driver should NOT return from a put until the data is guaranteed
+    to be durable.
 """
 
 
@@ -146,7 +219,7 @@ import logging
 from common import *
 from ConfigParser import SafeConfigParser
 
-log = get_logger("blockstack-storage-skel")
+log = get_logger("blockstack-storage-drivers-skel")
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
 def storage_init(conf, **kwargs):
@@ -398,7 +471,7 @@ def delete_mutable_handler( data_id, tombstone, **kw ):
    Returns True on successful deletion
    Returns False on failure.  Does not raise an exception.
    """
-   False
+   return False
 
    
 if __name__ == "__main__":

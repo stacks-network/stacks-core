@@ -80,7 +80,12 @@ def dropbox_put_chunk( dvconf, chunk_buf, name ):
     """
     driver_info = dvconf['driver_info']
     dropbox_token = driver_info['dropbox_token']
+    if dropbox_token is None:
+        log.warn("No dropbox token set")
+        return None
+
     dbx = dropbox.Dropbox(dropbox_token)
+    chunk_buf = str(chunk_buf)
 
     try:
         file_info = dbx.files_upload(chunk_buf, name, mode=dropbox.files.WriteMode('overwrite'))
@@ -108,6 +113,10 @@ def dropbox_delete_chunk(dvconf, name):
     
     driver_info = dvconf['driver_info']
     dropbox_token = driver_info['dropbox_token']
+    if dropbox_token is None:
+        log.warn("No dropbox token set")
+        return None
+
     dbx = dropbox.Dropbox(dropbox_token)
 
     try:
@@ -127,6 +136,10 @@ def dropbox_get_chunk(dvconf, name):
 
     driver_info = dvconf['driver_info']
     dropbox_token = driver_info['dropbox_token']
+    if dropbox_token is None:
+        log.warn("No dropbox token set")
+        return None
+
     dbx = dropbox.Dropbox(dropbox_token)
 
     try:
@@ -168,8 +181,7 @@ def storage_init(conf, index=False, force_index=False):
 
     # need the token 
     if DROPBOX_TOKEN is None:
-        log.error("Config file '%s': section 'dropbox' is missing 'token'")
-        return False
+        log.warn("Config file '{}': section 'dropbox' is missing 'token'.  Write access will be disabled".format(config_path))
 
     # set up driver 
     DVCONF = driver_config("dropbox", config_path, dropbox_get_chunk, dropbox_put_chunk, dropbox_delete_chunk, driver_info={'dropbox_token': DROPBOX_TOKEN}, index_stem=INDEX_DIRNAME, compress=compress)
@@ -205,95 +217,53 @@ def make_mutable_url( data_id ):
     This URL here will instruct get_chunk() to go and search through
     the index for the target data.
     """
-    data_id = urllib.quote( data_id.replace('/', '-2f') )
-    url = "https://www.dropbox.com/blockstack/{}".format(data_id)
-    return url
+    return index_make_mutable_url('www.dropbox.com', data_id)
 
 
 def get_immutable_handler( key, **kw ):
     """
     Get data by hash
     """
-    blockchain_id = kw.get('fqu', None)
-    index_manifest_url = kw.get('index_manifest_url', None)
-    
-    name = 'immutable-{}'.format(key)
-    name = name.replace('/', r'-2f')
-   
-    path = '/{}'.format(name)
-    return get_indexed_data(DVCONF, blockchain_id, path, index_manifest_url=index_manifest_url)
+    return index_get_immutable_handler(DVCONF, key, **kw)
 
 
 def get_mutable_handler( url, **kw ):
     """
     Get data by URL
     """
-    blockchain_id = kw.get('fqu', None)
-    index_manifest_url = kw.get('index_manifest_url', None)
-
-    urltype, urlres = get_url_type(url)
-    if urltype is None and urlres is None:
-        log.error("Invalid URL {}".format(url))
-        return None
-
-    if urltype == 'blockstack':
-        # get via index
-        urlres = urlres.replace('/', r'-2f')
-        path = '/{}'.format(urlres)
-        return get_indexed_data(DVCONF, blockchain_id, path, index_manifest_url=index_manifest_url)
-
-    else:
-        # raw dropbox url 
-        return http_get_data(DVCONF, url)
+    return index_get_mutable_handler(DVCONF, url, **kw)
 
 
 def put_immutable_handler( key, data, txid, **kw ):
     """
     Put data by hash and txid
     """
-    global DVCONF
-    name = 'immutable-{}'.format(key)
-    name = name.replace('/', r'-2f')
-
-    path = '/{}'.format(name)
-    return put_indexed_data(DVCONF, path, data)
+    return index_put_immutable_handler(DVCONF, key, data, txid, **kw)
 
 
 def put_mutable_handler( data_id, data_bin, **kw ):
     """
     Put data by file ID
     """
-    global DVCONF
-
-    data_id = data_id.replace('/', r'-2f')
-    path = '/{}'.format(data_id)
-
-    return put_indexed_data(DVCONF, path, data_bin)
+    return index_put_mutable_handler(DVCONF, data_id, data_bin, **kw)
 
 
 def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
     """
     Delete by hash
     """
-    global DVCONF
-    
-    name = 'immutable-{}'.format(key)
-    name = name.replace('/', r'-2f')
-    path = '/{}'.format(name)
-
-    return delete_indexed_data(DVCONF, path)
+    return index_delete_immutable_handler(DVCONF, key, txid, sig_key_txid, **kw)
 
 
 def delete_mutable_handler( data_id, signature, **kw ):
     """
     Delete by data ID
     """
-    global DVCONF
-    
-    data_id = data_id.replace('/', r'-2f')
-    path = '/{}'.format(data_id)
+    return index_delete_mutable_handler(DVCONF, data_id, signature, **kw)
 
-    return delete_indexed_data(DVCONF, path)
+
+def get_classes():
+    return ['read_public', 'write_private']
 
 
 if __name__ == "__main__":

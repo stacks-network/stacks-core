@@ -257,7 +257,7 @@ def get_mutable_handler( url, **kw ):
     blockchain_id = kw.get('fqu')
   
     if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
-        return False
+        return None
 
     if not url.startswith("test://"):
         # invalid
@@ -358,6 +358,9 @@ def delete_mutable_handler( data_id, signature, **kw ):
     else:
         return test_delete_chunk(DVCONF, path)
 
+
+def get_classes():
+    return ['read_public', 'write_private', 'read_local', 'write_local']
    
    
 if __name__ == "__main__":

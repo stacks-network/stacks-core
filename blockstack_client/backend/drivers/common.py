@@ -38,13 +38,23 @@ if os.environ.get("BLOCKSTACK_DEBUG", None) is not None:
 else:
     DEBUG = False
 
+INDEX_VERSION_STRING = '1'
 
 INDEX_PAGE_SCHEMA = {
     'type': 'object',
-    'patternProperties': {
-        r'^([a-zA-Z0-9\-_.~%/]+)$': {
+    'properties': {
+        'version': {
             'type': 'string',
-            'pattern': r'^([a-z0-9+]+://[a-zA-Z0-9\-_.~%/?&=]+)$'
+            'pattern': '^{}$'.format(INDEX_VERSION_STRING),
+        },
+        'data': {
+            'type': 'object',            
+            'patternProperties': {
+                r'^([a-zA-Z0-9\-_.~%/]+)$': {
+                    'type': 'string',
+                    'pattern': r'^([a-z0-9+]+://[a-zA-Z0-9\-_.~%/?&=]+)$'
+                },
+            },
         },
     },
 }
@@ -58,7 +68,7 @@ def get_logger(name=None):
     Get logger
     """
 
-    level = logging.CRITICAL
+    level = logging.INFO
     if DEBUG:
         logging.disable(logging.NOTSET)
         level = logging.DEBUG
@@ -195,7 +205,7 @@ def parse_index_page(index_page_data):
     try:
         page_data = json.loads(str(index_page_data))
         jsonschema.validate(page_data, INDEX_PAGE_SCHEMA)
-        return page_data
+        return page_data['data']
 
     except Exception as e:
         if DEBUG:
@@ -205,11 +215,16 @@ def parse_index_page(index_page_data):
         return None
 
 
-def serialize_index_page(index_page):
+def serialize_index_page(index_page_data):
     """
     Serialize an index page
     Return the serialized byte buffer
     """
+    index_page = {
+        'version': INDEX_VERSION_STRING,
+        'data': index_page_data
+    }
+
     return str(json.dumps(index_page, sort_keys=True))
 
 
@@ -273,6 +288,16 @@ def get_url_type(url):
 
     else:
         return ('http', url)
+
+
+def index_make_mutable_url(host, data_id, scheme='https'):
+    """
+    Make a faux-mutable URL that will be identified
+    by the indexer as referring to indexed data.
+    """
+    data_id = urllib.quote( data_id.replace('/', '-2f') )
+    url = "{}://{}/blockstack/{}".format(scheme, host, data_id)
+    return url
 
 
 def index_make_bucket(dvconf, bucket):
@@ -351,6 +376,42 @@ def index_settings_set_index_manifest_url(driver_name, config_path, url):
         return False
 
 
+def index_check_setup(dvconf, blockchain_id=None):
+    """
+    Is the index set up?
+    Return True if so
+    Return False if not
+    """
+
+    config_path = dvconf['config_path']
+    get_chunk = dvconf['get_chunk']
+    driver_name = dvconf['driver_name']
+    index_stem = dvconf['index_stem']
+
+    index_manifest_url = index_settings_get_index_manifest_url(driver_name, config_path)
+    if index_manifest_url is not None :
+        # already set up
+        return True
+ 
+    index_manifest_path = index_get_manifest_page_path(index_stem)
+
+    log.debug("Get index manifest page ({}, {})".format(index_manifest_url, index_manifest_path))
+    manifest_page = index_get_page(dvconf, blockchain_id=blockchain_id, url=index_manifest_url, path=index_manifest_path)
+    if manifest_page is None:
+        log.error("Failed to get manifest page {}".format(index_manifest_url))
+        return False
+  
+    log.warning("Index appears to be set up for {} (index {}); will cache index URL".format(driver_name, index_stem))
+
+    # it's set up 
+    rc = index_settings_set_index_manifest_url(driver_name, config_path, index_manifest_url)
+    if not rc:
+        # failed 
+        return False
+
+    return True
+
+
 def index_setup(dvconf, force=False):
     """
     Set up our index if we haven't already.
@@ -358,8 +419,6 @@ def index_setup(dvconf, force=False):
     Return the index manifest URL if already setup
     Return False on error
     """
-    
-    # TODO: need to force this to happen for both foo.test and bar.test
 
     config_path = dvconf['config_path']
     put_chunk = dvconf['put_chunk']
@@ -411,7 +470,7 @@ def index_setup(dvconf, force=False):
 
 def index_get_cached_page(blockchain_id, url):
     """
-    Get a cached index page
+    Get cached index page data
     Return the cached page on success
     Return None on error
     """
@@ -441,7 +500,7 @@ def index_get_cached_manifest_url(blockchain_id, driver_name):
 
 def index_set_cached_page(blockchain_id, url, data):
     """
-    Insert a page into the index page cache
+    Insert a page's data into the index page cache
     """
     global INDEX_CACHE
     if not INDEX_CACHE.has_key(blockchain_id):
@@ -535,7 +594,7 @@ def index_set_page(dvconf, path, index_page):
     Return True on success
     Return False on error
     """
-    assert index_setup(dvconf)
+    assert index_check_setup(dvconf)
     
     put_chunk = dvconf['put_chunk']
     
@@ -558,7 +617,7 @@ def index_insert(dvconf, name, url):
     Return True on success
     Return False if not.
     """
-    assert index_setup(dvconf)
+    assert index_check_setup(dvconf)
 
     index_stem = dvconf['index_stem']
 
@@ -577,7 +636,7 @@ def index_remove( dvconf, name ):
     Return True on success
     Return False if not.
     """
-    assert index_setup(dvconf)
+    assert index_check_setup(dvconf)
 
     index_stem = dvconf['index_stem']
 
@@ -730,6 +789,7 @@ def _get_indexed_data_impl( dvconf, blockchain_id, name, raw=False, index_manife
     index_stem = dvconf['index_stem']
     index_pages = {}
     cache_hit = False
+    given_manifest_url = False
 
     if index_manifest_url is None:
         # try cache
@@ -737,12 +797,15 @@ def _get_indexed_data_impl( dvconf, blockchain_id, name, raw=False, index_manife
         if index_manifest_url is not None:
             cache_hit = True
 
+    else:
+        given_manifest_url = True
+
     if index_manifest_url is None:
         # not cached, or didn't check
         # go look it up.
         index_manifest_url = None
         try:
-            index_manifest_url = lookup_index_manifest_url(blockchain_id, driver_name, config_path)
+            index_manifest_url = lookup_index_manifest_url(blockchain_id, driver_name, index_stem, config_path)
         except Exception as e:
             if DEBUG:
                 log.exception(e)
@@ -791,7 +854,8 @@ def _get_indexed_data_impl( dvconf, blockchain_id, name, raw=False, index_manife
         for (url, page) in index_pages.items():
             index_set_cached_page(blockchain_id, url, page)
 
-        index_set_cached_manifest_url(blockchain_id, driver_name, index_manifest_url)
+        if not given_manifest_url:
+            index_set_cached_manifest_url(blockchain_id, driver_name, index_manifest_url)
 
     return data, None
 
@@ -918,6 +982,106 @@ def http_get_data(dvconf, url, raw=False):
             return data
 
 
+def index_get_immutable_handler( dvconf, key, **kw ):
+    """
+    Default method to get data by hash using the index.
+    Meant for HTTP-based cloud providers.
+
+    Return the data on success
+    Return None on error
+    """
+    blockchain_id = kw.get('fqu', None)
+    index_manifest_url = kw.get('index_manifest_url', None)
+    
+    name = 'immutable-{}'.format(key)
+    name = name.replace('/', r'-2f')
+   
+    path = '/{}'.format(name)
+    return get_indexed_data(dvconf, blockchain_id, path, index_manifest_url=index_manifest_url)
+
+
+def index_get_mutable_handler( dvconf, url, default_get_data=http_get_data, **kw ):
+    """
+    Default method to get data by URL using the index.
+    Falls back to HTTP GET on failure, unless default_get_data() is given
+
+    Return the data on success
+    Return None on error
+    """
+    blockchain_id = kw.get('fqu', None)
+    index_manifest_url = kw.get('index_manifest_url', None)
+    
+
+    urltype, urlres = get_url_type(url)
+    if urltype is None and urlres is None:
+        log.error("Invalid URL {}".format(url))
+        return None
+
+    if urltype == 'blockstack':
+        # get via index
+        urlres = urlres.replace('/', r'-2f')
+        path = '/{}'.format(urlres)
+        return get_indexed_data(dvconf, blockchain_id, path, index_manifest_url=index_manifest_url)
+
+    else:
+        # raw url 
+        return http_get_data(dvconf, url)
+
+
+def index_put_immutable_handler( dvconf, key, data, txid, **kw ):
+    """
+    Put data by hash and txid, using the index.
+    Meant for HTTP-based cloud providers.
+
+    Return the URL on success
+    Return None on error
+    """
+    name = 'immutable-{}'.format(key)
+    name = name.replace('/', r'-2f')
+
+    path = '/{}'.format(name)
+    return put_indexed_data(dvconf, path, data)
+
+
+def index_put_mutable_handler( dvconf, data_id, data_bin, **kw ):
+    """
+    Put data by data ID, using the index.
+    Meant for HTTP-based cloud providers.
+
+    Return the URL on success
+    Return None on error
+    """
+    data_id = data_id.replace('/', r'-2f')
+    path = '/{}'.format(data_id)
+
+    return put_indexed_data(dvconf, path, data_bin)
+
+
+def index_delete_immutable_handler( dvconf, key, txid, sig_key_txid, **kw ):
+    """
+    Delete by hash, using the index.
+    Meant for HTTP-based cloud providers.
+
+    Return the URL on success
+    Return None on error
+    """
+    name = 'immutable-{}'.format(key)
+    name = name.replace('/', r'-2f')
+    path = '/{}'.format(name)
+
+    return delete_indexed_data(dvconf, path)
+
+
+def index_delete_mutable_handler( dvconf, data_id, signature, **kw ):
+    """
+    Delete by data ID
+    """
+    data_id = data_id.replace('/', r'-2f')
+    path = '/{}'.format(data_id)
+
+    return delete_indexed_data(dvconf, path)
+
+
 def get_zonefile_from_atlas(blockchain_id, config_path, name_record=None):
     """
     Get the zone file from the atlas network
@@ -957,7 +1121,7 @@ def get_zonefile_from_atlas(blockchain_id, config_path, name_record=None):
     return zonefile_txt
 
 
-def lookup_index_manifest_url( blockchain_id, driver_name, config_path ):
+def lookup_index_manifest_url( blockchain_id, driver_name, index_stem, config_path ):
     """
     Given a blockchain ID, go and get the index manifest url.
 
@@ -974,11 +1138,15 @@ def lookup_index_manifest_url( blockchain_id, driver_name, config_path ):
     Return the index manifest URL on success.
     Return None if there is no URL
     Raise on error
+
+    TODO: this method needs to be rewritten to use the token file format,
+    and to use the proper public key to verify it.
     """
     import blockstack_client
     import blockstack_client.proxy as proxy
     import blockstack_client.user
     import blockstack_client.storage
+    import blockstack_client.schemas
 
     if blockchain_id is None:
         # try getting it directly (we should have it)
@@ -998,7 +1166,10 @@ def lookup_index_manifest_url( blockchain_id, driver_name, config_path ):
     except:
         raise Exception("Non-standard zonefile for {}".format(blockchain_id))
 
-    # get the profile... 
+    # get the profile...
+    # we're assuming here that some of the profile URLs are at least HTTP-accessible
+    # (i.e. we can get them without having to go through the indexing system)
+    # TODO: let drivers report their 'safety'
     profile_txt = None
     urls = blockstack_client.user.user_zonefile_urls(zonefile)
     for url in urls:
@@ -1020,7 +1191,8 @@ def lookup_index_manifest_url( blockchain_id, driver_name, config_path ):
         if not profile:
             log.debug("Failed to load profile from {}".format(url))
             continue
-        
+       
+        # TODO: load this from the tokens file
         # got profile! the storage information will be listed as an account, where the 'service' is the driver name and the 'identifier' is the manifest url 
         if 'account' not in profile:
             log.error("No 'account' key in profile for {}".format(blockchain_id))
@@ -1032,20 +1204,9 @@ def lookup_index_manifest_url( blockchain_id, driver_name, config_path ):
             return None
 
         for account in accounts:
-            if not isinstance(account, dict):
-                log.debug("Invalid account")
-                continue
-
-            if not account.has_key('service'):
-                log.debug("No 'service' key in account")
-                continue
-
-            if not account.has_key('identifier'):
-                log.debug("No 'identifier' key in account")
-                continue
-
-            if not account.has_key('contentUrl'):
-                log.debug("No 'contentUrl' key in account")
+            try:
+                jsonschema.validate(account, blockstack_client.schemas.PROFILE_ACCOUNT_SCHEMA)
+            except jsonschema.ValidationError:
                 continue
 
             if account['service'] != driver_name:
@@ -1054,6 +1215,9 @@ def lookup_index_manifest_url( blockchain_id, driver_name, config_path ):
 
             if account['identifier'] != 'storage':
                 log.debug("Skipping non-storage account for '{}'".format(account['service']))
+                continue
+            
+            if not account.has_key('contentUrl'):
                 continue
 
             url = account['contentUrl']
