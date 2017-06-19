@@ -24,7 +24,7 @@ import base64
 import ecdsa, hashlib
 import keylib
 from itertools import izip
-from blockstack_client import data, zonefile
+from blockstack_client import data, zonefile, storage
 from blockstack_client.logger import get_logger
 
 
@@ -40,7 +40,7 @@ class SubdomainNotFound(Exception):
 class SubdomainNotFound(Exception):
     pass
 
-# aaron: I was hesitant to write these two functions. But I did because:
+# aaron: I was hesitant to write these two functions. But I did so because:
 #   1> getting the sign + verify functions from virtualchain.ecdsa 
 #      was tricky because of the hashfunc getting lost in translating from
 #      SK to PK
@@ -274,8 +274,12 @@ def resolve_subdomain(subdomain, domain_fqa):
             "Pubkey type {} for subdomain {}.{} not supported by resolver.".format(
                 pubkey_type, subdomain, domain_fqa))
 
+    urls = my_rec["urls"]
+
     user_profile = storage.get_mutable_data(
         None, user_data_pubkey, blockchain_id=None,
         data_address=None, owner_address=None,
         urls=urls, drivers=None, decode=True,
     )
+
+    return user_profile
