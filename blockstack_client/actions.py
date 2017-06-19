@@ -59,6 +59,7 @@ import requests
 import binascii
 from decimal import Decimal
 import string
+import jsontokens
 
 requests.packages.urllib3.disable_warnings()
 
@@ -80,7 +81,7 @@ from blockstack_client import (
     list_zonefile_history, lookup_snv, put_immutable, put_mutable, zonefile_data_replicate
 )
 
-from blockstack_client.profile import put_profile, delete_profile, get_profile, profile_list_device_ids, \
+from blockstack_client.profile import put_profile, delete_profile, get_profile, \
         profile_add_device_id, profile_remove_device_id, profile_list_accounts, profile_get_account, \
         profile_put_account, profile_delete_account
 
@@ -942,15 +943,15 @@ def cli_lookup(args, config_path=CONFIG_PATH):
         return {'error': msg}
 
     try:
-        user_profile, user_zonefile = get_profile(
+        res = get_profile(
             str(args.name), name_record=blockchain_record, include_raw_zonefile=True, use_legacy=True, use_legacy_zonefile=True
         )
 
-        if isinstance(user_zonefile, dict) and 'error' in user_zonefile:
-            return user_zonefile
+        if 'error' in res:
+            return res
 
-        data['profile'] = user_profile
-        data['zonefile'] = user_zonefile['raw_zonefile']
+        data['profile'] = res['profile']
+        data['zonefile'] = res['raw_zonefile']
     except Exception as e:
         log.exception(e)
         msg = 'Failed to look up name\n{}'
@@ -4519,70 +4520,40 @@ def cli_validate_zone_file(args, config_path=CONFIG_PATH, proxy=None):
     return {'status': True}
 
 
-def cli_list_device_ids( args, config_path=CONFIG_PATH, proxy=None ):
+def cli_list_devices( args, config_path=CONFIG_PATH, proxy=None ):
     """
-    command: list_device_ids advanced
-    help: Get the list of known devices that write to your data stores
+    command: list_devices advanced
+    help: Get the list of device IDs and public keys for a particular application
     arg: blockchain_id (str) 'The blockchain ID whose devices to list'
+    arg: appname (str) 'The name of the application'
     """
     
     raise NotImplemented("Missing token file parsing logic")
 
-    device_ids = profile_list_device_ids(str(args.blockchain_id), proxy=proxy)
-    if 'error' in device_ids:
-        return {'error': device_ids['error']}
 
-    return device_ids['device_ids']
-
-
-def cli_get_device_id( args, config_path=CONFIG_PATH, proxy=None ):
+def cli_add_device( args, config_path=CONFIG_PATH, proxy=None ):
     """
-    command: get_device_id advanced
-    help: Get this device's ID
-    """
-    try:
-        device_id = config.get_local_device_id(config_path=config_path)
-        return {'device_id': device_id}
-
-    except AssertionError:
-        return {'error': 'Failed to read config file'}
-
-
-def cli_add_device_id( args, config_path=CONFIG_PATH, proxy=None ):
-    """
-    command: add_device_id advanced
+    command: add_device advanced
     help: Add a device that can read and write your data
     arg: blockchain_id (str) 'The blockchain ID whose profile to update'
-    arg: device_id (str) 'The ID of the device to add'
+    opt: device_id (str) 'The ID of the device to add, if not this one'
     """
-    blockchain_id = str(args.blockchain_id)
-    device_id = str(args.device_id)
 
-    res = profile_add_device_id(blockchain_id, device_id, config_path=config_path, proxy=proxy)
-    if 'error' in res:
-        return {'error': res['error']}
+    raise NotImplemented("Missing token file parsing logic")
+    
 
-    return {'status': True}
-
-
-def cli_remove_device_id( args, config_path=CONFIG_PATH, proxy=None ):
+def cli_remove_device( args, config_path=CONFIG_PATH, proxy=None ):
     """
-    command: remove_device_id advanced
-    help: Remove a device ID so this device will ignore its data
+    command: remove_device advanced
+    help: Remove a device so it can no longer access your application data
     arg: blockchain_id (str) 'The blockchain ID whose profile to update'
     arg: device_id (str) 'The ID of the device to remove'
     """
-    blockchain_id = str(args.blockchain_id)
-    device_id = str(args.device_id)
-
-    res = profile_remove_device_id(blockchain_id, device_id, config_path=config_path, proxy=proxy)
-    if 'error' in res:
-        return {'error': res['error']}
-
-    return {'status': True}
+    
+    raise NotImplemented("Missing token file parsing logic")
 
 
-def _remove_datastore(rpc, datastore, datastore_privkey, rmtree=True, force=False, config_path=CONFIG_PATH ):
+def _remove_datastore(rpc, datastore, datastore_privkey, data_pubkeys, rmtree=True, force=False, config_path=CONFIG_PATH ):
     """
     Delete a user datastore
     If rmtree is True, then the datastore will be emptied first.
@@ -4597,27 +4568,30 @@ def _remove_datastore(rpc, datastore, datastore_privkey, rmtree=True, force=Fals
     # clear the datastore 
     if rmtree:
         log.debug("Clear datastore {}".format(datastore_id))
-        res = datastore_rmtree(rpc, datastore, '/', datastore_privkey, config_path=config_path)
+        res = datastore_rmtree(rpc, datastore, '/', datastore_privkey, data_pubkeys, config_path=config_path)
         if 'error' in res and not force:
             log.error("Failed to rmtree datastore {}".format(datastore_id))
             return {'error': 'Failed to remove all files and directories', 'errno': errno.ENOTEMPTY}
 
     # delete the datastore record
     log.debug("Delete datastore {}".format(datastore_id))
-    return delete_datastore(rpc, datastore, datastore_privkey, config_path=config_path)
+    return delete_datastore(rpc, datastore, datastore_privkey, data_pubkeys, config_path=config_path)
 
 
-def create_datastore_by_type( datastore_type, blockchain_id, datastore_privkey, device_ids, drivers=None, config_path=CONFIG_PATH ):
+def create_datastore_by_type( datastore_type, blockchain_id, datastore_privkey, session, drivers=None, config_path=CONFIG_PATH ):
     """
     Create a datastore or a collection for the given user with the given name.
     Return {'status': True} on success
     Return {'error': ...} on error
     """
 
+    data_pubkeys = jsontokens.decode_token(session)['payload']['app_public_keys']
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
+
     datastore_pubkey = get_pubkey_hex(datastore_privkey)
     datastore_id = datastore_get_id(datastore_pubkey)
 
-    rpc = local_api_connect(config_path=config_path)
+    rpc = local_api_connect(config_path=config_path, api_session=session)
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
@@ -4660,15 +4634,18 @@ def get_datastore_by_type( datastore_type, blockchain_id, datastore_id, device_i
     return datastore
 
 
-def delete_datastore_by_type( datastore_type, blockchain_id, datastore_privkey, device_ids, force=False, config_path=CONFIG_PATH ):
+def delete_datastore_by_type( datastore_type, blockchain_id, datastore_privkey, session, force=False, config_path=CONFIG_PATH ):
     """
     Delete a datastore or collection.
     Return {'status': True} on success
     Return {'error': ...} on error
     """
     datastore_id = datastore_get_id(get_pubkey_hex(datastore_privkey))
-
-    rpc = local_api_connect(config_path=config_path)
+    
+    data_pubkeys = jsontokens.decode_token(session)['payload']['app_public_keys']
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
+    
+    rpc = local_api_connect(config_path=config_path, api_session=session)
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
@@ -4680,7 +4657,7 @@ def delete_datastore_by_type( datastore_type, blockchain_id, datastore_privkey, 
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = _remove_datastore(rpc, datastore, datastore_privkey, rmtree=True, force=force, config_path=config_path)
+    res = _remove_datastore(rpc, datastore, datastore_privkey, data_pubkeys, rmtree=True, force=force, config_path=config_path)
     if 'error' in res:
         log.error("Failed to delete datastore record")
         return res
@@ -4688,7 +4665,7 @@ def delete_datastore_by_type( datastore_type, blockchain_id, datastore_privkey, 
     return {'status': True}
 
 
-def datastore_file_get(datastore_type, blockchain_id, datastore_id, path, device_ids, extended=False, force=False, config_path=CONFIG_PATH ):
+def datastore_file_get(datastore_type, blockchain_id, datastore_id, path, data_pubkeys, extended=False, force=False, config_path=CONFIG_PATH ):
     """
     Get a file from a datastore or collection.
     Return {'status': True, 'data': ...} on success
@@ -4699,6 +4676,7 @@ def datastore_file_get(datastore_type, blockchain_id, datastore_id, path, device
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
     datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
     if 'error' in datastore_info:
         if 'errno' not in datastore_info:
@@ -4710,11 +4688,11 @@ def datastore_file_get(datastore_type, blockchain_id, datastore_id, path, device
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_getfile( rpc, blockchain_id, datastore, path, extended=extended, force=force, config_path=config_path )
+    res = datastore_getfile( rpc, blockchain_id, datastore, path, data_pubkeys, extended=extended, force=force, config_path=config_path )
     return res
 
 
-def datastore_file_put(datastore_type, blockchain_id, datastore_privkey, path, data, device_ids, create=False, force_data=False, force=False, config_path=CONFIG_PATH ):
+def datastore_file_put(datastore_type, blockchain_id, datastore_privkey, path, data, session, create=False, force_data=False, force=False, config_path=CONFIG_PATH ):
     """
     Put a file int oa datastore or collection.
     Return {'status': True} on success
@@ -4724,6 +4702,7 @@ def datastore_file_put(datastore_type, blockchain_id, datastore_privkey, path, d
     """
 
     datastore_id = datastore_get_id(get_pubkey_hex(datastore_privkey))
+    data_pubkeys = jsontokens.decode_token(session)['payload']['app_public_keys']
 
     # is this a path, and are we allowed to take paths?
     if is_valid_path(data) and os.path.exists(data) and not force_data:
@@ -4735,11 +4714,12 @@ def datastore_file_put(datastore_type, blockchain_id, datastore_privkey, path, d
             return {'error': 'Failed to read "{}"'.format(data)}
     
     # connect 
-    rpc = local_api_connect(config_path=config_path)
+    rpc = local_api_connect(config_path=config_path, api_session=session)
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids=device_ids)
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -4747,14 +4727,14 @@ def datastore_file_put(datastore_type, blockchain_id, datastore_privkey, path, d
 
     log.debug("putfile {} to {}".format(path, datastore_id))
 
-    res = datastore_putfile( rpc, datastore, path, data, datastore_privkey, create=create, config_path=config_path )
+    res = datastore_putfile( rpc, datastore, path, data, datastore_privkey, data_pubkeys, create=create, config_path=config_path )
     if 'error' in res:
         return res
 
     return res
 
 
-def datastore_dir_list(datastore_type, blockchain_id, datastore_id, path, device_ids, extended=False, force=False, config_path=CONFIG_PATH ):
+def datastore_dir_list(datastore_type, blockchain_id, datastore_id, path, data_pubkeys, extended=False, force=False, config_path=CONFIG_PATH ):
     """
     List a directory in a datastore or collection
     Return {'status': True, 'dir': ...} on success
@@ -4766,6 +4746,7 @@ def datastore_dir_list(datastore_type, blockchain_id, datastore_id, path, device
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
     datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
     if 'error' in datastore_info:
         if 'errno' not in datastore_info:
@@ -4782,11 +4763,11 @@ def datastore_dir_list(datastore_type, blockchain_id, datastore_id, path, device
         if path != '/':
             return {'error': 'Invalid argument: collections do not have directories', 'errno': errno.EINVAL}
 
-    res = datastore_listdir( rpc, blockchain_id, datastore, path, extended=extended, force=force, config_path=config_path )
+    res = datastore_listdir( rpc, blockchain_id, datastore, path, data_pubkeys, extended=extended, force=force, config_path=config_path )
     return res
 
 
-def datastore_path_stat(datastore_type, blockchain_id, datastore_id, path, device_ids, extended=False, force=False, config_path=CONFIG_PATH ):
+def datastore_path_stat(datastore_type, blockchain_id, datastore_id, path, data_pubkeys, extended=False, force=False, config_path=CONFIG_PATH ):
     """
     Stat a path in a datastore or collection
     Return {'status': True, 'inode': ...} on success
@@ -4797,6 +4778,7 @@ def datastore_path_stat(datastore_type, blockchain_id, datastore_id, path, devic
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
     datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
     if 'error' in datastore_info:
         return datastore_info
@@ -4805,11 +4787,11 @@ def datastore_path_stat(datastore_type, blockchain_id, datastore_id, path, devic
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_stat( rpc, blockchain_id, datastore, path, extended=extended, force=force, config_path=config_path )
+    res = datastore_stat( rpc, blockchain_id, datastore, path, data_pubkeys, extended=extended, force=force, config_path=config_path )
     return res
 
 
-def datastore_inode_getinode(datastore_type, blockchain_id, datastore_id, inode_uuid, device_ids, extended=False, force=False, idata=False, config_path=CONFIG_PATH ):
+def datastore_inode_getinode(datastore_type, blockchain_id, datastore_id, inode_uuid, data_pubkeys, extended=False, force=False, idata=False, config_path=CONFIG_PATH ):
     """
     Get an inode in a datastore or collection
     Return {'status': True, 'inode': ...} on success
@@ -4820,6 +4802,7 @@ def datastore_inode_getinode(datastore_type, blockchain_id, datastore_id, inode_
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
     datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
     if 'error' in datastore_info:
         return datastore_info
@@ -4828,9 +4811,23 @@ def datastore_inode_getinode(datastore_type, blockchain_id, datastore_id, inode_
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_getinode( rpc, blockchain_id, datastore, inode_uuid, extended=False, force=force, idata=idata, config_path=config_path )
+    res = datastore_getinode( rpc, blockchain_id, datastore, inode_uuid, data_pubkeys, extended=False, force=force, idata=idata, config_path=config_path )
     return res
 
+
+def cli_get_device_keys( args, config_path=CONFIG_PATH ):
+    """
+    command: get_device_keys advanced
+    help: Get the device IDs and public keys for a blockchain ID
+    arg: blockchain_id (str) 'The blockchain Id'
+    """
+    blockchain_id = str(args.blockchain_id)
+
+    # TODO: implement token file support 
+    log.warning("Token file support is NOT IMPLEMENTED")
+    
+    # find the "data public key"
+    
 
 def cli_get_datastore( args, config_path=CONFIG_PATH ):
     """
@@ -4838,7 +4835,7 @@ def cli_get_datastore( args, config_path=CONFIG_PATH ):
     help: Get a datastore record
     arg: blockchain_id (str) 'The ID of the owner' 
     arg: datastore_id (str) 'The application datastore ID'
-    opt: device_ids (str) 'The CSV of device IDs to consider'
+    opt: device_ids (str) 'The CSV of device IDs owned by the blockchain ID'
     """
     blockchain_id = str(args.blockchain_id)
     datastore_id = str(args.datastore_id)
@@ -4860,8 +4857,8 @@ def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None ):
     help: Make a new datastore
     arg: blockchain_id (str) 'The blockchain ID that will own this datastore'
     arg: privkey (str) 'The ECDSA private key of the datastore'
+    arg: session (str) 'The API session token'
     opt: drivers (str) 'A CSV of drivers to use.'
-    opt: device_ids (str) 'A CSV of your device IDs.'
     """
 
     if proxy is None:
@@ -4872,16 +4869,8 @@ def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None ):
     drivers = getattr(args, 'drivers', None)
     if drivers:
         drivers = drivers.split(',')
-
-    # get the list of device IDs to use 
-    device_ids = getattr(args, 'device_ids', None)
-    if device_ids:
-        device_ids = device_ids.split(',')
-
-    else:
-        raise NotImplemented("Missing token file parsing logic")
-
-    return create_datastore_by_type('datastore', blockchain_id, privkey, device_ids, drivers=drivers, config_path=config_path )
+ 
+    return create_datastore_by_type('datastore', blockchain_id, privkey, str(args.session), drivers=drivers, config_path=config_path )
 
 
 def cli_delete_datastore( args, config_path=CONFIG_PATH ):
@@ -4890,8 +4879,8 @@ def cli_delete_datastore( args, config_path=CONFIG_PATH ):
     help: Delete a datastore owned by a given user, and all of the data it contains.
     arg: blockchain_id (str) 'The owner of this datastore'
     arg: privkey (str) 'The ECDSA private key of the datastore'
+    arg: session (str) 'The API session token'
     opt: force (str) 'If True, then delete the datastore even if it cannot be emptied'
-    opt: device_ids (str) 'A CSV of your device IDs'
     """
     
     blockchain_id = str(args.blockchain_id)
@@ -4900,13 +4889,7 @@ def cli_delete_datastore( args, config_path=CONFIG_PATH ):
     if hasattr(args, 'force'):
         force = (str(args.force).lower() in ['1', 'true', 'force', 'yes'])
 
-    device_ids = None
-    if hasattr(args, 'device_ids'):
-        device_ids = str(args.device_ids).split(',')
-    else:
-        raise NotImplemented("No support for token files")
-
-    return delete_datastore_by_type('datastore', blockchain_id, privkey, device_ids, force=force, config_path=config_path)
+    return delete_datastore_by_type('datastore', blockchain_id, privkey, str(args.session), force=force, config_path=config_path)
 
 
 def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False ):
@@ -4916,7 +4899,7 @@ def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False ):
     arg: blockchain_id (str) 'The owner of this datastore'
     arg: privkey (str) 'The app-specific private key'
     arg: path (str) 'The path to the directory to remove'
-    opt: device_ids (str) 'A CSV of your device IDs'
+    arg: session (str) 'The API session token'
     """
 
     blockchain_id = str(args.blockchain_id)
@@ -4925,14 +4908,12 @@ def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False ):
     datastore_pubkey_hex = get_pubkey_hex(datastore_privkey_hex)
     datastore_id = datastore_get_id(datastore_pubkey_hex)
 
-    device_ids = None
-    if hasattr(args, 'device_ids'):
-        device_ids = str(args.device_ids).split(',')
-    else:
-        raise NotImplemented("No support for token files")
+    session = jsontokens.decode_token(str(args.session))
+    data_pubkeys = session['payload']['app_public_keys']
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
 
     # connect 
-    rpc = local_api_connect(config_path=config_path)
+    rpc = local_api_connect(config_path=config_path, api_session=str(args.session))
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
@@ -4943,7 +4924,7 @@ def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False ):
     datastore = datastore_info['datastore']
     assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
 
-    res = datastore_mkdir(rpc, datastore, path, datastore_privkey_hex, config_path=config_path )
+    res = datastore_mkdir(rpc, datastore, path, datastore_privkey_hex, data_pubkeys, config_path=config_path )
     if 'error' in res:
         return res
 
@@ -4961,8 +4942,7 @@ def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False ):
     arg: blockchain_id (str) 'The owner of this datastore'
     arg: privkey (str) 'The app-specific data private key'
     arg: path (str) 'The path to the directory to remove'
-    opt: force (str) 'If True, then ignore stale inode errors'
-    opt: device_ids (str) 'A CSV of your device IDs'
+    arg: session (str) 'The API session token'
     """
 
     blockchain_id = str(args.blockchain_id)
@@ -4972,14 +4952,12 @@ def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False ):
     datastore_id = datastore_get_id(datastore_pubkey_hex)
     force = (str(getattr(args, 'force', '').lower()) in ['1', 'true'])
 
-    device_ids = None
-    if hasattr(args, 'device_ids'):
-        device_ids = str(args.device_ids).split(',')
-    else:
-        raise NotImplemented("No support for token files")
+    session = jsontokens.decode_token(str(args.session))
+    data_pubkeys = session['payload']['app_public_keys']
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
 
     # connect 
-    rpc = local_api_connect(config_path=config_path)
+    rpc = local_api_connect(config_path=config_path, api_session=str(args.session))
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
@@ -4990,8 +4968,7 @@ def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False ):
     datastore = datastore_info['datastore']
     assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
 
-    print('rmdir {} force={} ({})'.format(path, force, type(force)))
-    res = datastore_rmdir(rpc, datastore, path, datastore_privkey_hex, force=force, config_path=config_path )
+    res = datastore_rmdir(rpc, datastore, path, datastore_privkey_hex, data_pubkeys, force=force, config_path=config_path )
     return res
 
 
@@ -5002,7 +4979,7 @@ def cli_datastore_rmtree( args, config_path=CONFIG_PATH, interactive=False ):
     arg: blockchain_id (str) 'The owner of this datastore'
     arg: privkey (str) 'The app-specific data private key'
     arg: path (str) 'The path to the directory tree to remove'
-    opt: device_ids (str) 'A CSV of your device IDs'
+    arg: session (str) 'The API session token'
     """
 
     blockchain_id = str(args.blockchain_id)
@@ -5011,14 +4988,12 @@ def cli_datastore_rmtree( args, config_path=CONFIG_PATH, interactive=False ):
     datastore_pubkey_hex = get_pubkey_hex(datastore_privkey_hex)
     datastore_id = datastore_get_id(datastore_pubkey_hex)
 
-    device_ids = None
-    if hasattr(args, 'device_ids'):
-        device_ids = str(args.device_ids).split(',')
-    else:
-        raise NotImplemented("No support for token files")
+    session = jsontokens.decode_token(str(args.session))
+    data_pubkeys = session['payload']['app_public_keys']
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
 
     # connect 
-    rpc = local_api_connect(config_path=config_path)
+    rpc = local_api_connect(config_path=config_path, api_session=str(args.session))
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
@@ -5029,7 +5004,7 @@ def cli_datastore_rmtree( args, config_path=CONFIG_PATH, interactive=False ):
     datastore = datastore_info['datastore']
     assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
 
-    res = datastore_rmtree(rpc, datastore, path, datastore_privkey_hex, config_path=config_path )
+    res = datastore_rmtree(rpc, datastore, path, datastore_privkey_hex, data_pubkeys, config_path=config_path )
     return res
 
 
@@ -5042,7 +5017,8 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False ):
     arg: path (str) 'The path to the file to load'
     opt: extended (str) 'If True, then include the full inode and parent information as well.'
     opt: force (str) 'If True, then tolerate stale data faults.'
-    opt: device_ids (str) 'CSV of device IDs, if different from what is loaded'
+    opt: device_ids (str) 'If given, a CSV of device IDs owned by the blockchain ID'
+    opt: device_pubkeys (str) 'If given, a CSV of device public keys owned by the blockchain ID'
     """
 
     blockchain_id = getattr(args, 'blockchain_id', '')
@@ -5071,7 +5047,19 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False ):
     else:
         raise NotImplemented("Missing token file parsing logic")
 
-    res = datastore_file_get('datastore', blockchain_id, datastore_id, path, device_ids, extended=extended, force=force, config_path=config_path)
+    device_pubkeys = None
+    if hasattr(args, 'device_pubkeys'):
+        device_pubkeys = str(args.device_pubkeys).split(',')
+    else:
+        raise NotImplemented("No support for token files")
+
+    assert len(device_ids) == len(device_pubkeys)
+    data_pubkeys = [{
+        'device_id': dev_id,
+        'public_key': pubkey
+    } for (dev_id, pubkey) in zip(device_ids, device_pubkeys)]
+
+    res = datastore_file_get('datastore', blockchain_id, datastore_id, path, data_pubkeys, extended=extended, force=force, config_path=config_path)
     if json_is_error(res):
         return res
 
@@ -5091,7 +5079,8 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
     arg: path (str) 'The path to the directory to list'
     opt: extended (str) 'If True, then include the full inode and parent information as well.'
     opt: force (str) 'If True, then tolerate stale data faults.'
-    opt: device_ids (str) 'CSV of device IDs, if different from what is loaded'
+    opt: device_ids (str) 'If given, a CSV of device IDs owned by the blockchain ID'
+    opt: device_pubkeys (str) 'If given, a CSV of device public keys owned by the blockchain ID'
     """
 
     blockchain_id = getattr(args, 'blockchain_id', '')
@@ -5120,7 +5109,19 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
     else:
         raise NotImplemented("Missing token file parsing logic")
 
-    res = datastore_dir_list('datastore', blockchain_id, datastore_id, path, device_ids, extended=extended, force=force, config_path=config_path )
+    device_pubkeys = None
+    if hasattr(args, 'device_pubkeys'):
+        device_pubkeys = str(args.device_pubkeys).split(',')
+    else:
+        raise NotImplemented("No support for token files")
+
+    assert len(device_ids) == len(device_pubkeys)
+    data_pubkeys = [{
+        'device_id': dev_id,
+        'public_key': pubkey
+    } for (dev_id, pubkey) in zip(device_ids, device_pubkeys)]
+
+    res = datastore_dir_list('datastore', blockchain_id, datastore_id, path, data_pubkeys, extended=extended, force=force, config_path=config_path )
     if json_is_error(res):
         return res
 
@@ -5139,7 +5140,8 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     arg: path (str) 'The path to the file or directory to stat'
     opt: extended (str) 'If True, then include the path information as well'
     opt: force (str) 'If True, then tolerate stale inode data.'
-    opt: device_ids (str) 'CSV of device IDs, if different from what is loaded'
+    opt: device_ids (str) 'If given, a CSV of device IDs owned by the blockchain ID'
+    opt: device_pubkeys (str) 'If given, a CSV of device public keys owned by the blockchain ID'
     """
 
     blockchain_id = getattr(args, 'blockchain_id', '')
@@ -5167,9 +5169,23 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
         device_ids = device_ids.split(',')
 
     else:
+        # TODO
         raise NotImplemented("Missing token file parsing logic")
 
-    res = datastore_path_stat('datastore', blockchain_id, datastore_id, path, device_ids, extended=extended, force=force, config_path=config_path) 
+    device_pubkeys = None
+    if hasattr(args, 'device_pubkeys'):
+        device_pubkeys = str(args.device_pubkeys).split(',')
+    else:
+        # TODO
+        raise NotImplemented("No support for token files")
+
+    assert len(device_ids) == len(device_pubkeys)
+    data_pubkeys = [{
+        'device_id': dev_id,
+        'public_key': pubkey
+    } for (dev_id, pubkey) in zip(device_ids, device_pubkeys)]
+
+    res = datastore_path_stat('datastore', blockchain_id, datastore_id, path, data_pubkeys, extended=extended, force=force, config_path=config_path) 
     if json_is_error(res):
         return res
 
@@ -5189,7 +5205,8 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
     opt: extended (str) 'If True, then include the path information as well'
     opt: idata (str) 'If True, then include the inode payload as well.'
     opt: force (str) 'If True, then tolerate stale inode data.'
-    opt: device_ids (str) 'CSV of device IDs, if different from what is loaded'
+    opt: device_ids (str) 'If given, the CSV of devices owned by the blockchain ID'
+    opt: device_pubkeys (str) 'If given, the CSV of device public keys owned by the blockchain ID'
     """
 
     blockchain_id = getattr(args, 'blockchain_id', '')
@@ -5201,6 +5218,9 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
     datastore_id = str(args.datastore_id)
     inode_uuid = str(args.inode_uuid)
     
+    session = jsontokens.decode_token(str(args.session))
+    data_pubkeys = session['payload']['app_public_keys']
+
     extended = False
     force = False
     idata = False
@@ -5221,9 +5241,23 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
         device_ids = device_ids.split(',')
 
     else:
+        # TODO
         raise NotImplemented("Missing token file parsing logic")
 
-    return datastore_inode_getinode('datastore', blockchain_id, datastore_id, inode_uuid, device_ids, extended=extended, force=force, idata=idata, config_path=config_path) 
+    device_pubkeys = None
+    if hasattr(args, 'device_pubkeys'):
+        device_pubkeys = str(args.device_pubkeys).split(',')
+    else:
+        # TODO
+        raise NotImplemented("No support for token files")
+
+    assert len(device_ids) == len(device_pubkeys)
+    data_pubkeys = [{
+        'device_id': dev_id,
+        'public_key': pubkey
+    } for (dev_id, pubkey) in zip(device_ids, device_pubkeys)]
+
+    return datastore_inode_getinode('datastore', blockchain_id, datastore_id, inode_uuid, data_pubkeys, extended=extended, force=force, idata=idata, config_path=config_path) 
 
 
 def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, force_data=False ):
@@ -5234,9 +5268,9 @@ def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, forc
     arg: privkey (str) 'The app-specific data private key'
     arg: path (str) 'The path to the new file'
     arg: data (str) 'The data to store, or a path to a file with the data'
+    arg: session (str) 'The API session token'
     opt: create (str) 'If True, then succeed only if the file has never before existed.'
     opt: force (str) 'If True, then tolerate stale inode data.'
-    opt: device_ids (str) 'CSV of device IDs, if different from what is loaded locally'
     """
     
     blockchain_id = str(args.blockchain_id)
@@ -5246,15 +5280,7 @@ def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, forc
     create = (str(getattr(args, "create", "")).lower() in ['1', 'create', 'true'])
     force = (str(getattr(args, 'force', '')).lower() in ['1', 'true'])
 
-    # get the list of device IDs to use 
-    device_ids = getattr(args, 'device_ids', None)
-    if device_ids:
-        device_ids = device_ids.split(',')
-
-    else:
-        raise NotImplemented("Missing token file parsing logic")
-
-    return datastore_file_put('datastore', blockchain_id, privkey, path, data, device_ids, create=create, force_data=force_data, config_path=config_path )
+    return datastore_file_put('datastore', blockchain_id, privkey, path, data, str(args.session), create=create, force_data=force_data, config_path=config_path )
 
 
 def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False ):
@@ -5264,8 +5290,8 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False ):
     arg: blockchain_id (str) 'The owner of this datastore'
     arg: privkey (str) 'The datastore private key'
     arg: path (str) 'The path to the file to delete'
+    arg: session (str) 'The API session token'
     opt: force (str) 'If True, then tolerate stale inode data.'
-    opt: device_ids (str) 'CSV of device IDs, if different from what is loaded locally'
     """
 
     blockchain_id = str(args.blockchain_id)
@@ -5274,13 +5300,9 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False ):
     datastore_id = datastore_get_id(get_pubkey_hex(privkey))
     force = (str(getattr(args, 'force', '')).lower() in ['1', 'true'])
 
-    # get the list of device IDs to use 
-    device_ids = getattr(args, 'device_ids', None)
-    if device_ids:
-        device_ids = device_ids.split(',')
-
-    else:
-        raise NotImplemented("Missing token file parsing logic")
+    session = jsontokens.decode_token(str(args.session))
+    data_pubkeys = session['payload']['app_public_keys']
+    device_ids = [dk['device_id'] for dk in session['payload']['app_public_keys']]
 
     # connect 
     rpc = local_api_connect(config_path=config_path)
@@ -5294,7 +5316,7 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False ):
 
     datastore = datastore_info['datastore']
 
-    res = datastore_deletefile( rpc, datastore, path, privkey, force=force, config_path=config_path )
+    res = datastore_deletefile( rpc, datastore, path, privkey, data_pubkeys, force=force, config_path=config_path )
     return res
 
 
@@ -5305,6 +5327,8 @@ def cli_datastore_get_privkey(args, config_path=CONFIG_PATH, interactive=False )
     arg: master_privkey (str) 'The master data private key'
     arg: app_domain (str) 'The name of the application'
     """
+    raise NotImplemented("Token file support not yet implemented")
+
     app_domain = str(args.app_domain)
     master_privkey = str(args.master_privkey)
 
@@ -5330,6 +5354,8 @@ def cli_get_collection( args, config_path=CONFIG_PATH, proxy=None, password=None
     arg: collection_domain (str) 'The name of the collection'
     opt: device_ids (str) 'The list of device IDs that can write'
     """
+    raise NotImplemented("Collections not implemented")
+
     blockchain_id = str(args.blockchain_id)
     collection_domain = str(args.collection_domain)
     device_ids = args.device_ids.split(',')
