@@ -41,7 +41,7 @@ from .proxy import *
 from config import get_config
 from .constants import CONFIG_PATH, BLOCKSTACK_TEST, LENGTH_MAX_NAME, DEFAULT_API_PORT, DEFAULT_API_HOST
 from .schemas import *
-
+from .storage import classify_storage_drivers
 
 def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_public_keys, requester_device_id, master_data_privkey, session_lifetime=None, config_path=CONFIG_PATH ):
     """
@@ -75,6 +75,10 @@ def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_p
         'app_user_id': app_user_id,
         'api_endpoint': api_endpoint,
         'device_id': requester_device_id,
+        'storage': {
+            'classes': classify_storage_drivers(),
+            'preferences': {}
+        },
         'timestamp': int(time.time()),
         'expires': int(time.time() + session_lifetime),
     }
