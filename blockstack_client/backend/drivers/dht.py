@@ -257,6 +257,10 @@ def delete_mutable_handler(data_id, signature, **kw):
     return True
 
 
+def get_classes():
+    return ['read_public', 'write_private']
+
+
 if __name__ == "__main__":
     """
     Unit tests.

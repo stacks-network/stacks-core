@@ -262,6 +262,10 @@ def delete_mutable_handler( data_id, signature, **kw ):
     return index_delete_mutable_handler(DVCONF, data_id, signature, **kw)
 
 
+def get_classes():
+    return ['read_public', 'write_private']
+
+
 if __name__ == "__main__":
      
    import keylib

@@ -376,6 +376,42 @@ def index_settings_set_index_manifest_url(driver_name, config_path, url):
         return False
 
 
+def index_check_setup(dvconf, blockchain_id=None):
+    """
+    Is the index set up?
+    Return True if so
+    Return False if not
+    """
+
+    config_path = dvconf['config_path']
+    get_chunk = dvconf['get_chunk']
+    driver_name = dvconf['driver_name']
+    index_stem = dvconf['index_stem']
+
+    index_manifest_url = index_settings_get_index_manifest_url(driver_name, config_path)
+    if index_manifest_url is not None :
+        # already set up
+        return True
+ 
+    index_manifest_path = index_get_manifest_page_path(index_stem)
+
+    log.debug("Get index manifest page ({}, {})".format(index_manifest_url, index_manifest_path))
+    manifest_page = index_get_page(dvconf, blockchain_id=blockchain_id, url=index_manifest_url, path=index_manifest_path)
+    if manifest_page is None:
+        log.error("Failed to get manifest page {}".format(index_manifest_url))
+        return False
+  
+    log.warning("Index appears to be set up for {} (index {}); will cache index URL".format(driver_name, index_stem))
+
+    # it's set up 
+    rc = index_settings_set_index_manifest_url(driver_name, config_path, index_manifest_url)
+    if not rc:
+        # failed 
+        return False
+
+    return True
+
+
 def index_setup(dvconf, force=False):
     """
     Set up our index if we haven't already.
@@ -383,8 +419,6 @@ def index_setup(dvconf, force=False):
     Return the index manifest URL if already setup
     Return False on error
     """
-    
-    # TODO: need to force this to happen for both foo.test and bar.test
 
     config_path = dvconf['config_path']
     put_chunk = dvconf['put_chunk']
@@ -560,7 +594,7 @@ def index_set_page(dvconf, path, index_page):
     Return True on success
     Return False on error
     """
-    assert index_setup(dvconf)
+    assert index_check_setup(dvconf)
     
     put_chunk = dvconf['put_chunk']
     
@@ -583,7 +617,7 @@ def index_insert(dvconf, name, url):
     Return True on success
     Return False if not.
     """
-    assert index_setup(dvconf)
+    assert index_check_setup(dvconf)
 
     index_stem = dvconf['index_stem']
 
@@ -602,7 +636,7 @@ def index_remove( dvconf, name ):
     Return True on success
     Return False if not.
     """
-    assert index_setup(dvconf)
+    assert index_check_setup(dvconf)
 
     index_stem = dvconf['index_stem']
 
@@ -771,7 +805,7 @@ def _get_indexed_data_impl( dvconf, blockchain_id, name, raw=False, index_manife
         # go look it up.
         index_manifest_url = None
         try:
-            index_manifest_url = lookup_index_manifest_url(blockchain_id, driver_name, config_path)
+            index_manifest_url = lookup_index_manifest_url(blockchain_id, driver_name, index_stem, config_path)
         except Exception as e:
             if DEBUG:
                 log.exception(e)
@@ -1087,7 +1121,7 @@ def get_zonefile_from_atlas(blockchain_id, config_path, name_record=None):
     return zonefile_txt
 
 
-def lookup_index_manifest_url( blockchain_id, driver_name, config_path ):
+def lookup_index_manifest_url( blockchain_id, driver_name, index_stem, config_path ):
     """
     Given a blockchain ID, go and get the index manifest url.
 
@@ -1104,6 +1138,9 @@ def lookup_index_manifest_url( blockchain_id, driver_name, config_path ):
     Return the index manifest URL on success.
     Return None if there is no URL
     Raise on error
+
+    TODO: this method needs to be rewritten to use the token file format,
+    and to use the proper public key to verify it.
     """
     import blockstack_client
     import blockstack_client.proxy as proxy

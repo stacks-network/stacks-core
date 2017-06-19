@@ -65,3 +65,7 @@ def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
 
 def delete_mutable_handler( data_id, signature, **kw ):
     return True
+
+def get_classes():
+    return ['read_public']
+

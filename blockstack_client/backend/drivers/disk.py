@@ -302,7 +302,11 @@ def delete_mutable_handler( data_id, signature, **kw ):
       pass 
    
    return True
-   
+  
+
+def get_classes():
+    return ['read_private', 'write_private', 'read_local', 'write_local']
+
    
 if __name__ == "__main__":
    """

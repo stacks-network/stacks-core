@@ -358,6 +358,9 @@ def delete_mutable_handler( data_id, signature, **kw ):
     else:
         return test_delete_chunk(DVCONF, path)
 
+
+def get_classes():
+    return ['read_public', 'write_private', 'read_local', 'write_local']
    
    
 if __name__ == "__main__":
