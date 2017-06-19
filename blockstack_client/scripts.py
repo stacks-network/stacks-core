@@ -261,7 +261,7 @@ def tx_make_subsidization_output(payer_utxo_inputs, payer_address, op_fee, dust_
     }
 
 
-def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, fee_per_byte, utxo_client, tx_fee=0, subsidy_address=None):
+def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_client, tx_fee=0, subsidy_address=None):
     """
     Given an unsigned serialized transaction from Blockstack, make it into a subsidized transaction
     for the client to go sign off on.
@@ -300,30 +300,24 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, fee_p
         subsidized_tx = tx_extend(blockstack_tx, inputs, [subsidy_output])
         return subsidized_tx
 
-
     subsidized_tx = None
     consumed_inputs = None
 
     # try to minimize the number of UTXOs we'll consume
-    running_tx_fee = 0
     found = False
     log.debug("{} has {} UTXOs; will need to fund at least {} + {} + {} = {}".format(payer_address, len(payer_utxo_inputs), op_fee, dust_fee, tx_fee, op_fee + dust_fee + tx_fee))
 
     for i in xrange(0, len(payer_utxo_inputs)):
         consumed_inputs = payer_utxo_inputs[0:i+1]
-        running_tx_fee = 0
         try:
             subsidized_tx = _make_subsidized_from(consumed_inputs, tx_fee)
-            running_tx_fee = fee_per_byte * len(subsidized_tx) / 2      # / 2 since it's a hex string
-            log.debug("TX fee for UTXOs 0-{} is {}; running total expense is {}".format(i+1, running_tx_fee, running_tx_fee + tx_fee + op_fee + dust_fee))
-            subsidized_tx = _make_subsidized_from(consumed_inputs, running_tx_fee + tx_fee)
             found = True
             log.debug("Consumed UTXOs 0-{}".format(i+1))
             break
 
         except ValueError:
             # nope
-            log.debug("Not enough value in UTXOs 0-{} (tx fee so far: {})".format(i+1, running_tx_fee))
+            log.debug("Not enough value in UTXOs 0-{} (tx fee so far: {})".format(i+1, tx_fee))
             continue
 
     if not found:
