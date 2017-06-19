@@ -58,6 +58,7 @@ import config as blockstack_config
 import config as blockstack_constants
 import backend
 import backend.blockchain as backend_blockchain
+import backend.drivers as backend_drivers
 import proxy
 from proxy import json_is_error, json_is_exception
 
@@ -68,10 +69,14 @@ import data
 import zonefile
 import wallet
 import keys
+import profile
+import storage
 from utils import daemonize, streq_constant 
 
 import virtualchain
 from virtualchain.lib.ecdsalib import *
+
+import blockstack_profiles
 
 log = blockstack_config.get_logger()
 
@@ -1049,68 +1054,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def POST_users( self, ses, path_info ):
-        """
-        Create a profile for a user, given the blockchain ID and profile
-        Return 200 on success
-        Return 500 on failure to create the user account
-        Return 503 on failure to replicate the profile (the caller should try POST_user_profile to re-try uploading)
-        """
-        upload_schema = {
-            'type': 'object',
-            'properties': {
-                'blockchain_id': {
-                    'type': 'string',
-                    'pattern': OP_NAME_PATTERN,
-                },
-                'profile': {
-                    'type': 'object'
-                },
-            },
-            'required': [
-                'name',
-                'profile'
-            ],
-            'additionalProperties': False
-        }
-
-        user_profile_json = self._read_json(schema=upload_schema)
-        if user_profile_json is None:
-            self._reply_json({'error': 'Invalid user ID or profile'}, status_code=401)
-            return
-
-        name = user_profile_json['blockchain_id']
-        user_profile = user_profile_json['profile']
-
-        # store profile
-        internal = self.server.get_internal_proxy()
-        profile_str = json.dumps(user_profile)
-        res = internal.cli_put_user_profile( name, profile_str, force_data=True )
-        if json_is_error(res):
-            self._reply_json({'error': 'Failed to store user profile: {}'.format(res['error'])}, status_code=503)
-            return
-
-        self._reply_json({'status': True})
-        return
-
-
-    def DELETE_user_profile( self, ses, path_info, user_id ):
-        """
-        Delete a profile.
-        Return 200 on success
-        Return 500 on failure to remove the local user information.
-        Return 503 to delete the profile.  The caller should try this method again until it succeeds.
-        """
-        internal = self.server.get_internal_proxy()
-        res = internal.cli_delete_profile( user_id, wallet_keys=self.server.wallet_keys )
-        if json_is_error(res):
-            self._reply_json({'error': 'Failed to delete user profile: {}'.format(res['error'])}, status_code=503)
-            return
-
-        self._reply_json({'status': True})
-        return
-
-
     def GET_user_profile( self, ses, path_info, user_id ):
         """
         Get a user profile.
@@ -1118,6 +1061,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply the profile on success
         Return 404 on failure to load
         """
+        
         internal = self.server.get_internal_proxy()
         resp = internal.cli_lookup( user_id )
         if json_is_error(resp):
@@ -1125,42 +1069,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         self._reply_json(resp['profile'])
-        return
-
-
-    def PATCH_user_profile( self, ses, path_info, user_id ):
-        """
-        Patch a user profile.
-        Reply 200 on success
-        Reply 401 if the data uploaded isn't valid JSON
-        Reply 403 on invalid user ID (must match session user ID)
-        Reply 500 on failure to save
-        """
-        upload_schema = {
-            'type': 'object',
-            'properties': {
-                'profile': {
-                    'type': 'object'
-                },
-            },
-            'required': [
-                'profile'
-            ],
-            'additionalProperties': False
-        }
-
-        profile_json = self._read_json(schema=upload_schema)
-        if profile_json is None:
-            self._reply_json({'error': 'Invalid profile'}, status_code=401)
-            return
-
-        internal = self.server.get_internal_proxy()
-        resp = internal.cli_put_profile( user_id, json.dumps(profile_json['profile']), wallet_keys=self.server.wallet_keys, force_data=True )
-        if json_is_error(resp):
-            self._reply_json({'error': resp['error']}, status_code=500)
-            return
-
-        self._reply_json(resp)
         return
 
 
@@ -1289,7 +1197,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Invalid root tombstone', 'errno': errno.EINVAL}, status_code=401)
 
         # delete 
-        res = data.delete_datastore_info( datastore_id, tombstone_info['datastore_tombstones'], tombstone_info['root_tombstones'], config_path=self.server.config_path )
+        res = data.delete_datastore_info( datastore_id, tombstone_info['datastore_tombstones'], tombstone_info['root_tombstones'], ses['app_public_keys'], config_path=self.server.config_path )
         if 'error' in res:
             return self._reply_json({'error': 'Failed to delete datastore info: {}'.format(res['error']), 'errno': res['errno']})
 
@@ -1327,8 +1235,15 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
     def GET_store_item( self, ses, path_info, datastore_id, inode_type ):
         """
-        Get a store item
-        Only works on the session's user ID
+        Get a store item.
+        Accepts as query string arguments:
+        * blockchain_id
+        * force (0, 1)
+        * idata (0, 1)
+        * extended (0, 1)
+        * device_ids (list)
+        * device_pubkeys (list)
+
         Reply 200 on succes, with the raw data (as application/octet-stream for files, and as application/json for directories and inodes)
         Reply 401 if no path is given
         Reply 403 on invalid user ID
@@ -1342,8 +1257,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         qs = path_info['qs_values']
-        pubkey = app.app_get_datastore_pubkey( ses )
-        device_ids = qs.get('device_ids', '')
         blockchain_id = qs.get('blockchain_id', '')
 
         # include extended information
@@ -1351,9 +1264,36 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         force = qs.get('force', '0')
         idata = qs.get('idata', '0')
 
-        # make sure we have device IDs 
-        if len(device_ids) == 0:
+        # make sure we have device IDs
+        device_ids = None
+        app_public_keys = None
+
+        # can be given in query string...
+        qs_device_ids = qs.get('device_ids', None)
+        qs_device_pubkeys = qs.get('device_pubkeys', None)
+        if qs_device_ids is None and qs_device_pubkeys is None:
+            # not given; check session 
+            if ses is None:
+                # TODO: use token file, pointed to by the blockchain ID
+                return self._reply_json({'error': 'Token file support is not implemented.  Please pass device_ids= and device_pubkeys= on the query string, or include a valid session.'}, status_code=401)
+
+            # load from token files
             device_ids = ','.join( [apk['device_id'] for apk in ses['app_public_keys']] )
+            app_public_keys = ','.join( [apk['public_key'] for apk in ses['app_public_keys']] )
+
+        else:
+            device_ids = [urllib.unquote(dev_id) for dev_id in qs_device_ids.split(',')]
+            app_public_keys = qs_device_pubkeys.split(',')
+
+            if len(device_ids) != len(app_public_keys):
+                return self._reply_json({'error': 'Invalid request: device_ids must have length equal to device_pubkeys'}, status_code=401)
+
+        # serialize
+        device_ids = ','.join(device_ids)
+        app_public_keys = ','.join(app_public_keys)
+
+        log.debug("Device IDs: {}".format(device_ids))
+        log.debug("Device pubkeys: {}".format(app_public_keys))
 
         internal = self.server.get_internal_proxy()
         path = qs.get('path', None)
@@ -1366,7 +1306,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if inode_type == 'files':
             if path is not None:
-                res = internal.cli_datastore_getfile(blockchain_id, datastore_id, path, include_extended, force, device_ids, config_path=self.server.config_path)
+                res = internal.cli_datastore_getfile(blockchain_id, datastore_id, path, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
                 if 'error' not in res:
                     # base64-encode the result, if we're returning extended information
@@ -1374,7 +1314,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         res['inode_info']['inode']['idata'] = base64.b64encode(res['inode_info']['inode']['idata'])
 
             else:
-                res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
                 if 'error' not in res and idata:
                     # base64-encode the result 
@@ -1383,15 +1323,15 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         elif inode_type == 'directories':
             if path is not None:
-                res = internal.cli_datastore_listdir(blockchain_id, datastore_id, path, include_extended, force, device_ids, config_path=self.server.config_path)
+                res = internal.cli_datastore_listdir(blockchain_id, datastore_id, path, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
             else:
-                res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
         else:
             if path is not None:
-                res = internal.cli_datastore_stat(blockchain_id, datastore_id, path, include_extended, force, device_ids, config_path=self.server.config_path)
+                res = internal.cli_datastore_stat(blockchain_id, datastore_id, path, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
             else:
-                res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
         if json_is_error(res):
             err = {'error': 'Failed to read {}: {}'.format(inode_type, res['error']), 'errno': res.get('errno', errno.EPERM)}
@@ -2145,17 +2085,19 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Return 500 on failure to write
         """
         conf_items = path_info['qs_values']
-        for conf_item_name, conf_item_value in conf_items.items():
-            field_name = str(conf_item_name)
-            field_value = str(conf_item_value)
-            
-            res = blockstack_config.write_config_field( self.server.config_path, section, field_name, field_value )
-            if not res:
-                log.debug("Failed to set {}.{} = {}".format(section, field_name, field_value))
-                return self._reply_json({'error': 'Failed to write config field'}, status=500)
+        try:
+            res = blockstack_config.write_config_section(self.server.config_path, section, conf_items)
+            assert res
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            log.error("Failed to set config section {}".format(section))
+            return self._reply_json({'error': 'Failed to write config section'}, status_code=500)
 
         return self._reply_json({'status': True})
 
+           
 
     def DELETE_node_config_section( self, ses, path_info, section ):
         """
@@ -2244,7 +2186,25 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def POST_node_driver_init(self, ses, path_info):
+    def GET_node_storage_driver_config( self, ses, path_info, driver_name ):
+        """
+        Get the system-wide storage driver config and routing information (i.e. index URLs) for one or more drivers.
+
+        Return 200 on success
+        Return 500 on failure to query
+        """
+        driver_config = {}
+        index_url = backend_drivers.index_settings_get_index_manifest_url(driver_name, self.server.config_path)
+
+        if index_url:
+            driver_config['index_url'] = index_url
+
+        ret[driver_name] = driver_config
+
+        return self._reply_json(ret)
+
+
+    def POST_node_storage_driver_config(self, ses, path_info, driver_name):
         """
         DANGEROUS
 
@@ -2259,7 +2219,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 500 if the driver fails to initialize
         """
         qs_values = path_info['qs_values']
-        driver_name = qs_values.get('driver', '')
         instantiate_index = qs_values.get('index', '0')
         force_instantiate_index = qs_values.get('force', '0')
 
@@ -2267,13 +2226,67 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Missing driver name'}, status_code=401)
 
         instantiate_index = (instantiate_index == '1')
-        force_instantiate_index = (force_instantiate_index == '1')
-        
+        force_instantiate_index = (force_instantiate_index == '1') 
+
         # TODO: don't load just anything...
         driver_mod = bsk_client.load_storage(driver_name)
         if driver_mod is None:
             return self._reply_json({'error': 'Invalid driver'}, status_code=401)
 
+        # patch config file 
+        # expect: { 'driver_config': { '$driver_name': { '$property': '$value', ...} } }
+        request_schema = {
+            'type': 'object',
+            'properties': {
+                'driver_config': {
+                    'type': 'object',
+                    'patternProperties': {
+                        '^{}$'.format(driver_name): {
+                            'type': 'object',
+                            'patternProperties': {
+                                '^[^ ]+$': {
+                                    'type': 'object',
+                                    'patternProperties': {
+                                        '.+' : {
+                                            'type': 'string'
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            'required': [
+                'driver_config',
+            ],
+        }
+
+        driver_request = self._read_json(request_schema)
+        if driver_request is not None:
+            log.debug("Updating driver config for {}".format(driver_name))
+            driver_config = driver_request['driver_config']
+
+            # may need to re-index
+            change = False
+            cur_index_urls = []
+            log.debug("Set up config and index driver {} system-wide".format(driver_name))
+
+            # write storage config 
+            try:
+                rc = blockstack_config.write_config_section(self.server.config_path, driver_name, driver_config)
+                assert rc
+            except Exception as e:
+                if BLOCKSTACK_DEBUG:
+                    log.exception(e)
+
+                log.error("Failed to write config file")
+                return self._reply_json({'error': 'Failed to update config file'}, status_code=500)
+
+        else:
+            log.debug("Will NOT update driver config for {}".format(driver_name))
+
+        # read it back
         conf = None
         try:
             conf = blockstack_config.read_config_file(config_path=self.server.config_path)
@@ -2295,8 +2308,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if not res:
             return self._reply_json({'error': 'Driver failed to initialize'}, status_code=500)
+        
+        # reply the index URL, if we have one
+        index_url = backend_drivers.index_settings_get_index_manifest_url(driver_name, self.server.config_path)
 
-        return self._reply_json({'status': True}, status_code=200)
+        ret = {
+            'status': True,
+        }
+        if index_url:
+            ret['index_url'] = index_url
+
+        return self._reply_json(ret)
     
 
     def GET_blockchain_ops( self, ses, path_info, blockchain_name, blockheight ):
@@ -3052,9 +3074,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/v1/node/drivers$'.format(URLENCODING_CLASS): {
+            r'^/v1/node/drivers/storage/({})$'.format(URLENCODING_CLASS): {
                 'routes': {
-                    'POST': self.POST_node_driver_init,
+                    'GET': self.GET_node_storage_driver_config,
+                    'POST': self.POST_node_storage_driver_config,
                 },
                 'whitelist': {
                     'POST': {
@@ -3095,51 +3118,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/v1/users$': {
-                'routes': {
-                    'POST': self.POST_users,
-                },
-                'whitelist': {
-                    'POST': {
-                        'name': 'user_admin',
-                        'desc': 'create new users',
-                        'auth_session': True,
-                        'auth_pass': True,
-                        'need_data_key': True,
-                    },
-                    'DELETE': {
-                        'name': 'user_admin',
-                        'desc': 'delete users',
-                        'auth_session': True,
-                        'auth_pass': True,
-                        'need_data_key': True,
-                    },
-                },
-            },
             r'^/v1/users/({})$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_user_profile,
-                    'PATCH': self.PATCH_user_profile,
-                    'DELETE': self.DELETE_user_profile,
                 },
                 'whitelist': {
                     'GET': {
                         'name': 'user_read',
                         'desc': 'read user profile',
-                        'auth_session': True,
-                        'auth_pass': True,
-                        'need_data_key': True,
-                    },
-                    'PATCH': {
-                        'name': 'user_write',
-                        'desc': 'update user profile',
-                        'auth_session': True,
-                        'auth_pass': True,
-                        'need_data_key': True,
-                    },
-                    'DELETE': {
-                        'name': 'user_admin',
-                        'desc': 'delete user profile',
                         'auth_session': True,
                         'auth_pass': True,
                         'need_data_key': True,
@@ -3985,7 +3971,7 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_datastore_delete(self, datastore_id, datastore_tombstones, root_tombstones):
+    def backend_datastore_delete(self, datastore_id, datastore_tombstones, root_tombstones, data_pubkeys):
         """
         Delete a datastore.
         Return {'status': True} on success
@@ -3994,7 +3980,7 @@ class BlockstackAPIEndpointClient(object):
         if is_api_server(self.config_dir):
             # directly do this 
             # do not do `rm -rf`, since we're the server
-            return data.delete_datastore_info(datastore_id, datastore_tombstones, root_tombstones, force=False, config_path=self.config_path )
+            return data.delete_datastore_info(datastore_id, datastore_tombstones, root_tombstones, data_pubkeys, force=False, config_path=self.config_path )
 
         else:
             res = self.check_version()
@@ -4011,7 +3997,7 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_datastore_lookup(self, blockchain_id, datastore, inode_type, path, data_pubkey, idata=True, force=False, extended=False):
+    def backend_datastore_lookup(self, blockchain_id, datastore, inode_type, path, data_pubkeys=None, idata=True, force=False, extended=False):
         """
         Look up a path and its inodes
         Return {'status': True, 'inode_info': ...} on success.
@@ -4021,7 +4007,7 @@ class BlockstackAPIEndpointClient(object):
         """
         if is_api_server(self.config_dir):
             # directly do the lookup
-            return data.inode_path_lookup(blockchain_id, datastore, path, data_pubkey, get_idata=idata, force=force, config_path=self.config_path )
+            return data.inode_path_lookup(blockchain_id, datastore, path, data_pubkeys, get_idata=idata, force=force, config_path=self.config_path )
 
         else:
             res = self.check_version()
@@ -4030,12 +4016,21 @@ class BlockstackAPIEndpointClient(object):
 
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
-            datastore_id = data.datastore_get_id(data_pubkey)
+            datastore_id = data.datastore_get_id(datastore['pubkey'])
             url = 'http://{}:{}/v1/stores/{}/{}?path={}&extended={}&force={}&idata={}'.format(
                     self.server, self.port, datastore_id, inode_type, urllib.quote(path), '1' if extended else '0', '1' if force else '0', '1' if idata else '0'
             )
             if blockchain_id:
                 url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
+            
+            if data_pubkeys is not None and len(data_pubkeys) > 0:
+                device_ids = [urllib.quote(dk['device_id']) for dk in data_pubkeys]
+                device_pubkeys = [dk['public_key'] for dk in data_pubkeys]
+
+                device_ids_str = urllib.quote( ','.join(device_ids))
+                device_pubkeys_str = urllib.quote( ','.join(device_pubkeys))
+
+                url += '&device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
 
             log.debug("lookup: {}".format(url))
             req = requests.get( url, timeout=self.timeout, headers=headers)
@@ -4073,7 +4068,7 @@ class BlockstackAPIEndpointClient(object):
             return res
 
 
-    def backend_datastore_getinode(self, blockchain_id, datastore, inode_uuid, data_pubkey, extended=False, force=False, idata=False ):
+    def backend_datastore_getinode(self, blockchain_id, datastore, inode_uuid, data_pubkeys=None, extended=False, force=False, idata=False ):
         """
         Get a raw inode
         Return {'status': True, 'inode_info': ...} on success
@@ -4081,7 +4076,7 @@ class BlockstackAPIEndpointClient(object):
         """
         if is_api_server(self.config_dir):
             # directly get the inode 
-            return data.get_inode_data(blockchain_id, data.datastore_get_id(datastore['pubkey']), inode_uuid, 0, datastore['pubkey'], datastore['drivers'], datastore['device_ids'], idata=idata, config_path=self.config_path )
+            return data.get_inode_data(blockchain_id, data.datastore_get_id(datastore['pubkey']), inode_uuid, 0, data_pubkeys, datastore['drivers'], datastore['device_ids'], idata=idata, config_path=self.config_path )
 
         else:
             res = self.check_version()
@@ -4090,12 +4085,21 @@ class BlockstackAPIEndpointClient(object):
 
             # ask the API server 
             headers = self.make_request_headers(need_session=True)
-            datastore_id = data.datastore_get_id(data_pubkey)
+            datastore_id = data.datastore_get_id(str(datastore['pubkey']))
             url = 'http://{}:{}/v1/stores/{}/inodes?inode={}&extended={}&force={}&idata={}'.format(
                     self.server, self.port, datastore_id, inode_uuid, '1' if extended else '0', '1' if force else '0', '1' if idata else '0'
             )
             if blockchain_id:
                 url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
+
+            if data_pubkeys is not None and len(data_pubkeys) > 0:
+                device_ids = [urllib.quote(dk['device_id']) for dk in data_pubkeys]
+                device_pubkeys = [dk['public_key'] for dk in data_pubkeys]
+
+                device_ids_str = urllib.quote( ','.join(device_ids))
+                device_pubkeys_str = urllib.quote( ','.join(device_pubkeys))
+
+                url += '&device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
 
             req = requests.get(url, timeout=self.timeout, headers=headers)
             resp = self.get_response(req)
