@@ -56,6 +56,7 @@ from ..operations import fees_update, fees_transfer, fees_revoke, fees_registrat
 
 from .safety import *
 from ..logger import get_logger
+from ..utxo import get_unspents
 
 import virtualchain
 from virtualchain.lib.ecdsalib import ecdsa_private_key
@@ -69,6 +70,7 @@ class UTXOWrapper(object):
     Also, cache unspents we fetch upstream.
     """
     def __init__(self, utxo_client):
+        assert not isinstance(utxo_client, UTXOWrapper)
         self.utxos = {}
         self.utxo_client = utxo_client
 
@@ -87,16 +89,16 @@ class UTXOWrapper(object):
         if self.utxos.has_key(addr):
             return self.utxos[addr]
 
-        unspents = self.utxo_client.get_unspents(addr)
+        unspents = get_unspents(addr, self.utxo_client)
         return unspents
 
 
     def __getattr__(self, name):
-        try:
-            return getattr(self, name)
-        except:
-            return getattr(self.utxo_client, name)
+        if name == 'get_unspents':
+            return self.get_unspents
 
+        else:
+            return getattr(self.utxo_client, name)
 
 
 def estimate_dust_fee( tx, fee_estimator ):
