@@ -21,6 +21,7 @@
 """
 
 import threading
+import traceback
 
 from ..constants import (
     TX_MIN_CONFIRMATIONS,
