@@ -281,6 +281,30 @@ def make_cheapest_announce( announce_hash, sender_address, utxo_client, payment_
     return make_cheapest_nameop('ANNOUNCE', utxo_client, sender_address, payment_utxos, announce_hash, sender_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
 
 
+def get_estimated_signed_subsidized(unsigned_tx, op_fees, max_fee, payment_privkey_info,
+                                    utxo_client, owner_privkey_info, tx_fee_per_byte):
+    # This code tries to generate a subsidized transaction with enough payment inputs
+    # to pay for the transaction *once* the transaction has been signed. Because it doesn't
+    # sign the inputs before adding them, it loops to try to add more inputs if the signatures
+    # change the tx_fee.
+    # Ultimately, a faster implementation would figure out how much each signature adds to the
+    # tx_fee without needing to continuously sign the tx, but for now, this is what we'll do.
+    MAX_RETRIES = 10
+    tx_fee_guess = 0
+    for _ in range(MAX_RETRIES):
+        subsidized_tx = tx_make_subsidizable( unsigned_tx, op_fees, max_fee, payment_privkey_info, 
+                                              utxo_client, tx_fee = tx_fee_guess )
+        assert subsidized_tx is not None
+
+        signed_subsidized_tx = sign_tx(subsidized_tx, owner_privkey_info)
+
+        tx_fee = (len(signed_subsidized_tx) * tx_fee_per_byte) / 2
+        if tx_fee <= tx_fee_guess:
+            log.debug("Estimated TX Length and fee per byte: {} + {}".format(len(signed_subsidized_tx) / 2, tx_fee_per_byte))
+            return signed_subsidized_tx
+        tx_fee_guess = tx_fee
+    raise Exception("Failed to cover the tx_fee in getting estimated subsidized tx")
+
 def estimate_preorder_tx_fee( name, name_cost, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, payment_utxos=None, payment_privkey_params=(None, None), config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a preorder.
@@ -410,7 +434,6 @@ def estimate_register_tx_fee( name, payment_privkey_info, owner_privkey_info, tx
 
     return tx_fee
 
-
 def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, 
                              owner_utxos=None, payment_utxos=None, config_path=CONFIG_PATH, include_dust=False ):
     """
@@ -443,11 +466,10 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_priv
             # unsigned_tx = register_tx( name, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee )
             unsigned_tx = make_cheapest_name_renewal(name, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos)
             assert unsigned_tx
-            
-            subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 * 10**14, payment_privkey_info, tx_fee_per_byte, utxo_client )
-            assert subsidized_tx is not None
 
-            signed_subsidized_tx = sign_tx(subsidized_tx, owner_privkey_info)
+            signed_subsidized_tx = get_estimated_signed_subsidized(unsigned_tx, fees_registration, 21 * 10**14,
+                                                                   payment_privkey_info, utxo_client,
+                                                                   owner_privkey_info, tx_fee_per_byte)
             assert signed_subsidized_tx
 
         except AssertionError as ae:
@@ -519,10 +541,9 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_privkey_info, tx_f
             unsigned_tx = make_cheapest_name_update(name, fake_zonefile_hash, fake_consensus_hash, owner_address, utxo_client, payment_address, payment_utxos )
             assert unsigned_tx
             
-            subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * 10**14, payment_privkey_info, tx_fee_per_byte, utxo_client )
-            assert subsidized_tx is not None
-            
-            signed_subsidized_tx = sign_tx(subsidized_tx, owner_privkey_info)
+            signed_subsidized_tx = get_estimated_signed_subsidized(
+                unsigned_tx, fees_update, 21 * 10**14, payment_privkey_info, utxo_client, owner_privkey_info,
+                tx_fee_per_byte)
             assert signed_subsidized_tx
 
         except AssertionError as ae:
@@ -603,10 +624,10 @@ def estimate_transfer_tx_fee( name, payment_privkey_info, owner_privkey_info, tx
             unsigned_tx = make_cheapest_name_transfer(name, fake_recipient_address, True, fake_consensus_hash, owner_address, utxo_client, payment_address, payment_utxos )
             assert unsigned_tx
 
-            subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * 10**14, payment_privkey_info, tx_fee_per_byte, utxo_client )
-            assert subsidized_tx is not None
-            
-            signed_subsidized_tx = sign_tx(subsidized_tx, owner_privkey_info)
+            signed_subsidized_tx = get_estimated_signed_subsidized(
+                unsigned_tx, fees_transfer, 21 * 10**14, payment_privkey_info, utxo_client, owner_privkey_info,
+                tx_fee_per_byte)
+
             assert signed_subsidized_tx
 
         except AssertionError as ae:
@@ -685,11 +706,10 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_privkey_info, tx_f
             # unsigned_tx = revoke_tx( name, owner_address, utxo_client, subsidize=True )
             unsigned_tx = make_cheapest_name_revoke(name, owner_address, utxo_client, payment_address, payment_utxos)
             assert unsigned_tx
-            
-            subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 * 10**14, payment_privkey_info, tx_fee_per_byte, utxo_client )
-            assert subsidized_tx is not None
-            
-            signed_subsidized_tx = sign_tx(subsidized_tx, owner_privkey_info)
+
+            signed_subsidized_tx = get_estimated_signed_subsidized(
+                unsigned_tx, fees_revoke, 21 * 10**14, payment_privkey_info, utxo_client, owner_privkey_info,
+                tx_fee_per_byte)
             assert signed_subsidized_tx
 
         except AssertionError as ae:
@@ -1374,8 +1394,11 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
 
         if tx_fee_per_byte is None:
             tx_fee_per_byte = res['tx_fee_per_byte']
+        tx_fee = res['tx_fee']
 
         assert tx_fee_per_byte, "Missing tx fee per byte"
+    else:
+        tx_fee = 0
 
     # get consensus hash
     if consensus_hash is None:
@@ -1417,7 +1440,9 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
         unsigned_tx = make_cheapest_name_update(fqu, zonefile_hash, consensus_hash, owner_address, utxo_client, payment_address, payment_utxos, subsidize=True )
         assert unsigned_tx
 
-        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * (10**6) * (10**8), payment_privkey_info, tx_fee_per_byte, utxo_client )
+        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * (10**6) * (10**8),
+                                              payment_privkey_info, utxo_client, tx_fee = tx_fee,
+                                              add_dust_fee = False )
         assert subsidized_tx
 
     except (AssertionError, ValueError) as ve:
@@ -1469,8 +1494,11 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
 
         if tx_fee_per_byte is None:
             tx_fee_per_byte = res['tx_fee_per_byte']
+        tx_fee = res['tx_fee']
 
         assert tx_fee_per_byte, "Missing tx fee"
+    else:
+        tx_fee = 0
 
     # get consensus hash
     if consensus_hash is None:
@@ -1510,7 +1538,9 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
         unsigned_tx = make_cheapest_name_transfer( fqu, transfer_address, keep_data, consensus_hash, owner_address, utxo_client, payment_address, payment_utxos, subsidize=True )
         assert unsigned_tx 
 
-        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * (10**6) * (10**8), payment_privkey_info, tx_fee_per_byte, utxo_client )
+        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * (10**6) * (10**8),
+                                              payment_privkey_info, utxo_client, tx_fee = tx_fee,
+                                              add_dust_fee = False )
         assert subsidized_tx is not None
     except (AssertionError, ValueError) as ve:
         if BLOCKSTACK_DEBUG:
@@ -1563,9 +1593,12 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
 
         if renewal_fee is None:
             renewal_fee = res['name_price']
+        tx_fee = res['tx_fee']
 
         assert tx_fee_per_byte, "Missing tx-per-byte fee"
         assert renewal_fee, "Missing renewal fee"
+    else:
+        tx_fee = 0
 
     # get inputs
     try:
@@ -1596,7 +1629,9 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
         unsigned_tx = make_cheapest_name_renewal(fqu, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos, subsidize=True )
         assert unsigned_tx
 
-        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 ** (10**6) * (10**8), payment_privkey_info, tx_fee_per_byte, utxo_client )
+        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 ** (10**6) * (10**8), 
+                                              payment_privkey_info, utxo_client, tx_fee = tx_fee,
+                                              add_dust_fee = False )
         assert subsidized_tx
     except (AssertionError, ValueError) as ve:
         if BLOCKSTACK_DEBUG:
@@ -1639,8 +1674,11 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
 
         if tx_fee_per_byte is None:
             tx_fee_per_byte = res['tx_fee_per_byte']
+        tx_fee = res['tx_fee']
 
         assert tx_fee_per_byte, "Missing tx fee"
+    else:
+        tx_fee = 0
 
     # get inputs
     try:
@@ -1668,7 +1706,9 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
         unsigned_tx = make_cheapest_name_revoke( fqu, owner_address, utxo_client, payment_address, payment_utxos, subsidize=True )
         assert unsigned_tx
 
-        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 ** (10**6) * (10**8), payment_privkey_info, tx_fee_per_byte, utxo_client )
+        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 ** (10**6) * (10**8),
+                                              payment_privkey_info, utxo_client, tx_fee = tx_fee,
+                                              add_dust_fee = False )
         assert subsidized_tx is not None
     except (AssertionError, ValueError) as ve:
         if BLOCKSTACK_DEBUG:
