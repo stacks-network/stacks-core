@@ -43,6 +43,7 @@ from ..proxy import (
     get_names_owned_by_address,
     get_name_cost,
 )
+from ..b40 import is_b40
 from ..config import get_logger, get_utxo_provider_client
 
 from .blockchain import (
