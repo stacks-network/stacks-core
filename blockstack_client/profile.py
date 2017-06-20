@@ -232,7 +232,7 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
         )
 
         if 'error' in user_zonefile:
-            return None, user_zonefile
+            return user_zonefile
 
         raw_zonefile = None
         if include_raw_zonefile:
