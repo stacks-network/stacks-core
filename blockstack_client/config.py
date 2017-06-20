@@ -715,7 +715,6 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
         parser.set('blockstack-client', 'port', str(BLOCKSTACKD_PORT))
         parser.set('blockstack-client', 'metadata', METADATA_DIRNAME)
         parser.set('blockstack-client', 'storage_drivers', BLOCKSTACK_DEFAULT_STORAGE_DRIVERS)
-        parser.set('blockstack-client', 'storage_drivers_local', 'disk')
         parser.set('blockstack-client', 'storage_drivers_required_write', BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE)
         parser.set('blockstack-client', 'advanced_mode', 'false')
         parser.set('blockstack-client', 'api_endpoint_port', str(DEFAULT_API_PORT))

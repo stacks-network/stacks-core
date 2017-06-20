@@ -2084,7 +2084,8 @@ def atlas_find_missing_zonefile_availability( peer_table=None, con=None, path=No
             missing += zfinfo
             bit_offset += len(zfinfo)
 
-        log.debug("Missing %s zonefiles" % len(missing))
+        if len(missing) > 0:
+            log.debug("Missing %s zonefiles" % len(missing))
 
     else:
         missing = missing_zonefile_info
@@ -2844,7 +2845,9 @@ class AtlasPeerCrawler( threading.Thread ):
         new_peers = self.canonical_new_peer_list( peer_queue )
  
         # only handle a few peers for now
-        log.debug("Add at most %s new peers out of %s options" % (num_new_peers, len(new_peers)))
+        if len(new_peers) > 0:
+            log.debug("Add at most %s new peers out of %s options" % (num_new_peers, len(new_peers)))
+            
         added, present, filtered = self.add_new_peers( num_new_peers, new_peers, current_peers, con=con, path=path, peer_table=peer_table )
         for peer in filtered:
             if peer in new_peers:
@@ -2907,8 +2910,8 @@ class AtlasPeerCrawler( threading.Thread ):
         * Remove at most 10 old, unresponsive peers from the peer DB.
         """
 
-        if os.environ.get("BLOCKSTACK_TEST", None) == "1":
-            log.debug("%s: %s step" % (self.my_hostport, self.__class__.__name__))
+        # if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+        #    log.debug("%s: %s step" % (self.my_hostport, self.__class__.__name__))
 
         if self.max_neighbors is None:
             self.max_neighbors = atlas_max_neighbors()
@@ -3019,8 +3022,8 @@ class AtlasHealthChecker( threading.Thread ):
         Return True on success
         Return False on error
         """
-        if os.environ.get("BLOCKSTACK_TEST", None) == "1":
-            log.debug("%s: %s step" % (self.hostport, self.__class__.__name__))
+        # if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+        #    log.debug("%s: %s step" % (self.hostport, self.__class__.__name__))
 
         if path is None:
             path = self.path
@@ -3228,8 +3231,8 @@ class AtlasZonefileCrawler( threading.Thread ):
         Return the number of zonefiles fetched
         """
 
-        if os.environ.get("BLOCKSTACK_TEST", None) == "1":
-            log.debug("%s: %s step" % (self.hostport, self.__class__.__name__))
+        # if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+        #    log.debug("%s: %s step" % (self.hostport, self.__class__.__name__))
 
         if path is None:
             path = self.path
@@ -3265,7 +3268,8 @@ class AtlasZonefileCrawler( threading.Thread ):
 
         zonefile_hashes = filter( lambda zfh: zfh is not None, zonefile_hashes )
 
-        log.debug("%s: missing %s unique zonefiles" % (self.hostport, len(zonefile_hashes)))
+        if len(zonefile_hashes) > 0:
+            log.debug("%s: missing %s unique zonefiles" % (self.hostport, len(zonefile_hashes)))
         
         while len(zonefile_hashes) > 0 and self.running:
 
@@ -3362,7 +3366,9 @@ class AtlasZonefileCrawler( threading.Thread ):
             if zfhash in zonefile_hashes:
                 zonefile_hashes.remove(zfhash)
 
-        log.debug("%s: fetched %s zonefiles" % (self.hostport, num_fetched))
+        if len(zonefile_hashes) > 0 or num_fetched > 0:
+            log.debug("%s: fetched %s zonefiles" % (self.hostport, num_fetched))
+
         return num_fetched
 
     

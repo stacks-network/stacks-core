@@ -974,7 +974,7 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, versi
         device_id = DEFAULT_DEVICE_ID
 
     if storage_drivers is None:
-        storage_drivers = get_write_storage_drivers(config_path)
+        storage_drivers = get_required_write_storage_drivers(config_path)
 
     result = {}
 
@@ -1147,7 +1147,7 @@ def delete_mutable(data_id, signed_data_tombstones, proxy=None, storage_drivers=
             fq_data_ids.append(fq_data_id)
    
     if storage_drivers is None:
-        storage_drivers = get_write_storage_drivers(config_path)
+        storage_drivers = get_required_write_storage_drivers(config_path)
 
     worst_rc = True
 
@@ -1330,6 +1330,8 @@ def get_datastore( blockchain_id, datastore_id, device_ids, config_path=CONFIG_P
     Get a datastore's information.
     This is a server-side method.
 
+    TODO: remove datastore_id and device_ids; resolve tokens file and go from there 
+
     Returns {'status': True, 'datastore': public datastore info}
     Returns {'error': ..., 'errno':...} on failure
     """
@@ -1337,7 +1339,7 @@ def get_datastore( blockchain_id, datastore_id, device_ids, config_path=CONFIG_P
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    nonlocal_storage_drivers = get_nonlocal_storage_drivers(config_path)
+    nonlocal_storage_drivers = get_read_public_storage_drivers(config_path)
 
     data_id = '{}.datastore'.format(datastore_id)
     datastore_info = get_mutable(data_id, device_ids, blockchain_id=blockchain_id, data_address=datastore_id, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
@@ -1549,6 +1551,8 @@ def put_datastore(api_client, datastore_info, datastore_privkey, config_path=CON
 def make_datastore_tombstones( datastore_id, device_ids ):
     """
     Make datastore tombstones
+
+    TODO: expand to include all devices (requires token file)
     """
     datastore_tombstones = make_mutable_data_tombstones( device_ids, '{}.datastore'.format(datastore_id) )
     return datastore_tombstones
@@ -1558,6 +1562,8 @@ def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, 
     """
     Delete a datastore.  Only do so if its root directory is empty (unless force=True).
     This is a server-side method.
+
+    TODO: expand to include all public keys and devices (requires token file)
 
     Return {'status': True} on success
     Return {'error': ..., 'errno': ...} on failure
@@ -1610,6 +1616,8 @@ def delete_datastore(api_client, datastore, datastore_privkey, data_pubkeys, con
 
     Client-side method
 
+    TODO: expand to use token file
+
     Return {'status': True} on success
     Return {'error': ..., 'errno': ...} on failure
     """
@@ -1636,6 +1644,8 @@ def get_inode_data(blockchain_id, datastore_id, inode_uuid, inode_type, drivers,
     equal or later version number than the one we have locally.
     
     This is a server-side method.
+
+    TODO: remove datastore_id; generate each per-device datastore ID from data_pubkeys
 
     Return {'status': True, 'inode': inode info, 'version': version, 'drivers': drivers} on success.
     * 'inode' will be raw file data if this is a file.  Otherwise, it will be a structured directory listing
@@ -1839,6 +1849,8 @@ def get_inode_header(blockchain_id, datastore_id, inode_uuid, drivers, data_pubk
     Fetch the header from *all* drivers.
 
     This is a server-side method.
+
+    TODO: remove datastore_id; expand to use all datastore IDs derived from data_pubkeys structure 
 
     Return {'status': True, 'inode': inode_full_info, 'version': version, 'drivers': drivers that were used} on success.
     Return {'error': ..., 'errno': ...} on error.
@@ -2098,6 +2110,8 @@ def put_inode_data( datastore, header_blob_str, header_blob_sig, idata_str, conf
 
     This is a server-side method.
 
+    TODO: datastore is ambiguous.  We need to be certain that datastore corresponds to the device-specific datastore record for the caller user
+
     Return {'status': True} on success
     Return {'error': ..., 'errno': ...} on failure
     """
@@ -2165,6 +2179,8 @@ def delete_inode_data( datastore, signed_tombstones, proxy=None, config_path=CON
     * signed_tombstones is a list of signed data tombstones for inode headers and idata.
 
     This is a server-side method.
+
+    TODO: datastore is ambiguous.  We need to be certain that it corresponds to the caller's device-specific datastore
 
     Return {'status': True} on success
     Return {'error': ...} on error
@@ -2250,6 +2266,8 @@ def inode_resolve_path( blockchain_id, datastore, path, data_pubkeys, get_idata=
     in the data path and fetch the data at the leaf.
 
     This is a server-side method.
+
+    TODO: use data_pubkeys, not datastore_id, for identifying the data owner's device-specific written information (requires token file support)
 
     Return the resolved path on success.  If the path was '/a/b/c', then return
     {
@@ -2521,6 +2539,8 @@ def datastore_inodes_check_consistent( datastore_id, inode_headers, creates, exi
     new as the local versioning information we have.  Also, if we expect to create an inode,
     verify that we haven't seen it yet.
 
+    NOTE: datastore_id refers to the device-specific datastore record
+
     This is the server-side method.
 
     Return {'status': True} if everything is in order
@@ -2575,6 +2595,8 @@ def datastore_inodes_verify( datastore_pubkey, inode_headers, inode_payloads, in
     """
     Given signed inodes, tombstones, and payloads, verify that they were all signed.
     
+    NOTE: datastore_pubkey corresponds to the device-specific public key of the caller
+
     Return {'status': True} if we're all good
     Return {'error': ..., 'errno': ...} on error
     """
@@ -2624,6 +2646,8 @@ def datastore_operation_check( datastore_pubkey, inode_headers, inode_payloads, 
     inode header is a current or later version
     
     This is a server-side method.
+
+    NOTE: datastore_pubkey corresponds to the device-specific datastore
 
     Return {'status': True} on success
     Return {'error': ..., 'errno': ...} on failure
@@ -2698,6 +2722,8 @@ def datastore_mkdir_make_inodes(api_client, datastore, data_path, data_pubkeys, 
     Do not actually carry out the mutations; only generate the requisite inodes.
 
     This is a client-side method.
+   
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
    
     Return {'status': True, 'inodes': [...], 'payloads': [...], 'tombstones': [...]} on success
     Return {'error': ..., 'errno': ...} on failure (optionally with 'stored_child': True set)
@@ -2808,6 +2834,8 @@ def datastore_mkdir(api_client, datastore, data_path, data_privkey_hex, data_pub
 
     This is a client-side method
 
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
+
     Return {'status': True} on success
     Return {'error': ...} on error
     """
@@ -2839,6 +2867,8 @@ def datastore_rmdir_make_inodes(api_client, datastore, data_path, data_pubkeys, 
     Remove a directory at the given path.  The directory must be empty.
     This does not actually carry out the operation, but instead generates the new parent directory inode blobs
     and generates tombstones for the directory to be deleted.  Both must be signed and acted upon.
+
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
 
     Return {'status': True, 'blobs': [...], 'payloads': [...], 'tombstones': [...]} on success
     Return {'error': ..., 'errno': ...} on error
@@ -2931,6 +2961,8 @@ def datastore_rmdir_put_inodes( datastore, data_path, header_blobs, payloads, si
 
     This is a server-side method.
 
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
+
     Return {'status': True} on success
     Return {'error': ..., 'errno': ...} on failure
     """
@@ -2962,6 +2994,8 @@ def datastore_rmdir(api_client, datastore, data_path, data_privkey_hex, data_pub
     * generate the directory inodes
     * sign them
     * replicate them.
+
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
 
     Return {'status': True} on success
     Return {'error': ...} on error
@@ -2995,6 +3029,9 @@ def datastore_rmdir(api_client, datastore, data_path, data_privkey_hex, data_pub
 def datastore_getfile(api_client, blockchain_id, datastore, data_path, data_pubkeys, extended=False, force=False, config_path=CONFIG_PATH ):
     """
     Get a file identified by a path.
+
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
+
     Return {'status': True, 'data': data} on success, if not extended
     Return {'status': True, 'inode_info': inode and data, 'path_info': path info}
     Return {'error': ..., 'errno': ...} on error
@@ -3037,6 +3074,9 @@ def datastore_getfile(api_client, blockchain_id, datastore, data_path, data_pubk
 def datastore_listdir(api_client, blockchain_id, datastore, data_path, data_pubkeys, extended=False, force=False, config_path=CONFIG_PATH ):
     """
     Get a file identified by a path.
+
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
+
     Return the {'status': True, 'data': directory information} on success, or if extended==True, then return {'status': True, 'inode_info': ..., 'path_info': ...}
     Return {'error': ..., 'errno': ...} on error
     """
@@ -3090,6 +3130,8 @@ def datastore_putfile_make_inodes(api_client, datastore, data_path, file_data_ha
     parent directory and the new file inode.
 
     file_data_hash needs to be a payload (netstring) hash, i.e., sha256( "{}:{},".format(len(payload), payload) )
+
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
 
     Return {'status': True, 'inodes': [...], 'payloads': [...], 'tombstones': [...]} on success
     Return {'error': ..., 'errno': ...} on error.
@@ -3174,6 +3216,8 @@ def datastore_putfile_put_inodes( datastore, data_path, header_blobs, payloads, 
     Given the header blobs and payloads from datastore_putfile_make_inodes() and client-given signatures and the actual file data,
     go and store them all.
 
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
+
     Order matters:
     header_blobs[0], payloads[0], and signatures[0] are for the parent directory
     header_blobs[1], payloads[1], and signatures[1] are for the child file.
@@ -3210,6 +3254,8 @@ def datastore_putfile(api_client, datastore, data_path, file_data_bin, data_priv
     * sign them
     * replicate them.
 
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
+
     Return {'status': True} on success
     Return {'error': ...} on error
     """
@@ -3245,6 +3291,8 @@ def datastore_deletefile_make_inodes(api_client, datastore, data_path, data_pubk
     """
     Delete a file from a directory.
     Don't actually delete the file; just generate a new parent inode and child tombstones.
+
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
 
     Return {'status': True, 'blobs': [...], 'tombstones': [...]} on success
     Return {'error': ..., 'errno': ...} on error
@@ -3320,6 +3368,8 @@ def datastore_deletefile_put_inodes( datastore, data_path, header_blobs, payload
     Given the header blobs and payloads from datastore_deletfile_make_inodes() and cliet-given signatures and signed tombstones,
     go and store them all.
 
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
+
     Order matters:
     header_blobs[0], payloads[0], and signatures[0] are for the parent
     tombstones[0] is for the child deleted
@@ -3354,6 +3404,8 @@ def datastore_deletefile(api_client, datastore, data_path, data_privkey_hex, dat
     * sign them
     * replicate them.
 
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
+
     Return {'status': True} on success
     Return {'error': ...} on error
     """
@@ -3386,6 +3438,9 @@ def datastore_deletefile(api_client, datastore, data_path, data_privkey_hex, dat
 def datastore_stat(api_client, blockchain_id, datastore, data_path, data_pubkeys, extended=False, force=False, config_path=CONFIG_PATH):
     """
     Stat a file or directory.  Get just the inode metadata.
+
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
+
     Return {'status': True, 'inode': inode info} on success
     Return {'error': ..., 'errno': ...} on error
     """
@@ -3419,6 +3474,9 @@ def datastore_stat(api_client, blockchain_id, datastore, data_path, data_pubkeys
 def datastore_getinode(api_client, blockchain_id, datastore, inode_uuid, extended=False, force=False, idata=False, config_path=CONFIG_PATH ):
     """
     Get an inode directly
+    
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
+
     Return {'status': True, 'inode': ...}
     Return {'error'': ..., 'errno': ...} on error
     """
@@ -3454,6 +3512,8 @@ def datastore_rmtree_make_inodes(api_client, datastore, data_path, data_pubkeys,
     the headers and tombstones for the caller to sign.
     
     Client-side method
+    
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
 
     Return {'status': True, 'headers': [...], 'payloads': [...], 'tombstones': [...]} on success
     Return {'error': ..., 'errno': ...} on error
@@ -3614,6 +3674,8 @@ def datastore_rmtree_put_inodes( datastore, header_blobs, payloads, signatures, 
 
     Server-side method
 
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
+
     Return {'status': True} on success
     Return {'error': ..., 'errno': ...} on failure
     """
@@ -3648,6 +3710,8 @@ def datastore_rmtree(api_client, datastore, data_path, data_privkey_hex, data_pu
     * generate the directory inodes and tombstones
     * sign them
     * replicate them.
+
+    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
 
     Return {'status': True} on success
     Return {'error': ...} on error
@@ -3687,28 +3751,23 @@ def datastore_rmtree(api_client, datastore, data_path, data_privkey_hex, data_pu
     return {'status': True}
 
 
-def get_nonlocal_storage_drivers(config_path, key='storage_drivers'):
+def get_read_public_storage_drivers(config_path):
     """
-    Get the list of non-local storage drivers.
-    That is, the ones which write to a globally-visible read-write medium.
+    Get the list of "read-public" storage drivers.
+    This is according to the driver classification.
+ 
+    Returns the list of driver names
     """
-
-    conf = get_config(config_path)
-    assert conf
-
-    storage_drivers = conf.get(key, '').split(',')
-    local_storage_drivers = conf.get('storage_drivers_local', '').split(',')
-
-    for drvr in local_storage_drivers:
-        if drvr in storage_drivers:
-            storage_drivers.remove(drvr)
-
-    return storage_drivers
+    
+    driver_classes = storage.classify_storage_drivers()
+    return driver_classes['read_public']
 
 
-def get_write_storage_drivers(config_path):
+def get_required_write_storage_drivers(config_path):
     """
     Get the list of storage drivers to write with.
+    This is according to the 'storage_drivers_required_write' setting
+
     Returns a list of driver names.
     """
     conf = get_config(config_path)
@@ -3731,6 +3790,8 @@ def get_write_storage_drivers(config_path):
 def get_read_storage_drivers(config_path):
     """
     Get the list of storage drivers to read with.
+    This is according to the 'storage_drivers' setting
+
     Returns a list of driver names.
     """
     conf = get_config(config_path)

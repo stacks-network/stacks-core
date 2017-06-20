@@ -4683,9 +4683,12 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
         print("No wallet found at {}".format(wallet_path), file=sys.stderr)
         return {'error': 'No wallet found at {}'.format(wallet_path)}
 
-    signal.signal(signal.SIGINT, local_api_exit_handler)
-    signal.signal(signal.SIGQUIT, local_api_exit_handler)
-    signal.signal(signal.SIGTERM, local_api_exit_handler)
+    if not BLOCKSTACK_TEST:
+        signal.signal(signal.SIGINT, local_api_exit_handler)
+        signal.signal(signal.SIGQUIT, local_api_exit_handler)
+        signal.signal(signal.SIGTERM, local_api_exit_handler)
+    else:
+        log.warning("Not setting signal handlers since we are in test mode")
 
     wallet = load_wallet(
         password=password, config_path=config_path,

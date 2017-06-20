@@ -1999,6 +1999,9 @@ def rpc_stop():
         rpc_server.join()
         log.debug("RPC joined")
 
+    else:
+        log.debug("RPC already joined")
+
 
 def get_storage_queue_path():
    """

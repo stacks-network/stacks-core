@@ -152,30 +152,7 @@ def get_tx_fee( tx_hex, config_path=CONFIG_PATH ):
 
     # need /2, since tx_hex is a string of hex characters (i.e. 2x as long as the number of bytes)
     return fee_per_byte * len(tx_hex)/2
-    
-    '''
-    bitcoind_client = get_bitcoind_client(config_path=config_path)
-    try:
-        # try to confirm in 2-3 blocks
-        fee = bitcoind_client.estimatefee(2)
-        if fee < 0:
-            # if we're testing, then use our own fee
-            if BLOCKSTACK_TEST or os.environ.get("BLOCKSTACK_TESTNET", None) == "1":
-                fee = 5500.0 / 10**8
-
-            else:
-                log.error("Failed to estimate tx fee")
-                return None
-
-        fee = float(fee) 
-
-        # / 2048, since tx_hex is a hex string (otherwise / 1024, since it's BTC per kb)
-        return int(round((fee * (len(tx_hex) / 2048.0)) * 10**8))
-    except Exception, e:
-        log.exception(e)
-        log.debug("Failed to estimate fee")
-        return None
-    '''
+  
 
 def is_tx_accepted( tx_hash, num_needed=TX_CONFIRMATIONS_NEEDED, config_path=CONFIG_PATH ):
     """
