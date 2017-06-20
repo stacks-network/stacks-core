@@ -413,7 +413,7 @@ def connect_utxo_provider( utxo_opts, min_confirmations=TX_MIN_CONFIRMATIONS ):
        raise Exception("Unrecognized UTXO provider '%s'" % utxo_provider )
 
 
-def get_unspents(address, blockchain_client):
+def get_unspents(address, blockchain_client, use_builtin=True):
     """
     Gets the unspent outputs for a given address.
     Returns [{
@@ -444,7 +444,7 @@ def get_unspents(address, blockchain_client):
         return blockstack_utxo_get_unspents(address, blockchain_client)
 
     # default
-    elif hasattr(blockchain_client, "get_unspents"):
+    elif use_builtin and hasattr(blockchain_client, "get_unspents"):
         return blockchain_client.get_unspents( address )
     else:
         raise Exception('A blockchain client object is required')
