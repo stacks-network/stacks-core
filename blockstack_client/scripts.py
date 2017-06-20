@@ -261,7 +261,8 @@ def tx_make_subsidization_output(payer_utxo_inputs, payer_address, op_fee, dust_
     }
 
 
-def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_client, tx_fee=0, subsidy_address=None):
+def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_client, tx_fee=0,
+                         subsidy_address=None, add_dust_fee=True):
     """
     Given an unsigned serialized transaction from Blockstack, make it into a subsidized transaction
     for the client to go sign off on.
@@ -286,7 +287,10 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
     payer_utxo_inputs = subsidy_info['payer_utxos']
     payer_address = subsidy_info['payer_address']
     op_fee = subsidy_info['op_fee']
-    dust_fee = subsidy_info['dust_fee']
+    if add_dust_fee:
+        dust_fee = subsidy_info['dust_fee']
+    else:
+        dust_fee = 0 # NOTE: caller needed to include this in the passed tx_fee!
     tx_fee = subsidy_info['tx_fee']
     tx_inputs = subsidy_info['ins']
 

@@ -1440,8 +1440,9 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
         unsigned_tx = make_cheapest_name_update(fqu, zonefile_hash, consensus_hash, owner_address, utxo_client, payment_address, payment_utxos, subsidize=True )
         assert unsigned_tx
 
-        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * (10**6) * (10**8), 
-                                              payment_privkey_info, utxo_client, tx_fee = tx_fee )
+        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * (10**6) * (10**8),
+                                              payment_privkey_info, utxo_client, tx_fee = tx_fee,
+                                              add_dust_fee = False )
         assert subsidized_tx
 
     except (AssertionError, ValueError) as ve:
@@ -1538,7 +1539,8 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
         assert unsigned_tx 
 
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * (10**6) * (10**8),
-                                              payment_privkey_info, utxo_client, tx_fee = tx_fee )
+                                              payment_privkey_info, utxo_client, tx_fee = tx_fee,
+                                              add_dust_fee = False )
         assert subsidized_tx is not None
     except (AssertionError, ValueError) as ve:
         if BLOCKSTACK_DEBUG:
@@ -1628,7 +1630,8 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
         assert unsigned_tx
 
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 ** (10**6) * (10**8), 
-                                              payment_privkey_info, utxo_client, tx_fee = tx_fee )
+                                              payment_privkey_info, utxo_client, tx_fee = tx_fee,
+                                              add_dust_fee = False )
         assert subsidized_tx
     except (AssertionError, ValueError) as ve:
         if BLOCKSTACK_DEBUG:
@@ -1703,8 +1706,9 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
         unsigned_tx = make_cheapest_name_revoke( fqu, owner_address, utxo_client, payment_address, payment_utxos, subsidize=True )
         assert unsigned_tx
 
-        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 ** (10**6) * (10**8), 
-                                              payment_privkey_info, utxo_client, tx_fee = tx_fee )
+        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 ** (10**6) * (10**8),
+                                              payment_privkey_info, utxo_client, tx_fee = tx_fee,
+                                              add_dust_fee = False )
         assert subsidized_tx is not None
     except (AssertionError, ValueError) as ve:
         if BLOCKSTACK_DEBUG:
