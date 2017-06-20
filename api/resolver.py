@@ -222,8 +222,10 @@ def get_profile(fqa, refresh=False):
 
     if dht_cache_reply is None:
         try:
-            profile, zonefile = blockstack_client.profile.get_profile(
-                fqa, use_legacy = True)
+            res = blockstack_client.profile.get_profile(fqa, use_legacy = True)
+            if 'error' in res:
+                log.error('Error from profile.get_profile: {}'.format(res['error']))
+                return res
         except:
             abort(500, "Connection to blockstack-server %s:%s timed out" % 
                   (BLOCKSTACKD_IP, BLOCKSTACKD_PORT))
