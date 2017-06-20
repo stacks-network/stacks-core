@@ -298,6 +298,7 @@ def get_estimated_signed_subsidized(unsigned_tx, op_fees, max_fee, payment_privk
 
         tx_fee = (len(signed_subsidized_tx) * tx_fee_per_byte) / 2
         if tx_fee <= tx_fee_guess:
+            log.debug("Estimated TX Length and fee per byte: {} + {}".format(len(signed_subsidized_tx) / 2, tx_fee_per_byte))
             return signed_subsidized_tx
         tx_fee_guess = tx_fee
     raise Exception("Failed to cover the tx_fee in getting estimated subsidized tx")
@@ -1438,7 +1439,7 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
         assert unsigned_tx
 
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * (10**6) * (10**8), 
-                                              payment_privkey_info, tx_fee_per_byte, utxo_client, tx_fee = tx_fee )
+                                              payment_privkey_info, utxo_client, tx_fee = tx_fee )
         assert subsidized_tx
 
     except (AssertionError, ValueError) as ve:
@@ -1535,7 +1536,7 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
         assert unsigned_tx 
 
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * (10**6) * (10**8),
-                                              payment_privkey_info, tx_fee_per_byte, utxo_client, tx_fee = tx_fee )
+                                              payment_privkey_info, utxo_client, tx_fee = tx_fee )
         assert subsidized_tx is not None
     except (AssertionError, ValueError) as ve:
         if BLOCKSTACK_DEBUG:
@@ -1625,7 +1626,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
         assert unsigned_tx
 
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 ** (10**6) * (10**8), 
-                                              payment_privkey_info, tx_fee_per_byte, utxo_client, tx_fee = tx_fee )
+                                              payment_privkey_info, utxo_client, tx_fee = tx_fee )
         assert subsidized_tx
     except (AssertionError, ValueError) as ve:
         if BLOCKSTACK_DEBUG:
