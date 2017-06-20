@@ -226,7 +226,10 @@ def get_profile(fqa, refresh=False):
             if 'error' in res:
                 log.error('Error from profile.get_profile: {}'.format(res['error']))
                 return res
-        except:
+            profile = res['profile']
+            zonefile = res['zonefile']
+        except Exception as e:
+            log.exception(e)
             abort(500, "Connection to blockstack-server %s:%s timed out" % 
                   (BLOCKSTACKD_IP, BLOCKSTACKD_PORT))
 

@@ -61,12 +61,12 @@ class ResolverTestCase(unittest.TestCase):
         usernames = ['ben']
         for username in usernames:
             reply = self.get_profile(username)[username]
-            self.assertIn('error', reply, msg="resolver didn't give error on invalid profile")
+            self.assertIn('error', reply, msg="resolver didn't give error on invalid profile: {}".format(reply))
 
     def test_invalid_profiles(self):
         """ Check unregistered usernames
         """
         usernames = ['gfegef7ev79efv9ev23t4fv']
         for username in usernames:
-            reply = self.get_profile(username)
-            self.assertIn('error', reply, msg="resolver didn't give error on unregistered profile")
+            reply = self.get_profile(username)[username]
+            self.assertIn('error', reply, msg="resolver didn't give error on unregistered profile: {}".format(reply))
