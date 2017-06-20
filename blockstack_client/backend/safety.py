@@ -20,8 +20,6 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os
-import sys 
 import threading
 
 from ..constants import (
@@ -48,8 +46,8 @@ from ..proxy import (
 from ..config import get_logger, get_utxo_provider_client
 
 from .blockchain import (
-    get_balance, is_address_usable, get_utxos,
-    can_receive_name, get_tx_confirmations, get_tx_fee
+    get_balance, is_address_usable,
+    can_receive_name, get_tx_fee
 )
 
 from ..scripts import UTXOException, is_name_valid
@@ -246,10 +244,6 @@ def operation_sanity_checks(fqu, operations, scatter_gather, payment_privkey_inf
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-
-    config_dir = os.path.dirname(config_path)
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
@@ -430,8 +424,6 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
     # fee estimation: cost of name + cost of preorder transaction +
     # cost of registration transaction + cost of update transaction + cost of transfer transaction
 
-    reply = {}
-    
     if owner_address:
         owner_address = str(owner_address)
     if payment_address:
@@ -672,7 +664,6 @@ def get_operation_fees(name, operations, scatter_gather, payment_privkey_info, o
             return {'error': 'Could not get name price'}
 
         try:
-            owner_privkey_params = get_privkey_info_params(owner_privkey_info)
             utxo_client = get_utxo_provider_client(config_path=config_path)
 
             insufficient_funds = False
@@ -831,7 +822,6 @@ def check_operations( fqu, operations, owner_privkey_info, payment_privkey_info,
 
     log.debug("Check {} on {}: test {}".format(', '.join(operations), fqu, ', '.join(required_checks)))
 
-    owner_address = get_privkey_info_address(owner_privkey_info)
     payment_address = get_privkey_info_address(payment_privkey_info)
 
     sg = ScatterGather()
