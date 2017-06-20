@@ -106,7 +106,7 @@ def test_alphanumeric(query):
 	"""
 
 	import re
-	valid = re.match('^(\w+(\s)*\w*)+$', query) is not None
+	valid = re.match(r'^\w+[\s\w]*$', query) is not None
 
 	return True
 
