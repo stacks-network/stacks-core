@@ -24,9 +24,27 @@ import os
 import sys 
 import threading
 
-from ..constants import *
-from ..keys import *
-from ..proxy import *
+from ..constants import (
+    TX_MIN_CONFIRMATIONS,
+    CONFIG_PATH,
+    APPROX_PREORDER_TX_LEN,
+    APPROX_REGISTER_TX_LEN,
+    APPROX_UPDATE_TX_LEN,
+    APPROX_TRANSFER_TX_LEN,
+    APPROX_REVOKE_TX_LEN,
+    APPROX_RENEWAL_TX_LEN,
+    BLOCKSTACK_DEBUG,
+)
+from ..keys import (
+    get_privkey_info_address,
+    get_privkey_info_params,
+)
+from ..proxy import (
+    get_default_proxy,
+    is_name_registered,
+    get_names_owned_by_address,
+    get_name_cost,
+)
 from ..config import get_logger, get_utxo_provider_client
 
 from .blockchain import (
