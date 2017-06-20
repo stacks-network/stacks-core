@@ -24,28 +24,46 @@
 # test disk driver, meant to be used alongside the disk driver to test multi-storage-system support
 
 import os
-import sys 
+import sys
+import json
 import traceback
 import logging
-from common import get_logger, DEBUG
+from common import *
 from ConfigParser import SafeConfigParser
 
 log = get_logger("blockstack-storage-driver-test")
 
-DISK_ROOT = "/tmp/blockstack-integration-test-storage"
-MUTABLE_STORAGE_ROOT = None
-IMMUTABLE_STORAGE_ROOT = None
+DEFAULT_DISK_ROOT = "/tmp/blockstack-integration-test-storage"
+DEFAULT_INDEX_DIRNAME = '/index'
+
+DISK_ROOT = None
+INDEX_DIRNAME = '/index'
+
+INDEXED_STORAGE = False
+DVCONF = None
 
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
-def storage_init(conf):
+def env_setup():
+   """
+   Set globals based on environment
+   """
+   global DISK_ROOT, INDEX_DIRNAME, INDEXED_STORAGE, DVCONF, CONFIG_PATH
+   
+   INDEXED_STORAGE = (os.environ.get("TEST_BLOCKSTACK_TEST_INDEXED_STORAGE") == "1")
+   DISK_ROOT = os.environ.get("TEST_BLOCKSTACK_TEST_DISK_ROOT", DEFAULT_DISK_ROOT)
+
+   DVCONF = driver_config("test", CONFIG_PATH, test_get_chunk, test_put_chunk, test_delete_chunk, driver_info={}, index_stem=INDEX_DIRNAME, compress=True)
+
+
+def storage_init(conf, index=False, force_index=False):
    """
    Local disk implementation of the storage_init API call.
    Do one-time global setup--i.e. make directories.
    Return True on success
    Return False on error 
    """
-   global DISK_ROOT, MUTABLE_STORAGE_ROOT, IMMUTABLE_STORAGE_ROOT
+   global DISK_ROOT, INDEXED_STORAGE, CONFIG_PATH, DVCONF
 
    config_path = conf['path']
    if os.path.exists( config_path ):
@@ -63,37 +81,117 @@ def storage_init(conf):
            if parser.has_option('test-storage', 'root'):
                DISK_ROOT = parser.get('disk', 'root')
 
-           if parser.has_option('test-storage', 'immutable'):
-               IMMUTABLE_STORAGE_ROOT = parser.get('disk', 'immutable')
-
-           if parser.has_option('test-storage', 'mutable'):
-               MUTABLE_STORAGE_ROOT = parser.get('disk', 'mutable')
-
-   if MUTABLE_STORAGE_ROOT is None:
-       MUTABLE_STORAGE_ROOT = os.path.join(DISK_ROOT, 'mutable')
-
-   if IMMUTABLE_STORAGE_ROOT is None:
-       IMMUTABLE_STORAGE_ROOT = os.path.join(DISK_ROOT, 'immutable')
+   if DISK_ROOT is None:
+       DISK_ROOT = DEFAULT_DISK_ROOT
 
    if not os.path.isdir( DISK_ROOT ):
-      try:
-          os.makedirs( DISK_ROOT )
-      except:
-          pass
+       os.makedirs( DISK_ROOT )
    
-   if not os.path.isdir( MUTABLE_STORAGE_ROOT ):
-      try:
-          os.makedirs( MUTABLE_STORAGE_ROOT )
-      except:
-          pass
-    
-   if not os.path.isdir( IMMUTABLE_STORAGE_ROOT ):
-      try:
-          os.makedirs( IMMUTABLE_STORAGE_ROOT )
-      except:
-          pass
-   
+   CONFIG_PATH = config_path
+   DVCONF = driver_config("test", config_path, test_get_chunk, test_put_chunk, test_delete_chunk, driver_info={}, index_stem=INDEX_DIRNAME, compress=True)
+
+   if index:
+       url = index_setup(DVCONF, force=force_index)
+       if url is None:
+           log.error("Failed to set up index")
+           return False
+
    return True 
+
+
+def test_put_chunk( dvconf, chunk_buf, path ):
+    """
+    Driver-level call to put data.
+
+    Returns the URL to the data stored on success.
+    Returns None on error
+    """
+    env_setup()
+    
+    diskpath = os.path.join(DISK_ROOT, path.strip('/'))
+    dirname = os.path.dirname(diskpath)
+
+    if not os.path.exists(dirname):
+        try:
+            os.makedirs(dirname, 0700)
+        except Exception, e:
+            if DEBUG:
+                log.exception(e)
+            return None
+
+    try:
+        with open( diskpath, "w" ) as f:
+           f.write( chunk_buf )
+
+        if DEBUG:
+           log.debug("Stored to '%s'" % diskpath)
+
+    except Exception, e:
+        if DEBUG:
+           log.exception(e)
+
+        return None
+   
+    return 'test://{}?diskroot={}'.format(path, DISK_ROOT)
+
+
+def test_delete_chunk(dvconf, path):
+    """
+    Delete a chunk from storage
+    Return True on success
+    Return False on error
+    """
+   
+    env_setup()
+    
+    path = os.path.join(DISK_ROOT, path.strip('/'))
+
+    try:
+       os.unlink( path )
+    except Exception, e:
+       pass 
+
+    return True
+
+
+def test_get_chunk(dvconf, path):
+    """
+    Get a chunk via storage
+    Return the data on success
+    Return None on error
+    """
+
+    env_setup()
+
+    parts = path.split('?')
+    disk_root = None
+
+    if len(parts) == 2:
+        disk_root = parts[1].split('=')[1]
+        path = parts[0]
+
+    else:
+        disk_root = DISK_ROOT
+
+    log.debug("Get chunk {} from {}".format(path, disk_root))
+    path = os.path.join(disk_root, path.strip('/'))
+     
+    data = None 
+    if not os.path.exists(path):
+        log.debug("No such file or directory: '%s'" % path)
+        return None
+   
+    try:
+       with open( path, "r" ) as f:
+           data = f.read() 
+         
+       return data
+   
+    except Exception, e:
+       if DEBUG:
+          traceback.print_exc()
+
+       return None
 
 
 def handles_url( url ):
@@ -104,216 +202,165 @@ def handles_url( url ):
 
 
 def make_mutable_url( data_id ):
-   """
-   Local disk implementation of the make_mutable_url API call.
-   Given the ID of the data, generate a URL that 
-   can be used to route reads and writes to the data.
+    """
+    Local disk implementation of the make_mutable_url API call.
+    Given the ID of the data, generate a URL that 
+    can be used to route reads and writes to the data.
    
-   Return a string.
-   """
+    Return a string.
+    """
    
-   global MUTABLE_STORAGE_ROOT
+    env_setup()
    
-   # replace all /'s with \x2f's 
-   data_id_noslash = data_id.replace( "/", r"\x2f" )
+    # replace all /'s with -2f
+    data_id_noslash = data_id.replace( "/", "-2f" )
    
-   return "test://%s/%s" % (MUTABLE_STORAGE_ROOT, data_id_noslash)
+    return "test:///mutable/{}".format(data_id_noslash)
 
 
 def get_immutable_handler( key, **kw ):
-   """
-   Local disk implementation of the get_immutable_handler API call.
-   Given the hash of the data, return the data.
-   Return None if not found.
-   """
+    """
+    Local disk implementation of the get_immutable_handler API call.
+    Given the hash of the data, return the data.
+    Return None if not found.
+    """
    
-   global IMMUTABLE_STORAGE_ROOT
+    env_setup()
+
+    index_manifest_url = kw.get('index_manifest_url')
+    blockchain_id = kw.get('fqu')
   
-   if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
-       return False
+    if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
+        return False
 
-   data = None 
-   path = os.path.join( IMMUTABLE_STORAGE_ROOT, key )
+    key = key.replace('/', '-2f')
+    path = '/immutable/{}'.format(key)
 
-   if not os.path.exists(path):
-       if DEBUG:
-           log.debug("No such file or directory: '%s'" % path)
-       
-       return None
-   
-   try:
-      with open( path, "r" ) as f:
-         data = f.read() 
-         
-      return data
-   
-   except Exception, e:
-      if DEBUG:
-         traceback.print_exc()
-      return None
+    if INDEXED_STORAGE:
+        return get_indexed_data(DVCONF, blockchain_id, path, index_manifest_url=index_manifest_url)
+
+    else:
+        return test_get_chunk(DVCONF, path)
 
 
 def get_mutable_handler( url, **kw ):
-   """
-   Local disk implementation of the get_mutable_handler API call.
-   Given a route URL to data, return the data itself.
-   Return the data if found.
-   Return None if not.
-   """
-   
-   if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
-       return None
+    """
+    Local disk implementation of the get_mutable_handler API call.
+    Given a route URL to data, return the data itself.
+    Return the data if found.
+    Return None if not.
+    """
+    
+    env_setup()
 
-   if not url.startswith( "test://" ):
-      # invalid
-      return None 
-   
-   # get path from URL 
-   path = url[ len("test://"): ]
-   
-   if not os.path.exists(path):
-       if DEBUG:
-           log.debug("No such file or directory: '%s'" % path)
+    index_manifest_url = kw.get('index_manifest_url')
+    blockchain_id = kw.get('fqu')
+  
+    if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
+        return None
 
-       return None
+    if not url.startswith("test://"):
+        # invalid
+        return None
 
-   try:
-      with open( path, "r" ) as f:
-         data = f.read()
-      
-      return data 
-   
-   except Exception, e:
-      if DEBUG:
-         traceback.print_exc()
-      return None 
+    path = url[len("test://"):]
+
+    if INDEXED_STORAGE:
+        return get_indexed_data(DVCONF, blockchain_id, path, index_manifest_url=index_manifest_url)
+
+    else:
+        return test_get_chunk(DVCONF, path)
 
 
 def put_immutable_handler( key, data, txid, **kw ):
-   """
-   Local disk implmentation of the put_immutable_handler API call.
-   Given the hash of the data (key), the serialized data itself,
-   and the transaction ID in the blockchain that contains the data's hash,
-   put the data into the storage system.
-   Return True on success; False on failure.
-   """
+    """
+    Local disk implmentation of the put_immutable_handler API call.
+    Given the hash of the data (key), the serialized data itself,
+    and the transaction ID in the blockchain that contains the data's hash,
+    put the data into the storage system.
+    Return True on success; False on failure.
+    """
    
-   global IMMUTABLE_STORAGE_ROOT, DEBUG
-   
-   if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
-       return False
+    env_setup()
 
-   path = os.path.join( IMMUTABLE_STORAGE_ROOT, key )
-   pathdir = os.path.dirname(path)
+    if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
+        return False
+    
+    key = key.replace('/', '-2f')
+    path = '/immutable/{}'.format(key)
 
-   if not os.path.exists(pathdir):
-       try:
-           os.makedirs(path_dir, 0700)
-       except Exception, e:
-           if DEBUG:
-               log.exception(e)
-           return False
-   
-   try:
-      with open( path, "w") as f:
-         f.write( data )
-         f.flush()
-
-      if DEBUG:
-         log.debug("Stored to '%s'" % path)
-   except Exception, e:
-      if DEBUG:
-         traceback.print_exc()
-      return False 
-   
-   return True 
+    if INDEXED_STORAGE:
+        return put_indexed_data(DVCONF, path, data)
+    else:
+        return test_put_chunk(DVCONF, data, path)
 
 
 def put_mutable_handler( data_id, data_bin, **kw ):
-   """
-   Local disk implementation of the put_mutable_handler API call.
-   Return True on success; False on failure.
-   """
-   
-   global MUTABLE_STORAGE_ROOT, DEBUG
-   
-   if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
-       return False
+    """
+    Local disk implementation of the put_mutable_handler API call.
+    Return True on success; False on failure.
+    """
+  
+    env_setup()
 
-   # replace all /'s with \x2f's
-   data_id_noslash = data_id.replace( "/", r"\x2f" )
-   path = os.path.join( MUTABLE_STORAGE_ROOT, data_id_noslash )
-   pathdir = os.path.dirname(path)
+    if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
+        return False
+    
+    data_id = data_id.replace('/', '-2f')
+    path = '/mutable/{}'.format(data_id)
 
-   if not os.path.exists(pathdir):
-       try:
-           os.makedirs(path_dir, 0700)
-       except Exception, e:
-           if DEBUG:
-               log.exception(e)
-           return False
-
-   try:
-      with open( path, "w" ) as f:
-         f.write( data_bin )
-         f.flush()
-
-      if DEBUG:
-         log.debug("Stored to '%s'" % path)
-
-   except Exception, e:
-       if DEBUG:
-           log.exception(e)
-       return False
-   
-   return True 
+    if INDEXED_STORAGE:
+        return put_indexed_data(DVCONF, path, data_bin)
+    else:
+        return test_put_chunk(DVCONF, data_bin, path)
 
 
 def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
-   """
-   Local disk implementation of the delete_immutable_handler API call.
-   Given the hash of the data and transaction ID of the update
-   that deleted the data, remove data from storage.
-   Return True on success; False if not.
-   """
-   
-   global IMMUTABLE_STORAGE_ROOT
-   
-   if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
-       return False
+    """
+    Local disk implementation of the delete_immutable_handler API call.
+    Given the hash of the data and transaction ID of the update
+    that deleted the data, remove data from storage.
+    Return True on success; False if not.
+    """
+    
+    env_setup()
 
-   path = os.path.join( IMMUTABLE_STORAGE_ROOT, key )
-   
-   try:
-      os.unlink( path )
-   except Exception, e:
-      pass
-   
-   return True 
+    if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
+        return False
+
+    key = key.replace('/', '-2f')
+    path = '/immutable/{}'.format(key)
+
+    if INDEXED_STORAGE:
+        return delete_indexed_data(DVCONF, path)
+    else:
+        return test_delete_chunk(DVCONF, path)
 
 
 def delete_mutable_handler( data_id, signature, **kw ):
-   """
-   Local disk implementation of the delete_mutable_handler API call.
-   Given the unchanging data ID for the data and the writer's
-   signature over the hash of the data_id, remove data from storage.
-   Return True on success; False if not.
-   """
+    """
+    Local disk implementation of the delete_mutable_handler API call.
+    Given the unchanging data ID for the data and the writer's
+    signature over the hash of the data_id, remove data from storage.
+    Return True on success; False if not.
+    """
    
-   global MUTABLE_STORAGE_ROOT
-   
-   if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
-       return False
+    env_setup()
 
-   data_id_noslash = data_id.replace( "/", r"\x2f" )
-   path = os.path.join( MUTABLE_STORAGE_ROOT, data_id_noslash )
-   
-   try:
-      os.unlink( path )
-   except Exception, e:
-      pass 
-   
-   return True
+    if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
+        return False
+
+    data_id = data_id.replace('/', '-2f')
+    path = '/mutable/{}'.format(data_id)
+
+    if INDEXED_STORAGE:
+        return delete_indexed_data(DVCONF, path)
+    else:
+        return test_delete_chunk(DVCONF, path)
+
+
+def get_classes():
+    return ['read_public', 'write_private', 'read_local', 'write_local']
    
    
 if __name__ == "__main__":
@@ -328,8 +375,14 @@ if __name__ == "__main__":
    current_dir =  os.path.abspath(os.path.join( os.path.dirname(__file__), "..") )
    sys.path.insert(0, current_dir)
    
-   from storage import serialize_mutable_data, parse_mutable_data
-   from user import make_mutable_data_info
+   from blockstack_client.storage import serialize_mutable_data, parse_mutable_data
+   from blockstack_client.config import log, get_config
+   
+   CONFIG_PATH = os.environ.get('BLOCKSTACK_CONFIG_PATH', None)
+   assert CONFIG_PATH, "Missing BLOCKSTACK_CONFIG_PATH from environment"
+
+   conf = get_config(CONFIG_PATH)
+   print json.dumps(conf, indent=4, sort_keys=True)
 
    import keylib
 
@@ -340,17 +393,19 @@ if __name__ == "__main__":
    test_data = [
       ["my_first_datum",        "hello world",                              1, "unused", None],
       ["/my/second/datum",      "hello world 2",                            2, "unused", None],
-      ["user_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
+      ["user\"_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
       ["empty_string",          "",                                         4, "unused", None],
    ]
    
    def hash_data( d ):
       return hex_hash160( d )
    
-   rc = storage_init()
+   rc = storage_init(conf)
    if not rc:
       raise Exception("Failed to initialize")
    
+   index_manifest_url = index_setup(DVCONF)
+   assert index_manifest_url
    
    # put_immutable_handler
    print "put_immutable_handler"
@@ -371,8 +426,7 @@ if __name__ == "__main__":
       
       data_url = make_mutable_url( d_id )
       
-      data_zonefile = make_mutable_data_info( d_id, n, [data_url] )
-      data_json = serialize_mutable_data( {"id": d_id, "nonce": n, "data": d}, data_privkey )
+      data_json = serialize_mutable_data( json.dumps({"id": d_id, "nonce": n, "data": d}, sort_keys=True), data_privkey )
 
       rc = put_mutable_handler( d_id, data_json )
       if not rc:
@@ -387,7 +441,10 @@ if __name__ == "__main__":
       
       d_id, d, n, s, url = test_data[i]
       
-      rd = get_immutable_handler( hash_data( d ) )
+      rd = get_immutable_handler( hash_data( d ), fqu='foo.id', index_manifest_url=index_manifest_url)
+      if rd is None:
+          raise Exception("Failed to get {}".format(hash_data(d)))
+
       if rd != d:
          raise Exception("get_mutable_handler('%s'): '%s' != '%s'" % (hash_data(d), d, rd))
       
@@ -396,12 +453,15 @@ if __name__ == "__main__":
    for i in xrange(0, len(test_data)):
       
       d_id, d, n, s, url = test_data[i]
-      
-      rd_json = get_mutable_handler( url )
+     
+      log.debug("Get {}".format(url))
+
+      rd_json = get_mutable_handler( url, fqu='foo.id', index_manifest_url=index_manifest_url )
       rd = parse_mutable_data( rd_json, data_pubkey )
       if rd is None:
          raise Exception("Failed to parse mutable data '%s'" % rd_json)
-      
+     
+      rd = json.loads(rd)
       if rd['id'] != d_id:
          raise Exception("Data ID mismatch: '%s' != '%s'" % (rd['id'], d_id))
       

@@ -34,7 +34,7 @@ from boto.s3.key import Key
 import logging
 logging.getLogger('boto').setLevel(logging.CRITICAL)
 
-from common import get_logger, DEBUG
+from common import get_logger, DEBUG, compress_chunk, decompress_chunk
 
 log = get_logger("blockstack-storage-driver-s3")
 
@@ -44,22 +44,6 @@ AWS_BUCKET = "blockstack-server-profiles"
 AWS_ACCESS_KEY_ID = None 
 AWS_SECRET_ACCESS_KEY = None
 AWS_COMPRESS = True
-
-#-------------------------
-def compress_chunk( chunk_buf ):
-    """
-    compress a chunk of data
-    """
-    data = zlib.compress(chunk_buf, 9)
-    return data
-
-#-------------------------
-def decompress_chunk( chunk_buf ):
-    """
-    decompress a chunk of data
-    """
-    data = zlib.decompress(chunk_buf)
-    return data
 
 #-------------------------
 def get_bucket( bucket_name ):
@@ -87,10 +71,15 @@ def get_bucket( bucket_name ):
         
         bucket = None
         try:
-            bucket = conn.create_bucket(bucket_name)
+            bucket = conn.get_bucket(bucket_name)
         except Exception, e:
-            log.error("Could not create/fetch bucket " + bucket_name)
-            log.exception(e)
+            log.error("Could not get bucket {}; will try creating".format(bucket_name))
+
+            try:
+                bucket = conn.create_bucket(bucket_name)
+            except Exception, e:
+                log.error("Could not create/fetch bucket " + bucket_name)
+                log.exception(e)
         
         return bucket
 
@@ -256,7 +245,7 @@ def delete_chunk( chunk_path ):
 # ---------------------------------------------------------
 
 
-def storage_init(conf):
+def storage_init(conf, **kw):
     """
     S3 implementation of the storage_init API call.
     Do one-time global setup: read our S3 API tokens and bucket name.
@@ -400,6 +389,9 @@ def delete_mutable_handler( data_id, signature, **kw ):
     return delete_chunk( mutable_data_id )
 
 
+def get_classes():
+    return ['read_public', 'write_private']
+
 
 if __name__ == "__main__":
    """
@@ -434,7 +426,7 @@ if __name__ == "__main__":
    test_data = [
       ["my_first_datum",        "hello world",                              1, "unused", None],
       ["/my/second/datum",      "hello world 2",                            2, "unused", None],
-      ["user_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
+      ["user\"_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
       ["empty_string",          "",                                         4, "unused", None],
    ]
    

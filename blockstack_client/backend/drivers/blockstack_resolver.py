@@ -111,7 +111,7 @@ def get_profile( fqu ):
     return json.dumps([ret])
 
 
-def storage_init(conf):
+def storage_init(conf, **kw):
     # read config options from the config file, if given 
     global STORAGE_URL, RESOLVER_URL
 
@@ -191,3 +191,7 @@ def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
 
 def delete_mutable_handler( data_id, signature, **kw ):
     return True
+
+def get_classes():
+    return ['read_public']
+

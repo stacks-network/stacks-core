@@ -25,6 +25,7 @@ from __future__ import print_function
 """
 
 import os
+import sys
 import json
 import tempfile
 import subprocess
@@ -59,6 +60,11 @@ TX_MIN_CONFIRMATIONS = 6
 if os.environ.get("BLOCKSTACK_TEST", None) is not None:
     # test environment
     TX_MIN_CONFIRMATIONS = 0
+    print('TEST ACTIVE: TX_MIN_CONFIRMATIONS = {}'.format(TX_MIN_CONFIRMATIONS))
+
+if os.environ.get("BLOCKSTACK_MIN_CONFIRMATIONS", None) is not None:
+    TX_MIN_CONFIRMATIONS = int(os.environ['BLOCKSTACK_MIN_CONFIRMATIONS'])
+    print("Set TX_MIN_CONFIRMATIONS to {}".format(TX_MIN_CONFIRMATIONS), file=sys.stderr)
 
 VERSION = __version__
 SERIES_VERSION = "{}.{}.{}".format(__version_major__, __version_minor__, __version_patch__)
@@ -66,6 +72,9 @@ SERIES_VERSION = "{}.{}.{}".format(__version_major__, __version_minor__, __versi
 DEFAULT_BLOCKSTACKD_PORT = 6264  # blockstack indexer port
 DEFAULT_BLOCKSTACKD_SERVER = 'node.blockstack.org'
 
+DEFAULT_DEVICE_ID = '.default'
+
+DEFAULT_API_HOST = 'localhost'
 DEFAULT_API_PORT = 6270  # API endpoint port
 
 LOG_NETWORK_PORT = 8333 # port to send log messages on (e.g. to Portal)
@@ -81,6 +90,8 @@ BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = 'disk,blockstack_resolver,blockstack_server
 
 # storage drivers that must successfully acknowledge each write
 BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE = 'disk,blockstack_server,dht'
+
+BLOCKSTACK_STORAGE_CLASSES = ['read_public', 'read_private', 'write_public', 'write_private', 'read_local', 'write_local']
 
 DEFAULT_TIMEOUT = 30  # in secs
 
@@ -110,12 +121,6 @@ if (BLOCKSTACK_TESTNET or BLOCKSTACK_TESTNET3) and BLOCKSTACK_TESTNET_FIRST_BLOC
     print("TESTNET ACTIVE: FIRST_BLOCK_MAINNET = {}".format(FIRST_BLOCK_MAINNET))
 
 FIRST_BLOCK_TIME_UTC = 1441737751
-
-TX_MIN_CONFIRMATIONS = 6
-if BLOCKSTACK_TEST:
-    # test environment
-    TX_MIN_CONFIRMATIONS = 0
-    print('TEST ACTIVE: TX_MIN_CONFIRMATIONS = {}'.format(TX_MIN_CONFIRMATIONS))
 
 # borrowed from Blockstack
 # Opcodes

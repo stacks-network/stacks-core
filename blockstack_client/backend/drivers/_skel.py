@@ -22,8 +22,37 @@
 """
 
 """
+Overview
+========
+
 This is a skeleton no-op driver, meant for tutorial purposes.
 It will be dynamically imported by blockstack.
+
+At the driver level, Blockstack expects a key/value store.  If a user
+does a `put`, then the data stored should be readable by any other
+user that does a `get` on the same key.  Blockstack itself chooses what
+the keys are; they are *not* derived from the data.
+
+To see what is expected, consider the following example:
+
+   Suppose Alice and Bob both use a Blockstack-powered blogging application.
+   When Alice writes a new blog post, the blogging application asks
+   Blockstack to save it.  The app gives the blogpost the application-chosen name
+   "alice_2017-05-30-15:05:30", and passes both the name and data into
+   Blockstack.  Blockstack calls into its storage drivers and saves the
+   data to each underlying storage service.
+
+   When Bob goes to read Alice's blog, his client discovers that the
+   new blog post is called "alice_2017-05-30-15:05:30".  His client
+   then asks Blockstack to load up the blogpost's contents.  Bob's
+   storage drivers use the name "alice_2017-05-30-15:05:30" to look
+   up and fetch the blog data from each service.
+
+   Later, Alice decides to delete "alice_2017-05-30-15:05:30". When
+   Bob goes to read Alice's blog, his client again fetches the blogpost
+   titled "alice_2017-05-30-15:05:30".  Since Alice has removed the
+   data from her storage providers, none of Bob's drivers return the
+   blogpost data.
 
 Background
 ==========
@@ -78,13 +107,51 @@ determine how to replicate data.
     is listed here by default since writes to disk are invisible to other clients.
 
 In order for `put` to work on mutable data, there must be at least one driver listed in
-blockstack-client.storage_drivers_required_write that is NOT listed
+blockstack-client.storage_drivers_required_write that is NOT listed in
 blockstack-client.storage_drivers_local.
 
 There are no long-term plans for creating more sophisticated replication strategies.  This
 is because more sophisticated strategies can be implemented as "meta drivers" that load
 existing drivers as modules, and forward `get` and `put` requests to them according to the
 desired strategy.
+
+Access Strategy
+===============
+
+It is up to the storage drivers to not only store the data given
+to them, but also to store any metadata required to later translate
+the app-given name back into the data that was previously stored.
+Moreover, once data is stored in Blockstack, *any* user with the
+data's name should be able to read it.
+
+Some storage systems make this easy.  For example, the `disk` and `s3`
+drivers achieve this simply by storing the data under the name given
+by the application.  Using the example in the Overview section, the 
+blogpost data for "alice_2017-05-30-15:05:30" can simply be stored as 
+a file or object with the name "alice_2017-05-30-15:05:30".
+
+This is less easy for storage systems like Dropbox, where the storage
+system creates its own URI for each piece of data stored.  In these cases,
+the driver must build and maintain an index over all of the data stored,
+so it can later translate the app-given name (i.e. "alice_2017-05-30-15:05:30")
+back into the service-given URI (i.e. "https://www.dropbox.com/s/pa4lugfa8yiuoio/profile.json?dl=1")
+on `get`.
+
+For indexing, driver developers are encouraged to use the following methods
+from `common.py` to build a co-located index:
+
+    * `get_indexed_data()`: loads data from the storage by translating an
+    app-given name into a service-specific URI.
+    * `put_indexed_data()`: stores data with a given name into the storage
+    system, and inserts an entry for it in an index alongside the data.
+    * `delete_indexed_data()`: removes data with a given name from the storage
+    system, and updates the co-located index to remove its name-to-URI link.
+    * `index_setup()`: instantiates an index (callable from the driver's
+    `storage_init()` method).
+    * `driver_config()`: sets up callbacks to be used by the indexer code
+    for loading and storing both data and pages of the index.
+
+Please see the docstrings for each of these methods in the `common.py` file.
 
 Responsibilities
 ================
@@ -134,6 +201,12 @@ are divided as follows:
     Blockstack sends and receives, and deduce things like the user's network
     location and the application being used.  If behavior confidentiality is
     required, then the driver must take additional steps to implement it.
+
+    * Optimizations.  Things like write-batching, caching, write-deferrals, and
+    so on are handled by Blockstack.  The driver should operate synchronously on 
+    both gets and puts.  Specifically, the driver should NOT attempt to cache 
+    reads, and the driver should NOT return from a put until the data is guaranteed
+    to be durable.
 """
 
 
@@ -143,17 +216,28 @@ are divided as follows:
 
 import os
 import logging
-from common import get_logger, DEBUG
+from common import *
 from ConfigParser import SafeConfigParser
 
-log = get_logger("blockstack-storage-skel")
+log = get_logger("blockstack-storage-drivers-skel")
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
-def storage_init(conf):
+def storage_init(conf, **kwargs):
    """
    This method initializes the storage driver.
    It may be called multiple times, so if you need idempotency,
    you'll need to implement it yourself.
+
+   kwargs can include:
+   * index (True/False): whether or not to instantiate a storage index.  This is useful
+   for systems like Dropbox where you cannot construct a URL to a piece of data, given
+   the data name (i.e. Dropbox has to do it for you).  If you are making a driver for
+   such a storage system, you should honor this flag by calling `driver_config()` to make
+   a driver configuration structure for the index, and then call `index_setup()` to create
+   the index (defined in .common.py).
+   * force_index (True/False): If True, then the driver should call `index_setup()`
+   even if the index already exists.  THIS SHOULD ERASE THE EXISTING INDEX.  If this flag
+   is given, then this is the desired effect.
 
    Return True on successful initialization
    Return False on error.
@@ -174,6 +258,20 @@ def storage_init(conf):
        # TODO load config here
 
    # TODO do initialization here
+   # example of driver_config() and index_setup:
+   #
+   # dvconf = driver_config(
+   #        "name of your driver",
+   #        "path to the config file (i.e. conf['path'])"
+   #        callable to load a chunk of data via this driver (takes driver config and chunk ID as arguments and returns the data),
+   #        callable to store a chunk of data via this driver (takes the driver config, chunk ID, and chunk data and returns the URL),
+   #        callable to delete a chunk of data via this driver (takes the driver config and chunk ID and returns True/False),
+   #        driver_info={a dict of driver-specific information, like API keys},
+   #        index_stem="the prefix for all index-related metadata, like "/blockstack/index' or similar",
+   #        compress=True/False
+   # )
+   # 
+   # index_setup(dvconf, force=force_index)
    return True 
 
 
@@ -226,7 +324,8 @@ def get_immutable_handler( data_hash, **kw ):
    make_mutable_url().
 
    **kw contains hints from Blockstack about the nature of the request.
-   TODO: document them here.
+   Including:
+   * fqu (string): the fully-qualified username (i.e. the blockchain ID)
 
    Returns the data on success.  It must hash to data_hash (sha256)
    Returns None on error.  Does not raise an exception.
@@ -241,7 +340,8 @@ def get_mutable_handler( url, **kw ):
    make_mutable_url().
 
    **kw contains hints from Blockstack about the nature of the request.
-   TODO: document them here.
+   Including:
+   * fqu (string): the fully-qualified username (i.e. the blockchain ID)
 
    Drivers are encouraged but not required to implement this method.
 
@@ -266,7 +366,9 @@ def put_immutable_handler( data_hash, data_txt, txid, **kw ):
    data hash returns the given data here.
 
    **kw contains hints from Blockstack about the nature of the request.
-   TODO: document these.
+   Including:
+   * fqu (string): the fully-qualified username (i.e. the blockchain ID)
+   * zonefile (True/False): whether or not this is a zone file hash
 
    Drivers are encouraged but not required to implement this method.
    Read-only data sources like HTTP servers would not implement this
@@ -304,7 +406,10 @@ def put_mutable_handler( data_id, data_txt, **kw ):
 
    The data_txt argument is the data itself (as a string).
    **kw contains hints from the Blockstack implementation.
-   TODO: document these.
+   Including:
+   * fqu (string): the fully-qualified username (i.e. the blockchain ID)
+   * zonefile (True/False): whether or not this is a zone file being stored
+   * profile (True/False): whether or not this is a profile being stored
 
    Returns True on successful store
    Returns False on error.  Does not raise an exception
@@ -331,8 +436,11 @@ def delete_immutable_handler( data_hash, txid, tombstone, **kw ):
    guarantees may find it useful in order to NACK outstanding
    writes.
 
+   You can use blockstack_client.storage.parse_data_tombstone() to parse a tombstone.
+
    **kw are hints from Blockstack to the driver.
-   TODO: document these
+   Including:
+   * fqu (string): the fully-qualified username (i.e. the blockchain ID)
 
    Returns True on successful deletion
    Returns False on failure.  Does not raise an exception.
@@ -354,13 +462,16 @@ def delete_mutable_handler( data_id, tombstone, **kw ):
    ignore this; it's meant for use with storage systems with
    weak consistency guarantees.
 
+   You can use blockstack_client.storage.parse_data_tombstone() to parse a tombstone.
+
    **kw are hints from Blockstack to the driver.
-   TODO: document these
+   Including:
+   * fqu (string): the fully-qualified username (i.e. the blockchain ID)
 
    Returns True on successful deletion
    Returns False on failure.  Does not raise an exception.
    """
-   False
+   return False
 
    
 if __name__ == "__main__":

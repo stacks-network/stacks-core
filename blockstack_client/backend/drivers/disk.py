@@ -44,7 +44,7 @@ else:
 
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
-def storage_init(conf):
+def storage_init(conf, **kw):
    """
    Local disk implementation of the storage_init API call.
    Do one-time global setup--i.e. make directories.
@@ -302,7 +302,11 @@ def delete_mutable_handler( data_id, signature, **kw ):
       pass 
    
    return True
-   
+  
+
+def get_classes():
+    return ['read_private', 'write_private', 'read_local', 'write_local']
+
    
 if __name__ == "__main__":
    """
@@ -327,7 +331,7 @@ if __name__ == "__main__":
    test_data = [
       ["my_first_datum",        "hello world",                              1, "unused", None],
       ["/my/second/datum",      "hello world 2",                            2, "unused", None],
-      ["user_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
+      ["user\"_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
       ["empty_string",          "",                                         4, "unused", None],
    ]
    

@@ -88,10 +88,11 @@ class BlockstackCoreRPCClient(object):
     """
     RPC client for the blockstack server
     """
-    def __init__(self, server, port, timeout=30 ):
+    def __init__(self, server, port, timeout=30, min_confirmations=None ):
         self.srv = TimeoutServerProxy( "http://%s:%s" % (server, port), timeout=timeout, allow_none=True )
         self.server = server
         self.port = port
+        self.min_confirmations = min_confirmations
 
     def __getattr__(self, key):
         try:

@@ -57,6 +57,8 @@ setup(
         'basicrpc>=0.0.2',      # DHT storage driver
         'boto>=2.38.0',         # S3 storage driver
         'dropbox>=7.1.1',       # Dropbox driver
+        'pydrive>=1.3.1',       # Google Drive driver
+        'onedrivesdk>=1.1.8',   # Microsoft OneDrive driver
     ],
     classifiers=[
         'Intended Audience :: Developers',

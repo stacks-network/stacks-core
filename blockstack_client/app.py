@@ -39,36 +39,49 @@ import user as user_db
 from .proxy import *
 
 from config import get_config
-from .constants import CONFIG_PATH, BLOCKSTACK_TEST, LENGTH_MAX_NAME
+from .constants import CONFIG_PATH, BLOCKSTACK_TEST, LENGTH_MAX_NAME, DEFAULT_API_PORT, DEFAULT_API_HOST
 from .schemas import *
+from .storage import classify_storage_drivers
 
-def app_make_session( app_public_key, app_domain, methods, master_data_privkey, app_user_id=None, session_lifetime=None, blockchain_ids=None, config_path=CONFIG_PATH ):
+def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_public_keys, requester_device_id, master_data_privkey, session_lifetime=None, config_path=CONFIG_PATH ):
     """
     Make a session JWT for this application.
     Verify with user private key
     Sign with master private key
+
     Return {'session': session jwt, 'session_token': session token} on success
     Return {'error': ...} on error
     """
+    conf = get_config(path=config_path)
+    assert conf
+
     if session_lifetime is None:
-        conf = get_config(path=config_path)
-        assert conf
         session_lifetime = conf.get('default_session_lifetime', 1e80)
 
-    if app_user_id is None:
-        app_user_id = data.datastore_get_id(app_public_key)
+    app_public_key = get_pubkey_hex(app_private_key)
+    app_user_id = data.datastore_get_id(app_public_key)
+
+    api_endpoint_host = conf.get('api_endpoint_host', DEFAULT_API_HOST)
+    api_endpoint_port = conf.get('api_endpoint_port', DEFAULT_API_PORT)
+
+    api_endpoint = '{}:{}'.format(api_endpoint_host, api_endpoint_port)
 
     ses = {
+        'version': 1,
+        'blockchain_id': blockchain_id,
         'app_domain': app_domain,
         'methods': methods,
+        'app_public_keys': app_public_keys,
         'app_user_id': app_user_id,
-        'app_public_key': app_public_key,
+        'api_endpoint': api_endpoint,
+        'device_id': requester_device_id,
+        'storage': {
+            'classes': classify_storage_drivers(),
+            'preferences': {}
+        },
         'timestamp': int(time.time()),
         'expires': int(time.time() + session_lifetime),
     }
-
-    if blockchain_ids is not None:
-        ses['blockchain_ids'] = blockchain_ids
 
     jsonschema.validate(ses, APP_SESSION_SCHEMA)
 
@@ -125,6 +138,19 @@ def app_verify_session( app_session_token, data_pubkey_hex, config_path=CONFIG_P
         return None
 
     return session
+
+
+def app_get_datastore_pubkey( session ):
+    """
+    Given a session, identify and return the datastore public key
+    Return None on invalid session
+    """
+    device_id = session['device_id']
+    for apk in session['app_public_keys']:
+        if apk['device_id'] == device_id:
+            return apk['public_key']
+
+    return None
 
 
 def app_publish( dev_blockchain_id, app_domain, app_method_list, app_index_uris, app_index_file, app_driver_hints=[], data_privkey=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH ):
@@ -210,8 +236,7 @@ def app_get_config( blockchain_id, app_domain, data_pubkey=None, proxy=None, con
     proxy = get_default_proxy() if proxy is None else proxy
 
     # go get config
-    config_data_id = storage.make_fq_data_id(app_domain, '.blockstack')
-    res = data.get_mutable( config_data_id, data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, blockchain_id=blockchain_id, is_fq_data_id=True )
+    res = data.get_mutable( ".blockstack", [app_domain], data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, blockchain_id=blockchain_id )
     if 'error' in res:
         log.error("Failed to get application config file {}: {}".format(config_data_id, res['error']))
         return res
@@ -244,17 +269,15 @@ def app_get_resource( blockchain_id, app_domain, res_name, app_config=None, data
 
     proxy = get_default_proxy() if proxy is None else proxy
 
-    res_data_id = storage.make_fq_data_id(app_domain, res_name)
-
     urls = None
     if app_config is not None:
         # use driver hints
         driver_hints = app_config['driver_hints']
         urls = storage.get_driver_urls( res_data_id, storage.get_storage_handlers() )
 
-    res = data.get_mutable( res_data_id, data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, urls=urls, blockchain_id=blockchain_id, is_fq_data_id=True )
+    res = data.get_mutable( res_name, [app_domain], data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, urls=urls, blockchain_id=blockchain_id )
     if 'error' in res:
-        log.error("Failed to get resource {}: {}".format(res_data_id, res['error']))
+        log.error("Failed to get resource {}: {}".format(res_name, res['error']))
         return {'error': 'Failed to load resource'}
 
     return {'status': True, 'res': res['data']}

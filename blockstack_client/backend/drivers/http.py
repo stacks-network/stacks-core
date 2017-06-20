@@ -26,7 +26,7 @@ from common import get_logger
 
 log = get_logger("blockstack-storage-drivers-http")
 
-def storage_init(conf):
+def storage_init(conf, **kw):
     return True
 
 def handles_url( url ):
@@ -65,3 +65,7 @@ def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
 
 def delete_mutable_handler( data_id, signature, **kw ):
     return True
+
+def get_classes():
+    return ['read_public']
+

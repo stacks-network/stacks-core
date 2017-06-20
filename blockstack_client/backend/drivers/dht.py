@@ -122,6 +122,7 @@ def dht_get_key(data_key):
     else:
         raise Exception("No data returned from %s" % data_key)
 
+    log.debug(ret)
     return ret
 
 
@@ -137,7 +138,7 @@ def dht_put_data(data_key, data_value):
 # Begin plugin implementation
 # ---------------------------------------------------------
 
-def storage_init(conf):
+def storage_init(conf, **kw):
     """
     DHT implementation of the storage_init API call.
     Given the blockstack API proxy, set up any persistent state.
@@ -256,6 +257,10 @@ def delete_mutable_handler(data_id, signature, **kw):
     return True
 
 
+def get_classes():
+    return ['read_public', 'write_private']
+
+
 if __name__ == "__main__":
     """
     Unit tests.
@@ -275,7 +280,7 @@ if __name__ == "__main__":
     test_data = [
       ["my_first_datum",        "hello world",                              1, "unused", None],
       ["/my/second/datum",      "hello world 2",                            2, "unused", None],
-      ["user_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
+      ["user\"_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
       ["empty_string",          "",                                         4, "unused", None],
     ]
 
