@@ -281,7 +281,7 @@ def get_url_type(url):
 
     if len(urlpath_parts) != 2:
         log.error("Invalid URL {}".format(url))
-        return None
+        return None, None
 
     if urlpath_parts[0] == 'blockstack':
         return ('blockstack', urlpath_parts[1])
