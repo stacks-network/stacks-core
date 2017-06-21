@@ -21,7 +21,7 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """ 
 
-import testlib
+from blockstack_integration_tests.scenarios import testlib
 import pybitcoin
 import time
 import json
@@ -62,16 +62,12 @@ def scenario( wallets, **kw ):
     if 'error' in resp:
         print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
         return False
-   
     # wait for the preorder to get confirmed
     for i in xrange(0, 12):
         testlib.next_block( **kw )
-
     # wait for the poller to pick it up
     print >> sys.stderr, "Waiting 10 seconds for the backend to submit the register"
     time.sleep(10)
-
-
     # wait for the register to get confirmed 
     for i in xrange(0, 12):
         # warn the serialization checker that this changes behavior from 0.13
@@ -82,7 +78,6 @@ def scenario( wallets, **kw ):
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
     time.sleep(10)
-
     # wait for initial update to get confirmed 
     for i in xrange(0, 12):
         # warn the serialization checker that this changes behavior from 0.13
@@ -117,52 +112,17 @@ def scenario( wallets, **kw ):
    
     print >> sys.stderr, "\n\nzonefile hash: %s\nzonefile:\n%s\n\n" % (zonefile_hash, zonefile_txt)
 
-    # will store to queue
-    test_proxy = testlib.make_proxy()
-    config_path = test_proxy.config_path
-    conf = blockstack_client.config.get_config(config_path)
-    queuedb_path = conf['queue_path']
 
-    # update the zonefile hash, but not the zonefile.
-    resp = testlib.blockstack_cli_set_zonefile_hash( "foo.test", zonefile_hash )
-    if 'error' in resp:
-        print >> sys.stderr, "\nFailed to set zonefile hash: %s\n" % resp
-        return False
+    subdomains.flatten_and_issue_zonefile("foo.test", zonefile_0_js)
 
-    txhash = resp['transaction_hash']
+    # wait for new update to get confirmed 
     for i in xrange(0, 12):
-        # warn the serialization checker that this changes behavior from 0.13
-        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
         sys.stdout.flush()
         
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
     time.sleep(10)
-
-    # stop endpoint
-    print >> sys.stderr, "\nstopping RPC daemon\n"
-    config_dir = os.path.dirname(test_proxy.config_path)
-
-    blockstack_client.rpc.local_api_stop(config_dir=config_dir)
-    time.sleep(3)
-
-    # store to queue
-    res = blockstack_client.backend.queue.queue_append(
-        "update", "foo.test", txhash, payment_address=wallets[2].addr, owner_address=wallets[3].addr,
-        config_path=test_proxy.config_path, zonefile_data=zonefile_txt, zonefile_hash=zonefile_hash, 
-        path=queuedb_path )
-
-    # verify that we can sync the zonefile, using the in-queue zonefile
-    resp = testlib.blockstack_cli_sync_zonefile( "foo.test" )
-    if 'error' in resp:
-        print >> sys.stderr, "\nfailed to sync zonefile: %s\n" % resp
-        return False
-
-    blockstack_client.backend.queue.queuedb_remove("update", "foo.test", txhash, path=queuedb_path )
-
-    print >> sys.stderr, "\nstarting RPC daemon\n"
-    testlib.start_api("0123456789abcdef")
 
     # let's write a profile for the resolver.
     profile_raw = {"foo" : {

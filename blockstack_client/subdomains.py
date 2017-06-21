@@ -20,13 +20,14 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import base64
+import base64, copy
 import ecdsa, hashlib
 import keylib
 from itertools import izip
 from blockstack_client import data, zonefile, storage
 from blockstack_client.logger import get_logger
-
+import blockstack_zones
+from blockstack_client.rpc import local_api_connect
 
 log = get_logger()
 
@@ -38,6 +39,9 @@ class SubdomainNotFound(Exception):
     pass
 
 class SubdomainNotFound(Exception):
+    pass
+
+class SubdomainAlreadyExists(Exception):
     pass
 
 # aaron: I was hesitant to write these two functions. But I did so because:
@@ -125,7 +129,7 @@ def make_zonefile_entry(subdomain_name, packed_subdomain, as_dict=False):
         return d
     return '{} TXT "{}"'.format(d["name"], d["txt"])
 
-def pack_and_sign_subdomain_record(subdomain_record, key):
+def pack_subdomain_record(subdomain_record):
     entries = []
     for k, v in subdomain_record.items():
         if "," in k or (isinstance(v, str) and "," in v):
@@ -136,6 +140,11 @@ def pack_and_sign_subdomain_record(subdomain_record, key):
             entries.extend([("url",value) for value in v])
 
     plaintext = ",".join([ "{}:{}".format(k, v) for k,v in entries ])
+
+    return plaintext
+
+def pack_and_sign_subdomain_record(subdomain_record, key):
+    plaintext = pack_subdomain_record(subdomain_record)
 
     signature_blob = sign(key, plaintext)
 
@@ -253,6 +262,45 @@ def _build_subdomain_db(domain_fqa, zonefiles):
                 del new_rec["name"]
                 subdomain_db[subdomain_op["name"]] = new_rec
     return subdomain_db
+
+def flatten_and_issue_zonefile(domain_fqa, zf):
+    user_data_txt = blockstack_zones.make_zone_file(zf)
+
+    rpc = local_api_connect()
+    assert rpc
+    try:
+        rpc.backend_update(domain_fqa, user_data_txt, None, None, None)
+    except Exception as e:
+        log.exception(e)
+        return False
+
+def add_subdomain(subdomain, domain_fqa, key, urls):
+    # step 1: see if this resolves to an already defined subdomain
+    subdomain_already = True
+    try:
+        resolve_subdomain(subdomain, domain_fqa)
+    except SubdomainNotFound as e:
+        subdomain_already = False
+    if subdomain_already:
+        raise SubdomainAlreadyExists("{}.{}".format(subdomain, domain_fqa))
+    # step 2: get domain's current zonefile and filter the subdomain entries
+    zf = copy.deepcopy(zonefile.get_name_zonefile(domain_fqa))
+    zf["txt"] = list([ x for x in zf["txt"]
+                    if not x["name"].startswith("_subd.")])
+    # step 3: create a subdomain record
+    record = {
+        "pubkey" : subdomains.encode_pubkey_entry(key),
+        "n" : 0,
+        "urls" : list(["url:{}".format(u) for u in urls])
+    }
+    packed = pack_subdomain_record(record)  # no signature needed on n=0
+    zf_entry = make_zonefile_entry(subdomain, packed, as_dict=True)
+
+    zf["txt"].append(zf_entry)
+
+    # step 4: issue zonefile update
+    flatten_and_issue_zonefile(domain_fqa, zf)
+
 
 def resolve_subdomain(subdomain, domain_fqa):
     # step 1: fetch domain zonefiles.

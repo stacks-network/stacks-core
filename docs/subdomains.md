@@ -26,7 +26,7 @@ containing the following information:
 
 1. A public key *PK*
 2. A sequence number *N*
-3. A set of URLs
+3. A zonefile
 4. A signature *S* of the above
 
 The signature *S_i* must be provided by the public key in the
@@ -35,8 +35,21 @@ The signature *S_i* must be provided by the public key in the
 ### Zonefile Format
 
 For now, the resolver will use an *TXT* record per subdomain to define
-this information. The entry name will be `_subd.$(name)`, and the
-information will be comma-delimited:
+this information. The entry name will be `$(subdomain)`.
+
+
+We'll use the format of [RFC 1464](https://tools.ietf.org/html/rfc1464) 
+for the TXT entry. We'll have the following strings with identifiers:
+
+1. **zf-parts** : this specifies the number of pieces that the
+zonefile has been chopped into. TXT strings can only be 255 bytes,
+so we chop up the zonefile.
+2. **zf-n**: part n of the zonefile. this will need to be escaped, 
+backslashes `\` and doublequotes `"` need to be prefaced with a backslash
+`\`.
+3. **pub-key**: the public key delegated to operate the subdomain
+4. **sequence-n**: the sequence number
+5. **sig**: signature of the above data. 
 
 ```
 $ORIGIN bar.id
