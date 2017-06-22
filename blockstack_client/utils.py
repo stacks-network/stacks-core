@@ -339,7 +339,9 @@ class ScatterGather(object):
         else:
             # for testing purposes
             for task_name, task_call in self.tasks.items():
+                log.debug("Start task (single-threaded) '{}'".format(task_name))
                 res = ScatterGatherThread.do_work(task_call)
+                log.debug("Join task (single-threaded) '{}'".format(task_name))
                 self.results[task_name] = res
 
         self.ran = True
