@@ -721,7 +721,8 @@ def scenario( wallets, **kw ):
     # re-target bar.test's datastore
     target_datastore('bar.test')
 
-    # clear bar.test's files 
+    # clear bar.test's files
+    print '\n\ndelete bar.test files\n\n'
     res = clear_datastore_files('bar.test', bar_datastore_pk)
     if not res:
         print 'failed to clear datastore {} for bar.test'.format(bar_datastore_id)
