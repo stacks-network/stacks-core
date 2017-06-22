@@ -466,7 +466,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             app_private_key = '0000000000000000000000000000000000000000000000000000000000000001'
             app_public_keys = {}
             requester_device_id = ''
-            blockchain_id = ''
+            blockchain_id = None
 
         else:
             # current

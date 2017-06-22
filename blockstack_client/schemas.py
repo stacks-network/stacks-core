@@ -716,8 +716,15 @@ APP_INFO_PROPERTIES = {
         'maximum': 1,
     },
     'blockchain_id': {
-        'type': 'string',
-        'pattern': OP_NAME_PATTERN,
+        'anyOf': [
+            {
+                'type': 'string',
+                'pattern': OP_NAME_PATTERN,
+            },
+            {
+                'type': 'null',
+            },
+        ],
     },
     'app_domain': {
         'anyOf': [
@@ -832,6 +839,10 @@ APP_SESSION_SCHEMA = {
     'properties': APP_SESSION_PROPERTIES,
     'required': APP_SESSION_PROPERTIES.keys(),
 }
+
+APP_SESSION_SCHEMA_ANONYMOUS = {
+    'type': 'object',
+    'properties': APP_SESSION_PROPERTIES 
 
 # authentication-request payload
 APP_SESSION_REQUEST_SCHEMA = {
