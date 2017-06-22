@@ -159,6 +159,15 @@ class AuthInternal(APITestCase):
         data = self.get_request('/v1/users/muneeb.id',
                                 headers = auth_header, status_code=403)
 
+    def test_auth_token_no_username(self):
+        auth_header = get_auth_header()
+
+        test_string = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NksifQ.eyJhcHBfZG9tYWluIjoiaGVsbG9ibG9ja3N0YWNrLmNvbSIsIm1ldGhvZHMiOltdLCJhcHBfcHVibGljX2tleSI6IjAyYjk0ZjY4NDgzOGFkMjdmZTE0Nzk1MGMyNjQ1ZjRhYzhjYmU1OTJlYjYzYmQwYTQ5MWQ2YzBlYWZjNjE0YzVjMCJ9.0lLrxt8uGtB2rCKB9sb0jK1DdrrWuuuWM-nsyjvFnmjNx0XfG14Npl72w6hp9W2OHoXdPe7VuXkfvKmVNlQdeA"
+
+        url = "/v1/auth?authRequest={}".format(test_string)
+        data = self.get_request(url, headers = auth_header, status_code=200)
+        self.assertIn('token', data)
+
 class UsersInternal(APITestCase):
     def test_get_users(self):
         user = "muneeb.id"
