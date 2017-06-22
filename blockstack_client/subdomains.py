@@ -113,8 +113,7 @@ class Subdomain(object):
             piece_len = min(250, len(encoded_zf[start:]))
             assert piece_len != 0
             piece = encoded_zf[start:(start+piece_len)]
-            output.append(txt_encode_key_value(SUBDOMAIN_ZF_PIECE % zf_index,
-                                               piece))
+            output.append(txt_encode_key_value(SUBDOMAIN_ZF_PIECE % i, piece))
 
         if self.sig is not None:
             output.append(txt_encode_key_value(SUBDOMAIN_SIG, self.sig))
@@ -201,25 +200,6 @@ def parse_zonefile_subdomains(zonefile_json):
         subdomains = []
 
     return subdomains
-
-
-def verify_subdomain_record(subdomain_record, prior_pubkey_entry):
-    sig_separator = ",sig:data:"
-    signature_index = subdomain_record.index(sig_separator)
-    plaintext = subdomain_record[:signature_index]
-    sig = subdomain_record[(signature_index + len(sig_separator)): ]
-
-    pk_header, pk_data = decode_pubkey_entry(prior_pubkey_entry)
-
-    if pk_header == "echex":
-        try:
-            return verify(keylib.ECPublicKey(pk_data), plaintext, sig)
-        except ecdsa.BadSignatureError as e:
-            log.error("Signature verification failed with BadSignature {} over {} by {}".format(
-                sig, plaintext, pk_data))
-            return False
-    else:
-        raise NotImplementedError("PubKey type ({}) not supported".format(pk_header))
 
 def is_a_subdomain(fqa):
     """
@@ -333,21 +313,17 @@ def resolve_subdomain(subdomain, domain_fqa):
 
     # step 4: resolve!
 
-    owner_pubkey_type, owner_pubkey = decode_pubkey_entry(my_rec.pubkey)
-    if owner_pubkey_type != "echex":
-        raise NotImplementedError(
-            "Pubkey type {} for subdomain {}.{} not supported by resolver.".format(
-                pubkey_type, subdomain, domain_fqa))
+    owner_pubkey = my_rec.pubkey
 
-    parsed_zf = bs_zonefile.decode_name_zonefile(subdomain.name, subdomain.zonefile)
+    parsed_zf = bs_zonefile.decode_name_zonefile(my_rec.name, my_rec.zonefile_str)
     urls = user_db.user_zonefile_urls(parsed_zf)
 
     try:
-        user_data_pubkey = user_db.user_zonefile_data_pubkey(user_zonefile)
+        user_data_pubkey = user_db.user_zonefile_data_pubkey(parsed_zf)
         if user_data_pubkey is not None:
             user_data_pubkey = str(user_data_pubkey)
     except ValueError:
-        user_data_pubkey = owner_pubkey
+        user_data_pubkey = owner_pubkey.to_hex()
 
     user_profile = storage.get_mutable_data(
         None, user_data_pubkey, blockchain_id=None,

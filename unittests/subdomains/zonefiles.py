@@ -104,13 +104,13 @@ foo TXT "pub-key={}" "sequence-n=3" "should_not_parse"
         user_zf['uri'].append(zonefile.url_to_uri_record("https://foo_foo.com/profile.json"))
         jsonschema.validate(user_zf, USER_ZONEFILE_SCHEMA)
 
-        subdomain.zonefile = blockstack_zones.make_zone_file(user_zf)
+        subdomain.zonefile_str = blockstack_zones.make_zone_file(user_zf)
 
         subdomain.add_signature(sk)
 
         self.assertTrue(subdomain.verify_signature(pk))
 
-        parsed_zf = zonefile.decode_name_zonefile(subdomain.name, subdomain.zonefile)
+        parsed_zf = zonefile.decode_name_zonefile(subdomain.name, subdomain.zonefile_str)
         urls = user_db.user_zonefile_urls(parsed_zf)
 
         self.assertEqual(len(urls), 1)

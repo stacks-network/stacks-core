@@ -95,22 +95,25 @@ def scenario( wallets, **kw ):
                       "uri" : [{ "name" : "registrar", "priority" : 1, "weight" : 10,
                                  "target" : "bsreg://foo.com:8234" }], }
 
+    # foo's zonefile
+    user_zf = {
+        '$origin': 'foo',
+        '$ttl': 3600,
+        'txt' : [], 'uri' : []
+    }
+    user_zf['uri'].append(blockstack_client.zonefile.url_to_uri_record("file:///tmp/foo.profile.json"))
+
     foo_sk = keylib.ECPrivateKey()
-    bar_sk = keylib.ECPrivateKey()
 
-    foo_entry = "pubkey:{},N:0,url:file:///tmp/foo.profile.json".format(
-        subdomains.encode_pubkey_entry(foo_sk))
-    bar_entry = "pubkey:{},N:0,url:file:///tmp/bar.profile.json".format(
-        subdomains.encode_pubkey_entry(bar_sk))
+    subdomain = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(foo_sk), 0,
+                                     blockstack_zones.make_zone_file(user_zf))
 
-    zonefile_0_js["txt"] = [
-        {"name" : "_subd.foo", "txt": foo_entry},
-        {"name" : "_subd.bar", "txt": bar_entry}]
+    subdomains._extend_with_subdomain(zonefile_0_js, subdomain)
 
-    zonefile_txt = blockstack_zones.make_zone_file( zonefile_0_js )
-    zonefile_hash = blockstack_client.storage.get_zonefile_data_hash( zonefile_txt )
+#    zonefile_txt = blockstack_zones.make_zone_file( zonefile_0_js )
+#    zonefile_hash = blockstack_client.storage.get_zonefile_data_hash( zonefile_txt )
    
-    print >> sys.stderr, "\n\nzonefile hash: %s\nzonefile:\n%s\n\n" % (zonefile_hash, zonefile_txt)
+#    print >> sys.stderr, "\n\nzonefile hash: %s\nzonefile:\n%s\n\n" % (zonefile_hash, zonefile_txt)
 
 
     subdomains.flatten_and_issue_zonefile("foo.test", zonefile_0_js)
