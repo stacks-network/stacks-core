@@ -117,6 +117,7 @@ def search_people():
     return jsonify(data), 200
 
 @app.route('/<path:path>', methods=['GET'])
+@crossdomain(origin='*')
 def catch_all_get(path):
     API_URL = BASE_API_URL + '/' + path
     params = dict(request.args)
