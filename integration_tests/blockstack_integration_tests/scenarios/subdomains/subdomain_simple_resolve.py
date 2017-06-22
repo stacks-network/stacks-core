@@ -103,7 +103,9 @@ def scenario( wallets, **kw ):
     }
     user_zf['uri'].append(blockstack_client.zonefile.url_to_uri_record("file:///tmp/foo.profile.json"))
 
+
     foo_sk = keylib.ECPrivateKey()
+    print "Resolving key {}".format(foo_sk.to_hex())
 
     subdomain = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(foo_sk), 0,
                                      blockstack_zones.make_zone_file(user_zf))
@@ -148,7 +150,9 @@ def check( state_engine ):
     user_profile = subdomains.resolve_subdomain("foo", "foo.test")
 
     # let's resolve!
-    print user_profile
-    print json.dumps(user_profile, indent=2)
+    print "Resolved Profile: {}".format(user_profile)
+    print "Resolved Profile: {}".format(json.dumps(user_profile, indent=2))
+
+    assert 'foo' in user_profile
 
     return True

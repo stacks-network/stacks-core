@@ -318,11 +318,16 @@ def resolve_subdomain(subdomain, domain_fqa):
     parsed_zf = bs_zonefile.decode_name_zonefile(my_rec.name, my_rec.zonefile_str)
     urls = user_db.user_zonefile_urls(parsed_zf)
 
+    # try to get pubkey from zonefile, or default to ``owner`` pubkey
+    user_data_pubkey = None
     try:
         user_data_pubkey = user_db.user_zonefile_data_pubkey(parsed_zf)
         if user_data_pubkey is not None:
             user_data_pubkey = str(user_data_pubkey)
     except ValueError:
+        pass # no pubkey defined in zonefile
+
+    if user_data_pubkey is None:
         user_data_pubkey = owner_pubkey.to_hex()
 
     user_profile = storage.get_mutable_data(
