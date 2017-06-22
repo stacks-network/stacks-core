@@ -24,13 +24,20 @@ import base64, copy
 import ecdsa, hashlib
 import keylib
 from itertools import izip
-from blockstack_client import data, zonefile, storage
+from blockstack_client import data, storage
+from blockstack_client import zonefile as bs_zonefile
+from blockstack_client import user as user_db
 from blockstack_client.logger import get_logger
 import blockstack_zones
 from blockstack_client.rpc import local_api_connect
 
 log = get_logger()
 
+SUBDOMAIN_ZF_PARTS = "zf-parts"
+SUBDOMAIN_ZF_PIECE = "zf%d"
+SUBDOMAIN_SIG = "sig"
+SUBDOMAIN_PUBKEY = "pub-key"
+SUBDOMAIN_N = "sequence-n"
 
 class ParseError(Exception):
     pass
@@ -44,134 +51,15 @@ class SubdomainNotFound(Exception):
 class SubdomainAlreadyExists(Exception):
     pass
 
-# aaron: I was hesitant to write these two functions. But I did so because:
-#   1> getting the sign + verify functions from virtualchain.ecdsa 
-#      was tricky because of the hashfunc getting lost in translating from
-#      SK to PK
-#   2> didn't want this code to necessarily depend on virtualchain
-
-def sign(sk, plaintext):
-    signer = ecdsa.SigningKey.from_pem(sk.to_pem())
-    blob = signer.sign_deterministic(plaintext, hashfunc = hashlib.sha256)
-    return base64.b64encode(blob)
-
-def verify(pk, plaintext, sigb64):
-    signature = base64.b64decode(sigb64)
-    verifier = ecdsa.VerifyingKey.from_pem(pk.to_pem())
-    return verifier.verify(signature, plaintext, hashfunc = hashlib.sha256)
-
-def parse_zonefile_subdomains(zonefile_json, with_packed=False):
-    if "uri" in zonefile_json:
-        registrar_urls = [ x for x in zonefile_json["uri"] if x["name"] == "registrar" ]
-    else:
-        registrar_urls = []
-
-    if "txt" in zonefile_json:
-        subdomains = [ (parse_subdomain_record(x), x["txt"]) for x in zonefile_json["txt"]
-                       if x["name"].startswith("_subd.") ]
-    else:
-        subdomains = []
-
-    if len(subdomains) > 0:
-        parsed, packed = zip(*subdomains)
-    else:
-        parsed, packed = ([], [])
-
-    if with_packed:
-        return registrar_urls, parsed, packed
-    else:
-        return registrar_urls, parsed
-
-def parse_subdomain_record(subdomain_record):
-    parsed = {}
-    parsed["name"] = subdomain_record["name"][len("_subd."):]
-    parsed["urls"] = []
-
-    sig_found = False
-    for datum in subdomain_record["txt"].split(","):
-        if sig_found:
-            raise ParseError("No subdomain data may exist after the signature: {}".format(
-                subdomain_record))
-
-        first_colon = datum.index(":")
-        datum_label = datum[:first_colon].lower()
-        datum_entry = datum[first_colon + 1:]
-        if datum_label == "pubkey":
-            if "pubkey" in parsed:
-                raise ParseError("Multiple pubkeys defined in subdomain record: {}".format(
-                    subdomain_record))
-            parsed["pubkey"] = datum_entry
-        elif datum_label == "n":
-            if "n" in parsed:
-                raise ParseError("Multiple Ns defined in subdomain record: {}".format(
-                    subdomain_record))
-            parsed["n"] = int(datum_entry)
-        elif datum_label == "sig":
-            if "sig" in parsed: # presently unreachable code, but you never know!
-                raise ParseError("Multiple sigs defined in subdomain record: {}".format(
-                    subdomain_record))
-            parsed["sig"] = datum_entry
-            sig_found = True
-        elif datum_label == "url":
-            parsed["urls"].append(datum_entry)
-    for must_have in ["n", "pubkey"]:
-        if must_have not in parsed:
-            raise ParseError("Subdomain entry must have {} setting".format(must_have))
-    if parsed["n"] != 0 and "sig" not in parsed:
-        raise ParseError("Subdomain entries (with n>0) must have signature".format(must_have))
-
-    return parsed
-
-def make_zonefile_entry(subdomain_name, packed_subdomain, as_dict=False):
-    d = { "name" : "_subd." + subdomain_name,
-          "txt" : packed_subdomain }
-    if as_dict:
-        return d
-    return '{} TXT "{}"'.format(d["name"], d["txt"])
-
-def pack_subdomain_record(subdomain_record):
-    entries = []
-    for k, v in subdomain_record.items():
-        if "," in k or (isinstance(v, str) and "," in v):
-            raise ParseError("Don't use commas.")
-        if k in ["n", "pubkey"]:
-            entries.append((k,v))
-        if k == "urls":
-            entries.extend([("url",value) for value in v])
-
-    plaintext = ",".join([ "{}:{}".format(k, v) for k,v in entries ])
-
-    return plaintext
-
-def pack_and_sign_subdomain_record(subdomain_record, key):
-    plaintext = pack_subdomain_record(subdomain_record)
-
-    signature_blob = sign(key, plaintext)
-
-    return plaintext + ",sig:data:" + signature_blob
-
-def verify_subdomain_record(subdomain_record, prior_pubkey_entry):
-    sig_separator = ",sig:data:"
-    signature_index = subdomain_record.index(sig_separator)
-    plaintext = subdomain_record[:signature_index]
-    sig = subdomain_record[(signature_index + len(sig_separator)): ]
-
-    pk_header, pk_data = decode_pubkey_entry(prior_pubkey_entry)
-
-    if pk_header == "echex":
-        try:
-            return verify(keylib.ECPublicKey(pk_data), plaintext, sig)
-        except ecdsa.BadSignatureError as e:
-            log.error("Signature verification failed with BadSignature {} over {} by {}".format(
-                sig, plaintext, pk_data))
-            return False
-    else:
-        raise NotImplementedError("PubKey type ({}) not supported".format(pk_header))
 
 def decode_pubkey_entry(pubkey_entry):
     assert pubkey_entry.startswith("data:")
     pubkey_entry = pubkey_entry[len("data:"):]
     header, data = pubkey_entry.split(":")
+
+    if header == "echex":
+        return keylib.ECPublicKey(data)
+
     return header, data
 
 def encode_pubkey_entry(key):
@@ -191,6 +79,148 @@ def encode_pubkey_entry(key):
 
     return "data:{}:{}".format(head, data)
 
+def txt_encode_key_value(key, value):
+    return "{}={}".format(key,
+                          value.replace("=", "\\="))
+
+class Subdomain(object):
+    def __init__(self, name, pubkey_encoded, n, zonefile_str, sig=None):
+        self.name = name
+        self.pubkey = decode_pubkey_entry(pubkey_encoded)
+        self.n = n
+        self.zonefile_str = zonefile_str
+        self.sig = sig
+
+    def pack_subdomain(self):
+        """ Returns subdomain packed into a list of strings
+            Also defines the canonical order for signing!
+            PUBKEY, N, ZF_PARTS, IN_ORDER_PIECES
+        """
+        output = []
+        output.append(txt_encode_key_value(SUBDOMAIN_PUBKEY, 
+                                           encode_pubkey_entry(self.pubkey)))
+        output.append(txt_encode_key_value(SUBDOMAIN_N, "{}".format(self.n)))
+        
+        encoded_zf = base64.b64encode(self.zonefile_str)
+        # let's pack into 250 byte strings -- the entry "zf99=" eliminates 5 useful bytes,
+        # and the max is 255.
+        n_pieces = (len(encoded_zf) / 250) + 1
+        if len(encoded_zf) % 250 == 0:
+            n_pieces -= 1
+        output.append(txt_encode_key_value(SUBDOMAIN_ZF_PARTS, "{}".format(n_pieces)))
+        for i in range(n_pieces):
+            start = i * 250
+            piece_len = min(250, len(encoded_zf[start:]))
+            assert piece_len != 0
+            piece = encoded_zf[start:(start+piece_len)]
+            output.append(txt_encode_key_value(SUBDOMAIN_ZF_PIECE % zf_index,
+                                               piece))
+
+        if self.sig is not None:
+            output.append(txt_encode_key_value(SUBDOMAIN_SIG, self.sig))
+
+        return output
+
+    def add_signature(self, privkey):
+        plaintext = self.get_plaintext_to_sign()
+        self.sig = sign(privkey, plaintext)
+
+    def verify_signature(self, pubkey):
+        return verify(pubkey, self.get_plaintext_to_sign(), self.sig)
+
+    def as_zonefile_entry(self):
+        d = { "name" : self.name,
+              "txt" : self.pack_subdomain() }
+        return d
+
+    def get_plaintext_to_sign(self):
+        as_strings = self.pack_subdomain()
+        if self.sig is not None:
+            as_strings = as_strings[:-1]
+        return "".join(as_strings)
+
+    @staticmethod
+    def parse_subdomain_record(rec):
+        txt_entry = rec['txt']
+        if not isinstance(txt_entry, list):
+            raise ParseError("Tried to parse a TXT record with only a single <character-string>")
+        entries = {}
+        for item in txt_entry:
+            first_equal = item.index("=")
+            key = item[:first_equal]
+            value = item[first_equal + 1:]
+            value = value.replace("\\=", "=") # escape equals
+            assert key not in entries
+            entries[key] = value
+
+        pubkey = entries[SUBDOMAIN_PUBKEY]
+        n = entries[SUBDOMAIN_N]
+        if SUBDOMAIN_SIG in entries:
+            sig = entries[SUBDOMAIN_SIG]
+        else:
+            sig = None
+        zonefile_parts = int(entries[SUBDOMAIN_ZF_PARTS])
+        b64_zonefile = "".join([ entries[SUBDOMAIN_ZF_PIECE % zf_index] for
+                                 zf_index in range(zonefile_parts) ])
+
+        return Subdomain(rec['name'], pubkey, int(n),
+                         base64.b64decode(b64_zonefile), sig)
+
+# aaron: I was hesitant to write these two functions. But I did so because:
+#   1> getting the sign + verify functions from virtualchain.ecdsa 
+#      was tricky because of the hashfunc getting lost in translating from
+#      SK to PK
+#   2> didn't want this code to necessarily depend on virtualchain
+
+def sign(sk, plaintext):
+    signer = ecdsa.SigningKey.from_pem(sk.to_pem())
+    blob = signer.sign_deterministic(plaintext, hashfunc = hashlib.sha256)
+    return base64.b64encode(blob)
+
+def verify(pk, plaintext, sigb64):
+    signature = base64.b64decode(sigb64)
+    verifier = ecdsa.VerifyingKey.from_pem(pk.to_pem())
+    return verifier.verify(signature, plaintext, hashfunc = hashlib.sha256)
+
+def is_subdomain_record(rec):
+    txt_entry = rec['txt']
+    if not isinstance(txt_entry, list):
+        return False
+    for entry in txt_entry:
+        if entry.startswith(SUBDOMAIN_ZF_PARTS + "="):
+            return True
+    return False
+
+def parse_zonefile_subdomains(zonefile_json):
+    registrar_urls = []
+
+    if "txt" in zonefile_json:
+        subdomains = [ Subdomain.parse_subdomain_record(x) for x in zonefile_json["txt"]
+                       if is_subdomain_record(x) ]
+    else:
+        subdomains = []
+
+    return subdomains
+
+
+def verify_subdomain_record(subdomain_record, prior_pubkey_entry):
+    sig_separator = ",sig:data:"
+    signature_index = subdomain_record.index(sig_separator)
+    plaintext = subdomain_record[:signature_index]
+    sig = subdomain_record[(signature_index + len(sig_separator)): ]
+
+    pk_header, pk_data = decode_pubkey_entry(prior_pubkey_entry)
+
+    if pk_header == "echex":
+        try:
+            return verify(keylib.ECPublicKey(pk_data), plaintext, sig)
+        except ecdsa.BadSignatureError as e:
+            log.error("Signature verification failed with BadSignature {} over {} by {}".format(
+                sig, plaintext, pk_data))
+            return False
+    else:
+        raise NotImplementedError("PubKey type ({}) not supported".format(pk_header))
+
 def is_a_subdomain(fqa):
     """
     Tests whether fqa is a subdomain. 
@@ -204,63 +234,37 @@ def is_a_subdomain(fqa):
         return (True, (pieces[0], ("{}.{}".format(*pieces[1:]))))
     return False
 
-def _transition_valid(from_sub_record, to_sub_record, packed_sub_record):
-    if from_sub_record["n"] + 1 != to_sub_record["n"]:
+def _transition_valid(from_sub_record, to_sub_record):
+    if from_sub_record.n + 1 != to_sub_record.n:
         log.warn("Failed subdomain {} transition because of N:{}->{}".format(
-            to_sub_record["name"], from_sub_record["n"], to_sub_record["n"]))
+            to_sub_record.name, from_sub_record.n, to_sub_record.n))
         return False
-    if not verify_subdomain_record(packed_sub_record, from_sub_record["pubkey"]):
+    if not to_sub_record.verify_signature(from_sub_record.pubkey):
         log.warn("Failed subdomain {} transition because of signature failure".format(
-            to_sub_record["name"], from_sub_record["n"], to_sub_record["n"]))
+            to_sub_record.name))
         return False
-    parsed_again = parse_subdomain_record(
-        make_zonefile_entry(to_sub_record["name"], packed_sub_record, as_dict = True))
-    for (k,v) in parsed_again.items():
-        if k not in to_sub_record:
-            log.warn("Parsed version does not match packed version")
-            raise ParseError()
-        if v != to_sub_record[k]:
-            log.warn("Parsed version does not match packed version") 
-            raise ParseError()
-    for (k,v) in to_sub_record.items():
-        if k not in parsed_again:
-            log.warn("Parsed version does not match packed version")
-            raise ParseError()
-        if v != parsed_again[k]:
-            log.warn("Parsed version does not match packed version") 
-            raise ParseError()
     return True
 
 def _build_subdomain_db(domain_fqa, zonefiles):
     subdomain_db = {}
     for zf in zonefiles:
-        zf_json = zonefile.decode_name_zonefile(domain_fqa, zf)
-        _, subdomain_ops, subdomain_packs = parse_zonefile_subdomains(
-            zf_json, with_packed = True)
-        if len(subdomain_ops) < 1:
-            print zf
+        zf_json = bs_zonefile.decode_name_zonefile(domain_fqa, zf)
+        subdomains = parse_zonefile_subdomains(zf_json)
 
-        for subdomain_op, packed in izip(subdomain_ops, subdomain_packs):
-            if subdomain_op["name"] in subdomain_db:
-                previous = subdomain_db[subdomain_op["name"]]
-                if _transition_valid(previous, subdomain_op, packed):
-                    new_rec = dict(subdomain_op)
-                    del new_rec["sig"]
-                    del new_rec["name"]
-                    subdomain_db[subdomain_op["name"]] = new_rec
+        for subdomain in subdomains:
+            if subdomain.name in subdomain_db:
+                previous = subdomain_db[subdomain.name]
+                if _transition_valid(previous, subdomain):
+                    subdomain_db[subdomain.name] = subdomain
                 else:
                     log.warn("Failed subdomain transition for {}.{} on N:{}->{}".format(
-                        subdomain_op["name"], domain_fqa, previous["n"], subdomain_op["n"]))
+                        subdomain.name, domain_fqa, previous.n, subdomain.n))
             else:
-                if subdomain_op["n"] != 0:
+                if subdomain.n != 0:
                     log.warn("First sight of subdomain {}.{} with N={}".format(
-                        subdomain_op["name"], domain_fqa, subdomain_op["n"]))
+                        subdomain.name, domain_fqa, subdomain.n))
                     continue
-                new_rec = dict(subdomain_op)
-                if "sig" in new_rec:
-                    del new_rec["sig"]
-                del new_rec["name"]
-                subdomain_db[subdomain_op["name"]] = new_rec
+                subdomain_db[subdomain.name] = subdomain
     return subdomain_db
 
 def flatten_and_issue_zonefile(domain_fqa, zf):
@@ -274,7 +278,23 @@ def flatten_and_issue_zonefile(domain_fqa, zf):
         log.exception(e)
         return False
 
-def add_subdomain(subdomain, domain_fqa, key, urls):
+def _extend_with_subdomain(zf_json, subdomain):
+    txt_data = subdomain.pack_subdomain()
+    name = subdomain.name
+
+    if "txt" not in zf_json:
+        zf_json["txt"] = []
+
+    txt_records = zf_json["txt"]
+
+    for rec in txt_records:
+        if name == rec["name"]:
+            raise Exception("Name {} already exists in zonefile TXT records.".format(
+                name))
+
+    zf_json["txt"].append(subdomain.as_zonefile_entry())
+
+def add_subdomain(subdomain, domain_fqa, key, zonefile):
     # step 1: see if this resolves to an already defined subdomain
     subdomain_already = True
     try:
@@ -284,19 +304,15 @@ def add_subdomain(subdomain, domain_fqa, key, urls):
     if subdomain_already:
         raise SubdomainAlreadyExists("{}.{}".format(subdomain, domain_fqa))
     # step 2: get domain's current zonefile and filter the subdomain entries
-    zf = copy.deepcopy(zonefile.get_name_zonefile(domain_fqa))
+    zf = copy.deepcopy(bz_zonefile.get_name_zonefile(domain_fqa))
     zf["txt"] = list([ x for x in zf["txt"]
                     if not x["name"].startswith("_subd.")])
     # step 3: create a subdomain record
-    record = {
-        "pubkey" : subdomains.encode_pubkey_entry(key),
-        "n" : 0,
-        "urls" : list(["url:{}".format(u) for u in urls])
-    }
-    packed = pack_subdomain_record(record)  # no signature needed on n=0
-    zf_entry = make_zonefile_entry(subdomain, packed, as_dict=True)
 
-    zf["txt"].append(zf_entry)
+    subdomain_obj = Subdomain(subdomain, subdomains.encode_pubkey_entry(key),
+                              0, zonefile)
+
+    _extend_with_subdomain(zf, subdomain_obj)
 
     # step 4: issue zonefile update
     flatten_and_issue_zonefile(domain_fqa, zf)
@@ -316,13 +332,22 @@ def resolve_subdomain(subdomain, domain_fqa):
     my_rec = subdomain_db[subdomain]
 
     # step 4: resolve!
-    pubkey_type, user_data_pubkey = decode_pubkey_entry(my_rec["pubkey"])
-    if pubkey_type != "echex":
+
+    owner_pubkey_type, owner_pubkey = decode_pubkey_entry(my_rec.pubkey)
+    if owner_pubkey_type != "echex":
         raise NotImplementedError(
             "Pubkey type {} for subdomain {}.{} not supported by resolver.".format(
                 pubkey_type, subdomain, domain_fqa))
 
-    urls = my_rec["urls"]
+    parsed_zf = bs_zonefile.decode_name_zonefile(subdomain.name, subdomain.zonefile)
+    urls = user_db.user_zonefile_urls(parsed_zf)
+
+    try:
+        user_data_pubkey = user_db.user_zonefile_data_pubkey(user_zonefile)
+        if user_data_pubkey is not None:
+            user_data_pubkey = str(user_data_pubkey)
+    except ValueError:
+        user_data_pubkey = owner_pubkey
 
     user_profile = storage.get_mutable_data(
         None, user_data_pubkey, blockchain_id=None,

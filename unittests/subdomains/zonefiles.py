@@ -25,10 +25,14 @@
 import unittest, json
 
 from blockstack_client import zonefile
+from blockstack_client import user as user_db
 from blockstack_client import subdomains
 import virtualchain.lib.ecdsalib as vc_ecdsa
 
+import jsonschema
+from blockstack_client.schemas import USER_ZONEFILE_SCHEMA
 import keylib
+import blockstack_zones
 
 class SubdomainZonefiles(unittest.TestCase):
     def test_basic(self):
@@ -36,58 +40,49 @@ class SubdomainZonefiles(unittest.TestCase):
 $TTL 3600
 pubkey TXT "pubkey:data:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 registrar URI 10 1 "bsreg://foo.com:8234"
-_subd.foo TXT "pubkey:data:echex:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,N:3,url:https://foobar.com/profile,url:https://dropbox.com/profile2,sig:data:0"
+foo TXT "pub-key={}" "sequence-n=3" "zf-parts=0"
         """
+
+
+        fake_privkey_hex = "5512612ed6ef10ea8c5f9839c63f62107c73db7306b98588a46d0cd2c3d15ea5"
+        sk = keylib.ECPrivateKey(fake_privkey_hex)
+        pk = sk.public_key()
         
+        test_zf = test_zf.format(subdomains.encode_pubkey_entry(pk))
+
         domain_name = "bar.id"
 
         zf_json = zonefile.decode_name_zonefile(domain_name, test_zf)
 
         self.assertEqual(zf_json['$origin'], domain_name)
 
-        parsed_for_subdomains = subdomains.parse_zonefile_subdomains(zf_json)
-        registrar, subds = parsed_for_subdomains
+        subds = subdomains.parse_zonefile_subdomains(zf_json)
         self.assertEqual(len(subds), 1)
         sub = subds[0]
-        for i in ["pubkey", "name", "urls", "n", "sig"]:
-            self.assertIn(i, sub)
-        self.assertEqual(sub["pubkey"], "data:echex:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000")
-        self.assertEqual(sub["n"], 3)
-        self.assertEqual(len(sub["urls"]), 2)
-        self.assertEqual(sub["urls"][0], "https://foobar.com/profile")
-        self.assertEqual(sub["urls"][1], "https://dropbox.com/profile2")
-        self.assertEqual(sub["sig"], "data:0")
+        self.assertEqual(sub.n, 3)
+        self.assertEqual(sub.sig, None)
 
-        self.assertEqual(sub["name"], "foo")
+        self.assertEqual(sub.name, "foo")
 
     def test_parse_errs(self):
         zf = """$ORIGIN bar.id
 $TTL 3600
 pubkey TXT "pubkey:data:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 registrar URI 10 1 "bsreg://foo.com:8234"
-_subd.foo TXT "pubkey:data:echex:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,N:3,url:https://foobar.com/profile,url:https://dropbox.com/profile2,sig:data:0,url:https://another.one.com/"
+foo TXT should_not_parse
         """
         domain_name = "bar.id"
         zf_json = zonefile.decode_name_zonefile(domain_name, zf)
-        self.assertRaises(subdomains.ParseError, lambda: subdomains.parse_zonefile_subdomains(zf_json))
+        self.assertEqual(len(subdomains.parse_zonefile_subdomains(zf_json)), 0)
 
         zf = """$ORIGIN bar.id
 $TTL 3600
 pubkey TXT "pubkey:data:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 registrar URI 10 1 "bsreg://foo.com:8234"
-_subd.foo TXT "pubkey:data:echex:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,N:3,pubkey:data:echex:trythis,url:https://foobar.com/profile,url:https://dropbox.com/profile2,sig:data:0"
+foo TXT "pub-key={}" "sequence-n=3" "should_not_parse"
         """
         zf_json = zonefile.decode_name_zonefile(domain_name, zf)
-        self.assertRaises(subdomains.ParseError, lambda: subdomains.parse_zonefile_subdomains(zf_json))
-
-        zf = """$ORIGIN bar.id
-$TTL 3600
-pubkey TXT "pubkey:data:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-registrar URI 10 1 "bsreg://foo.com:8234"
-_subd.foo TXT "pubkey:data:echex:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,N:3,n:2,url:https://foobar.com/profile,url:https://dropbox.com/profile2,sig:data:0"
-        """
-        zf_json = zonefile.decode_name_zonefile(domain_name, zf)
-        self.assertRaises(subdomains.ParseError, lambda: subdomains.parse_zonefile_subdomains(zf_json))
+        self.assertEqual(len(subdomains.parse_zonefile_subdomains(zf_json)), 0)
 
     def test_sigs(self):
         fake_privkey_hex = "5512612ed6ef10ea8c5f9839c63f62107c73db7306b98588a46d0cd2c3d15ea5"
@@ -98,26 +93,31 @@ _subd.foo TXT "pubkey:data:echex:00000000000000000000000000000000000000000000000
             self.assertTrue(subdomains.verify(pk, t,
                                               subdomains.sign(sk, t)), t)
 
-        subd_json = {
-            "pubkey" : subdomains.encode_pubkey_entry(sk),
-            "name" : "foo",
-            "n" : 3,
-            "urls": ["https://foobar.com/profile",
-                     "https://dropbox.com/profile2"]
+        subdomain = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(sk), 3, "")
+
+        user_zf = {
+            '$origin': 'foo',
+            '$ttl': 3600,
+            'txt' : [], 'uri' : []
         }
 
-        packed_subdomain_record = subdomains.pack_and_sign_subdomain_record(subd_json, sk)
+        user_zf['uri'].append(zonefile.url_to_uri_record("https://foo_foo.com/profile.json"))
+        jsonschema.validate(user_zf, USER_ZONEFILE_SCHEMA)
 
-        self.assertTrue(
-            subdomains.verify_subdomain_record(packed_subdomain_record,
-                                               subdomains.encode_pubkey_entry(sk)))
-        self.assertTrue(
-            subdomains.verify_subdomain_record(packed_subdomain_record,
-                                               subdomains.encode_pubkey_entry(pk)))
+        subdomain.zonefile = blockstack_zones.make_zone_file(user_zf)
+
+        subdomain.add_signature(sk)
+
+        self.assertTrue(subdomain.verify_signature(pk))
+
+        parsed_zf = zonefile.decode_name_zonefile(subdomain.name, subdomain.zonefile)
+        urls = user_db.user_zonefile_urls(parsed_zf)
+
+        self.assertEqual(len(urls), 1)
+        self.assertIn("https://foo_foo.com/profile.json", urls)
+
         self.assertRaises( NotImplementedError, lambda : subdomains.encode_pubkey_entry( fake_privkey_hex ) )
-        self.assertRaises( NotImplementedError,
-                           lambda : subdomains.verify_subdomain_record(packed_subdomain_record, 
-                                                                       "data:pem:000"))
+
     def test_signed_transition(self):
         fake_privkey_hex = "5512612ed6ef10ea8c5f9839c63f62107c73db7306b98588a46d0cd2c3d15ea5"
         sk = keylib.ECPrivateKey(fake_privkey_hex)
@@ -137,12 +137,14 @@ _subd.foo TXT "pubkey:data:echex:00000000000000000000000000000000000000000000000
             "urls": ["https://none.com"]
         }
 
-        packed_record_next = subdomains.pack_and_sign_subdomain_record(next_json, sk)
-        parsed_record_next = subdomains.parse_subdomain_record(
-            subdomains.make_zonefile_entry("foo", packed_record_next, as_dict=True))
-        self.assertTrue(
-            subdomains._transition_valid(start_json, parsed_record_next, packed_record_next))
+        subdomain1 = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(sk), 3, "")
+        subdomain2 = subdomains.Subdomain("bar", subdomains.encode_pubkey_entry(sk), 4, "")
 
+        subdomain2.add_signature(sk)
+        self.assertTrue(
+            subdomains._transition_valid(subdomain1, subdomain2))
+
+    def something(self):
         next_json["urls"] = ["https://different.com"]
         packed_record_next_fail = subdomains.pack_and_sign_subdomain_record(next_json, sk)
         parsed_record_next_fail = subdomains.parse_subdomain_record(
@@ -180,78 +182,76 @@ _subd.foo TXT "pubkey:data:echex:00000000000000000000000000000000000000000000000
 $TTL 3600
 pubkey TXT "pubkey:data:0"
 registrar URI 10 1 "bsreg://foo.com:8234"
-_subd.foo TXT "pubkey:{},N:0,url:https://foobar.com/profile,url:https://dropbox.com/profile2"
+foo TXT "pub-key={}" "sequence-n=0" "zf-parts=0"
 """,
             """$ORIGIN bar.id
 $TTL 3600
 pubkey TXT "pubkey:data:0"
 registrar URI 10 1 "bsreg://foo.com:8234"
-_subd.bar TXT "pubkey:{},N:0,url:https://foobar.com/profile,url:https://dropbox.com/profile2"
+bar TXT "pub-key={}" "sequence-n=0" "zf-parts=0"
 """,
-            """$ORIGIN bar.id
-$TTL 3600
-pubkey TXT "pubkey:data:0"
-registrar URI 10 1 "bsreg://foo.com:8234"
-{}
-""",
-            """$ORIGIN bar.id
-$TTL 3600
-pubkey TXT "pubkey:data:0"
-registrar URI 10 1 "bsreg://foo.com:8234"
-{}
-"""]
+]
 
         foo_bar_sk = keylib.ECPrivateKey()
         bar_bar_sk = keylib.ECPrivateKey()
 
         history[0] = history[0].format(subdomains.encode_pubkey_entry(foo_bar_sk))
         history[1] = history[1].format(subdomains.encode_pubkey_entry(bar_bar_sk))
-        history[2] = history[2].format(
-            subdomains.make_zonefile_entry(
-                "bar",
-                subdomains.pack_and_sign_subdomain_record(
-                    {"pubkey" : subdomains.encode_pubkey_entry(bar_bar_sk),
-                     "n" : 1,
-                     "urls" : ["https://foobar.com", "https://noodles.com"]},
-                    bar_bar_sk)))
-        history[3] = history[3].format(
-            subdomains.make_zonefile_entry(
-                "foo",
-                subdomains.pack_and_sign_subdomain_record(
-                    {"pubkey" : subdomains.encode_pubkey_entry(foo_bar_sk),
-                     "n" : 1,
-                     "urls" : ["https://foobar.com", "https://poodles.com"]},
-                    foo_bar_sk)))
+
+        domain_name = "bar.id"
+
+        empty_zf = """$ORIGIN bar.id
+$TTL 3600
+pubkey TXT "pubkey:data:0"
+registrar URI 10 1 "bsreg://foo.com:8234"
+"""
+
+        zf_json = zonefile.decode_name_zonefile(domain_name, empty_zf)
+        self.assertEqual(zf_json['$origin'], domain_name)
+
+        sub1 = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(foo_bar_sk), 1, "")
+        sub2 = subdomains.Subdomain("bar", subdomains.encode_pubkey_entry(bar_bar_sk), 1, "")
+        sub1.add_signature(foo_bar_sk)
+        sub2.add_signature(bar_bar_sk)
+
+        subdomains._extend_with_subdomain(zf_json, sub2)
+
+        history.append(blockstack_zones.make_zone_file(zf_json))
+
+        zf_json = zonefile.decode_name_zonefile(domain_name, empty_zf)
+        subdomains._extend_with_subdomain(zf_json, sub1)
+
+        history.append(blockstack_zones.make_zone_file(zf_json))
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history[:1])
-        self.assertEqual(subdomain_db["foo"]["n"], 0)
-        self.assertIn("https://foobar.com/profile", subdomain_db["foo"]["urls"])
-        self.assertIn("https://dropbox.com/profile2", subdomain_db["foo"]["urls"])
+        self.assertEqual(subdomain_db["foo"].n, 0)
+#        self.assertIn("https://foobar.com/profile", subdomain_db["foo"]["urls"])
+#        self.assertIn("https://dropbox.com/profile2", subdomain_db["foo"]["urls"])
         self.assertNotIn("bar", subdomain_db)
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history[:2])
         self.assertIn("bar", subdomain_db)
-        self.assertEqual(subdomain_db["bar"]["n"], 0)
-        self.assertIn("https://foobar.com/profile", subdomain_db["bar"]["urls"])
-        self.assertIn("https://dropbox.com/profile2", subdomain_db["bar"]["urls"])
+        self.assertEqual(subdomain_db["bar"].n, 0)
+#        self.assertIn("https://foobar.com/profile", subdomain_db["bar"]["urls"])
+#        self.assertIn("https://dropbox.com/profile2", subdomain_db["bar"]["urls"])
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history[:3])
-        self.assertEqual(subdomain_db["foo"]["n"], 0)
-        self.assertEqual(subdomain_db["bar"]["n"], 1)
-        self.assertIn("https://foobar.com/profile", subdomain_db["foo"]["urls"])
-        self.assertIn("https://dropbox.com/profile2", subdomain_db["foo"]["urls"])
-        self.assertNotIn("https://foobar.com/profile", subdomain_db["bar"]["urls"])
-        self.assertNotIn("https://dropbox.com/profile2", subdomain_db["bar"]["urls"])
+        self.assertEqual(subdomain_db["foo"].n, 0)
+        self.assertEqual(subdomain_db["bar"].n, 1)
+#        self.assertIn("https://foobar.com/profile", subdomain_db["foo"]["urls"])
+#        self.assertIn("https://dropbox.com/profile2", subdomain_db["foo"]["urls"])
+#        self.assertNotIn("https://foobar.com/profile", subdomain_db["bar"]["urls"])
+#        self.assertNotIn("https://dropbox.com/profile2", subdomain_db["bar"]["urls"])
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history)
-        self.assertEqual(subdomain_db["foo"]["n"], 1)
-        self.assertEqual(subdomain_db["bar"]["n"], 1)
-        self.assertNotIn("https://foobar.com/profile", subdomain_db["foo"]["urls"])
-        self.assertNotIn("https://dropbox.com/profile2", subdomain_db["foo"]["urls"])
-        self.assertIn("https://foobar.com", subdomain_db["bar"]["urls"])
-        self.assertIn("https://noodles.com", subdomain_db["bar"]["urls"])
-        self.assertIn("https://foobar.com", subdomain_db["foo"]["urls"])
-        self.assertIn("https://poodles.com", subdomain_db["foo"]["urls"])
+        self.assertEqual(subdomain_db["foo"].n, 1)
+        self.assertEqual(subdomain_db["bar"].n, 1)
+#        self.assertNotIn("https://foobar.com/profile", subdomain_db["foo"]["urls"])
+#        self.assertNotIn("https://dropbox.com/profile2", subdomain_db["foo"]["urls"])
+#        self.assertIn("https://foobar.com", subdomain_db["bar"]["urls"])
+#        self.assertIn("https://noodles.com", subdomain_db["bar"]["urls"])
+#        self.assertIn("https://foobar.com", subdomain_db["foo"]["urls"])
+#        self.assertIn("https://poodles.com", subdomain_db["foo"]["urls"])
 
     def lets_resolve(self):
         pass

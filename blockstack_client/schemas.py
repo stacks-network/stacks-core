@@ -439,7 +439,8 @@ TXT_RECORD_SCHEMA = {
             'pattern': OP_URLENCODED_PATTERN,
         },
         'txt': {
-            'type': 'string',
+            'type': ['string', 
+                     'array']
         },
     },
     'required': [
