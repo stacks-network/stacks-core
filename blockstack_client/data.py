@@ -72,6 +72,7 @@ class DataCache(object):
 
         self.dir_cache = {}
         self.dir_deadlines = {}
+        self.dir_children = {}
         self.max_dirs = max_dirs
 
         self.datastore_cache = {}
@@ -89,30 +90,35 @@ class DataCache(object):
         """
         deadline = int(time.time() + ttl)
 
-        with lock:
-            cache_obj[key] = {'value': value, 'deadline': deadline}
+        if lock:
+            lock.acquire()
 
-            if not deadline_tbl.has_key(deadline):
-                deadline_tbl[deadline] = []
+        cache_obj[key] = {'value': value, 'deadline': deadline}
 
-            deadline_tbl[deadline].append(key)
+        if not deadline_tbl.has_key(deadline):
+            deadline_tbl[deadline] = []
 
-            if len(cache_obj.keys()) > max_obj:
-                # evict stuff
-                to_evict = []
-                evict_count = 0
-                for deadline in sorted(deadline_tbl.keys()):
-                    to_evict.append(deadline)
-                    evict_count += len(deadline_tbl[deadline])
-                    if len(cache_obj.keys()) - evict_count <= max_obj:
-                        break
+        deadline_tbl[deadline].append(key)
 
-                for deadline in to_evict:
-                    evicted_keys = deadline_tbl[deadline]
-                    del deadline_tbl[deadline]
+        if len(cache_obj.keys()) > max_obj:
+            # evict stuff
+            to_evict = []
+            evict_count = 0
+            for deadline in sorted(deadline_tbl.keys()):
+                to_evict.append(deadline)
+                evict_count += len(deadline_tbl[deadline])
+                if len(cache_obj.keys()) - evict_count <= max_obj:
+                    break
 
-                    for key in evicted_keys:
-                        del cache_obj[key]
+            for deadline in to_evict:
+                evicted_keys = deadline_tbl[deadline]
+                del deadline_tbl[deadline]
+
+                for key in evicted_keys:
+                    del cache_obj[key]
+
+        if lock:
+            lock.release()
 
 
     def _get_data(self, lock, cache_obj, deadline_tbl, key):
@@ -187,8 +193,18 @@ class DataCache(object):
         """
         Save an inode directory
         """
-        log.debug("Cache directory {}".format(inode_directory['uuid']))
-        return self._put_data(self.dir_lock, self.dir_cache, self.dir_deadlines, self.max_dirs, '{}:{}'.format(datastore_id, inode_directory['uuid']), inode_directory, ttl)
+        log.debug("Cache directory {} (version {})".format(inode_directory['uuid'], inode_directory['version']))
+
+        with self.dir_lock:
+            # stash directory
+            self._put_data(None, self.dir_cache, self.dir_deadlines, self.max_dirs, '{}:{}'.format(datastore_id, inode_directory['uuid']), inode_directory, ttl)
+
+            # also, map children UUID back to the parent directory so we can properly evict the parent directory
+            # when we add/remove/update a file.
+            for child_name in inode_directory['idata']['children'].keys():
+                child_idata = inode_directory['idata']['children'][child_name]
+                child_uuid = child_idata['uuid']
+                self.dir_children[child_uuid] = inode_directory['uuid']
 
 
     def put_datastore_record(self, datastore_id, datastore_rec, ttl):
@@ -221,7 +237,7 @@ class DataCache(object):
         """
         res, deadline = self._get_data(self.dir_lock, self.dir_cache, self.dir_deadlines, '{}:{}'.format(datastore_id, inode_uuid))
         if res:
-            log.debug("Cache HIT directory {}, expires at {} (now={})".format(inode_uuid, deadline, time.time()))
+            log.debug("Cache HIT directory {}, version {}, expires at {} (now={})".format(inode_uuid, res['version'], deadline, time.time()))
 
         else:
             log.debug("Cache MISS {}".format(inode_uuid))
@@ -269,8 +285,25 @@ class DataCache(object):
         """
         Evict all inode state
         """
+        parent_uuid = None
+        with self.dir_lock:
+            parent_uuid = self.dir_children.get(inode_uuid, None)
+
         self.evict_inode_header(datastore_id, inode_uuid)
         self.evict_inode_directory(datastore_id, inode_uuid)
+        
+        if parent_uuid:
+            log.debug("Evict {}, parent of {}".format(parent_uuid, inode_uuid))
+            self.evict_inode_header(datastore_id, parent_uuid)
+            self.evict_inode_directory(datastore_id, parent_uuid)
+
+            to_remove = []
+            for (cuuid, duuid) in self.dir_children.items():
+                if duuid == inode_uuid:
+                    to_remove.append(cuuid)
+
+            for cuuid in to_remove:
+                del self.dir_children[cuuid]
 
     
     def evict_all(self):
@@ -1940,12 +1973,6 @@ def get_inode_data(blockchain_id, datastore_id, inode_uuid, inode_type, drivers,
    
     global GLOBAL_CACHE
 
-    if inode_type == MUTABLE_DATUM_DIR_TYPE and not no_cache:
-        # check cache
-        res = GLOBAL_CACHE.get_inode_directory(datastore_id, inode_uuid)
-        if res:
-            return {'status': True, 'inode': res, 'version': res['version'], 'drivers': drivers} 
-
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
@@ -1989,6 +2016,20 @@ def get_inode_data(blockchain_id, datastore_id, inode_uuid, inode_type, drivers,
     if inode_header['type'] == MUTABLE_DATUM_FILE_TYPE and not file_idata:
         # this is a file; only return header 
         return {'status': True, 'inode': inode_header, 'version': header_version, 'drivers': drivers_to_try}
+
+    # check cache for directories...
+    if inode_type == MUTABLE_DATUM_DIR_TYPE and not no_cache:
+        res = GLOBAL_CACHE.get_inode_directory(datastore_id, inode_uuid)
+        if res:
+            # check version 
+            if res['version'] == header_version:
+                log.debug("Get CACHED inode data for {}.{}, version {}: {}".format(datastore_id, inode_uuid, res['version'], res))
+                return {'status': True, 'inode': res, 'version': res['version'], 'drivers': drivers} 
+            else:
+                # stale directory
+                log.debug("Evict stale directory {}".format(inode_uuid))
+                GLOBAL_CACHE.evict_inode_directory(datastore_id, inode_uuid)
+
 
     log.debug("Get inode data for {}.{} from {}, version {}".format(datastore_id, inode_uuid, drivers_to_try, header_version))
 
@@ -2254,6 +2295,7 @@ def get_inode_header(blockchain_id, datastore_id, inode_uuid, drivers, data_pubk
             return {'error': res['error'], 'errno': res['errno']}
 
     if not no_cache:
+        inode_hdr['version'] = max(inode_hdr_version, inode_version)
         GLOBAL_CACHE.put_inode_header(datastore_id, inode_hdr, cache_ttl)
 
     return {'status': True, 'inode': inode_hdr, 'version': max(inode_hdr_version, inode_version), 'drivers': inode_drivers}
@@ -2473,6 +2515,7 @@ def put_inode_data( datastore, header_blob_str, header_blob_sig, idata_str, conf
     # replicate (header, payload) per driver, instead of (headers) to driver and then (payloads) to driver.
     # this way, if some services are offline but others are not, this write can partially succeed to readers,
     # and the user can retry the write (from this or another device) to "complete" it.
+    log.debug("Store inode {} (version {})".format(inode_uuid, version))
     save_idata = lambda di: put_mutable(idata_fqid, idata_str, None, None, version, raw=True, storage_drivers=[di], storage_drivers_exclusive=True, config_path=config_path, proxy=proxy)
     save_header = lambda dh: put_mutable(header_fqid, header_blob_str, datastore['pubkey'], header_blob_sig, version, storage_drivers=[dh], storage_drivers_exclusive=True, config_path=config_path, proxy=proxy)
 
@@ -3611,8 +3654,9 @@ def datastore_putfile_make_inodes(api_client, datastore, data_path, file_data_ha
         # make a file!
         child_uuid = str(uuid.uuid4())
         parent_dir_inode, child_dirent = _mutable_data_dir_link( parent_dir_inode, MUTABLE_DATUM_FILE_TYPE, name, child_uuid )
-    
+   
     min_version = max(parent_dir_inode['version'], child_dirent['version'])
+    log.debug("Version of {} ({}) will be max({}, {}) = {}".format(data_path, child_uuid, parent_dir_inode['version'], child_dirent['version'], min_version))
 
     # make the new inode info
     child_file_info = make_file_inode_data( datastore_id, datastore_id, child_uuid, file_data_hash, device_ids, readers=[], config_path=config_path, min_version=min_version, create=create )
