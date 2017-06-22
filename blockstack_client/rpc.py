@@ -430,10 +430,18 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Invalid authRequest token: too big'}, status_code=401)
 
         decoded_token = jsontokens.decode_token(token)
+        legacy = False
         try:
             assert isinstance(decoded_token, dict)
             assert decoded_token.has_key('payload')
-            jsonschema.validate(decoded_token['payload'], APP_SESSION_REQUEST_SCHEMA )
+
+            try:
+                jsonschema.validate(decoded_token['payload'], APP_SESSION_REQUEST_SCHEMA )
+            except ValidationError as ve2:
+                log.debug("Authentication request is not current; trying legacy")
+                jsonschema.validate(decoded_token['payload'], APP_SESSION_REQUEST_SCHEMA_OLD )
+                legacy = True
+
         except ValidationError as ve:
             if BLOCKSTACK_TEST or BLOCKSTACK_DEBUG:
                 log.exception(ve)
@@ -443,29 +451,45 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Invalid token")
             return self._reply_json({'error': 'Invalid authRequest token: does not match any known request schemas'}, status_code=401)
 
-        blockchain_id = str(decoded_token['payload']['blockchain_id'])
         app_domain = str(decoded_token['payload']['app_domain'])
         methods = [str(m) for m in decoded_token['payload']['methods']]
-        app_private_key = str(decoded_token['payload']['app_private_key'])
-        app_public_key = get_pubkey_hex(app_private_key)
-        app_public_keys = decoded_token['payload']['app_public_keys']
-
-        requester_device_id = decoded_token['payload']['device_id']
-        
-        # must be listed in app_public_keys 
+        blockchain_id = None
+        app_private_key = None
+        app_public_key = None
+        app_public_keys = None
+        requester_device_id = None
         requester_public_key = None
-        for apk in app_public_keys:
-            if apk['device_id'] == requester_device_id:
-                requester_public_key = apk['public_key']
-                break
 
-        if requester_public_key is None:
-            return self._reply_json({'error': 'Invalid authRequest token: requesting device does not have a public key listed'}, status_code=401)
+        if legacy:
+            # legacy; fill in defaults
+            app_public_key = decoded_token['payload']['app_public_key']
+            app_private_key = '0000000000000000000000000000000000000000000000000000000000000001'
+            app_public_keys = {}
+            requester_device_id = ''
+            blockchain_id = ''
 
-        # must match the app private key
-        if keylib.key_formatting.decompress(requester_public_key) != keylib.key_formatting.decompress(app_public_key):
-            log.error("Device public key mismatch: {} != {}".format(requester_public_key, app_public_key))
-            return self._reply_json({'error': 'Invalid authRequest token: app private key does not match the device\'s listed public key'}, status_code=401)
+        else:
+            # current
+            blockchain_id = str(decoded_token['payload']['blockchain_id'])
+            app_private_key = str(decoded_token['payload']['app_private_key'])
+            app_public_key = get_pubkey_hex(app_private_key)
+            app_public_keys = decoded_token['payload']['app_public_keys']
+            requester_device_id = decoded_token['payload']['device_id']
+            
+            # must be listed in app_public_keys 
+            requester_public_key = None
+            for apk in app_public_keys:
+                if apk['device_id'] == requester_device_id:
+                    requester_public_key = apk['public_key']
+                    break
+
+            if requester_public_key is None:
+                return self._reply_json({'error': 'Invalid authRequest token: requesting device does not have a public key listed'}, status_code=401)
+
+            # must match the app private key
+            if keylib.key_formatting.decompress(requester_public_key) != keylib.key_formatting.decompress(app_public_key):
+                log.error("Device public key mismatch: {} != {}".format(requester_public_key, app_public_key))
+                return self._reply_json({'error': 'Invalid authRequest token: app private key does not match the device\'s listed public key'}, status_code=401)
 
         session_lifetime = DEFAULT_SESSION_LIFETIME
         log.debug("app_public_key: {}".format(app_public_key))
