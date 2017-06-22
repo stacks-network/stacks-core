@@ -462,7 +462,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if legacy:
             # legacy; fill in defaults
-            app_public_key = decoded_token['payload']['app_public_key']
+            app_public_key = str(decoded_token['payload']['app_public_key'])
             app_private_key = '0000000000000000000000000000000000000000000000000000000000000001'
             app_public_keys = {}
             requester_device_id = ''
