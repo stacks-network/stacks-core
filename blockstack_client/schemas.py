@@ -840,10 +840,6 @@ APP_SESSION_SCHEMA = {
     'required': APP_SESSION_PROPERTIES.keys(),
 }
 
-APP_SESSION_SCHEMA_ANONYMOUS = {
-    'type': 'object',
-    'properties': APP_SESSION_PROPERTIES 
-
 # authentication-request payload
 APP_SESSION_REQUEST_SCHEMA = {
     'type': 'object',
