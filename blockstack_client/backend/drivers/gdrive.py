@@ -31,7 +31,7 @@ import logging
 import sys
 import urllib
 from ConfigParser import SafeConfigParser
-from common import get_logger, DEBUG, compress_chunk, decompress_chunk, get_driver_settings_dir
+from common import *
 
 log = get_logger("blockstack-storage-drivers-gdrive")
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
@@ -42,6 +42,8 @@ GDRIVE_COMPRESS = False
 GDRIVE_HANDLE = None
 GDRIVE_SETTINGS_PATH = None
 RELOAD_DRIVE = False
+DVCONF = None
+INDEX_DIRNAME = "/index"
 
 GDRIVE_SETTINGS_YAML_TEMPLATE = """
 client_config_backend: file
@@ -109,125 +111,12 @@ def get_blockstack_folder_id(drive, folder):
     return f['id']
 
 
-def get_chunk_via_http(url):
+def gdrive_put_chunk( dvconf, chunk_buf, name ):
     """
-    Get a shared Google Drive URL's data
-    Return the data on success
-    Return None on failure
-    """
-    try:
-        req = requests.get(url)
-        if req.status_code != 200:
-            log.debug("GET %s status code %s" % (url, req.status_code))
-            return None
+    Driver-level call to put data.
 
-        return req.c
-    except Exception, e:
-        log.exception(e)
-        return None
-
-
-def get_chunk_via_gdrive(drive, data_id):
-    """
-    Get data via Google Drive's API
-    Return the data on success
-    Return None on failure
-    """
-    global GDRIVE_FOLDER_ID, GDRIVE_FOLDER_NAME
-    if GDRIVE_FOLDER_ID is None:
-        fid = get_blockstack_folder_id(drive, GDRIVE_FOLDER_NAME)
-        GDRIVE_FOLDER_ID = fid
-
-    try:
-        flist = drive.ListFile({'q': "title='{}' and '{}' in parents".format(data_id, GDRIVE_FOLDER_ID)}).GetList()
-        for f in flist:
-            if f['title'] == data_id:
-                return f.GetContentString()
-    
-    except Exception as e:
-        if DEBUG:
-            log.exception(e)
-
-        log.error("Failed to get {} from Google Drive".format(data_id))
-        return False
-    
-    # not found
-    log.debug("Not found: {}".format(data_id))
-    return None
-
-
-def get_url_type(url):
-    """
-    How do we handle this URL?
-    Return ('http', url) if we use http to get this data
-    Return ('gdrive', data_id) if we use gdrive to get this data
-    Return None, None on invalid URL
-    """
-
-    # is this a direct URL to a google drive resource,
-    # or is this a URL generated with get_mutable_url()?
-    urlparts = urlparse.urlparse(url)
-    urlpath = posixpath.normpath(urlparts.path)
-    urlpath_parts = urlpath.strip('/').split('/')
-
-    if len(urlpath_parts) != 2:
-        log.error("Invalid URL {}".format(url))
-        return None
-
-    if urlpath_parts[0] == 'blockstack':
-        return ('gdrive', urlpath_parts[1])
-
-    else:
-        return ('http', url)
-
-
-def get_chunk(url):
-    """
-    Get a chunk from google drive, given its URL.
-    Decompress and return it.
-    """
-    res = None
-    data = None
-
-    urltype, urlres = get_url_type(url)
-    if urltype is None and urlres is None:
-        log.error("Invalid URL {}".format(url))
-        return None
-
-    if urltype == 'gdrive':
-
-        # request via Google Drive
-        drive = get_gdrive_handle()
-        log.debug("Fetch {} via gdrive ({})".format(url, urlres))
-        data = get_chunk_via_gdrive(drive, urlres) 
-
-    else:
-
-        # request via HTTP
-        log.debug("Fetch {} via HTTP".format(url))
-        data = get_chunk_via_http(url)
-
-    if data is None:
-        return None
-
-    # decompress 
-    if GDRIVE_COMPRESS:
-        try:
-            res = decompress_chunk(data)
-        except:
-            res = data
-            
-    else:
-        res = data
-
-    return res
-
-
-def put_chunk( drive, name, chunk_buf ):
-    """
-    Put a chunk into google drive.
-    Compress it first.
-    Return the URL
+    Returns the URL to the data stored on success.
+    Returns None on error
     """
     global GDRIVE_FOLDER_ID
     if GDRIVE_COMPRESS:
@@ -236,7 +125,8 @@ def put_chunk( drive, name, chunk_buf ):
         compressed_chunk = chunk_buf
 
     name = urllib.quote(name.replace( "/", r"-2f" ))
-    
+    drive = get_gdrive_handle()
+
     fid = None
     if GDRIVE_FOLDER_ID is not None:
         fid = GDRIVE_FOLDER_ID
@@ -244,40 +134,69 @@ def put_chunk( drive, name, chunk_buf ):
         GDRIVE_FOLDER_ID = get_blockstack_folder_id(drive, GDRIVE_FOLDER_NAME)
         fid = GDRIVE_FOLDER_ID
 
+    # does this file already exist?
+    existing_fid = None
     try:
-        f = drive.CreateFile({'title': name, "parents": [{"kind": "drive#fileLink", "id": fid}]})
+        flist = drive.ListFile({'q': 'title="{}" and "{}" in parents and trashed=false'.format(name, GDRIVE_FOLDER_ID)}).GetList()
+        for f in flist:
+            if f['title'] == name:
+                existing_fid = f['id']
+                log.debug("'{}' exists as '{}'".format(name, existing_fid))
+                break
+
+    except Exception, e:
+        if DEBUG:
+            log.exception(e)
+
+        log.error("Failed to query {}".format(name))
+        return None
+
+    try:
+        params = {'title': name, 'parents': [{'kind': 'drive#fileLink', 'id': fid}]}
+        if existing_fid:
+            params['fid'] = existing_fid
+
+        f = drive.CreateFile(params)
 
         if len(compressed_chunk) > 0:
             f.SetContentString(compressed_chunk)
 
         f.Upload()
-        f.InsertPermission({'type': 'anyone', 'value': 'anyone', 'role': 'reader'})
-        log.debug("File {} available at {}".format(name, f['webContentLink']))
-        return True
+
+        if not existing_fid:
+            f.InsertPermission({'type': 'anyone', 'value': 'anyone', 'role': 'reader'})
+            log.debug("File {} available at {}".format(name, f['webContentLink']))
+
+        else:
+            log.debug("File {} already available at {}".format(name, f['webContentLink']))
+
+        return f['webContentLink']
 
     except Exception, e:
         if DEBUG:
             log.exception(e)
 
         log.error("Failed to save {} to Google Drive".format(name))
-        return False
+        return None
 
 
-def delete_chunk( drive, name ):
+def gdrive_delete_chunk(dvconf, name):
     """
-    Delete a chunk from google drive.
+    Delete a chunk from google drive
     Return True on success
     Return False on error
     """
+    
     global GDRIVE_FOLDER_ID, GDRIVE_FOLDER_NAME
     if GDRIVE_FOLDER_ID is None:
         fid = get_blockstack_folder_id(drive, GDRIVE_FOLDER_NAME)
         GDRIVE_FOLDER_ID = fid
 
     name = urllib.quote(name.replace( "/", r"-2f" ))
+    drive = get_gdrive_handle()
 
     try:
-        flist = drive.ListFile({'q': 'title="{}" and "{}" in parents'.format(name, GDRIVE_FOLDER_ID)}).GetList()
+        flist = drive.ListFile({'q': 'title="{}" and "{}" in parents and trashed=false'.format(name, GDRIVE_FOLDER_ID)}).GetList()
         for f in flist:
             if f['title'] == name:
                 f.Delete()
@@ -291,7 +210,39 @@ def delete_chunk( drive, name ):
         return False
 
     return False
+
+
+def gdrive_get_chunk(dvconf, name):
+    """
+    Get a chunk via google drive
+    Return the data on success
+    Return None on error
+    """
+    global GDRIVE_FOLDER_ID, GDRIVE_FOLDER_NAME
+    if GDRIVE_FOLDER_ID is None:
+        fid = get_blockstack_folder_id(drive, GDRIVE_FOLDER_NAME)
+        GDRIVE_FOLDER_ID = fid
+
+    name = urllib.quote(name.replace( "/", r"-2f" ))
+    drive = get_gdrive_handle()
     
+    try:
+        flist = drive.ListFile({'q': "title='{}' and '{}' in parents and trahsed=false".format(name, GDRIVE_FOLDER_ID)}).GetList()
+        for f in flist:
+            if f['title'] == name:
+                return f.GetContentString()
+    
+    except Exception as e:
+        if DEBUG:
+            log.exception(e)
+
+        log.error("Failed to get {} from Google Drive".format(name))
+        return None
+    
+    # not found
+    log.debug("Not found: {}".format(name))
+    return None
+        
 
 def handles_url( url ):
     """
@@ -302,72 +253,69 @@ def handles_url( url ):
     if urltype is None and urlres is None:
         # can't handle this
         return False
-
+    
     urlparts = urlparse.urlparse(url)
-    return urlparts.netlock.endswith("drive.google.com")
+    return urlparts.netloc.endswith("drive.google.com")
 
 
 def make_mutable_url( data_id ):
     """
-    Make a mutable data URL
+    The URL here is a misnomer, since only Dropbox.com
+    can create public URLs.
+
+    This URL here will instruct get_chunk() to go and search through
+    the index for the target data.
     """
-    data_id = urllib.quote( data_id.replace('/', '-2f') )
-    url = 'https://drive.google.com/blockstack/{}'.format(data_id)
-    return url
+    return index_make_mutable_url('www.dropbox.com', data_id)
 
 
 def get_immutable_handler( key, **kw ):
     """
     Get data by hash
     """
-    drive = get_gdrive_handle()
-    return get_chunk_via_gdrive(drive, 'immutable-{}'.format(key))
+    return index_get_immutable_handler(DVCONF, key, **kw)
 
 
 def get_mutable_handler( url, **kw ):
     """
     Get data by URL
     """
-    return get_chunk(url)
+    return index_get_mutable_handler(DVCONF, url, **kw)
 
 
 def put_immutable_handler( key, data, txid, **kw ):
     """
     Put data by hash and txid
     """
-    drive = get_gdrive_handle()
-    return put_chunk(drive, "immutable-{}".format(key), data)
+    return index_put_immutable_handler(DVCONF, key, data, txid, **kw)
 
 
 def put_mutable_handler( data_id, data_bin, **kw ):
     """
     Put data by file ID
     """
-    drive = get_gdrive_handle()
-    return put_chunk(drive, data_id, data_bin)
+    return index_put_mutable_handler(DVCONF, data_id, data_bin, **kw)
 
 
 def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
     """
     Delete by hash
     """
-    drive = get_gdrive_handle()
-    return delete_chunk(drive, "immutable-{}".format(key))
+    return index_delete_immutable_handler(DVCONF, key, txid, sig_key_txid, **kw)
 
 
 def delete_mutable_handler( data_id, signature, **kw ):
     """
     Delete by data ID
     """
-    drive = get_gdrive_handle()
-    return delete_chunk(drive, data_id.format(data_id))
+    return index_delete_mutable_handler(DVCONF, data_id, signature, **kw)
     
 
-def storage_init(conf, **kw):
+def storage_init(conf, index=False, force_index=False, **kw):
     """
     Initialize google drive storage driver
     """
-    global GDRIVE_FOLDER_NAME, GDRIVE_FOLDER_ID, GDRIVE_COMPRESS, GDRIVE_SETTINGS_PATH, RELOAD_DRIVE
+    global GDRIVE_FOLDER_NAME, GDRIVE_FOLDER_ID, GDRIVE_COMPRESS, GDRIVE_SETTINGS_PATH, RELOAD_DRIVE, DVCONF
     
     settings_path = None
     config_path = conf['path']
@@ -432,7 +380,21 @@ def storage_init(conf, **kw):
             f.write(config_file_text)
 
     GDRIVE_SETTINGS_PATH = settings_path
+
+    # set up driver 
+    DVCONF = driver_config("gdrive", config_path, gdrive_get_chunk, gdrive_put_chunk, gdrive_delete_chunk, index_stem=INDEX_DIRNAME, compress=GDRIVE_COMPRESS)
+    if index:
+        # instantiate the index 
+        url = index_setup(DVCONF, force=force_index)
+        if not url:
+            log.error("Failed to set up index")
+            return False
+
     return True
+
+
+def get_classes():
+    return ['read_public', 'write_private']
 
 
 if __name__ == "__main__":

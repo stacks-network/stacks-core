@@ -85,6 +85,8 @@ def get_registration_recipient_from_outputs( outputs ):
     
     By construction, it will be the first non-OP_RETURN 
     output (i.e. the second output).
+
+    TODO: remove for() loop
     """
     
     ret = None

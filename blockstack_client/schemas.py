@@ -25,6 +25,7 @@ from __future__ import print_function
 """
 
 from .constants import *
+import blockstack_profiles
 
 OP_CONSENSUS_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTH_CONSENSUS_HASH * 2)
 OP_BASE58CHECK_PATTERN = r'^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$'
@@ -59,6 +60,7 @@ OP_DATASTORE_ID_CLASS = r'[a-zA-Z0-9\-_.~%]'
 OP_USER_ID_PATTERN = r'^({}+)$'.format(OP_USER_ID_CLASS)
 OP_DATASTORE_ID_PATTERN = r'^({}+)$'.format(OP_DATASTORE_ID_CLASS)
 OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
+OP_URI_TARGET_PATTERN_NOSCHEME = r'^([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
 
 OP_ANY_TYPE_SCHEMA = [
     {
@@ -413,8 +415,16 @@ URI_RECORD_SCHEMA = {
             'maximum': 65535,
         },
         'target': {
-            'type': 'string',
-            'pattern': OP_URI_TARGET_PATTERN
+            'anyOf': [
+                {
+                    'type': 'string',
+                    'pattern': OP_URI_TARGET_PATTERN,
+                },
+                {
+                    'type': 'string',
+                    'pattern': OP_URI_TARGET_PATTERN_NOSCHEME,
+                },
+            ],
         },
         'class': {
             'type': 'string'
@@ -699,15 +709,22 @@ DATA_BLOB_SCHEMA = {
     'additionalProperties': False,
 }
 
-
-# common properties to app sessions and auth requests
 APP_INFO_PROPERTIES = {
-    'blockchain_ids': {
-        'type': 'array',
-        'items': {
-            'type': 'string',
-            'pattern': OP_NAME_PATTERN,
-        },
+    'version': {
+        'type': 'integer',
+        'minimum': 1,
+        'maximum': 1,
+    },
+    'blockchain_id': {
+        'anyOf': [
+            {
+                'type': 'string',
+                'pattern': OP_NAME_PATTERN,
+            },
+            {
+                'type': 'null',
+            },
+        ],
     },
     'app_domain': {
         'anyOf': [
@@ -728,19 +745,83 @@ APP_INFO_PROPERTIES = {
             'pattern': '^[a-zA-Z_][a-zA-Z0-9_.]+$'   # method name
         },
     },
-    'app_public_key': {
+    'app_public_keys': {
+        'type': 'array',
+        'items': {
+            'type': 'object',
+            'properties': {
+                'public_key': {
+                    'type': 'string',
+                    'pattern': OP_HEX_PATTERN,
+                },
+                'device_id': {
+                    'type': 'string',
+                    'pattern': '.+',
+                },
+            },
+            'required': [
+                'public_key',
+                'device_id'
+            ],
+        },
+    },
+}
+
+APP_SESSION_REQUEST_PROPERTIES = APP_INFO_PROPERTIES.copy()
+APP_SESSION_REQUEST_PROPERTIES.update({
+    'app_private_key': {
         'type': 'string',
         'pattern': OP_HEX_PATTERN,
+    },
+    'device_id': {
+        'type': 'string',
+        'pattern': '.+',
+    },
+})
+
+STORAGE_CLASSES = {
+    'type': 'object',
+    'patternProperties': {
+        '.+': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': '.+',
+            },
+        },
     },
 }
 
 APP_SESSION_PROPERTIES = APP_INFO_PROPERTIES.copy()
-APP_AUTHREQUEST_PROPERTIES = APP_INFO_PROPERTIES.copy()
-
 APP_SESSION_PROPERTIES.update({
     'app_user_id': {
         'type': 'string',
         'pattern': OP_URLENCODED_NOSLASH_PATTERN,
+    },
+    'api_endpoint': {
+        'anyOf': [
+            {
+                'type': 'string',
+                'pattern': OP_URI_TARGET_PATTERN,
+            },
+            {
+                'type': 'string',
+                'pattern': OP_URI_TARGET_PATTERN_NOSCHEME,
+            },
+        ],
+    },
+    'device_id': {
+        'type': 'string',
+        'pattern': '.+',
+    },
+    'storage': {
+        'classes': STORAGE_CLASSES,
+        'preferences': {
+            'type': 'object',
+            'patternProperties': {
+                '.+': STORAGE_CLASSES
+            },
+        },
     },
     'timestamp': {
         'type': 'integer',
@@ -751,20 +832,54 @@ APP_SESSION_PROPERTIES.update({
     },
 })
 
+
 # application session JWT payload
 APP_SESSION_SCHEMA = {
     'type': 'object',
     'properties': APP_SESSION_PROPERTIES,
-    'required': list(set(APP_SESSION_PROPERTIES.keys()) - set(['blockchain_ids'])),
-    'additionalProperties': False
+    'required': APP_SESSION_PROPERTIES.keys(),
 }
 
 # authentication-request payload
-APP_AUTHREQUEST_SCHEMA = {
+APP_SESSION_REQUEST_SCHEMA = {
     'type': 'object',
-    'properties': APP_INFO_PROPERTIES,
-    'required': list(set(APP_INFO_PROPERTIES.keys()) - set(['app_public_key','blockchain_ids'])),
-    'additionalProperties': False
+    'properties': APP_SESSION_REQUEST_PROPERTIES,
+    'required': APP_SESSION_REQUEST_PROPERTIES.keys(),
+}
+
+# old session request schema
+APP_SESSION_REQUEST_SCHEMA_OLD = {
+    'type': 'object',
+    'properties': {
+        'app_domain': {
+            'anyOf': [
+                {
+                    'type': 'string',
+                    'pattern': OP_URI_TARGET_PATTERN,
+                },
+                {
+                    'type': 'string',
+                    'pattern': OP_URI_TARGET_PATTERN_NOSCHEME,
+                },
+            ],
+        },
+        'app_public_key': {
+            'type': 'string',
+            'pattern': OP_PUBKEY_PATTERN,
+        },
+        'methods': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': '^[a-zA-Z_][a-zA-Z0-9_.]+$'   # method name
+            },
+        },
+    },
+    'required': [
+        'app_domain',
+        'app_public_key',
+        'methods'
+    ],
 }
 
 # app configuration schema (goes alongside the index.html file)
@@ -1309,4 +1424,141 @@ NAMESPACE_SCHEMA_REQUIRED = [
     'version',
     'vtxindex'
 ]
+
+# schema for an account entry in a profile
+PROFILE_ACCOUNT_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'service': {
+            'type': 'string',
+        },
+        'identifier': {
+            'type': 'string',
+        },
+        'contentUrl': {
+            'type': 'string',
+            'pattern': OP_URI_TARGET_PATTERN,
+        },
+    },
+    'additionalProperties': True,
+    'required': [
+        'service',
+        'identifier',
+    ],
+}
+
+
+# key delegation schema 
+KEY_DELEGATION_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'version': {
+            'type': 'string',
+            'pattern': '^1\.0$',
+        },
+        'name': {
+            'type': 'string',
+            'pattern': OP_NAME_PATTERN,
+        },
+        'devices': {
+            'type': 'object',
+            'patternProperties': {
+                '^.+$': {
+                    'type': 'object',
+                    'properties': {
+                        'app': {
+                            'type': 'string',
+                            'pattern': OP_PUBKEY_PATTERN,
+                        },
+                        'enc': {
+                            'type': 'string',
+                            'pattern': OP_PUBKEY_PATTERN,
+                        },
+                        'sign': {
+                            'type': 'string',
+                            'pattern': OP_PUBKEY_PATTERN,
+                        },
+                        'index': {
+                            'type': 'integer',
+                            'minimum': 0,
+                            'maximum': 2**31 - 1,
+                        },
+                    },
+                    'required': [
+                        'app',
+                        'enc',
+                        'sign',
+                        'index',
+                    ],
+                    'additionalProperties': False,
+                },
+            },
+        },
+    },
+    'required': [
+        'version',
+        'name',
+        'devices',
+    ],
+    'additionalProperties': False,
+}
+
+
+# App key bundle
+APP_KEY_BUNDLE_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'version': {
+            'type': 'string',
+            'pattern': '^1\.0$',
+        },
+        'apps': {
+            'type': 'object',
+            'patternProperties': {
+                OP_NAME_PATTERN: {
+                    'type': 'string',
+                    'pattern': OP_PUBKEY_PATTERN,
+                },
+            },
+        },
+    },
+    'required': [
+        'version',
+        'apps'
+    ],
+    'additionalProperties': False,
+}
+
+
+# Blockstack token file 
+BLOCKSTACK_TOKEN_FILE_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'version': {
+            'type': 'string',
+            'pattern': '^3\.0$',
+        },
+        'profile': blockstack_profiles.person.PERSON_SCHEMA,
+        'keys': {
+            'delegation': KEY_DELEGATION_SCHEMA,
+            'apps': {
+                'type': 'object',
+                'patternProperties': {
+                    '^.+$': APP_KEY_BUNDLE_SCHEMA
+                },
+            },
+            'required': [
+                'delegation',
+                'apps',
+            ],
+            'additionalProperties': False,
+        },
+    },
+    'required': [
+        'version',
+        'profile',
+        'keys',
+    ],
+    'additionalProperties': False,
+}
 

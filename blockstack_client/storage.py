@@ -36,7 +36,8 @@ import blockstack_zones
 import blockstack_profiles
 
 from .logger import get_logger
-from constants import BLOCKSTACK_TEST
+from constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, BLOCKSTACK_STORAGE_CLASSES
+from config import get_config
 from scripts import hex_hash160
 import schemas
 from keys import *
@@ -499,7 +500,9 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, 
         if not mutable_data_json_txt.startswith("bsk2."):
             # raw data; will authenticate with data hash
             raw = True
-            assert data_hash
+            if data_hash is None:
+                log.error("Corrupt data: data text does not start with 'bsk2.', and no data hash given")
+                return None
 
         return parse_mutable_data_v2(mutable_data_json_txt, public_key, public_key_hash=public_key_hash, data_hash=data_hash, raw=raw)
         
@@ -580,7 +583,7 @@ def register_storage(storage_impl):
     expected_methods = [
         'make_mutable_url', 'get_immutable_handler', 'get_mutable_handler',
         'put_immutable_handler', 'put_mutable_handler', 'delete_immutable_handler',
-        'delete_mutable_handler'
+        'delete_mutable_handler', 'get_classes'
     ]
 
     for expected_method in expected_methods:
@@ -589,6 +592,76 @@ def register_storage(storage_impl):
             log.warning(msg.format(expected_method))
 
     return True
+
+
+def get_storage_driver_classes(driver_name):
+    """
+    Get the driver classes for a driver.
+    Return [] if the driver does not list any.
+    """
+    global storage_handlers
+    if len(storage_handlers) == 0:
+        log.warn("No storage drivers registered")
+        return []
+
+    for driver in storage_handlers:
+        if driver.__name__ == driver_name:
+            if not hasattr(driver, 'get_classes'):
+                log.warn("Driver {} does not implement 'get_classes()'".format(driver_name))
+                return []
+
+            return driver.get_classes()
+
+    log.warn("No such driver {}".format(driver_name))
+    return []
+
+
+def classify_storage_drivers():
+    """
+    Classify the set of storage drivers.
+    Return {'class': ['driver names']}
+    """
+    global storage_handlers
+    classes = {}
+
+    for driver_class in BLOCKSTACK_STORAGE_CLASSES:
+        classes[driver_class] = []
+
+    for driver in storage_handlers:
+        driver_classes = get_storage_driver_classes(driver.__name__)
+        for driver_class in driver_classes:
+            if driver_class not in BLOCKSTACK_STORAGE_CLASSES:
+                raise ValueError("Driver '{}' reports unrecognized class '{}'".format(driver.__name__, driver_class))
+
+            classes[driver_class].append(driver.__name__)
+        
+    return classes
+
+
+def configure_storage_driver(driver_name, index=False, force_index=False, config_path=CONFIG_PATH):
+    """
+    Instruct a driver to configure itself
+    Return {'status': True} on success
+    Return {'error': '...', 'status': False} if configuration failed
+    Return {'error': ...} if we couldn't call the driver configuration method
+    """
+    global storage_handlers
+
+    conf = get_config(config_path)
+    assert conf
+
+    # find storage handler 
+    for driver in storage_handlers:
+        if driver.__name__ == driver_name:
+            res = driver.storage_init(conf, index=index, force_index=force_index)
+            if not res:
+                log.error("Failed to configure {}".format(driver_name))
+                return {'error': 'Failed to configure driver', 'status': False}
+
+            return {'status': True}
+
+    log.error("No such driver {}".format(driver_name))
+    return {'error': 'No such driver'}
 
 
 def get_immutable_data(data_hash, data_url=None, hash_func=get_data_hash, fqu=None,
@@ -606,7 +679,7 @@ def get_immutable_data(data_hash, data_url=None, hash_func=get_data_hash, fqu=No
 
     global storage_handlers
     if len(storage_handlers) == 0:
-        log.debug('No storage handlers registered')
+        log.warn('No storage handlers registered')
         return None
 
     handlers_to_use = []

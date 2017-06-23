@@ -261,7 +261,8 @@ def tx_make_subsidization_output(payer_utxo_inputs, payer_address, op_fee, dust_
     }
 
 
-def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_client, tx_fee=0, subsidy_address=None):
+def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_client, tx_fee=0,
+                         subsidy_address=None, add_dust_fee=True):
     """
     Given an unsigned serialized transaction from Blockstack, make it into a subsidized transaction
     for the client to go sign off on.
@@ -269,12 +270,14 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
     * Make sure the subsidy does not exceed the maximum subsidy fee
     * Sign our inputs with SIGHASH_ANYONECANPAY (if subsidy_key_info is not None)
 
-    @tx_fee should be in satoshis
+    @tx_fee should be in fundamental units (i.e. satoshis)
 
     Returns the transaction; signed if subsidy_key_info is given; unsigned otherwise
     Returns None if we can't get subsidy info
     Raise ValueError if there are not enough inputs to subsidize
     """
+
+    from .backend.blockchain import select_utxos
   
     subsidy_info = tx_get_subsidy_info(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_client, tx_fee=tx_fee, subsidy_address=subsidy_address)
     if 'error' in subsidy_info:
@@ -284,22 +287,51 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
     payer_utxo_inputs = subsidy_info['payer_utxos']
     payer_address = subsidy_info['payer_address']
     op_fee = subsidy_info['op_fee']
-    dust_fee = subsidy_info['dust_fee']
+    if add_dust_fee:
+        dust_fee = subsidy_info['dust_fee']
+    else:
+        dust_fee = 0 # NOTE: caller needed to include this in the passed tx_fee!
     tx_fee = subsidy_info['tx_fee']
     tx_inputs = subsidy_info['ins']
 
-    # NOTE: virtualchain-formatted output; values are still in satoshis!
-    subsidy_output = tx_make_subsidization_output(
-        payer_utxo_inputs, payer_address, op_fee, dust_fee + tx_fee
-    )
+    def _make_subsidized_from(inputs, _tx_fee):
+        # NOTE: virtualchain-formatted output; values are still in satoshis!
+        subsidy_output = tx_make_subsidization_output(
+            inputs, payer_address, op_fee, dust_fee + _tx_fee
+        )
 
-    # add our inputs and output (recall: virtualchain-formatted; so values are fundamental units (i.e. satoshis))
-    subsidized_tx = tx_extend(blockstack_tx, payer_utxo_inputs, [subsidy_output])
+        # add our inputs and output (recall: virtualchain-formatted; so values are fundamental units (i.e. satoshis))
+        subsidized_tx = tx_extend(blockstack_tx, inputs, [subsidy_output])
+        return subsidized_tx
+
+    subsidized_tx = None
+    consumed_inputs = None
+
+    # try to minimize the number of UTXOs we'll consume
+    found = False
+    log.debug("{} has {} UTXOs; will need to fund at least {} + {} + {} = {}".format(payer_address, len(payer_utxo_inputs), op_fee, dust_fee, tx_fee, op_fee + dust_fee + tx_fee))
+
+    for i in xrange(0, len(payer_utxo_inputs)):
+        consumed_inputs = payer_utxo_inputs[0:i+1]
+        try:
+            subsidized_tx = _make_subsidized_from(consumed_inputs, tx_fee)
+            found = True
+            log.debug("Consumed UTXOs 0-{}".format(i+1))
+            break
+
+        except ValueError:
+            # nope
+            log.debug("Not enough value in UTXOs 0-{} (tx fee so far: {})".format(i+1, tx_fee))
+            continue
+
+    if not found:
+        # no solution found
+        raise ValueError("Not enough value in all the UTXOs for {}".format(payer_address))
 
     # sign each of our inputs with our key, but use
     # SIGHASH_ANYONECANPAY so the client can sign its inputs
     if subsidy_key_info is not None:
-        for i in range(len(payer_utxo_inputs)):
+        for i in range(len(consumed_inputs)):
             idx = i + len(tx_inputs)
             subsidized_tx = tx_sign_input(
                 subsidized_tx, idx, subsidy_key_info, hashcode=virtualchain.SIGHASH_ANYONECANPAY
@@ -343,4 +375,7 @@ def tx_get_unspents(address, utxo_client, min_confirmations=None):
     
     # filter minimum confirmations
     ret = [d for d in data if d.get('confirmations', 0) >= min_confirmations]
+    
+    # sort on value, largest first 
+    ret.sort(lambda x, y: -1 if x['value'] > y['value'] else 0 if x['value'] == y['value'] else 1)
     return ret
