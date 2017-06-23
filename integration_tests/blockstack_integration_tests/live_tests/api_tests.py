@@ -446,7 +446,11 @@ def test_main(args = []):
     test_suite = unittest.TestSuite()
     for test_name in args:
         test_suite.addTest( unittest.TestLoader().loadTestsFromTestCase(test_map[test_name]) )
-    test_runner( test_suite )
+    result = test_runner( test_suite )
+    if result.wasSuccessful():
+        sys.exit(0)
+    else:
+        sys.exit(1)
 
 if __name__ == '__main__':
     test_main(sys.argv[1:])
