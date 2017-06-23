@@ -122,3 +122,14 @@ When a lookup like `foo.bar.id` hits the resolver, the resolver will need to:
 
 A resolver may *cache* a subdomain's state by keeping a database of
 all the current subdomain records.
+
+
+#### Todos
+
+1. Testing bad zonefile transitions / updates.
+   a. Wrong _n_ : this could be a rewrite, roll-back, whatever. [x]
+   b. Bad signature [x]
+2. Caching resolver database [o]
+3. Batching updates [o]
+4. Web API [o]
+5. Endpoint support for changing zonefiles/rotating keys

@@ -103,31 +103,24 @@ def scenario( wallets, **kw ):
         sys.stdout.flush()
         testlib.next_block( **kw )
 
-    # store a new zonefile
-    zonefile_0_js = { "$origin" : "foo.test",
-                      "$ttl" : "3600",
-                      "uri" : [{ "name" : "registrar", "priority" : 1, "weight" : 10,
-                                 "target" : "bsreg://foo.com:8234" }], }
+    # register foo.foo.test
+
+    # foo's zonefile
+    user_zf = {
+        '$origin': 'foo',
+        '$ttl': 3600,
+        'txt' : [], 'uri' : []
+    }
+    user_zf['uri'].append(blockstack_client.zonefile.url_to_uri_record("file:///tmp/foo.profile.json"))
+
 
     foo_sk = keylib.ECPrivateKey()
-    bar_sk = keylib.ECPrivateKey()
+    print "Resolving key {}".format(foo_sk.to_hex())
 
-    foo_entry = "pubkey:{},N:0,url:file:///tmp/foo.profile.json".format(
-        subdomains.encode_pubkey_entry(foo_sk))
-    bar_entry = "pubkey:{},N:0,url:file:///tmp/bar.profile.json".format(
-        subdomains.encode_pubkey_entry(bar_sk))
+    subdomain = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(foo_sk), 0,
+                                     blockstack_zones.make_zone_file(user_zf))
 
-    zonefile_0_js["txt"] = [
-        {"name" : "_subd.foo", "txt": foo_entry},
-        {"name" : "_subd.bar", "txt": bar_entry}]
-
-    zonefile_txt = blockstack_zones.make_zone_file( zonefile_0_js )
-    zonefile_hash = blockstack_client.storage.get_zonefile_data_hash( zonefile_txt )
-   
-    print >> sys.stderr, "\n\nzonefile hash: %s\nzonefile:\n%s\n\n" % (zonefile_hash, zonefile_txt)
-
-
-    subdomains.flatten_and_issue_zonefile("foo.test", zonefile_0_js)
+    subdomains.add_subdomain(subdomain, "foo.test")
 
     # wait for new update to get confirmed 
     for i in xrange(0, 12):
@@ -156,27 +149,29 @@ def scenario( wallets, **kw ):
 
     # okay, let's add another user: *baz*
     baz_sk = keylib.ECPrivateKey()
+    user_zf = {
+        '$origin': 'baz',
+        '$ttl': 3600,
+        'txt' : [], 'uri' : []
+    }
+    user_zf['uri'].append(blockstack_client.zonefile.url_to_uri_record("file:///tmp/baz.profile.json"))
 
-    # first try a domain that doesn't exist
+
+    print "Resolving key {}".format(baz_sk.to_hex())
+
+    subdomain = subdomains.Subdomain("baz", subdomains.encode_pubkey_entry(baz_sk), 0,
+                                     blockstack_zones.make_zone_file(user_zf))
+
+    # now try someone else's subdomain
     try:
-        subdomains.add_subdomain("baz", "bar.test", baz_sk.public_key(),
-                                 ["file:///tmp/baz.profile.json"])
-    except Exception as e:
-        print "Exception from missing domain: {}".format(e)
-        import traceback
-        traceback.print_exc()
-    # now try a domain that *does* exist, but we don't own
-    try:
-        subdomains.add_subdomain("baz", "zap.test", baz_sk.public_key(),
-                                 ["file:///tmp/baz.profile.json"])
-    except Exception as e:
-        print "Exception from missing domain: {}".format(e)
-        import traceback
-        traceback.print_exc()
+        subdomain.name = "foo"
+        subdomains.add_subdomain(subdomain, "foo.test")
+        assert False
+    except subdomains.SubdomainAlreadyExists as e:
+        subdomain.name = "baz"
 
     # now let's really do it.
-    subdomains.add_subdomain("baz", "foo.test", baz_sk.public_key(),
-                             ["file:///tmp/baz.profile.json"])
+    subdomains.add_subdomain(subdomain, "foo.test")
 
 
     # let's write a profile for the resolver.
@@ -207,7 +202,7 @@ def check( state_engine ):
     for subdomain, domain in profiles_to_resolve:
         # let's resolve!
         user_profile = subdomains.resolve_subdomain(subdomain, domain)
-        print user_profile
-        print json.dumps(user_profile, indent=2)
+        assert subdomain in user_profile
+        print "Resolved profile : {}".format(user_profile)
 
     return True

@@ -150,8 +150,7 @@ def check( state_engine ):
     user_profile = subdomains.resolve_subdomain("foo", "foo.test")
 
     # let's resolve!
-    print "Resolved Profile: {}".format(user_profile)
-    print "Resolved Profile: {}".format(json.dumps(user_profile, indent=2))
+    print "Resolved profile : {}".format(user_profile)
 
     assert 'foo' in user_profile
 

@@ -24,7 +24,7 @@ import base64, copy
 import ecdsa, hashlib
 import keylib
 from itertools import izip
-from blockstack_client import data, storage
+from blockstack_client import data, storage, actions
 from blockstack_client import zonefile as bs_zonefile
 from blockstack_client import user as user_db
 from blockstack_client.logger import get_logger
@@ -41,13 +41,12 @@ SUBDOMAIN_N = "sequence-n"
 
 class ParseError(Exception):
     pass
-
+class DomainNotOwned(Exception):
+    pass
 class SubdomainNotFound(Exception):
     pass
-
 class SubdomainNotFound(Exception):
     pass
-
 class SubdomainAlreadyExists(Exception):
     pass
 
@@ -274,33 +273,55 @@ def _extend_with_subdomain(zf_json, subdomain):
 
     zf_json["txt"].append(subdomain.as_zonefile_entry())
 
-def add_subdomain(subdomain, domain_fqa, key, zonefile):
+def add_subdomain(subdomain, domain_fqa):
+    """
+    subdomain => Subdomain object to add
+    domain_fqa => fully qualified domain name to add the subdomain to.
+                  - must be owned by the Core's wallet
+                  - must not already have a subdomain associated with it
+    """
+
     # step 1: see if this resolves to an already defined subdomain
     subdomain_already = True
     try:
-        resolve_subdomain(subdomain, domain_fqa)
+        resolve_subdomain(subdomain.name, domain_fqa)
     except SubdomainNotFound as e:
         subdomain_already = False
     if subdomain_already:
-        raise SubdomainAlreadyExists("{}.{}".format(subdomain, domain_fqa))
+        raise SubdomainAlreadyExists("{}.{}".format(subdomain.name, domain_fqa))
     # step 2: get domain's current zonefile and filter the subdomain entries
-    zf = copy.deepcopy(bz_zonefile.get_name_zonefile(domain_fqa))
-    zf["txt"] = list([ x for x in zf["txt"]
-                    if not x["name"].startswith("_subd.")])
+    zonefile_json = bs_zonefile.get_name_zonefile(domain_fqa)['zonefile']
+    zf = copy.deepcopy(zonefile_json)
+    if "txt" in zf:
+        zf["txt"] = list([ x for x in zf["txt"]
+                           if not is_subdomain_record(x)])
     # step 3: create a subdomain record
 
-    subdomain_obj = Subdomain(subdomain, subdomains.encode_pubkey_entry(key),
-                              0, zonefile)
-
-    _extend_with_subdomain(zf, subdomain_obj)
-
+    _extend_with_subdomain(zf, subdomain)
     # step 4: issue zonefile update
     flatten_and_issue_zonefile(domain_fqa, zf)
 
+def is_subdomain_resolution_cached(domain_fqa):
+    domains = config.get_subdomains_cached_for()
+    return domain_fqa in domains
+
+def resolve_subdomain_cached_domain(subdomain, domain_fqa):
+    db = SubdomainDB(domain_fqa)
+    # check if db is current with zonefile hash
+    zf_hash = get_name_blockchain_record(name, proxy=proxy)['value_hash']
+    if zf_hash != db.last_seen_zonefile_hash():
+        db.update()
+
+    subdomain_obj = db.get_subdomain_entry(subdomain)
+
+    return subdomain_record_to_profile(subdomain_obj)
 
 def resolve_subdomain(subdomain, domain_fqa):
     # step 1: fetch domain zonefiles.
     zonefiles = data.list_zonefile_history(domain_fqa)
+
+    if len(zonefiles) == 0:
+        print "Empty zonefiles!"
 
     # step 2: for each zonefile, parse the subdomain
     #         operations.
@@ -312,7 +333,9 @@ def resolve_subdomain(subdomain, domain_fqa):
     my_rec = subdomain_db[subdomain]
 
     # step 4: resolve!
+    return subdomain_record_to_profile(my_rec)
 
+def subdomain_record_to_profile(my_rec):
     owner_pubkey = my_rec.pubkey
 
     parsed_zf = bs_zonefile.decode_name_zonefile(my_rec.name, my_rec.zonefile_str)

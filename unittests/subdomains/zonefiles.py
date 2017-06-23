@@ -144,38 +144,6 @@ foo TXT "pub-key={}" "sequence-n=3" "should_not_parse"
         self.assertTrue(
             subdomains._transition_valid(subdomain1, subdomain2))
 
-    def something(self):
-        next_json["urls"] = ["https://different.com"]
-        packed_record_next_fail = subdomains.pack_and_sign_subdomain_record(next_json, sk)
-        parsed_record_next_fail = subdomains.parse_subdomain_record(
-            subdomains.make_zonefile_entry("foo", packed_record_next_fail, as_dict=True))
-
-        self.assertRaises(subdomains.ParseError,
-            lambda : subdomains._transition_valid(start_json, parsed_record_next_fail, packed_record_next))     
-
-        next_json["n"] = "5"
-        packed_record_next_fail = subdomains.pack_and_sign_subdomain_record(next_json, sk)
-        parsed_record_next_fail = subdomains.parse_subdomain_record(
-            subdomains.make_zonefile_entry("foo", packed_record_next_fail, as_dict=True))
-
-        self.assertFalse(
-            subdomains._transition_valid(start_json, parsed_record_next_fail, packed_record_next_fail))
-
-        next_json["n"] = "4"
-        packed_record_next_good = subdomains.pack_and_sign_subdomain_record(next_json, sk)
-        parsed_record_next_good = subdomains.parse_subdomain_record(
-            subdomains.make_zonefile_entry("foo", packed_record_next_good, as_dict=True))
-
-        self.assertTrue(
-            subdomains._transition_valid(start_json, parsed_record_next_good, packed_record_next_good))        
-
-        sk_bad = keylib.ECPrivateKey()
-        packed_record_next_fail = subdomains.pack_and_sign_subdomain_record(next_json, sk_bad)
-        parsed_record_next_fail = subdomains.parse_subdomain_record(
-            subdomains.make_zonefile_entry("foo", packed_record_next_fail, as_dict=True))
-        self.assertFalse(
-            subdomains._transition_valid(start_json, parsed_record_next_fail, packed_record_next_fail))
-
     def test_db_builder(self):
         history = [
             """$ORIGIN bar.id
@@ -225,36 +193,81 @@ registrar URI 10 1 "bsreg://foo.com:8234"
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history[:1])
         self.assertEqual(subdomain_db["foo"].n, 0)
-#        self.assertIn("https://foobar.com/profile", subdomain_db["foo"]["urls"])
-#        self.assertIn("https://dropbox.com/profile2", subdomain_db["foo"]["urls"])
         self.assertNotIn("bar", subdomain_db)
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history[:2])
         self.assertIn("bar", subdomain_db)
         self.assertEqual(subdomain_db["bar"].n, 0)
-#        self.assertIn("https://foobar.com/profile", subdomain_db["bar"]["urls"])
-#        self.assertIn("https://dropbox.com/profile2", subdomain_db["bar"]["urls"])
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history[:3])
         self.assertEqual(subdomain_db["foo"].n, 0)
         self.assertEqual(subdomain_db["bar"].n, 1)
-#        self.assertIn("https://foobar.com/profile", subdomain_db["foo"]["urls"])
-#        self.assertIn("https://dropbox.com/profile2", subdomain_db["foo"]["urls"])
-#        self.assertNotIn("https://foobar.com/profile", subdomain_db["bar"]["urls"])
-#        self.assertNotIn("https://dropbox.com/profile2", subdomain_db["bar"]["urls"])
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history)
         self.assertEqual(subdomain_db["foo"].n, 1)
         self.assertEqual(subdomain_db["bar"].n, 1)
-#        self.assertNotIn("https://foobar.com/profile", subdomain_db["foo"]["urls"])
-#        self.assertNotIn("https://dropbox.com/profile2", subdomain_db["foo"]["urls"])
-#        self.assertIn("https://foobar.com", subdomain_db["bar"]["urls"])
-#        self.assertIn("https://noodles.com", subdomain_db["bar"]["urls"])
-#        self.assertIn("https://foobar.com", subdomain_db["foo"]["urls"])
-#        self.assertIn("https://poodles.com", subdomain_db["foo"]["urls"])
 
-    def lets_resolve(self):
-        pass
+    def test_db_builder_bad_transitions(self):
+        history = [
+            """$ORIGIN bar.id
+$TTL 3600
+pubkey TXT "pubkey:data:0"
+registrar URI 10 1 "bsreg://foo.com:8234"
+foo TXT "pub-key={}" "sequence-n=0" "zf-parts=0"
+""",
+            """$ORIGIN bar.id
+$TTL 3600
+pubkey TXT "pubkey:data:0"
+registrar URI 10 1 "bsreg://foo.com:8234"
+bar TXT "pub-key={}" "sequence-n=0" "zf-parts=0"
+""",
+]
+
+        foo_bar_sk = keylib.ECPrivateKey()
+        bar_bar_sk = keylib.ECPrivateKey()
+
+        history[0] = history[0].format(subdomains.encode_pubkey_entry(foo_bar_sk))
+        history[1] = history[1].format(subdomains.encode_pubkey_entry(bar_bar_sk))
+
+        domain_name = "bar.id"
+
+        empty_zf = """$ORIGIN bar.id
+$TTL 3600
+pubkey TXT "pubkey:data:0"
+registrar URI 10 1 "bsreg://foo.com:8234"
+"""
+
+        zf_json = zonefile.decode_name_zonefile(domain_name, empty_zf)
+        self.assertEqual(zf_json['$origin'], domain_name)
+
+        # bad transition n=0 -> n=0
+        sub1 = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(foo_bar_sk), 0, "")
+
+        subdomains._extend_with_subdomain(zf_json, sub1)
+
+        history.append(blockstack_zones.make_zone_file(zf_json))
+
+        # bad transition bad sig.
+        zf_json = zonefile.decode_name_zonefile(domain_name, empty_zf)
+        self.assertEqual(zf_json['$origin'], domain_name)
+
+        sub2 = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(bar_bar_sk), 1, "")
+        subdomains._extend_with_subdomain(zf_json, sub2)
+        history.append(blockstack_zones.make_zone_file(zf_json))
+
+        subdomain_db = subdomains._build_subdomain_db("bar.id", history[:1])
+        self.assertEqual(subdomain_db["foo"].n, 0)
+        self.assertNotIn("bar", subdomain_db)
+
+        subdomain_db = subdomains._build_subdomain_db("bar.id", history[:2])
+        self.assertIn("bar", subdomain_db)
+        self.assertEqual(subdomain_db["bar"].n, 0)
+
+        subdomain_db = subdomains._build_subdomain_db("bar.id", history[:3])
+        self.assertEqual(subdomain_db["foo"].n, 0)
+        self.assertEqual(subdomain_db["bar"].n, 0)
+
+
 
 if __name__ == '__main__':
     unittest.main()
