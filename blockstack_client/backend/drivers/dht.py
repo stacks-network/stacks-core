@@ -122,6 +122,7 @@ def dht_get_key(data_key):
     else:
         raise Exception("No data returned from %s" % data_key)
 
+    log.debug(ret)
     return ret
 
 
@@ -254,6 +255,10 @@ def delete_mutable_handler(data_id, signature, **kw):
         return False
 
     return True
+
+
+def get_classes():
+    return ['read_public', 'write_private']
 
 
 if __name__ == "__main__":

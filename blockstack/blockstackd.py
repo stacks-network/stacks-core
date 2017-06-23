@@ -1263,11 +1263,18 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             # NOTE: since we did not generate this zonefile (i.e. it's untrusted input, and we may be using different storage drivers),
             # don't trust its URLs.  Auto-generate them using our designated drivers instead.
             # Also, do not attempt to decode the profile.  The client will do this instead (avoid any decode-related attack vectors)
-            profile, zonefile = blockstack_client.get_profile(name, profile_storage_drivers=profile_storage_drivers, zonefile_storage_drivers=zonefile_storage_drivers,
-                                                             user_zonefile=zonefile_dict, name_record=name_rec, use_zonefile_urls=False, decode_profile=False)
+            res = blockstack_client.get_profile(name, profile_storage_drivers=profile_storage_drivers,
+                                                zonefile_storage_drivers=zonefile_storage_drivers,
+                                                user_zonefile=zonefile_dict, name_record=name_rec,
+                                                use_zonefile_urls=False, decode_profile=False)
+            if 'error' in res:
+               log.error("Failed to load profile '{}'".format(name))
+               return res
+            profile = res['profile']
+            zonefile = res['zonefile']
         except Exception, e:
             log.exception(e)
-            log.debug("Failed to load profile for '%s'" % name)
+            log.error("Failed to load profile for '{}'".fomrat(name))
             return {'error': 'Failed to load profile'}
 
         if 'error' in zonefile:
@@ -1998,6 +2005,9 @@ def rpc_stop():
         rpc_server.stop_server()
         rpc_server.join()
         log.debug("RPC joined")
+
+    else:
+        log.debug("RPC already joined")
 
 
 def get_storage_queue_path():

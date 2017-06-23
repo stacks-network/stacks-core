@@ -71,10 +71,15 @@ def get_bucket( bucket_name ):
         
         bucket = None
         try:
-            bucket = conn.create_bucket(bucket_name)
+            bucket = conn.get_bucket(bucket_name)
         except Exception, e:
-            log.error("Could not create/fetch bucket " + bucket_name)
-            log.exception(e)
+            log.error("Could not get bucket {}; will try creating".format(bucket_name))
+
+            try:
+                bucket = conn.create_bucket(bucket_name)
+            except Exception, e:
+                log.error("Could not create/fetch bucket " + bucket_name)
+                log.exception(e)
         
         return bucket
 
@@ -383,6 +388,9 @@ def delete_mutable_handler( data_id, signature, **kw ):
     mutable_data_id = "mutable-%s" % data_id 
     return delete_chunk( mutable_data_id )
 
+
+def get_classes():
+    return ['read_public', 'write_private']
 
 
 if __name__ == "__main__":

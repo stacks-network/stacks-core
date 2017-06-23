@@ -479,6 +479,10 @@ def storage_init(conf, **kw):
     return True
 
 
+def get_classes():
+    return ['read_public', 'write_private']
+
+
 if __name__ == "__main__":
      
    import keylib

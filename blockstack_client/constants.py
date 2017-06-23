@@ -72,6 +72,9 @@ SERIES_VERSION = "{}.{}.{}".format(__version_major__, __version_minor__, __versi
 DEFAULT_BLOCKSTACKD_PORT = 6264  # blockstack indexer port
 DEFAULT_BLOCKSTACKD_SERVER = 'node.blockstack.org'
 
+DEFAULT_DEVICE_ID = '.default'
+
+DEFAULT_API_HOST = 'localhost'
 DEFAULT_API_PORT = 6270  # API endpoint port
 
 LOG_NETWORK_PORT = 8333 # port to send log messages on (e.g. to Portal)
@@ -87,6 +90,8 @@ BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = 'disk,blockstack_resolver,blockstack_server
 
 # storage drivers that must successfully acknowledge each write
 BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE = 'disk,blockstack_server,dht'
+
+BLOCKSTACK_STORAGE_CLASSES = ['read_public', 'read_private', 'write_public', 'write_private', 'read_local', 'write_local']
 
 DEFAULT_TIMEOUT = 30  # in secs
 

@@ -22,3 +22,12 @@ test:
     - ../virtualenvs/venv-system/bin/python -m blockstack_integration_tests.live_tests.api_tests --xunit-path "$CIRCLE_TEST_REPORTS/django/" --all
   post:
     - blockstack api stop -y
+deployment:
+  tarball_venv:
+    branch: [rc-0.14.2, master, osx-single-file-build]
+    commands:
+      - cp -r ../virtualenvs/venv-system ./venv-copy
+      - virtualenv --relocatable ../virtualenvs/venv-system
+      - mv ../virtualenvs/venv-system ./blockstack-venv
+      - mv ./venv-copy ../virtualenvs/venv-system
+      - tar -czvf $CIRCLE_ARTIFACTS/blockstack-venv.tar.gz blockstack-venv

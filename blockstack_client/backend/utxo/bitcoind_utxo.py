@@ -50,6 +50,11 @@ class BitcoindClient(BlockchainClient):
         self.version_byte = version_byte
         self.min_confirmations = min_confirmations
 
+    def get_unspents(self, address):
+        return get_unspents(address, self.bitcoind)
+
+    def broadcast_transaction(self, hex_tx):
+        return broadcast_transaction(hex_tx, self.bitcoind)
 
 def format_unspents(unspents):
     return [{
