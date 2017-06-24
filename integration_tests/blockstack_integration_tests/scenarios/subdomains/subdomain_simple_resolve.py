@@ -90,10 +90,10 @@ def scenario( wallets, **kw ):
     time.sleep(10)
     
     # store a new zonefile
-    zonefile_0_js = { "$origin" : "foo.test",
-                      "$ttl" : "3600",
-                      "uri" : [{ "name" : "registrar", "priority" : 1, "weight" : 10,
-                                 "target" : "bsreg://foo.com:8234" }], }
+#    zonefile_0_js = { "$origin" : "foo.test",
+#                      "$ttl" : "3600",
+#                      "uri" : [{ "name" : "registrar", "priority" : 1, "weight" : 10,
+#                                 "target" : "bsreg://foo.com:8234" }], }
 
     # foo's zonefile
     user_zf = {
@@ -110,20 +110,13 @@ def scenario( wallets, **kw ):
     subdomain = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(foo_sk), 0,
                                      blockstack_zones.make_zone_file(user_zf))
 
-    subdomains._extend_with_subdomain(zonefile_0_js, subdomain)
 
-#    zonefile_txt = blockstack_zones.make_zone_file( zonefile_0_js )
-#    zonefile_hash = blockstack_client.storage.get_zonefile_data_hash( zonefile_txt )
-   
-#    print >> sys.stderr, "\n\nzonefile hash: %s\nzonefile:\n%s\n\n" % (zonefile_hash, zonefile_txt)
-
-
-    subdomains.flatten_and_issue_zonefile("foo.test", zonefile_0_js)
+    subdomains.add_subdomain(subdomain, "foo.test")
 
     # wait for new update to get confirmed 
+    time.sleep(10)
     for i in xrange(0, 12):
         sys.stdout.flush()
-        
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"

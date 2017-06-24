@@ -20,11 +20,13 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
+import sqlite3
+
 import base64, copy
 import ecdsa, hashlib
 import keylib
 from itertools import izip
-from blockstack_client import data, storage, actions
+from blockstack_client import data, storage, actions, config
 from blockstack_client import zonefile as bs_zonefile
 from blockstack_client import user as user_db
 from blockstack_client.logger import get_logger
@@ -49,38 +51,6 @@ class SubdomainNotFound(Exception):
     pass
 class SubdomainAlreadyExists(Exception):
     pass
-
-
-def decode_pubkey_entry(pubkey_entry):
-    assert pubkey_entry.startswith("data:")
-    pubkey_entry = pubkey_entry[len("data:"):]
-    header, data = pubkey_entry.split(":")
-
-    if header == "echex":
-        return keylib.ECPublicKey(data)
-
-    return header, data
-
-def encode_pubkey_entry(key):
-    """
-    key should be a key object, right now this means 
-        keylib.ECPrivateKey or
-        keylib.ECPublicKey
-    """
-    if isinstance(key, keylib.ECPrivateKey):
-        data = key.public_key().to_hex()
-        head = "echex"
-    elif isinstance(key, keylib.ECPublicKey):
-        data = key.to_hex()
-        head = "echex"
-    else:
-        raise NotImplementedError("No support for this key type")
-
-    return "data:{}:{}".format(head, data)
-
-def txt_encode_key_value(key, value):
-    return "{}={}".format(key,
-                          value.replace("=", "\\="))
 
 class Subdomain(object):
     def __init__(self, name, pubkey_encoded, n, zonefile_str, sig=None):
@@ -139,6 +109,7 @@ class Subdomain(object):
 
     @staticmethod
     def parse_subdomain_record(rec):
+        print "Parsing {}".format(rec)
         txt_entry = rec['txt']
         if not isinstance(txt_entry, list):
             raise ParseError("Tried to parse a TXT record with only a single <character-string>")
@@ -164,21 +135,75 @@ class Subdomain(object):
         return Subdomain(rec['name'], pubkey, int(n),
                          base64.b64decode(b64_zonefile), sig)
 
-# aaron: I was hesitant to write these two functions. But I did so because:
-#   1> getting the sign + verify functions from virtualchain.ecdsa 
-#      was tricky because of the hashfunc getting lost in translating from
-#      SK to PK
-#   2> didn't want this code to necessarily depend on virtualchain
+class SubdomainDB(object):
+    def __init__(self, domain_fqa):
+        self.domain = domain_fqa
+        self.subdomain_table = "subdomain_{}".format(
+            domain_fqa.replace('.', '_'))
+        self.status_table = "status_{}".format(
+            domain_fqa.replace('.', '_'))
+        self.conn = sqlite3.connect(config.get_subdomains_db_path())
 
-def sign(sk, plaintext):
-    signer = ecdsa.SigningKey.from_pem(sk.to_pem())
-    blob = signer.sign_deterministic(plaintext, hashfunc = hashlib.sha256)
-    return base64.b64encode(blob)
+    def last_seen_zonefile_hash(self):
+        get_cmd = """SELECT * FROM {}""".format(self.status_table)
+        cursor = self.conn.cursor()
+        cursor.execute(get_cmd)
+        zonefile_hash = str(cursor.fetchone()[0])
+        return zonefile_hash
 
-def verify(pk, plaintext, sigb64):
-    signature = base64.b64decode(sigb64)
-    verifier = ecdsa.VerifyingKey.from_pem(pk.to_pem())
-    return verifier.verify(signature, plaintext, hashfunc = hashlib.sha256)
+    def get_subdomain_entry(self, subdomain_name):
+        get_cmd = """SELECT * FROM {} WHERE name=?""".format(self.subdomain_table)
+        cursor = self.conn.cursor()
+        cursor.execute(get_cmd, (subdomain_name,))
+        (name, n, encoded_pubkey, zonefile_str, sig) = cursor.fetchone()
+        if sig == '':
+            sig = None
+        return Subdomain(name, n, encoded_pubkey, zonefile_str, sig)
+
+    def update(self):
+        self._drop_and_create_table()
+        zonefiles, hashes = data.list_zonefile_history(self.domain, return_hashes = True)
+        in_mem = _build_subdomain_db(self.domain, zonefiles)
+
+        for record in in_mem.values():
+            self._write_record(record)
+        self._set_last_seen_zf_hash(hashes[-1])
+
+    def _write_record(self, subdomain_obj):
+        write_cmd = """INSERT INTO {} VALUES (?, ?, ?, ?, ?)""".format(self.subdomain_table)
+        cursor = self.conn.cursor()
+        print "SQLITEing:  {}".format(write_cmd)
+        cursor.execute(write_cmd, 
+                       (subdomain_obj.name,
+                        subdomain_obj.n,
+                        encode_pubkey_entry(subdomain_obj.pubkey),
+                        subdomain_obj.zonefile_str,
+                        subdomain_obj.sig
+                       ))
+
+    def _set_last_seen_zf_hash(self, hash):
+        write_cmd = """INSERT INTO {} VALUES (?)""".format(self.status_table)
+        cursor = self.conn.cursor()
+        print "SQLITEing:  {}".format(write_cmd)
+        cursor.execute(write_cmd, (hash, ))
+
+    def _drop_and_create_table(self):
+        drop_cmd = "DROP TABLE IF EXISTS {};"
+        create_cmd = """CREATE TABLE {} (
+        subdomain TEXT PRIMARY KEY,
+        sequence INTEGER,
+        pubkey TEXT,
+        zonefile TEXT, 
+        signature TEXT);
+        """.format(self.subdomain_table)
+        create_status_cmd = """CREATE TABLE {} (zonefileHash TEXT);""".format(
+            self.status_table)
+        cursor = self.conn.cursor()
+        cursor.execute(drop_cmd.format(self.subdomain_table))
+        cursor.execute(drop_cmd.format(self.status_table)) 
+
+        cursor.execute(create_cmd)
+        cursor.execute(create_status_cmd)
 
 def is_subdomain_record(rec):
     txt_entry = rec['txt']
@@ -200,7 +225,7 @@ def parse_zonefile_subdomains(zonefile_json):
 
     return subdomains
 
-def is_a_subdomain(fqa):
+def is_address_subdomain(fqa):
     """
     Tests whether fqa is a subdomain. 
     If it isn't, returns False.
@@ -227,10 +252,17 @@ def _transition_valid(from_sub_record, to_sub_record):
 def _build_subdomain_db(domain_fqa, zonefiles):
     subdomain_db = {}
     for zf in zonefiles:
-        zf_json = bs_zonefile.decode_name_zonefile(domain_fqa, zf)
-        subdomains = parse_zonefile_subdomains(zf_json)
+        if isinstance(zf, dict):
+            assert "zonefile" not in zf
+            zf_json = zf
+        else:
+            assert isinstance(zf, (str, unicode)) 
+            zf_json = bs_zonefile.decode_name_zonefile(domain_fqa, zf)
+        print "Parsing {}".format(zf)
+        subdomains = parse_zonefile_subdomains(zf)
 
         for subdomain in subdomains:
+            print "Parsed {}".format(subdomain.name)
             if subdomain.name in subdomain_db:
                 previous = subdomain_db[subdomain.name]
                 if _transition_valid(previous, subdomain):
@@ -252,10 +284,11 @@ def flatten_and_issue_zonefile(domain_fqa, zf):
     rpc = local_api_connect()
     assert rpc
     try:
-        rpc.backend_update(domain_fqa, user_data_txt, None, None, None)
+        rpc.backend_update(domain_fqa, user_data_txt, None, None)
     except Exception as e:
         log.exception(e)
         return False
+    return True
 
 def _extend_with_subdomain(zf_json, subdomain):
     txt_data = subdomain.pack_subdomain()
@@ -320,9 +353,6 @@ def resolve_subdomain(subdomain, domain_fqa):
     # step 1: fetch domain zonefiles.
     zonefiles = data.list_zonefile_history(domain_fqa)
 
-    if len(zonefiles) == 0:
-        print "Empty zonefiles!"
-
     # step 2: for each zonefile, parse the subdomain
     #         operations.
     subdomain_db = _build_subdomain_db(domain_fqa, zonefiles)
@@ -337,6 +367,8 @@ def resolve_subdomain(subdomain, domain_fqa):
 
 def subdomain_record_to_profile(my_rec):
     owner_pubkey = my_rec.pubkey
+
+    assert isinstance(my_rec.zonefile_str, (str, unicode))
 
     parsed_zf = bs_zonefile.decode_name_zonefile(my_rec.name, my_rec.zonefile_str)
     urls = user_db.user_zonefile_urls(parsed_zf)
@@ -360,3 +392,54 @@ def subdomain_record_to_profile(my_rec):
     )
 
     return user_profile
+
+
+
+# aaron: I was hesitant to write these two functions. But I did so because:
+#   1> getting the sign + verify functions from virtualchain.ecdsa 
+#      was tricky because of the hashfunc getting lost in translating from
+#      SK to PK
+#   2> didn't want this code to necessarily depend on virtualchain
+
+def sign(sk, plaintext):
+    signer = ecdsa.SigningKey.from_pem(sk.to_pem())
+    blob = signer.sign_deterministic(plaintext, hashfunc = hashlib.sha256)
+    return base64.b64encode(blob)
+
+def verify(pk, plaintext, sigb64):
+    signature = base64.b64decode(sigb64)
+    verifier = ecdsa.VerifyingKey.from_pem(pk.to_pem())
+    return verifier.verify(signature, plaintext, hashfunc = hashlib.sha256)
+
+
+def decode_pubkey_entry(pubkey_entry):
+    assert pubkey_entry.startswith("data:")
+    pubkey_entry = pubkey_entry[len("data:"):]
+    header, data = pubkey_entry.split(":")
+
+    if header == "echex":
+        return keylib.ECPublicKey(data)
+
+    return header, data
+
+def encode_pubkey_entry(key):
+    """
+    key should be a key object, right now this means 
+        keylib.ECPrivateKey or
+        keylib.ECPublicKey
+    """
+    if isinstance(key, keylib.ECPrivateKey):
+        data = key.public_key().to_hex()
+        head = "echex"
+    elif isinstance(key, keylib.ECPublicKey):
+        data = key.to_hex()
+        head = "echex"
+    else:
+        raise NotImplementedError("No support for this key type")
+
+    return "data:{}:{}".format(head, data)
+
+def txt_encode_key_value(key, value):
+    return "{}={}".format(key,
+                          value.replace("=", "\\="))
+

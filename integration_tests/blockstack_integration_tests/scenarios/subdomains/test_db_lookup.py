@@ -112,11 +112,6 @@ def scenario( wallets, **kw ):
 
     subdomains._extend_with_subdomain(zonefile_0_js, subdomain)
 
-#    zonefile_txt = blockstack_zones.make_zone_file( zonefile_0_js )
-#    zonefile_hash = blockstack_client.storage.get_zonefile_data_hash( zonefile_txt )
-   
-#    print >> sys.stderr, "\n\nzonefile hash: %s\nzonefile:\n%s\n\n" % (zonefile_hash, zonefile_txt)
-
 
     subdomains.flatten_and_issue_zonefile("foo.test", zonefile_0_js)
 

@@ -640,7 +640,7 @@ def list_update_history(name, current_block=None, config_path=CONFIG_PATH, proxy
     return all_update_hashes
 
 
-def list_zonefile_history(name, current_block=None, proxy=None):
+def list_zonefile_history(name, current_block=None, proxy=None, return_hashes = False):
     """
     list_zonefile_history
 
@@ -664,6 +664,8 @@ def list_zonefile_history(name, current_block=None, proxy=None):
 
         zonefiles.append(zonefile)
 
+    if return_hashes:
+        return zonefiles, zonefile_hashes
     return zonefiles
 
 

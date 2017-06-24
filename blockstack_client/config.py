@@ -649,13 +649,13 @@ def get_utxo_provider_client(config_path=CONFIG_PATH, min_confirmations=TX_MIN_C
 
 
 def get_subdomains_cached_for(config_path=CONFIG_PATH):
-    opts = configure(interactive=False, config_path=config_path)
+    opts = configure(interactive=False, config_file=config_path)
     subdomain_opts = opts['subdomain-resolution']
     domains_list = subdomain_opts['domains_tracked']
     return [d.strip() for d in domains_list.split(",")]
 
 def get_subdomains_db_path(config_path=CONFIG_PATH):
-    opts = configure(interactive=False, config_path=config_path)
+    opts = configure(interactive=False, config_file=config_path)
     subdomain_opts = opts['subdomain-resolution']
     return subdomain_opts['subdomains_db']
 
