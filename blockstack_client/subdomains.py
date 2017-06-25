@@ -259,7 +259,7 @@ def _build_subdomain_db(domain_fqa, zonefiles):
             assert isinstance(zf, (str, unicode)) 
             zf_json = bs_zonefile.decode_name_zonefile(domain_fqa, zf)
         print "Parsing {}".format(zf)
-        subdomains = parse_zonefile_subdomains(zf)
+        subdomains = parse_zonefile_subdomains(zf_json)
 
         for subdomain in subdomains:
             print "Parsed {}".format(subdomain.name)
@@ -323,7 +323,12 @@ def add_subdomain(subdomain, domain_fqa):
     if subdomain_already:
         raise SubdomainAlreadyExists("{}.{}".format(subdomain.name, domain_fqa))
     # step 2: get domain's current zonefile and filter the subdomain entries
-    zonefile_json = bs_zonefile.get_name_zonefile(domain_fqa)['zonefile']
+    zf_resp = bs_zonefile.get_name_zonefile(domain_fqa)
+    if 'error' in zf_resp:
+        log.error(zf_resp)
+        raise Exception(zf_resp['error'])
+    zonefile_json = zf_resp['zonefile']
+
     zf = copy.deepcopy(zonefile_json)
     if "txt" in zf:
         zf["txt"] = list([ x for x in zf["txt"]
