@@ -28,4 +28,4 @@ import blockstack_resolver
 import blockstack_server
 import http
 
-from common import index_settings_get_index_manifest_url 
+from common import index_settings_get_index_manifest_url, ConcurrencyViolationException 
