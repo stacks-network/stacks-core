@@ -2242,6 +2242,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         * force (0, 1): (DANGEROUS) forcibly set up the index, even if it appears to already exist
 
         Reply 200 on success, with the index manifest URL
+        Reply 202 on success, if we're still in the process of setting up the driver.
         Reply 401 if the driver is invalid
         Reply 500 if the driver fails to initialize
         """
@@ -2327,6 +2328,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         # instantiate...
         try:
             res = bsk_client.register_storage(driver_mod, conf, index=instantiate_index, force_index=force_instantiate_index)
+        except backend_drivers.ConcurrencyViolationException as cve:
+            # already running 
+            if BLOCKSTACK_DEBUG:
+                log.exception(cve)
+
+            return self._reply_json({'warning': 'Operation already in progress'}, status_code=202)
+
         except Exception as e:
             if BLOCKSTACK_DEBUG:
                 log.exception(e)
@@ -3484,7 +3492,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._dispatch("PATCH")
 
 
-class BlockstackAPIEndpoint(SocketServer.TCPServer):
+class BlockstackAPIEndpoint(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     """
     Lightweight API endpoint to Blockstack server:
     exposes all of the client methods via a RESTful interface,
@@ -3574,6 +3582,9 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
 
             log.debug("Set SO_REUSADDR")
             self.socket.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 )
+            
+            # we want daemon threads, so we join on abrupt shutdown (applies if multithreaded) 
+            self.daemon_threads = True
 
             self.server_bind()
             self.server_activate()
