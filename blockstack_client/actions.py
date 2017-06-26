@@ -432,9 +432,6 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
     else:
         tx_only = False
 
-    else:
-        tx_only = False
-
     if not re.match(OP_BASE58CHECK_PATTERN, recipient_addr):
         log.debug("recipient = {}".format(recipient_addr))
         return {'error': 'Invalid address'}
