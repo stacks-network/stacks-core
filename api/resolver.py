@@ -101,6 +101,8 @@ def fetch_proofs(profile, username, profile_ver=2, zonefile = None, refresh=Fals
     else:
         proofs_cache_reply = None
 
+    if 'account' not in profile:
+        return []
     # fix up missing proofUrls
     for account in profile['account']:
         if ('proofType' in account and account['proofType'] == 'http'
