@@ -786,7 +786,6 @@ def cli_get_registrar_info(args, config_path=CONFIG_PATH, queues=None):
 
         new_entry['confirmations'] = confirmations
         new_entry['tx_hash'] = entry['tx_hash']
-        new_entry['errors'] = entry['errors']
 
         return new_entry
 
