@@ -64,6 +64,7 @@ from proxy import json_is_error, json_is_exception
 
 from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE
 from .method_parser import parse_methods
+from .wallet import make_wallet
 import app
 import data
 import zonefile
@@ -2023,6 +2024,56 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'status': True})
 
 
+    def PUT_wallet_key( self, ses, path_info, key_id ):
+        """
+        Set an individual wallet key ('owner', 'payment', 'data')
+        Return 200 on success
+        Return 401 on invalid key
+        Return 500 on error
+        """
+        if key_id not in ['owner', 'payment', 'data']:
+            return self._reply_json({'error': 'Invalid key ID'}, status_code=401)
+
+        privkey_info = self._read_json(schema=PRIVKEY_INFO_SCHEMA)
+        if privkey_info is None:
+            return self._reply_json({'error': 'Failed to validate private key'}, status_code=401)
+
+        wallet = backend.registrar.get_wallet(config_path=self.server.config_path)
+        if 'error' in wallet:
+            return self._reply_json({'error': wallet['error']}, status_code=500)
+        
+        payment_privkey_info = wallet['payment_privkey']
+        owner_privkey_info = wallet['owner_privkey']
+        data_privkey_info = wallet['data_privkey']
+
+        if key_id == 'owner':
+            owner_privkey_info = privkey_info
+
+        elif key_id == 'payment':
+            payment_privkey_info = privkey_info
+
+        elif key_id == 'data':
+            data_privkey_info = privkey_info
+
+        else:
+            return self._reply_json({'error': 'Failed to set private key info'}, status_code=401)
+
+        # convert...
+        wallet = make_wallet(None, config_path=self.server.config_path, payment_privkey_info=payment_privkey_info, owner_privkey_info=owner_privkey_info, data_privkey_info=data_privkey_info, encrypt=False)
+        if 'error' in wallet:
+            return self._reply_json({'error': 'Failed to reinstantiate wallet'}, status_code=500)
+
+        res = backend.registrar.set_wallet( (wallet['payment_addresses'][0], wallet['payment_privkey']),
+                                            (wallet['owner_addresses'][0], wallet['owner_privkey']),
+                                            (wallet['data_pubkeys'][0], wallet['data_privkey']), config_path=self.server.config_path )
+
+        if 'error' in res:
+            return self._reply_json({'error': 'Failed to set wallet: {}'.format(res['error'])}, status_code=500)
+
+        self.server.wallet_keys = wallet
+        return self._reply_json({'status': True})
+
+
     def PUT_wallet_password( self, ses, path_info ):
         """
         Change the wallet password.
@@ -2967,6 +3018,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'PUT': {
                         'name': 'wallet_write',
                         'desc': 'Change the wallet password',
+                        'auth_session': False,
+                        'auth_pass': True,
+                        'need_data_key': False
+                    },
+                },
+            },
+            r'^/v1/wallet/keys/({})$'.format(URLENCODING_CLASS): {
+                'routes': {
+                    'PUT': self.PUT_wallet_key,
+                },
+                'whitelist': {
+                    'PUT': {
+                        'name': 'wallet_write',
+                        'desc': 'Set the wallet\'s private key',
                         'auth_session': False,
                         'auth_pass': True,
                         'need_data_key': False
