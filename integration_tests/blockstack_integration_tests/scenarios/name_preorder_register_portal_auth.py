@@ -71,7 +71,7 @@ def scenario( wallets, **kw ):
 
     # run 'core-test' test on blockstack (tests authentication from blockstack.js to Core API)
     testlib.nodejs_copy_package(nodedir, "blockstack")
-    testlib.nodejs_link_package(nodedir, "blockstack")
+    # testlib.nodejs_link_package(nodedir, "blockstack")
     testlib.nodejs_run_test(nodedir, "integration-test-auth")
     testlib.nodejs_cleanup(nodedir)
 
