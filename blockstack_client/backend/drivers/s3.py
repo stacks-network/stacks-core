@@ -25,7 +25,6 @@
 import sys
 import os
 import boto
-import errno
 import zlib
 import time
 from ConfigParser import SafeConfigParser
@@ -35,32 +34,16 @@ from boto.s3.key import Key
 import logging
 logging.getLogger('boto').setLevel(logging.CRITICAL)
 
-from common import get_logger, DEBUG
+from common import get_logger, DEBUG, compress_chunk, decompress_chunk
 
 log = get_logger("blockstack-storage-driver-s3")
 
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
-AWS_BUCKET = 'blockstack-server-profiles'
+AWS_BUCKET = "blockstack-server-profiles"
 AWS_ACCESS_KEY_ID = None 
 AWS_SECRET_ACCESS_KEY = None
-AWS_COMPRESS = False
-
-#-------------------------
-def compress_chunk( chunk_buf ):
-    """
-    compress a chunk of data
-    """
-    data = zlib.compress(chunk_buf, 9)
-    return data
-
-#-------------------------
-def decompress_chunk( chunk_buf ):
-    """
-    decompress a chunk of data
-    """
-    data = zlib.decompress(chunk_buf)
-    return data
+AWS_COMPRESS = True
 
 #-------------------------
 def get_bucket( bucket_name ):
@@ -88,10 +71,15 @@ def get_bucket( bucket_name ):
         
         bucket = None
         try:
-            bucket = conn.create_bucket(bucket_name)
+            bucket = conn.get_bucket(bucket_name)
         except Exception, e:
-            log.error("Could not create/fetch bucket " + bucket_name)
-            log.exception(e)
+            log.error("Could not get bucket {}; will try creating".format(bucket_name))
+
+            try:
+                bucket = conn.create_bucket(bucket_name)
+            except Exception, e:
+                log.error("Could not create/fetch bucket " + bucket_name)
+                log.exception(e)
         
         return bucket
 
@@ -257,7 +245,7 @@ def delete_chunk( chunk_path ):
 # ---------------------------------------------------------
 
 
-def storage_init(conf):
+def storage_init(conf, **kw):
     """
     S3 implementation of the storage_init API call.
     Do one-time global setup: read our S3 API tokens and bucket name.
@@ -289,11 +277,11 @@ def storage_init(conf):
                 AWS_SECRET_ACCESS_KEY = parser.get('s3', 'api_key_secret')
             
             if parser.has_option('s3', 'compress'):
-                AWS_COMPRESS = parser.get('s3', 'compress', 'false').lower() in ['true', '1']
+                AWS_COMPRESS = (parser.get('s3', 'compress', 'false').lower() in ['true', '1'])
             
     # we can't proceed unless we have all three.
     if AWS_BUCKET is None:
-        log.error("Config file '%s': section 's3' is missing 'bucket', and possibly 'api_key_id', and/or 'api_key_secret'" % config_path )
+        log.error("Config file '%s': section 's3' is missing 'bucket', 'api_key_id', and/or 'api_key_secret'" % config_path )
         return False 
     
     return True
@@ -397,15 +385,19 @@ def delete_mutable_handler( data_id, signature, **kw ):
     return delete_chunk( data_id )
 
 
+def get_classes():
+    return ['read_public', 'write_private']
+
 
 if __name__ == "__main__":
    """
    Unit tests.
    """
    
-   import pybitcoin 
+   import keylib
    import json 
-   import blockstack_client
+   import virtualchain
+   from virtualchain.lib.hashing import hex_hash160
    
    # hack around absolute paths
    current_dir =  os.path.abspath(os.path.dirname(__file__))
@@ -423,19 +415,19 @@ if __name__ == "__main__":
    conf = get_config(CONFIG_PATH)
    print json.dumps(conf, indent=4, sort_keys=True)
 
-   pk = pybitcoin.BitcoinPrivateKey()
+   pk = keylib.ECPrivateKey()
    data_privkey = pk.to_hex()
    data_pubkey = pk.public_key().to_hex()
 
    test_data = [
       ["my_first_datum",        "hello world",                              1, "unused", None],
       ["/my/second/datum",      "hello world 2",                            2, "unused", None],
-      ["user_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
+      ["user\"_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
       ["empty_string",          "",                                         4, "unused", None],
    ]
    
    def hash_data( d ):
-      return pybitcoin.hash.hex_hash160( d )
+      return hex_hash160( d )
    
    rc = storage_init(conf)
    if not rc:

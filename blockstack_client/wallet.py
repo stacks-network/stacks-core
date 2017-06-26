@@ -28,8 +28,8 @@ import json
 import os
 import shutil
 import virtualchain
+import copy
 
-from keylib import ECPrivateKey
 from socket import error as socket_error
 from getpass import getpass
 from binascii import hexlify
@@ -47,10 +47,9 @@ logging.disable(logging.CRITICAL)
 import requests
 requests.packages.urllib3.disable_warnings()
 
-from .backend.crypto.utils import get_address_from_privkey
-from .backend.crypto.utils import aes_decrypt
-from .backend.blockchain import get_balance, get_block_height
-from .utils import satoshis_to_btc, print_result
+from .backend.crypto.utils import aes_decrypt, aes_encrypt
+from .backend.blockchain import get_balance
+from .utils import print_result
 
 from .keys import *
 
@@ -58,82 +57,22 @@ import config
 from .constants import (
     WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH,
     CONFIG_DIR, CONFIG_FILENAME, WALLET_FILENAME,
-    WALLET_DECRYPT_MAX_TRIES, WALLET_DECRYPT_BACKOFF_RESET,
     BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, SERIES_VERSION
 )
 
 from .proxy import get_names_owned_by_address, get_default_proxy
-from .rpc import local_api_connect 
 from .schemas import *
 
-log = config.get_logger()
+import virtualchain
+from virtualchain.lib.ecdsalib import *
+import keylib
 
-DECRYPT_ATTEMPTS = 0
-LAST_DECRYPT_ATTEMPT = 0 
+from .logger import get_logger
 
-def _make_encrypted_wallet_data(password, payment_privkey_info, owner_privkey_info, data_privkey_info, test_legacy=False):
-    """
-    Lowlevel method to make the encrypted wallet's data,
-    given the decrypted data.
-    """
-   
-    data = {}
-    
-    enc_payment_info = None
-    enc_owner_info = None
-    enc_data_info = None
-
-    if not test_legacy:
-        # legacy wallets (which we test for) may omit these.
-        # when running in production, this is prohibited.
-        assert payment_privkey_info
-        assert owner_privkey_info
-        assert data_privkey_info
-
-    if payment_privkey_info is not None:
-        enc_payment_info = encrypt_private_key_info(payment_privkey_info, password)
-        if 'error' in enc_payment_info:
-            log.error('failed to encrypt payment private key info')
-            return {'error': enc_payment_info['error']}
-
-    if owner_privkey_info is not None:
-        enc_owner_info = encrypt_private_key_info(owner_privkey_info, password)
-        if 'error' in enc_owner_info:
-            log.error('failed to encrypt owner private key info')
-            return {'error': enc_owner_info['error']}
-
-    if data_privkey_info is not None:
-        enc_data_info = encrypt_private_key_info(data_privkey_info, password)
-        if 'error' in enc_data_info:
-            log.error('failed to encrypt data private key info')
-            return {'error': enc_data_info['error']}
-
-    if enc_payment_info is not None:
-        payment_addr = enc_payment_info['encrypted_private_key_info']['address']
-        enc_payment_info = enc_payment_info['encrypted_private_key_info']['private_key_info']
-       
-        data['encrypted_payment_privkey'] = enc_payment_info
-        data['payment_addresses'] = [payment_addr]
-
-    if enc_owner_info is not None:
-        owner_addr = enc_owner_info['encrypted_private_key_info']['address']
-        enc_owner_info = enc_owner_info['encrypted_private_key_info']['private_key_info']
-
-        data['encrypted_owner_privkey'] = enc_owner_info
-        data['owner_addresses'] = [owner_addr]
-
-    if enc_data_info is not None:
-        enc_data_info = enc_data_info['encrypted_private_key_info']['private_key_info']
-
-        data['encrypted_data_privkey'] = enc_data_info
-        data['data_pubkeys'] = [ECPrivateKey(data_privkey_info).public_key().to_hex()]
-        data['data_pubkey'] = data['data_pubkeys'][0]
-
-    data['version'] = SERIES_VERSION
-    return data
+log = get_logger()
 
 
-def encrypt_wallet(wallet, password, test_legacy=False):
+def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
     """
     Encrypt the wallet.
     Return the encrypted dict on success
@@ -145,29 +84,82 @@ def encrypt_wallet(wallet, password, test_legacy=False):
 
     # must be conformant to the current schema
     if not test_legacy:
-        jsonschema.validate(wallet, WALLET_SCHEMA_CURRENT)
+        jsonschema.validate(decrypted_wallet, WALLET_SCHEMA_CURRENT)
 
-    payment_privkey_info = wallet.get('payment_privkey', None)
-    owner_privkey_info = wallet.get('owner_privkey', None)
-    data_privkey_info = wallet.get('data_privkey', None)
+    owner_address = virtualchain.get_privkey_address(decrypted_wallet['owner_privkey'])
+    payment_address = virtualchain.get_privkey_address(decrypted_wallet['payment_privkey'])
+    data_pubkey = None
+    data_privkey_info = None
 
-    if not is_singlesig(data_privkey_info):
-        log.error('Invalid data private key')
-        return {'error': 'Invalid data private key'}
+    if decrypted_wallet.has_key('data_privkey'):
 
-    if not is_singlesig_hex(data_privkey_info):
-        data_privkey_info = ECPrivateKey(data_privkey_info).to_hex()
+        # make sure data key is hex encoded
+        data_privkey_info = decrypted_wallet.get('data_privkey', None)
+        if not test_legacy:
+            assert data_privkey_info
 
-    encrypted_wallet = _make_encrypted_wallet_data(password, payment_privkey_info, owner_privkey_info, data_privkey_info, test_legacy=test_legacy)
+        if data_privkey_info:
+            if not is_singlesig_hex(data_privkey_info):
+                data_privkey_info = ecdsa_private_key(data_privkey_info).to_hex()
 
-    if 'error' in encrypted_wallet:
-        return encrypted_wallet
+            if not virtualchain.is_singlesig(data_privkey_info):
+                log.error('Invalid data private key')
+                return {'error': 'Invalid data private key'}
+        
+        data_pubkey = ecdsa_private_key(data_privkey_info).public_key().to_hex()
 
+            
+    wallet = {
+        'owner_addresses': [owner_address],
+        'payment_addresses': decrypted_wallet['payment_addresses'],
+        'version': decrypted_wallet['version'],
+        'enc': None,        # to be filled in
+    }
+
+    if data_pubkey:
+        wallet['data_pubkey'] = data_pubkey
+        wallet['data_pubkeys'] = [data_pubkey]
+    
+    wallet_enc = {
+        'owner_privkey': decrypted_wallet['owner_privkey'],
+        'payment_privkey': decrypted_wallet['payment_privkey'],
+    }
+
+    if data_privkey_info:
+        wallet_enc['data_privkey'] = data_privkey_info
+
+    # extra sanity check: make sure that when re-combined with the wallet,
+    # we're still valid 
+    recombined_wallet = copy.deepcopy(wallet)
+    recombined_wallet.update(wallet_enc)
+    try:
+        jsonschema.validate(recombined_wallet, WALLET_SCHEMA_CURRENT)
+    except ValidationError as ve:
+        if test_legacy:
+            # no data key is allowed if we're testing the absence of a data key 
+            jsonschema.validate(recombined_wallet, WALLET_SCHEMA_CURRENT_NODATAKEY)
+        else:
+            raise
+
+    # good to go!
+    # encrypt secrets 
+    wallet_secret_str = json.dumps(wallet_enc, sort_keys=True)
+    password_hex = hexlify(password)
+    encrypted_secret_str = aes_encrypt(wallet_secret_str, password_hex)
+
+    # fulfill wallet
+    wallet['enc'] = encrypted_secret_str
+    
     # sanity check
-    if not test_legacy:
-        jsonschema.validate(encrypted_wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
+    try:
+        jsonschema.validate(wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
+    except ValidationError as ve:
+        if test_legacy:
+            jsonschema.validate(wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT_NODATAKEY)
+        else:
+            raise
 
-    return encrypted_wallet
+    return wallet
 
 
 def make_wallet(password, config_path=CONFIG_PATH, payment_privkey_info=None, owner_privkey_info=None, data_privkey_info=None, test_legacy=False, encrypt=True):
@@ -186,106 +178,47 @@ def make_wallet(password, config_path=CONFIG_PATH, payment_privkey_info=None, ow
     # default to 2-of-3 multisig key info if data isn't given
     payment_privkey_info = virtualchain.make_multisig_wallet(2, 3) if payment_privkey_info is None and not test_legacy else payment_privkey_info
     owner_privkey_info = virtualchain.make_multisig_wallet(2, 3) if owner_privkey_info is None and not test_legacy else owner_privkey_info
-    data_privkey_info = ECPrivateKey().to_wif() if data_privkey_info is None and not test_legacy else data_privkey_info
+    data_privkey_info = ecdsa_private_key().to_hex() if data_privkey_info is None and not test_legacy else data_privkey_info
 
-    new_wallet = _make_encrypted_wallet_data(password, payment_privkey_info, owner_privkey_info, data_privkey_info, test_legacy=test_legacy)
-
-    if 'error' in new_wallet:
-        return new_wallet
-
-    # sanity check
+    decrypted_wallet = {
+        'owner_addresses': [virtualchain.get_privkey_address(owner_privkey_info)],
+        'owner_privkey': owner_privkey_info,
+        'payment_addresses': [virtualchain.get_privkey_address(payment_privkey_info)],
+        'payment_privkey': payment_privkey_info,
+        'data_pubkey': ecdsa_private_key(data_privkey_info).public_key().to_hex(),
+        'data_pubkeys': [ecdsa_private_key(data_privkey_info).public_key().to_hex()],
+        'data_privkey': data_privkey_info,
+        'version': SERIES_VERSION,
+    }
+    
     if not test_legacy:
-        jsonschema.validate(new_wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
+        jsonschema.validate(decrypted_wallet, WALLET_SCHEMA_CURRENT)
 
     if encrypt:
-        return new_wallet
+        encrypted_wallet = encrypt_wallet(decrypted_wallet, password, test_legacy=test_legacy)
+        if 'error' in encrypted_wallet:
+            return encrypted_wallet
 
-    # decrypt and return 
-    wallet_info = decrypt_wallet(new_wallet, password, config_path=config_path)
-    assert 'error' not in wallet_info, "Failed to decrypt new wallet: {}".format(wallet_info['error'])
+        # sanity check
+        try:
+            jsonschema.validate(encrypted_wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
+        except ValidationError as ve:
+            if test_legacy:
+                # no data key is permitted 
+                assert BLOCKSTACK_TEST
+                jsonschema.validate(encrypted_wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT_NODATAKEY)
+            else:
+                raise
 
-    return wallet_info['wallet']
+        return encrypted_wallet
+
+    else:
+        return decrypted_wallet
 
 
-def log_failed_decrypt(max_tries=WALLET_DECRYPT_MAX_TRIES):
+def make_legacy_wallet_keys(data, password):
     """
-    Record that we tried (and failed)
-    to decrypt a wallet.  Determine
-    how long we should wait before
-    allowing another attempt.
-
-    If we tried many times, then use
-    exponential backoff to limit brute-forces
-
-    Return the interval of time to sleep
-    """
-    global DECRYPT_ATTEMPTS
-    global LAST_DECRYPT_ATTEMPT
-    global NEXT_DECRYPT_ATTEMPT
-
-    if LAST_DECRYPT_ATTEMPT + WALLET_DECRYPT_BACKOFF_RESET < time.time():
-        # haven't tried in a while
-        DECRYPT_ATTEMPTS = 0
-        NEXT_DECRYPT_ATTEMPT = 0
-        return
-
-    DECRYPT_ATTEMPTS += 1
-    LAST_DECRYPT_ATTEMPT = time.time()
-
-    if DECRYPT_ATTEMPTS > max_tries:
-        interval = 2 ** (DECRYPT_ATTEMPTS - max_tries + 1)
-        NEXT_DECRYPT_ATTEMPT = time.time() + interval
-
-    return
-
-
-def can_attempt_decrypt(max_tries=WALLET_DECRYPT_MAX_TRIES):
-    """
-    Can we attempt a decryption?
-    Has enough time passed since the last guess?
-    """
-    global DECRYPT_ATTEMPTS
-    global LAST_DECRYPT_ATTEMPT
-    global NEXT_DECRYPT_ATTEMPT
-
-    if LAST_DECRYPT_ATTEMPT + WALLET_DECRYPT_BACKOFF_RESET < time.time():
-        # haven't tried in a while
-        DECRYPT_ATTEMPTS = 0
-        NEXT_DECRYPT_ATTEMPT = 0
-        return True
-
-    return NEXT_DECRYPT_ATTEMPT < time.time()
-
-
-def time_until_next_decrypt_attempt():
-    """
-    When can we try to decrypt next?
-    """
-    global NEXT_DECRYPT_ATTEMPT
-    if NEXT_DECRYPT_ATTEMPT == 0:
-        return 0
-
-    return max(0, NEXT_DECRYPT_ATTEMPT - time.time())
-
-
-def decrypt_error(max_tries):
-    """
-    Generate an appropriate error response, based on 
-    why we failed to decrypt data
-    """
-    ret = {'error': 'Incorrect password'}
-    log_failed_decrypt(max_tries=max_tries)
-    if not can_attempt_decrypt(max_tries=max_tries):
-        log.debug('Incorrect password; using exponential backoff')
-        msg = 'Incorrect password.  Try again in {} seconds'
-        ret['error'] = msg.format(time_until_next_decrypt_attempt())
-
-    return ret
-
-
-def make_legacy_wallet_keys(data, password, max_tries=WALLET_DECRYPT_MAX_TRIES):
-    """
-    Given a legacy wallet with a "master private key",
+    Given a legacy wallet with a "master private key" (i.e. pre-0.13),
     generate the owner, payment, and data key values
     Return {'payment': priv, 'owner': priv, 'data': priv} on success
     Return {'error': ...} on error
@@ -299,7 +232,6 @@ def make_legacy_wallet_keys(data, password, max_tries=WALLET_DECRYPT_MAX_TRIES):
         if BLOCKSTACK_DEBUG is not None:
             log.exception(e)
 
-        ret = decrypt_error(max_tries)
         log.debug('Failed to decrypt encrypted_master_private_key: {}'.format(ret['error']))
         return ret
 
@@ -310,7 +242,8 @@ def make_legacy_wallet_keys(data, password, max_tries=WALLET_DECRYPT_MAX_TRIES):
     # the owner, payment, and data private keys; not all wallets define
     # these keys separately (and have instead relied on us being able to
     # generate them from the master private key).
-    child_keys = legacy_hdwallet.get_child_keypairs(count=3, include_privkey=True)
+    # These keys were *not* compressed in the past.
+    child_keys = legacy_hdwallet.get_child_keypairs(count=3, include_privkey=True, compressed=False)
 
     # note: payment_keypair = child[0]; owner_keypair = child[1]
     key_defaults = {
@@ -322,7 +255,7 @@ def make_legacy_wallet_keys(data, password, max_tries=WALLET_DECRYPT_MAX_TRIES):
     return key_defaults
 
 
-def make_legacy_wallet_013_keys(data, password, max_tries=WALLET_DECRYPT_MAX_TRIES):
+def make_legacy_wallet_013_keys(data, password):
     """
     Given a legacy 0.13 wallet with "owner private key" and "payment private key"
     defined, generate the owner, payment, and data values.
@@ -347,14 +280,16 @@ def make_legacy_wallet_013_keys(data, password, max_tries=WALLET_DECRYPT_MAX_TRI
         owner_privkey = owner_privkey.pop('private_key_info')
 
     if err:
-        ret = decrypt_error(max_tries)
+        ret = {'error': "Failed to decrypt owner and payment keys"}
         log.debug("Failed to decrypt owner or payment keys: {}".format(err))
         return ret
  
     data_privkey = None
-    if is_singlesig(owner_privkey):
+    if virtualchain.is_singlesig(owner_privkey):
         data_privkey = owner_privkey
     else:
+        # data private key gets instantiated from the first owner private key,
+        # if we have a multisig key bundle.
         data_privkey = owner_privkey['private_keys'][0]
 
     key_defaults = {
@@ -366,76 +301,33 @@ def make_legacy_wallet_013_keys(data, password, max_tries=WALLET_DECRYPT_MAX_TRI
     return key_defaults
 
 
-def decrypt_wallet(data, password, config_path=CONFIG_PATH,
-                   max_tries=WALLET_DECRYPT_MAX_TRIES):
+def get_data_key_from_owner_key_LEGACY(owner_privkey):
     """
-    Decrypt a wallet's encrypted fields.  The wallet will be migrated to the current schema.
+    Given the owner private key, select a data private key to use.
 
-    After WALLET_DECRYPT_MAX_TRIES failed attempts, start doing exponential backoff
-    to prevent brute-force attacks.
-
-    Migrate the wallet from a legacy format to the latest format, if needed.
-    * By default, generate a new data key if there is no data key set (unless owner_key_is_data_key=True,
-      in which case, the first owner private key will be set)
-
-    Return {'status': True, 'migrated': True|False, 'wallet': wallet} on success.  
-    Return {'error': ...} on failure
+    THIS IS ONLY FOR LEGACY CLIENTS THAT DO NOT HAVE DATA PRIVATE KEYS
+    DEFINED IN THEIR WALLETS.
     """
+    data_privkey = None
+    if virtualchain.is_singlesig(owner_privkey):
+        data_privkey = owner_privkey
+    else:
+        # data private key gets instantiated from the first owner private key,
+        # if we have a multisig key bundle.
+        data_privkey = owner_privkey['private_keys'][0]
 
-    legacy = False
-    legacy_013 = False
-    is_legacy = False
-    migrated = False
+    return data_privkey
 
-    # must match either current schema or legacy schema 
-    try:
-        jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_CURRENT)
-    except ValidationError as ve:
-        # maybe legacy?
-        try:
-            jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_LEGACY)
-            legacy = True
-        except ValidationError, ve2:
-            try:
-                jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_LEGACY_013)
-                legacy_013 = True
-            except ValidationError, ve3:
-                if not BLOCKSTACK_TEST:
-                    # if in production, this is fatal
-                    log.exception(ve2)
-        
-                log.error('Invalid wallet data')
-                return {'error': 'Invalid wallet data'}
 
-    is_legacy = (legacy or legacy_013)
+def decrypt_wallet_legacy(data, key_defaults, password):
+    """
+    Decrypt 0.14.1 and earlier wallets, given the wallet data, the default key values,
+    and the password.
 
-    legacy_hdwallet = None
-    key_defaults = {}
+    Return {'status': True, 'wallet': wallet} on success 
+    Raise on error
+    """
     new_wallet = {}
-    ret = {}
-
-    if not can_attempt_decrypt(max_tries=max_tries):
-        msg = 'Cannot decrypt at this time.  Try again in {} seconds'
-        return {'error': msg.format(time_until_next_decrypt_attempt())}
-
-    if legacy:
-        # legacy wallets use a hierarchical deterministic private key for owner, payment, and data keys.
-        # get that key first, if needed.
-        key_defaults = make_legacy_wallet_keys(data, password, max_tries=max_tries)
-        if 'error' in key_defaults:
-            log.error("Failed to migrate legacy wallet: {}".format(key_defaults['error']))
-            return key_defaults
-
-        migrated = True
-
-    elif legacy_013:
-        # legacy 0.13 wallets have an owner_privkey and a payment_privkey, but not a data_privkey
-        key_defaults = make_legacy_wallet_013_keys(data, password, max_tries=max_tries)
-        if 'error' in key_defaults:
-            log.error("Failed to migrate legacy 0.13 wallet: {}".format(key_defaults['error']))
-            return key_defaults
-
-        migrated = True
 
     # NOTE: 'owner' must come before 'data', since we may use it to generate the data key
     keynames = ['payment', 'owner', 'data']
@@ -453,8 +345,8 @@ def decrypt_wallet(data, password, config_path=CONFIG_PATH,
             field = decrypt_private_key_info(data[encrypted_keyname], password)
 
             if 'error' in field:
-                ret = decrypt_error(max_tries)
-                log.debug('Failed to decrypt {}: {}'.format(encrypted_keyname, ret['error']))
+                ret = {'error': "Failed to decrypt {}: {}".format(encrypted_keyname, field['error'])}
+                log.debug('Failed to decrypt {}: {}'.format(encrypted_keyname, field['error']))
                 return ret
 
             new_wallet[keyname_privkey] = field['private_key_info']
@@ -464,21 +356,228 @@ def decrypt_wallet(data, password, config_path=CONFIG_PATH,
 
             # Legacy migration: this key is not defined in the wallet
             # use the appopriate default key
-            assert is_legacy
             assert keyname in key_defaults, 'BUG: no legacy private key for {}'.format(keyname)
 
             default_privkey = key_defaults[keyname]
             new_wallet[keyname_privkey] = default_privkey
             new_wallet[keyname_addresses] = [
-                virtualchain.BitcoinPrivateKey(default_privkey).public_key().address()
+                virtualchain.address_reencode( keylib.ECPrivateKey(default_privkey, compressed=False).public_key().address() )
             ]
 
-            migrated = True
+    return {'status': True, 'wallet': new_wallet}
 
 
-    # add data keys. Make sure it's *uncompressed*
+def decrypt_wallet_current(data, password):
+    """
+    Given a JSON blob that represents a known-current wallet format,
+    decrypt it.
+
+    Return {'status': True, 'wallet': wallet} on success
+    Return {'error': ...} on error
+    """
+    hex_password = hexlify(password)
+    payload = aes_decrypt(data['enc'], hex_password)
+    wallet_secrets = None
+
+    if payload is None:
+        return {'error': 'Failed to decrypt encrypted wallet portions'}
+
+    try:
+        wallet_secrets = json.loads(payload)
+    except ValueError:
+        return {'error': 'Failed to deserialize wallet secrets'}
+
+    # should be mergeable into the wallet's public components
+    new_wallet = copy.deepcopy(data)
+    del new_wallet['enc']
+
+    new_wallet.update(wallet_secrets)
+
+    try:
+        jsonschema.validate(new_wallet, WALLET_SCHEMA_CURRENT)
+    except ValidationError, ve:
+        # maybe one without a data key?
+        try:
+            jsonschema.validate(new_wallet, WALLET_SCHEMA_CURRENT_NODATAKEY)
+        except ValidationError, ve:
+            if BLOCKSTACK_DEBUG:
+                log.exception(ve)
+            return {'error': 'Wallet secrets do not match wallet schema'}
+
+        # no data key.  Give one and revalidate.
+        # data key defaults to owner private key
+        data_privkey = get_data_key_from_owner_key_LEGACY(new_wallet['owner_privkey'])
+        new_wallet['data_privkey'] = data_privkey
+        new_wallet['data_pubkey'] = get_pubkey_hex(data_privkey)
+        new_wallet['data_pubkeys'] = [new_wallet['data_pubkey']]
+
+        jsonschema.validate(new_wallet, WALLET_SCHEMA_CURRENT)
+    
+    return {'status': True, 'wallet': new_wallet}
+
+
+def inspect_wallet_data(data):
+    """
+    Inspect the encrypted wallet structure.  Determine:
+    * which format it has
+    * whether or not it needs to be migrated
+
+    Return {'status': True, 'format': ..., 'migrate': True/False} on success
+    Return {'error': ...} on failure
+    """
+    ret = {}
+    legacy = False
+    legacy_013 = False
+    legacy_014 = False
+    migrated = False
+
+    # must match either current schema or legacy schema 
+    try:
+        jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_CURRENT)
+    except ValidationError as ve:
+        # maybe legacy?
+        try:
+            jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_LEGACY)
+            legacy = True
+        except ValidationError, ve2:
+            try:
+                jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_LEGACY_013)
+                legacy_013 = True
+            except ValidationError, ve3:
+                try:
+                    jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_LEGACY_014)
+                    legacy_014 = True
+                except ValidationError, ve4:
+                    if BLOCKSTACK_TEST:
+                        log.exception(ve2)
+                        log.exception(ve3)
+                        log.exception(ve4)
+           
+                    log.error('Invalid wallet data')
+                    return {'error': 'Invalid wallet data'}
+
+    any_legacy = (legacy or legacy_013 or legacy_014)
+    
+    # version check 
+    # if the version has changed, we'll need to potentially migrate
+    # to e.g. trigger a re-encryption 
+    if not data.has_key('version'):
+        log.debug("Wallet has no version; triggering migration")
+        migrated = True
+
+    elif data['version'] != SERIES_VERSION:
+        log.debug("Wallet series has changed from {} to {}; triggerring migration".format(data['version'], SERIES_VERSION))
+        migrated = True
+
+    if any_legacy:
+        migrated = True
+
+    wallet_format = "current"
+    if legacy:
+        wallet_format = "legacy"        # pre-0.13
+    elif legacy_013:
+        wallet_format = "legacy_013"
+    elif legacy_014:
+        wallet_format = "legacy_014"
+
+    return {'status': True, 'format': wallet_format, 'migrate': migrated}
+
+
+def inspect_wallet(wallet_path=None, config_path=CONFIG_PATH):
+    """
+    Inspect a wallet file.  Determine its format and whether or not we need to migrate it.
+    Return {'status': True, 'format': ..., 'migrate': True/False} on success
+    Return {'error': ...} on failure
+    """
+    if wallet_path is None:
+        wallet_path = os.path.join(os.path.dirname(config_path), WALLET_FILENAME)
+
+    wallet_str = None
+    with open(wallet_path, 'r') as f:
+        wallet_str = f.read()
+
+    try:
+        wallet_data = json.loads(wallet_str)
+    except ValueError:
+        return {'error': 'Invalid wallet dta'}
+
+    return inspect_wallet_data(wallet_data)
+
+
+def decrypt_wallet(data, password, config_path=CONFIG_PATH):
+    """
+    Decrypt a wallet's encrypted fields.  The wallet will be migrated to the current schema.
+
+    Migrate the wallet from a legacy format to the latest format, if needed.
+
+    Return {'status': True, 'migrated': True|False, 'wallet': wallet} on success.  
+    Return {'error': ...} on failure
+    """
+
+    wallet_info = inspect_wallet_data(data)
+    if 'error' in wallet_info:
+        return wallet_info
+
+    legacy = (wallet_info['format'] == 'legacy')
+    legacy_013 = (wallet_info['format'] == 'legacy_013')
+    legacy_014 = (wallet_info['format'] == 'legacy_014')
+    migrated = wallet_info['migrate']
+
+    any_legacy = (legacy or legacy_013 or legacy_014)
+
+    legacy_hdwallet = None
+    key_defaults = {}
+    new_wallet = {}
+    ret = {}
+    
+    # version check 
+    # if the version has changed, we'll need to potentially migrate
+    # to e.g. trigger a re-encryption 
+    if not data.has_key('version'):
+        log.debug("Wallet has no version; triggering migration")
+
+    elif data['version'] != SERIES_VERSION:
+        log.debug("Wallet series has changed from {} to {}; triggerring migration".format(data['version'], SERIES_VERSION))
+
+    # legacy check
+    if legacy:
+        # legacy wallets use a hierarchical deterministic private key for owner, payment, and data keys.
+        # get that key first, if needed.
+        key_defaults = make_legacy_wallet_keys(data, password)
+        if 'error' in key_defaults:
+            log.error("Failed to migrate legacy wallet: {}".format(key_defaults['error']))
+            return key_defaults
+
+    elif legacy_013:
+        # legacy 0.13 wallets have an owner_privkey and a payment_privkey, but not a data_privkey
+        key_defaults = make_legacy_wallet_013_keys(data, password)
+        if 'error' in key_defaults:
+            log.error("Failed to migrate legacy 0.13 wallet: {}".format(key_defaults['error']))
+            return key_defaults
+
+    if any_legacy:
+        wallet_info = decrypt_wallet_legacy(data, key_defaults, password)
+
+    else:
+        wallet_info = decrypt_wallet_current(data, password)
+
+        # No matter what we do, do not save this wallet if it is current.
+        # First, it's not necessary if the wallet is not legacy.
+        # Second, the data private key is dynamically filled-in for data-key-less wallets,
+        # and we do not want to preserve this (i.e. we want the user to select a data key
+        # and switch over to using it).
+        migrated = False
+
+    if 'error' in wallet_info:
+        log.error("Failed to decrypt wallet; {}".format(wallet_info['error']))
+        return {'error': 'Failed to decrypt wallet'}
+
+    new_wallet = wallet_info['wallet']
+
+    # post-decryption formatting
+    # make sure data key is an uncompressed public key
     assert new_wallet.has_key('data_privkey')
-    data_pubkey = ECPrivateKey(str(new_wallet['data_privkey'])).public_key().to_hex()
+    data_pubkey = ecdsa_private_key(str(new_wallet['data_privkey'])).public_key().to_hex()
     if keylib.key_formatting.get_pubkey_format(data_pubkey) == 'hex_compressed':
         data_pubkey = keylib.key_formatting.decompress(data_pubkey)
 
@@ -486,7 +585,8 @@ def decrypt_wallet(data, password, config_path=CONFIG_PATH,
 
     new_wallet['data_pubkeys'] = [data_pubkey]
     new_wallet['data_pubkey'] = data_pubkey
-   
+
+    # pass along version
     new_wallet['version'] = SERIES_VERSION
 
     # sanity check--must be decrypted properly
@@ -522,10 +622,15 @@ def write_wallet(data, path=None, config_path=CONFIG_PATH, test_legacy=False):
         try:
             jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_CURRENT)
         except ValidationError as ve:
-            if BLOCKSTACK_DEBUG:
-                log.exception(ve)
+            if test_legacy:
+                # allow no-data-key wallets
+                jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_CURRENT_NODATAKEY)
+    
+            else:
+                if BLOCKSTACK_DEBUG:
+                    log.exception(ve)
 
-            return {'error': 'Invalid wallet data'}
+                return {'error': 'Invalid wallet data'}
 
     data = json.dumps(data)
     with open(path, 'w') as f:
@@ -710,12 +815,10 @@ def backup_wallet(wallet_path):
     return legacy_path
 
 
-def migrate_wallet(password=None, config_path=CONFIG_PATH, dry_run=False):
+def migrate_wallet(password=None, config_path=CONFIG_PATH):
     """
     Migrate the wallet to the latest format.
     Back up the old wallet.
-    Optionally do a dry-run to see what would happen.
-    Optionally use the owner key as the data key
 
     Return {'status': True, 'backup_wallet': ..., 'wallet': ..., 'wallet_password': ..., 'migrated': True} on success
     Return {'status': True, 'wallet': ..., 'wallet_password': ..., 'migrated': False} if no migration was necessary.
@@ -739,16 +842,14 @@ def migrate_wallet(password=None, config_path=CONFIG_PATH, dry_run=False):
         return encrypted_wallet
 
     # back up 
-    old_path = None
-    if not dry_run:
-        old_path = backup_wallet(wallet_path)
+    old_path = backup_wallet(wallet_path)
 
-        # store
-        res = write_wallet(encrypted_wallet, path=wallet_path)
-        if not res:
-            # try to restore
-            shutil.copy(old_path, wallet_path)
-            return {'error': 'Failed to store migrated wallet.'}
+    # store
+    res = write_wallet(encrypted_wallet, path=wallet_path)
+    if not res:
+        # try to restore
+        shutil.copy(old_path, wallet_path)
+        return {'error': 'Failed to store migrated wallet.'}
 
     return {'status': True, 'migrated': True, 'backup_wallet': old_path, 'wallet': wallet, 'wallet_password': password}
 
@@ -786,7 +887,7 @@ def unlock_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None):
         wallet = wallet_info['wallet']
         if wallet_info['migrated']:
             # need to have the user migrate the wallet first
-            return {'error': 'Wallet is in legacy format.  Please migrate it with the `migrate_wallet` command.', 'legacy': True}
+            return {'error': 'Wallet is in legacy format.  Please migrate it with the `setup_wallet` command.', 'legacy': True}
 
         # save to RPC daemon
         try:
@@ -801,9 +902,9 @@ def unlock_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None):
             return res
 
         addresses = {
-            'payment_address': wallet['payment_addresses'][0],
-            'owner_address': wallet['owner_addresses'][0],
-            'data_pubkey': wallet['data_pubkeys'][0]
+            'payment_address': virtualchain.address_reencode(wallet['payment_addresses'][0]),
+            'owner_address': virtualchain.address_reencode(wallet['owner_addresses'][0]),
+            'data_pubkey': virtualchain.address_reencode(wallet['data_pubkeys'][0])
         }
 
         return {'status': True, 'addresses': addresses}
@@ -816,8 +917,10 @@ def is_wallet_unlocked(config_dir=CONFIG_DIR):
     Determine whether or not the wallet is unlocked.
     Do so by asking the local RPC backend daemon
     """
+    from .rpc import local_api_connect 
+
     config_path = os.path.join(config_dir, CONFIG_FILENAME)
-    local_proxy = local_api_connect(config_dir=config_dir)
+    local_proxy = local_api_connect(config_path=config_path)
     conf = config.get_config(config_path)
 
     if not local_proxy:
@@ -843,7 +946,9 @@ def get_wallet(config_path=CONFIG_PATH):
     Returns the wallet data on success
     Returns None on error
     """
-    local_proxy = local_api_connect(config_dir=os.path.dirname(config_path))
+    from .rpc import local_api_connect 
+
+    local_proxy = local_api_connect(config_path=config_path)
     conf = config.get_config(config_path)
 
     if not local_proxy:
@@ -889,8 +994,9 @@ def save_keys_to_memory( wallet_keys, config_path=CONFIG_PATH ):
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-    config_dir = os.path.dirname(config_path)
-    proxy = local_api_connect(config_dir=config_dir)
+    from .rpc import local_api_connect 
+
+    proxy = local_api_connect(config_path=config_path)
 
     log.debug('Saving keys to memory')
     try:
@@ -934,9 +1040,9 @@ def get_addresses_from_file(config_dir=CONFIG_DIR, wallet_path=None):
    
     # extract addresses
     if data.has_key('payment_addresses'):
-        payment_address = str(data['payment_addresses'][0])
+        payment_address = virtualchain.address_reencode(str(data['payment_addresses'][0]))
     if data.has_key('owner_addresses'):
-        owner_address = str(data['owner_addresses'][0])
+        owner_address = virtualchain.address_reencode(str(data['owner_addresses'][0]))
     if data.has_key('data_pubkeys'):
         data_pubkey = str(data['data_pubkeys'][0])
 
@@ -1040,15 +1146,15 @@ def get_total_balance(config_path=CONFIG_PATH, wallet_path=WALLET_PATH):
     return total_balance, payment_addresses
 
 
-def wallet_setup(config_path=CONFIG_PATH, interactive=True, wallet_data=None, wallet_path=None, password=None, dry_run=False, test_legacy=False):
+def wallet_setup(config_path=CONFIG_PATH, interactive=True, wallet_data=None, wallet_path=None, password=None, test_legacy=False):
     """
     Do one-time wallet setup.
     * make sure the wallet exists (creating it if need be)
     * migrate the wallet if it is in legacy format
 
-    Return {'status': True, 'created': False, 'migrated': False, 'password': ..., 'wallet'; ... } on success
-    Return {'status': True, 'created'; True, 'migrated': False, 'password': ..., 'wallet': ...} if we had to create the wallet
-    Return {'status': True, 'created': False, 'migrated': True, 'password': ..., 'wallet': ...} if we had to migrate the wallet
+    Return {'status': True, 'created': False, 'migrated': False, 'password': ..., 'wallet'; ...} on success
+    Return {'status': True, 'created'; True,  'migrated': False, 'password': ..., 'wallet': ...} if we had to create the wallet
+    Return {'status': True, 'created': False, 'migrated': True,  'password': ..., 'wallet': ...} if we had to migrate the wallet
     Optionally also include 'backup_wallet': ... if the wallet was migrated
     """
     
@@ -1086,13 +1192,13 @@ def wallet_setup(config_path=CONFIG_PATH, interactive=True, wallet_data=None, wa
             wallet = res['wallet']
             migrated = res['migrated']
 
-            res = write_wallet(wallet, path=wallet_path)
+            res = write_wallet(wallet, path=wallet_path, test_legacy=test_legacy)
             if 'error' in res:
                 return res
 
     if not created:
         # try to migrate
-        res = migrate_wallet(password=password, config_path=config_path, dry_run=dry_run)
+        res = migrate_wallet(password=password, config_path=config_path)
         if 'error' in res:
             return res
 

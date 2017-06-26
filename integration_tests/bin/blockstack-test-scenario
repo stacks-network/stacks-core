@@ -25,10 +25,13 @@ import socket
 import simplejson
 import threading
 import argparse
+import BaseHTTPServer
+import cgi
 
 blockstack = None
 blockstackd = None
 testlib = None
+g_interactive = False
 
 import pybitcoin
 
@@ -38,7 +41,7 @@ log = virtualchain.get_logger("blockstack-test-scenario")
 from virtualchain.lib.blockchain.bitcoin_blockchain import JSONRPCException
 
 TEST_RPC_PORT = 16264
-TEST_CLIENT_RPC_PORT = 16268
+TEST_CLIENT_RPC_PORT = int(os.environ.get("BLOCKSTACK_TEST_CLIENT_RPC_PORT", 16268))
 BLOCKSTACK_STORAGE_DRIVERS = "disk"
 
 if os.environ.get("BLOCKSTACK_STORAGE_DRIVERS", None) is not None:
@@ -46,6 +49,8 @@ if os.environ.get("BLOCKSTACK_STORAGE_DRIVERS", None) is not None:
 
 BITCOIN_DIR = "/tmp/bitcoin-regtest"
 SCENARIO_PID = os.getpid()
+
+NET_LOG_PATH = "/tmp/blockstack-test-netlog.log"
 
 DEFAULT_SERVER_INI_TEMPLATE = """
 [bitcoind]
@@ -59,7 +64,7 @@ regtest = True
 spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
 
 [blockstack]
-server_version = 0.14.1
+server_version = 0.14.2
 rpc_port = %s
 backup_frequency = 1
 backup_max_age = 30
@@ -84,16 +89,15 @@ DEFAULT_CLIENT_INI_TEMPLATE = """
 accounts = @CLIENT_ACCOUNTS_PATH@
 users = @CLIENT_USERS_PATH@
 datastores = @CLIENT_DATASTORES_PATH@
-client_version = 0.14.1
+client_version = 0.14.2
 server = localhost
 port = %s
 metadata = @CLIENT_METADATA@
 storage_drivers = @CLIENT_STORAGE_DRIVERS@
-storage_drivers_local = 
 storage_drivers_required_write = @CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE@
 advanced_mode = true
 api_endpoint_port = %s
-api_password = a653b93e696a998f85f8fd2b241ff4dfcb5dd978fe1da26c413a4c2abf90321b
+api_password = blockstack_integration_test_api_password
 poll_interval = 1
 queue_path = @CLIENT_QUEUE_PATH@
 rpc_detach = True
@@ -154,6 +158,131 @@ class Pinger(threading.Thread):
         self.running = False
 
 
+class WebTestServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+    """
+    programmatic directives to generate new blocks
+    and exit
+    """
+    def do_GET(self):
+        # UI
+        bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts() )
+        blockheight = bitcoind.getblockcount()
+        conf = blockstack_client.get_config()
+
+        panel = '<html><head></head><body>Integration test control panel<br>'
+        panel += '<br>'
+        panel += 'Blockchain height: {}<br>'.format(blockheight)
+        panel += 'API password: {}<br>'.format(conf['api_password'])
+        panel += '<br>'
+        panel += '<form action="/nextblock" method="post">'
+        panel += '    Number of blocks: <input type="text" name="numblocks" value="1"> <input type="submit" value="Generate blocks"></form><br>'
+        panel += '<form action="/sendfunds" method="post">'
+        panel += '    Fund address: <input type="text" name="addr"> value (satoshis): <input type="text" name="value" default="0"> <input type="submit" value="Fund address"></form><br>'
+        panel += '<form action="/done" method="post">'
+        panel += '    <input type="submit" value="Done testing"></form>'
+        panel += '</body></html>'
+        
+        self.send_response(200)
+        self.send_header('content-type', 'text/html')
+        self.send_header('content-length', len(panel))
+        self.end_headers()
+        self.wfile.write(panel)
+        return
+
+
+    def do_POST(self):
+        ctype, pdict = cgi.parse_header(self.headers.getheader('content-type'))
+        if ctype == 'multipart/form-data':
+            postvars = cgi.parse_multipart(self.rfile, pdict)
+        elif ctype == 'application/x-www-form-urlencoded':
+            length = int(self.headers.getheader('content-length'))
+            postvars = cgi.parse_qs(self.rfile.read(length), keep_blank_values=1)
+        else:
+            postvars = {}
+
+        if self.path == '/nextblock':
+            # how many blocks?
+            numblocks = postvars.get('numblocks', ['1'])
+            try:
+                numblocks = int(numblocks[0])
+            except:
+                log.error("Invalid numblocks '{}'".format(numblocks))
+                log.error("postvars = {}".format(postvars))
+                self.send_response(401, "Invalid number of blocks")
+                self.end_headers()
+                return 
+
+            for i in xrange(0, numblocks):
+                self.server.next_block()
+
+            self.send_response(302)
+            self.send_header('location', '/')
+            self.end_headers()
+            return
+
+        elif self.path == '/sendfunds':
+            # fund an address
+            addr = postvars.get('addr', [None])
+            value = postvars.get('value', [None])
+
+            if addr[0] is None or value[0] is None:
+                log.error("Missing addr or value")
+                self.send_response(401, "Invalid request: missing addr or value")
+                self.end_headers()
+                return 
+
+            try:
+                value = int(value[0])
+                addr = virtualchain.address_reencode(addr[0])
+            except:
+                log.error("Failed to read addr and/or value")
+                log.error("postvars = {}".format(postvars))
+                self.send_response(401, "Invalid addr or value")
+                self.end_headers()
+                return
+
+            # send funds
+            res = testlib.send_funds(testlib.get_default_payment_wallet().privkey, value, addr)
+            if 'error' in res:
+                log.error("Failed to send {} from {} to {}: {}".format(
+                    value, testlib.get_default_payment_wallet().privkey, addr, res
+                ))
+                self.send_response(401, "Failed to send value")
+                self.end_headers()
+                return
+
+            # confirm it
+            for i in xrange(0, 6):
+                self.server.next_block()
+
+            self.send_response(302)
+            self.send_header('location', '/')
+            self.end_headers()
+            return
+
+        elif self.path == '/done':
+            self.server.done = True
+            self.send_response(200)
+            self.end_headers()
+            return
+
+        else:
+            log.error("Unsupported path {}".format(self.path))
+            self.send_response(401, "Only support /nextblock and /done at this time")
+            self.end_headers()
+            return
+
+
+class WebTestServer(BaseHTTPServer.HTTPServer):
+    def __init__(self, port, test_env):
+        BaseHTTPServer.HTTPServer.__init__(self, ('localhost', port), WebTestServerRequestHandler)
+        self.test_env = test_env
+        self.done = False
+
+    def next_block(self):
+        testlib.next_block(**self.test_env)
+
+
 def parse_test_pragma( line ):
     """
     Parse a test pragma line from a scenario
@@ -194,7 +323,7 @@ def load_scenario( scenario_name ):
     engine as an argument and checks it for correctness.
     """
 
-    log.debug("Load scenario %s" % sys.argv[1])
+    log.debug("Load scenario %s" % scenario_name)
 
     # strip .py from scenario name 
     if scenario_name.endswith(".py"):
@@ -313,6 +442,7 @@ def network_start( blockstack_opts, db ):
     """
     Start RPC services
     """
+    blockstackd.gc_start()
     atlas_state = None
     try:
         atlas_state = blockstackd.atlas_start( blockstack_opts, db, TEST_RPC_PORT )
@@ -338,6 +468,7 @@ def network_stop():
     Stop RPC services
     """
     blockstackd.rpc_stop()
+    blockstackd.gc_stop()
 
 
 def atlas_stop( atlas_state ):
@@ -429,7 +560,7 @@ def sync_virtualchain_upcall( blockstack_opts, need_db_refresh=False ):
             blockstackd.atlasdb_sync_zonefiles( db, old_lastblock+1, zonefile_dir=zonefile_dir )
 
 
-def run_scenario( scenario, config_file, client_config_file, interactive=False, blocktime=10 ):
+def run_scenario( scenario, config_file, client_config_file, interactive=False, blocktime=10, webtest_port=None ):
     """
     Run a test scenario:
     * set up the virtualchain to use our mock UTXO provider and mock bitcoin blockchain
@@ -458,10 +589,6 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     client_opts = blockstack_client.config.configure(config_file=client_config_file, interactive=False)
     utxo_opts = client_opts['blockchain-reader']
-   
-    # override multiprocessing options to ensure single-process behavior 
-    utxo_opts['multiprocessing_num_procs'] = 1 
-    utxo_opts['multiprocessing_num_blocks'] = 10
 
     # pass along extra arguments
     utxo_opts['blockchain_server'] = 'localhost'
@@ -528,10 +655,49 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     pinger = Pinger()
     pinger.start()
 
+    # shutdown procedure 
+    def shutdown_procedure(*args, **kw):
+        log.info("Shutting down network")
+        network_stop()
+
+        log.info("Shutting down atlas")
+        atlas_stop( atlas_state )
+
+        log.info("Shutting down storage")
+        storage_stop()
+
+        log.info("Shutting down bitcoin")
+        bitcoin_stop()
+
+        log.info("Shutting down API endpoint")
+        blockstack_client.rpc.local_api_stop(client_config_dir)
+        
+        if pinger:
+            log.info("Shutting down pinger")
+            pinger.ask_join()
+            pinger.join()
+
+
+    def signal_shutdown_procedure(*args, **kw):
+        shutdown_procedure()
+        exit(1)
+
+    signal.signal(signal.SIGINT, signal_shutdown_procedure)
+    signal.signal(signal.SIGQUIT, signal_shutdown_procedure)
+    signal.signal(signal.SIGTERM, signal_shutdown_procedure)
+
     # do we need to refreshdb?
-    rpcclient = testlib.TestAPIProxy()
-    res = rpcclient.getinfo()
-    need_db_refresh = False
+    rpcclient = None
+    res = None
+    need_db_refresh = None
+
+    try:
+        rpcclient = testlib.TestAPIProxy()
+        res = rpcclient.getinfo()
+        need_db_refresh = False
+    except Exception as e:
+        log.exception(e)
+        sys.exit(1)
 
     if not blockstack_client.config.semver_newer( res['server_version'], "0.14.0" ) and not res['server_version'].startswith("0.14."):
         log.debug("Need periodic DB refreshes (server_version = %s)" % res['server_version'])
@@ -558,30 +724,20 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         log.exception(e)
         traceback.print_exc()
         log.error("Failed to run scenario '%s'" % scenario.__name__)
-        network_stop()
-        atlas_stop( atlas_state )
-        storage_stop()
-        bitcoin_stop()
-        blockstack_client.rpc.local_api_stop(client_config_dir)
-
-        pinger.ask_join()
-        pinger.join()
+        shutdown_procedure()
         return False
 
     if rc == False:
         # explicitly erred
         log.error("Scenario exits in error")
-        blockstack_client.rpc.local_api_stop(client_config_dir)
         log.error("Failed to run tests '%s'" % scenario.__name__)
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
+        shutdown_procedure()
         return False
+
+    log.info("\n\nTest finished; doing checks\n\n")
 
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
     testlib.set_state_engine(db)
-
-    log.info("\n\nTest finished; doing checks\n\n")
 
     # run the checks on the database
     try:
@@ -591,37 +747,58 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         traceback.print_exc()
         blockstack_client.rpc.local_api_stop(client_config_dir)
         log.error("Failed to run tests '%s'" % scenario.__name__)
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
+        shutdown_procedure()
         return False 
     
     if not rc:
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
-        blockstack_client.rpc.local_api_stop(client_config_dir)
+        shutdown_procedure()
         return rc
 
     # do any more interactive tests
     if interactive:
-        log.info("Keeping test server online for testing purposes.")
-        log.info("Blocktime is %s second(s)" % blocktime)
-        while True:
-            try:
+
+        if webtest_port is None:
+            log.info("Keeping test server online for testing purposes.")
+            log.info("Blocktime is %s second(s)" % blocktime)
+            while True:
                 db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
                 testlib.set_state_engine( db )
-                time.sleep(blocktime)
+                try:
+                    time.sleep(blocktime)
+                except:
+                    break
+
                 testlib.next_block( **test_env )
-            except KeyboardInterrupt:
-                log.info('Resume tests')
-                break
+
+        else:
+            log.info("")
+            log.info("Keeping Web test server online for testing purposes.")
+            log.info("")
+            log.info("   Web test server online at http://localhost:{}".format(webtest_port))
+            log.info("")
+            log.info("   Create new blocks by sending a POST request to http://localhost:{}/nextblock".format(webtest_port))
+            log.info("   Example:")
+            log.info("       $ curl -X POST http://localhost:{}/nextblock".format(webtest_port))
+            log.info("")
+            log.info("   Exit the test scenario by sending a POST request to http://localhost:{}/done".format(webtest_port))
+            log.info("   Example:")
+            log.info("       $ curl -X POST http://localhost:{}/done".format(webtest_port))
+            log.info("")
+
+            webtest_server = WebTestServer(webtest_port, test_env)
+            while not webtest_server.done:
+                webtest_server.handle_request()
+           
 
     pinger.ask_join()
     pinger.join()
+    pinger = None
 
     # stop atlas support 
     atlas_stop( atlas_state )
+    if interactive:
+        shutdown_procedure()
+        return True
 
     log.info("\n\nScenario checks passed; verifying history\n\n")
 
@@ -633,10 +810,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         assert rc, "History check failed"
     except Exception, e:
         log.exception(e)
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
-        blockstack_client.rpc.local_api_stop(client_config_dir)
+        shutdown_procedure()
         return rc
 
     log.info("History check passes!")
@@ -653,10 +827,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         assert rc, "SNV check failed"
     except Exception, e:
         log.exception(e)
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
-        blockstack_client.rpc.local_api_stop(client_config_dir)
+        shutdown_procedure()
         return rc
 
     log.info("SNV check passes!")
@@ -667,31 +838,12 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     if atlas_state is not None:
         rc = testlib.check_atlas_zonefiles( db, blockstack_opts['atlasdb_path'] )
         if not rc:
-            network_stop()
-            storage_stop()
-            bitcoin_stop()
-            blockstack_client.rpc.local_api_stop(client_config_dir)
+            shutdown_procedure()
             return rc
 
         log.info("Atlas zonefile checks pass!")
 
-    # verify data URLs 
-    rc = testlib.check_data_urls()
-    if not rc:
-        log.error("Data URL check fails")
-        network_stop()
-        storage_stop()
-        bitcoin_stop()
-        blockstack_client.rpc.local_api_stop(client_config_dir)
-        return rc
-
-    log.info("Data URL check pass!")
-
-    network_stop()
-    storage_stop()
-    bitcoin_stop()
-    blockstack_client.rpc.local_api_stop(client_config_dir)
-    TEST_RESULT = True
+    shutdown_procedure()
     return True
 
 
@@ -751,14 +903,16 @@ def bitcoin_regtest_reset():
 
     # wait for a few seconds for it to come up
     log.debug("Waiting for bitcoind to start up")
-
-    while True:
+    deadline = time.time() + 180
+    started = False
+    while time.time() < deadline:
         time.sleep(1)
         opts = bitcoin_regtest_opts()
         try:
 
             bitcoind = virtualchain.default_connect_bitcoind( opts )
             bitcoind.getinfo()
+            started = True
             break
 
         except socket.error:
@@ -766,7 +920,11 @@ def bitcoin_regtest_reset():
         except JSONRPCException:
             pass
 
-    # generate 150 blocks (50 BTC coinbase each), and confirm them
+    if not started:
+        log.error("Failed to connect to bitcoind")
+        return False
+
+    # generate 250 blocks (50 BTC coinbase each), and confirm them
     bitcoind = virtualchain.connect_bitcoind(opts)
     res = bitcoind.generate(TEST_FIRST_BLOCK_HEIGHT-1)
     if len(res) != TEST_FIRST_BLOCK_HEIGHT-1:
@@ -788,10 +946,11 @@ def fill_wallet( bitcoind, wallet, value ):
     if type(wallet.privkey) in [str, unicode]:
         # single private key
         testnet_wif = virtualchain.BitcoinPrivateKey(wallet.privkey).to_wif()
-        bitcoind.importprivkey(testnet_wif, "")
-
         addr = virtualchain.BitcoinPublicKey(wallet.pubkey_hex).address()
-        log.debug("Fill %s with %s" % (addr, value ))
+
+        log.debug("Fill %s (%s) (%s) with %s" % (addr, wallet.privkey, testnet_wif, value ))
+
+        bitcoind.importprivkey(testnet_wif, "")
         bitcoind.sendtoaddress( addr, value )
 
     else:
@@ -905,9 +1064,12 @@ class BitcoinRegtestUTXOProvider(object):
         unspents_tmp = blockchain_client.listunspent( 0, 200000, [address] )
         unspents_all = [{
             "transaction_hash": s["txid"],
-            "output_index": s["vout"],
+            'outpoint': {
+                'hash': s['txid'],
+                'index': s['vout'],
+            },
             "value": int(round(s["amount"]*SATOSHIS_PER_COIN)),
-            "script_hex": s["scriptPubKey"],
+            "out_script": s["scriptPubKey"],
             "confirmations": s["confirmations"]
             }
             for s in unspents_tmp
@@ -938,7 +1100,9 @@ def parse_args( argv ):
     Parse argv to get block time, scenario path, working dir, etc.
     """
     parser = argparse.ArgumentParser(description='Run a test scenario')
-    parser.add_argument("--interactive", dest='blocktime', type=int, help='Number of seconds between blocks', required=False)
+    parser.add_argument("--interactive", dest='blocktime', type=int, help='Run interactively, and generate blocks every `blocktime` seconds', required=False)
+    parser.add_argument("--interactive-web", dest='webtest_port', type=int,
+            help='Run interactively, but generate blocks only when programmatically instructedr', required=False)
     parser.add_argument("--working-dir", dest='working_dir', type=str, help="Working directory to use to store database state", required=False)
     parser.add_argument("scenario_module", type=str, help="Python module to run")
 
@@ -949,20 +1113,28 @@ def parse_args( argv ):
 if __name__ == "__main__":
 
     if len(sys.argv) < 2:
-        print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [scenario.import.path] [OPTIONAL: working dir]"
+        print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [--interactive-web port] [scenario.import.path] [OPTIONAL: working dir]"
         sys.exit(1)
 
     args = parse_args(sys.argv)
 
     interactive = False
     blocktime = 10
+    webtest_port = None
     working_dir = None
     scenario_module = args.scenario_module
 
     if hasattr(args, "blocktime") and args.blocktime is not None:
         interactive = True
+        g_interactive = True
         blocktime = args.blocktime
         log.debug("Interactive session; block time is %s" % blocktime)
+
+    if hasattr(args, 'webtest_port') and args.webtest_port is not None:
+        interactive = True
+        g_interactive = True
+        webtest_port = args.webtest_port
+        log.debug("Interactive Web/programmatic session; port is {}".format(webtest_port))
 
     if hasattr(args, "working_dir") and args.working_dir is not None:
         working_dir = args.working_dir
@@ -1000,7 +1172,7 @@ if __name__ == "__main__":
     # load up the scenario (so it can set its own extra envars) 
     scenario = load_scenario( scenario_module )
     if scenario is None:
-        print "Failed to load '%s'" % sys.argv[1]
+        print "Failed to load '%s'" % scenario_module
         sys.exit(1)
 
     # *now* we can import blockstack 
@@ -1019,6 +1191,9 @@ if __name__ == "__main__":
     if os.path.exists("/tmp/blockstack-disk"):
         shutil.rmtree("/tmp/blockstack-disk")
     
+    if os.path.exists("/tmp/blockstack-integration-test-storage"):
+        shutil.rmtree("/tmp/blockstack-integration-test-storage")
+
     # set up SPV 
     if os.path.exists("/tmp/blockstack-test-scenario-spv.dat"):
         os.unlink("/tmp/blockstack-test-scenario-spv.dat")
@@ -1074,7 +1249,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # run the test 
-    rc = run_scenario( scenario, config_file, client_config_file, interactive=interactive, blocktime=blocktime )
+    rc = run_scenario( scenario, config_file, client_config_file, interactive=interactive, blocktime=blocktime, webtest_port=webtest_port )
    
     if rc:
         print "SUCCESS %s" % scenario.__name__

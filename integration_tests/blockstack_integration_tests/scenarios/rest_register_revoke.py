@@ -27,7 +27,6 @@ import urllib2
 import json
 import blockstack_client
 import blockstack_profiles
-import blockstack_gpg
 import sys
 import keylib
 import time
@@ -99,13 +98,14 @@ def scenario( wallets, **kw ):
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
 
     # make a session 
-    ses = testlib.blockstack_app_session( "register.app", ["names","revoke","register","prices","zonefiles","blockchain","node_read"], config_path=config_path )
-    if 'error' in ses:
-        ses['test'] = 'Failed to get app session'
-        print json.dumps(ses)
-        return False
+    datastore_pk = keylib.ECPrivateKey(wallets[-1].privkey).to_hex()
+    res = testlib.blockstack_cli_app_signin("foo.test", datastore_pk, 'register.app', ['names', 'register', 'prices', 'revoke', 'zonefiles', 'blockchain', 'node_read'])
+    if 'error' in res:
+        print json.dumps(res, indent=4, sort_keys=True)
+        error = True
+        return 
 
-    ses = ses['ses']
+    ses = res['token']
 
     # register the name bar.test 
     res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test'})
@@ -171,7 +171,7 @@ def scenario( wallets, **kw ):
     zonefile_hash = res['response']['zonefile_hash']
 
     # present?
-    res = testlib.blockstack_REST_call('GET', '/v1/names', ses )
+    res = testlib.blockstack_REST_call('GET', '/v1/names?page=0', ses )
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'failed to list names'
         print json.dumps(res)

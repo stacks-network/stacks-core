@@ -85,6 +85,8 @@ def get_registration_recipient_from_outputs( outputs ):
     
     By construction, it will be the first non-OP_RETURN 
     output (i.e. the second output).
+
+    TODO: remove for() loop
     """
     
     ret = None
@@ -200,7 +202,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     # if multisig is not enabled in this epoch, and the recipient
     # address is a p2sh address, then reject the transaction.
     # this if for compatibility with 0.13
-    if virtualchain.is_p2sh_address( register_addr ) and not epoch_has_multisig( block_id ):
+    if virtualchain.is_multisig_address( register_addr ) and not epoch_has_multisig( block_id ):
         log.debug("Multisig registration address %s, but this epoch (%s) does not support multisig" % (register_addr, get_epoch_number(block_id)))
         return False
 
@@ -610,12 +612,5 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     already present in the name record.
     """
     return blockstack_client.operations.register.snv_consensus_extras( name_rec, block_id, blockchain_name_data )
-    '''
-    ret_op = {}
-    
-    # reconstruct the recipient information
-    ret_op['recipient'] = str(name_rec['sender'])
-    ret_op['recipient_address'] = str(name_rec['address'])
-    return ret_op
-    '''
+
 

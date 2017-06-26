@@ -88,7 +88,12 @@ def scenario( wallets, **kw ):
     # put immutable (with owner key)
     log.debug("put immutable 1 with owner key")
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None ) 
-    
+     
+    res = testlib.start_api("0123456789abcdef")
+    if 'error' in res:
+        print 'failed to start API: {}'.format(res)
+        return False
+
     put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_1_immutable", json.dumps(datasets[0], sort_keys=True), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
@@ -164,6 +169,11 @@ def scenario( wallets, **kw ):
 
     # restart daemon
     wallet_keys = testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
+ 
+    res = testlib.start_api("0123456789abcdef")
+    if 'error' in res:
+        print 'failed to start API: {}'.format(res)
+        return False
 
     # put immutable
     put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_3_immutable", json.dumps(datasets[2], sort_keys=True), password='0123456789abcdef')

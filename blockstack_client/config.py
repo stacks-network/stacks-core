@@ -25,24 +25,28 @@ from __future__ import print_function
 """
 
 import os
+import sys
 import itertools
 import logging
 import traceback
 import uuid
 import urllib2
+import copy
+import time
+import shutil
+import requests
+import keylib
+
 from binascii import hexlify
 from ConfigParser import SafeConfigParser
 
 import virtualchain
-from .backend.utxo import *
+from .utxo import *
 from .constants import *
-
-def get_logger(name="blockstack-client", debug=DEBUG):
-    logger = virtualchain.get_logger(name)
-    logger.setLevel(logging.DEBUG if debug else logging.INFO)
-    return logger
+from .logger import get_logger
 
 log = get_logger('blockstack-client')
+
 
 # NOTE: duplicated from blockstack-core and streamlined.
 def op_get_opcode_name(op_string):
@@ -60,55 +64,6 @@ def op_get_opcode_name(op_string):
         raise Exception('No such operation "{}"'.format(op))
 
     return OPCODE_NAMES[op]
-
-
-def url_to_host_port(url, port=DEFAULT_BLOCKSTACKD_PORT):
-    """
-    Given a URL, turn it into (host, port).
-    Return (None, None) on invalid URL
-    """
-    if not url.startswith('http://') or not url.startswith('https://'):
-        url = 'http://' + url
-
-    urlinfo = urllib2.urlparse.urlparse(url)
-    hostport = urlinfo.netloc
-
-    parts = hostport.split('@')
-    if len(parts) > 2:
-        return None, None
-
-    if len(parts) == 2:
-        hostport = parts[1]
-
-    parts = hostport.split(':')
-    if len(parts) > 2:
-        return None, None
-
-    if len(parts) == 2:
-        try:
-            port = int(parts[1])
-            assert 0 < port < 65535, 'Invalid port'
-        except TypeError:
-            return None, None
-
-    return parts[0], port
-
-
-def atlas_inventory_to_string( inv ):
-    """
-    Inventory to string (bitwise big-endian)
-    """
-    ret = ""
-    for i in xrange(0, len(inv)):
-        for j in xrange(0, 8):
-            bit_index = 1 << (7 - j)
-            val = (ord(inv[i]) & bit_index)
-            if val != 0:
-                ret += "1"
-            else:
-                ret += "0"
-
-    return ret
 
 
 def interactive_prompt(message, parameters, default_opts):
@@ -170,6 +125,7 @@ def find_missing(message, all_params, given_opts, default_opts, header=None, pro
         missing_values = set(default_opts) - set(given_opts)
         num_prompted = len(missing_values)
         given_opts.update(default_opts)
+
     else:
         if header is not None:
             print('-' * len(header))
@@ -293,24 +249,8 @@ def get_local_device_id(config_dir=CONFIG_DIR):
     return get_or_set_uuid(config_dir=config_dir)
 
 
-def get_all_device_ids(config_path=CONFIG_PATH):
-    """
-    Get the list of all device IDs that use this wallet
-    The first device ID is guaranteed to be the local device ID
-    """
-    local_device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
-    device_ids = [local_device_id]
-    
-    conf = get_config(config_path)
-    assert conf
 
-    if conf.has_key('default_devices'):
-        device_ids += filter(lambda x: len(x) > 0, conf['default_devices'].split(','))
-
-    return device_ids
-
-
-def configure(config_file=CONFIG_PATH, force=False, interactive=True):
+def configure(config_file=CONFIG_PATH, force=False, interactive=True, set_migrate=False):
     """
     Configure blockstack-client:  find and store configuration parameters to the config file.
 
@@ -328,8 +268,6 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
     }
     """
 
-    global SUPPORTED_UTXO_PROVIDERS, SUPPORTED_UTXO_PARAMS, SUPPORTED_UTXO_PROMPT_MESSAGES
-
     if not os.path.exists(config_file) and interactive:
         # definitely ask for everything
         force = True
@@ -343,13 +281,20 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
         'parameters, or press [ENTER] to select the default value.'
     )
 
+    all_opts = read_config_file(config_path=config_file, set_migrate=set_migrate)
     blockstack_opts = {}
-    blockstack_opts_defaults = read_config_file(path=config_file)['blockstack-client']
-    blockstack_params = blockstack_opts_defaults.keys()
+    blockstack_opts_defaults = all_opts['blockstack-client']
+    
+    migrated = False
+    if set_migrate:
+        migrated = all_opts['migrated']
+        del all_opts['migrated']
 
+    blockstack_params = blockstack_opts_defaults.keys()
+    
     if not force:
         # defaults
-        blockstack_opts = read_config_file(path=config_file)['blockstack-client']
+        blockstack_opts = copy.deepcopy(blockstack_opts_defaults)
 
     blockstack_opts, missing_blockstack_opts, num_blockstack_opts_prompted = find_missing(
         blockstack_message,
@@ -368,11 +313,12 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
 
     bitcoind_opts = {}
     bitcoind_opts_defaults = default_bitcoind_opts(config_file=config_file)
+    bitcoind_opts_defaults.update(all_opts.get('bitcoind', {}))
     bitcoind_params = bitcoind_opts_defaults.keys()
 
     if not force:
         # get default set of bitcoind opts
-        bitcoind_opts = default_bitcoind_opts(config_file=config_file)
+        bitcoind_opts = copy.deepcopy(bitcoind_opts_defaults)
 
     # get any missing bitcoind fields
     bitcoind_opts, missing_bitcoin_opts, num_bitcoind_prompted = find_missing(
@@ -402,10 +348,11 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
         blockchain_reader = blockchain_reader_dict['blockchain_reader']
 
     blockchain_reader_defaults = default_utxo_provider_opts(blockchain_reader, config_file=config_file)
+    blockchain_reader_defaults.update(all_opts.get('blockchain_reader', {}))
     blockchain_reader_params = SUPPORTED_UTXO_PARAMS[blockchain_reader]
 
     # get current set of reader opts
-    blockchain_reader_opts = {} if force else blockchain_reader_defaults
+    blockchain_reader_opts = {} if force else copy.deepcopy(blockchain_reader_defaults)
 
     blockchain_reader_opts, missing_reader_opts, num_reader_opts_prompted = find_missing(
         SUPPORTED_UTXO_PROMPT_MESSAGES[blockchain_reader],
@@ -436,10 +383,11 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
         blockchain_writer = blockchain_writer_dict['blockchain_writer']
 
     blockchain_writer_defaults = default_utxo_provider_opts(blockchain_writer, config_file=config_file)
+    blockchain_writer_defaults.update(all_opts.get('blockchain_write', {}))
     blockchain_writer_params = SUPPORTED_UTXO_PARAMS[blockchain_writer]
 
     # get current set of writer opts
-    blockchain_writer_opts = {} if force else blockchain_writer_defaults
+    blockchain_writer_opts = {} if force else copy.deepcopy(blockchain_writer_defaults)
 
     blockchain_writer_opts, missing_writer_opts, num_writer_opts_prompted = find_missing(
         SUPPORTED_UTXO_PROMPT_MESSAGES[blockchain_writer],
@@ -463,22 +411,26 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
     # ask for contact info, so we can send out notifications for bugfixes and
     # upgrades
     if blockstack_opts.get('email') is None:
-        email_msg = (
-            'Would you like to receive notifications\n'
-            'from the developers when there are critical\n'
-            'updates available to install?\n\n'
-            'If so, please enter your email address here.\n'
-            'If not, leave this field blank.\n\n'
-            'Your email address will be used solely\n'
-            'for this purpose.\n'
-        )
-        email_opts, _, email_prompted = find_missing(
-            email_msg, ['email'], {}, {'email': ''}, prompt_missing=interactive
-        )
+        if interactive:
+            email_msg = (
+                'Would you like to receive notifications\n'
+                'from the developers when there are critical\n'
+                'updates available to install?\n\n'
+                'If so, please enter your email address here.\n'
+                'If not, leave this field blank.\n\n'
+                'Your email address will be used solely\n'
+                'for this purpose.\n'
+            )
+            email_opts, _, email_prompted = find_missing(
+                email_msg, ['email'], {}, {'email': ''}, prompt_missing=interactive
+            )
 
-        # merge with blockstack section
-        num_blockstack_opts_prompted += 1
-        blockstack_opts['email'] = email_opts['email']
+            # merge with blockstack section
+            num_blockstack_opts_prompted += 1
+            blockstack_opts['email'] = email_opts['email']
+
+        else:
+            blockstack_opts['email'] = ''
 
     # get client UUID for analytics
     u = get_or_set_uuid(config_dir=config_dir)
@@ -500,15 +452,30 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
         write_config_file(ret, config_file)
 
     # preserve these extra helper fields
-    blockstack_opts['path'] = config_file
+    ret['blockstack-client']['path'] = config_file
     if config_file is not None:
-        blockstack_opts['dir'] = os.path.dirname(config_file)
+        ret['blockstack-client']['dir'] = os.path.dirname(config_file)
     else:
-        blockstack_opts['dir'] = None
+        ret['blockstack-client']['dir'] = None
 
     # set this here, so we don't save it
     ret['uuid'] = u
+    
+    if set_migrate:
+        ret['migrated'] = migrated
+
     return ret
+
+
+def clear_runtime_fields(opts):
+    """
+    Remove runtime opts from a config dict.
+    """
+    for opt in ['path', 'dir', 'migrated', 'uuid']:
+        if opts.has_key(opt):
+            del opts[opt]
+
+    return opts
 
 
 def write_config_file(opts, config_file):
@@ -516,16 +483,17 @@ def write_config_file(opts, config_file):
     Write our config file with the given options dict.
     Each key is a section name, and each value is the list of options.
 
+    If the file exists, do not remove unaffected sections.  Instead,
+    merge the sections in opts into the file.
+
     Return True on success
     Raise on error
     """
 
     if 'blockstack-client' in opts:
-        assert 'path' not in opts['blockstack-client']
-        assert 'dir' not in opts['blockstack-client']
+        opts['blockstack-client'] = clear_runtime_fields(opts['blockstack-client'])
 
-    assert 'path' not in opts
-    assert 'dir' not in opts
+    opts = clear_runtime_fields(opts)
 
     parser = SafeConfigParser()
 
@@ -546,6 +514,32 @@ def write_config_file(opts, config_file):
             parser.set(sec_name, opt_name, '{}'.format(opt_value))
 
     with open(config_file, 'w') as fout:
+        os.fchmod(fout.fileno(), 0600)
+        parser.write(fout)
+
+    return True
+
+
+def write_config_section(config_path, section_name, section_data ):
+    """
+    Write a whole config section.
+    Overwrite it if it exists.
+    Return True on success
+    Return False on failure
+    """
+    if not os.path.exists(config_path):
+        return False
+
+    parser = SafeConfigParser()
+    parser.read(config_path)
+
+    if not parser.has_section(section_name):
+        parser.add_section(section_name)
+
+    for field_name, field_value in section_data.items():
+        parser.set(section_name, field_name, field_value)
+
+    with open(config_path, 'w') as fout:
         os.fchmod(fout.fileno(), 0600)
         parser.write(fout)
 
@@ -623,7 +617,7 @@ def set_advanced_mode(status, config_path=CONFIG_PATH):
     return write_config_field(config_path, 'blockstack-client', 'advanced_mode', str(status))
 
 
-def get_utxo_provider_client(config_path=CONFIG_PATH):
+def get_utxo_provider_client(config_path=CONFIG_PATH, min_confirmations=TX_MIN_CONFIRMATIONS):
     """
     Get or instantiate our blockchain UTXO provider's client.
     Return None if we were unable to connect
@@ -634,7 +628,7 @@ def get_utxo_provider_client(config_path=CONFIG_PATH):
     reader_opts = opts['blockchain-reader']
 
     try:
-        utxo_provider = connect_utxo_provider(reader_opts)
+        utxo_provider = connect_utxo_provider(reader_opts, min_confirmations=min_confirmations)
         return utxo_provider
     except Exception as e:
         log.exception(e)
@@ -678,60 +672,73 @@ def str_to_bool(s):
         raise ValueError('Indeterminate boolean "{}"'.format(s))
 
 
-def read_config_file(path=CONFIG_PATH):
+def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
     """
     Read or make a new empty config file with sane defaults.
+    Automatically convert legacy config field and values into their current equivalents.
+    If set_migrate is True, then include 'set_migrate: True/False' in the top-level dict returned
+    in order to indicate whether or not any config field migration took place.
+
     Return the config dict on success
     Raise on error
     """
     global CONFIG_PATH, BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT
 
+    BLOCKSTACK_CLI_SERVER_HOST = os.environ.get('BLOCKSTACK_CLI_SERVER_HOST', None)     # overrides config file
+    BLOCKSTACK_CLI_SERVER_PORT = os.environ.get('BLOCKSTACK_CLI_SERVER_PORT', None)     # overrides config file
+
+    if BLOCKSTACK_CLI_SERVER_PORT is not None:
+        try:
+            BLOCKSTACK_CLI_SERVER_PORT = int(BLOCKSTACK_CLI_SERVER_PORT)
+        except:
+            raise Exception("Invalid server port")
+
     # try to create
-    if path is not None:
-        dirname = os.path.dirname(path)
+    if config_path is not None:
+        dirname = os.path.dirname(config_path)
         if not os.path.exists(dirname):
             os.makedirs(dirname)
         if not os.path.isdir(dirname):
-            raise Exception('Not a directory: {}'.format(path))
+            raise Exception('Not a directory: {}'.format(config_path))
 
-    client_uuid = get_or_set_uuid(config_dir=os.path.dirname(path))
+    client_uuid = get_or_set_uuid(config_dir=os.path.dirname(config_path))
     if client_uuid is None:
         raise Exception("Failed to get client device ID")
 
-    config_dir = os.path.dirname(path)
-    if path is None or not os.path.exists(path):
+    config_dir = os.path.dirname(config_path)
+    if config_path is None or not os.path.exists(config_path):
 
+        # make a new config structure and save it
         parser = SafeConfigParser()
         parser.add_section('blockstack-client')
         parser.set('blockstack-client', 'server', str(BLOCKSTACKD_SERVER))
         parser.set('blockstack-client', 'port', str(BLOCKSTACKD_PORT))
         parser.set('blockstack-client', 'metadata', METADATA_DIRNAME)
         parser.set('blockstack-client', 'storage_drivers', BLOCKSTACK_DEFAULT_STORAGE_DRIVERS)
-        parser.set('blockstack-client', 'storage_drivers_local', 'disk')
         parser.set('blockstack-client', 'storage_drivers_required_write', BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE)
         parser.set('blockstack-client', 'advanced_mode', 'false')
         parser.set('blockstack-client', 'api_endpoint_port', str(DEFAULT_API_PORT))
+        parser.set('blockstack-client', 'api_endpoint_host', DEFAULT_API_HOST)
+        parser.set('blockstack-client', 'api_endpoint_bind', DEFAULT_API_HOST)
         parser.set('blockstack-client', 'queue_path', str(DEFAULT_QUEUE_PATH))
         parser.set('blockstack-client', 'poll_interval', str(DEFAULT_POLL_INTERVAL))
         parser.set('blockstack-client', 'blockchain_reader', DEFAULT_BLOCKCHAIN_READER)
         parser.set('blockstack-client', 'blockchain_writer', DEFAULT_BLOCKCHAIN_WRITER)
         parser.set('blockstack-client', 'anonymous_statistics', 'True')
         parser.set('blockstack-client', 'client_version', VERSION)
-        parser.set('blockstack-client', 'default_devices', '')
 
         api_pass = os.urandom(32)
         parser.set('blockstack-client', 'api_password', hexlify(api_pass))
 
-        if path is not None:
+        if config_path is not None:
             try:
-                with open(path, 'w') as f:
+                with open(config_path, 'w') as f:
                     parser.write(f)
                     f.flush()
-                    os.fsync(f.fileno())
 
             except:
                 traceback.print_exc()
-                log.error('Failed to write default configuration file to "{}".'.format(path))
+                log.error('Failed to write default configuration file to "{}".'.format(config_path))
                 return False
 
         parser.add_section('blockchain-reader')
@@ -748,22 +755,20 @@ def read_config_file(path=CONFIG_PATH):
                 parser.set('bitcoind', k, '{}'.format(v))
 
         # save
-        if path is not None:
-            with open(path, 'w') as f:
+        if config_path is not None:
+            with open(config_path, 'w') as f:
                 parser.write(f)
                 f.flush()
-                os.fsync(f.fileno())
 
     # now read it back
     parser = SafeConfigParser()
-    parser.read(path)
+    parser.read(config_path)
 
     # these are booleans--convert them
     bool_values = {
         'blockstack-client': [
             'advanced_mode',
             'anonymous_statistics',
-            'authenticate_api',
         ]
     }
 
@@ -778,6 +783,7 @@ def read_config_file(path=CONFIG_PATH):
                 # literal
                 ret[sec][opt] = parser.get(sec, opt)
 
+    # advanced mode is off by default
     if 'advanced_mode' not in ret.get('blockstack-client', {}):
         ret['blockstack-client']['advanced_mode'] = False
 
@@ -788,21 +794,114 @@ def read_config_file(path=CONFIG_PATH):
         },
     }
 
-    renamed_fields = [renamed_fields_014_1]
+    dropped_fields_014_1 = {
+        'blockstack-client': [
+            'blockchain_headers',
+        ],
+    }
 
-    for renamed_field_set in renamed_fields:
+    added_fields_014_1 = {
+        'bitcoind': {
+            'spv_path': os.path.expanduser('~/.virtualchain-spv-headers.dat'),  # from virtualchain
+        },
+    }
+
+    changed_fields_014_1 = {
+        'blockstack-client': {
+            'client_version': VERSION
+        }
+    }
+
+    # grow this list with future releases...
+    renamed_fields = [renamed_fields_014_1]
+    removed_fields = [dropped_fields_014_1]
+    added_fields = [added_fields_014_1]
+    changed_fields = [changed_fields_014_1]
+
+    migrated = False
+
+    assert len(renamed_fields) == len(removed_fields)
+    assert len(removed_fields) == len(added_fields)
+    assert len(added_fields) == len(changed_fields)
+
+    for i in xrange(0, len(renamed_fields)):
+        # order: rename, add, drop, change
+        renamed_field_set = renamed_fields[i]
+        dropped_field_set = removed_fields[i]
+        added_field_set = added_fields[i]
+        changed_field_set = changed_fields[i]
+
         for sec in renamed_field_set.keys():
             if ret.has_key(sec):
                 for old_field_name in renamed_field_set[sec].keys():
                     if ret[sec].has_key( old_field_name ):
                         new_field_name = renamed_field_set[sec][old_field_name]
-
                         value = ret[sec][old_field_name]
+
+                        log.debug("Migrate {}.{} to {}.{}".format(sec, old_field_name, sec, new_field_name))
+
                         del ret[sec][old_field_name]
                         ret[sec][new_field_name] = value
-    
-    ret['path'] = path
-    ret['dir'] = os.path.dirname(path)
+                        
+                        migrated = True
+
+        for sec in added_field_set.keys():
+            if not ret.has_key(sec):
+                ret[sec] = {}
+
+            for new_field_name in added_field_set[sec].keys():
+                if not ret[sec].has_key(new_field_name):
+
+                    log.debug("Add new field {}.{}".format(sec, new_field_name))
+                    ret[sec][new_field_name] = added_field_set[sec][new_field_name]
+
+                    migrated = True
+
+        for sec in dropped_field_set.keys():
+            if ret.has_key(sec):
+                for dropped_field_name in dropped_field_set[sec]:
+                    if ret[sec].has_key(dropped_field_name):
+                        
+                        log.debug("Remove old field {}.{}".format(sec, dropped_field_name))
+                        del ret[sec][dropped_field_name]
+                        
+                        migrated = True
+
+        for sec in changed_field_set.keys():
+            if not ret.has_key(sec):
+                ret[sec] = {}
+
+            for changed_field_name in changed_field_set[sec]:
+
+                if ret[sec][changed_field_name] != changed_field_set[sec][changed_field_name]:
+                    log.debug("Change {}.{} to {}".format(sec, changed_field_name, changed_field_set[sec][changed_field_name]))
+                    ret[sec][changed_field_name] = changed_field_set[sec][changed_field_name]
+
+                    migrated = True
+   
+    # overrides from the environment
+    env_overrides = {
+        'blockstack-client': {
+            'server': BLOCKSTACK_CLI_SERVER_HOST,
+            'port': BLOCKSTACK_CLI_SERVER_PORT,
+        },
+    }
+
+    for sec in env_overrides.keys():
+        if ret.has_key(sec):
+            for field_name in env_overrides[sec].keys():
+                new_value = env_overrides[sec][field_name]
+                if new_value is not None and new_value != ret[sec][field_name]:
+                    log.debug("Override {}.{} from {} to {}".format(sec, field_name, ret[sec][field_name], new_value))
+                    ret[sec][field_name] = new_value
+
+
+    # helpful at runtime
+    ret['path'] = config_path
+    ret['dir'] = os.path.dirname(config_path)
+
+    if set_migrate:
+        ret['migrated'] = migrated
 
     return ret
 
@@ -841,6 +940,54 @@ def get_config(path=CONFIG_PATH, interactive=False):
         blockstack_opts['anonymous_statistics'] = True
 
     return blockstack_opts
+
+
+def setup_config(config_path=CONFIG_PATH, interactive=False):
+    """
+    Set up our config file:
+    * create it if it doesn't exist
+    * migrate field names and values
+    * back up the old config file if we changed anything during migration.
+
+    Return {'status': True, 'config': ..., 'migrated': True/False, 'backup_path': ...} on success
+    Return {'error': ...} on failure
+    """
+ 
+    conf = configure(config_file=config_path, interactive=interactive, set_migrate=True)
+    if conf is None:
+        return {'error': 'Failed to load config'}
+
+    conf_migrated = conf['migrated']
+    del conf['migrated']
+
+    conf_backed_up = False
+    backup_path = None
+    conf_version = conf['blockstack-client'].get('client_version', '')
+    if conf_version != VERSION:
+        # back up the config file 
+        backup_path = backup_config_file(config_path=config_path)
+        if not backup_path:
+            return {'error': 'Failed to load backup path'}
+
+        else:
+            conf_backed_up = True
+
+    if conf_migrated:
+        log.warning("Migrating config file...") 
+        if not conf_backed_up:
+            # back up the config file 
+            backup_path = backup_config_file(config_path=config_path)
+            if not backup_path:
+                return {'error': 'Failed to load backup path'}
+
+        # save config file
+        try:
+            write_config_file(conf, config_path)
+        except Exception as e:
+            log.exception(e)
+            return {'error': 'Failed to save new config file'}
+
+    return {'status': True, 'config': conf, 'migrated': conf_migrated, 'backup_path': backup_path}
 
 
 def get_version_parts(whole, func):
@@ -903,7 +1050,7 @@ def backup_config_file(config_path=CONFIG_PATH):
         legacy_path = config_path + ".legacy.{}".format(int(time.time()))
 
     log.warning('Back up old config file from {} to {}'.format(config_path, legacy_path))
-    shutil.move(config_path, legacy_path)
+    shutil.copy(config_path, legacy_path)
     return legacy_path
 
 
@@ -919,7 +1066,10 @@ def configure_zonefile(name, zonefile, data_pubkey ):
     """
 
     from .zonefile import make_empty_zonefile
-    from .user import user_zonefile_data_pubkey, user_zonefile_urls, add_user_zonefile_url, remove_user_zonefile_url, swap_user_zonefile_urls
+    from .user import user_zonefile_data_pubkey, user_zonefile_set_data_pubkey, user_zonefile_remove_data_pubkey, \
+            user_zonefile_urls, add_user_zonefile_url, remove_user_zonefile_url, swap_user_zonefile_urls, \
+            add_user_zonefile_txt, remove_user_zonefile_txt, user_zonefile_txts
+
     from .storage import get_drivers_for_url
 
     if zonefile is None:
@@ -943,6 +1093,10 @@ def configure_zonefile(name, zonefile, data_pubkey ):
         urls = user_zonefile_urls(zonefile) 
         if urls is None:
             urls = []
+
+        txts = user_zonefile_txts(zonefile)
+        if txts is None:
+            txts = []
 
         url_drivers = {}
 
@@ -970,17 +1124,35 @@ def configure_zonefile(name, zonefile, data_pubkey ):
             print('(none)')
 
         print('')
+    
+        # don't count the public key...
+        print("TXT records ({}):".format(len(txts) - (1 if public_key else 0)))
+        if len(txts) > 0:
+            for i in xrange(0, len(txts)):
+                # skip public key
+                if txts[i]['name'] == 'pubkey':
+                    continue
+
+                print('{} "{}"'.format(txts[i]['name'], txts[i]['txt']))
+
+        else:
+            print("(none)")
+
+        print('')
         print('What would you like to do?')
         print('(a) Add profile URL')
         print('(b) Remove profile URL')
         print('(c) Swap URL order')
-        print('(d) Save zonefile')
-        print('(e) Do not save zonefile')
+        print('(d) Add TXT record')
+        print('(e) Remove TXT record')
+        print('(f) Set or change public key')
+        print('(g) Save zonefile')
+        print('(h) Do not save zonefile')
         print('')
 
         selection = raw_input('Selection: ').lower()
 
-        if selection == 'd':
+        if selection == 'h':
             do_update = False
             break
 
@@ -1081,13 +1253,91 @@ def configure_zonefile(name, zonefile, data_pubkey ):
                     zonefile = new_zonefile
                     break
 
-                print("Bad selection")
 
         elif selection == 'd':
+            # add txt record 
+            while True:
+                try:
+                    txtrec_name = raw_input("New TXT record name: ")
+                    txtrec_txt = raw_input("New TXT record data: ")
+                except KeyboardInterrupt:
+                    running = False
+                    print("Keyboard interrupt")
+                    return None
+
+                if txtrec_name == 'pubkey':
+                    print("Change the ECDSA key explicitly")
+                    break
+
+                new_zonefile = add_user_zonefile_txt(zonefile, txtrec_name, txtrec_txt)
+                if new_zonefile is None:
+                    print("Duplicate TXT record")
+                    break
+
+                else:
+                    zonefile = new_zonefile
+                    break
+
+
+        elif selection == 'e':
+            # remove txt record 
+            while True:
+                try:
+                    txtrec_name = raw_input('Name of TXT record to remove: ')
+                except KeyboardInterrupt:
+                    running = False
+                    print("Keyboard interrupt")
+                    return None
+
+                if txtrec_name == 'pubkey':
+                    print("Change the ECDSA key explicitly")
+                    break
+
+                new_zonefile = remove_user_zonefile_txt(zonefile, txtrec_name)
+                if new_zonefile is None:
+                    print("No such TXT record")
+                    break
+
+                else:
+                    zonefile = new_zonefile
+                    break
+
+        elif selection == 'f':
+            # change public key 
+            while True:
+                try:
+                    pubkey = raw_input("New ECDSA public key (empty for None): ")
+
+                    if len(pubkey) > 0:
+                        pubkey = keylib.ECPublicKey(pubkey).to_hex()
+
+                except KeyboardInterrupt:
+                    running = False
+                    print("Keyboard interrupt")
+                    return None
+
+                except:
+                    print("Invalid public key")
+                    continue
+
+                new_zonefile = None
+
+                if len(pubkey) == 0:
+                    # delete public key
+                    new_zonefile = user_zonefile_remove_data_pubkey(zonefile)
+
+                else:
+                    # set public key 
+                    new_zonefile = user_zonefile_set_data_pubkey(zonefile, pubkey)
+
+                zonefile = new_zonefile
+                break
+
+        elif selection == 'g':
             # save zonefile
             break
 
-        elif selection == 'e':
+        elif selection == 'h':
             # do not save zonefile 
             return None
 

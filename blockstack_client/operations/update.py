@@ -21,21 +21,15 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import pybitcoin
-from pybitcoin import embed_data_in_blockchain, make_op_return_tx, BlockchainInfoClient, \
-    hex_hash160, broadcast_transaction, serialize_transaction, \
-    make_op_return_outputs, make_op_return_script, make_pay_to_address_script
-
-from pybitcoin.transactions.outputs import calculate_change_amount
 from utilitybelt import is_hex
-from binascii import hexlify, unhexlify
 
-from ..b40 import b40_to_hex, bin_to_b40, is_b40
+from ..b40 import is_b40
 from ..config import *
 from ..scripts import *
+from ..logger import get_logger
 
 import virtualchain
-log = virtualchain.get_logger("blockstack-server")
+log = get_logger("blockstack-server")
 
 def update_sanity_test( name, consensus_hash, data_hash ):
     """
@@ -105,12 +99,12 @@ def make_outputs( data, inputs, change_address, tx_fee, pay_fee=True ):
    
     return [
         # main output
-        {"script_hex": make_op_return_script(str(data), format='hex'),
+        {"script": virtualchain.make_data_script(str(data)),
          "value": 0},
         
         # change output
-        {"script_hex": virtualchain.make_payment_script(change_address),
-         "value": calculate_change_amount(inputs, op_fee, dust_fee)}
+        {"script": virtualchain.make_payment_script(change_address),
+         "value": virtualchain.calculate_change_amount(inputs, op_fee, dust_fee)}
     ]
 
 
@@ -157,7 +151,7 @@ def get_fees( inputs, outputs ):
         return (None, None)
     
     # 0: op_return
-    if not tx_output_is_op_return( outputs[0] ):
+    if not virtualchain.tx_output_has_data( outputs[0] ):
         log.debug("Not an OP_RETURN output: %s" % outputs[0])
         return (None, None) 
     
@@ -166,9 +160,11 @@ def get_fees( inputs, outputs ):
         return (None, None)
     
     # 1: change address 
-    if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
+    if virtualchain.script_hex_to_address( outputs[1]["script"] ) is None:
         return (None, None)
     
+    # should match make_outputs()
+    # the +1 comes from one new output
     dust_fee = (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     op_fee = 0
     

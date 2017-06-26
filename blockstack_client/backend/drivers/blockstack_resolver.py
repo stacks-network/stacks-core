@@ -24,17 +24,14 @@
 # use Blockstack Labs as a read-only reader for zonefile/profile data
 
 import os
-import sys 
-import traceback
-import logging
 import json
 import requests
-import pybitcoin
 from ConfigParser import SafeConfigParser
 
-import blockstack_zones
+import virtualchain
+from virtualchain.lib.hashing import *
 
-from common import get_logger, DEBUG
+from common import get_logger
 
 log = get_logger("blockstack-storage-driver-blockstack-s3-readonly")
 
@@ -52,6 +49,8 @@ def get_zonefile( fqu, zonefile_hash ):
     Return the zonefile (serialized as a string) on success
     Return None on error
     """
+    import blockstack_client
+
     fqu_json = fqu.split(".")[0] + ".json"
     url = "%s/%s" % (RESOLVER_URL, fqu_json)
     req = requests.get(url)
@@ -71,8 +70,8 @@ def get_zonefile( fqu, zonefile_hash ):
         return None
     
     zone_file_str = str(res['zone_file'])
-    if pybitcoin.hex_hash160( zone_file_str ) != zonefile_hash:
-        log.debug("Hash mismatch: expected %s, got %s" % (zonefile_hash, pybitcoin.hex_hash160(zone_file_str)))
+    if hex_hash160( zone_file_str ) != zonefile_hash:
+        log.debug("Hash mismatch for {}: expected %s, got %s" % (fqu, zonefile_hash, hex_hash160(zone_file_str)))
         return None
 
     return zone_file_str
@@ -112,7 +111,7 @@ def get_profile( fqu ):
     return json.dumps([ret])
 
 
-def storage_init(conf):
+def storage_init(conf, **kw):
     # read config options from the config file, if given 
     global STORAGE_URL, RESOLVER_URL
 
@@ -192,3 +191,7 @@ def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
 
 def delete_mutable_handler( data_id, signature, **kw ):
     return True
+
+def get_classes():
+    return ['read_public']
+

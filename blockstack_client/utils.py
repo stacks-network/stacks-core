@@ -24,9 +24,14 @@
 import json
 import sys
 import os
-import signal
+import urllib2
+import hashlib
+import threading
+import traceback
 
-from config import get_logger
+from .constants import DEFAULT_BLOCKSTACKD_PORT
+from .logger import get_logger
+
 log = get_logger('blockstack-client')
 
 def exit_with_error(error_message, help_message=None):
@@ -155,3 +160,190 @@ def daemonize( logpath, child_wait=None ):
         return -1
 
     return 0
+
+
+def url_to_host_port(url, port=DEFAULT_BLOCKSTACKD_PORT):
+    """
+    Given a URL, turn it into (host, port).
+    Return (None, None) on invalid URL
+    """
+    if not url.startswith('http://') or not url.startswith('https://'):
+        url = 'http://' + url
+
+    urlinfo = urllib2.urlparse.urlparse(url)
+    hostport = urlinfo.netloc
+
+    parts = hostport.split('@')
+    if len(parts) > 2:
+        return None, None
+
+    if len(parts) == 2:
+        hostport = parts[1]
+
+    parts = hostport.split(':')
+    if len(parts) > 2:
+        return None, None
+
+    if len(parts) == 2:
+        try:
+            port = int(parts[1])
+            assert 0 < port < 65535, 'Invalid port'
+        except TypeError:
+            return None, None
+
+    return parts[0], port
+
+
+def atlas_inventory_to_string( inv ):
+    """
+    Inventory to string (bitwise big-endian)
+    """
+    ret = ""
+    for i in xrange(0, len(inv)):
+        for j in xrange(0, 8):
+            bit_index = 1 << (7 - j)
+            val = (ord(inv[i]) & bit_index)
+            if val != 0:
+                ret += "1"
+            else:
+                ret += "0"
+
+    return ret
+
+
+def streq_constant(s1, s2):
+    """
+    constant-time string comparison.
+    Return True if equal
+    Return False if not equal
+    """
+    res = 0
+    s1h = hashlib.sha256(s1).digest()
+    s2h = hashlib.sha256(s2).digest()
+    for s1c, s2c in zip(s1h, s2h):
+        # will xor to 0 for each char if equal
+        res |= ord(s1c) ^ ord(s2c)
+
+    return res == 0
+
+
+class ScatterGatherThread(threading.Thread):
+    """
+    Scatter/gatter thread worker
+    Useful for doing long-running queries in parallel
+    """
+    def __init__(self, rpc_call):
+        threading.Thread.__init__(self)
+        self.rpc_call = rpc_call
+        self.result = None
+        self.has_result = False
+        self.result_mux = threading.Lock()
+        self.result_mux.acquire()
+
+
+    def get_result(self):
+        """
+        Wait for data and get it
+        """
+        self.result_mux.acquire()
+        res = self.result
+        self.result_mux.release()
+        return res
+
+
+    def post_result(self, res):
+        """
+        Give back result and release
+        """
+        if self.has_result:
+            return 
+
+        self.has_result = True
+        self.result = res
+        self.result_mux.release()
+        return
+
+
+    @classmethod
+    def do_work(cls, rpc_call):
+        """
+        Run the given RPC call and post the result
+        """
+        try:
+            log.debug("Run task {}".format(rpc_call))
+            res = rpc_call()
+            log.debug("Task exit {}".format(rpc_call))
+            return res
+
+        except Exception as e:
+            log.exception(e)
+            log.debug("Task exit {}".format(rpc_call))
+            return {'error': 'Task encountered a fatal exception:\n{}'.format(traceback.format_exc())}
+
+
+    def run(self):
+        res = ScatterGatherThread.do_work(self.rpc_call)
+        self.post_result(res)
+
+
+class ScatterGather(object):
+    """
+    Scatter/gather work pool
+    Give it a few tasks, and it will run them
+    in parallel
+    """
+    def __init__(self):
+        self.tasks = {}
+        self.ran = False
+        self.results = {}
+
+    def add_task(self, result_name, rpc_call):
+        assert result_name not in self.tasks.keys(), "Duplicate task: {}".format(result_name)
+        self.tasks[result_name] = rpc_call
+
+
+    def get_result(self, result_name):
+        assert self.ran
+        assert result_name in self.results, "Missing task: {}".format(result_name)
+        return self.results[result_name]
+
+
+    def get_results(self):
+        """
+        Get the set of results
+        """
+        assert self.ran
+        return self.results
+
+
+    def run_tasks(self, single_thread=False):
+        """
+        Run all queued tasks, wait for them all to finish,
+        and return the set of results
+        """
+        if not single_thread:
+            threads = {}
+            for task_name, task_call in self.tasks.items():
+                log.debug("Start task '{}'".format(task_name))
+                thr = ScatterGatherThread(task_call)
+                thr.start()
+
+                threads[task_name] = thr
+
+            for task_name, thr in threads.items():
+                log.debug("Join task '{}'".format(task_name))
+                thr.join()
+                res = thr.get_result()
+                self.results[task_name] = res
+               
+        else:
+            # for testing purposes
+            for task_name, task_call in self.tasks.items():
+                log.debug("Start task (single-threaded) '{}'".format(task_name))
+                res = ScatterGatherThread.do_work(task_call)
+                log.debug("Join task (single-threaded) '{}'".format(task_name))
+                self.results[task_name] = res
+
+        self.ran = True
+        return self.results
+

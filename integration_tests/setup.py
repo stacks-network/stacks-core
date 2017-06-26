@@ -20,15 +20,16 @@ setup(
     scripts=[
         'bin/blockstack-test-scenario',
         'bin/blockstack-test-check-serialization',
-        'bin/blockstack-test-all'
+        'bin/blockstack-test-all',
+        'bin/blockstack-netlog-server',
     ],
     download_url='https://github.com/blockstack/blockstack-integration-tests/archive/master.zip',
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'blockstack>=0.14.1',
-        'blockstack-file>=0.14.1',
-        'blockstack-gpg>=0.14.1',
+        'blockstack>=0.14.2',
+        'pybitcoin>=0.9.8',
+        'xmlrunner>=1.7.7'
     ],
     classifiers=[
         'Intended Audience :: Developers',

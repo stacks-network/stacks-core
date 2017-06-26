@@ -21,21 +21,14 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import pybitcoin
-from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, hex_hash160
+from binascii import hexlify
 
-from pybitcoin.transactions.outputs import calculate_change_amount
-from utilitybelt import is_hex
-from binascii import hexlify, unhexlify
-
-from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
+from ..logger import get_logger
 
 import virtualchain
-log = virtualchain.get_logger("blockstack-server")
+log = get_logger("blockstack-server")
 
 
 def build(name):
@@ -108,30 +101,30 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
   
     outputs = [
         # main output
-        {"script_hex": make_op_return_script(str(data), format='hex'),
+        {"script": virtualchain.make_data_script(str(data)),
          "value": 0},
     
         # register address
-        {"script_hex": virtualchain.make_payment_script(register_addr),
+        {"script": virtualchain.make_payment_script(register_addr),
          "value": dust_value},
         
         # change address (can be the subsidy address)
-        {"script_hex": virtualchain.make_payment_script(change_addr),
-         "value": calculate_change_amount(change_inputs, bill, dust_fee)},
+        {"script": virtualchain.make_payment_script(change_addr),
+         "value": virtualchain.calculate_change_amount(change_inputs, bill, dust_fee)},
     ]
     
     if renewal_fee is not None:
         outputs.append(
             
             # burn address (when renewing)
-            {"script_hex": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
+            {"script": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
              "value": op_fee}
         )
 
     return outputs
     
 
-def make_transaction(name, preorder_addr, register_addr, blockchain_client, tx_fee=0, renewal_fee=None, subsidized=False, safety=True):
+def make_transaction(name, preorder_addr, register_addr, blockchain_client, tx_fee=0, renewal_fee=None, subsidize=False, safety=True):
     
     preorder_addr = str(preorder_addr)
     register_addr = str(register_addr)
@@ -155,7 +148,7 @@ def make_transaction(name, preorder_addr, register_addr, blockchain_client, tx_f
         assert preorder_addr == register_addr, "%s != %s" % (preorder_addr, register_addr)
         pay_fee = False
 
-    if subsidized:
+    if subsidize:
         pay_fee = False
 
     nulldata = build(name)
@@ -184,36 +177,40 @@ def get_fees( inputs, outputs ):
         return (None, None)
     
     # 0: op_return
-    if not tx_output_is_op_return( outputs[0] ):
+    if not virtualchain.tx_output_has_data( outputs[0] ):
         log.debug("output[0] is not an OP_RETURN")
         return (None, None) 
    
     # 1: reveal address 
-    if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
-        log.debug("output[1] is not a p2pkh or p2sh script")
+    if virtualchain.script_hex_to_address( outputs[1]["script"] ) is None:
+        log.debug("output[1] is not a standard script")
         return (None, None)
     
     # 2: change address 
-    if virtualchain.script_hex_to_address( outputs[2]["script_hex"] ) is None:
-        log.debug("output[2] is not a p2pkh or p2sh script")
+    if virtualchain.script_hex_to_address( outputs[2]["script"] ) is None:
+        log.debug("output[2] is not a a standard script")
         return (None, None)
     
     # 3: burn address, if given 
     if len(outputs) == 4:
         
-        addr_hash = virtualchain.script_hex_to_address( outputs[3]["script_hex"] )
+        addr_hash = virtualchain.script_hex_to_address( outputs[3]["script"] )
         if addr_hash is None:
-            log.debug("output[3] is not a valid script")
+            log.debug("output[3] is not a standard script")
             return (None, None) 
         
         if addr_hash != BLOCKSTACK_BURN_ADDRESS:
             log.debug("output[3] is not the burn address %s (got %s)" % (BLOCKSTACK_BURN_ADDRESS, addr_hash))
             return (None, None)
     
+        # should match make_outputs().
+        # the +3 comes from 1 owner UTXO + 2 new outputs
         dust_fee = (len(inputs) + 3) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
         op_fee = outputs[3]["value"]
         
     else:
+        # should match make_outputs().
+        # the +2 comes from 1 owner UTXO + 1 new output
         dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     
     return (dust_fee, op_fee)

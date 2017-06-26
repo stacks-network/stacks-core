@@ -21,19 +21,15 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import pybitcoin
-from pybitcoin import embed_data_in_blockchain, hex_hash160, \
-        make_op_return_tx, serialize_transaction, broadcast_transaction, make_op_return_script
+from binascii import hexlify
 
-from utilitybelt import is_hex
-from binascii import hexlify, unhexlify
-
-from ..b40 import b40_to_hex, bin_to_b40, is_b40
+from ..b40 import is_b40
 from ..config import *
 from ..scripts import *
+from ..logger import get_logger
 
 import virtualchain
-log = virtualchain.get_logger("blockstack-client")
+log = get_logger("blockstack-client")
 
 
 def build( namespace_id):
@@ -63,17 +59,17 @@ def build( namespace_id):
    return packaged_script
 
 
-def make_outputs( nulldata, inputs, change_addr, fee=0, format='bin' ):
+def make_outputs( nulldata, inputs, change_addr, tx_fee=0 ):
    """
    Make namespace-ready outputs
    """
    return [
-        { "script_hex": make_op_return_script(nulldata, format=format),
+        { "script": virtualchain.make_data_script(str(nulldata)),
           "value": 0
         },
         # change output
-        { "script_hex": virtualchain.make_payment_script(change_addr),
-          "value": calculate_change_amount(inputs, 0, fee)
+        { "script": virtualchain.make_payment_script(change_addr),
+          "value": virtualchain.calculate_change_amount(inputs, 0, tx_fee + DEFAULT_OP_RETURN_FEE)
         }
     ]
 
@@ -97,17 +93,17 @@ def make_transaction( namespace_id, reveal_addr, blockchain_client, tx_fee=0, sa
        assert len(inputs) > 0
 
    # OP_RETURN outputs 
-   outputs = make_outputs( nulldata, inputs, reveal_addr, fee=(DEFAULT_OP_RETURN_FEE + tx_fee), format='hex' )
+   outputs = make_outputs( nulldata, inputs, reveal_addr, tx_fee=tx_fee )
   
    return (inputs, outputs)
 
 
 def get_fees( inputs, outputs ):
     """
-    Blockstack currently does not allow 
-    the subsidization of namespaces.
+    Calculate (dust fee, op fee) for namespace ready.
+    there is no op fee for namespace ready
     """
-    return (None, None)
+    return (DEFAULT_OP_RETURN_FEE + (len(inputs) + 1) * DEFAULT_DUST_FEE, 0) 
 
 
 def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):

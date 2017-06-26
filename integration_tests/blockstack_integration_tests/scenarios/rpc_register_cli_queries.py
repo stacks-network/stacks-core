@@ -73,7 +73,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
     
-    wallet = testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, None )
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
 
     balance_before = testlib.blockstack_cli_balance()
     deposit_info = testlib.blockstack_cli_deposit()
@@ -145,8 +145,8 @@ def scenario( wallets, **kw ):
     balance_after = testlib.blockstack_cli_balance()
     blockchain_history = testlib.blockstack_cli_get_name_blockchain_history( "foo.test" )
     zonefile_info = testlib.blockstack_cli_get_name_zonefile( "foo.test", json=False )
-    all_names_info = testlib.blockstack_cli_get_all_names()
-    namespace_names_info = testlib.blockstack_cli_get_names_in_namespace("test")
+    all_names_info = testlib.blockstack_cli_get_all_names(0)
+    namespace_names_info = testlib.blockstack_cli_get_names_in_namespace("test", 0)
     lookup_info = testlib.blockstack_cli_lookup( "foo.test" )
     update_history = testlib.blockstack_cli_list_update_history( "foo.test" )
     zonefile_history = testlib.blockstack_cli_list_zonefile_history( "foo.test" )

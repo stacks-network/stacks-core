@@ -21,24 +21,25 @@
     along with Blockstack-client.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import socket
-import base64
-import json
-import storage
 import config
-import posixpath
-import jsontokens
 import jsonschema
 from jsonschema.exceptions import ValidationError
 import re
 import keylib
+import copy
+import urlparse
+
+import virtualchain
+from virtualchain.lib.ecdsalib import *
 
 from .schemas import *
 from .constants import BLOCKSTACK_TEST, CONFIG_PATH, BLOCKSTACK_DEBUG
-from .keys import HDWallet, get_pubkey_hex
+
 import scripts
 
-log = config.get_logger()
+from .logger import get_logger
+
+log = get_logger()
 
 def is_user_zonefile(d):
     """
@@ -53,27 +54,6 @@ def is_user_zonefile(d):
         if BLOCKSTACK_TEST:
             log.exception(ve)
 
-        return False
-
-
-def has_mutable_data_section(d):
-    """
-    Does the given dictionary have a mutable data section?
-    """
-    try:
-        assert isinstance(d, dict)
-        if 'data' not in d.keys():
-            return False
-
-        jsonschema.validate(d, PROFILE_MUTABLE_DATA_SCHEMA)
-        return True
-    except ValidationError as ve:
-        if BLOCKSTACK_TEST:
-            log.exception(ve)
-    
-        return False
-    
-    except AssertionError:
         return False
 
 
@@ -128,6 +108,9 @@ def user_zonefile_set_data_pubkey(user_zonefile, pubkey_hex, key_prefix='pubkey:
 
     user_zonefile.setdefault('txt', [])
 
+    # compressed...
+    pubkey_hex = keylib.key_formatting.compress(pubkey_hex)
+
     txt = '{}{}'.format(key_prefix, str(pubkey_hex))
 
     for txtrec in user_zonefile['txt']:
@@ -175,6 +158,29 @@ def user_zonefile_urls(user_zonefile):
         if 'target' in urirec:
             ret.append(urirec['target'].strip('"'))
 
+    # if there's no scheme, then assume https://
+    fixed_urls = []
+    for url in ret:
+        parts = urlparse.urlparse(url)
+        if len(parts.scheme) == 0:
+            url = 'https://' + url
+
+        fixed_urls.append(url)
+
+    return fixed_urls
+
+
+def user_zonefile_txts(user_zonefile):
+    """
+    Given a user's zonefile, get the txt records.
+    Return [{'name': name, 'txt': txt}]
+    """
+    assert is_user_zonefile(user_zonefile)
+
+    if 'txt' not in user_zonefile:
+        return None
+
+    ret = copy.deepcopy(user_zonefile.get('txt', []))
     return ret
 
 
@@ -187,6 +193,9 @@ def add_user_zonefile_url(user_zonefile, url):
     from .zonefile import url_to_uri_record
 
     assert is_user_zonefile(user_zonefile)
+
+    # be strict--require a scheme!
+    assert re.match(OP_URI_TARGET_PATTERN, url)
 
     user_zonefile.setdefault('uri', [])
 
@@ -222,6 +231,52 @@ def remove_user_zonefile_url(user_zonefile, url):
     return user_zonefile
 
 
+def add_user_zonefile_txt(user_zonefile, txt_name, txt_data):
+    """
+    Add a TXT record to a zone file
+    Return the new zone file on success
+    Return None on duplicate or error
+    """
+
+    assert is_user_zonefile(user_zonefile)
+    user_zonefile.setdefault('txt', [])
+
+    # avoid duplicates
+    for txtrec in user_zonefile['txt']:
+        name = txtrec['name']
+        if txt_name == name:
+            return None
+
+    new_txtrec = {
+        'name': txt_name,
+        'txt': txt_data
+    }
+
+    user_zonefile['txt'].append(new_txtrec)
+    assert is_user_zonefile(user_zonefile)
+    return user_zonefile
+
+
+def remove_user_zonefile_txt(user_zonefile, txt_name):
+    """
+    Remove a TXT record from a zone file.
+    Return the new zone file on success.
+    Return None on not found
+    """
+
+    assert is_user_zonefile(user_zonefile)
+    
+    if 'txt' not in user_zonefile:
+        return None
+
+    for txtrec in user_zonefile['txt']:
+        name = txtrec['name']
+        if name == txt_name:
+            user_zonefile['txt'].remove(txtrec)
+
+    return user_zonefile
+
+
 def swap_user_zonefile_urls(user_zonefile, url_1, url_2):
     """
     Swap the locations of the URLs in a zonefile
@@ -247,13 +302,14 @@ def swap_user_zonefile_urls(user_zonefile, url_1, url_2):
     return user_zonefile
 
 
-def make_empty_user_profile():
+def make_empty_user_profile( config_path=CONFIG_PATH ):
     """
     Given a user's name, create an empty profile.
     """
+    
     ret = {
         '@type': 'Person',
-        'accounts': [],
+        'accounts': []
     }
 
     return ret

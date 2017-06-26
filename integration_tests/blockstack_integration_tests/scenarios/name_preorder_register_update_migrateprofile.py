@@ -125,10 +125,10 @@ def scenario( wallets, **kw ):
     result_2 = testlib.blockstack_name_update( "bar.test", legacy_hash, wallets[6].privkey )
     testlib.next_block( **kw )
 
-    rc = blockstack_client.storage.put_immutable_data( None, result_1['transaction_hash'], data_hash=legacy_hash, data_text=legacy_txt )
+    rc = blockstack_client.storage.put_immutable_data( legacy_txt, result_1['transaction_hash'], data_hash=legacy_hash )
     assert rc is not None
 
-    rc = blockstack_client.storage.put_immutable_data( None, result_2['transaction_hash'], data_hash=legacy_hash, data_text=legacy_txt )
+    rc = blockstack_client.storage.put_immutable_data( legacy_txt, result_2['transaction_hash'], data_hash=legacy_hash )
     assert rc is not None
 
     testlib.next_block( **kw )
@@ -159,6 +159,11 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] )
+ 
+    res = testlib.start_api("0123456789abcdef")
+    if 'error' in res:
+        print 'failed to start API: {}'.format(res)
+        return False
 
     # see that put_immutable works
     put_result = testlib.blockstack_cli_put_immutable( 'foo.test', 'hello_world_immutable', json.dumps({'hello': 'world_immutable'}, sort_keys=True), password='0123456789abcdef')
@@ -178,6 +183,11 @@ def scenario( wallets, **kw ):
     time.sleep(10)
 
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], wallet_keys_2['data_privkey'] )
+ 
+    res = testlib.start_api("0123456789abcdef")
+    if 'error' in res:
+        print 'failed to start API: {}'.format(res)
+        return False
 
     # see that put_mutable works
     put_result = testlib.blockstack_cli_put_mutable( "bar.test", "hello_world_mutable", json.dumps({'hello': 'world'}, sort_keys=True), password='0123456789abcdef')

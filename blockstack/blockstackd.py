@@ -21,31 +21,23 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import argparse
-import logging
 import os
 import sys
-import subprocess
 import signal
 import json
-import datetime
 import traceback
-import httplib
 import time
 import socket
 import math
 import random
 import shutil
-import tempfile
 import binascii
-import copy
 import atexit
 import threading
 import errno
 import blockstack_zones
 import keylib
 import base64
-import urllib2
 import gc
 import jsonschema
 from jsonschema import ValidationError
@@ -57,13 +49,11 @@ from defusedxml import xmlrpc
 xmlrpc.monkey_patch()
 
 import virtualchain
+from virtualchain.lib.hashing import *
+
 log = virtualchain.get_logger("blockstack-core")
 
 import blockstack_client
-
-from ConfigParser import SafeConfigParser
-
-import pybitcoin
 
 from lib import nameset as blockstack_state_engine
 from lib import get_db_state
@@ -77,14 +67,15 @@ import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
 from lib.consensus import *
 
-from blockstack_client.constants import BLOCKSTACK_TEST
-
 # global variables, for use with the RPC server
 bitcoind = None
 rpc_server = None
 storage_pusher = None
 gc_thread = None
 has_indexer = True
+
+from blockstack_client.utils import url_to_host_port, atlas_inventory_to_string
+from blockstack_client import queue_findone, queue_findall, queue_removeall, queue_append
 
 GC_EVENT_THRESHOLD = 15
 
@@ -434,7 +425,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 name_record['expire_block'] = max( namespace_record['ready_block'], name_record['last_renewed'] ) + namespace_record['lifetime'] * namespace_lifetime_multiplier
 
             else:
-                name_record['expire_block'] = '-1'
+                name_record['expire_block'] = -1
 
             db.close()
             self.analytics("get_name_blockchain_record", {})
@@ -983,7 +974,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return self.success_response( {'block_id': block_id} )
 
 
-    def get_zonefile_data( self, config, zonefile_hash, zonefile_storage_drivers, name=None ):
+    def get_zonefile_data( self, config, zonefile_hash, name=None ):
         """
         Get a zonefile by hash
         Return the serialized zonefile on success
@@ -1006,7 +997,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return None
        
 
-    def get_zonefile_data_by_name( self, conf, name, zonefile_storage_drivers, name_rec=None ):
+    def get_zonefile_data_by_name( self, conf, name, name_rec=None ):
         """
         Get a zonefile by name
         Return the serialized zonefile on success
@@ -1029,7 +1020,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return None
 
         # find zonefile 
-        zonefile_data = self.get_zonefile_data( conf, zonefile_hash, zonefile_storage_drivers, name=name )
+        zonefile_data = self.get_zonefile_data( conf, zonefile_hash, name=name )
         if zonefile_data is None:
             return None
 
@@ -1058,8 +1049,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             log.error("Too many requests (%s)" % len(zonefile_hashes))
             return {'error': 'Too many requests'}
 
-        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
-
         ret = {}
         for zonefile_hash in zonefile_hashes:
             if type(zonefile_hash) not in [str, unicode]:
@@ -1067,7 +1056,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 return {'error': 'Not a zonefile hash'}
 
         for zonefile_hash in zonefile_hashes:
-            zonefile_data = self.get_zonefile_data( conf, zonefile_hash, zonefile_storage_drivers )
+            zonefile_data = self.get_zonefile_data( conf, zonefile_hash )
             if zonefile_data is None:
                 continue
 
@@ -1099,8 +1088,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if len(names) > 100:
             return {'error': 'Too many requests'}
         
-        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
-
         ret = {}
         for name in names:
             if type(name) not in [str, unicode]:
@@ -1110,7 +1097,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 return {'error': 'Invalid name'}
 
         for name in names:
-            zonefile_data = self.get_zonefile_data_by_name( conf, name, zonefile_storage_drivers )
+            zonefile_data = self.get_zonefile_data_by_name( conf, name )
             if zonefile_data is None:
                 continue
 
@@ -1147,7 +1134,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         zonefile_dir = conf.get("zonefiles", None)
         saved = []
         db = get_db_state()
-        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
 
         for zonefile_data in zonefile_datas:
           
@@ -1207,6 +1193,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         db.close()
 
         log.debug("Saved %s zonefile(s)\n", sum(saved))
+        log.debug("Reply: {}".format({'saved': saved}))
         self.analytics("put_zonefiles", {'count': len(zonefile_datas)})
         return self.success_response( {'saved': saved} )
 
@@ -1261,7 +1248,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return name_rec
 
         # find zonefile 
-        zonefile_data = self.get_zonefile_data_by_name( conf, name, zonefile_storage_drivers, name_rec=name_rec )
+        zonefile_data = self.get_zonefile_data_by_name( conf, name, name_rec=name_rec )
         if zonefile_data is None:
             return {'error': 'No zonefile'}
 
@@ -1276,11 +1263,18 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             # NOTE: since we did not generate this zonefile (i.e. it's untrusted input, and we may be using different storage drivers),
             # don't trust its URLs.  Auto-generate them using our designated drivers instead.
             # Also, do not attempt to decode the profile.  The client will do this instead (avoid any decode-related attack vectors)
-            profile, zonefile = blockstack_client.get_profile(name, profile_storage_drivers=profile_storage_drivers, zonefile_storage_drivers=zonefile_storage_drivers,
-                                                             user_zonefile=zonefile_dict, name_record=name_rec, use_zonefile_urls=False, decode_profile=False)
+            res = blockstack_client.get_profile(name, profile_storage_drivers=profile_storage_drivers,
+                                                zonefile_storage_drivers=zonefile_storage_drivers,
+                                                user_zonefile=zonefile_dict, name_record=name_rec,
+                                                use_zonefile_urls=False, decode_profile=False)
+            if 'error' in res:
+               log.error("Failed to load profile '{}'".format(name))
+               return res
+            profile = res['profile']
+            zonefile = res['zonefile']
         except Exception, e:
             log.exception(e)
-            log.debug("Failed to load profile for '%s'" % name)
+            log.error("Failed to load profile for '{}'".fomrat(name))
             return {'error': 'Failed to load profile'}
 
         if 'error' in zonefile:
@@ -1349,7 +1343,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             # no profile yet (or error)
             old_profile_txt = ""
 
-        old_profile_hash = pybitcoin.hex_hash160(old_profile_txt)
+        old_profile_hash = hex_hash160(old_profile_txt)
         if old_profile_hash != prev_profile_hash:
             log.debug("Invalid previous profile hash")
             return {'error': 'Invalid previous profile hash'}
@@ -1401,7 +1395,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'error': 'No such name'}
 
         # find zonefile 
-        zonefile_data = self.get_zonefile_data_by_name( conf, name, zonefile_storage_drivers, name_rec=name_rec )
+        zonefile_data = self.get_zonefile_data_by_name( conf, name, name_rec=name_rec )
         if zonefile_data is None:
             log.debug("No zonefile for '%s'" % name)
             return {'error': 'No zonefile'}
@@ -1420,7 +1414,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if user_data_pubkey is not None:
             try:
                 user_data = blockstack_client.parse_signed_data( data_txt, user_data_pubkey )
-                assert type(user_data) in [dict], "Failed to parse data"
+                if os.environ.get("BLOCKSTACK_TEST") == "1":
+                    log.debug("Loaded {}".format(user_data))
+
             except Exception, e:
                 log.exception(e)
                 log.debug("Failed to authenticate data")
@@ -1435,27 +1431,47 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
             try:
                 user_data = blockstack_client.parse_signed_data( data_txt, None, public_key_hash=owner_addr )
-                assert type(user_data) in [dict], "Failed to parse data"
-
-                # seems to have worked
-                data_jwt = json.loads(data_txt)
-                if type(data_jwt) == list:
-                    data_jwt = data_jwt[0]
-
-                user_data_pubkey = data_jwt['parentPublicKey']
-
             except Exception, e:
                 log.exception(e)
                 log.debug("Failed to authenticate data")
                 return {'error': 'Failed to authenticate data'}
 
+        # profiles and v1 data will be parsed out to a mutable data dict.
+        # v2 data will be parsed out to a serialized mutable data blob
+        if isinstance(user_data, (str, unicode)):
+            try:
+                user_data = json.loads(user_data)
+            except:
+                log.debug("Failed to parse mutable data blob")
+                return {'error': 'Failed to parse mutable data blob'}
+
+        # must be a dict with a 'timestamp' field (either a profile or a mutable data blob)
+        user_data_schema = {
+            'type': 'object',
+            'properties': {
+                'timestamp': {
+                    'type': 'number',
+                    'minimum': 0,
+                },
+            },
+        }
+
+        try:
+            jsonschema.validate(user_data, user_data_schema)
+        except Exception as e:
+            log.debug("Failed to validate user data")
+            if os.environ.get("BLOCKSTACK_TEST") == "1":
+                log.exception(e)
+
+            return {'error': 'Invalid mutable data blob'}
+
         # authentic!  try to verify via timestamp
         res = self.verify_data_timestamp( user_data )
         if 'error' in res:
             log.debug("Failed to verify with timestamp.")
-            return {'error': 'Invalid timestamp', 'reason': 'timestamp', 'data_pubkey': user_data_pubkey, 'zonefile': zonefile_dict}
+            return {'error': 'Invalid timestamp', 'reason': 'timestamp', 'zonefile': zonefile_dict}
 
-        return {'status': True, 'data': user_data, 'data_pubkey': user_data_pubkey}
+        return {'status': True, 'data': user_data}
 
 
     def rpc_put_profile(self, name, profile_txt, prev_profile_hash_or_ignored, sigb64_or_ignored, **con_info ):
@@ -1706,8 +1722,11 @@ class BlockstackStoragePusher( threading.Thread ):
 
         self.zonefile_dir = conf.get('zonefile_dir', None)
         self.zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
+        self.zonefile_storage_drivers_write = conf['zonefile_storage_drivers_write'].split(",")
         self.profile_storage_drivers = conf['profile_storage_drivers'].split(",")
+        self.profile_storage_drivers_write = conf['profile_storage_drivers_write'].split(",")
         self.data_storage_drivers = conf['data_storage_drivers'].split(',')
+        self.data_storage_drivers_write = conf['data_storage_drivers_write'].split(',')
         self.atlasdb_path = conf.get('atlasdb_path', None)
 
         self.zonefile_queue_id = "push-zonefile"
@@ -1719,13 +1738,25 @@ class BlockstackStoragePusher( threading.Thread ):
             log.warn("Removing 'blockstack_server' from zone file storage drivers")
             self.zonefile_storage_drivers.remove('blockstack_server')
 
+        if 'blockstack_server' in self.zonefile_storage_drivers_write:
+            log.warn("Removing 'blockstack_server' from zone file storage write drivers")
+            self.zonefile_storage_drivers_write.remove('blockstack_server')
+
         if 'blockstack_server' in self.profile_storage_drivers:
             log.warn("Removing 'blockstack_server' from profile storage drivers")
             self.profile_storage_drivers.remove('blockstack_server')
 
+        if 'blockstack_server' in self.profile_storage_drivers_write:
+            log.warn("Removing 'blockstack_server' from profile storage write drivers")
+            self.profile_storage_drivers_write.remove('blockstack_server')
+
         if 'blockstack_server' in self.data_storage_drivers:
             log.warn("Removing 'blockstack_server' from data storage drivers")
             self.data_storage_drivers.remove('blockstack_server')
+
+        if 'blockstack_server' in self.data_storage_drivers_write:
+            log.warn("Removing 'blockstack_server' from data storage write drivers")
+            self.data_storage_drivers_write.remove('blockstack_server')
 
 
     def enqueue_zonefile( self, txid, zonefile_hash, zonefile_data ):
@@ -1826,7 +1857,7 @@ class BlockstackStoragePusher( threading.Thread ):
             return False
 
         entry = entries[0]
-        res = store_zonefile_data_to_storage( str(entry['zonefile']), entry['tx_hash'], required=self.zonefile_storage_drivers, skip=['blockstack_server'], cache=False, zonefile_dir=self.zonefile_dir, tx_required=False )
+        res = store_zonefile_data_to_storage( str(entry['zonefile']), entry['tx_hash'], required=self.zonefile_storage_drivers_write, skip=['blockstack_server'], cache=False, zonefile_dir=self.zonefile_dir, tx_required=False )
         if not res:
             log.error("Failed to store zonefile {} ({} bytes)".format(entry['zonefile_hash'], len(entry['zonefile'])))
             return False
@@ -1868,8 +1899,10 @@ class BlockstackStoragePusher( threading.Thread ):
             fq_data_id = str(payload['fq_data_id'])
             data_txt = str(payload['data_txt'])
 
-            log.debug("mutable datum: {}".format(entry['profile']))
-            log.debug("mutable datum txt: {}".format(data_txt))
+            if os.environ.get("BLOCKSTACK_TEST") == "1":
+                log.debug("mutable datum: {}".format(entry['profile']))
+                log.debug("mutable datum txt: {}".format(data_txt))
+
         except AssertionError:
             
             # profile 
@@ -1886,7 +1919,7 @@ class BlockstackStoragePusher( threading.Thread ):
         
         success = store_mutable_data_to_storage( blockchain_id, fq_data_id, data_txt, profile=profile, required=storage_drivers, skip=['blockstack_server'])
         if not success:
-            log.error("Failed to store data for {} ({} bytes)".format(blockchain_id, len(data_txt)))
+            log.error("Failed to store data for {} ({} bytes) (rc = {})".format(blockchain_id, len(data_txt), success))
             queue_removeall( entries, path=self.queue_path )
             return False
 
@@ -1924,6 +1957,7 @@ class BlockstackStoragePusher( threading.Thread ):
 
             if not res_zonefile and not res_profile and not res_data:
                 time.sleep(1.0)
+                gc_thread.gc_event()                
                 continue
 
             else:
@@ -1971,6 +2005,9 @@ def rpc_stop():
         rpc_server.stop_server()
         rpc_server.join()
         log.debug("RPC joined")
+
+    else:
+        log.debug("RPC already joined")
 
 
 def get_storage_queue_path():
@@ -2070,12 +2107,14 @@ def atlas_start( blockstack_opts, db, port ):
         atlas_blacklist = filter( lambda x: len(x) > 0, blockstack_opts['atlas_blacklist'].split(","))
         zonefile_dir = blockstack_opts.get('zonefiles', None)
         zonefile_storage_drivers = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers'].split(","))
+        zonefile_storage_drivers_write = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers_write'].split(","))
         my_hostname = blockstack_opts['atlas_hostname']
 
         initial_peer_table = atlasdb_init( blockstack_opts['atlasdb_path'], db, atlas_seed_peers, atlas_blacklist, validate=True, zonefile_dir=zonefile_dir )
         atlas_peer_table_init( initial_peer_table )
 
-        atlas_state = atlas_node_start( my_hostname, port, atlasdb_path=blockstack_opts['atlasdb_path'], zonefile_storage_drivers=zonefile_storage_drivers, zonefile_dir=zonefile_dir )
+        atlas_state = atlas_node_start( my_hostname, port, atlasdb_path=blockstack_opts['atlasdb_path'],
+                                        zonefile_storage_drivers=zonefile_storage_drivers, zonefile_storage_drivers_write=zonefile_storage_drivers_write, zonefile_dir=zonefile_dir )
 
     return atlas_state
 
@@ -2334,6 +2373,9 @@ def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None
     # put supervisor pid file
     put_pidfile( pid_file, os.getpid() )
 
+    # start GC 
+    gc_start()
+
     # clear indexing state
     set_indexing( False )
 
@@ -2348,12 +2390,9 @@ def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None
     atexit.register( blockstack_exit, atlas_state )
   
     db.close()
-
+    
     # start storage 
     storage_start( blockstack_opts )
-
-    # start GC 
-    gc_start()
 
     # start API server
     rpc_start(port)
@@ -2559,6 +2598,10 @@ def check_and_set_envars( argv ):
             'arg': False,
             'envar': 'BLOCKSTACK_TESTNET'
         },
+        '--testnet3': {
+            'arg': False,
+            'envar': 'BLOCKSTACK_TESTNET3'
+        },
     }
 
     cli_envs = {}
@@ -2582,6 +2625,11 @@ def check_and_set_envars( argv ):
 
                 elif i + 1 < len(argv):
                     value = argv[i+1]
+
+                    # shift down
+                    for j in xrange(i, len(argv) - 1):
+                        argv[i] = argv[i+1]
+
                     i += 1
 
                 else:

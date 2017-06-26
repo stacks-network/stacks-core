@@ -30,7 +30,8 @@ from virtualchain import SPVClient
 import storage
 
 from .constants import CONFIG_PATH, VERSION
-from .config import get_logger, get_config, semver_match
+from .config import get_config, semver_match
+from .logger import get_logger
 
 log = get_logger()
 
@@ -52,6 +53,13 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
 
     Returns the API proxy object.
     """
+
+    if set_global:
+        if server_host is not None:
+            os.environ['BLOCKSTACK_CLI_SERVER_HOST'] = server_host
+
+        if server_port is not None:
+            os.environ['BLOCKSTACK_CLI_SERVER_PORT'] = str(server_port)
 
     if conf is None:
         conf = get_config(config_path)
@@ -126,13 +134,13 @@ def load_storage(module_name):
     return storage_impl
 
 
-def register_storage(storage_impl, conf):
+def register_storage(storage_impl, conf, **driver_kw):
     """
     Register a storage implementation.
     """
     rc = storage.register_storage(storage_impl)
     if rc:
-        rc = storage_impl.storage_init(conf)
+        rc = storage_impl.storage_init(conf, **driver_kw)
 
     return rc
 

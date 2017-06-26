@@ -26,10 +26,12 @@ import sys
 import traceback
 
 import types
-import re
-import pybitcoin
 import socket
 from basicrpc import Proxy
+
+import virtualchain
+from virtualchain.lib.hashing import hex_hash160
+
 
 """ this module contains the plugin to blockstack that makes the DHT useful as
     ancillary storage. This depends on the blockstack server package, since it
@@ -72,7 +74,7 @@ def dht_data_hash(data):
     """
     Calculate a key from the data.
     """
-    return pybitcoin.hash.hex_hash160(data)
+    return hex_hash160(data)
 
 
 def dht_init(local_server=False):
@@ -120,6 +122,7 @@ def dht_get_key(data_key):
     else:
         raise Exception("No data returned from %s" % data_key)
 
+    log.debug(ret)
     return ret
 
 
@@ -135,7 +138,7 @@ def dht_put_data(data_key, data_value):
 # Begin plugin implementation
 # ---------------------------------------------------------
 
-def storage_init(conf):
+def storage_init(conf, **kw):
     """
     DHT implementation of the storage_init API call.
     Given the blockstack API proxy, set up any persistent state.
@@ -161,7 +164,7 @@ def make_mutable_url(data_id):
     Return a string.  Use dht+udp to convey both the scheme
     and the transport (since it won't be in /etc/services).
     """
-    return "dht+udp://" + pybitcoin.hash.hex_hash160(data_id)
+    return "dht+udp://" + hex_hash160(data_id)
 
 
 def get_immutable_handler(key, **kw):
@@ -254,12 +257,15 @@ def delete_mutable_handler(data_id, signature, **kw):
     return True
 
 
+def get_classes():
+    return ['read_public', 'write_private']
+
+
 if __name__ == "__main__":
     """
     Unit tests.
     """
 
-    import pybitcoin
     import json
 
     # hack around absolute paths
@@ -274,7 +280,7 @@ if __name__ == "__main__":
     test_data = [
       ["my_first_datum",        "hello world",                              1, "unused", None],
       ["/my/second/datum",      "hello world 2",                            2, "unused", None],
-      ["user_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
+      ["user\"_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
       ["empty_string",          "",                                         4, "unused", None],
     ]
 
@@ -284,7 +290,7 @@ if __name__ == "__main__":
             print json.dumps(res)
 
     def hash_data(d):
-        return pybitcoin.hash.hex_hash160(d)
+        return hex_hash160(d)
 
     rc = storage_init({})
     if not rc:

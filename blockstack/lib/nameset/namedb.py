@@ -23,23 +23,16 @@
 
 import json
 import traceback
-import binascii
-import hashlib
-import math
 import keychain
-import pybitcoin
 import os
 import copy
-import shutil
 import threading
 import gc
 
-from collections import defaultdict
 from . import *
 from ..config import *
 from ..operations import *
 from ..hashing import *
-from ..b40 import is_b40
 
 import virtualchain
 from db import *
@@ -256,9 +249,18 @@ class BlockstackDB( virtualchain.StateEngine ):
             
         sqlite3_backup( self.get_db_path(), path )
 
+    
+    @classmethod
+    def get_import_keychain_path( cls, keychain_dir, namespace_id ):
+        """
+        Get the path to the import keychain
+        """
+        cached_keychain = os.path.join( keychain_dir, "{}.keychain".format(namespace_id) )
+        return cached_keychain
+
 
     @classmethod
-    def build_import_keychain( cls, namespace_id, pubkey_hex ):
+    def build_import_keychain( cls, namespace_id, pubkey_hex, keychain_dir=None ):
         """
         Generate all possible NAME_IMPORT addresses from the NAMESPACE_REVEAL public key
         """
@@ -266,7 +268,10 @@ class BlockstackDB( virtualchain.StateEngine ):
         pubkey_addr = virtualchain.BitcoinPublicKey( str(pubkey_hex) ).address()
 
         # do we have a cached one on disk?
-        cached_keychain = os.path.join( virtualchain.get_working_dir(), "%s.keychain" % namespace_id )
+        if keychain_dir is None:
+            keychain_dir = virtualchain.get_working_dir()
+
+        cached_keychain = cls.get_import_keychain_path(keychain_dir, namespace_id)
         if os.path.exists( cached_keychain ):
 
             child_addrs = []
@@ -295,7 +300,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             # if we're on testnet, then re-encode as a testnet address 
             if virtualchain.version_byte == 111:
                 old_child_address = public_child_address
-                public_child_address = virtualchain.hex_hash160_to_address( pybitcoin.address_to_hex_hash160( public_child_address ) )
+                public_child_address = virtualchain.hex_hash160_to_address( virtualchain.address_to_hex_hash160( public_child_address ) )
                 log.debug("Re-encode '%s' to '%s'" % (old_child_address, public_child_address))
 
             child_addrs.append( public_child_address )
@@ -560,7 +565,9 @@ class BlockstackDB( virtualchain.StateEngine ):
     def check_preorder_collision( self, preorder_hash, block_id, checked_ops ):
         """
         Are there any colliding preorders in this block?
-        Set the '__collided__' flag if so, so we don't commit them.
+        Set the '__collided__' flag and related flags if so, so we don't commit them.
+
+        Not called directly; called by the @state_preorder() decorator in blockstack.lib.operations.preorder and blockstack.lib.operations.namespacepreorder
         """
 
         return self.check_collision( "preorder_hash", preorder_hash, block_id, checked_ops, OPCODE_PREORDER_OPS )
@@ -569,7 +576,9 @@ class BlockstackDB( virtualchain.StateEngine ):
     def check_name_collision( self, name, block_id, checked_ops ):
         """
         Are there any colliding names in this block?
-        Set the '__collided__' flag if so, so we don't commit them.
+        Set the '__collided__' flag and related flags if so, so we don't commit them.
+        
+        Not called directly; called by the @state_create() decorator in blockstack.lib.operations.register
         """
 
         return self.check_collision( "name", name, block_id, checked_ops, OPCODE_NAME_STATE_CREATIONS )
@@ -578,6 +587,9 @@ class BlockstackDB( virtualchain.StateEngine ):
     def check_namespace_collision( self, namespace_id, block_id, checked_ops ):
         """
         Are there any colliding namespaces in this block?
+        Set the '__collided__' flag and related flags if so, so we don't commit them
+        
+        Not called directly; called by the @state_create() decorator in blockstack.lib.operations.namespacereveal
         """
 
         return self.check_collision( "namespace_id", namespace_id, block_id, checked_ops, OPCODE_NAMESPACE_STATE_CREATIONS )
@@ -586,7 +598,7 @@ class BlockstackDB( virtualchain.StateEngine ):
     def check_noop_collision( self, name, block_id, checked_ops ):
         """
         No-op collision detector.
-        Meant for name-import
+        Meant for name-import (used by its @state_create() decorator)
         """
         log.warn("No-op collision detection for '%s'" % name)
         return False
@@ -1238,6 +1250,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         Record a nameop as collided in some collision state.
         """
 
+        # these are supposed to have been put here by nameop_set_collided
         history_id_key = nameop.get('__collided_history_id_key__', None)
         history_id = nameop.get('__collided_history_id__', None)
 
@@ -1411,7 +1424,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         # cannot have collided 
         if BlockstackDB.nameop_is_collided( nameop ):
-            log.debug("Not commiting '%s', since it collided" % commit_preorder['preorder_hash'])
+            log.debug("Not commiting '%s', since it collided" % nameop)
             self.log_reject( block_id, nameop['vtxindex'], nameop['op'], nameop )
             return []
 

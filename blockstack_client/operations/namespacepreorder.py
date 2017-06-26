@@ -21,22 +21,15 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import pybitcoin
-from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, hex_hash160
+import keylib
 
-from pybitcoin.transactions.outputs import calculate_change_amount
-
-from utilitybelt import is_hex
-from binascii import hexlify, unhexlify
-
-from ..b40 import b40_to_hex, bin_to_b40, is_b40
+from ..b40 import is_b40
 from ..config import *
 from ..scripts import *
+from ..logger import get_logger
 
 import virtualchain
-log = virtualchain.get_logger("blockstack-client")
+log = get_logger("blockstack-client")
 
 
 def build( namespace_id, script_pubkey, register_addr, consensus_hash, namespace_id_hash=None):
@@ -91,7 +84,6 @@ def make_outputs( data, inputs, change_addr, fee, tx_fee, pay_fee=True ):
     
     dust_fee = DEFAULT_OP_RETURN_FEE + (len(inputs) + 2) * DEFAULT_DUST_FEE + tx_fee
     op_fee = max(fee, DEFAULT_DUST_FEE)
-    dust_value = DEFAULT_DUST_FEE
     
     bill = op_fee
    
@@ -99,20 +91,19 @@ def make_outputs( data, inputs, change_addr, fee, tx_fee, pay_fee=True ):
         # subsidized
         dust_fee = 0
         op_fee = 0
-        dust_value = 0
         bill = 0
     
     return [
         # main output
-        {"script_hex": make_op_return_script(str(data), format='hex'),
+        {"script": virtualchain.make_data_script(str(data)),
          "value": 0},
         
         # change address
-        {"script_hex": virtualchain.make_payment_script( change_addr ),
-         "value": calculate_change_amount(inputs, bill, dust_fee)},
+        {"script": virtualchain.make_payment_script( change_addr ),
+         "value": virtualchain.calculate_change_amount(inputs, bill, dust_fee)},
         
         # burn address
-        {"script_hex": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
+        {"script": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
          "value": op_fee}
     ]
     
@@ -136,7 +127,7 @@ def make_transaction( namespace_id, register_addr, fee, consensus_hash, preorder
 
    assert is_namespace_valid(namespace_id)
    assert len(consensus_hash) == LENGTH_CONSENSUS_HASH * 2
-   assert pybitcoin.b58check_version_byte( preorder_addr ) == virtualchain.version_byte, "Only p2pkh reveal addresses are supported"
+   assert keylib.b58check.b58check_version_byte( preorder_addr ) == virtualchain.version_byte, "Only p2pkh reveal addresses are supported (got {})".format(preorder_addr)
 
    script_pubkey = virtualchain.make_payment_script( preorder_addr )
    nulldata = build( namespace_id, script_pubkey, register_addr, consensus_hash )
@@ -154,10 +145,43 @@ def make_transaction( namespace_id, register_addr, fee, consensus_hash, preorder
 
 def get_fees( inputs, outputs ):
     """
-    Blockstack currently does not allow 
-    the subsidization of namespaces.
+    Get (dust fee, op fee) for namespace preorder.
+    op fee is the namespace cost (burnt)
+    dust fee is the total cost that our outputs must sum to
     """
-    return (None, None)
+    if len(outputs) != 3:
+        log.debug("Expected 3 outputs; got %s" % len(outputs))
+        return (None, None)
+    
+    # 0: op_return
+    if not virtualchain.tx_output_has_data( outputs[0] ):
+        log.debug("outputs[0] is not an OP_RETURN")
+        return (None, None) 
+    
+    if outputs[0]["value"] != 0:
+        log.debug("outputs[0] has value %s'" % outputs[0]["value"])
+        return (None, None) 
+    
+    # 1: change address 
+    if virtualchain.script_hex_to_address( outputs[1]["script"] ) is None:
+        log.error("outputs[1] has no decipherable change address")
+        return (None, None)
+    
+    # 2: burn address 
+    addr_hash = virtualchain.script_hex_to_address( outputs[2]["script"] )
+    if addr_hash is None:
+        log.error("outputs[2] has no decipherable burn address")
+        return (None, None) 
+    
+    if addr_hash != BLOCKSTACK_BURN_ADDRESS:
+        log.error("outputs[2] is not the burn address (%s)" % BLOCKSTACK_BURN_ADDRESS)
+        return (None, None)
+   
+    # should match make_outputs()
+    dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
+    op_fee = outputs[2]["value"]
+    
+    return (dust_fee, op_fee)
 
 
 def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):

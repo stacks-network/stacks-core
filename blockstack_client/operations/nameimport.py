@@ -21,22 +21,15 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import pybitcoin
-from pybitcoin import embed_data_in_blockchain, \
-    serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, serialize_transaction
-
- 
-from pybitcoin.transactions.outputs import calculate_change_amount
-from utilitybelt import is_hex
+import keylib
 from binascii import hexlify, unhexlify
 
-from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
+from ..logger import get_logger
 
 import virtualchain
-log = virtualchain.get_logger("blockstack-client")
+log = get_logger("blockstack-client")
 
 
 def build(name):
@@ -81,20 +74,20 @@ def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b
     
     return [
         # main output
-        {"script_hex": make_op_return_script(str(data), format='hex'),
+        {"script": virtualchain.make_data_script(str(data)),
          "value": 0},
     
         # recipient output
-        {"script_hex": virtualchain.make_payment_script(recipient_address),
+        {"script": virtualchain.make_payment_script(recipient_address),
          "value": dust_value},
         
         # update hash output
-        {"script_hex": virtualchain.make_payment_script(update_hash_b58),
+        {"script": virtualchain.make_payment_script(update_hash_b58),
          "value": dust_value},
         
         # change output
-        {"script_hex": virtualchain.make_payment_script(sender_address),
-         "value": calculate_change_amount(inputs, op_fee, dust_fee)}
+        {"script": virtualchain.make_payment_script(sender_address),
+         "value": virtualchain.calculate_change_amount(inputs, op_fee, dust_fee)}
     ]
 
 
@@ -112,7 +105,7 @@ def make_transaction(name, recipient_address, update_hash, import_addr, blockcha
     nulldata = build(name)
     
     # convert update_hash from a hex string so it looks like an address
-    update_hash_b58 = pybitcoin.b58check_encode( unhexlify(update_hash), version_byte=virtualchain.version_byte )
+    update_hash_b58 = keylib.b58check_encode( unhexlify(update_hash), version_byte=virtualchain.version_byte )
     inputs = tx_get_unspents( import_addr, blockchain_client )
     if safety:
         assert len(inputs) > 0
@@ -124,10 +117,11 @@ def make_transaction(name, recipient_address, update_hash, import_addr, blockcha
 
 def get_fees( inputs, outputs ):
     """
-    Blockstack currently does not allow 
-    the subsidization of namespaces.
+    Return (dust fee, op fee) totals
+    op fee will be zero
+    dust fee is the sum of the minimum output values
     """
-    return (None, None)
+    return ((len(inputs) + 3) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE, 0)
 
 
 def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):

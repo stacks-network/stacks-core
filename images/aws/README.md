@@ -23,3 +23,8 @@ $ tail -f ~/.blockstack-server/blockstack-server.log
 ```
 
 If you run into any issues, you can talk to us in the #support channel at http://chat.blockstack.org
+
+Note: fastsyn command usage is changing and we'll update it shortly:
+```
+$ blockstack-core --debug fast_sync http://40.121.156.215/snapshot.bsk
+```

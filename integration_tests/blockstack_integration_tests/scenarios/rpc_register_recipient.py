@@ -29,6 +29,7 @@ import sys
 import os
 import blockstack_client
 import blockstack_zones
+import keylib
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -55,7 +56,7 @@ def scenario( wallets, **kw ):
     zonefile = blockstack_client.zonefile.make_empty_zonefile('foo.test', wallets[4].pubkey_hex, urls=driver_urls)
     zonefile_txt = blockstack_zones.make_zone_file( zonefile, origin='foo.test', ttl=3600 )
 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, None )
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
     resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef", zonefile=zonefile_txt, recipient_address=wallets[4].addr )
     if 'error' in resp:
         print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
@@ -148,7 +149,7 @@ def check( state_engine ):
 
     # zonefile has the right data public key 
     zonefile_pubk = blockstack_client.user.user_zonefile_data_pubkey( zonefile )
-    if zonefile_pubk != wallets[4].pubkey_hex or zonefile_pubk is None:
+    if keylib.key_formatting.compress(zonefile_pubk) != keylib.key_formatting.compress(wallets[4].pubkey_hex) or zonefile_pubk is None:
         print 'pubkey mismatch: {} != {}'.format(zonefile_pubk, wallets[4].pubkey_hex)
         return False
 

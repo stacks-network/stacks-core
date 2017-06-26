@@ -27,7 +27,6 @@ import urllib2
 import json
 import blockstack_client
 import blockstack_profiles
-import blockstack_gpg
 import sys
 import keylib
 from keylib import ECPrivateKey, ECPublicKey
@@ -100,6 +99,11 @@ def scenario( wallets, **kw ):
     sys.stdout.flush()
     
     testlib.next_block( **kw )
+ 
+    res = testlib.start_api("0123456789abcdef")
+    if 'error' in res:
+        print 'failed to start API: {}'.format(res)
+        return False
 
     data_pk = wallets[-1].privkey
     data_pub = wallets[-1].pubkey_hex
@@ -112,6 +116,11 @@ def scenario( wallets, **kw ):
         f.write(index_file_data)
 
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
+ 
+    res = testlib.start_api("0123456789abcdef")
+    if 'error' in res:
+        print 'failed to start API: {}'.format(res)
+        return False
 
     # register an application under foo.test
     res = testlib.blockstack_cli_app_publish("foo.test", "ping.app", "node_read", index_file_path, password="0123456789abcdef" )
@@ -123,9 +132,16 @@ def scenario( wallets, **kw ):
 
     # activate bar.test
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[9].privkey, wallets[7].privkey, wallets[8].privkey )
+ 
+    res = testlib.start_api("0123456789abcdef")
+    if 'error' in res:
+        print 'failed to start API: {}'.format(res)
+        return False
 
     # sign in 
-    res = testlib.blockstack_cli_app_signin("ping.app", "node_read")
+    pk = 'ce100586279d3b127b7dcc137fcc2f18b272bb2b43bdaea3584d0ea17087ec0201'
+    pubk = keylib.ECPrivateKey(pk).public_key().to_hex()
+    res = testlib.blockstack_cli_app_signin("foo.test", pk, "ping.app", ["node_read"])
     if 'error' in res:
         res['test'] = 'Failed to signin: {}'.format(res['error'])
         print json.dumps(res, indent=4, sort_keys=True)
@@ -141,14 +157,14 @@ def scenario( wallets, **kw ):
         error = True
         return False
 
-    if res['response'] != {'status': 'alive'}:
+    if res['response']['status'] != 'alive':
         print "failed to GET /api/v1/ping"
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
         return False
    
     # access index.html 
-    res = testlib.blockstack_REST_call("GET", "/v1/resources/foo.test/ping.app?name=index.html", ses)
+    res = testlib.blockstack_REST_call("GET", "/v1/resources/foo.test/ping.app?name=index.html&pubkey={}".format(pubk), ses)
     if 'error' in res or res['http_status'] != 200:
         print 'failed to GET /v1/resources?name=/index.html'
         print json.dumps(res)

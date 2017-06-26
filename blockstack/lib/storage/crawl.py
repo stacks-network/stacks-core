@@ -22,11 +22,6 @@
 """
 
 import os
-import json
-import sys
-import urllib2
-import stat
-import time
 
 from ..config import *
 from ..nameset import *
@@ -35,29 +30,17 @@ from .auth import *
 from ..scripts import is_name_valid
 
 import blockstack_client
-from blockstack_client import hash_zonefile, get_zonefile_data_hash, verify_zonefile
-from blockstack_client.backend.queue import (
-        queue_append, queue_findall, queue_removeall, queue_findone
-)
+from blockstack_client import get_zonefile_data_hash, verify_zonefile
 
 import blockstack_zones
 
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
-def get_cached_zonefile_data( zonefile_hash, zonefile_dir=None ):
+def _read_cached_zonefile( zonefile_path, zonefile_hash ):
     """
-    Get a serialized cached zonefile from local disk 
-    Return None if not found
+    Read and verify a cached zone file
     """
-    if zonefile_dir is None:
-        zonefile_dir = get_zonefile_dir()
-
-    zonefile_path_dir = cached_zonefile_dir( zonefile_dir, zonefile_hash )
-    zonefile_path = os.path.join( zonefile_path_dir, "zonefile.txt" )
-    if not os.path.exists( zonefile_path ):
-        log.debug("No zonefile at %s" % zonefile_path )
-        return None 
 
     with open(zonefile_path, "r") as f:
         data = f.read()
@@ -70,6 +53,29 @@ def get_cached_zonefile_data( zonefile_hash, zonefile_dir=None ):
     return data
 
 
+def get_cached_zonefile_data( zonefile_hash, zonefile_dir=None ):
+    """
+    Get a serialized cached zonefile from local disk 
+    Return None if not found
+    """
+    if zonefile_dir is None:
+        zonefile_dir = get_zonefile_dir()
+
+    zonefile_path = cached_zonefile_path(zonefile_dir, zonefile_hash)
+    zonefile_path_legacy = cached_zonefile_path_legacy(zonefile_dir, zonefile_hash)
+
+    for zfp in [zonefile_path, zonefile_path_legacy]:
+
+        if not os.path.exists( zfp ):
+            continue
+
+        res = _read_cached_zonefile(zfp, zonefile_hash)
+        if res:
+            return res
+
+    return None
+
+
 def get_cached_zonefile( zonefile_hash, zonefile_dir=None ):
     """
     Get a cached zonefile dict from local disk 
@@ -77,7 +83,6 @@ def get_cached_zonefile( zonefile_hash, zonefile_dir=None ):
     """
     data = get_cached_zonefile_data( zonefile_hash, zonefile_dir=zonefile_dir )
     if data is None:
-        log.debug("Not cached: %s" % zonefile_hash)
         return None
 
     try:
@@ -95,6 +100,7 @@ def get_zonefile_data_from_storage( name, zonefile_hash, drivers=None ):
     Return the zonefile dict on success.
     Raise on error
     """
+    log.debug("Get zonefile {} for {} using '{}'".format(zonefile_hash, name, ",".join(drivers if drivers is not None else ["(all)"])))
     zonefile_txt = blockstack_client.storage.get_immutable_data( zonefile_hash, hash_func=blockstack_client.get_blockchain_compat_hash, fqu=name, zonefile=True, drivers=drivers )
     if zonefile_txt is None:
         raise Exception("Failed to get valid zonefile data")
@@ -107,9 +113,31 @@ def get_zonefile_data_from_storage( name, zonefile_hash, drivers=None ):
     return zonefile_txt
 
 
-def cached_zonefile_dir( zonefile_dir, zonefile_hash ):
+def cached_zonefile_path( zonefile_dir, zonefile_hash ):
     """
-    Calculate the on-disk path to storing a zonefile's information, given the zonefile hash
+    Calculate the on-disk path to storing a zonefile's information, given the zone file hash.
+    If the zonefile hash is abcdef1234567890, then the path will be $zonefile_dir/ab/cd/abcdef1234567890.txt
+
+    Returns the path.
+    """
+    # split into directories, but not too many
+    zonefile_dir_parts = []
+    interval = 2
+    for i in xrange(0, min(len(zonefile_hash), 4), interval):
+        zonefile_dir_parts.append( zonefile_hash[i:i+interval] )
+
+    zonefile_path = os.path.join(zonefile_dir, '/'.join(zonefile_dir_parts), '{}.txt'.format(zonefile_hash))
+    return zonefile_path
+
+
+def cached_zonefile_path_legacy( zonefile_dir, zonefile_hash ):
+    """
+    Calculate the *legacy* on-disk path to storing a zonefile's information, given the zonefile hash.
+    If the zonefile hash is abcdef1234567890, then the path will be $zonefile_dir/ab/cd/ef/12/34/56/78/90/zonefile.txt
+
+    This format is no longer used to create new zonefiles, since it takes a lot of inodes to store comparatively few zone files.
+
+    Returns the legacy path
     """
 
     # split into directories, so we don't try to cram millions of files into one directory
@@ -119,31 +147,41 @@ def cached_zonefile_dir( zonefile_dir, zonefile_hash ):
         zonefile_dir_parts.append( zonefile_hash[i:i+interval] )
 
     zonefile_dir_path = os.path.join(zonefile_dir, "/".join(zonefile_dir_parts))
-    return zonefile_dir_path
+    return os.path.join(zonefile_dir_path, "zonefile.txt")
 
 
 def is_zonefile_cached( zonefile_hash, zonefile_dir=None, validate=False):
     """
     Do we have the cached zonefile?  It's okay if it's a non-standard zonefile.
     if @validate is true, then check that the data in zonefile_dir_path/zonefile.txt matches zonefile_hash
+
     Return True if so
     Return False if not
     """
     if zonefile_dir is None:
         zonefile_dir = get_zonefile_dir()
     
-    zonefile_path_dir = cached_zonefile_dir( zonefile_dir, zonefile_hash )
-    zonefile_path = os.path.join(zonefile_path_dir, "zonefile.txt")
+    zonefile_path = cached_zonefile_path(zonefile_dir, zonefile_hash)
+    zonefile_path_legacy = cached_zonefile_path_legacy(zonefile_dir, zonefile_hash)
 
-    if not os.path.exists(zonefile_path):
-        return False
+    res = False
+    for zfp in [zonefile_path, zonefile_path_legacy]:
+        
+        if not os.path.exists(zfp):
+            continue
 
-    if validate:
-        zf = get_cached_zonefile_data( zonefile_hash, zonefile_dir=zonefile_dir )
-        if zf is None:
-            return False
+        if validate:
+            data = _read_cached_zonefile(zfp, zonefile_hash)
+            if data:
+                # yup!
+                res = True
+                break
 
-    return True
+        else:
+            res = True
+            break
+
+    return res
 
 
 def store_cached_zonefile_data( zonefile_data, zonefile_dir=None ):
@@ -161,11 +199,14 @@ def store_cached_zonefile_data( zonefile_data, zonefile_dir=None ):
         os.makedirs(zonefile_dir, 0700 )
 
     zonefile_hash = get_zonefile_data_hash( zonefile_data )
-    zonefile_dir_path = cached_zonefile_dir( zonefile_dir, zonefile_hash )
+    
+    # only store to the latest supported directory
+    zonefile_path = cached_zonefile_path( zonefile_dir, zonefile_hash )
+    zonefile_dir_path = os.path.dirname(zonefile_path)
+
     if not os.path.exists(zonefile_dir_path):
         os.makedirs(zonefile_dir_path)
 
-    zonefile_path = os.path.join(zonefile_dir_path, "zonefile.txt")
     try:
         with open( zonefile_path, "w" ) as f:
             f.write(zonefile_data)
@@ -198,7 +239,9 @@ def store_cached_zonefile( zonefile_dict, zonefile_dir=None ):
 
 def remove_cached_zonefile_data( zonefile_hash, zonefile_dir=None ):
     """
-    Remove a cached zonefile 
+    Remove a cached zonefile.
+    Idempotent; returns True if deleted or it didn't exist.
+    Returns False on error
     """
     if zonefile_dir is None:
         zonefile_dir = get_zonefile_dir()
@@ -207,19 +250,18 @@ def remove_cached_zonefile_data( zonefile_hash, zonefile_dir=None ):
         return True
 
     zonefile_hash = get_zonefile_data_hash( zonefile_data )
-    zonefile_dir_path = cached_zonefile_dir( zonefile_dir, zonefile_hash )
-    if not os.path.exists(zonefile_dir_path):
-        return True
+    zonefile_path = cached_zonefile_path( zonefile_dir, zonefile_hash )
+    zonefile_path_legacy = cached_zonefile_path_legacy( zonefile_dir, zonefile_hash )
 
-    zonefile_path = os.path.join(zonefile_dir_path, "zonefile.txt")
-    if not os.path.exists(zonefile_path):
-        return True
+    for zfp in [zonefile_path, zonefile_path_legacy]:
+        if not os.path.exists(zonefile_path):
+            continue
 
-    try:
-        os.unlink(zonefile_path)
-    except:
-        log.error("Failed to unlink zonefile %s (%s)" % (zonefile_hash, zonefile_path))
-        return False
+        try:
+            os.unlink(zonefile_path)
+        except:
+            log.error("Failed to unlink zonefile %s (%s)" % (zonefile_hash, zonefile_path))
+            return False
 
     return True
 
@@ -242,7 +284,7 @@ def store_zonefile_data_to_storage( zonefile_text, txid, required=None, skip=Non
             log.debug("Failed to cache zonefile %s" % zonefile_hash)
 
     # NOTE: this can fail if one of the required drivers needs a non-null txid
-    res = blockstack_client.storage.put_immutable_data( None, txid, data_hash=zonefile_hash, data_text=zonefile_text, required=required, skip=skip )
+    res = blockstack_client.storage.put_immutable_data( zonefile_text, txid, data_hash=zonefile_hash, required=required, skip=skip )
     if res is None:
         log.error("Failed to store zonefile '%s' for '%s'" % (zonefile_hash, txid))
         return False
@@ -265,6 +307,7 @@ def store_zonefile_to_storage( zonefile_dict, required=None, skip=None, cache=Fa
         return False
 
     name = zonefile_dict.get('$origin')
+    log.debug("Store zonefile for {} to drivers '{}'".format(name, ','.join(required if required is not None else [])))
     return store_zonefile_data_to_storage( zonefile_data, required=required, skip=skip, cache=cache, zonefile_dir=zonefile_dir, name=name )
 
 
@@ -275,7 +318,6 @@ def store_mutable_data_to_storage( blockchain_id, data_id, data_txt, profile=Fal
     Return True on successful replication to all required drivers
     Return False on error
     """
-   
     nocollide_data_id = None
     if profile:
         nocollide_data_id = blockchain_id
@@ -283,7 +325,8 @@ def store_mutable_data_to_storage( blockchain_id, data_id, data_txt, profile=Fal
     else:
         nocollide_data_id = '{}-{}'.format(blockchain_id, data_id)
 
-    res = blockstack_client.storage.put_mutable_data(nocollide_data_id, data_txt, None, sign=False, required=required, skip=skip, blockchain_id=blockchain_id)
+    log.debug("Store {} to drivers '{}', skipping '{}'".format('profile' if profile else 'mutable datum', ','.join(required if required is not None else []), ','.join(skip if skip is not None else [])))
+    res = blockstack_client.storage.put_mutable_data(nocollide_data_id, data_txt, sign=False, required=required, skip=skip, blockchain_id=blockchain_id)
     return res
 
 
@@ -291,9 +334,10 @@ def load_mutable_data_from_storage( blockchain_id, data_id, drivers=None ):
     """
     Load mutable data from storage.
     Used by the storage gateway logic.
+    Return 
     """
     
     nocollide_data_id = '{}-{}'.format(blockchain_id, data_id)
-    res = blockstack_client.storage.get_mutable_data(data_id, None, blockchain_id=blockchain_id, drivers=drivers, decode=False)
+    res = blockstack_client.storage.get_mutable_data(nocollide_data_id, None, blockchain_id=blockchain_id, drivers=drivers, decode=False)
     return res
    

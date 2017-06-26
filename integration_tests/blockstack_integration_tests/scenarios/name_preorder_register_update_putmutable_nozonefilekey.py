@@ -91,19 +91,30 @@ def scenario( wallets, **kw ):
     
     testlib.next_block( **kw )
 
-    put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_1", json.dumps(datasets[0]), password='0123456789abcdef' )
+    # should fail, since no zone file key
+    put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_1", json.dumps(datasets[0]), password='0123456789abcdef')
+    if 'error' not in put_result:
+        print 'accidentally put data without a zonefile key'
+        print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
+    
+    # should succeed, since we have a given private key
+    put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_1", json.dumps(datasets[0]), password='0123456789abcdef', private_key=wallets[4].privkey )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
 
     testlib.next_block( **kw )
 
-    put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_2", json.dumps(datasets[1]), password='0123456789abcdef' )
+    put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_2", json.dumps(datasets[1]), password='0123456789abcdef', private_key=wallets[4].privkey )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
 
-    put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_3", json.dumps(datasets[2]), password='0123456789abcdef' )
+    put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_3", json.dumps(datasets[2]), password='0123456789abcdef', private_key=wallets[4].privkey )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
 
     # increment version too
     datasets[0]['buf'] = []
@@ -111,7 +122,7 @@ def scenario( wallets, **kw ):
         datasets[0]["dataset_change"] = dataset_change
         datasets[0]['buf'].append(i)
 
-        put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_1", json.dumps(datasets[0]), password='0123456789abcdef' )
+        put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_1", json.dumps(datasets[0]), password='0123456789abcdef', private_key=wallets[4].privkey )
         if 'error' in put_result:
             print json.dumps(put_result, indent=4, sort_keys=True )
 
@@ -183,7 +194,7 @@ def check( state_engine ):
 
     for i in xrange(0, len(datasets)):
         print "get hello_world_%s" % (i+1)
-        dat = testlib.blockstack_cli_get_mutable( "foo.test", "hello_world_{}".format(i+1) )
+        dat = testlib.blockstack_cli_get_mutable( "foo.test", "hello_world_{}".format(i+1), public_key=wallets[4].pubkey_hex )
         if dat is None:
             print "No data '%s'" % ("hello_world_%s" % (i+1))
             return False

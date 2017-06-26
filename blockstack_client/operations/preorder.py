@@ -21,25 +21,15 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import pybitcoin
-from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, \
-    hex_hash160, bin_hash160, \
-    make_op_return_outputs
 
-
-from pybitcoin.transactions.outputs import calculate_change_amount
-from utilitybelt import is_hex
-from binascii import hexlify, unhexlify
-
-from ..b40 import b40_to_hex, is_b40
+from ..b40 import is_b40
 from ..config import *
 from ..scripts import *
 from ..constants import TX_MIN_CONFIRMATIONS
+from ..logger import get_logger
 
 import virtualchain
-log = virtualchain.get_logger("blockstack-client")
+log = get_logger("blockstack-client")
 
 def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None):
     """
@@ -101,20 +91,20 @@ def make_outputs( data, inputs, sender_addr, fee, tx_fee, pay_fee=True ):
     
     return [
         # main output
-        {"script_hex": make_op_return_script(str(data), format='hex'),
+        {"script": virtualchain.make_data_script(str(data)),
          "value": 0},
         
         # change address (can be subsidy key)
-        {"script_hex": virtualchain.make_payment_script(sender_addr),
-         "value": calculate_change_amount(inputs, bill, dust_fee)},
+        {"script": virtualchain.make_payment_script(sender_addr),
+         "value": virtualchain.calculate_change_amount(inputs, bill, dust_fee)},
         
         # burn address
-        {"script_hex": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
+        {"script": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
          "value": op_fee}
     ]
 
 
-def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, blockchain_client, tx_fee=0, subsidize=False, safety=True, min_payment_confs=TX_MIN_CONFIRMATIONS):
+def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, blockchain_client, tx_fee=0, subsidize=False, safety=True):
     """
     Builds and broadcasts a preorder transaction.
     """
@@ -138,7 +128,7 @@ def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, bl
         pay_fee = False
 
     # tx only
-    inputs = tx_get_unspents( preorder_addr, blockchain_client, min_confirmations=min_payment_confs )
+    inputs = tx_get_unspents( preorder_addr, blockchain_client )
     if safety:
         assert len(inputs) > 0, "No UTXOs for {}".format(preorder_addr)
         
@@ -165,7 +155,7 @@ def get_fees( inputs, outputs ):
         return (None, None)
     
     # 0: op_return
-    if not tx_output_is_op_return( outputs[0] ):
+    if not virtualchain.tx_output_has_data( outputs[0] ):
         log.debug("outputs[0] is not an OP_RETURN")
         return (None, None) 
     
@@ -174,12 +164,12 @@ def get_fees( inputs, outputs ):
         return (None, None) 
     
     # 1: change address 
-    if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
+    if virtualchain.script_hex_to_address( outputs[1]["script"] ) is None:
         log.error("outputs[1] has no decipherable change address")
         return (None, None)
     
     # 2: burn address 
-    addr_hash = virtualchain.script_hex_to_address( outputs[2]["script_hex"] )
+    addr_hash = virtualchain.script_hex_to_address( outputs[2]["script"] )
     if addr_hash is None:
         log.error("outputs[2] has no decipherable burn address")
         return (None, None) 
@@ -188,6 +178,8 @@ def get_fees( inputs, outputs ):
         log.error("outputs[2] is not the burn address (%s)" % BLOCKSTACK_BURN_ADDRESS)
         return (None, None)
     
+    # should match make_outputs()
+    # the +2 comes from 2 new outputs
     dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     op_fee = outputs[2]["value"]
     

@@ -81,8 +81,6 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr, wallet=wallets[3] )
     testlib.next_block( **kw )
     
-    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[0].privkey )
-    
     # migrate profiles 
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
@@ -130,7 +128,7 @@ def scenario( wallets, **kw ):
     balance_before = testlib.get_balance(wallets[3].addr)
 
     # can we move the funds?
-    res = testlib.blockstack_REST_call('POST', '/v1/wallet/balance', None, api_pass=api_pass, data={'address': wallets[3].addr} )
+    res = testlib.blockstack_REST_call('POST', '/v1/wallet/balance', None, api_pass=api_pass, data={'message': 'hello multisig!', 'address': wallets[3].addr} )
     if res['http_status'] != 200:
         res['test'] = 'failed to transfer funds'
         print json.dumps(res)

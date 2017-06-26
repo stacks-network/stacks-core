@@ -21,24 +21,16 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import pybitcoin
-from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, hex_hash160
+import keylib
+from binascii import hexlify
 
-from pybitcoin.transactions.outputs import calculate_change_amount
-
-from utilitybelt import is_hex
-from binascii import hexlify, unhexlify
-import types
-import json
-
-from ..b40 import b40_to_hex, bin_to_b40, is_b40
+from ..b40 import is_b40
 from ..config import *
 from ..scripts import *
-   
+from ..logger import get_logger
+
 import virtualchain
-log = virtualchain.get_logger("blockstack-log")
+log = get_logger("blockstack-log")
 
 
 def serialize_int( int_field, numbytes ):
@@ -66,8 +58,10 @@ def serialize_buckets( bucket_exponents ):
     There should be 16 buckets, and each one should have an integer between 0 and 15.
     """
     ret = ""
+    assert len(bucket_exponents) == 16
     for i in xrange(0, len(bucket_exponents)):
-        ret += "%X" % bucket_exponents[i]
+        assert bucket_exponents[i] >= 0 and bucket_exponents[i] <= 15
+        ret += "%x" % bucket_exponents[i]
     
     return ret
 
@@ -77,7 +71,9 @@ def serialize_discounts( nonalpha_discount, no_vowel_discount ):
     Serialize the non-alpha and no-vowel discounts.
     They must be between 0 and 15
     """
-    return "%X%X" % (nonalpha_discount, no_vowel_discount)
+    assert nonalpha_discount >= 0 and nonalpha_discount <= 15
+    assert no_vowel_discount >= 0 and no_vowel_discount <= 15
+    return "%x%x" % (nonalpha_discount, no_vowel_discount)
 
 
 def namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount ):
@@ -94,7 +90,8 @@ def namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, 
       raise Exception("Invalid namespace ID length for '%s' (expected length between 1 and %s)" % (namespace_id, LENGTH_MAX_NAMESPACE_ID))
    
    if lifetime < 0 or lifetime > (2**32 - 1):
-      lifetime = NAMESPACE_LIFE_INFINITE 
+      import blockstack
+      lifetime = blockstack.NAMESPACE_LIFE_INFINITE 
 
    if coeff < 0 or coeff > 255:
       raise Exception("Invalid cost multiplier %s: must be in range [0, 256)" % coeff)
@@ -189,16 +186,16 @@ def make_outputs( data, inputs, reveal_addr, change_addr, tx_fee):
     
     return [
         # main output
-        {"script_hex": make_op_return_script(str(data), format='hex'),
+        {"script": virtualchain.make_data_script(str(data)),
          "value": 0},
     
         # register address
-        {"script_hex": virtualchain.make_payment_script(reveal_addr),
+        {"script": virtualchain.make_payment_script(reveal_addr),
          "value": DEFAULT_DUST_FEE},
         
         # change address
-        {"script_hex": virtualchain.make_payment_script(change_addr),
-         "value": calculate_change_amount(inputs, total_to_send, DEFAULT_DUST_FEE * (len(inputs) + 3)) + tx_fee},
+        {"script": virtualchain.make_payment_script(change_addr),
+         "value": virtualchain.calculate_change_amount(inputs, total_to_send, DEFAULT_DUST_FEE * (len(inputs) + 2) + DEFAULT_OP_RETURN_FEE + tx_fee)},
     ]
     
     
@@ -228,7 +225,7 @@ def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, buc
    preorder_addr = str(preorder_addr)
    tx_fee = int(tx_fee)
 
-   assert pybitcoin.b58check_version_byte( preorder_addr ) == virtualchain.version_byte, "Only p2pkh reveal addresses are supported"
+   assert keylib.b58check.b58check_version_byte( preorder_addr ) == virtualchain.version_byte, "Only p2pkh reveal addresses are supported"
 
    bexp = []
    for be in bucket_exponents:
@@ -244,7 +241,7 @@ def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, buc
    inputs = tx_get_unspents( preorder_addr, blockchain_client )
    if safety:
        assert len(inputs) > 0
-    
+   
    # build custom outputs here
    outputs = make_outputs(nulldata, inputs, reveal_addr, preorder_addr, tx_fee)
    
@@ -253,10 +250,35 @@ def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, buc
 
 def get_fees( inputs, outputs ):
     """
-    Blockstack currently does not allow 
-    the subsidization of namespaces.
+    Get (dust fee, op fee) for namespace reveal
+    (op fee is 0)
     """
-    return (None, None)
+ 
+    dust_fee = 0
+    op_fee = 0
+    
+    if len(outputs) != 3:
+        log.debug("len(outputs) == %s" % len(outputs))
+        return (None, None)
+    
+    # 0: op_return
+    if not virtualchain.tx_output_has_data( outputs[0] ):
+        log.debug("output[0] is not an OP_RETURN")
+        return (None, None) 
+   
+    # 1: reveal address 
+    if virtualchain.script_hex_to_address( outputs[1]["script"] ) is None:
+        log.debug("output[1] is not a valid script")
+        return (None, None)
+    
+    # 2: change address 
+    if virtualchain.script_hex_to_address( outputs[2]["script"] ) is None:
+        log.debug("output[2] is not a valid script")
+        return (None, None)
+    
+    # should match make_outputs()
+    dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
+    return (dust_fee, op_fee)
 
 
 def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):

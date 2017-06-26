@@ -22,5 +22,9 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
+import blockstack_core
+import bitcoind_utxo
+import blockchain_info
+import blockcypher
+import blockstack_explorer
 import blockstack_utxo
-from utxo import *

@@ -60,17 +60,17 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
     
     # should fail if either are multisig
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[3].privkey, wallets[0].privkey, None, exception=False )
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[3].privkey, wallets[0].privkey, wallets[1].privkey, exception=False )
     if 'error' not in wallet:
         print "wallet initialized\n%s" % json.dumps(wallet, indent=4, sort_keys=True)
         return False
 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[0].privkey, wallets[4].privkey, None, exception=False )
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[0].privkey, wallets[4].privkey, wallets[1].privkey, exception=False )
     if 'error' not in wallet:
         print "wallet initialized\n%s" % json.dumps(wallet, indent=4, sort_keys=True)
         return False
 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[3].privkey, wallets[4].privkey, None, exception=False )
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[3].privkey, wallets[4].privkey, wallets[1].privkey, exception=False )
     if 'error' not in wallet:
         print "wallet initialized\n%s" % json.dumps(wallet, indent=4, sort_keys=True)
         return False
@@ -82,7 +82,7 @@ def scenario( wallets, **kw ):
         return False
 
     # should succeed 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[0].privkey, wallets[1].privkey, None, exception=False )
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[0].privkey, wallets[1].privkey, wallets[1].privkey, exception=False )
     if 'error' in wallet:
         print "wallet failure: %s" % wallet['error']
         return False
@@ -92,17 +92,17 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw)
 
     # multisig should now be supported
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[3].privkey, wallets[0].privkey, None, exception=False )
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[3].privkey, wallets[0].privkey, wallets[1].privkey, exception=False )
     if 'error' in wallet:
         print "wallet failure: %s" % wallet['error']
         return False
 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[0].privkey, wallets[4].privkey, None, exception=False )
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[0].privkey, wallets[4].privkey, wallets[1].privkey, exception=False )
     if 'error' in wallet:
         print "wallet failure: %s" % wallet['error']
         return False
 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[3].privkey, wallets[4].privkey, None, exception=False )
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[3].privkey, wallets[4].privkey, wallets[1].privkey, exception=False )
     if 'error' in wallet:
         print "wallet failure: %s" % wallet['error']
         return False
@@ -114,7 +114,7 @@ def scenario( wallets, **kw ):
         return False
 
     # should succeed 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[0].privkey, wallets[1].privkey, None, exception=False )
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[0].privkey, wallets[1].privkey, wallets[1].privkey, exception=False )
     if 'error' in wallet:
         print "wallet failure: %s" % wallet['error']
         return False

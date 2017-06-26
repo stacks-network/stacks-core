@@ -24,7 +24,7 @@
 from setuptools import setup, find_packages
 import os
 
-exec(open("blockstack/version.py").read())
+exec(open("blockstack_client/version.py").read())
 
 setup(
     name='blockstack',
@@ -41,22 +41,23 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=0.14.1',
-        'keychain>=0.1.4',
+        'virtualchain>=0.14.2',
+        'keychain>=0.14.2.0',
         'protocoin>=0.2',
         'blockstack-profiles>=0.14.1',
-        'pybitcoin>=0.9.9',
         'blockstack-zones>=0.14.1',
         'defusedxml>=0.4.1',
-        'keylib>=0.0.5',
+        'keylib>=0.1.1',
         'mixpanel>=4.3.1',
-        'pycrypto>=2.6.1',
         'simplejson>=3.8.2',
         'jsonschema>=2.5.1',
-        'fastecdsa>=1.3.2',
+        'scrypt>=0.8.0',
+        'pyparsing>=2.2.0',     # not required, but causes problems if not installed properly
         'basicrpc>=0.0.2',      # DHT storage driver
         'boto>=2.38.0',         # S3 storage driver
         'dropbox>=7.1.1',       # Dropbox driver
+        'pydrive>=1.3.1',       # Google Drive driver
+        'onedrivesdk>=1.1.8',   # Microsoft OneDrive driver
     ],
     classifiers=[
         'Intended Audience :: Developers',

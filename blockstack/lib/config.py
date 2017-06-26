@@ -26,20 +26,10 @@ import sys
 import copy
 import socket
 from ConfigParser import SafeConfigParser
-import pybitcoin
-import json
-
-try:
-    from ..version import __version__
-except:
-    if os.environ.get("BLOCKSTACK_TEST") != "1":
-        print "Try setting BLOCKSTACK_TEST=1"
-        raise
-    else:
-        __version__ = "0.14.0"
 
 import blockstack_client
-from blockstack_client.config import DEFAULT_OP_RETURN_FEE, DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_VALUE, DEFAULT_FEE_PER_KB, url_to_host_port
+from blockstack_client.version import __version__
+from blockstack_client.utils import url_to_host_port
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
@@ -874,8 +864,11 @@ def default_blockstack_opts( config_file=None, virtualchain_impl=None ):
    zonefile_dir = os.path.join( os.path.dirname(config_file), "zonefiles")
    analytics_key = None
    zonefile_storage_drivers = "disk,dht"
+   zonefile_storage_drivers_write = "disk"
    profile_storage_drivers = "disk"
+   profile_storage_drivers_write = "disk"
    data_storage_drivers = "disk"
+   data_storage_drivers_write = "disk"
    redirect_data = False
    data_servers = None
    server_version = None
@@ -923,8 +916,20 @@ def default_blockstack_opts( config_file=None, virtualchain_impl=None ):
       if parser.has_option("blockstack", "zonefile_storage_drivers"):
           zonefile_storage_drivers = parser.get("blockstack", "zonefile_storage_drivers")
 
+      if parser.has_option("blockstack", "zonefile_storage_drivers_write"):
+          zonefile_storage_drivers_write = parser.get("blockstack", "zonefile_storage_drivers_write")
+
       if parser.has_option("blockstack", "profile_storage_drivers"):
           profile_storage_drivers = parser.get("blockstack", "profile_storage_drivers")
+
+      if parser.has_option("blockstack", "profile_storage_drivers_write"):
+          profile_storage_drivers_write = parser.get("blockstack", "profile_storage_drivers_write")
+
+      if parser.has_option("blockstack", "data_storage_drivers"):
+          data_storage_drivers = parser.get("blockstack", "data_storage_drivers")
+
+      if parser.has_option("blockstack", "data_storage_drivers_write"):
+          data_storage_drivers_write = parser.get("blockstack", "data_storage_drivers_write")
 
       if parser.has_option("blockstack", "zonefiles"):
           zonefile_dir = parser.get("blockstack", "zonefiles")
@@ -1031,10 +1036,13 @@ def default_blockstack_opts( config_file=None, virtualchain_impl=None ):
        'backup_max_age': backup_max_age,
        'serve_zonefiles': serve_zonefiles,
        'zonefile_storage_drivers': zonefile_storage_drivers,
+       "zonefile_storage_drivers_write": zonefile_storage_drivers_write,
        'serve_profiles': serve_profiles,
        'profile_storage_drivers': profile_storage_drivers,
+       "profile_storage_drivers_write": profile_storage_drivers_write,
        'serve_data': serve_data,
        'data_storage_drivers': data_storage_drivers,
+       "data_storage_drivers_write": data_storage_drivers_write,
        'redirect_data': redirect_data,
        'data_servers': data_servers,
        'analytics_key': analytics_key,

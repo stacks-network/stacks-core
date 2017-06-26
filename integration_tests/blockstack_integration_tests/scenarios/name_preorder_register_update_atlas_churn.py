@@ -138,7 +138,8 @@ def scenario( wallets, **kw ):
         dest_host, dest_port = blockstack_client.config.url_to_host_port( dest_hostport )
 
         now = int(time.time())
-        offset = (now - time_start) % len(all_peers)
+        # offset = (now - time_start) % len(all_peers)
+        offset = now % len(all_peers)
         sample = all_peers + all_peers
         active_range = sample[offset: offset + 8]
 
@@ -157,8 +158,8 @@ def scenario( wallets, **kw ):
     network_des = atlas_network.atlas_network_build( atlas_nodes, atlas_topology, {}, os.path.join( testlib.working_dir(**kw), "atlas_network" ) )
     atlas_network.atlas_network_start( network_des, drop_probability=churn_drop )
         
-    print "Waiting 60 seconds for the altas peers to catch up"
-    time.sleep(60.0)
+    print "Waiting 120 seconds for the altas peers to catch up"
+    time.sleep(120.0)
 
     # wait at most 30 seconds for atlas network to converge
     synchronized = False

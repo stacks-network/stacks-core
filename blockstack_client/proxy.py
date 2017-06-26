@@ -34,6 +34,7 @@ import httplib
 import base64
 import jsonschema
 from jsonschema.exceptions import ValidationError
+from utils import url_to_host_port
 
 # prevent the usual XML attacks
 xmlrpc.MAX_DATA = 10 * 1024 * 1024  # 10MiB
@@ -43,13 +44,10 @@ import storage
 import scripts
 
 from .constants import (
-    MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST
+    MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST, DEFAULT_TIMEOUT
 )
 
-import config
-from .config import (
-    get_logger, url_to_host_port, 
-)
+from .logger import get_logger
 
 from .operations import (
     nameop_history_extract, nameop_restore_from_history,
@@ -112,7 +110,7 @@ class BlockstackRPCClient(object):
     """
 
     def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN,
-                 timeout=config.DEFAULT_TIMEOUT, debug_timeline=False, **kw):
+                 timeout=DEFAULT_TIMEOUT, debug_timeline=False, **kw):
 
         self.url = 'http://{}:{}'.format(server, port)
         self.srv = TimeoutServerProxy(self.url, timeout=timeout, allow_none=True)
@@ -167,6 +165,7 @@ def get_default_proxy(config_path=CONFIG_PATH):
         return default_proxy
 
     import client
+    import config
 
     if BLOCKSTACK_CLIENT_TEST_ALTERNATIVE_CONFIG is not None:
         # feature test: make sure alternative config paths get propagated
@@ -299,6 +298,7 @@ def json_response_schema( expected_object_schema ):
                 'anyOf': [
                     {
                         'type': 'integer',
+                        'minimum': 0,
                     },
                     {
                         'type': 'null',
@@ -332,7 +332,8 @@ def getinfo(proxy=None):
         'type': 'object',
         'properties': {
             'last_block_seen': {
-                'type': 'integer'
+                'type': 'integer',
+                'minimum': 0,
             },
             'consensus': {
                 'type': 'string'
@@ -341,13 +342,15 @@ def getinfo(proxy=None):
                 'type': 'string'
             },
             'last_block_processed': {
-                'type': 'integer'
+                'type': 'integer',
+                'minimum': 0,
             },
             'server_alive': {
                 'type': 'boolean'
             },
             'zonefile_count': {
-                'type': 'integer'
+                'type': 'integer',
+                'minimum': 0,
             },
             'indexing': {
                 'type': 'boolean'
@@ -372,16 +375,21 @@ def getinfo(proxy=None):
         old_resp = resp
         resp = json_validate( schema, resp )
         if json_is_error(resp):
-            if BLOCKSTACKT_TEST:
+            if BLOCKSTACK_TEST:
                 log.debug("invalid response: {}".format(old_resp))
             return resp
 
     except ValidationError as e:
-        log.exception(e)
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
         resp = json_traceback(resp.get('error'))
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+        
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -420,11 +428,16 @@ def ping(proxy=None):
         assert resp['status'] == 'alive'
 
     except ValidationError as e:
-        log.exception(e)
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
         resp = json_traceback(resp.get('error'))
     
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -446,6 +459,7 @@ def get_name_cost(name, proxy=None):
             },
             'satoshis': {
                 'type': 'integer',
+                'minimum': 0,
             },
         },
         'required': [
@@ -467,7 +481,10 @@ def get_name_cost(name, proxy=None):
         resp = json_traceback(resp.get('error'))
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -486,6 +503,7 @@ def get_namespace_cost(namespace_id, proxy=None):
         'properties': {
             'satoshis': {
                 'type': 'integer',
+                'minimum': 0,
             }
         },
         'required': [
@@ -507,7 +525,10 @@ def get_namespace_cost(namespace_id, proxy=None):
         resp = json_traceback(resp.get('error'))
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -542,7 +563,9 @@ def get_all_names_page(offset, count, proxy=None):
     try:
         assert count <= 100, 'Page too big: {}'.format(count)
     except AssertionError as ae:
-        log.exception(ae)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ae)
+
         return {'error': 'Invalid page'}
 
     proxy = get_default_proxy() if proxy is None else proxy
@@ -555,15 +578,25 @@ def get_all_names_page(offset, count, proxy=None):
             return resp
 
         # must be valid names
+        valid_names = []
         for n in resp['names']:
-            assert scripts.is_name_valid(str(n)), ('Invalid name "{}"'.format(str(n)))
-    except ValidationError as e:
-        log.exception(e)
+            if not scripts.is_name_valid(str(n)):
+                log.error('Invalid name "{}"'.format(str(n)))
+            else:
+                valid_names.append(n)
+        resp['names'] = valid_names
+    except (ValidationError, AssertionError) as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
         resp = json_traceback(resp.get('error'))
         return resp
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -581,6 +614,7 @@ def get_num_names(proxy=None):
         'properties': {
             'count': {
                 'type': 'integer',
+                'minimum': 0,
             },
         
             },
@@ -600,12 +634,18 @@ def get_num_names(proxy=None):
         if json_is_error(resp):
             return resp
     except ValidationError as e:
-        log.exception(e)
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = json_traceback(resp.get('error'))
         return resp
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -646,6 +686,9 @@ def get_all_names(offset=None, count=None, proxy=None):
             # error
             error_str = 'server replied too much data'
             return {'error': error_str}
+        elif len(page) == 0:
+            # end-of-table
+            break
 
         all_names += page
 
@@ -684,16 +727,22 @@ def get_all_namespaces(offset=None, count=None, proxy=None):
     resp = {}
     try:
         resp = proxy.get_all_namespaces()
-        resp = json_validate(namespaces__schema, resp)
+        resp = json_validate(namespaces_schema, resp)
         if json_is_error(resp):
             return resp
     except ValidationError as e:
-        log.exception(e)
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = json_traceback(resp.get('error'))
         return resp
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -741,12 +790,18 @@ def get_names_in_namespace_page(namespace_id, offset, count, proxy=None):
         for n in resp['names']:
             assert scripts.is_name_valid(str(n)), ('Invalid name {}'.format(str(n)))
     except (ValidationError, AssertionError) as e:
-        log.exception(e)
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = json_traceback(resp.get('error'))
         return resp
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -764,7 +819,8 @@ def get_num_names_in_namespace(namespace_id, proxy=None):
         'type': 'object',
         'properties': {
             'count': {
-                'type': 'integer'
+                'type': 'integer',
+                'minimum': 0,
             },
         },
         'required': [
@@ -785,12 +841,18 @@ def get_num_names_in_namespace(namespace_id, proxy=None):
             return resp
 
     except ValidationError as e:
-        log.exception(e)
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = json_traceback(resp.get('error'))
         return resp
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -828,6 +890,9 @@ def get_names_in_namespace(namespace_id, offset=None, count=None, proxy=None):
             # error
             error_str = 'server replied too much data'
             return {'error': error_str}
+        elif len(page) == 0:
+            # end-of-table
+            break
 
         all_names += page
 
@@ -872,12 +937,18 @@ def get_names_owned_by_address(address, proxy=None):
         for n in resp['names']:
             assert scripts.is_name_valid(str(n)), ('Invalid name "{}"'.format(str(n)))
     except (ValidationError, AssertionError) as e:
-        log.exception(e)
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = json_traceback(resp.get('error'))
         return resp
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -894,8 +965,15 @@ def get_consensus_at(block_height, proxy=None):
         'type': 'object',
         'properties': {
             'consensus': {
-                'type': 'string',
-                'pattern': OP_CONSENSUS_HASH_PATTERN,
+                'anyOf': [
+                    {
+                        'type': 'string',
+                        'pattern': OP_CONSENSUS_HASH_PATTERN,
+                    },
+                    {
+                        'type': 'null'
+                    },
+                ],
             },
         },
         'required': [
@@ -918,9 +996,16 @@ def get_consensus_at(block_height, proxy=None):
         return resp
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
+
+    if resp['consensus'] is None:
+        # node hasn't processed this block 
+        return {'error': 'The node has not processed block {}'.format(block_height)}
 
     return resp['consensus']
 
@@ -963,12 +1048,18 @@ def get_consensus_hashes(block_heights, proxy=None):
             log.error('Failed to get consensus hashes for {}: {}'.format(block_heights, resp['error']))
             return resp
     except ValidationError as e:
-        log.exception(e)
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = json_traceback(resp.get('error'))
         return resp
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -1015,6 +1106,7 @@ def get_block_from_consensus(consensus_hash, proxy=None):
                 'anyOf': [
                     {
                         'type': 'integer',
+                        'minimum': 0,
                     },
                     {
                         'type': 'null',
@@ -1041,12 +1133,17 @@ def get_block_from_consensus(consensus_hash, proxy=None):
             return resp
 
     except ValidationError as ve:
-        log.exception(ve)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
         resp = json_traceback(resp.get('error'))
         return resp
     
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -1063,6 +1160,7 @@ def get_name_history_blocks(name, proxy=None):
         'type': 'array',
         'items': {
             'type': 'integer',
+            'minimum': 0,
         },
     }
 
@@ -1090,8 +1188,12 @@ def get_name_history_blocks(name, proxy=None):
     except ValidationError as e:
         resp = json_traceback(resp.get('error'))
         return resp
+
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -1135,12 +1237,17 @@ def get_name_at(name, block_id, proxy=None):
             return resp
 
     except ValidationError as e:
-        log.exception(e)
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
         resp = json_traceback(resp.get('error'))
         return resp
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -1195,9 +1302,11 @@ def get_op_history_rows(name, proxy=None):
                 },
                 'block_id': {
                     'type': 'integer',
+                    'minimum': 0,
                 },
                 'vtxindex': {
                     'type': 'integer',
+                    'minimum': 0,
                 },
                 'op': {
                     'type': 'string',
@@ -1222,7 +1331,8 @@ def get_op_history_rows(name, proxy=None):
         'type': 'object',
         'properties': {
             'count': {
-                'type': 'integer'
+                'type': 'integer',
+                'minimum': 0,
             },
         },
         'required': [
@@ -1252,12 +1362,15 @@ def get_op_history_rows(name, proxy=None):
         history_rows_count = json_validate(count_schema, history_rows_count)
         if json_is_error(history_rows_count):
             return history_rows_count
+
     except ValidationError as e:
         resp = json_traceback()
         return resp
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -1284,13 +1397,19 @@ def get_op_history_rows(name, proxy=None):
                 # something's wrong--we should have them all
                 msg = 'Missing history rows: expected {}, got {}'
                 raise Exception(msg.format(history_rows_count, len(history_rows)))
+
         except ValidationError as e:
-            log.exception(e)
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
             resp = json_traceback(resp.get('error'))
             return resp
 
         except Exception as ee:
-            log.exception(ee)
+            if BLOCKSTACK_DEBUG:
+                log.exception(ee)
+
+            log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
             resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
             return resp
 
@@ -1332,7 +1451,8 @@ def get_nameops_affected_at(block_id, proxy=None):
         'type': 'object',
         'properties': {
             'count': {
-                'type': 'integer'
+                'type': 'integer',
+                'minimum': 0,
             },
         },
         'required': [
@@ -1352,11 +1472,16 @@ def get_nameops_affected_at(block_id, proxy=None):
         num_nameops = json_validate(count_schema, num_nameops)
         if json_is_error(num_nameops):
             return num_nameops
+
     except ValidationError as e:
         num_nameops = json_traceback()
         return num_nameops
+
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -1379,11 +1504,16 @@ def get_nameops_affected_at(block_id, proxy=None):
             all_nameops += resp['nameops']
 
         except ValidationError as e:
-            log.exception(e)
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
             resp = json_traceback(resp.get('error'))
             return resp
         except Exception as ee:
-            log.exception(ee)
+            if BLOCKSTACK_DEBUG:
+                log.exception(ee)
+
+            log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
             resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
             return resp
 
@@ -1430,7 +1560,7 @@ def get_nameops_at(block_id, proxy=None):
         msg = '{} had {} operations ({} history rows, {} historic nameops, txids: {}) at {}'
         log.debug(
             msg.format(
-                nameop.get('name', 'UNKNOWN'), len(history[block_id]), len(history_rows),
+                nameop.get('name', 'UNKNOWN'), len(history), len(history_rows),
                 len(historic_nameops), [op['txid'] for op in historic_nameops], block_id
             )
         )
@@ -1482,19 +1612,24 @@ def get_nameops_hash_at(block_id, proxy=None):
         resp = json_traceback(resp.get('error'))
         return resp
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
     return resp['ops_hash']
 
 
-def get_name_blockchain_record(name, proxy=None):
+def get_name_blockchain_record(name, include_expired=True, proxy=None):
     """
     get_name_blockchain_record
     Return the blockchain-extracted information on success.
     Return {'error': ...} on error
         In particular, return {'error': 'Not found.'} if the name isn't registered
+
+    If include_expired is True, then a name record will be returned even if it expired
     """
 
     nameop_schema = {
@@ -1518,6 +1653,7 @@ def get_name_blockchain_record(name, proxy=None):
     proxy = get_default_proxy() if proxy is None else proxy
 
     resp = {}
+    lastblock = None
     try:
         resp = proxy.get_name_blockchain_record(name)
         resp = json_validate(resp_schema, resp)
@@ -1527,16 +1663,32 @@ def get_name_blockchain_record(name, proxy=None):
 
             return resp
 
+        lastblock = resp['lastblock']
+
     except ValidationError as e:
-        log.exception(e)
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
         resp = json_traceback(resp.get('error'))
         return resp
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
+    if not include_expired:
+        # check expired
+        if lastblock is None:
+            return {'error': 'No lastblock given from server'}
+
+        if lastblock > resp['record']['expire_block'] and int(resp['record']['expire_block']) > 0:
+            return {'error': 'Name expired'}
+
     return resp['record']
+
 
 
 def get_namespace_blockchain_record(namespace_id, proxy=None):
@@ -1576,11 +1728,16 @@ def get_namespace_blockchain_record(namespace_id, proxy=None):
         # this isn't needed
         ret.pop('opcode', None)
     except ValidationError as e:
-        log.exception(e)
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
         ret = json_traceback(ret.get('error'))
         return ret
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -1589,12 +1746,13 @@ def get_namespace_blockchain_record(namespace_id, proxy=None):
 
 def is_name_registered(fqu, proxy=None):
     """
-    Return True if @fqu registered on blockchain
+    Return True if @fqu is a registered name on the blockchain.
+    Must not be revoked, and must not be expired.
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
 
-    blockchain_record = get_name_blockchain_record(fqu, proxy=proxy)
+    blockchain_record = get_name_blockchain_record(fqu, include_expired=False, proxy=proxy)
     if 'error' in blockchain_record:
         log.debug('Failed to read blockchain record for {}'.format(fqu))
         return False
@@ -1609,6 +1767,33 @@ def is_name_registered(fqu, proxy=None):
         return False
 
     return 'first_registered' in blockchain_record
+
+
+def is_namespace_revealed(ns, proxy=None):
+    """
+    Return True if @ns is a revealed namespace on the blockchain
+    """
+
+    proxy = get_default_proxy() if proxy is None else proxy
+    namespace_record = get_namespace_blockchain_record(ns, proxy=proxy)
+    if 'error' in namespace_record:
+        log.debug("Failed to read blockchain record for namespace {}".format(ns))
+        return False
+
+    return True
+
+
+def is_namespace_ready(ns, proxy=None):
+    """
+    Return True if @ns is a revealed, ready namespace
+    """
+    proxy = get_default_proxy() if proxy is None else proxy
+    namespace_record = get_namespace_blockchain_record(ns, proxy=proxy)
+    if 'error' in namespace_record:
+        log.debug("Failed to read blockchain record for {}".format(ns))
+        return False
+
+    return namespace_record['ready']
 
 
 def has_zonefile_hash(fqu, proxy=None):
@@ -1628,12 +1813,24 @@ def has_zonefile_hash(fqu, proxy=None):
 
 def is_zonefile_current(fqu, zonefile_json, proxy=None):
     """
-    Return True if hash(@zonefile_json) published on blockchain
+    Return True if hash(@zonefile_json) is published on the blockchain
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
 
     zonefile_hash = storage.hash_zonefile(zonefile_json)
+
+    return is_zonefile_hash_current(fqu, zonefile_hash, proxy=proxy)
+
+
+def is_zonefile_data_current(fqu, zonefile_data, proxy=None):
+    """
+    Return True if hash(@zonefile_data) is published on the blockchain
+    """
+
+    proxy = get_default_proxy() if proxy is None else proxy
+
+    zonefile_hash = storage.get_zonefile_data_hash(zonefile_data)
 
     return is_zonefile_hash_current(fqu, zonefile_hash, proxy=proxy)
 
@@ -1711,11 +1908,16 @@ def get_zonefile_inventory(hostport, bit_offset, bit_count, timeout=30, my_hostp
         # make sure it corresponds to this range
         assert len(zf_inv['inv']) <= (bit_count / 8) + (bit_count % 8), 'Zonefile inventory in is too long (got {} bytes)'.format(len(zf_inv['inv']))
     except (ValidationError, AssertionError) as e:
-        log.exception(e)
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
         zf_inv = {'error': 'Failed to fetch and parse zonefile inventory'}
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -1747,6 +1949,7 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
 
     schema = json_response_schema( peers_schema )
 
+
     if proxy is None:
         host, port = url_to_host_port(hostport)
         assert host is not None and port is not None
@@ -1768,11 +1971,16 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
         peers = peer_list_resp
 
     except (ValidationError, AssertionError) as e:
-        log.exception(e)
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
         peers = json_traceback()
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -1835,15 +2043,22 @@ def get_zonefiles(hostport, zonefile_hashes, timeout=30, my_hostport=None, proxy
         zonefiles = zf_payload
 
     except AssertionError as ae:
-        log.exception(ae)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ae)
+
         zonefiles = {'error': 'Zonefile data mismatch'}
 
     except ValidationError as ve:
-        log.exception(ve)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
         zonefiles = json_traceback()
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
@@ -1863,8 +2078,8 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
                 'type': 'array',
                 'items': {
                     'type': 'integer',
-                    'minItems': len(zonefile_data_list),
-                    'maxItems': len(zonefile_data_list)
+                    'minimum': len(zonefile_data_list),
+                    'maximum': len(zonefile_data_list)
                 },
             },
         },
@@ -1889,11 +2104,16 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
             return push_info
 
     except ValidationError as e:
-        log.exception(e)
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
         push_info = json_traceback()
 
     except Exception as ee:
-        log.exception(ee)
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 

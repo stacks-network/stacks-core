@@ -27,7 +27,6 @@ import urllib2
 import json
 import blockstack_client
 import blockstack_profiles
-import blockstack_gpg
 import sys
 import keylib
 import time
@@ -78,8 +77,6 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
     
-    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
-    
     # migrate profiles 
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
@@ -127,7 +124,7 @@ def scenario( wallets, **kw ):
     balance_before = testlib.get_balance(wallets[8].addr)
 
     # can we move the funds?
-    res = testlib.blockstack_REST_call('POST', '/v1/wallet/balance', None, api_pass=api_pass, data={'address': wallets[8].addr, 'amount': wallet_balance - 10000})
+    res = testlib.blockstack_REST_call('POST', '/v1/wallet/balance', None, api_pass=api_pass, data={'address': wallets[8].addr, 'amount': wallet_balance / 2, 'message': "hello world!"})
     if res['http_status'] != 200:
         res['test'] = 'failed to transfer funds'
         print json.dumps(res)
@@ -138,19 +135,26 @@ def scenario( wallets, **kw ):
         print json.dumps(res)
         return False
 
+    print "\n\nTransaction: {}\n\n".format(res['response']['transaction_hash'])
+
     # confirm it
-    for i in xrange(0, 10):
+    for i in xrange(0, 12):
         testlib.next_block(**kw)
   
     new_balance = testlib.get_balance(wallets[5].addr)
     balance_after = testlib.get_balance(wallets[8].addr)
 
-    if new_balance > 10000:
+    print "wallet balance: {}".format(wallet_balance)
+    print "new balance {}: {}".format(wallets[5].addr, new_balance)
+    print "balance after {}: {}".format(wallets[8].addr, balance_after)
+    print "balance before {}: {}".format(wallets[8].addr, balance_before)
+
+    if new_balance > wallet_balance / 2:
         print 'new balance of {} is {}'.format(wallets[5].addr, new_balance)
         return False
 
-    if abs(balance_before + wallet_balance - balance_after) > 10000:
-        print "{} + {} != {}".format(balance_before, wallet_balance, balance_after)
+    if abs(balance_after - balance_before) > abs(wallet_balance / 2) + 54500:
+        print "{} - {} != {}".format(balance_after, balance_before, wallet_balance / 2)
         return False
     
 

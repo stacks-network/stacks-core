@@ -56,11 +56,10 @@ import time
 import blockstack_zones
 import blockstack_profiles
 import requests
-import base64
-import jsonschema
-import threading
+import binascii
 from decimal import Decimal
-import uuid
+import string
+import jsontokens
 
 requests.packages.urllib3.disable_warnings()
 
@@ -76,74 +75,70 @@ sys.path.insert(0, parent_dir)
 from blockstack_client import (
     delete_immutable, delete_mutable, get_all_names, get_consensus_at,
     get_immutable, get_immutable_by_name, get_mutable, get_name_blockchain_record,
-    get_name_cost, get_name_zonefile,
-    get_nameops_at, get_names_in_namespace, get_names_owned_by_address,
+    get_name_zonefile, get_nameops_at, get_names_in_namespace, get_names_owned_by_address,
     get_namespace_blockchain_record, get_namespace_cost,
     is_user_zonefile, list_immutable_data_history, list_update_history,
     list_zonefile_history, lookup_snv, put_immutable, put_mutable, zonefile_data_replicate
 )
 
-from blockstack_client.profile import put_profile, delete_profile, get_profile
+from blockstack_client.profile import put_profile, delete_profile, get_profile, \
+        profile_add_device_id, profile_remove_device_id, profile_list_accounts, profile_get_account, \
+        profile_put_account, profile_delete_account
 
-from rpc import local_api_connect, local_api_status, local_api_stop 
+from rpc import local_api_connect, local_api_status 
 import rpc as local_rpc
 import config
 
-from .config import configure_zonefile, set_advanced_mode, configure, get_utxo_provider_client 
+from .config import configure_zonefile, set_advanced_mode, configure, get_utxo_provider_client, get_tx_broadcaster
 from .constants import (
-    CONFIG_PATH, CONFIG_DIR, FIRST_BLOCK_TIME_UTC,
-    APPROX_PREORDER_TX_LEN, APPROX_REGISTER_TX_LEN,
-    APPROX_UPDATE_TX_LEN, APPROX_TRANSFER_TX_LEN,
+    CONFIG_PATH, CONFIG_DIR,
     FIRST_BLOCK_MAINNET, NAME_UPDATE,
-    BLOCKSTACK_DEBUG, BLOCKSTACK_TEST,
-    TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME
+    BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME
 )
 
-from .b40 import is_b40
-from .storage import get_drivers_for_url, get_driver_urls, get_storage_handlers
-
-from pybitcoin import is_b58check_address, serialize_transaction
-from pybitcoin.transactions.outputs import calculate_change_amount
+from .storage import get_driver_urls, get_storage_handlers, sign_data_payload, \
+    get_zonefile_data_hash
 
 from .backend.blockchain import (
-    get_balance, is_address_usable, get_utxos,
-    can_receive_name, get_tx_confirmations, get_tx_fee
+    get_balance, get_utxos, broadcast_tx, select_utxos,
+    get_tx_confirmations, get_tx_fee, get_tx_fee_per_byte, get_block_height
 )
 
 from .backend.registrar import get_wallet as registrar_get_wallet 
 
 from .backend.nameops import (
-    estimate_preorder_tx_fee, estimate_register_tx_fee,
-    estimate_update_tx_fee, estimate_transfer_tx_fee,
-    estimate_renewal_tx_fee, estimate_revoke_tx_fee
+    do_namespace_preorder, do_namespace_reveal, do_namespace_ready,
+    do_name_import
 )
 
 from .backend.safety import *
-from .backend.queue import queuedb_remove, queuedb_find
+from .backend.queue import queuedb_remove, queuedb_find, queue_append
 from .backend.queue import extract_entry as queue_extract_entry
 
 from .wallet import *
 from .keys import *
 from .proxy import *
 from .client import analytics_event 
-from .scripts import UTXOException, is_name_valid, is_valid_hash
-from .user import add_user_zonefile_url, remove_user_zonefile_url, user_zonefile_urls, \
-        make_empty_user_profile, user_zonefile_data_pubkey
+from .scripts import UTXOException, is_name_valid, is_valid_hash, is_namespace_valid
+from .user import make_empty_user_profile, user_zonefile_data_pubkey
 
-from .resolve import *
-from .tx import sign_tx, broadcast_tx
+from .tx import serialize_tx, sign_tx
 from .zonefile import make_empty_zonefile, url_to_uri_record
 
-from .utils import exit_with_error, satoshis_to_btc
-from .app import app_publish, app_unpublish, app_get_config, app_get_resource, \
-        app_put_resource, app_delete_resource, app_make_session 
+from .utils import exit_with_error, satoshis_to_btc, ScatterGather
+from .app import app_publish, app_get_config, app_get_resource, \
+        app_put_resource, app_delete_resource 
 
-from .data import datastore_mkdir, datastore_rmdir, make_datastore, get_datastore, put_datastore, delete_datastore, \
+from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, put_datastore, delete_datastore, \
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir, datastore_stat, \
-        datastore_rmtree, datastore_get_id, datastore_get_privkey, _mutable_data_make_file, data_blob_serialize, \
-        data_blob_parse
+        datastore_rmtree, datastore_get_id, datastore_get_privkey, \
+        datastore_getinode, datastore_get_privkey, \
+        make_mutable_data_info, data_blob_parse, data_blob_serialize, make_mutable_data_tombstones, sign_mutable_data_tombstones
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
+
+import virtualchain
+from virtualchain.lib.ecdsalib import *
 
 log = config.get_logger()
 
@@ -214,66 +209,87 @@ def load_zonefile_from_string(fqu, zonefile_data, check_current=True):
     either JSON or text.  Verify that it is
     well-formed and current.
 
-    Return {'status': True, 'zonefile': the serialized zonefile data (as a string)} on success.
-    Return {'error': ...} on error
-    Return {'error': ..., 'identical': True, 'zonefile': serialized zonefile string} if the zonefile is identical
+    Return {'status': True, 'zonefile': the serialized zonefile data (as a string), 'parsed_zonefile': ...} on success.
+    Return {'error': ..., 'nonstandard': True/False, 'identical': True/False} if the zonefile is nonstandard and/or identical
     """
 
-    user_data = str(zonefile_data)
+    # is this a new, standard zonefile?
+    nonstandard = False
+    identical = False
+
+    user_data = None
     user_zonefile = None
     try:
-        user_data = json.loads(user_data)
+        user_data = json.loads(zonefile_data)
     except:
         log.debug('Zonefile is not a serialized JSON string; try parsing as text')
         try:
-            user_data = blockstack_zones.parse_zone_file(user_data)
+            user_data = blockstack_zones.parse_zone_file(zonefile_data)
             user_data = dict(user_data)  # force dict. e.g if not defaultdict
         except Exception as e:
-            if BLOCKSTACK_TEST is not None:
+            if BLOCKSTACK_DEBUG is not None:
                 log.exception(e)
 
-            return {'error': 'Zonefile data is invalid.'}
+            nonstandard = True
 
-    # is this a zonefile?
-    try:
-        user_zonefile = blockstack_zones.make_zone_file(user_data)
-    except Exception as e:
-        log.exception(e)
-        log.error('Invalid zonefile')
-        return {'error': 'Invalid zonefile\n{}'.format(traceback.format_exc())}
+    if user_data is not None:
+        try:
+            user_zonefile = blockstack_zones.make_zone_file(user_data)
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
 
-    # sanity checks...
-    if fqu != user_data.get('$origin', ''):
-        log.error('Zonefile is missing or has invalid $origin')
-        return {'error': 'Invalid $origin; must use your name'}
+            log.error('Nonstandard zonefile')
+            nonstandard = True
 
-    if '$ttl' not in user_data:
-        log.error('Zonefile is missing a TTL')
-        return {'error': 'Missing $ttl; please supply a positive integer'}
+    # sanity checks on the standard-ness
+    if not nonstandard:
 
-    if not is_user_zonefile(user_data):
-        log.error('Zonefile is non-standard')
-        return {'error': 'Zonefile is missing or has invalid URI and/or TXT records'}
+        if fqu != user_data.get('$origin', ''):
+            log.error('Zonefile is missing or has invalid $origin')
+            nonstandard = True
 
-    try:
-        ttl = int(user_data['$ttl'])
-        assert ttl >= 0
-    except Exception as e:
-        return {'error': 'Invalid $ttl; must be a positive integer'}
+        if '$ttl' not in user_data:
+            log.error('Zonefile is missing a TTL')
+            nonstandard = True
 
-    if check_current and is_zonefile_current(fqu, user_data):
-        msg = 'Zonefile data is same as current zonefile; update not needed.'
-        log.error(msg)
-        return {'error': msg, 'identical': True, 'zonefile': user_zonefile}
+        if not is_user_zonefile(user_data):
+            log.error("Zonefile does not match standard schema")
+            nonstandard = True
 
-    return {'status': True, 'zonefile': user_zonefile}
+        try:
+            ttl = int(user_data['$ttl'])
+            assert ttl >= 0
+        except Exception as e:
+            log.error("Zonefile has an invalid $ttl; must be a positive integer")
+            nonstandard = True
+
+    if check_current:
+        current = False
+        if not nonstandard and user_data is not None:
+            current = is_zonefile_current(fqu, user_data)
+        else:
+            current = is_zonefile_data_current(fqu, zonefile_data)
+
+        if current:
+            log.debug('Zonefile data is same as current zonefile; update not needed.')
+            identical = True
+
+    if user_zonefile is not None and not identical and not nonstandard:
+        return {'status': True, 'zonefile': user_zonefile, 'parsed_zonefile': user_data, 'identical': identical, 'nonstandard': nonstandard}
+
+    elif nonstandard:
+        return {'error': 'nonstandard zonefile', 'identical': identical, 'nonstandard': nonstandard}
+
+    else:
+        return {'error': 'identical zonefile', 'zonefile': user_zonefile, 'parsed_zonefile': user_data, 'identical': identical, 'nonstandard': nonstandard}
 
 
 def get_default_password(password):
     """
     Get the default password
     """
-    return password if password is not None else os.environ.get("BLOCKSTACK_CLIENT_WALLET_PASSWORD", None)
+    return password if password is not None else get_secret("BLOCKSTACK_CLIENT_WALLET_PASSWORD")
 
 
 def get_default_interactive(interactive):
@@ -300,7 +316,7 @@ def cli_setup(args, config_path=CONFIG_PATH, password=None):
     log.debug("Set up config file")
 
     # are we configured?
-    opts = configure(interactive=interactive, force=False, config_file=config_path)
+    opts = config.setup_config(config_path=config_path, interactive=interactive)
     if 'error' in opts:
         return opts
 
@@ -389,6 +405,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
     help: Transfer funds out of the Blockstack wallet to a new address
     arg: address (str) 'The recipient address'
     opt: amount (int) 'The amount to withdraw (defaults to all)'
+    opt: message (str) 'A message to include with the payment (up to 40 bytes)'
     opt: min_confs (int) 'The minimum confirmations for oustanding transactions'
     opt: tx_only (str) 'If "True", only return the transaction'
     """
@@ -399,6 +416,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
 
     recipient_addr = str(args.address)
     amount = getattr(args, 'amount', None)
+    message = getattr(args, 'message', None)
     min_confs = getattr(args, 'min_confs', TX_MIN_CONFIRMATIONS)
     tx_only = getattr(args, 'tx_only', False)
    
@@ -411,6 +429,9 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         else:
             tx_only = False
     
+    else:
+        tx_only = False
+
     else:
         tx_only = False
 
@@ -430,6 +451,10 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         log.debug("tx_only = {}".format(tx_only))
         return {'error': 'Invalid tx_only'}
 
+    if message:
+        message = str(message)
+        if len(message) > virtualchain.bitcoin_blockchain.MAX_DATA_LEN:
+            return {'error': 'Message must be {} bytes or less (got {})'.format(virtualchain.bitcoin_blockchain.MAX_DATA_LEN, len(message))}
 
     res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
@@ -456,29 +481,39 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         Make the transaction with the given fee
         """
         change = 0
+        selected_inputs = []
         if amt is None:
             # total transfer, minus tx fee
+            log.debug("No amount given; assuming all ({})".format(total_value - tx_fee))
             amt = total_value - tx_fee
             if amt < 0:
                 log.error("Dust: total value = {}, tx fee = {}".format(total_value, tx_fee))
                 return {'error': 'Cannot withdraw dust'}
             
+            selected_inputs = select_utxos(inputs, amt)
         else:
-            change = calculate_change_amount(inputs, amt, tx_fee)
-
+            selected_inputs = select_utxos(inputs, amt)
+            change = virtualchain.calculate_change_amount(selected_inputs, amt, tx_fee)
+            log.debug("Withdraw {}, tx fee {}".format(amt, tx_fee))
+            
         outputs = [
-            {'script_hex': virtualchain.make_payment_script(recipient_addr),
+            {'script': virtualchain.make_payment_script(recipient_addr),
              'value': amt},
         ]
 
         if amt < total_value and change > 0:
             # need change and tx fee
             outputs.append( 
-                {'script_hex': virtualchain.make_payment_script(send_addr),
+                {'script': virtualchain.make_payment_script(send_addr),
                   "value": change}
             )
 
-        serialized_tx = serialize_transaction(inputs, outputs)
+        if message:
+            outputs = [
+                {"script": virtualchain.make_data_script(binascii.hexlify(message)),
+                 "value": 0} ] + outputs
+
+        serialized_tx = serialize_tx(selected_inputs, outputs)
         signed_tx = sign_tx(serialized_tx, wallet_keys['payment_privkey'])
         return signed_tx
 
@@ -488,16 +523,82 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
 
     if tx_only:
         return {'status': True, 'tx': tx}
+    
+    log.debug("Withdraw {} from {} to {}".format(amount, send_addr, recipient_addr))
+
+    log.debug("Withdraw {} from {} to {}".format(amount, send_addr, recipient_addr))
 
     res = broadcast_tx( tx, config_path=config_path )
-    return res
-    
+    if 'error' in res:
+        res['errno'] = errno.EIO
 
-def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
+    return res
+
+
+def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_privkey_info, payment_address=None, owner_address=None, transfer_address=None, config_path=CONFIG_PATH, proxy=None ):
+    """
+    Get the price and fees associated with a set of operations, using
+    a given owner and payment key.
+    Returns a dict with each operation as a key, and the prices in BTC and satoshis.
+    Returns {'error': ...} on failure
+    """
+ 
+    # first things first: get fee per byte 
+    tx_fee_per_byte = get_tx_fee_per_byte(config_path=config_path)
+    if tx_fee_per_byte is None:
+        log.error("Unable to calculate fee per byte")
+        return {'error': 'Unable to get fee estimate'}
+
+    log.debug("Get operation fees for {}".format(", ".join(operations)))
+
+    sg = ScatterGather()
+    res = get_operation_fees( name_or_ns, operations, sg, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
+                              proxy=proxy, config_path=config_path, payment_address=payment_address,
+                              owner_address=owner_address, transfer_address=transfer_address )
+
+    if not res:
+        return {'error': 'Failed to get the requisite operation fees'}
+
+    if 'error' in res:
+        return res
+
+    # do queries 
+    sg.run_tasks()
+
+    # get results 
+    fees = interpret_operation_fees(operations, sg)
+    if 'error' in fees:
+        log.error("Failed to get all operation fees: {}".format(fees['error']))
+        return {'error': 'Failed to get some operation fees: {}.  Try again with `--debug` for details.'.format(fees['error'])}
+
+    analytics_event('Name price', {})
+
+    # convert to BTC
+    btc_keys = [
+        'preorder_tx_fee', 'register_tx_fee',
+        'update_tx_fee', 'total_estimated_cost',
+        'name_price', 'transfer_tx_fee', 'renewal_tx_fee',
+        'revoke_tx_fee', 'namespace_preorder_tx_fee',
+        'namespace_reveal_tx_fee', 'namespace_ready_tx_fee',
+        'name_import_tx_fee'
+    ]
+
+    for k in btc_keys:
+        if k in fees.keys():
+            v = {
+                'satoshis': fees[k],
+                'btc': satoshis_to_btc(fees[k])
+            }
+            fees[k] = v
+
+    return fees
+
+
+def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None, interactive=True):
     """
     command: price
     help: Get the price to register a name
-    arg: name (str) 'Name to query'
+    arg: name_or_namespace (str) 'Name or namespace ID to query'
     opt: recipient (str) 'Address of the recipient, if not this wallet.'
     opt: operations (str) 'A CSV of operations to check.'
     """
@@ -505,7 +606,7 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
     proxy = get_default_proxy() if proxy is None else proxy
     password = get_default_password(password)
 
-    fqu = str(args.name)
+    name_or_ns = str(args.name_or_namespace)
     transfer_address = getattr(args, 'recipient', None)
     operations = getattr(args, 'operations', None)
 
@@ -523,10 +624,13 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
     if 'error' in res:
         return res
 
-    error = check_valid_name(fqu)
+    error = check_valid_name(name_or_ns)
     if error:
-        return {'error': error}
-    
+        # must be valid namespace
+        ns_error = check_valid_namespace(name_or_ns)
+        if ns_error:
+            return {'error': 'Neither a valid name or namespace:\n   * {}\n   * {}'.format(error, ns_error)}
+
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
@@ -551,42 +655,25 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
             if BLOCKSTACK_DEBUG is not None:
                 log.exception(e)
 
-            log.debug("Could not get wallet keys from API server")
+            log.error("Could not get wallet keys from API server")
+            return {'error': 'Could not load wallet keys from API server.  Try `blockstack api stop` and `blockstack api start`'}
+    
+    else:
+        # unlock
+        log.warning("API server is not running; unlocking wallet directly")
+        res = load_wallet(password=password, wallet_path=wallet_path, interactive=interactive, include_private=True)
+        if 'error' in res:
+            return res
+        
+        if res['migrated']:
+            return {'error': 'Wallet is in legacy format.  Please migrate it with `setup_wallet`'}
 
-    sg = ScatterGather()
-    res = get_operation_fees( fqu, operations, sg, payment_privkey_info, owner_privkey_info,
-                              proxy=proxy, config_path=config_path, payment_address=payment_address,
-                              owner_address=owner_address, transfer_address=transfer_address )
+        wallet_keys = res['wallet']
+        payment_privkey_info = wallet_keys['payment_privkey']
+        owner_privkey_info = wallet_keys['owner_privkey']
 
-    if not res:
-        return {'error': 'Failed to get the requisite operation fees'}
-
-    # do queries 
-    sg.run_tasks()
-
-    # get results 
-    fees = interpret_operation_fees(operations, sg)
-    if 'error' in fees:
-        log.error("Failed to get all operation fees: {}".format(fees['error']))
-        return {'error': 'Failed to get some operation fees: {}.  Try again with `--debug` for details.'.format(fees['error'])}
-
-    analytics_event('Name price', {})
-
-    # convert to BTC
-    btc_keys = [
-        'preorder_tx_fee', 'register_tx_fee',
-        'update_tx_fee', 'total_estimated_cost',
-        'name_price', 'transfer_tx_fee', 'renewal_tx_fee',
-        'revoke_tx_fee',
-    ]
-
-    for k in btc_keys:
-        if k in fees.keys():
-            v = {
-                'satoshis': fees[k],
-                'btc': satoshis_to_btc(fees[k])
-            }
-            fees[k] = v
+    fees = get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_privkey_info,
+                               payment_address=payment_address, owner_address=owner_address, transfer_address=transfer_address, config_path=config_path, proxy=proxy )
 
     return fees
 
@@ -641,7 +728,7 @@ def cli_import(args, config_path=CONFIG_PATH):
 def cli_names(args, config_path=CONFIG_DIR):
     """
     command: names
-    help: Display the names owned by local addresses
+    help: Display the names owned by the wallet owner key
     """
     result = {}
 
@@ -664,11 +751,11 @@ def cli_get_registrar_info(args, config_path=CONFIG_PATH, queues=None):
     help: Get information about the backend registrar queues
     """
     
-    queues = ['preorder', 'register', 'update', 'transfer', 'renew', 'revoke'] if queues is None else queues
+    queues = ['preorder', 'register', 'update', 'transfer', 'renew', 'revoke', 'name_import'] if queues is None else queues
     config_dir = os.path.dirname(config_path)
     conf = config.get_config(config_path)
     
-    rpc = local_api_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_path=config_path)
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
@@ -680,6 +767,9 @@ def cli_get_registrar_info(args, config_path=CONFIG_PATH, queues=None):
 
         log.error("Failed to contact Blockstack daemon")
         return {'error': 'Failed to contact blockstack daemon.  Please ensure that it is running with the `api` command.'}
+
+    if 'error' in current_state:
+        return current_state
 
     queue_types = dict( [(queue_name, []) for queue_name in queues] )
 
@@ -803,6 +893,8 @@ def get_server_info(config_path=CONFIG_PATH, get_local_info=False):
     queue_info = cli_get_registrar_info(None, config_path=config_path)
     if 'error' not in queue_info:
         result['queues'] = queue_info
+    else:
+        return queue_info
 
     return result
 
@@ -854,15 +946,15 @@ def cli_lookup(args, config_path=CONFIG_PATH):
         return {'error': msg}
 
     try:
-        user_profile, user_zonefile = get_profile(
+        res = get_profile(
             str(args.name), name_record=blockchain_record, include_raw_zonefile=True, use_legacy=True, use_legacy_zonefile=True
         )
 
-        if isinstance(user_zonefile, dict) and 'error' in user_zonefile:
-            return user_zonefile
+        if 'error' in res:
+            return res
 
-        data['profile'] = user_profile
-        data['zonefile'] = user_zonefile['raw_zonefile']
+        data['profile'] = res['profile']
+        data['zonefile'] = res['raw_zonefile']
     except Exception as e:
         log.exception(e)
         msg = 'Failed to look up name\n{}'
@@ -1047,19 +1139,113 @@ def is_valid_path(path):
     if not isinstance(path, str):
         return False
 
-    return '\x00' not in path
+    # while not technically denied by POSIX, paths usually
+    # have only printable characters and without the "weird"
+    # whitespace characters
+    valid_chars = set(string.printable) - set("\t\n\r\x0b\x0c")
+    filtered_string = filter(lambda x: x in valid_chars, path)
+    return filtered_string == path
 
 
-def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
+def analyze_zonefile_string(fqu, zonefile_data, force_data=False, check_current=True, proxy=None):
+    """
+    Figure out what to do with a zone file data string, based on whether or not
+    we can prompt the user and whether or not we expect a standard zonefile.
+
+    if @force_data is True, then the zonefile_data will be treated as raw data.
+    Otherwise, it will be considered to be a path
+
+    Returns: {
+        'is_string': True/False # whether or not the zone file string is a raw zone file
+        'is_path': True/False   # whether or not the zone file string is a path to a file on disk
+        'downloaded': True/False    # whether or not the zone file was fetched remotely
+        'identical': True/False     # whether or not the zone file is identical to the name's current zone file
+        'nonstandard': True/False   # whether or not the zone file follows the standard format
+        'raw_zonefile': str     # the raw zone file data. will be equal to zonefile_data if it is not None
+        'zonefile': dict        # the parsed standard zone file (or None if nonstandard)
+        'zonefile_str': str     # the serialized zone file data.  Will be equal to 'raw_zonefile' if nonstandard; otherwise is equal to serialized zonefile if standard
+    }
+
+    Return {'error': ...} on error
+    """
+
+    ret = {}
+   
+    zonefile_data_exists_on_disk = zonefile_data is not None and is_valid_path(zonefile_data) and os.path.exists(zonefile_data)
+
+    if zonefile_data is None:
+        # fetch remotely
+        zonefile_data_res = get_name_zonefile(
+            fqu, proxy=proxy, raw_zonefile=True
+        )
+        if 'error' not in zonefile_data_res:
+            zonefile_data = zonefile_data_res['zonefile']
+        else:
+            log.warning('Failed to fetch zonefile: {}'.format(zonefile_data_res['error']))
+
+        # zone file is not given; we had to fetch it
+        ret['downloaded'] = True
+        ret['raw_zonefile'] = zonefile_data
+        ret['is_path'] = False
+        ret['is_string'] = False
+
+    elif zonefile_data_exists_on_disk and not force_data:
+        # this sure looks like a path
+        try:
+            with open(zonefile_data) as f:
+                zonefile_data = f.read()
+        except:
+            raise Exception("Invalid arguments: failed to read file")
+        
+        # loaded from path
+        ret['downloaded'] = False
+        ret['raw_zonefile'] = zonefile_data
+        ret['is_path'] = True
+        ret['is_string'] = False
+    
+    elif force_data:
+        # string given
+        ret['downloaded'] = False
+        ret['raw_zonefile'] = zonefile_data
+        ret['is_path'] = False
+        ret['is_string'] = True
+
+    else:
+        if force_data:
+            return {'error': 'Invalid argument: no data given'}
+        else:
+            return {'error': 'Invalid argument: no such file or directory: {}'.format(zonefile_data)}
+
+    # load zonefile, if given
+    user_data_res = load_zonefile_from_string(fqu, zonefile_data, check_current=check_current)
+
+    # propagate identical and nonstandard...
+    ret['identical'] = user_data_res['identical'] 
+    ret['nonstandard'] = user_data_res['nonstandard']
+
+    if user_data_res.has_key('zonefile'):
+        ret['zonefile'] = user_data_res['zonefile']
+
+    if user_data_res.has_key('parsed_zonefile'):
+        ret['zonefile_str'] = blockstack_zones.make_zone_file(user_data_res['parsed_zonefile'])
+    else:
+        ret['zonefile_str'] = ret['raw_zonefile']
+
+    return ret
+
+
+def cli_register(args, config_path=CONFIG_PATH, force_data=False,
                  cost_satoshis=None, interactive=True, password=None, proxy=None):
     """
     command: register
-    help: Register a name
-    arg: name (str) 'The name to register'
-    opt: zonefile (str) 'The raw zone file to give this name (or a path to one)'
+    help: Register a blockchain ID
+    arg: name (str) 'The blockchain ID to register'
+    opt: zonefile (str) 'The path to the zone file for this name'
     opt: recipient (str) 'The recipient address, if not this wallet'
     opt: min_confs (int) 'The minimum number of confirmations on the initial preorder'
     """
+
+    # NOTE: if force_data == True, then the zonefile will be the zonefile text itself, not a path.
 
     config_dir = os.path.dirname(config_path)
     if not local_api_status(config_dir=config_dir):
@@ -1082,33 +1268,34 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
     transfer_address = getattr(args, 'recipient', None)
     min_payment_confs = getattr(args, 'min_confs', TX_MIN_CONFIRMATIONS)
 
+    # name must be well-formed
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+
     if min_payment_confs is None:
         min_payment_confs = TX_MIN_CONFIRMATIONS
+    else:
+        log.debug("Use UTXOs with a minimum of {} confirmations".format(min_payment_confs))
 
     if transfer_address:
         if not re.match(OP_BASE58CHECK_PATTERN, transfer_address):
             return {'error': 'Not a valid address'}
 
     if user_zonefile:
-        # is this a path?
-        zonefile_data_exists = (is_valid_path(user_zonefile) and os.path.exists(user_zonefile) and not force_data)
-        if zonefile_data_exists:
-            try:
-                with open(zonefile_data) as f:
-                    user_zonefile = f.read()
-            except:
-                return {'error': 'Failed to read "{}"'.format(zonefile_data)}
-        
-        # is this valid zonefile data?
-        try:
-            zf = blockstack_zones.parse_zone_file(user_zonefile)
-            assert zf
-        except:
+        zonefile_info = analyze_zonefile_string(fqu, user_zonefile, force_data=force_data, proxy=proxy)
+        if 'error' in zonefile_info:
+            log.error("Failed to analyze user zonefile: {}".format(zonefile_info['error']))
+            return {'error': zonefile_info['error']}
+
+        if zonefile_info.get('nonstandard'):
             log.warning("Non-standard zone file")
             if interactive:
                 proceed = prompt_invalid_zonefile()
                 if not proceed:
                     return {'error': 'Non-standard zone file'}
+
+        user_zonefile = zonefile_info['zonefile_str']
     
     else:
         # make a default zonefile
@@ -1128,11 +1315,6 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
             return {'error': 'No data key in wallet.  Please add one with `setup_wallet`'}
 
         user_profile = make_empty_user_profile()
-
-    # name must be well-formed
-    error = check_valid_name(fqu)
-    if error:
-        return {'error': error}
 
     # operation checks (API server only)
     if local_rpc.is_api_server(config_dir=config_dir):
@@ -1158,16 +1340,12 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
 
         opchecks = res['opchecks']
 
-        if tx_fee is None:
-            tx_fee = opchecks['preorder_tx_fee']
-        
         if cost_satoshis is not None:
             if opchecks['name_price'] > cost_satoshis:
                 return {'error': 'Invalid cost: expected {}, got {}'.format(opchecks['name_price'], cost_satoshis)}
 
         else:
             cost_satoshis = opchecks['name_price']
-
 
     if interactive and os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
         try:
@@ -1178,7 +1356,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
                 pass
 
             price_args = PriceArgs()
-            price_args.name = fqu
+            price_args.name_or_namespace = fqu
             price_args.recipient = transfer_address
 
             costs = cli_price( price_args, config_path=config_path, password=password, proxy=proxy )
@@ -1209,12 +1387,12 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
             exit(0)
 
     # forward along to RESTful server (or if we're the RESTful server, call the registrar method)
-    log.debug("Preorder {}, zonefile={}, profile={}, recipient={} min_confs={} tx_fee={}".format(fqu, user_zonefile, user_profile, transfer_address, min_payment_confs, tx_fee))
-    rpc = local_api_connect(config_dir=config_dir)
+    log.debug("Preorder {}, zonefile={}, profile={}, recipient={} min_confs={}".format(fqu, user_zonefile, user_profile, transfer_address, min_payment_confs))
+    rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     try:
-        resp = rpc.backend_preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs, tx_fee )
+        resp = rpc.backend_preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1235,18 +1413,21 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, tx_fee=None,
 
     return result
 
+    
 
 def cli_update(args, config_path=CONFIG_PATH, password=None,
                interactive=True, proxy=None, nonstandard=False,
-               force_data=False, tx_fee=None):
+               force_data=False):
 
     """
     command: update
-    help: Set the zone file for a name
-    arg: name (str) 'The name to update'
-    opt: data (str) 'A zone file string, or a path to a file with the data.'
-    opt: nonstandard (str) 'If true, then do not validate or parse the zonefile.'
+    help: Set the zone file for a blockchain ID
+    arg: name (str) 'The name to update.'
+    opt: data (str) 'A path to a file with the zone file data.'
+    opt: nonstandard (str) 'If true, then do not validate or parse the zone file.'
     """
+
+    # NOTE: if force_data == True, then the zonefile will be the zonefile text itself, not a path.
 
     config_dir = os.path.dirname(config_path)
     if not local_api_status(config_dir=config_dir):
@@ -1257,7 +1438,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
     proxy = get_default_proxy() if proxy is None else proxy
     password = get_default_password(password)
-
+    
     if hasattr(args, 'nonstandard') and not nonstandard:
         if args.nonstandard is not None and args.nonstandard.lower() in ['yes', '1', 'true']:
             nonstandard = True
@@ -1270,15 +1451,14 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         return res
 
     fqu = str(args.name)
-    
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
 
-    zonefile_data = None
+    zonefile_data_path_or_string = None
     downloaded = False
     if getattr(args, 'data', None) is not None:
-        zonefile_data = str(args.data)
+        zonefile_data_path_or_string = str(args.data)
  
     if not local_rpc.is_api_server(config_dir=config_dir):
         # verify that we own the name before trying to edit its zonefile
@@ -1292,41 +1472,26 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         if fqu not in res:
             return {'error': 'This wallet does not own this name'}
 
-    # is this a path?
-    zonefile_data_exists = is_valid_path(zonefile_data) and os.path.exists(zonefile_data) and not force_data
-    if zonefile_data is not None and zonefile_data_exists:
-        try:
-            with open(zonefile_data) as f:
-                zonefile_data = f.read()
-        except:
-            return {'error': 'Failed to read "{}"'.format(zonefile_data)}
+    zonefile_info = analyze_zonefile_string(fqu, zonefile_data_path_or_string, force_data=force_data, proxy=proxy)
+    if 'error' in zonefile_info:
+        log.error("Failed to analyze zone file: {}".format(zonefile_info['error']))
+        return {'error': zonefile_info['error']}
 
-    # fetch remotely?
-    if zonefile_data is None:
-        zonefile_data_res = get_name_zonefile(
-            fqu, proxy=proxy, raw_zonefile=True
-        )
-        if 'error' not in zonefile_data_res:
-            zonefile_data = zonefile_data_res['zonefile']
-        else:
-            log.warning('Failed to fetch zonefile: {}'.format(zonefile_data_res['error']))
-
-        downloaded = True
+    if zonefile_info['identical'] and not zonefile_info['downloaded']:
+        log.error("Zone file has not changed")
+        return {'error': 'Zone file matches the current name hash; not updating'}
 
     # load zonefile, if given
     user_data_txt, user_data_hash, user_zonefile_dict = None, None, {}
+    zonefile_data = zonefile_info['zonefile_str']
 
-    user_data_res = load_zonefile_from_string(fqu, zonefile_data)
-    if 'error' not in user_data_res or ('identical' in user_data_res and downloaded):
-        user_data_txt = user_data_res['zonefile']
-        user_data_hash = storage.get_zonefile_data_hash(user_data_res['zonefile'])
-        user_zonefile_dict = blockstack_zones.parse_zone_file(user_data_res['zonefile'])
+    if not zonefile_info['nonstandard'] and (not zonefile_info['identical'] or zonefile_info['downloaded']):
+        # standard zone file that is not identital to what we have now, or standard zonefile that we downloaded and wish to edit
+        user_data_txt = zonefile_data
+        user_data_hash = get_zonefile_data_hash(zonefile_data)
+        user_zonefile_dict = blockstack_zones.parse_zone_file(zonefile_data)
 
     else:
-        if 'identical' in user_data_res:
-            # given the same zonefile on the CLI
-            return {'error': 'Zonefile matches the current name hash; not updating.'}
-        
         if not interactive:
             if zonefile_data is None or nonstandard:
                 log.warning('Using non-zonefile data')
@@ -1334,17 +1499,19 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
             else:
                 return {'error': 'Zone file not updated (invalid)'}
 
-        # not a well-formed zonefile (but maybe that's okay! ask the user)
+        # not a standard zonefile (but maybe that's okay! ask the user)
         if zonefile_data is not None and interactive:
             # something invalid here.  prompt overwrite
             proceed = prompt_invalid_zonefile()
             if not proceed:
-                msg = 'Zone file not updated (reason: {})'
-                return {'error': msg.format(user_data_res['error'])}
+                return {'error': 'Zone file not updated'}
+
+            else:
+                nonstandard = True
 
         user_data_txt = zonefile_data
         if zonefile_data is not None:
-            user_data_hash = storage.get_zonefile_data_hash(zonefile_data)
+            user_data_hash = get_zonefile_data_hash(zonefile_data)
 
 
     # open the zonefile editor
@@ -1354,6 +1521,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         return {'error': 'No data public key set in the wallet.  Please use `blockstack setup_wallet` to fix this.'}
 
     if interactive and not nonstandard:
+        # configuration wizard!
         if user_zonefile_dict is None:
             user_zonefile_dict = make_empty_zonefile(fqu, data_pubkey)
 
@@ -1367,16 +1535,16 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
         user_zonefile_dict = new_zonefile
         user_data_txt = blockstack_zones.make_zone_file(user_zonefile_dict)
-        user_data_hash = storage.get_zonefile_data_hash(user_data_txt)
+        user_data_hash = get_zonefile_data_hash(user_data_txt)
 
     # forward along to RESTful server (or registrar)
-    log.debug("Update {}, zonefile={}, zonefile_hash={} tx_fee={}".format(fqu, user_data_txt, user_data_hash, tx_fee))
-    rpc = local_api_connect(config_dir=config_dir)
+    log.debug("Update {}, zonefile={}, zonefile_hash={}".format(fqu, user_data_txt, user_data_hash))
+    rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     try:
         # NOTE: already did safety checks
-        resp = rpc.backend_update(fqu, user_data_txt, None, None, tx_fee )
+        resp = rpc.backend_update(fqu, user_data_txt, None, None )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1394,12 +1562,12 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     return resp
 
 
-def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False, proxy=None, tx_fee=None):
+def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False, proxy=None):
     """
     command: transfer
-    help: Transfer a name to a new address
+    help: Transfer a blockchain ID to a new owner
     arg: name (str) 'The name to transfer'
-    arg: address (str) 'The address to receive the name'
+    arg: address (str) 'The address (base58check-encoded pubkey hash) to receive the name'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1428,11 +1596,11 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
             return {'error': 'Transfer cancelled.'}
 
     # do the name transfer via the RESTful server (or registrar)
-    rpc = local_api_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     try:
-        resp = rpc.backend_transfer(fqu, transfer_address, tx_fee )
+        resp = rpc.backend_transfer(fqu, transfer_address)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1449,11 +1617,11 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     return resp
 
 
-def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None, cost_satoshis=None, tx_fee=None):
+def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None, cost_satoshis=None):
     """
     command: renew
-    help: Renew a name
-    arg: name (str) 'The name to renew'
+    help: Renew a blockchain ID
+    arg: name (str) 'The blockchain ID to renew'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1486,7 +1654,7 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
         pass
 
     price_args = PriceArgs()
-    price_args.name = fqu
+    price_args.name_or_namespace = fqu
     price_args.operations = 'renewal'
 
     costs = cli_price( price_args, config_path=config_path, password=password, proxy=proxy )
@@ -1497,9 +1665,6 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
 
     if cost_satoshis is None:
         cost_satoshis = costs['name_price']['satoshis']
-    
-    if tx_fee is None:
-        tx_fee = costs['renewal_tx_fee']['satoshis']
     
     if not local_rpc.is_api_server(config_dir=config_dir):
         # also verify that we own the name
@@ -1538,12 +1703,12 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
             exit(0)
 
     
-    rpc = local_api_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     log.debug("Renew {} for {} BTC".format(fqu, cost_satoshis))
     try:
-        resp = rpc.backend_renew(fqu, cost_satoshis, tx_fee )
+        resp = rpc.backend_renew(fqu, cost_satoshis)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1562,11 +1727,11 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     return resp
 
 
-def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None, tx_fee=None):
+def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None):
     """
     command: revoke
-    help: Revoke a name
-    arg: name (str) 'The name to revoke'
+    help: Revoke a blockchain ID
+    arg: name (str) 'The blockchain ID to revoke'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1610,13 +1775,13 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
             print('\nExiting.')
             exit(0)
 
-    rpc = local_api_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     log.debug("Revoke {}".format(fqu))
 
     try:
-        resp = rpc.backend_revoke(fqu, tx_fee)
+        resp = rpc.backend_revoke(fqu)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1633,11 +1798,11 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
 
 
 def cli_migrate(args, config_path=CONFIG_PATH, password=None,
-                proxy=None, interactive=True, force=False, tx_fee=None):
+                proxy=None, interactive=True, force=False):
     """
     command: migrate
-    help: Migrate a name-linked profile to the latest zonefile and profile format
-    arg: name (str) 'The name to migrate'
+    help: Migrate a legacy blockchain-linked profile to the latest zonefile and profile format
+    arg: name (str) 'The blockchain ID with the profile to migrate'
     opt: force (str) 'Reset the zone file no matter what.'
     """
 
@@ -1679,7 +1844,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     if 'error' not in res:
         name_rec = res['name_record']
         user_zonefile_txt = res['zonefile']
-        user_zonefile_hash = storage.get_zonefile_data_hash(user_zonefile_txt)
+        user_zonefile_hash = get_zonefile_data_hash(user_zonefile_txt)
         user_zonefile = None
         legacy = False
         nonstandard = False
@@ -1738,13 +1903,13 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
         return {'error': res['error']}
 
     zonefile_txt = blockstack_zones.make_zone_file(user_zonefile)
-    zonefile_hash = storage.get_zonefile_data_hash(zonefile_txt) 
+    zonefile_hash = get_zonefile_data_hash(zonefile_txt) 
 
-    rpc = local_api_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     try:
-        resp = rpc.backend_update(fqu, zonefile_txt, user_profile, None, tx_fee)
+        resp = rpc.backend_update(fqu, zonefile_txt, user_profile, None)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1838,6 +2003,29 @@ def cli_setup_wallet(args, config_path=CONFIG_PATH, password=None, interactive=T
     return ret
 
 
+def cli_get_public_key(args, config_path=CONFIG_PATH, proxy=None):
+    """
+    command: get_public_key
+    help: Get the ECDSA public key for a blockchain ID
+    arg: name (str) 'The blockchain ID'
+    """
+    # reply ENODATA if we can't load the zone file
+    # reply EINVAL if we can't parse the zone file
+
+    fqu = str(args.name)
+    zfinfo = get_name_zonefile(fqu, proxy=proxy)
+    if 'error' in zfinfo:
+        log.error("unable to load zone file for {}: {}".format(fqu, zfinfo['error']))
+        return {'error': 'unable to load or parse zone file for {}'.format(fqu), 'errno': errno.ENODATA}
+   
+    if not user_zonefile_data_pubkey(zfinfo['zonefile']):
+        log.error("zone file for {} has no public key".format(fqu))
+        return {'error': 'zone file for {} has no public key'.format(fqu), 'errno': errno.EINVAL}
+
+    zfpubkey = keylib.key_formatting.decompress(user_zonefile_data_pubkey(zfinfo['zonefile']))
+    return {'public_key': zfpubkey}
+
+
 def cli_set_advanced_mode(args, config_path=CONFIG_PATH):
     """
     command: set_advanced_mode
@@ -1854,77 +2042,6 @@ def cli_set_advanced_mode(args, config_path=CONFIG_PATH):
     return {'status': True}
 
 
-def _get_person_profile(name, proxy=None):
-    """
-    Get the person's zonefile and profile.
-    Handle legacy zonefiles, but not legacy profiles.
-    Return {'profile': ..., 'zonefile': ..., 'person': ...} on success
-    Return {'error': ...} on error
-    """
-
-    profile, zonefile = get_profile(name, proxy=proxy, use_legacy_zonefile=True)
-    if 'error' in zonefile:
-        return {'error': 'Failed to load zonefile: {}'.format(zonefile['error'])}
-
-    if blockstack_profiles.is_profile_in_legacy_format(profile):
-        return {'error': 'Legacy profile'}
-
-    person = None
-    try:
-        person = blockstack_profiles.Person(profile)
-    except Exception as e:
-        log.exception(e)
-        return {'error': 'Failed to parse profile data into a Person record'}
-    
-    return {'profile': profile, 'zonefile': zonefile, 'person': person}
-
-
-def _save_person_profile(name, zonefile, profile, wallet_keys, blockchain_id=None, proxy=None, config_path=CONFIG_PATH):
-    """
-    Save a person's profile, given information fetched with _get_person_profile
-    Return {'status': True} on success
-    Return {'error': ...} on error
-    """
-    conf = config.get_config(config_path)
-    assert conf
-
-    required_storage_drivers = conf.get(
-        'storage_drivers_required_write',
-        config.BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE
-    )
-    required_storage_drivers = required_storage_drivers.split()
-
-    res = put_profile(name, profile, user_zonefile=zonefile,
-                       wallet_keys=wallet_keys, proxy=proxy,
-                       required_drivers=required_storage_drivers, blockchain_id=name,
-                       config_path=config_path )
-
-    return res
-
-
-def _list_accounts(name, proxy=None):
-    """
-    Get the list of accounts in a name's Person-formatted profile.
-    Return {'accounts': ...} on success
-    Return {'error': ...} on error
-    """
-
-    name_info = _get_person_profile(name, proxy=proxy)
-    if 'error' in name_info:
-        return name_info
-
-    profile = name_info.pop('profile')
-    zonefile = name_info.pop('zonefile')
-    person = name_info.pop('person')
-
-    accounts = []
-    if hasattr(person, 'account'):
-        accounts = person.account
-
-    return {'accounts': accounts}
-
-
-# TODO: consider deprecating for 0.15
 def cli_list_accounts( args, proxy=None, config_path=CONFIG_PATH ):
     """
     command: list_accounts advanced
@@ -1936,14 +2053,13 @@ def cli_list_accounts( args, proxy=None, config_path=CONFIG_PATH ):
         proxy = get_default_proxy(config_path=config_path)
     
     name = str(args.name)
-    account_info = _list_accounts(name, proxy=proxy )
+    account_info = profile_list_accounts(name, proxy=proxy )
     if 'error' in account_info:
         return account_info
 
     return account_info['accounts']
 
 
-# TODO: consider deprecating for 0.15
 def cli_get_account( args, proxy=None, config_path=CONFIG_PATH ):
     """
     command: get_account advanced
@@ -1960,22 +2076,13 @@ def cli_get_account( args, proxy=None, config_path=CONFIG_PATH ):
     service = str(args.service)
     identifier = str(args.identifier)
 
-    account_info = _list_accounts(name, proxy=proxy )
-    if 'error' in account_info:
-        return account_info
+    res = profile_get_account(name, service, identifier, config_path=config_path, proxy=proxy)
+    if 'error' in res:
+        return {'error': res['error']}
 
-    accounts = account_info['accounts']
-    for account in accounts:
-        if not account.has_key('service') or not account.has_key('identifier'):
-            continue
-
-        if account['service'] == service and account['identifier'] == identifier:
-            return account
-
-    return {'error': 'No such account'}
+    return res['account']
 
 
-# TODO: consider deprecating for 0.15
 def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None ):
     """
     command: put_account advanced
@@ -2024,44 +2131,9 @@ def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, w
                 v = "=".join(parts[1:])
                 extra_data[k] = v
 
-    person_info = _get_person_profile(name, proxy=proxy)
-    if 'error' in person_info:
-        return person_info
-
-    # make data
-    new_account = {
-        'service': service,
-        'identifier': identifier,
-        'contentUrl': content_url,
-    }
-    new_account.update(extra_data)
-
-    zonefile = person_info.pop('zonefile')
-    profile = person_info.pop('profile')
-    if not profile.has_key('account'):
-        profile['account'] = []
-
-    # overwrite existing, if given 
-    replaced = False
-    for i in xrange(0, len(profile['account'])):
-        account = profile['account'][i]
-        if not account.has_key('service') or not account.has_key('identifier'):
-            continue
-
-        if account['service'] == service and account['identifier'] == identifier:
-            profile['account'][i] = new_account
-            replaced = True
-            break
-
-    if not replaced:
-        profile['account'].append(new_account)
-
-    # save
-    result = _save_person_profile(name, zonefile, profile, wallet_keys, blockchain_id=name, proxy=proxy, config_path=config_path)
-    return result
+    return profile_put_account(name, service, identifier, content_url, extra_data, wallet_keys, config_path=config_path, proxy=proxy)
 
 
-# TODO: consider deprecating for 0.15
 def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None ):
     """
     command: delete_account advanced
@@ -2089,32 +2161,7 @@ def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None
     if len(args.service) == 0 or len(args.identifier) == 0:
         return {'error': 'Invalid data'}
 
-    person_info = _get_person_profile(name, proxy=proxy)
-    if 'error' in person_info:
-        return person_info
-
-    zonefile = person_info['zonefile']
-    profile = person_info['profile']
-    if not profile.has_key('account'):
-        # nothing to do
-        return {'error': 'No such account'}
-
-    found = False
-    for i in xrange(0, len(profile['account'])):
-        account = profile['account'][i]
-        if not account.has_key('service') or not account.has_key('identifier'):
-            continue
-
-        if account['service'] == service and account['identifier'] == identifier:
-            profile['account'].pop(i)
-            found = True
-            break
-
-    if not found:
-        return {'error': 'No such account'}
-
-    result = _save_person_profile(name, zonefile, profile, wallet_keys, blockchain_id=name, proxy=proxy, config_path=config_path)
-    return result
+    return profile_delete_account(name, service, identifier, config_path=config_path, proxy=proxy)
 
 
 def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False):
@@ -2208,7 +2255,7 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
 
     # make absolutely certain that these are valid keys or multisig key strings
     try:
-        owner_privkey_info = virtualchain.BitcoinPrivateKey(str(args.owner_privkey)).to_hex()
+        owner_privkey_info = ecdsa_private_key(str(args.owner_privkey)).to_hex()
     except:
         log.debug("Owner private key string is not a valid Bitcoin private key")
         owner_privkey_info = parse_multisig_csv(args.owner_privkey)
@@ -2216,7 +2263,7 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
             return owner_privkey_info
 
     try:
-        payment_privkey_info = virtualchain.BitcoinPrivateKey(str(args.payment_privkey)).to_hex()
+        payment_privkey_info = ecdsa_private_key(str(args.payment_privkey)).to_hex()
     except:
         log.debug("Payment private key string is not a valid Bitcoin private key")
         payment_privkey_info = parse_multisig_csv(args.payment_privkey)
@@ -2224,7 +2271,7 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
             return payment_privkey_info
 
     try:
-        data_privkey_info = virtualchain.BitcoinPrivateKey(str(args.data_privkey)).to_hex()
+        data_privkey_info = ecdsa_private_key(str(args.data_privkey)).to_hex()
     except:
         log.error("Only single private keys are supported for data at this time")
         return {'error': 'Invalid data private key'}
@@ -2243,16 +2290,15 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
         return {'status': True}
 
     # load into RPC daemon, if it is running
-    rpc = local_api_connect(config_dir=config_dir)
+    rpc = local_api_connect(config_path=config_path)
     if rpc is None:
         log.error("Failed to connect to API endpoint. Trying to shut it down...")
-        rc = local_rpc.local_api_action('stop', config_dir=config_dir)
-        if not rc:
+        res = local_rpc.local_api_action('stop', config_dir=config_dir)
+        if 'error' in res:
             log.error("Failed to stop API daemon")
-            return {'error': 'Failed to load wallet into API endpoint: failed to stop endpoint'}
+            return res
 
-        else:
-            return {'error': 'Failed to load wallet into API endpoint: failed to connect to endpoint'}
+        return {'status': True}
 
     try:
         wallet = decrypt_wallet(data, password, config_path=config_path)
@@ -2410,9 +2456,9 @@ def cli_consensus(args, config_path=CONFIG_PATH):
 
 def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
     """
-    command: api
+    command: api 
     help: Control the RESTful API endpoint
-    arg: command (str) '"start", "stop", or "status"'
+    arg: command (str) '"start", "start-foreground", "stop", or "status"'
     opt: wallet_password (str) 'The wallet password. Will prompt if required.'
     """
 
@@ -2422,7 +2468,7 @@ def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
 
     command = str(args.command)
     password = get_default_password(password)
-    if password is None and command == 'start':
+    if password is None and command in ['start', 'start-foreground']:
         password = getattr(args, 'wallet_password', None)
         if password is None:
             if not interactive:
@@ -2430,10 +2476,13 @@ def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
 
             password = prompt_wallet_password()
 
+    if password:
+        set_secret("BLOCKSTACK_CLIENT_WALLET_PASSWORD", password)
+
     api_pass = getattr(args, 'api_pass', None)
     if api_pass is None:
         # environment?
-        api_pass = os.environ.get('BLOCKSTACK_API_PASSWORD', None)
+        api_pass = get_secret('BLOCKSTACK_API_PASSWORD')
         
         if api_pass is None:
             # config file?
@@ -2441,6 +2490,7 @@ def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
             assert conf
 
             api_pass = conf.get('api_password', None)
+            set_secret("BLOCKSTACK_API_PASSWORD", api_pass)
 
     if api_pass is None:
         return {'error': 'Need --api-password on the CLI, or `api_password=` set in your config file ({})'.format(config_path)}
@@ -2449,167 +2499,793 @@ def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
     if str(args.command) == 'start' and not wallet_exists(config_path=config_path):
         return {'error': 'Wallet does not exist.  Please create one with `blockstack setup`'}
 
-    rc = local_rpc.local_api_action(str(args.command), config_dir=config_dir, password=password, api_pass=api_pass)
-    if not rc:
-        return {'error': 'Failed to {} API server'.format(args.command)}
-
-    return {'status': True}
+    res = local_rpc.local_api_action(str(args.command), config_dir=config_dir, password=password, api_pass=api_pass)
+    return res
 
 
-def cli_name_import(args, config_path=CONFIG_PATH):
+def cli_name_import(args, interactive=True, config_path=CONFIG_PATH, proxy=None):
     """
     command: name_import advanced
-    help: Import a name to a revealed but not-yet-readied namespace
+    help: Import a name to a revealed but not-yet-launched namespace
     arg: name (str) 'The name to import'
     arg: address (str) 'The address of the name recipient'
-    arg: hash (str) 'The zonefile hash of the name'
-    arg: privatekey (str) 'One of the private keys of the namespace revealer'
+    arg: zonefile (str) 'The path to the zone file'
+    arg: privatekey (str) 'An unhardened child private key derived from the namespace reveal key'
     """
-    # BROKEN
-    result = name_import(
-        str(args.name), str(args.address),
-        str(args.hash), str(args.privatekey)
-    )
 
-    return result
+    import blockstack
+
+    proxy = get_default_proxy() if proxy is None else proxy
+    config_dir = os.path.dirname(config_path)
+    conf = config.get_config(config_path)
+    assert conf
+    assert 'queue_path' in conf
+    queue_path = conf['queue_path']
+
+    # NOTE: we only need this for the queues.  This command is otherwise not accessible from the RESTful API,
+    if not local_api_status(config_dir=config_dir):
+        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
+
+    name = str(args.name)
+    address = virtualchain.address_reencode( str(args.address) )
+    zonefile_path = str(args.zonefile_path)
+    privkey = str(args.privatekey)
+
+    try:
+        privkey = ecdsa_private_key(privkey).to_hex()
+    except:
+        return {'error': 'Invalid private key'}
+
+    if not re.match(OP_BASE58CHECK_PATTERN, address):
+        return {'error': 'Invalid address'}
+
+    if not os.path.exists(zonefile_path):
+        return {'error': 'No such file or directory: {}'.format(zonefile_path)}
+
+    zonefile_data = None
+    try:
+        with open(zonefile_path) as f:
+            zonefile_data = f.read()
+
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        return {'error': 'Failed to load {}'.format(zonefile_path)}
+
+    zonefile_info = analyze_zonefile_string(name, zonefile_data, force_data=True, check_current=False, proxy=proxy)
+    if 'error' in zonefile_info:
+        log.error("Failed to analyze zone file: {}".format(zonefile_info['error']))
+        return {'error': zonefile_info['error']}
+
+    if zonefile_info['nonstandard']:
+        if interactive:
+            proceed = prompt_invalid_zonefile()
+            if not proceed:
+                return {'error': 'Aborting name import on invalid zone file'}
+
+        else:
+            log.warning("Using nonstandard zone file data")
+
+    zonefile_data = zonefile_info['zonefile_str']
+    zonefile_hash = get_zonefile_data_hash(zonefile_data)
+
+    if interactive:
+        fees = get_price_and_fees(name, ['name_import'], privkey, privkey, config_path=config_path, proxy=proxy)
+        if 'error' in fees:
+            return fees
+
+        print("Import cost breakdown:\n{}".format(json.dumps(fees, indent=4, sort_keys=True)))
+        print("Importing name '{}' to be owned by '{}' with zone file hash '{}'".format(name, address, zonefile_hash))
+        proceed = raw_input("Proceed? (y/N) ")
+        if proceed.lower() != 'y':
+            return {'error': 'Name import aborted'}
+
+    utxo_client = get_utxo_provider_client(config_path=config_path)
+    tx_broadcaster = get_tx_broadcaster(config_path=config_path)
+    res = do_name_import(name, privkey, address, zonefile_hash, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
+    if 'error' in res:
+        return res
+
+    # success! enqueue to back-end
+    queue_append("name_import", name, res['transaction_hash'], zonefile_data=zonefile_data, zonefile_hash=zonefile_hash, owner_address=address, config_path=config_path, path=queue_path)
+
+    res['value_hash'] = zonefile_hash
+    return res
 
 
-def cli_namespace_preorder(args, config_path=CONFIG_PATH):
+def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, proxy=None):
     """
     command: namespace_preorder advanced
     help: Preorder a namespace
     arg: namespace_id (str) 'The namespace ID'
-    arg: privatekey (str) 'The private key to send and pay for the preorder'
-    opt: reveal_addr (str) 'The address of the keypair that will import names (automatically generated if not given)'
+    arg: payment_privkey (str) 'The private key to pay for the namespace'
+    arg: reveal_privkey (str) 'The private key that will import names'
     """
 
+    import blockstack
+
+    # NOTE: this does *not* go through the API.
+    # exposing this through the API is dangerous.
+    proxy = get_default_proxy() if proxy is None else proxy
+
     config_dir = os.path.dirname(config_path)
-    if not local_api_status(config_dir=config_dir):
-        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
-
-    # BROKEN
+    nsid = str(args.namespace_id)
+    ns_privkey = str(args.payment_privkey)
+    ns_reveal_privkey = str(args.reveal_privkey)
     reveal_addr = None
-    if args.address is not None:
-        reveal_addr = str(args.address)
+   
+    try:
+        ns_privkey = keylib.ECPrivateKey(ns_privkey).to_hex()
+        ns_reveal_privkey = keylib.ECPrivateKey(ns_reveal_privkey).to_hex()
 
-    result = namespace_preorder(
-        str(args.namespace_id),
-        str(args.privatekey),
-        reveal_addr=reveal_addr
-    )
+        # force compresssed 
+        ns_privkey = set_privkey_compressed(ns_privkey, compressed=True)
+        ns_reveal_privkey = set_privkey_compressed(ns_reveal_privkey, compressed=True)
 
-    return result
+        keylib.ECPrivateKey(ns_privkey)
+        reveal_addr = virtualchain.get_privkey_address(ns_reveal_privkey)
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        return {'error': 'Invalid namespace private key'}
+    
+    print("Calculating fees...")
+    fees = get_price_and_fees(nsid, ['namespace_preorder', 'namespace_reveal', 'namespace_ready'], ns_privkey, ns_reveal_privkey, config_path=config_path, proxy=proxy )
+    if 'error' in fees or 'warnings' in fees:
+        return fees
+
+    msg = "".join([
+        "\n",
+        "IMPORTANT:  PLEASE READ THESE INSTRUCTIONS CAREFULLY\n",
+        "\n",
+        "You are about to preorder the namespace '{}'.  It will cost about {} BTC ({} satoshi).\n".format(nsid, fees['total_estimated_cost']['btc'], fees['total_estimated_cost']['satoshis']),
+        'The address {} will be used to pay the fee'.format(virtualchain.get_privkey_address(ns_privkey)),
+        'The address {} will be used to reveal the namespace.'.format(reveal_addr),
+        'MAKE SURE YOU KEEP THE PRIVATE KEYS FOR BOTH ADDRESSES\n',
+        "\n",
+        "Before you preorder this namespace, there are some things you should know.\n".format(nsid),
+        "\n",
+        "* Once you preorder the namespace, you will need to reveal it within 144 blocks (about 24 hours).\n",
+        "  If you do not do so, then the namespace fee is LOST FOREVER and someone else can preorder it.\n",
+        "  In addition, there is a very small (but non-zero) chance that someone else can preorder and reveal\n",
+        "  the same namespace at the same time as you are.  If this happens, your namespace fee is LOST FOREVER as well.\n",
+        "\n",
+        "  The command to reveal the namespace is `blockstack namespace_reveal`.  Please be prepared to run it\n",
+        "  once your namespace-preorder transaction is confirmed.\n",
+        "\n",
+        "* You must launch the namespace within {} blocks (about 1 year) after it is revealed with the above command.\n".format(blockstack.BLOCKS_PER_YEAR),
+        "  If you do not do so, then the namespace and all the names in it will DISAPPEAR, and you (or someone else)\n",
+        "  will have to START THE NAMESPACE OVER FROM SCRATCH.\n",
+        "\n",
+        "  The command to launch the namespace is `blockstack namespace_ready`.  Please be prepared to run it\n",
+        "  once your namespace-reveal transaction is confirmed, and once you have populated your namespace with\n",
+        "  the initial names.\n",
+        "\n",
+        "* After you reveal the namespace but before you launch it, you can pre-populate it with names.\n",
+        "  This is optional, but you have 1 year to import as many names as you want.\n",
+        "  ONLY YOU WILL BE ABLE TO IMPORT NAMES until the namespace has been launched.  Then, anyone can register names.\n",
+        "\n",
+        "  The command to do so is `blockstack name_import`.\n",
+        "\n",
+        "If you want to test your namespace parameters before creating it, please consider trying it in our integration test\n",
+        "framework first.  Instructions are at https://github.com/blockstack/blockstack-core/tree/master/integration_tests\n",
+        "\n",
+        "If you have any questions, please contact us at support@blockstack.com or via https://blockstack.slack.com\n",
+        "\n",
+        "Full cost breakdown:\n",
+        "{}".format(json.dumps(fees, indent=4, sort_keys=True))
+    ])
+   
+    print(msg)
+    
+    prompts = [
+        "I acknowledge that I have read and understood the above instructions (yes/no) ",
+        "I acknowledge that this will cost {} BTC or more (yes/no) ".format(fees['total_estimated_cost']['btc']),
+        "I acknowledge that by not following these instructions, I may lose {} BTC (yes/no) ".format(fees['total_estimated_cost']['btc']),
+        "I acknowledge that I have tested my namespace in Blockstack's test mode (yes/no) ",
+        "I am ready to preorder this namespace (yes/no) "
+    ]
+
+    for prompt in prompts:
+        while True:
+            if interactive:
+                proceed = raw_input("I acknowledge that I have read the above instructions. (yes/No) ")
+            else:
+                proceed = 'yes'
+
+            if proceed.lower() == 'y':
+                print("Please type 'yes' or 'no'")
+                continue
+
+            if proceed.lower() != 'yes':
+                return {'error': 'Aborting namespace preorder on user command'}
+
+            break
+
+    # proceed!
+    utxo_client = get_utxo_provider_client(config_path=config_path)
+    tx_broadcaster = get_tx_broadcaster(config_path=config_path)
+    res = do_namespace_preorder(nsid, int(fees['namespace_price']), ns_privkey, reveal_addr, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
+    return res
 
 
-def cli_namespace_reveal(args, config_path=CONFIG_PATH):
+def format_cost_table(namespace_id, base, coeff, bucket_exponents, nonalpha_discount, no_vowel_discount, block_height):
+    """
+    Generate a string that contains a table of how much a name of a particular length will cost,
+    subject to particular discounts.
+    """
+    import blockstack
+
+    columns = [
+        'length',
+        'price',
+        'price, nonalpha',
+        'price, no vowel',
+        'price, both'
+    ]
+
+    table = dict( [(c, [c]) for c in columns] )
+
+    namespace_params = {
+        'base': base,
+        'coeff': coeff,
+        'buckets': bucket_exponents,
+        'nonalpha_discount': nonalpha_discount,
+        'no_vowel_discount': no_vowel_discount,
+        'namespace_id': namespace_id
+    }
+
+    for i in xrange(0, len(bucket_exponents)):
+        length = i+1
+        price_normal = str(int(round( blockstack.price_name("a" * length, namespace_params, block_height) )))
+        price_nonalpha = str(int(round( blockstack.price_name(("1a" * length)[:length], namespace_params, block_height) )))
+        price_novowel = str(int(round( blockstack.price_name("b" * length, namespace_params, block_height) )))
+        price_nonalpha_novowel = str(int(round( blockstack.price_name("1" * length, namespace_params, block_height) )))
+        
+        len_str = str(length)
+        if i == len(bucket_exponents)-1:
+            len_str += '+'
+
+        table['length'].append(len_str)
+        table['price'].append(price_normal)
+        table['price, nonalpha'].append(price_nonalpha)
+        table['price, no vowel'].append(price_novowel)
+        table['price, both'].append(price_nonalpha_novowel)
+
+    col_widths = {}
+    for k in table.keys():
+        max_width = reduce( lambda x, y: max(x,y), map( lambda p: len(p), table[k] ) )
+        col_widths[k] = max_width
+
+    row_template_parts = [' {{: >{}}} '.format(col_widths[c]) for c in columns]
+    header_template_parts = [' {{: <{}}} '.format(col_widths[c]) for c in columns]
+
+    row_template = '|' + '|'.join(row_template_parts) + '|'
+    header_template = '|' + '|'.join(header_template_parts) + '|'
+
+    table_str = header_template.format(*columns) + '\n'
+    table_str += '-' * (len(table_str) - 1) + '\n'
+    
+    for i in xrange(1, len(bucket_exponents)+1):
+        row_data = [table[c][i] for c in columns]
+        table_str += row_template.format(*row_data) + '\n'
+
+    return table_str
+
+
+def format_price_formula(namespace_id, block_height):
+    """
+    Generate a string that encodes the generic price function
+    """
+    import blockstack
+
+
+    exponent_str =    "                                     buckets[min(len(name)-1, 15)]\n"
+    numerator_str =   "             UNIT_COST * coeff * base                             \n"
+    divider_str =     "cost(name) = -----------------------------------------------------\n"
+    denominator_str = "                   max(nonalpha_discount, no_vowel_discount)      \n"
+
+    formula_str = "(UNIT_COST = 100):\n" + \
+                  exponent_str + \
+                  numerator_str + \
+                  divider_str + \
+                  denominator_str
+
+    return formula_str
+
+
+def format_price_formula_worksheet(name, namespace_id, base, coeff, bucket_exponents, nonalpha_discount, no_vowel_discount, block_height):
+    """
+    Generate a string that encodes the namespace price function for a particular name
+    """
+    import blockstack
+
+    if '.' in name:
+        if name.count('.') != 1:
+            return '\nThe specified name is invalid.  Names may not have periods (.) in them\n'
+
+        name_parts = name.split('.')
+        name = name_parts[0]
+        if name_parts[1] != namespace_id:
+            return '\nThe name specified does not belong to this namespace\n'
+
+    full_name = '{}.{}'.format(name, namespace_id)
+    err = check_valid_name(full_name)
+    if err:
+        return "\nFully-qualified name: {}\n{}\n".format(full_name, err)
+
+    namespace_params = {
+        'base': base,
+        'coeff': coeff,
+        'buckets': bucket_exponents,
+        'nonalpha_discount': nonalpha_discount,
+        'no_vowel_discount': no_vowel_discount,
+        'namespace_id': namespace_id
+    }
+
+    def has_no_vowel_discount(n):
+        return sum( [n.lower().count(v) for v in ["a", "e", "i", "o", "u", "y"]] ) == 0
+
+    def has_nonalpha_discount(n):
+        return sum( [n.lower().count(v) for v in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "-", "_"]] ) > 0
+    
+    discount = 1
+
+    # no vowel discount?
+    if has_no_vowel_discount(name):
+       # no vowels!
+       discount = max( discount, no_vowel_discount )
+
+    # non-alpha discount?
+    if has_nonalpha_discount(name):
+       # non-alpha!
+       discount = max( discount, nonalpha_discount )
+
+    eval_numerator_str = "{} * {} * {}".format(blockstack.NAME_COST_UNIT * blockstack.get_epoch_price_multiplier(block_height, namespace_id), coeff, base)
+    eval_exponent_str = "{}".format(bucket_exponents[min(len(name)-1, 15)])
+    eval_denominator_str = "{}".format(discount)
+
+    eval_divider_str = "cost({}) = ".format(name)
+    left_pad = len(eval_divider_str)
+
+    numerator_len = len(eval_numerator_str) + len(eval_exponent_str)
+    denominator_len = len(eval_denominator_str)
+
+    padded_exponent_str = (" " * (left_pad + len(eval_numerator_str))) + eval_exponent_str + '\n'
+    padded_numerator_str = (" " * left_pad) + eval_numerator_str + '\n'
+    padded_divider_str = eval_divider_str + ("-" * numerator_len) + (" = {}".format(int(blockstack.price_name(name, namespace_params, block_height)))) + '\n'
+    padded_denominator_str = (" " * (left_pad + (numerator_len / 2) - (denominator_len / 2))) + eval_denominator_str + '\n'
+
+    formula_str = "Worksheet:\n" + \
+                  "\n" + \
+                  "len({}) = {}\n".format(name, len(name)) + \
+                  "buckets[min(len(name)-1, 15)] = buckets[min({}, 15)] = buckets[{}] = {}\n".format(len(name)-1, min(len(name)-1, 15), bucket_exponents[min(len(name)-1, 15)]) + \
+                  "nonalpha_discount = {}\n".format( nonalpha_discount if has_nonalpha_discount(name) else 1 ) + \
+                  "no_vowel_discount = {}\n".format( no_vowel_discount if has_no_vowel_discount(name) else 1 ) + \
+                  "max(nonalpha_discount, no_vowel_discount) = max({}, {}) = {}\n".format(nonalpha_discount if has_nonalpha_discount(name) else 1, no_vowel_discount if has_no_vowel_discount(name) else 1, discount) + \
+                  "\n" + \
+                  padded_exponent_str + \
+                  padded_numerator_str + \
+                  padded_divider_str + \
+                  padded_denominator_str + \
+                  "\n"
+    
+    return formula_str
+
+
+def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=None):
     """
     command: namespace_reveal advanced
-    help: Reveal a namespace and set its pricing parameters
+    help: Reveal a namespace and interactively set its pricing parameters
     arg: namespace_id (str) 'The namespace ID'
-    arg: addr (str) 'The address of the keypair that will import names (given in the namespace preorder)'
-    arg: lifetime (int) 'The lifetime (in blocks) for each name.  Negative means "never expires".'
-    arg: coeff (int) 'The multiplicative coefficient in the price function.'
-    arg: base (int) 'The exponential base in the price function.'
-    arg: bucket_exponents (str) 'A 16-field CSV of name-length exponents in the price function.'
-    arg: nonalpha_discount (int) 'The denominator that defines the discount for names with non-alpha characters.'
-    arg: no_vowel_discount (int) 'The denominator that defines the discount for names without vowels.'
-    arg: privatekey (str) 'The private key of the import keypair (whose address is `addr` above).'
+    arg: payment_privkey (str) 'The private key that paid for the namespace'
+    arg: reveal_privkey (str) 'The private key that will import names'
     """
+    # NOTE: this will not use the RESTful API.
+    # it is too dangerous to expose this to web browsers.
+    import blockstack
+    
+    namespace_id = str(args.namespace_id)
+    privkey = str(args.payment_privkey)
+    reveal_privkey = str(args.reveal_privkey)
+    reveal_addr = None
 
-    config_dir = os.path.dirname(config_path)
-    if not local_api_status(config_dir=config_dir):
-        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
+    res = is_namespace_valid(namespace_id)
+    if not res:
+        return {'error': 'Invalid namespace ID'}
 
-    # BROKEN
-    bucket_exponents = args.bucket_exponents.split(',')
-    if len(bucket_exponents) != 16:
-        msg = '`bucket_exponents` must be a 16-value CSV of integers'
-        return {'error': msg}
+    try:
+        privkey = keylib.ECPrivateKey(privkey).to_hex()
+        reveal_privkey = keylib.ECPrivateKey(reveal_privkey).to_hex()
 
-    for i in range(len(bucket_exponents)):
+        # force compresssed 
+        ns_privkey = set_privkey_compressed(privkey, compressed=True)
+        ns_reveal_privkey = set_privkey_compressed(reveal_privkey, compressed=True)
+
+        ecdsa_private_key(privkey)
+        reveal_addr = virtualchain.get_privkey_address(reveal_privkey)
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        return {'error': 'Invalid private keys'}
+
+    infinite_lifetime = 0xffffffff       # means "infinite" to blockstack-core
+    
+    # sane defaults
+    lifetime = int(getattr(args, 'lifetime', infinite_lifetime))
+    coeff = int(getattr(args, 'coeff', 4))
+    base = int(getattr(args, 'base', 4))
+    bucket_exponents_str = getattr(args, 'buckets', "15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0")
+    nonalpha_discount = int(getattr(args, 'nonalpha_discount', 2))
+    no_vowel_discount = int(getattr(args, 'no_vowel_discount', 5))
+
+    def parse_bucket_exponents(exp_str):
+
+        bucket_exponents_strs = exp_str.split(',')
+        if len(bucket_exponents_strs) != 16:
+            raise Exception('bucket_exponents must be a 16-value comma-separated list of integers')
+
+        bucket_exponents = []
+        for i in xrange(0, len(bucket_exponents_strs)):
+            try:
+                bucket_exponents.append( int(bucket_exponents_strs[i]) )
+                assert 0 <= bucket_exponents[i]
+                assert bucket_exponents[i] < 16
+            except (ValueError, AssertionError) as e:
+                raise Exception('bucket_exponents must contain integers between 0 and 15, inclusively')
+
+        return bucket_exponents
+
+    def print_namespace_configuration(params):
+        print("Namespace ID:           {}".format(namespace_id))
+        print("Name lifetimes:         {}".format(params['lifetime'] if params['lifetime'] != infinite_lifetime else "infinite"))
+        print("Price coefficient:      {}".format(params['coeff']))
+        print("Price base:             {}".format(params['base']))
+        print("Price bucket exponents: {}".format(params['buckets']))
+        print("Non-alpha discount:     {}".format(params['nonalpha_discount']))
+        print("No-vowel discount:      {}".format(params['no_vowel_discount']))
+        print("")
+
+        formula_str = format_price_formula(namespace_id, block_height)
+        price_table_str = format_cost_table(namespace_id, params['base'], params['coeff'], params['buckets'],
+                                                          params['nonalpha_discount'], params['no_vowel_discount'], block_height)
+
+        print("Name price formula:")
+        print(formula_str)
+        print("")
+        print("Name price table:")
+        print(price_table_str)
+
+        print("")
+
+
+    bbs = None
+    try:
+        bbs = parse_bucket_exponents(bucket_exponents_str)
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        return {'error': 'Invalid bucket exponents.  Must be a list of 16 integers between 0 and 15.'}
+        
+    namespace_params = {
+        'lifetime': lifetime,
+        'coeff': coeff,
+        'base': base,
+        'buckets': bbs,
+        'nonalpha_discount': nonalpha_discount,
+        'no_vowel_discount': no_vowel_discount
+    }
+
+    block_height = get_block_height(config_path=config_path)
+
+    options = {
+        '1': {
+            'msg': 'Set name lifetime in blocks             (positive integer between 1 and {}, or "infinite")'.format(2**32 - 1),
+            'var': 'lifetime',
+            'parse': lambda x: infinite_lifetime if x == "infinite" else int(x)
+        },
+        '2': {
+            'msg': 'Set price coefficient                   (positive integer between 1 and 255)',
+            'var': 'coeff',
+            'parse': lambda x: int(x)
+        },
+        '3': {
+            'msg': 'Set base price                          (positive integer between 1 and 255)',
+            'var': 'base',
+            'parse': lambda x: int(x)
+        },
+        '4': {
+            'msg': 'Set price bucket exponents              (16 comma-separated integers, each between 1 and 15)',
+            'var': 'buckets',
+            'parse': lambda x: parse_bucket_exponents(x)
+        },
+        '5': {
+            'msg': 'Set non-alphanumeric character discount (positive integer between 1 and 15)',
+            'var': 'nonalpha_discount',
+            'parse': lambda x: int(x)
+        },
+        '6': {
+            'msg': 'Set no-vowel discount                   (positive integer between 1 and 15)',
+            'var': 'no_vowel_discount',
+            'parse': lambda x: int(x)
+        },
+        '7': {
+            'msg': 'Show name price formula',
+            'input': 'Enter name: ',
+            'callback': lambda inp: print(format_price_formula_worksheet(inp, namespace_id, namespace_params['base'], namespace_params['coeff'],
+                                                                         namespace_params['buckets'], namespace_params['nonalpha_discount'], 
+                                                                         namespace_params['no_vowel_discount'], block_height))
+        },
+        '8': {
+            'msg': 'Show price table',
+            'callback': lambda: print(print_namespace_configuration(namespace_params)),
+        },
+        '9': {
+            'msg': 'Done',
+            'break': True,
+        },
+    }
+    option_order = options.keys()
+    option_order.sort()
+    
+    print_namespace_configuration(namespace_params)
+
+    while interactive:
+
+        print("What would you like to do?")
+
+        for opt in option_order:
+            print("({}) {}".format(opt, options[opt]['msg']))
+
+        print("")
+
+        selection = None
+        value = None
+        while True:
+            selection = raw_input("({}-{}) ".format(option_order[0], option_order[-1]))
+            if selection not in options:
+                print("Please select between {} and {}".format(option_order[0], option_order[-1]))
+                continue
+            else:
+                break
+
+        if options[selection].has_key('var'):
+            value_str = raw_input("New value for '{}': ".format(options[selection]['var']))
+            old_value = namespace_params[ options[selection]['var'] ]
+            try:
+                value = options[selection]['parse'](value_str)
+                namespace_params[ options[selection]['var'] ] = value
+                assert blockstack.namespacereveal.namespacereveal_sanity_check( namespace_id, blockstack.BLOCKSTACK_VERSION, namespace_params['lifetime'],
+                                                                                namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
+                                                                                namespace_params['nonalpha_discount'], namespace_params['no_vowel_discount'] )
+
+            except Exception as e:
+                if BLOCKSTACK_DEBUG:
+                    log.exception(e)
+
+                print("Invalid value for '{}'".format(options[selection]['var']))
+                namespace_params[ options[selection]['var'] ] = old_value
+
+            print_namespace_configuration(namespace_params)
+            continue
+
+        elif options[selection].has_key('input'):
+            inpstr = options[selection]['input']
+            inp = raw_input(inpstr)
+            options[selection]['callback'](inp)
+            continue
+
+        elif options[selection].has_key('callback'):
+            options[selection]['callback']()
+            continue
+
+        elif options[selection].has_key('break'):
+            break
+
+        else:
+            raise Exception("BUG: selection {}".format(selection))
+
+    if not interactive:
+        # still check this 
         try:
-            bucket_exponents[i] = int(bucket_exponents[i])
-            assert 0 <= bucket_exponents[i] < 16
-        except (ValueError, AssertionError) as e:
-            msg = '`bucket_exponents` must contain integers between 0 and 15, inclusively.'
-            return {'error': msg}
+            assert blockstack.namespacereveal.namespacereveal_sanity_check( namespace_id, blockstack.BLOCKSTACK_VERSION, namespace_params['lifetime'],
+                                                                            namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
+                                                                            namespace_params['nonalpha_discount'], namespace_params['no_vowel_discount'] )
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
 
-    lifetime = int(args.lifetime)
-    if lifetime < 0:
-        lifetime = 0xffffffff       # means "infinite" to blockstack-server
+            return {'error': 'Invalid namespace parameters'}
 
-    # BUG: undefined function
-    result = namespace_reveal(
-        str(args.namespace_id),
-        str(args.addr),
-        lifetime,
-        int(args.coeff),
-        int(args.base),
-        bucket_exponents,
-        int(args.nonalpha_discount),
-        int(args.no_vowel_discount),
-        str(args.privatekey)
-    )
+    # do we have enough btc?
+    print("Calculating fees...")
+    fees = get_price_and_fees(namespace_id, ['namespace_reveal'], privkey, reveal_privkey, config_path=config_path, proxy=proxy )
+    if 'error' in fees:
+        return fees
 
-    return result
+    if 'warnings' in fees:
+        return {'error': 'Not enough information for fee calculation: {}'.format( ", ".join(["'{}'".format(w) for w in fees['warnings']]) )}
+
+    # got the params we wanted
+    print("This is the final configuration for your namespace:") 
+    print_namespace_configuration(namespace_params)
+    print("You will NOT be able to change this once it is set.")
+    print("Reveal address:  {}".format(reveal_addr))
+    print("Payment address: {}".format(virtualchain.get_privkey_address(privkey)))
+    print("Transaction cost breakdown:\n{}".format(json.dumps(fees, indent=4, sort_keys=True)))
+    print("")
+
+    while interactive:
+        proceed = raw_input("Proceed? (yes/no) ")
+        if proceed.lower() == 'y':
+            print("Please type 'yes' or 'no'")
+            continue
+
+        if proceed.lower() != 'yes':
+            return {'error': 'Aborted namespace reveal'}
+
+        break
+
+    # proceed!
+    utxo_client = get_utxo_provider_client(config_path=config_path)
+    tx_broadcaster = get_tx_broadcaster(config_path=config_path)
+    res = do_namespace_reveal(namespace_id, reveal_addr, namespace_params['lifetime'], namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
+                              namespace_params['nonalpha_discount'], namespace_params['no_vowel_discount'], privkey, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
+
+    return res
 
 
-def cli_namespace_ready(args, config_path=CONFIG_PATH):
+def cli_namespace_ready(args, interactive=True, config_path=CONFIG_PATH, proxy=None):
     """
     command: namespace_ready advanced
     help: Mark a namespace as ready
     arg: namespace_id (str) 'The namespace ID'
-    arg: privatekey (str) 'The private key of the keypair that imports names'
+    arg: reveal_privkey (str) 'The private key used to import names'
     """
-    config_dir = os.path.dirname(config_path)
-    if not local_api_status(config_dir=config_dir):
-        return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
 
-    # BROKEN
-    result = namespace_ready(
-        str(args.namespace_id),
-        str(args.privatekey)
-    )
+    import blockstack
+    namespace_id = str(args.namespace_id)
+    reveal_privkey = str(args.reveal_privkey)
 
-    return result
+    res = is_namespace_valid(namespace_id)
+    if not res:
+        return {'error': 'Invalid namespace ID'}
+    
+    try:
+        reveal_privkey = keylib.ECPrivateKey(reveal_privkey).to_hex()
+
+        # force compresssed 
+        reveal_privkey = set_privkey_compressed(reveal_privkey, compressed=True)
+
+        reveal_addr = virtualchain.get_privkey_address(reveal_privkey)
+    except:
+        return {'error': 'Invalid private keys'}
+
+    # do we have enough btc?
+    print("Calculating fees...")
+    fees = get_price_and_fees(namespace_id, ['namespace_ready'], reveal_privkey, reveal_privkey, config_path=config_path, proxy=proxy )
+    if 'error' in fees:
+        return fees
+
+    if 'warnings' in fees:
+        return {'error': 'Not enough information for fee calculation: {}'.format( ", ".join(["'{}'".format(w) for w in fees['warnings']]) )}
+
+    namespace_rec = get_namespace_blockchain_record(namespace_id, proxy=proxy)
+    if 'error' in namespace_rec:
+        return namespace_rec
+
+    if namespace_rec['ready']:
+        return {'error': 'Namespace is already launched'}
+
+    launch_deadline = namespace_rec['reveal_block'] + blockstack.NAMESPACE_REVEAL_EXPIRE
+
+    print("Cost breakdown:\n{}".format(json.dumps(fees, indent=4, sort_keys=True)))
+    print("This command will launch the namespace '{}'".format(namespace_id))
+    print("Once launched, *anyone* can register a name in it.")
+    print("This namespace must be launched by block {}, so please run this command before block {}.".format(launch_deadline, launch_deadline - 144))
+    print("THIS CANNOT BE UNDONE.")
+    print("")
+    while True:
+        proceed = None
+        if interactive:
+            proceed = raw_input("Proceed? (yes/no) ")
+        else:
+            proceed = 'yes'
+
+        if proceed.lower() == 'y':
+            print("Please type 'yes' or 'no'")
+            continue
+
+        if proceed.lower() != 'yes':
+            return {'error': 'Namespace launch aborted'}
+
+        break
+
+    # proceed!
+    utxo_client = get_utxo_provider_client(config_path=config_path)
+    tx_broadcaster = get_tx_broadcaster(config_path=config_path)
+    res = do_namespace_ready(namespace_id, reveal_privkey, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
+    return res
 
 
-def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
+def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None, storage_drivers=None, storage_drivers_exclusive=False):
     """
     command: put_mutable advanced
-    help: Put signed, versioned data into your storage providers.
+    help: Low-level method to store off-chain signed data.
     arg: name (str) 'The name that points to the zone file to use'
     arg: data_id (str) 'The name of the data'
-    arg: data (str) 'The JSON-serializable data to store'
+    arg: data_path (str) 'The path to the data to store'
+    opt: privkey (str) 'The private key to sign with'
+    opt: version (str) 'The version of this data to store'
     """
     
     password = get_default_password(password)
     
     fqu = str(args.name)
+    data_id = str(args.data_id)
+    data_path = str(args.data)
+
+    data = None
+    with open(data_path, 'r') as f:
+        data = f.read()
+
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
 
     config_dir = os.path.dirname(config_path)
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        return wallet_keys
+    privkey = None
+    if not hasattr(args, 'privkey') or args.privkey is None:
+        
+        # get the data private key from the wallet.
+        # put_mutable() should only succeed if the zone file for this name
+        # has the corresponding public key, since otherwise there would be
+        # no way to authenticate this data.
+        zfinfo = get_name_zonefile(fqu, proxy=proxy)
+        if 'error' in zfinfo:
+            log.error("unable to load zone file for {}: {}".format(fqu, zfinfo['error']))
+            return {'error': 'unable to load or parse zone file for {}'.format(fqu)}
+       
+        if not user_zonefile_data_pubkey(zfinfo['zonefile']):
+            log.error("zone file for {} has no public key".format(fqu))
+            return {'error': 'zone file for {} has no public key'.format(fqu)}
+
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
+
+        privkey = str(wallet_keys['data_privkey'])
+        pubkey = keylib.key_formatting.compress(ecdsa_private_key(privkey).public_key().to_hex())
+        zfpubkey = keylib.key_formatting.compress(user_zonefile_data_pubkey(zfinfo['zonefile']))
+        if pubkey != zfpubkey:
+            log.error("public key mismatch: wallet public key {} != zonefile public key {}".format(pubkey, zfpubkey))
+            return {'error': 'public key mismatch: wallet public key {} does not match zone file public key {}'.format(pubkey, zfpubkey)}
+
+    else:
+        privkey = str(args.privkey)
+
+    try:
+        pubkey = ECPrivateKey(privkey).public_key().to_hex()
+    except:
+        if BLOCKSTACK_TEST:
+            log.error("Invalid private key {}".format(privkey))
+        return {'error': 'Failed to parse private key'}
+
+    mutable_data_info = make_mutable_data_info(data_id, data, blockchain_id=fqu, config_path=config_path)
+    mutable_data_payload = data_blob_serialize(mutable_data_info)
 
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
+    sig = sign_data_payload(mutable_data_payload, privkey)
 
-    result = put_mutable(
-        str(args.data_id), str(args.data), blockchain_id=fqu,
-        wallet_keys=wallet_keys, proxy=proxy
-    )
+    result = put_mutable(mutable_data_info['fq_data_id'], mutable_data_payload, pubkey, sig, mutable_data_info['version'], \
+                         blockchain_id=fqu, config_path=config_path, proxy=proxy, storage_drivers=storage_drivers, storage_drivers_exclusive=storage_drivers_exclusive) 
 
     if 'error' in result:
         return result
-
-    version = result['version']
-    fq_data_id = result['fq_data_id']
-
-    url = blockstack_mutable_data_url( fqu, fq_data_id, version )
-    result['url'] = url
 
     return result
 
@@ -2620,7 +3296,7 @@ def cli_put_immutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     help: Put signed, blockchain-hashed data into your storage providers.
     arg: name (str) 'The name that points to the zone file to use'
     arg: data_id (str) 'The name of the data'
-    arg: data (str) 'The JSON-formatted data to store'
+    arg: data (str) 'Path to the data to store'
     """
 
     password = get_default_password(password)
@@ -2631,10 +3307,9 @@ def cli_put_immutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     if error:
         return {'error': error}
 
-    try:
-        data = json.loads(args.data)
-    except:
-        return {'error': 'Invalid JSON'}
+    data_path = str(args.data)
+    with open(data_path, 'r') as f:
+        data = f.read()
 
     wallet_keys = get_wallet_keys(config_path, password)
     if 'error' in wallet_keys:
@@ -2651,9 +3326,6 @@ def cli_put_immutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
         return result
     
     data_hash = result['immutable_data_hash']
-    url = blockstack_immutable_data_url( fqu, urllib.quote(str(args.data_id)), data_hash )
-
-    result['url'] = url
     result['hash'] = data_hash
     return result
 
@@ -2661,13 +3333,23 @@ def cli_put_immutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
 def cli_get_mutable(args, config_path=CONFIG_PATH, proxy=None):
     """
     command: get_mutable advanced
-    help: Get signed, versioned data from storage providers.
+    help: Low-level method to get signed off-chain data.
     arg: name (str) 'The blockchain ID that owns the data'
     arg: data_id (str) 'The name of the data'
+    opt: data_pubkey (str) 'The public key to use to verify the data'
+    opt: device_ids (str) 'A CSV of devices to query'
     """
-    proxy = get_default_proxy() if proxy is None else proxy
+    data_pubkey = str(args.data_pubkey) if hasattr(args, 'data_pubkey') and getattr(args, 'data_pubkey') is not None else None
 
-    result = get_mutable(str(args.data_id), proxy=proxy, config_path=config_path, blockchain_id=str(args.name))
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
+
+    result = get_mutable(str(args.data_id), device_ids['device_ids'], proxy=proxy, config_path=config_path, blockchain_id=str(args.name), data_pubkey=data_pubkey)
     if 'error' in result:
         return result
 
@@ -2698,30 +3380,6 @@ def cli_get_immutable(args, config_path=CONFIG_PATH, proxy=None):
         'data': result['data'],
         'hash': result['hash']
     }
-
-
-def cli_get_data(args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None):
-    """
-    command: get_data advanced
-    help: Fetch Blockstack data using a blockstack:// URL.
-    arg: url (str) 'The Blockstack URL'
-    """
-    proxy = get_default_proxy() if proxy is None else proxy
-    password = get_default_password(password)
-    
-    url = str(args.url)
-
-    try:
-        res = blockstack_url_fetch( url, proxy=proxy, config_path=config_path)
-        return res
-    except PasswordRequiredException:
-
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-    
-        res = blockstack_url_fetch( url, proxy=proxy, config_path=config_path, wallet_keys=wallet_keys)
-        return res
 
 
 def cli_list_update_history(args, config_path=CONFIG_PATH):
@@ -2796,25 +3454,52 @@ def cli_delete_immutable(args, config_path=CONFIG_PATH, proxy=None, password=Non
 def cli_delete_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     """
     command: delete_mutable advanced
-    help: Delete a mutable datum from a profile.
+    help: Low-level method to delete signed off-chain data.
     arg: name (str) 'The name that owns the data'
     arg: data_id (str) 'The ID of the data to remove'
+    opt: privkey (str) 'If given, the data private key to use'
     """ 
     password = get_default_password(password)
     
+    data_id = str(args.data_id)
     fqu = str(args.name)
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
 
     config_dir = os.path.dirname(config_path)
-    wallet_keys = get_wallet_keys(config_path, password)
-    if 'error' in wallet_keys:
-        return wallet_keys
+
+    # this should only succeed if the zone file is well-formed,
+    # since otherwise no one would be able to get the public key
+    # to verify the tombstones.
+    zfinfo = get_name_zonefile(fqu, proxy=proxy)
+    if 'error' in zfinfo:
+        log.error("Unable to load zone file for {}: {}".format(fqu, zfinfo['error']))
+        return {'error': 'Unable to load or parse zone file for {}'.format(fqu)}
+   
+    if not user_zonefile_data_pubkey(zfinfo['zonefile']):
+        log.error("Zone file for {} has no public key".format(fqu))
+        return {'error': 'Zone file for {} has no public key'.format(fqu)}
+
+    privkey = None
+
+    if hasattr(args, 'privkey') and args.privkey:
+        privkey = str(args.privkey)
+
+    else:
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
+
+        privkey = wallet_keys['data_privkey']
+        assert privkey
 
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
 
-    result = delete_mutable(str(args.data_id), blockchain_id=str(args.name), proxy=proxy, wallet_keys=wallet_keys)
+    data_tombstones = make_mutable_data_tombstones(device_ids, data_id) 
+    signed_data_tombstones = sign_mutable_data_tombstones(data_tombstones, privkey)
+
+    result = delete_mutable(data_id, signed_data_tombstones, proxy=proxy, config_path=config_path)
     return result
 
 
@@ -2882,13 +3567,15 @@ def cli_lookup_snv(args, config_path=CONFIG_PATH):
     return result
 
 
-def cli_get_name_zonefile(args, config_path=CONFIG_PATH):
+def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True):
     """
-    command: get_name_zonefile advanced
+    command: get_name_zonefile advanced raw
     help: Get a name's zonefile
     arg: name (str) 'The name to query'
     opt: json (str) 'If true is given, try to parse as JSON'
     """
+    # the 'raw' kwarg is set by the API daemon to False to get back structured data
+
     parse_json = getattr(args, 'json', 'false')
     parse_json = parse_json is not None and parse_json.lower() in ['true', '1']
 
@@ -2908,8 +3595,12 @@ def cli_get_name_zonefile(args, config_path=CONFIG_PATH):
             result['zonefile'] = new_zonefile
         except:
             result['warning'] = 'Non-standard zonefile'
+    
+    if raw:
+        return result['zonefile']
 
-    return result
+    else:
+        return result
 
 
 def cli_get_names_owned_by_address(args, config_path=CONFIG_PATH):
@@ -2943,29 +3634,36 @@ def cli_get_all_names(args, config_path=CONFIG_PATH):
     """
     command: get_all_names advanced
     help: Get all names in existence, optionally paginating through them
-    opt: offset (int) 'The offset into the sorted list of names'
-    opt: count (int) 'The number of names to return'
+    arg: page (int) 'The page of names to fetch (groups of 100)'
     """
 
-    offset = int(args.offset) if args.offset is not None else None
-    count = int(args.count) if args.count is not None else None
+    offset = int(args.page) * 100
+    count = 100
 
     result = get_all_names(offset=offset, count=count)
 
     return result
 
 
+def cli_get_all_namespaces(args, config_path=CONFIG_PATH):
+    """
+    command: get_all_namespaces
+    help: Get the list of namespaces
+    """
+    result = get_all_namespaces()
+    return result
+
+
 def cli_get_names_in_namespace(args, config_path=CONFIG_PATH):
     """
-    command: get_names_in_namespace
+    command: get_names_in_namespace advanced
     help: Get the names in a given namespace, optionally paginating through them
     arg: namespace_id (str) 'The ID of the namespace to query'
-    opt: offset (int) 'The offset into the sorted list of names'
-    opt: count (int) 'The number of names to return'
+    arg: page (int) 'The page of names to fetch (groups of 100)'
     """
-
-    offset = int(args.offset) if args.offset is not None else None
-    count = int(args.count) if args.count is not None else None
+    
+    offset = int(args.page) * 100
+    count = 100
 
     result = get_names_in_namespace(str(args.namespace_id), offset, count)
 
@@ -2982,7 +3680,7 @@ def cli_get_nameops_at(args, config_path=CONFIG_PATH):
     return result
 
 
-def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None, tx_fee=None):
+def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     """
     command: set_zonefile_hash advanced
     help: Directly set the hash associated with the name in the blockchain.
@@ -3006,12 +3704,12 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None, tx_fee=N
         return {'error': 'Not a valid zonefile hash'}
 
     # forward along to RESTful server (or registrar)
-    log.debug("Update {}, zonefile_hash={} tx_fee={}".format(fqu, zonefile_hash, tx_fee))
-    rpc = local_api_connect(config_dir=config_dir)
+    log.debug("Update {}, zonefile_hash={}".format(fqu, zonefile_hash))
+    rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     try:
-        resp = rpc.backend_update(fqu, None, None, zonefile_hash, tx_fee )
+        resp = rpc.backend_update(fqu, None, None, zonefile_hash )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -3095,7 +3793,7 @@ def cli_put_profile(args, config_path=CONFIG_PATH, password=None, proxy=None, fo
     )
     required_storage_drivers = required_storage_drivers.split()
 
-    user_zonefile = get_name_zonefile(name, proxy=proxy, wallet_keys=wallet_keys)
+    user_zonefile = get_name_zonefile(name, proxy=proxy)
     if 'error' in user_zonefile:
         return user_zonefile
 
@@ -3142,7 +3840,7 @@ def cli_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, interactive=Tru
     help: Upload the current zone file to all storage providers.
     arg: name (str) 'Name of the zone file to synchronize.'
     opt: txid (str) 'NAME_UPDATE transaction ID that set the zone file.'
-    opt: zonefile (str) 'The zone file (JSON or text), if unavailable from other sources.'
+    opt: zonefile (str) 'The path to the zone file on disk, if unavailable from other sources.'
     opt: nonstandard (str) 'If true, do not attempt to parse the zonefile.  Just upload as-is.'
     """
 
@@ -3167,30 +3865,21 @@ def cli_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, interactive=Tru
         nonstandard = args.nonstandard.lower() in ['yes', '1', 'true']
 
     if getattr(args, 'zonefile', None) is not None:
-        # zonefile given
-        user_data = args.zonefile
-        valid = False
-        try:
-            user_data_res = load_zonefile_from_string(name, user_data)
-            if 'error' in user_data_res and 'identical' not in user_data_res:
-                log.warning('Failed to parse zonefile (reason: {})'.format(user_data_res['error']))
-            else:
-                valid = True
-                user_data = user_data_res['zonefile']
-        except Exception as e:
-            if BLOCKSTACK_DEBUG is not None:
-                log.exception(e)
-            valid = False
+        # zonefile path given
+        zonefile_path = str(args.zonefile)
+        zonefile_info = analyze_zonefile_string(name, zonefile_path, proxy=proxy)
+        if 'error' in zonefile_info:
+            log.error("Failed to analyze user zonefile: {}".format(zonefile_info['error']))
+            return {'error': zonefile_info['error']}
 
-        # if it's not a valid zonefile, ask if the user wants to sync
-        if not valid and interactive:
-            proceed = prompt_invalid_zonefile()
-            if not proceed:
-                return {'error': 'Not replicating invalid zone file'}
-        elif not valid and not nonstandard:
-            return {'error': 'Not replicating invalid zone file'}
-        else:
-            pass
+        if zonefile_info.get('nonstandard'):
+            log.warning("Non-standard zone file")
+            if interactive and not nonstandard:
+                proceed = prompt_invalid_zonefile()
+                if not proceed:
+                    return {'error': 'Non-standard zone file'}
+
+        user_data = zonefile_info['zonefile_str']
 
     if txid is None or user_data is None:
         # load zonefile and txid from queue?
@@ -3398,6 +4087,7 @@ def cli_app_get_resource( args, config_path=CONFIG_PATH, interactive=False, prox
     arg: blockchain_id (str) 'The app owner blockchain ID'
     arg: app_domain (str) 'The application domain name'
     arg: res_path (str) 'The resource path'
+    opt: pubkey (str) 'The public key'
     """
 
     if proxy is None:
@@ -3407,7 +4097,11 @@ def cli_app_get_resource( args, config_path=CONFIG_PATH, interactive=False, prox
     app_domain = str(args.app_domain)
     res_path = str(args.res_path)
 
-    res = app_get_resource( blockchain_id, app_domain, res_path, proxy=proxy, config_path=config_path )
+    pubkey = None
+    if hasattr(args, "pubkey") and args.pubkey:
+        pubkey = str(args.pubkey)
+
+    res = app_get_resource( blockchain_id, app_domain, res_path, data_pubkey=pubkey, proxy=proxy, config_path=config_path )
     return res
 
 
@@ -3474,54 +4168,66 @@ def cli_app_delete_resource( args, config_path=CONFIG_PATH, interactive=False, p
     return res
 
 
-def cli_app_signin(args, config_path=CONFIG_PATH, password=None, interactive=True, wallet_keys=None):
+def cli_app_signin(args, config_path=CONFIG_PATH, interactive=True):
     """
     command: app_signin advanced
     help: Create a session token for the RESTful API for a given application
+    arg: blockchain_id (str) 'The blockchain ID of the caller'
+    arg: privkey (str) 'The app-specific private key to use'
     arg: app_domain (str) 'The application domain'
-    arg: api_methods (str) 'A CSV of requested methods to call'
-    opt: session_lifetime (int) 'The lifetime of this token, in seconds'
-    opt: blockchain_ids (str) 'A CSV of blockchain IDs to use to authenticate content'
-    opt: app_user_id (str) 'The application user ID to use'
+    arg: api_methods (str) 'A CSV of requested methods to allow'
+    arg: device_ids (str) 'A CSV of device IDs that can write to the app datastore'
+    arg: public_keys (str) 'A CSV of public keys that can write to the app datastore'
     """
 
+    blockchain_id = str(args.blockchain_id)
     app_domain = str(args.app_domain)
     api_methods = str(args.api_methods)
-    session_lifetime = getattr(args, 'session_lifetime', None)
-    blockchain_ids = getattr(args, 'blockchain_ids', None)
-    app_user_id = getattr(args, 'app_user_id', None)
-
-    if session_lifetime is None:
-        session_lifetime = DEFAULT_SESSION_LIFETIME
-
-    if app_user_id is not None:
-        app_user_id = str(app_user_id)
-        
-    if blockchain_ids is not None:
-        blockchain_ids = blockchain_ids.split(',')
+    app_privkey = str(args.privkey)
+    device_ids = str(args.device_ids)
+    public_keys = str(args.public_keys)
 
     api_methods = api_methods.split(',')
+    device_ids = device_ids.split(',')
+    public_keys = public_keys.split(',')
 
+    if len(device_ids) != len(public_keys):
+        return {'error': 'Mismatch between device IDs and public keys'}
+
+    for pubk in public_keys:
+        try:
+            keylib.ECPublicKey(pubk)
+        except:
+            return {'error': 'Invalid public key {}'.format(pubk)}
+
+    # get API password 
+    api_pass = get_secret("BLOCKSTACK_API_PASSWORD")
+    if api_pass is None:
+        conf = config.get_config(config_path)
+        if conf:
+            api_pass = conf.get('api_password', None)
+
+    if api_pass is None:
+        if interactive:
+            try:
+                api_pass = getpass.getpass("API password: ")
+            except KeyboardInterrupt:
+                return {'error': 'Keyboard interrupt'}
+
+        else:
+            return {'error': 'No API password set'}
+            
     # TODO: validate API methods
     # TODO: fetch api methods from app domain, if need be
 
-    password = get_default_password(password)
-    config_dir = os.path.dirname(config_path)
-    
-    # RPC daemon must be running
-    if wallet_keys is None:
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            log.error("Failed to get wallet keys: {}".format(wallet_keys['error']))
-            return wallet_keys
+    this_device_id = config.get_local_device_id(config_dir=os.path.dirname(config_path))
 
-    master_data_privkey = str(wallet_keys['data_privkey'])
-    res = app_make_session( app_domain, api_methods, master_data_privkey, blockchain_ids=blockchain_ids, session_lifetime=session_lifetime, config_path=config_path )
-    if 'error' in res:
-        log.error("Failed to make session: {}".format(wallet_keys['error']))
-        return res
+    rpc = local_api_connect(config_path=config_path, api_pass=api_pass)
+    sesinfo = rpc.backend_signin(blockchain_id, app_privkey, app_domain, api_methods, device_ids, public_keys, this_device_id) 
+    if 'error' in sesinfo:
+        return sesinfo
 
-    return {'status': True, 'token': res['session_token']}
+    return {'status': True, 'token': sesinfo['token']}
 
 
 def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, interactive=False ):
@@ -3631,7 +4337,7 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
         if pubkey is None:
             # fall back to owner hash
             owner_address = str(name_rec['address'])
-            if virtualchain.is_p2sh_address(owner_address):
+            if virtualchain.is_multisig_address(owner_address):
                 return {'error': 'No data public key in zone file, and owner is a p2sh address'}
 
             else:
@@ -3705,6 +4411,9 @@ def cli_sign_data( args, config_path=CONFIG_PATH, proxy=None, password=None, int
     if BLOCKSTACK_DEBUG:
         assert storage.parse_mutable_data(res, pubkey)
 
+    if BLOCKSTACK_TEST:
+        log.debug("Verified {} with {}".format(res, pubkey))
+
     return res
 
 
@@ -3729,8 +4438,11 @@ def cli_verify_data( args, config_path=CONFIG_PATH, proxy=None, interactive=True
     if hasattr(args, 'pubkey') and args.pubkey is not None:
         pubkey = str(args.pubkey)
         try:
-            pubkey = ECPublicKey(pubkey).to_hex()
-        except:
+            pubkey = keylib.ECPublicKey(pubkey).to_hex()
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
             return {'error': 'Invalid public key'}
 
     if pubkey is None:
@@ -3763,6 +4475,9 @@ def cli_verify_data( args, config_path=CONFIG_PATH, proxy=None, interactive=True
     except:
         return {'error': 'Failed to read file'}
 
+    if BLOCKSTACK_TEST:
+        log.debug("Verify {} with {}".format(data, pubkey))
+
     res = storage.parse_mutable_data(data, pubkey)
     if res is None:
         return {'error': 'Failed to verify data'}
@@ -3770,70 +4485,78 @@ def cli_verify_data( args, config_path=CONFIG_PATH, proxy=None, interactive=True
     return data_blob_parse(res)
 
 
-def cli_list_device_ids( args, config_path=CONFIG_PATH, proxy=None ):
+def cli_validate_zone_file(args, config_path=CONFIG_PATH, proxy=None):
     """
-    command: list_device_ids advanced
-    help: Get the list of known devices that write to your data stores
+    command: validate_zone_file advanced
+    help: Validate an on-disk zone file to ensure that is properly formatted.
+    arg: name (str) 'The name that will use this zone file'
+    arg: zonefile_path (str) 'The path on disk to the zone file'
+    opt: verbose (str) 'Pass True to see more analysis beyond "valid" or "invalid".'
     """
-
-    try:
-        device_ids = config.get_all_device_ids(config_path=config_path)
-        return {'device_ids': device_ids}
-    except AssertionError:
-        return {'error': 'Failed to read config file'}
-
-
-def cli_get_device_id( args, config_path=CONFIG_PATH, proxy=None ):
-    """
-    command: get_device_id advanced
-    help: Get this device's ID
-    """
-    try:
-        device_id = config.get_local_device_id(config_path=config_path)
-        return {'device_id': device_id}
-
-    except AssertionError:
-        return {'error': 'Failed to read config file'}
-
-
-def cli_add_device_id( args, config_path=CONFIG_PATH, proxy=None ):
-    """
-    command: add_device_id advanced
-    help: Add a device that can read and write your data
-    arg: device_id (str) 'The ID of the device to add'
-    """
-    try:
-        device_ids = config.get_all_device_ids(config_path=config_path)
-        device_id_str = ','.join( list(set(device_ids + [str(args.device_id)])) )
-        config.write_config_field( config_path, 'blockstack-client', 'default_devices', device_id_str )
-        return {'status': True}
     
-    except AssertionError:
-        return {'error': 'Failed to add device'}
+    name = str(args.name)
+    zonefile_path = str(args.zonefile_path)
+    verbose = str(getattr(args, 'verbose', '')).lower() in ['true', 'yes', '1']
+
+    if not os.path.exists(zonefile_path):
+        return {'error': 'No such file or directory: {}'.format(zonefile_path)}
+
+    zonefile_data = None
+    try:
+        with open(zonefile_path, 'r') as f:
+            zonefile_data = f.read()
+
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        return {'error': 'Failed to read zone file.'}
+
+    res = analyze_zonefile_string(name, zonefile_data, force_data=True, check_current=False, proxy=proxy)
+    if verbose:
+        return res
+       
+    # simplify...
+    if res['nonstandard']:
+        return {'error': 'Nonstandard zone file data'}
+
+    return {'status': True}
 
 
-def cli_remove_device_id( args, config_path=CONFIG_PATH, proxy=None ):
+def cli_list_devices( args, config_path=CONFIG_PATH, proxy=None ):
     """
-    command: remove_device_id advanced
-    help: Remove a device ID so this device will ignore its data
+    command: list_devices advanced
+    help: Get the list of device IDs and public keys for a particular application
+    arg: blockchain_id (str) 'The blockchain ID whose devices to list'
+    arg: appname (str) 'The name of the application'
+    """
+    
+    raise NotImplemented("Missing token file parsing logic")
+
+
+def cli_add_device( args, config_path=CONFIG_PATH, proxy=None ):
+    """
+    command: add_device advanced
+    help: Add a device that can read and write your data
+    arg: blockchain_id (str) 'The blockchain ID whose profile to update'
+    opt: device_id (str) 'The ID of the device to add, if not this one'
+    """
+
+    raise NotImplemented("Missing token file parsing logic")
+    
+
+def cli_remove_device( args, config_path=CONFIG_PATH, proxy=None ):
+    """
+    command: remove_device advanced
+    help: Remove a device so it can no longer access your application data
+    arg: blockchain_id (str) 'The blockchain ID whose profile to update'
     arg: device_id (str) 'The ID of the device to remove'
     """
-    try:
-        device_id = str(args.device_id)
-        device_ids = config.get_all_device_ids(config_path=config_path)
-        if device_id not in device_ids:
-            return {'status': True}
-
-        device_ids.remove(device_id)
-        device_id_str = ','.join(device_ids)
-        config.write_config_field( config_path, 'blockstack-client', 'default_devices', device_id_str )
-        return {'status': True}
-
-    except AssertionError:
-        return {'error': 'Failed to remove device'}
+    
+    raise NotImplemented("Missing token file parsing logic")
 
 
-def _remove_datastore(datastore, datastore_privkey, rmtree=True, force=False, config_path=CONFIG_PATH, proxy=None ):
+def _remove_datastore(rpc, datastore, datastore_privkey, data_pubkeys, rmtree=True, force=False, config_path=CONFIG_PATH ):
     """
     Delete a user datastore
     If rmtree is True, then the datastore will be emptied first.
@@ -3848,93 +4571,62 @@ def _remove_datastore(datastore, datastore_privkey, rmtree=True, force=False, co
     # clear the datastore 
     if rmtree:
         log.debug("Clear datastore {}".format(datastore_id))
-        res = datastore_rmtree(datastore, '/', datastore_privkey, config_path=config_path, proxy=proxy)
+        res = datastore_rmtree(rpc, datastore, '/', datastore_privkey, data_pubkeys, config_path=config_path)
         if 'error' in res and not force:
             log.error("Failed to rmtree datastore {}".format(datastore_id))
             return {'error': 'Failed to remove all files and directories', 'errno': errno.ENOTEMPTY}
 
     # delete the datastore record
     log.debug("Delete datastore {}".format(datastore_id))
-    return delete_datastore(datastore_privkey, force=force, config_path=config_path, proxy=proxy )
+    return delete_datastore(rpc, datastore, datastore_privkey, data_pubkeys, config_path=config_path)
 
 
-def get_datastore_privkey_info( app_domain, wallet_keys, app_user_privkey=None, password=None, config_path=CONFIG_PATH, proxy=None ):
-    """
-    Get the application datastore private key info
-    Return {'status': True, 'datastore': ..., 'datastore_privkey': ..., 'datastore_id': ...} on success
-    Return {'error': ...} on error
-    """
-    master_data_privkey = None
-
-    if app_user_privkey is None:
-        if wallet_keys is None:
-            password = get_default_password(password)
-            wallet_keys = get_wallet_keys(config_path, password)
-            if 'error' in wallet_keys:
-                wallet_keys['errno'] = errno.EPERM
-                return wallet_keys
-
-        master_data_privkey = wallet_keys['data_privkey']
-
-    res = get_datastore_info( app_user_privkey=app_user_privkey, master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy )
-    return res
-
-
-def create_datastore_by_type( datastore_type, app_domain, drivers=None, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None ):
+def create_datastore_by_type( datastore_type, blockchain_id, datastore_privkey, session, drivers=None, config_path=CONFIG_PATH ):
     """
     Create a datastore or a collection for the given user with the given name.
     Return {'status': True} on success
     Return {'error': ...} on error
     """
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-    
-    password = get_default_password(password)
-    config_dir = os.path.dirname(config_path)
+    data_pubkeys = jsontokens.decode_token(session)['payload']['app_public_keys']
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
 
-    if wallet_keys is None:
-        # RPC daemon must be running 
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            wallet_keys['errno'] = errno.EPERM
-            return wallet_keys
+    datastore_pubkey = get_pubkey_hex(datastore_privkey)
+    datastore_id = datastore_get_id(datastore_pubkey)
 
-    assert 'data_privkey' in wallet_keys, str(wallet_keys)
+    rpc = local_api_connect(config_path=config_path, api_session=session)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    master_data_privkey = wallet_keys['data_privkey']
-    assert master_data_privkey is not None and app_domain is not None
-
-    res = get_datastore_info( master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy )
+    res = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
     if 'error' not in res:
         # already exists
-        log.error("Datastore for {} exists".format(app_domain))
+        log.error("Datastore exists")
         return {'error': 'Datastore exists', 'errno': errno.EEXIST}
 
-    datastore_privkey = datastore_get_privkey( master_data_privkey, app_domain, config_path=config_path ) 
-    datastore_info = make_datastore( datastore_type, datastore_privkey, driver_names=drivers, config_path=CONFIG_PATH)
+    datastore_info = make_datastore_info( datastore_type, datastore_pubkey, device_ids, driver_names=drivers, config_path=config_path)
     if 'error' in datastore_info:
         return datastore_info
    
     # can put
-    res = put_datastore(datastore_info, datastore_privkey, proxy=proxy, config_path=config_path)
+    res = put_datastore(rpc, datastore_info, datastore_privkey, config_path=config_path)
     if 'error' in res:
         return res
 
     return {'status': True}
 
 
-def get_datastore_by_type( datastore_type, datastore_id, config_path=CONFIG_PATH, proxy=None ):
+def get_datastore_by_type( datastore_type, blockchain_id, datastore_id, device_ids, config_path=CONFIG_PATH ):
     """
     Get a datastore or collection.
-    Requires datastore_id, or app_domain and wallet keys (from config_path and password)
-    Return the datastore object on success, optionally with private key information.
+    Return the datastore object on success
     Return {'error': ...} on error
     """
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = get_datastore_info( datastore_id=datastore_id, config_path=config_path, proxy=proxy )
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -3945,19 +4637,22 @@ def get_datastore_by_type( datastore_type, datastore_id, config_path=CONFIG_PATH
     return datastore
 
 
-def delete_datastore_by_type( datastore_type, app_domain, app_user_privkey=None, force=False, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
+def delete_datastore_by_type( datastore_type, blockchain_id, datastore_privkey, session, force=False, config_path=CONFIG_PATH ):
     """
     Delete a datastore or collection.
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
+    datastore_id = datastore_get_id(get_pubkey_hex(datastore_privkey))
+    
+    data_pubkeys = jsontokens.decode_token(session)['payload']['app_public_keys']
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
+    
+    rpc = local_api_connect(config_path=config_path, api_session=session)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    password = get_default_password(password)
-    config_dir = os.path.dirname(config_path)
-
-    datastore_info = get_datastore_privkey_info( app_domain, wallet_keys, app_user_privkey=app_user_privkey, config_path=config_path, proxy=proxy )
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -3965,7 +4660,7 @@ def delete_datastore_by_type( datastore_type, app_domain, app_user_privkey=None,
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = _remove_datastore(datastore, datastore_info['datastore_privkey'], rmtree=True, force=force, config_path=config_path, proxy=proxy )
+    res = _remove_datastore(rpc, datastore, datastore_privkey, data_pubkeys, rmtree=True, force=force, config_path=config_path)
     if 'error' in res:
         log.error("Failed to delete datastore record")
         return res
@@ -3973,19 +4668,19 @@ def delete_datastore_by_type( datastore_type, app_domain, app_user_privkey=None,
     return {'status': True}
 
 
-def datastore_file_get(datastore_type, datastore_id, path, proxy=None, config_path=CONFIG_PATH ):
+def datastore_file_get(datastore_type, blockchain_id, datastore_id, path, data_pubkeys, extended=False, force=False, config_path=CONFIG_PATH ):
     """
     Get a file from a datastore or collection.
-    Return {'status': True, 'file': ...} on success
+    Return {'status': True, 'data': ...} on success
     Return {'error': ...} on error
     """
+    # connect 
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    config_dir = os.path.dirname(config_path)
-
-    datastore_info = get_datastore_info( datastore_id=datastore_id, config_path=config_path, proxy=proxy)
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
     if 'error' in datastore_info:
         if 'errno' not in datastore_info:
             datastore_info['errno'] = errno.EPERM
@@ -3996,24 +4691,21 @@ def datastore_file_get(datastore_type, datastore_id, path, proxy=None, config_pa
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_getfile( datastore, path, config_path=config_path, proxy=proxy )
+    res = datastore_getfile( rpc, blockchain_id, datastore, path, data_pubkeys, extended=extended, force=force, config_path=config_path )
     return res
 
 
-def datastore_file_put(datastore_type, datastore_privkey, path, data, create=True, app_domain=None, force_data=False, proxy=None, password=None, wallet_keys=None, config_path=CONFIG_PATH ):
+def datastore_file_put(datastore_type, blockchain_id, datastore_privkey, path, data, session, create=False, force_data=False, force=False, config_path=CONFIG_PATH ):
     """
     Put a file int oa datastore or collection.
-    need either datastore_id, or access to the wallet and the app_domain
     Return {'status': True} on success
     Return {'error': ...} on failure.
 
     If this is a collection, then path must be in the root directory
     """
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    config_dir = os.path.dirname(config_path)
+    datastore_id = datastore_get_id(get_pubkey_hex(datastore_privkey))
+    data_pubkeys = jsontokens.decode_token(session)['payload']['app_public_keys']
 
     # is this a path, and are we allowed to take paths?
     if is_valid_path(data) and os.path.exists(data) and not force_data:
@@ -4023,44 +4715,42 @@ def datastore_file_put(datastore_type, datastore_privkey, path, data, create=Tru
                 data = f.read()
         except:
             return {'error': 'Failed to read "{}"'.format(data)}
-
-    datastore_info = get_datastore_privkey_info( app_domain, wallet_keys, app_user_privkey=datastore_privkey, config_path=config_path, proxy=proxy )
-    if 'error' in datastore_info:
-        datastore_info['errno'] = errno.EPERM
-        return datastore_info
     
+    # connect 
+    rpc = local_api_connect(config_path=config_path, api_session=session)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
+
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
+    if 'error' in datastore_info:
+        return datastore_info
+
     datastore = datastore_info['datastore']
-    datastore_privkey = datastore_info['datastore_privkey']
-    datastore_id = datastore_info['datastore_id']
 
-    assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey))
+    log.debug("putfile {} to {}".format(path, datastore_id))
 
-    log.debug("putfile {} to {} (for {})".format(path, datastore_id, app_domain))
-
-    res = datastore_putfile( datastore, path, data, datastore_privkey, create=create, config_path=config_path, proxy=proxy )
+    res = datastore_putfile( rpc, datastore, path, data, datastore_privkey, data_pubkeys, create=create, config_path=config_path )
     if 'error' in res:
         return res
-
-    # make url
-    url = blockstack_datastore_url( datastore_id, app_domain, path )
-    res['url'] = url
 
     return res
 
 
-def datastore_dir_list(datastore_type, datastore_id, path, config_path=CONFIG_PATH, proxy=None ):
+def datastore_dir_list(datastore_type, blockchain_id, datastore_id, path, data_pubkeys, extended=False, force=False, config_path=CONFIG_PATH ):
     """
     List a directory in a datastore or collection
     Return {'status': True, 'dir': ...} on success
     Return {'error': ...} on error
     """
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
+    # connect 
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    config_dir = os.path.dirname(config_path)
-
-    datastore_info = get_datastore_info(datastore_id=datastore_id, config_path=config_path, proxy=proxy)
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
     if 'error' in datastore_info:
         if 'errno' not in datastore_info:
             datastore_info['errno'] = errno.EPERM
@@ -4076,22 +4766,23 @@ def datastore_dir_list(datastore_type, datastore_id, path, config_path=CONFIG_PA
         if path != '/':
             return {'error': 'Invalid argument: collections do not have directories', 'errno': errno.EINVAL}
 
-    res = datastore_listdir( datastore, path, config_path=config_path, proxy=proxy )
+    res = datastore_listdir( rpc, blockchain_id, datastore, path, data_pubkeys, extended=extended, force=force, config_path=config_path )
     return res
 
 
-def datastore_path_stat(datastore_type, datastore_id, path, proxy=None, config_path=CONFIG_PATH ):
+def datastore_path_stat(datastore_type, blockchain_id, datastore_id, path, data_pubkeys, extended=False, force=False, config_path=CONFIG_PATH ):
     """
     Stat a path in a datastore or collection
     Return {'status': True, 'inode': ...} on success
     Return {'error': ...} on error
     """
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-    
-    config_dir = os.path.dirname(config_path)
+    # connect 
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = get_datastore_info(datastore_id=datastore_id, config_path=config_path, proxy=proxy)
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
     if 'error' in datastore_info:
         return datastore_info
 
@@ -4099,113 +4790,144 @@ def datastore_path_stat(datastore_type, datastore_id, path, proxy=None, config_p
     if datastore['type'] != datastore_type:
         return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
 
-    res = datastore_stat( datastore, path, config_path=config_path, proxy=proxy )
+    res = datastore_stat( rpc, blockchain_id, datastore, path, data_pubkeys, extended=extended, force=force, config_path=config_path )
     return res
 
 
-def cli_get_datastore( args, config_path=CONFIG_PATH, proxy=None ):
+def datastore_inode_getinode(datastore_type, blockchain_id, datastore_id, inode_uuid, data_pubkeys, extended=False, force=False, idata=False, config_path=CONFIG_PATH ):
+    """
+    Get an inode in a datastore or collection
+    Return {'status': True, 'inode': ...} on success
+    Return {'error': ...} on error
+    """
+    # connect 
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
+
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
+    if 'error' in datastore_info:
+        return datastore_info
+
+    datastore = datastore_info['datastore']
+    if datastore['type'] != datastore_type:
+        return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
+
+    res = datastore_getinode( rpc, blockchain_id, datastore, inode_uuid, data_pubkeys, extended=False, force=force, idata=idata, config_path=config_path )
+    return res
+
+
+def cli_get_device_keys( args, config_path=CONFIG_PATH ):
+    """
+    command: get_device_keys advanced
+    help: Get the device IDs and public keys for a blockchain ID
+    arg: blockchain_id (str) 'The blockchain Id'
+    """
+    blockchain_id = str(args.blockchain_id)
+
+    # TODO: implement token file support 
+    log.warning("Token file support is NOT IMPLEMENTED")
+    
+    # find the "data public key"
+    
+
+def cli_get_datastore( args, config_path=CONFIG_PATH ):
     """
     command: get_datastore advanced
     help: Get a datastore record
-    arg: app_user_id (str) 'The application user ID that owns the datastore'
+    arg: blockchain_id (str) 'The ID of the owner' 
+    arg: datastore_id (str) 'The application datastore ID'
+    opt: device_ids (str) 'The CSV of device IDs owned by the blockchain ID'
     """
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-    
-    datastore_id = str(args.app_user_id)    
-    return get_datastore_by_type('datastore', datastore_id, config_path=config_path, proxy=proxy )
+    blockchain_id = str(args.blockchain_id)
+    datastore_id = str(args.datastore_id)
+
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
+
+    return get_datastore_by_type('datastore', blockchain_id, datastore_id, device_ids, config_path=config_path )
 
 
-def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
+def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None ):
     """
     command: create_datastore advanced 
-    help: Make a new datastore for a given app user account.
-    arg: app_domain (str) 'The domain name of the application.'
+    help: Make a new datastore
+    arg: blockchain_id (str) 'The blockchain ID that will own this datastore'
+    arg: privkey (str) 'The ECDSA private key of the datastore'
+    arg: session (str) 'The API session token'
     opt: drivers (str) 'A CSV of drivers to use.'
     """
 
     if proxy is None:
-        proxy = get_default_proxy(config_path)
-    
-    password = get_default_password(password)
+        proxy = get_default_proxy()
+
+    blockchain_id = str(args.blockchain_id)
+    privkey = str(args.privkey)
     drivers = getattr(args, 'drivers', None)
     if drivers:
         drivers = drivers.split(',')
+ 
+    return create_datastore_by_type('datastore', blockchain_id, privkey, str(args.session), drivers=drivers, config_path=config_path )
 
-    return create_datastore_by_type('datastore', str(args.app_domain), drivers=drivers, proxy=proxy, config_path=config_path, password=password, wallet_keys=wallet_keys )
 
-
-def cli_delete_datastore( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
+def cli_delete_datastore( args, config_path=CONFIG_PATH ):
     """
     command: delete_datastore advanced 
     help: Delete a datastore owned by a given user, and all of the data it contains.
-    arg: app_domain (str) 'The domain of the application for which this datastore exists'
+    arg: blockchain_id (str) 'The owner of this datastore'
+    arg: privkey (str) 'The ECDSA private key of the datastore'
+    arg: session (str) 'The API session token'
     opt: force (str) 'If True, then delete the datastore even if it cannot be emptied'
-    opt: app_user_privkey (str) 'If given, then this is the app user private key'
     """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    password = get_default_password(password)
-
-    config_dir = os.path.dirname(config_path)
-    app_domain = str(args.app_domain)
-
+    
+    blockchain_id = str(args.blockchain_id)
+    privkey = str(args.privkey)
     force = False
     if hasattr(args, 'force'):
         force = (str(args.force).lower() in ['1', 'true', 'force', 'yes'])
 
-    app_user_privkey = getattr(args, 'app_user_privkey', None)
-    if app_user_privkey is not None:
-        app_user_privkey = str(app_user_privkey)
-
-    return delete_datastore_by_type('datastore', app_domain, app_user_privkey=app_user_privkey, force=force, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
+    return delete_datastore_by_type('datastore', blockchain_id, privkey, str(args.session), force=force, config_path=config_path)
 
 
-def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, wallet_keys=None ):
+def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: datastore_mkdir advanced 
     help: Make a directory in a datastore.
-    arg: app_domain (str) 'The application domain of this datastore'
+    arg: blockchain_id (str) 'The owner of this datastore'
+    arg: privkey (str) 'The app-specific private key'
     arg: path (str) 'The path to the directory to remove'
-    opt: app_user_privkey (str) 'The app-specific private key'
+    arg: session (str) 'The API session token'
     """
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    password = get_default_password(password)
-
-    app_domain = str(args.app_domain)
-    config_dir = os.path.dirname(config_path)
+    blockchain_id = str(args.blockchain_id)
     path = str(args.path)
+    datastore_privkey_hex = str(args.privkey)
+    datastore_pubkey_hex = get_pubkey_hex(datastore_privkey_hex)
+    datastore_id = datastore_get_id(datastore_pubkey_hex)
 
-    app_user_privkey = getattr(args, 'app_user_privkey', None)
-    if app_user_privkey is not None:
-        app_user_privkey = str(app_user_privkey)
+    session = jsontokens.decode_token(str(args.session))
+    data_pubkeys = session['payload']['app_public_keys']
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
 
-    master_data_privkey = None
-    if app_user_privkey is None:
-        if wallet_keys is None:
-            wallet_keys = get_wallet_keys(config_path, password)
-            if 'error' in wallet_keys:
-                wallet_keys['errno'] = errno.EPERM
-                return wallet_keys
+    # connect 
+    rpc = local_api_connect(config_path=config_path, api_session=str(args.session))
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-        master_data_privkey = wallet_keys['data_privkey']
-
-    datastore_info = get_datastore_info(app_user_privkey=app_user_privkey, master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy)
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
     if 'error' in datastore_info:
         return datastore_info
 
-    datastore_id = datastore_info['datastore_id']
     datastore = datastore_info['datastore']
-    datastore_privkey_hex = datastore_info['datastore_privkey']
-
     assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
 
-    res = datastore_mkdir(datastore, path, datastore_privkey_hex, config_path=config_path, proxy=proxy)
+    res = datastore_mkdir(rpc, datastore, path, datastore_privkey_hex, data_pubkeys, config_path=config_path )
     if 'error' in res:
         return res
 
@@ -4213,266 +4935,522 @@ def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy
     if not path.endswith('/'):
         path += '/'
 
-    url = blockstack_datastore_url( datastore_id, app_domain, path )
-    res['url'] = url
     return res
 
     
-def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, wallet_keys=None ):
+def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: datastore_rmdir advanced 
     help: Remove a directory in a datastore.
-    arg: app_domain (str) 'The application domain for this data store'
+    arg: blockchain_id (str) 'The owner of this datastore'
+    arg: privkey (str) 'The app-specific data private key'
     arg: path (str) 'The path to the directory to remove'
-    opt: app_user_privkey (str) 'The app-specific user private key'
+    arg: session (str) 'The API session token'
     """
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    password = get_default_password(password)
-
-    app_domain = str(args.app_domain)
+    blockchain_id = str(args.blockchain_id)
     path = str(args.path)
+    datastore_privkey_hex = str(args.privkey)
+    datastore_pubkey_hex = get_pubkey_hex(datastore_privkey_hex)
+    datastore_id = datastore_get_id(datastore_pubkey_hex)
+    force = (str(getattr(args, 'force', '').lower()) in ['1', 'true'])
 
-    app_user_privkey = getattr(args, 'app_user_privkey', None)
-    if app_user_privkey is not None:
-        app_user_privkey = str(app_user_privkey)
+    session = jsontokens.decode_token(str(args.session))
+    data_pubkeys = session['payload']['app_public_keys']
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
 
-    master_data_privkey = None
-    if app_user_privkey is None:
-        if wallet_keys is None:
-            wallet_keys = get_wallet_keys(config_path, password)
-            if 'error' in wallet_keys:
-                wallet_keys['errno'] = errno.EPERM
-                return wallet_keys
+    # connect 
+    rpc = local_api_connect(config_path=config_path, api_session=str(args.session))
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-        master_data_privkey = wallet_keys['data_privkey']
-
-    datastore_info = get_datastore_info(app_user_privkey=app_user_privkey, master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy)
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
     if 'error' in datastore_info:
         return datastore_info
 
-    datastore_id = datastore_info['datastore_id']
     datastore = datastore_info['datastore']
-    datastore_privkey_hex = datastore_info['datastore_privkey']
-
     assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
 
-    res = datastore_rmdir(datastore, path, datastore_privkey_hex, config_path=config_path, proxy=proxy )
+    res = datastore_rmdir(rpc, datastore, path, datastore_privkey_hex, data_pubkeys, force=force, config_path=config_path )
     return res
 
 
-def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
+def cli_datastore_rmtree( args, config_path=CONFIG_PATH, interactive=False ):
     """
-    command: datastore_getfile advanced
-    help: Get a file from a datastore.
-    arg: app_user_id (str) 'The ID of the application user'
-    arg: path (str) 'The path to the file to load'
+    command: datastore_rmtree advanced
+    help: Remove a directory and all its children from a datastore.
+    arg: blockchain_id (str) 'The owner of this datastore'
+    arg: privkey (str) 'The app-specific data private key'
+    arg: path (str) 'The path to the directory tree to remove'
+    arg: session (str) 'The API session token'
     """
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-    
-    app_user_id = str(args.app_user_id)
+    blockchain_id = str(args.blockchain_id)
     path = str(args.path)
+    datastore_privkey_hex = str(args.privkey)
+    datastore_pubkey_hex = get_pubkey_hex(datastore_privkey_hex)
+    datastore_id = datastore_get_id(datastore_pubkey_hex)
 
-    return datastore_file_get('datastore', app_user_id, path, config_path=config_path, proxy=proxy)
+    session = jsontokens.decode_token(str(args.session))
+    data_pubkeys = session['payload']['app_public_keys']
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
+
+    # connect 
+    rpc = local_api_connect(config_path=config_path, api_session=str(args.session))
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
+
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
+    if 'error' in datastore_info:
+        return datastore_info
+
+    datastore = datastore_info['datastore']
+    assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
+
+    res = datastore_rmtree(rpc, datastore, path, datastore_privkey_hex, data_pubkeys, config_path=config_path )
+    return res
 
 
-def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
+def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False ):
+    """
+    command: datastore_getfile advanced raw
+    help: Get a file from a datastore.
+    arg: blockchain_id (str) 'The ID of the datastore owner'
+    arg: datastore_id (str) 'The ID of the application datastore'
+    arg: path (str) 'The path to the file to load'
+    opt: extended (str) 'If True, then include the full inode and parent information as well.'
+    opt: force (str) 'If True, then tolerate stale data faults.'
+    opt: device_ids (str) 'If given, a CSV of device IDs owned by the blockchain ID'
+    opt: device_pubkeys (str) 'If given, a CSV of device public keys owned by the blockchain ID'
+    """
+
+    blockchain_id = getattr(args, 'blockchain_id', '')
+    if len(blockchain_id) == 0:
+        blockchain_id = None
+    else:
+        blockchain_id = str(blockchain_id)
+
+    datastore_id = str(args.datastore_id)
+    path = str(args.path)
+    extended = False
+    force = False
+    device_ids = None
+
+    if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
+        extended = True
+
+    if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
+        force = True
+
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
+
+    device_pubkeys = None
+    if hasattr(args, 'device_pubkeys'):
+        device_pubkeys = str(args.device_pubkeys).split(',')
+    else:
+        raise NotImplemented("No support for token files")
+
+    assert len(device_ids) == len(device_pubkeys)
+    data_pubkeys = [{
+        'device_id': dev_id,
+        'public_key': pubkey
+    } for (dev_id, pubkey) in zip(device_ids, device_pubkeys)]
+
+    res = datastore_file_get('datastore', blockchain_id, datastore_id, path, data_pubkeys, extended=extended, force=force, config_path=config_path)
+    if json_is_error(res):
+        return res
+
+    if not extended:
+        # just the data
+        return res['data']
+
+    return res
+
+
+def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: datastore_listdir advanced
     help: List a directory in the datastore.
-    arg: app_user_id (str) 'The ID of the application user'
+    arg: blockchain_id (str) 'The ID of the datastore owner'
+    arg: datastore_id (str) 'The ID of the application datastore'
     arg: path (str) 'The path to the directory to list'
+    opt: extended (str) 'If True, then include the full inode and parent information as well.'
+    opt: force (str) 'If True, then tolerate stale data faults.'
+    opt: device_ids (str) 'If given, a CSV of device IDs owned by the blockchain ID'
+    opt: device_pubkeys (str) 'If given, a CSV of device public keys owned by the blockchain ID'
     """
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
+    blockchain_id = getattr(args, 'blockchain_id', '')
+    if len(blockchain_id) == 0:
+        blockchain_id = None
+    else:
+        blockchain_id = str(blockchain_id)
 
-    app_user_id = str(args.app_user_id)
+    datastore_id = str(args.datastore_id)
     path = str(args.path)
+    extended = False
+    force = False
+    device_ids = None
 
-    return datastore_dir_list('datastore', app_user_id, path, config_path=config_path, proxy=proxy)
+    if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
+        extended = True
+
+    if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
+        force = True
+
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
+
+    device_pubkeys = None
+    if hasattr(args, 'device_pubkeys'):
+        device_pubkeys = str(args.device_pubkeys).split(',')
+    else:
+        raise NotImplemented("No support for token files")
+
+    assert len(device_ids) == len(device_pubkeys)
+    data_pubkeys = [{
+        'device_id': dev_id,
+        'public_key': pubkey
+    } for (dev_id, pubkey) in zip(device_ids, device_pubkeys)]
+
+    res = datastore_dir_list('datastore', blockchain_id, datastore_id, path, data_pubkeys, extended=extended, force=force, config_path=config_path )
+    if json_is_error(res):
+        return res
+
+    if not extended:
+        return res['data']
+
+    return res
 
 
-def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False, proxy=None):
+def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: datastore_stat advanced
     help: Stat a file or directory in the datastore
-    arg: app_user_id (str) 'The ID of the application user'
+    arg: blockchain_id (str) 'The ID of the datastore owner'
+    arg: datastore_id (str) 'The datastore ID'
     arg: path (str) 'The path to the file or directory to stat'
+    opt: extended (str) 'If True, then include the path information as well'
+    opt: force (str) 'If True, then tolerate stale inode data.'
+    opt: device_ids (str) 'If given, a CSV of device IDs owned by the blockchain ID'
+    opt: device_pubkeys (str) 'If given, a CSV of device public keys owned by the blockchain ID'
     """
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
+    blockchain_id = getattr(args, 'blockchain_id', '')
+    if len(blockchain_id) == 0:
+        blockchain_id = None
+    else:
+        blockchain_id = str(blockchain_id)
 
     path = str(args.path)
-    app_user_id = str(args.app_user_id)
+    datastore_id = str(args.datastore_id)
+    path = str(args.path)
+    extended = False
+    force = False
+    device_ids = None
 
-    return datastore_path_stat('datastore', app_user_id, path, proxy=proxy, config_path=config_path) 
+    if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
+        extended = True
+
+    if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
+        force = True
+
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        # TODO
+        raise NotImplemented("Missing token file parsing logic")
+
+    device_pubkeys = None
+    if hasattr(args, 'device_pubkeys'):
+        device_pubkeys = str(args.device_pubkeys).split(',')
+    else:
+        # TODO
+        raise NotImplemented("No support for token files")
+
+    assert len(device_ids) == len(device_pubkeys)
+    data_pubkeys = [{
+        'device_id': dev_id,
+        'public_key': pubkey
+    } for (dev_id, pubkey) in zip(device_ids, device_pubkeys)]
+
+    res = datastore_path_stat('datastore', blockchain_id, datastore_id, path, data_pubkeys, extended=extended, force=force, config_path=config_path) 
+    if json_is_error(res):
+        return res
+
+    if not extended:
+        return res['data']
+
+    return res
 
 
-def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, force_data=False, wallet_keys=None ):
+def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
+    """
+    command: datastore_getinode advanced
+    help: Get a raw inode from a datastore
+    arg: blockchain_id (str) 'The ID of the datastore owner'
+    arg: datastore_id (str) 'The ID of the application user'
+    arg: inode_uuid (str) 'The inode UUID'
+    opt: extended (str) 'If True, then include the path information as well'
+    opt: idata (str) 'If True, then include the inode payload as well.'
+    opt: force (str) 'If True, then tolerate stale inode data.'
+    opt: device_ids (str) 'If given, the CSV of devices owned by the blockchain ID'
+    opt: device_pubkeys (str) 'If given, the CSV of device public keys owned by the blockchain ID'
+    """
+
+    blockchain_id = getattr(args, 'blockchain_id', '')
+    if len(blockchain_id) == 0:
+        blockchain_id = None
+    else:
+        blockchain_id = str(blockchain_id)
+
+    datastore_id = str(args.datastore_id)
+    inode_uuid = str(args.inode_uuid)
+    
+    session = jsontokens.decode_token(str(args.session))
+    data_pubkeys = session['payload']['app_public_keys']
+
+    extended = False
+    force = False
+    idata = False
+    device_ids = None
+
+    if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
+        extended = True
+
+    if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
+        force = True
+
+    if hasattr(args, 'idata') and args.idata.lower() in ['1', 'true']:
+        idata = True
+
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        # TODO
+        raise NotImplemented("Missing token file parsing logic")
+
+    device_pubkeys = None
+    if hasattr(args, 'device_pubkeys'):
+        device_pubkeys = str(args.device_pubkeys).split(',')
+    else:
+        # TODO
+        raise NotImplemented("No support for token files")
+
+    assert len(device_ids) == len(device_pubkeys)
+    data_pubkeys = [{
+        'device_id': dev_id,
+        'public_key': pubkey
+    } for (dev_id, pubkey) in zip(device_ids, device_pubkeys)]
+
+    return datastore_inode_getinode('datastore', blockchain_id, datastore_id, inode_uuid, data_pubkeys, extended=extended, force=force, idata=idata, config_path=config_path) 
+
+
+def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, force_data=False ):
     """
     command: datastore_putfile advanced 
     help: Put a file into the datastore at the given path.
-    arg: app_domain (str) 'The application for this datastore'
+    arg: blockchain_id (str) 'The owner of this datastore'
+    arg: privkey (str) 'The app-specific data private key'
     arg: path (str) 'The path to the new file'
     arg: data (str) 'The data to store, or a path to a file with the data'
-    opt: create (str) 'If True, then only succeed if the file does not exist already'
-    opt: app_user_privkey (str) 'If given, then this is the application user private key'
+    arg: session (str) 'The API session token'
+    opt: create (str) 'If True, then succeed only if the file has never before existed.'
+    opt: force (str) 'If True, then tolerate stale inode data.'
     """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    password = get_default_password(password)
-
-    config_dir = os.path.dirname(config_path)
-    app_domain = str(args.app_domain)
+    
+    blockchain_id = str(args.blockchain_id)
     path = str(args.path)
-    data = args.data
+    data = str(args.data)
+    privkey = str(args.privkey)
     create = (str(getattr(args, "create", "")).lower() in ['1', 'create', 'true'])
-    app_user_privkey = getattr(args, 'app_user_privkey', None)
-    if app_user_privkey is not None:
-        app_user_privkey = str(app_user_privkey)
+    force = (str(getattr(args, 'force', '')).lower() in ['1', 'true'])
 
-    return datastore_file_put('datastore', app_user_privkey, path, data, create=create, app_domain=app_domain, wallet_keys=wallet_keys, password=password, force_data=force_data, proxy=proxy, config_path=config_path )
+    return datastore_file_put('datastore', blockchain_id, privkey, path, data, str(args.session), create=create, force_data=force_data, config_path=config_path )
 
 
-def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, wallet_keys=None ):
+def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: datastore_deletefile advanced
     help: Delete a file from the datastore.
-    arg: app_domain (str) 'The application domain of this data store'
+    arg: blockchain_id (str) 'The owner of this datastore'
+    arg: privkey (str) 'The datastore private key'
     arg: path (str) 'The path to the file to delete'
-    opt: app_user_privkey (str) 'If given, then this is the application user private key'
+    arg: session (str) 'The API session token'
+    opt: force (str) 'If True, then tolerate stale inode data.'
     """
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    password = get_default_password(password)
-
-    config_dir = os.path.dirname(config_path)
-    app_domain = str(args.app_domain)
+    blockchain_id = str(args.blockchain_id)
     path = str(args.path)
-    app_user_privkey = getattr(args, 'app_user_privkey', None)
-    if app_user_privkey is not None:
-        app_user_privkey = str(app_user_privkey)
-    
-    datastore_info = None 
-    master_data_privkey = None
+    privkey = str(args.privkey)
+    datastore_id = datastore_get_id(get_pubkey_hex(privkey))
+    force = (str(getattr(args, 'force', '')).lower() in ['1', 'true'])
 
-    if app_user_privkey is None:
-        if wallet_keys is None:
-            wallet_keys = get_wallet_keys(config_path, password)
-            if 'error' in wallet_keys:
-                wallet_keys['errno'] = errno.EPERM
-                return wallet_keys
+    session = jsontokens.decode_token(str(args.session))
+    data_pubkeys = session['payload']['app_public_keys']
+    device_ids = [dk['device_id'] for dk in session['payload']['app_public_keys']]
 
-        master_data_privkey = wallet_keys['data_privkey']
+    # connect 
+    rpc = local_api_connect(config_path=config_path)
+    if rpc is None:
+        return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = get_datastore_info(app_user_privkey=app_user_privkey, master_data_privkey=master_data_privkey, app_domain=app_domain, config_path=config_path, proxy=proxy)
+    datastore_info = rpc.backend_datastore_get(blockchain_id, datastore_id, device_ids)
     if 'error' in datastore_info:
         datastore_info['errno'] = errno.EPERM
         return datastore_info
 
-    datastore_id = datastore_info['datastore_id']
     datastore = datastore_info['datastore']
-    datastore_privkey_hex = datastore_info['datastore_privkey']
 
-    assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
-
-    res = datastore_deletefile( datastore, path, datastore_privkey_hex, config_path=config_path, proxy=proxy )
+    res = datastore_deletefile( rpc, datastore, path, privkey, data_pubkeys, force=force, config_path=config_path )
     return res
 
 
-def cli_datastore_get_id(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, wallet_keys=None ):
+def cli_datastore_get_privkey(args, config_path=CONFIG_PATH, interactive=False ):
+    """
+    command: datastore_get_privkey advanced
+    help: Get the private key for a datastore, given the master private key.
+    arg: master_privkey (str) 'The master data private key'
+    arg: app_domain (str) 'The name of the application'
+    """
+    raise NotImplemented("Token file support not yet implemented")
+
+    app_domain = str(args.app_domain)
+    master_privkey = str(args.master_privkey)
+
+    datastore_privkey = datastore_get_privkey(master_privkey, app_domain, config_path=config_path)
+    return {'status': True, 'datastore_privkey': datastore_privkey}
+
+
+def cli_datastore_get_id(args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: datastore_get_id advanced
     help: Get the ID of an application data store
-    arg: app_domain (str) 'The application domain of this data store'
-    opt: app_user_privkey (str) 'If given, then this is the application user private key'
+    arg: datastore_privkey (str) 'The datastore private key'
     """
-    password = get_default_password(password)
-
-    config_dir = os.path.dirname(config_path)
-    app_domain = str(args.app_domain)
-    
-    app_user_privkey = getattr(args, 'app_user_privkey', None)
-    if app_user_privkey is not None:
-        app_user_privkey = str(app_user_privkey)
-    
-    else:
-        if wallet_keys is None:
-            wallet_keys = get_wallet_keys(config_path, password)
-            if 'error' in wallet_keys:
-                return wallet_keys
-
-        master_data_privkey = wallet_keys['data_privkey']
-        app_user_privkey = datastore_get_privkey( master_data_privkey, app_domain, config_path=config_path )
-        if app_user_privkey is None:
-            return {'error': 'Failed to generate app private key'}
-
-    app_pubkey = get_pubkey_hex(app_user_privkey)
-    datastore_id = datastore_get_id( app_pubkey )
-
+    datastore_id = datastore_get_id(get_pubkey_hex(str(args.datastore_privkey)))
     return {'status': True, 'datastore_id': datastore_id}
 
 
-def cli_get_collection( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
+def cli_get_collection( args, config_path=CONFIG_PATH, proxy=None, password=None ):
     """
     command: get_collection advanced
     help: Get a collection record
-    arg: collection_name (str) 'The name of the collection'
+    arg: blockchain_id (str) 'The ID of the owner'
+    arg: collection_domain (str) 'The name of the collection'
+    opt: device_ids (str) 'The list of device IDs that can write'
     """
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
+    raise NotImplemented("Collections not implemented")
 
-    collection_domain = str(args.collection_name)
-    return get_datastore_by_type('collection', collection_domain, config_path=config_path, proxy=proxy )
+    blockchain_id = str(args.blockchain_id)
+    collection_domain = str(args.collection_domain)
+    device_ids = args.device_ids.split(',')
+    return get_datastore_by_type('collection', blockchain_id, collection_domain, device_ids, config_path=config_path )
 
 
-def cli_create_collection( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
+def cli_create_collection( args, config_path=CONFIG_PATH, proxy=None, password=None, master_data_privkey=None ):
     """
     command: create_collection advanced 
     help: Make a new collection for a given user.
+    arg: blockchain_id (str) 'The blockchain ID that will own this collection'
     arg: collection_domain (str) 'The domain of this collection.'
+    opt: device_ids (str) 'A CSV of your device IDs.'
     """
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
+    raise NotImplemented("Collections not implemented")
+
+    blockchain_id = str(args.blockchain_id)
     password = get_default_password(password)
     collection_domain = str(args.collection_domain)
 
-    return create_datastore_by_type('collection', collection_domain, proxy=proxy, config_path=config_path, password=password, wallet_keys=wallet_keys )
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
+
+    # TODO: privkey
+    # privkey = 
+    raise NotImplemented("Collections are not implemented yet")
+
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
+
+    return create_datastore_by_type('collection', blockchain_id, privkey, device_ids, proxy=proxy, config_path=config_path, password=password, master_data_privkey=master_data_privkey)
 
 
-def cli_delete_collection( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
+def cli_delete_collection( args, config_path=CONFIG_PATH, proxy=None, password=None, master_data_privkey=None ):
     """
     command: delete_collection advanced 
     help: Delete a collection owned by a given user, and all of the data it contains.
+    arg: blockchain_id (str) 'The owner of this collection'
     arg: collection_domain (str) 'The domain of this collection'
+    opt: device_ids (str) 'A CSV of your devices'
     """
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    raise NotImplemented("Collections not implemented")
+
     password = get_default_password(password)
 
+    blockchain_id = str(args.blockchain_id)
     collection_domain = str(args.collection_domain)
+    
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
 
-    return delete_datastore_by_type('collection', collection_domain, force=True, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
+    else:
+        raise NotImplemented("Missing token file parsing logic")
+
+    # TODO: privkey
+    # privkey = 
+    raise NotImplemented("Collections are not implemented")
+
+    device_ids = None
+    if hasattr(args, 'device_ids'):
+        device_ids = str(args.device_ids).split(',')
+    else:
+        raise NotImplemented("No support for token files")
+
+    return delete_datastore_by_type('collection', blockchain_id, privkey, device_ids, force=True, config_path=config_path, proxy=proxy, password=password)
 
 
-def cli_collection_listitems(args, config_path=CONFIG_PATH, wallet_keys=None, password=None, interactive=False, proxy=None ):
+def cli_collection_listitems(args, config_path=CONFIG_PATH, password=None, interactive=False, proxy=None ):
     """
     command: collection_items advanced
     help: List the contents of a collection
+    arg: blockchain_id (str) 'The ID of the collection owner'
     arg: collection_domain (str) 'The domain of this collection'
     arg: path (str) 'The path to the directory to list'
     """
@@ -4480,12 +5458,23 @@ def cli_collection_listitems(args, config_path=CONFIG_PATH, wallet_keys=None, pa
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    raise NotImplemented("Collections not implemented")
+
     password = get_default_password(password)
+    blockchain_id = str(args.blockchain_id)
+
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
 
     collection_domain = str(args.collection_domain)
     path = str(args.path)
 
-    res = datastore_dir_list('collection', collection_domain, '/', config_path=config_path, proxy=proxy)
+    res = datastore_dir_list('collection', blockchain_id, collection_domain, '/', device_ids, config_path=config_path, proxy=proxy)
     if 'error' in res:
         return res
 
@@ -4503,52 +5492,75 @@ def cli_collection_statitem(args, config_path=CONFIG_PATH, interactive=False, pr
     """
     command: collection_statitem advanced
     help: Stat an item in a collection
-    arg: collection_id (str) 'The ID of this collection'
+    arg: blockchain_id (str) 'The ID of the collection owner'
+    arg: collection_domain (str) 'The name of this collection'
     arg: item_id (str) 'The name of the item to stat'
     """
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    raise NotImplemented("Collections not implemented")
+
     password = get_default_password(password)
 
-    collection_id = str(args.collection_id)
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
+
+    blockchain_id = str(args.blockchain_id)
+    collection_domain = str(args.collection_domain)
     item_id = str(args.item_id)
 
-    return datastore_path_stat('collection', collection_id, '/{}'.format(item_id), proxy=proxy, config_path=config_path)
+    return datastore_path_stat('collection', blockchain_id, collection_domain, '/{}'.format(item_id), device_ids, proxy=proxy, config_path=config_path)
 
 
-def cli_collection_putitem(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, force_data=False, wallet_keys=None ):
+def cli_collection_putitem(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, force_data=False, master_data_privkey=None ):
     """
     command: collection_putitem advanced 
     help: Put an item into a collection.  Overwrites are forbidden.
-    arg: collection_name (str) 'The collection domain'
+    arg: blockchain_id (str) 'The owner of the collection'
+    arg: collection_privkey (str) 'The collection private key'
     arg: item_id (str) 'The item name'
     arg: data (str) 'The data to store, or a path to a file with the data'
-    opt: collection_privkey (str) 'The collection private key'
+    opt: device_ids (str) 'A CSV of your device IDs'
     """
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
+    
+    raise NotImplemented("Collections not implemented")
 
     password = get_default_password(password)
 
-    config_dir = os.path.dirname(config_path)
+    blockchain_id = str(args.blockchain_id)
     collection_domain = str(args.collection_domain)
     item_id = str(args.item_id)
     data = args.data
-    collection_privkey = getattr(args, 'collection_privkey', None)
-    if collection_privkey is not None:
-        collection_privkey = str(args.collection_privkey)
+    collection_privkey = str(args.collection_privkey)
 
-    return datastore_file_put('collection', collection_privkey, '/{}'.format(item_id), data, app_domain=collection_domain, 
-                              create=True, force_data=force_data, proxy=proxy, config_path=config_path, wallet_keys=wallet_keys, password=password)
+    # get the list of device IDs to use 
+    device_ids = getattr(args, 'device_ids', None)
+    if device_ids:
+        device_ids = device_ids.split(',')
+
+    else:
+        raise NotImplemented("Missing token file parsing logic")
 
 
-def cli_collection_getitem( args, config_path=CONFIG_PATH, interactive=False, password=None, wallet_keys=None, proxy=None ):
+    return datastore_file_put('collection', blockchain_id, collection_privkey, '/{}'.format(item_id), data, device_ids=device_ids, 
+                              create=True, force_data=force_data, proxy=proxy, config_path=config_path, master_data_privkey=master_data_privkey, password=password)
+
+
+def cli_collection_getitem( args, config_path=CONFIG_PATH, interactive=False, password=None, proxy=None ):
     """
     command: collection_getitem advanced
     help: Get an item from a collection.
+    arg: blockchain_id (str) 'The ID of the datastore owner'
     arg: collection_domain (str) 'The domain of this collection'
     arg: item_id (str) 'The item to fetch'
     """
@@ -4556,19 +5568,27 @@ def cli_collection_getitem( args, config_path=CONFIG_PATH, interactive=False, pa
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    raise NotImplemented("Collections not implemented")
+
     password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
+    blockchain_id = getattr(args, 'blockchain_id', '')
+    if len(blockchain_id) == 0:
+        blockchain_id = None
+    else:
+        blockchain_id = str(blockchain_id)
+    
     collection_domain = str(args.collection_domain)
     item_id = str(args.item_id)
 
-    return datastore_file_get('collection', collection_domain, '/{}'.format(item_id), password=password, wallet_keys=wallet_keys, config_path=config_path, proxy=proxy)
+    return datastore_file_get('collection', blockchain_id, collection_domain, '/{}'.format(item_id), password=password, config_path=config_path, proxy=proxy)
 
 
 def cli_start_server( args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: start_server advanced
-    help: Start a Blockstack server
+    help: Start a Blockstack indexing server
     opt: foreground (str) 'If True, then run in the foreground.'
     opt: working_dir (str) 'The directory which contains the server state.'
     opt: testnet (str) 'If True, then communicate with Bitcoin testnet.'
@@ -4584,14 +5604,14 @@ def cli_start_server( args, config_path=CONFIG_PATH, interactive=False ):
 
     if args.testnet:
         testnet = str(args.testnet)
-        testnet = (testnet.lower() in ['1', 'true', 'yes', 'testnet'])
+        testnet = (testnet.lower() in ['1', 'true', 'yes', 'testnet3'])
 
-    cmds = ['blockstack-server', 'start']
+    cmds = ['blockstack-core', 'start']
     if foreground:
         cmds.append('--foreground')
 
     if testnet:
-        cmds.append('--testnet')
+        cmds.append('--testnet3')
 
     # TODO: use subprocess
     if working_dir is not None:
@@ -4613,13 +5633,13 @@ def cli_start_server( args, config_path=CONFIG_PATH, interactive=False ):
 def cli_stop_server( args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: stop_server advanced
-    help: Stop a running Blockstack server
+    help: Stop a running Blockstack indexing server
     opt: working_dir (str) 'The directory which contains the server state.'
     """
 
     working_dir = args.working_dir
 
-    cmds = ['blockstack-server', 'stop']
+    cmds = ['blockstack-core', 'stop']
 
     if working_dir is not None:
         working_dir_envar = 'VIRTUALCHAIN_WORKING_DIR="{}"'.format(working_dir)

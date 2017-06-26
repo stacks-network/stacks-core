@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% from '_docsection.html' import docsection %}
+
+{% block scripts %}
+    {{ super() }}
+    <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/8.5/highlight.min.js"></script>
+    <script>hljs.initHighlightingOnLoad();</script>
+{% endblock %}
+
+{% block desktop_navbar %}
+    {{ super() }}
+    <div class="content">
+        <div class="container-fluid pull-left col-sm-6 head-zone">
+            <div></div>
+        </div>
+        <!--<div class="container-fluid head-code">
+            <ul class="nav navbar-nav head-in">
+                <li>
+                    <a href="#" class="active">curl</a>
+                </li>
+                <li>
+                    <a href="#">Python</a>
+                </li>
+            </ul>
+        </div>-->
+    </div>
+{% endblock %}
+
+{% block content %}
+<div>
+    <!-- sidebar navbar - changes here need to reflect on mobile .navbar-collapse -->
+    <div class="pull-left sidebar hidden-xs hidden-sm">
+        <div class="list-group">
+            <a href="/#" class="list-group-item">Getting Started</a>
+            <h5 class="navheader">Node</h5>
+            <a href="/#node_ping" class="list-group-item">Ping the node</a>
+            
+            <h5 class="navheader">Names</h5>
+            <a href="/#naming_name_info" class="list-group-item">Get name info</a>
+            <a href="/#naming_name_history" class="list-group-item">Get name history</a>
+            
+            <h5 class="navheader">Addresses</h5>
+            <a href="/#names_owned" class="list-group-item">Get names owned</a>
+            
+            <h5 class="navheader">Namespaces</h5>
+            <a href="/#namespaces_all" class="list-group-item">Get all namespaces</a>
+            
+            <h5 class="navheader">Prices</h5>
+            <a href="/#price_name" class="list-group-item">Get name price</a>            
+
+            <h5 class="navheader">Blockchains</h5>
+            <a href="/#blockchains_consensus" class="list-group-item">Get consensus hash</a>
+
+            <h5 class="navheader">Identity</h5>
+            <a href="/#identity_get" class="list-group-item">Get profile</a>
+            <a href="/#identity_create" class="list-group-item">Create profile</a>
+            <a href="/#identity_update" class="list-group-item">Update profile</a>
+        
+            <h5 class="navheader">Search</h5>
+            <a href="/#search_users" class="list-group-item">Search users</a>
+            </div>
+    </div><!--/sidebar navbar -->
+    <div id="background" class="hidden-xs">
+        <div class="background-actual"></div>
+    </div>
+    <div class="content">
+        <div>
+            <section>
+                <div class="container pull-left col-sm-12 segment-wrapper" id="get-started">
+                    <div class="container-fluid col-sm-6 segment-zone" style="border:none;">
+                        <div class="seg-zone-wrap">
+                            <h3>Getting Started</h3>
+                            <p>
+                                Welcome to this deployment of Blockstack Core v{{server_info.server_version}}. You can read the documentation and make RESTful calls to this node.
+                            </p>
+
+                            <p> 
+                            <table>
+                            <tr>
+                            <td>Consensus hash</td>
+                            <td>{{server_info.consensus}}</td>
+                            </tr>
+
+                            <tr>
+                            <td>Last block seen</td>
+                            <td>{{server_info.last_block_seen}}</td>
+                            </tr>
+
+                            <tr>
+                            <td style="padding:0px 20px 0px 0px;">Last block processed</td>
+                            <td>{{server_info.last_block_processed}}</td>
+                            </tr>
+                            
+                            </table>
+
+                            </p>
+
+                            <p>
+                                Blockstack Core is open-source software released under a GPLv3 license. The code for this API is <a href="https://github.com/blockstack/blockstack-core/tree/master/api">available on Github</a> and you can deploy your own nodes by following <a href="https://github.com/blockstack/blockstack-core/tree/master/api">these instructions</a>.
+                            </p>
+
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+        {% for api_call in api_calls %}
+            {{ docsection(api_call, server_url) }}
+        {% endfor %}
+    </div>
+
+</div>
+{% endblock %}

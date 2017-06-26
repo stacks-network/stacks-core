@@ -44,7 +44,7 @@ else:
 
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
-def storage_init(conf):
+def storage_init(conf, **kw):
    """
    Local disk implementation of the storage_init API call.
    Do one-time global setup--i.e. make directories.
@@ -302,15 +302,20 @@ def delete_mutable_handler( data_id, signature, **kw ):
       pass 
    
    return True
-   
+  
+
+def get_classes():
+    return ['read_private', 'write_private', 'read_local', 'write_local']
+
    
 if __name__ == "__main__":
    """
    Unit tests.
    """
    
-   import pybitcoin 
-   import json 
+   import keylib
+   import virtualchain
+   from virtualchain.lib.hashing import *
    
    # hack around absolute paths
    current_dir =  os.path.abspath(os.path.join( os.path.dirname(__file__), "..") )
@@ -319,19 +324,19 @@ if __name__ == "__main__":
    from storage import serialize_mutable_data, parse_mutable_data
    from user import make_mutable_data_info
 
-   pk = pybitcoin.BitcoinPrivateKey()
+   pk = keylib.ECPrivateKey()
    data_privkey = pk.to_hex()
    data_pubkey = pk.public_key().to_hex()
    
    test_data = [
       ["my_first_datum",        "hello world",                              1, "unused", None],
       ["/my/second/datum",      "hello world 2",                            2, "unused", None],
-      ["user_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
+      ["user\"_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
       ["empty_string",          "",                                         4, "unused", None],
    ]
    
    def hash_data( d ):
-      return pybitcoin.hash.hex_hash160( d )
+      return hex_hash160( d )
    
    rc = storage_init()
    if not rc:

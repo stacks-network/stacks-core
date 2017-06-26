@@ -26,6 +26,11 @@ from __future__ import print_function
 
 import os
 import sys
+import json
+import tempfile
+import subprocess
+import fcntl
+
 import virtualchain
 from .version import __version__, __version_major__, __version_minor__, __version_patch__
 
@@ -33,8 +38,14 @@ BLOCKSTACK_TEST = os.environ.get('BLOCKSTACK_TEST', None)
 BLOCKSTACK_TEST_NODEBUG = os.environ.get('BLOCKSTACK_TEST_NODEBUG', None)
 BLOCKSTACK_DEBUG = os.environ.get('BLOCKSTACK_DEBUG', None)
 BLOCKSTACK_TEST_FIRST_BLOCK = os.environ.get('BLOCKSTACK_TEST_FIRST_BLOCK', None)
+BLOCKSTACK_TESTNET = os.environ.get("BLOCKSTACK_TESTNET", None)
+BLOCKSTACK_TESTNET3 = os.environ.get("BLOCKSTACK_TESTNET3", None)
+BLOCKSTACK_TESTNET_FIRST_BLOCK = os.environ.get("BLOCKSTACK_TESTNET_FIRST_BLOCK", None)
 BLOCKSTACK_DRY_RUN = os.environ.get('BLOCKSTACK_DRY_RUN', None)
 
+if BLOCKSTACK_DRY_RUN is not None:
+    BLOCKSTACK_DRY_RUN = True
+    
 DEBUG = False
 if BLOCKSTACK_TEST is not None and BLOCKSTACK_TEST_NODEBUG is None:
     DEBUG = True
@@ -49,14 +60,24 @@ TX_MIN_CONFIRMATIONS = 6
 if os.environ.get("BLOCKSTACK_TEST", None) is not None:
     # test environment
     TX_MIN_CONFIRMATIONS = 0
+    print('TEST ACTIVE: TX_MIN_CONFIRMATIONS = {}'.format(TX_MIN_CONFIRMATIONS))
+
+if os.environ.get("BLOCKSTACK_MIN_CONFIRMATIONS", None) is not None:
+    TX_MIN_CONFIRMATIONS = int(os.environ['BLOCKSTACK_MIN_CONFIRMATIONS'])
+    print("Set TX_MIN_CONFIRMATIONS to {}".format(TX_MIN_CONFIRMATIONS), file=sys.stderr)
 
 VERSION = __version__
 SERIES_VERSION = "{}.{}.{}".format(__version_major__, __version_minor__, __version_patch__)
 
-DEFAULT_BLOCKSTACKD_PORT = 6264  # blockstackd port
+DEFAULT_BLOCKSTACKD_PORT = 6264  # blockstack indexer port
 DEFAULT_BLOCKSTACKD_SERVER = 'node.blockstack.org'
 
-DEFAULT_API_PORT = 6270  # RPC endpoint port
+DEFAULT_DEVICE_ID = '.default'
+
+DEFAULT_API_HOST = 'localhost'
+DEFAULT_API_PORT = 6270  # API endpoint port
+
+LOG_NETWORK_PORT = 8333 # port to send log messages on (e.g. to Portal)
 
 # initialize to default settings
 BLOCKSTACKD_SERVER = DEFAULT_BLOCKSTACKD_SERVER
@@ -69,6 +90,8 @@ BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = 'disk,s3,blockstack_resolver,blockstack_ser
 
 # storage drivers that must successfully acknowledge each write
 BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE = 'disk,blockstack_server,dht'
+
+BLOCKSTACK_STORAGE_CLASSES = ['read_public', 'read_private', 'write_public', 'write_private', 'read_local', 'write_local']
 
 DEFAULT_TIMEOUT = 30  # in secs
 
@@ -93,13 +116,11 @@ if BLOCKSTACK_TEST and BLOCKSTACK_TEST_FIRST_BLOCK:
     FIRST_BLOCK_MAINNET = int(BLOCKSTACK_TEST_FIRST_BLOCK)
     print('TEST ACTIVE: FIRST_BLOCK_MAINNET = {}'.format(FIRST_BLOCK_MAINNET))
 
-FIRST_BLOCK_TIME_UTC = 1441737751
+if (BLOCKSTACK_TESTNET or BLOCKSTACK_TESTNET3) and BLOCKSTACK_TESTNET_FIRST_BLOCK:
+    FIRST_BLOCK_MAINNET = int(BLOCKSTACK_TESTNET_FIRST_BLOCK)
+    print("TESTNET ACTIVE: FIRST_BLOCK_MAINNET = {}".format(FIRST_BLOCK_MAINNET))
 
-TX_MIN_CONFIRMATIONS = 6
-if BLOCKSTACK_TEST:
-    # test environment
-    TX_MIN_CONFIRMATIONS = 0
-    print('TEST ACTIVE: TX_MIN_CONFIRMATIONS = {}'.format(TX_MIN_CONFIRMATIONS))
+FIRST_BLOCK_TIME_UTC = 1441737751
 
 # borrowed from Blockstack
 # Opcodes
@@ -302,10 +323,6 @@ WALLET_PATH = os.path.join(CONFIG_DIR, 'wallet.json')
 DEFAULT_QUEUE_PATH = os.path.join(CONFIG_DIR, 'queues.db')
 
 METADATA_DIRNAME = 'metadata'
-APP_ACCOUNT_DIRNAME = 'accounts'
-USER_DIRNAME = 'accounts'
-DATASTORE_DIRNAME = 'datastores'
-LOCAL_PRIVKEY_INDEX_NAME = 'local_privkey.idx'
 
 BLOCKCHAIN_ID_MAGIC = 'id'
 
@@ -329,6 +346,10 @@ APPROX_UPDATE_TX_LEN = 1240
 APPROX_TRANSFER_TX_LEN = 1240
 APPROX_RENEWAL_TX_LEN = 1240
 APPROX_REVOKE_TX_LEN = 1240
+APPROX_NAMESPACE_PREORDER_TX_LEN = 620
+APPROX_NAMESPACE_REVEAL_TX_LEN = 620
+APPROX_NAMESPACE_READY_TX_LEN = 1240        # assumes three p2pkh inputs (more than required)
+APPROX_NAMESPACE_IMPORT_TX_LEN = 1240       # assumes three p2pkh inputs (more than required)
 
 # for estimating tx lengths, when we can't generate a transaction.
 APPROX_TX_OVERHEAD_LEN = 12
@@ -337,9 +358,14 @@ APPROX_TX_OUT_P2PKH_LEN = 40
 APPROX_TX_IN_P2SH_LEN = 300
 APPROX_TX_OUT_P2SH_LEN = 40
 
+TX_MAX_FEE = int(5 * 1e5)
+
 # hardened children indexes
 ACCOUNT_SIGNING_KEY_INDEX = 0
 DATASTORE_SIGNING_KEY_INDEX = 0
+
+# version of the storage protocol 
+BLOCKSTACK_STORAGE_PROTO_VERSION = 1
 
 # session lifetime
 DEFAULT_SESSION_LIFETIME = 3600 * 24 * 7    # 1 week
@@ -361,14 +387,91 @@ del i
 
 EPOCH_HEIGHT_MINIMUM = EPOCH_1_END_BLOCK + 1
 
-DEFAULT_BLOCKCHAIN_READER = 'blockcypher'
-DEFAULT_BLOCKCHAIN_WRITER = 'blockcypher'
+DEFAULT_BLOCKCHAIN_READER = 'blockstack_utxo'
+DEFAULT_BLOCKCHAIN_WRITER = 'blockstack_utxo'
 
-SUPPORTED_UTXO_PROMPT_MESSAGES = {
-    'blockcypher': 'Please enter your Blockcypher API token.',
-    'blockchain_info': 'Please enter your blockchain.info API token.',
-    'bitcoind_utxo': 'Please enter your fully-indexed bitcoind node information.',
-    'blockstack_utxo': 'Please enter your Blockstack server info.',
-}
+SECRETS = {}
 
+def set_secret(key, value):
+    global SECRETS
+    SECRETS[key] = value
+
+def get_secret(key):
+    return SECRETS.get(key)
+
+
+def serialize_secrets():
+    return json.dumps(SECRETS)
+
+
+def parse_secrets(buf):
+    try:    
+        return json.loads(buf)
+    except:
+        return {}
+
+
+def load_secrets(buf, is_file = False):
+    global SECRETS
+    if is_file:
+        try:
+            # aaron: this will read() from the file object until a json object
+            #        is fully parsed, so it might stall waiting for inputs
+            sec = json.load(buf)
+        except:
+            sec = {}
+    else:
+        sec = parse_secrets(buf)
+    SECRETS.update(sec)
+   
+
+def write_secrets(buf):
+    """
+    Given serialized secrets, save them to an
+    unlinked temporary file that the calling process
+    can read and write.
+
+    Be careful how we do this---we don't want another
+    process running as the same user 
+    to be able to open the file in read mode.
+
+    Returns the (integer) file descriptor number on success.
+    Raises on error.
+    """
+
+    dirp = tempfile.mkdtemp()
+    tmppath = os.path.join(dirp, "secrets")
+
+    fd = os.open(tmppath, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0200)
+
+    os.unlink(tmppath)
+    os.rmdir(dirp)
+
+    # NOTE: FD_CLOEXEC to stop the subprocess below from inheriting
+    flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+    flags |= fcntl.FD_CLOEXEC
+    fcntl.fcntl(fd, fcntl.F_SETFD, flags)
+
+    # try to verify that we got this file to ourselves
+    command = 'lsof -nP +L1 | grep "{}"'.format(tmppath)
+    p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+    out, err = p.communicate()
+
+    assert p.returncode == 0, "'{}' failed with code {}".format(command, p.returncode)
+
+    linecount = len(out.strip().split("\n"))
+    assert linecount == 1, "Some other process opened our secrets\n\n{}".format(out)
+
+    # save to write
+    os.write(fd, buf)
+    os.lseek(fd, 0, os.SEEK_SET)
+
+    # make accessible again
+    os.fchmod(fd, 0600)
+
+    # remove O_CLOEXEC (since we're passing this on exec to the reloaded process)
+    flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+    flags &= ~fcntl.FD_CLOEXEC
+    fcntl.fcntl(fd, fcntl.F_SETFD,  flags)
+    return fd
 

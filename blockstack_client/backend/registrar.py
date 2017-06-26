@@ -22,9 +22,7 @@
 """
 
 import os
-import sys
 import random
-import signal
 import base64
 import copy
 
@@ -32,8 +30,6 @@ import copy
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 
-import signal
-from time import sleep
 import json
 import socket
 import threading
@@ -43,25 +39,25 @@ import hashlib
 import keylib
 from keylib import ECPrivateKey
 
-import blockstack_profiles
 import blockstack_zones
+import virtualchain
 
-from .queue import get_queue_state, in_queue, queue_removeall
-from .queue import queue_cleanall, queue_find_accepted
+from .queue import get_queue_state, in_queue, cleanup_preorder_queue, queue_removeall
+from .queue import queue_find_accepted
 
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
 
-from ..keys import get_data_privkey_info, is_singlesig, is_singlesig_hex, is_multisig, get_privkey_info_address, get_privkey_info_params, encrypt_private_key_info, decrypt_private_key_info
-from ..proxy import is_name_registered, is_zonefile_hash_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost, get_atlas_peers, json_is_error
-from ..zonefile import zonefile_data_replicate, make_empty_zonefile
-from ..user import is_user_zonefile, make_empty_user_profile
-from ..storage import put_mutable_data, put_immutable_data, hash_zonefile, get_zonefile_data_hash
-from ..data import get_profile_timestamp, set_profile_timestamp
+from ..keys import get_data_privkey_info, is_singlesig_hex 
+from ..proxy import is_name_registered, is_zonefile_hash_current, get_default_proxy, get_name_blockchain_record, get_atlas_peers, json_is_error
+from ..zonefile import zonefile_data_replicate
+from ..user import is_user_zonefile
+from ..storage import put_mutable_data, get_zonefile_data_hash
+from ..data import set_profile_timestamp
 
-from .crypto.utils import aes_decrypt, aes_encrypt
-
-from ..constants import SLEEP_INTERVAL, CONFIG_PATH, DEFAULT_QUEUE_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, TX_MIN_CONFIRMATIONS
-from ..config import get_config, get_logger, url_to_host_port
+from ..constants import CONFIG_PATH, DEFAULT_QUEUE_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, TX_MIN_CONFIRMATIONS
+from ..config import get_config
+from ..utils import url_to_host_port
+from ..logger import get_logger
 
 DEBUG = True
 
@@ -90,9 +86,11 @@ def get_registrar_state(config_path=None, proxy=None):
     return (state, config_path, proxy)
 
 
-def set_registrar_state(config_path=None):
+def set_registrar_state(config_path=None, wallet_keys=None):
     """
-    Set singleton state 
+    Set singleton state and start the registrar thread.
+    Return the registrar state on success
+    Return None on error
     """
     global __registrar_state
     assert config_path is not None
@@ -104,6 +102,22 @@ def set_registrar_state(config_path=None):
 
     log.info("Initialize Registrar State from %s" % (config_path))
     __registrar_state = RegistrarState(config_path)
+
+    if wallet_keys:
+        log.info("Setting wallet keys")
+
+        res = set_wallet(
+            (wallet_keys['payment_addresses'][0], wallet_keys['payment_privkey']),
+            (wallet_keys['owner_addresses'][0], wallet_keys['owner_privkey']),
+            (wallet_keys['data_pubkeys'][0], wallet_keys['data_privkey']),
+            config_path=config_path
+        )
+
+        if 'error' in res:
+            log.error("Failed to set wallet: {}".format(res['error']))
+            __registrar_state = None
+            return None
+
     __registrar_state.start()
     return __registrar_state
 
@@ -143,6 +157,14 @@ class RegistrarWorker(threading.Thread):
             self.required_storage_drivers = self.required_storage_drivers.split(",")
 
         log.debug("Queue path:      %s" % self.queue_path)
+
+        if os.path.exists(self.queue_path):
+            queue_info = os.stat(self.queue_path)
+            log.debug("Queue info:      size=%s ctime=%s atime=%s mtime=%s" % (queue_info.st_size, queue_info.st_ctime, queue_info.st_atime, queue_info.st_mtime))
+
+        else:
+            log.debug("Queue info:      <unknown>")
+
         log.debug("Poll interval:   %s" % self.poll_interval)
         log.debug("API port:        %s" % self.api_port)
         log.debug("Storage:         %s" % ",".join(self.required_storage_drivers))
@@ -214,7 +236,7 @@ class RegistrarWorker(threading.Thread):
 
         log.debug("update({}, zonefile={}, profile={}, transfer_address={})".format(name_data['fqu'], name_data.get('zonefile'), name_data.get('profile'), name_data.get('transfer_address'))) 
         res = update( name_data['fqu'], name_data.get('zonefile'), name_data.get('profile'),
-                      name_data.get('zonefile_hash'), name_data.get('transfer_address'), None, config_path=config_path, proxy=proxy )
+                      name_data.get('zonefile_hash'), name_data.get('transfer_address'), config_path=config_path, proxy=proxy )
 
         assert 'success' in res
 
@@ -303,6 +325,15 @@ class RegistrarWorker(threading.Thread):
         return accepted
 
 
+    @classmethod
+    def get_confirmed_name_imports( cls, config_path, queue_path ):
+        """
+        Find all confirmed name imports
+        """
+        accepted = queue_find_accepted( "name_import", path=queue_path, config_path=config_path )
+        return accepted
+
+
     @classmethod 
     def register_preorders( cls, queue_path, wallet_data, config_path=CONFIG_PATH, proxy=None ):
         """
@@ -349,17 +380,21 @@ class RegistrarWorker(threading.Thread):
     @classmethod
     def clear_confirmed( cls, config_path, queue_path, proxy=None ):
         """
-        Find all confirmed transactions besides preorder, register, and update, and remove them from the queue.
+        Find all confirmed transactions besides preorder, register, update, and remove them from the queue.
+        Once these operations complete, there will be no subsequent operations.
+        
         Return {'status': true} on success
         Return {'error': ...} on failure
         """
-        for queue_name in ['transfer', 'revoke', 'renew']:
+        for queue_name in ['transfer', 'revoke', 'renew', 'name_import']:
             accepted = queue_find_accepted( queue_name, path=queue_path, config_path=config_path )
 
             if len(accepted) > 0:
                 log.debug("Clear %s confirmed %s operations" % (len(accepted), queue_name))
                 queue_removeall( accepted, path=queue_path )
 
+        # remove expired preorders
+        cleanup_preorder_queue(path=queue_path, config_path=config_path)
         return {'status': True}
 
     
@@ -439,7 +474,7 @@ class RegistrarWorker(threading.Thread):
 
             profile_payload = set_profile_timestamp(profile_payload)
             
-            rc = put_mutable_data( name_data['fqu'], profile_payload, data_privkey, required=storage_drivers, profile=True, blockchain_id=name_data['fqu'] )
+            rc = put_mutable_data( name_data['fqu'], profile_payload, data_privkey=data_privkey, required=storage_drivers, profile=True, blockchain_id=name_data['fqu'] )
             if not rc:
                 log.info("Failed to replicate profile for %s" % (name_data['fqu']))
                 return {'error': 'Failed to store profile'}
@@ -456,9 +491,9 @@ class RegistrarWorker(threading.Thread):
 
 
     @classmethod
-    def replicate_names_data( cls, queue_path, wallet_data, storage_drivers, config_path=CONFIG_PATH, proxy=None ):
+    def replicate_names_data( cls, queue_path, updates, wallet_data, storage_drivers, skip=[], config_path=CONFIG_PATH, proxy=None ):
         """
-        Replicate all zonefiles and profiles for each confirmed update.
+        Replicate all zonefiles and profiles for each confirmed update or name import.
         @atlas_servers should be a list of (host, port)
 
         Do NOT remove items from the queue.
@@ -469,17 +504,17 @@ class RegistrarWorker(threading.Thread):
         ret = {'status': True} 
         failed_names = []
 
-        updates = cls.get_confirmed_updates( config_path, queue_path )
-        if len(updates) == 0:
-            return ret
-
         atlas_servers = cls.get_atlas_server_list( config_path )
         if 'error' in atlas_servers:
             log.warn('Failed to get server list: {}'.format(servers['error']))
             return {'error': 'Failed to get Atlas server list'}
 
         for update in updates:
-            log.debug("Zonefile update on '%s' (%s) is confirmed!  New hash is %s" % (update['fqu'], update['tx_hash'], update['zonefile_hash']))
+            if update['fqu'] in skip:
+                log.debug("Skipping name {}".format(update['fqu']))
+                continue
+
+            log.debug("Zone file update on '%s' (%s) is confirmed!  New hash is %s" % (update['fqu'], update['tx_hash'], update['zonefile_hash']))
             res = cls.replicate_name_data( update, atlas_servers, wallet_data, storage_drivers, config_path, proxy=proxy )
             if 'error' in res:
                 log.error("Failed to update %s: %s" % (update['fqu'], res['error']))
@@ -490,7 +525,43 @@ class RegistrarWorker(threading.Thread):
             ret['names'] = failed_names
 
         return ret
-       
+      
+
+    @classmethod
+    def replicate_update_data( cls, queue_path, wallet_data, storage_drivers, skip=[], config_path=CONFIG_PATH, proxy=None ):
+        """
+        Replicate all zone files and profiles for each confirmed NAME_UPDATE
+        @atlas_servers should be a list of (host, port)
+
+        Do NOT remove items from the queue.
+
+        Return {'status': True} on success
+        Return {'error': ..., 'names': [...]} on failure.  'names' refers to the list of names that failed
+        """
+        updates = cls.get_confirmed_updates( config_path, queue_path )
+        if len(updates) == 0:
+            return {'status': True}
+
+        return cls.replicate_names_data(queue_path, updates, wallet_data, storage_drivers, skip=skip, config_path=config_path, proxy=proxy)
+
+
+    @classmethod
+    def replicate_name_import_data( cls, queue_path, wallet_data, storage_drivers, skip=[], config_path=CONFIG_PATH, proxy=None ):
+        """
+        Replicate all zone files and profiles for each confirmed NAME_UPDATE
+        @atlas_servers should be a list of (host, port)
+
+        Do NOT remove items from the queue.
+
+        Return {'status': True} on success
+        Return {'error': ..., 'names': [...]} on failure.  'names' refers to the list of names that failed
+        """
+        name_imports = cls.get_confirmed_name_imports( config_path, queue_path )
+        if len(name_imports) == 0:
+            return {'status': True}
+
+        return cls.replicate_names_data(queue_path, name_imports, wallet_data, storage_drivers, skip=skip, config_path=config_path, proxy=proxy)
+
 
     @classmethod
     def transfer_names( cls, queue_path, skip=[], config_path=CONFIG_PATH, proxy=None ):
@@ -499,43 +570,47 @@ class RegistrarWorker(threading.Thread):
         Otherwise, clear them from the update queue.
 
         Return {'status': True} on success
-        Return {'error': ...} on failure
+        Return {'error': ..., 'names': ...} on failure
         """
         if proxy is None:
             proxy = get_default_proxy(config_path=config_path)
     
+        failed = []
         ret = {'status': True}
         conf = get_config(config_path)
         assert conf
 
         updates = cls.get_confirmed_updates( config_path, queue_path )
-        if len(updates) == 0:
-            return ret
-
         for update in updates:
             if update['fqu'] in skip:
+                log.debug("Skipping {}".format(update['fqu']))
                 continue
 
             if update.get("transfer_address") is not None:
                 log.debug("Transfer {} to {}".format(update['fqu'], update['transfer_address']))
 
-                res = transfer( update['fqu'], update['transfer_address'], None, config_path=config_path, proxy=proxy )
+                res = transfer( update['fqu'], update['transfer_address'], config_path=config_path, proxy=proxy )
                 assert 'success' in res
                 
                 if res['success']:
                     # clear from update queue
+                    log.debug("Clearing successful transfer of {} to {} from update queue".format(update['fqu'], update['transfer_address']))
                     queue_removeall( [update], path=queue_path )
 
                 else:
                     # will try again 
                     log.error("Failed to transfer {} to {}: {}".format(update['fqu'], update['transfer_address'], res.get('error')))
                     ret = {'error': 'Not all names transferred'}
+                    failed.append(update['fqu'])
 
             else:
                 # nothing more to do 
                 log.debug("Done working on {}".format(update['fqu']))
                 log.debug("Final name output: {}".format(update))
                 queue_removeall( [update], path=queue_path )
+
+        if 'error' in ret:
+            ret['names'] = failed
 
         return ret
 
@@ -572,7 +647,7 @@ class RegistrarWorker(threading.Thread):
             
         servers = list(set([str(hp) for hp in servers]))
 
-        if 'node.blockstack.org:6264' not in servers:
+        if 'node.blockstack.org:6264' not in servers and not BLOCKSTACK_TEST:
             log.warning("Also including node.blockstack.org:6264 for Atlas zone file dissimination")
             servers.append("node.blockstack.org:6264")
 
@@ -724,6 +799,7 @@ class RegistrarWorker(threading.Thread):
             failed = False
             wallet_data = None
             proxy = get_default_proxy( config_path=self.config_path )
+            failed_names = []
 
             try:
                 wallet_data = get_wallet( config_path=self.config_path, proxy=proxy )
@@ -780,16 +856,15 @@ class RegistrarWorker(threading.Thread):
             try:
                 # see if we can replicate any zonefiles and profiles
                 # clear out any confirmed updates
-                log.debug("replicate all pending zonefiles and profiles in %s" % (self.queue_path))
-                failed_names = []
-                res = RegistrarWorker.replicate_names_data( self.queue_path, wallet_data, self.required_storage_drivers, config_path=self.config_path, proxy=proxy )
+                log.debug("replicate all pending zone files and profiles for updates %s" % (self.queue_path))
+                res = RegistrarWorker.replicate_update_data( self.queue_path, wallet_data, self.required_storage_drivers, config_path=self.config_path, proxy=proxy )
                 if 'error' in res:
-                    log.warn("Zonefile/profile replication failed: %s" % res['error'])
+                    log.warn("Zone file/profile replication failed for update: %s" % res['error'])
 
                     # try exponential backoff
                     failed = True
                     poll_interval = 1.0
-                    failed_names = res['names']
+                    failed_names += res['names']
 
             except Exception, e:
                 log.exception(e)
@@ -806,8 +881,27 @@ class RegistrarWorker(threading.Thread):
                     # try exponential backoff
                     failed = True
                     poll_interval = 1.0
+                    failed_names += res['names']
 
             except Exception as e:
+                log.exception(e)
+                failed = True
+                poll_interval = 1.0
+
+            try:
+                # see if we can replicate any zonefiles for name imports
+                # clear out any confirmed imports
+                log.debug("replicate all pending zone files for name imports in {}".format(self.queue_path))
+                res = RegistrarWorker.replicate_name_import_data( self.queue_path, wallet_data, self.required_storage_drivers, skip=failed_names, config_path=self.config_path, proxy=proxy )
+                if 'error' in res:
+                    log.warn("Zone file replication failed: {}".format(res['error']))
+
+                    # try exponential backoff
+                    failed = True
+                    poll_interval = 1.0
+                    failed_names += res['names']
+
+            except Exception, e:
                 log.exception(e)
                 failed = True
                 poll_interval = 1.0
@@ -849,10 +943,6 @@ class RegistrarWorker(threading.Thread):
                 # interrupted
                 log.debug("Sleep interrupted")
                 break
-
-            # remove expired 
-            log.debug("Cleaning all queues in %s" % self.queue_path)
-            queue_cleanall( path=self.queue_path, config_path=self.config_path )
 
         log.info("Registrar worker exited")
         self.cleanup_lockfile( self.lockfile_path )
@@ -897,15 +987,6 @@ class RegistrarState(object):
         self.registrar_worker.join()
 
 
-# RPC method: backend_ping
-def ping():
-    """
-    Check if RPC daemon is alive
-    """
-    data = {'status': 'alive'}
-    return data
-
-
 # RPC method: backend_state
 def state():
     """
@@ -946,10 +1027,10 @@ def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, p
         return {'error': 'Missing wallet information'}
 
     # sanity check...
-    if not is_singlesig( payment_keypair[1] ) and not is_multisig( payment_keypair[1] ):
+    if not virtualchain.is_singlesig( payment_keypair[1] ) and not virtualchain.is_multisig( payment_keypair[1] ):
         return {'error': 'Invalid payment key info'}
 
-    if not is_singlesig( owner_keypair[1] ) and not is_multisig( owner_keypair[1] ):
+    if not virtualchain.is_singlesig( owner_keypair[1] ) and not virtualchain.is_multisig( owner_keypair[1] ):
         return {'error': 'Invalid owner key info'}
 
     if not is_singlesig_hex( data_keypair[1] ):
@@ -1016,8 +1097,6 @@ def get_wallet(config_path=None, proxy=None):
     for the time that server is alive
     Return the wallet (as a JSON dict) on success
     Return {'error':...} on error
-
-    If we're testing, we will tolerate the absence of the data key.
     """
 
     state, config_path, proxy = get_registrar_state(config_path=config_path, proxy=proxy)
@@ -1047,7 +1126,7 @@ def get_wallet(config_path=None, proxy=None):
 
 
 # RPC method: backend_preorder
-def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_payment_confs, tx_fee, proxy=None, config_path=CONFIG_PATH):
+def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_payment_confs, proxy=None, config_path=CONFIG_PATH):
     """
     Send preorder transaction and enter it in queue.
     Queue up additional state so we can update and transfer it as well.
@@ -1086,10 +1165,10 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
         'profile': profile,
     }
     
-    log.debug("async_preorder({}, zonefile_data={}, profile={}, transfer_address={}, tx_fee={})".format(fqu, zonefile_data, profile, transfer_address, tx_fee)) 
+    log.debug("async_preorder({}, zonefile_data={}, profile={}, transfer_address={})".format(fqu, zonefile_data, profile, transfer_address)) 
     resp = async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost_satoshis,
                           name_data=name_data, min_payment_confs=min_payment_confs,
-                          proxy=proxy, config_path=config_path, queue_path=state.queue_path, tx_fee=tx_fee)
+                          proxy=proxy, config_path=config_path, queue_path=state.queue_path)
 
     if 'error' not in resp:
         data['success'] = True
@@ -1110,7 +1189,7 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
 
 
 # RPC method: backend_update
-def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, tx_fee, config_path=CONFIG_PATH, proxy=None ):
+def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, config_path=CONFIG_PATH, proxy=None ):
     """
     Send a new zonefile hash.  Queue the zonefile data for subsequent replication.
     zonefile_txt_b64 must be b64-encoded so we can send it over RPC sanely
@@ -1147,7 +1226,7 @@ def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, tx_fee,
             'transfer_address': transfer_address
         }
 
-        log.debug("async_update({}, zonefile_data={}, profile={}, transfer_address={}, tx_fee={})".format(fqu, zonefile_txt, profile, transfer_address, tx_fee)) 
+        log.debug("async_update({}, zonefile_data={}, profile={}, transfer_address={})".format(fqu, zonefile_txt, profile, transfer_address)) 
         resp = async_update(fqu, zonefile_txt, profile,
                             owner_privkey_info,
                             payment_privkey_info,
@@ -1155,8 +1234,7 @@ def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, tx_fee,
                             zonefile_hash=zonefile_hash,
                             proxy=proxy,
                             config_path=config_path,
-                            queue_path=state.queue_path,
-                            tx_fee=tx_fee)
+                            queue_path=state.queue_path)
 
     else:
         return {'success': True, 'warning': "The zonefile has not changed, so no update sent."}
@@ -1187,7 +1265,7 @@ def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, tx_fee,
 
 
 # RPC method: backend_transfer
-def transfer(fqu, transfer_address, tx_fee, config_path=CONFIG_PATH, proxy=None ):
+def transfer(fqu, transfer_address, config_path=CONFIG_PATH, proxy=None ):
     """
     Send transfer transaction.
     Keeps the zonefile data.
@@ -1217,8 +1295,7 @@ def transfer(fqu, transfer_address, tx_fee, config_path=CONFIG_PATH, proxy=None 
                           payment_privkey_info,
                           proxy=proxy,
                           config_path=config_path,
-                          queue_path=state.queue_path,
-                          tx_fee=tx_fee)
+                          queue_path=state.queue_path)
 
     if 'error' not in resp:
         data['success'] = True
@@ -1238,7 +1315,7 @@ def transfer(fqu, transfer_address, tx_fee, config_path=CONFIG_PATH, proxy=None 
 
 
 # RPC method: backend_renew
-def renew( fqu, renewal_fee, tx_fee, config_path=CONFIG_PATH, proxy=None ):
+def renew( fqu, renewal_fee, config_path=CONFIG_PATH, proxy=None ):
     """
     Renew a name
 
@@ -1267,8 +1344,7 @@ def renew( fqu, renewal_fee, tx_fee, config_path=CONFIG_PATH, proxy=None ):
     resp = async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee,
                        proxy=proxy,
                        config_path=config_path,
-                       queue_path=state.queue_path,
-                       tx_fee=tx_fee)
+                       queue_path=state.queue_path)
 
     if 'error' not in resp:
 
@@ -1290,7 +1366,7 @@ def renew( fqu, renewal_fee, tx_fee, config_path=CONFIG_PATH, proxy=None ):
 
 
 # RPC method: backend_revoke
-def revoke( fqu, tx_fee, config_path=CONFIG_PATH, proxy=None ):
+def revoke( fqu, config_path=CONFIG_PATH, proxy=None ):
     """
     Revoke a name
 
@@ -1319,8 +1395,7 @@ def revoke( fqu, tx_fee, config_path=CONFIG_PATH, proxy=None ):
     resp = async_revoke(fqu, owner_privkey_info, payment_privkey_info,
                         proxy=proxy,
                         config_path=config_path,
-                        queue_path=state.queue_path,
-                        tx_fee=tx_fee)
+                        queue_path=state.queue_path)
 
     if 'error' not in resp:
 

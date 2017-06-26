@@ -1,13 +1,10 @@
-# Blockstack Specifications
+# Blockstack API
 
-## Dashboard Endpoints
+You can read the API documentation and try out API calls at: https://core.blockstack.org
 
-| Method  | API Call | API family | Notes | 
-| ------------- | ------------- | ------------- | ------------- |
-| Dashboard Home | GET / | identity | Serves the identity management panel | 
-| Auth Request View | GET /auth?authRequest={authRequestToken} | identity | Serves the auth request view | 
+In general, all documentation is in the [docs/](https://github.com/blockstack/blockstack-core/tree/api/docs) directory.
 
-#### Explanation of the auth request view:
+Instructions for deploying your own node are [here](https://github.com/blockstack/blockstack-core/tree/api/docs/install-api.md).
 
 When the user clicks “login” in an application, the app should redirect the user to this endpoint. If the user already has an account, they will be redirected along with requested data. If the user doesn’t have an account, the user will be presented with each of the app’s requested permissions, then will satisfy or deny them. The dashboard will then redirect the user back with a JWT. The response JWT contains a signature and an API token that the app can use for future authorization of endpoints.
 

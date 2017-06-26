@@ -53,6 +53,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
 
+    # pre-0.13 wallet
     legacy_wallet = testlib.make_legacy_wallet( wallets[2].privkey, "0123456789abcdef" )
     testlib.store_wallet( legacy_wallet )
 
@@ -79,6 +80,8 @@ def scenario( wallets, **kw ):
     payment_address = str(res['payment_address'])
     owner_address = str(res['owner_address'])
 
+    print "fund {}".format(payment_address)
+    
     # fill wallet with 5 BTC
     res = testlib.send_funds( wallets[3].privkey, 5 * 10**8, payment_address )
     if 'error' in res:

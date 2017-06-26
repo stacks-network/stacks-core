@@ -1,0 +1,38 @@
+uwsgi_cache_path /tmp/blockstack_uwsgi_cache levels=1:2 keys_zone=api:50m;
+
+server {
+    listen 80 default_server;
+    server_name localhost;
+    return 301 https://core.blockstack.org$request_uri;
+ 
+    location / {
+        include uwsgi_params;
+        uwsgi_pass unix:/path/to/nginx/blockstack_api.sock;
+    }
+}
+
+server {
+    listen 443 default_server;
+    server_name localhost;
+
+    ssl on;
+    ssl_certificate /path/to/cert/fullchain.pem;
+    ssl_certificate_key /path/to/cert/privkey.pem;
+
+    location / {
+        include uwsgi_params;
+        uwsgi_pass unix:/tmp/blockstack_api.sock;
+	
+#	expires 5m;
+	
+	uwsgi_cache api;
+	uwsgi_cache_key $uri$args;
+
+	add_header X-Cache-Status $upstream_cache_status;	
+	
+	uwsgi_cache_methods GET HEAD;
+	
+	uwsgi_cache_valid 200 12h;
+	uwsgi_cache_valid 404 12h;
+    }
+}
