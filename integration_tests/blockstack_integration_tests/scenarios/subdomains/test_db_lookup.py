@@ -79,7 +79,7 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
     time.sleep(10)
     # wait for initial update to get confirmed 
-    for i in xrange(0, 12):
+    for i in xrange(0, 15):
         # warn the serialization checker that this changes behavior from 0.13
         print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
         sys.stdout.flush()
@@ -87,13 +87,9 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
-    time.sleep(10)
+    time.sleep(15)
     
     # store a new zonefile
-    zonefile_0_js = { "$origin" : "foo.test",
-                      "$ttl" : "3600",
-                      "uri" : [{ "name" : "registrar", "priority" : 1, "weight" : 10,
-                                 "target" : "bsreg://foo.com:8234" }], }
 
     # foo's zonefile
     user_zf = {
@@ -110,15 +106,12 @@ def scenario( wallets, **kw ):
     subdomain = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(foo_sk), 0,
                                      blockstack_zones.make_zone_file(user_zf))
 
-    subdomains._extend_with_subdomain(zonefile_0_js, subdomain)
 
-
-    subdomains.flatten_and_issue_zonefile("foo.test", zonefile_0_js)
+    subdomains.add_subdomain(subdomain, "foo.test")
 
     # wait for new update to get confirmed 
     for i in xrange(0, 12):
-        sys.stdout.flush()
-        
+        sys.stdout.flush()        
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
@@ -152,7 +145,10 @@ def check( state_engine ):
 
     # let's resolve!
     print "Resolved profile : {}".format(user_profile)
-
     assert 'foo' in user_profile
+
+    user_profile2 = subdomains.resolve_subdomain_cached_domain("foo", "foo.test")
+    print "Cache Resolved Profile : {}".format(user_profile2)
+    assert 'foo' in user_profile2
 
     return True

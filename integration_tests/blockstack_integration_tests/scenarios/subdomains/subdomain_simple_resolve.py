@@ -100,10 +100,6 @@ def scenario( wallets, **kw ):
     time.sleep(10)
     
     # store a new zonefile
-#    zonefile_0_js = { "$origin" : "foo.test",
-#                      "$ttl" : "3600",
-#                      "uri" : [{ "name" : "registrar", "priority" : 1, "weight" : 10,
-#                                 "target" : "bsreg://foo.com:8234" }], }
 
     # foo's zonefile
     user_zf = {

@@ -26,7 +26,7 @@ import base64, copy
 import ecdsa, hashlib
 import keylib
 from itertools import izip
-from blockstack_client import data, storage, actions, config
+from blockstack_client import data, storage, actions, config, proxy
 from blockstack_client import zonefile as bs_zonefile
 from blockstack_client import user as user_db
 from blockstack_client.logger import get_logger
@@ -148,17 +148,21 @@ class SubdomainDB(object):
         get_cmd = """SELECT * FROM {}""".format(self.status_table)
         cursor = self.conn.cursor()
         cursor.execute(get_cmd)
+        # aaron: note, if there's no entry, we'll get such a lovely exception.
         zonefile_hash = str(cursor.fetchone()[0])
         return zonefile_hash
 
     def get_subdomain_entry(self, subdomain_name):
-        get_cmd = """SELECT * FROM {} WHERE name=?""".format(self.subdomain_table)
+        get_cmd = "SELECT * FROM {} WHERE subdomain=?".format(self.subdomain_table)
         cursor = self.conn.cursor()
         cursor.execute(get_cmd, (subdomain_name,))
         (name, n, encoded_pubkey, zonefile_str, sig) = cursor.fetchone()
         if sig == '':
             sig = None
-        return Subdomain(name, n, encoded_pubkey, zonefile_str, sig)
+        else:
+            sig = str(sig)
+        # lol, unicode support.
+        return Subdomain(str(name), str(encoded_pubkey), int(n), str(zonefile_str), sig)
 
     def update(self):
         self._drop_and_create_table()
@@ -180,12 +184,14 @@ class SubdomainDB(object):
                         subdomain_obj.zonefile_str,
                         subdomain_obj.sig
                        ))
+        self.conn.commit()
 
     def _set_last_seen_zf_hash(self, hash):
         write_cmd = """INSERT INTO {} VALUES (?)""".format(self.status_table)
         cursor = self.conn.cursor()
         print "SQLITEing:  {}".format(write_cmd)
         cursor.execute(write_cmd, (hash, ))
+        self.conn.commit()
 
     def _drop_and_create_table(self):
         drop_cmd = "DROP TABLE IF EXISTS {};"
@@ -346,10 +352,14 @@ def is_subdomain_resolution_cached(domain_fqa):
 def resolve_subdomain_cached_domain(subdomain, domain_fqa):
     db = SubdomainDB(domain_fqa)
     # check if db is current with zonefile hash
-    zf_hash = get_name_blockchain_record(name, proxy=proxy)['value_hash']
+    zf_hash = proxy.get_name_blockchain_record(domain_fqa)['value_hash']
     if zf_hash != db.last_seen_zonefile_hash():
+        log.debug("SubdomainDB Zonefile {} not up to date with {}".format(db.last_seen_zonefile_hash(), 
+                                                                          zf_hash))
         db.update()
-
+    else:
+        log.debug("SubdomainDB Zonefile {} up to date with {}".format(db.last_seen_zonefile_hash(), 
+                                                                      zf_hash))
     subdomain_obj = db.get_subdomain_entry(subdomain)
 
     return subdomain_record_to_profile(subdomain_obj)
