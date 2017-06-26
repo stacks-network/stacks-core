@@ -343,7 +343,7 @@ def scenario( wallets, **kw ):
             print 'accidentally got {}: {}'.format(dpath, res)
             return False
 
-        if res['errno'] != errno.ESTALE:
+        if res['errno'] != errno.EREMOTEIO:
             print 'wrong errno: {}'.format(res)
             return False
 
@@ -564,7 +564,7 @@ def scenario( wallets, **kw ):
             print 'accidentally succeeded to list {}: {}'.format(dpath, res)
             return False
 
-        if res['errno'] != errno.ESTALE:
+        if res['errno'] != errno.EREMOTEIO:
             print 'wrong errno: {}'.format(res)
             return False
 

@@ -903,7 +903,7 @@ def bitcoin_regtest_reset():
 
     # wait for a few seconds for it to come up
     log.debug("Waiting for bitcoind to start up")
-    deadline = time.time() + 30
+    deadline = time.time() + 180
     started = False
     while time.time() < deadline:
         time.sleep(1)

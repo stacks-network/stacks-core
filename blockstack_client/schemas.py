@@ -716,8 +716,15 @@ APP_INFO_PROPERTIES = {
         'maximum': 1,
     },
     'blockchain_id': {
-        'type': 'string',
-        'pattern': OP_NAME_PATTERN,
+        'anyOf': [
+            {
+                'type': 'string',
+                'pattern': OP_NAME_PATTERN,
+            },
+            {
+                'type': 'null',
+            },
+        ],
     },
     'app_domain': {
         'anyOf': [
@@ -838,6 +845,41 @@ APP_SESSION_REQUEST_SCHEMA = {
     'type': 'object',
     'properties': APP_SESSION_REQUEST_PROPERTIES,
     'required': APP_SESSION_REQUEST_PROPERTIES.keys(),
+}
+
+# old session request schema
+APP_SESSION_REQUEST_SCHEMA_OLD = {
+    'type': 'object',
+    'properties': {
+        'app_domain': {
+            'anyOf': [
+                {
+                    'type': 'string',
+                    'pattern': OP_URI_TARGET_PATTERN,
+                },
+                {
+                    'type': 'string',
+                    'pattern': OP_URI_TARGET_PATTERN_NOSCHEME,
+                },
+            ],
+        },
+        'app_public_key': {
+            'type': 'string',
+            'pattern': OP_PUBKEY_PATTERN,
+        },
+        'methods': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': '^[a-zA-Z_][a-zA-Z0-9_.]+$'   # method name
+            },
+        },
+    },
+    'required': [
+        'app_domain',
+        'app_public_key',
+        'methods'
+    ],
 }
 
 # app configuration schema (goes alongside the index.html file)

@@ -37,6 +37,9 @@ import errno
 import hashlib
 import jsontokens
 import collections
+import threading
+import functools
+
 from keylib import *
 
 import virtualchain
@@ -47,6 +50,7 @@ from .profile import *
 from .proxy import *
 from .storage import hash_zonefile
 from .zonefile import get_name_zonefile, load_name_zonefile, store_name_zonefile
+from .utils import ScatterGather
 
 from .logger import get_logger
 from .config import get_config, get_local_device_id
@@ -54,6 +58,272 @@ from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DATASTORE_SIGNING_KEY_
 from .schemas import *
 
 log = get_logger()
+
+MUTABLE_DATA_VERSION_LOCK = threading.Lock()
+
+class DataCache(object):
+    """
+    Write-coherent inode and datastore data cache
+    """
+    def __init__(self, max_headers=1024, max_dirs=1024, max_datastores=1024):
+        self.header_cache = {}
+        self.header_deadlines = {}
+        self.max_headers = max_headers
+
+        self.dir_cache = {}
+        self.dir_deadlines = {}
+        self.dir_children = {}
+        self.max_dirs = max_dirs
+
+        self.datastore_cache = {}
+        self.datastore_deadlines = {}
+        self.max_datastores = max_datastores
+
+        self.header_lock = threading.Lock()
+        self.dir_lock = threading.Lock()
+        self.datastore_lock = threading.Lock()
+
+
+    def _put_data(self, lock, cache_obj, deadline_tbl, max_obj, key, value, ttl):
+        """
+        Save data to either the header cache or dir cache
+        """
+        deadline = int(time.time() + ttl)
+
+        if lock:
+            lock.acquire()
+
+        cache_obj[key] = {'value': value, 'deadline': deadline}
+
+        if not deadline_tbl.has_key(deadline):
+            deadline_tbl[deadline] = []
+
+        deadline_tbl[deadline].append(key)
+
+        if len(cache_obj.keys()) > max_obj:
+            # evict stuff
+            to_evict = []
+            evict_count = 0
+            for deadline in sorted(deadline_tbl.keys()):
+                to_evict.append(deadline)
+                evict_count += len(deadline_tbl[deadline])
+                if len(cache_obj.keys()) - evict_count <= max_obj:
+                    break
+
+            for deadline in to_evict:
+                evicted_keys = deadline_tbl[deadline]
+                del deadline_tbl[deadline]
+
+                for key in evicted_keys:
+                    del cache_obj[key]
+
+        if lock:
+            lock.release()
+
+
+    def _get_data(self, lock, cache_obj, deadline_tbl, key):
+        """
+        Get data from either the header cache or dir cache
+        """
+        
+        with lock:
+            if not cache_obj.has_key(key):
+                return None, None
+
+            res = cache_obj[key]['value']
+            res_deadline = cache_obj[key]['deadline']
+
+            if time.time() < res_deadline:
+                # fresh 
+                return res, res_deadline
+
+            # expired
+            to_evict = []
+            for deadline in sorted(deadline_tbl.keys()):
+                if time.time() <= deadline:
+                    break
+                
+                to_evict.append(deadline)
+
+            for deadline in to_evict:
+                evicted_keys = deadline_tbl[deadline]
+                del deadline_tbl[deadline]
+
+                for key in evicted_keys:
+                    del cache_obj[key]
+
+            return None, None
+
+
+    def _evict_data(self, lock, cache_obj, deadline_tbl, key):
+        """
+        Remove data from a cache
+        """
+        with lock:
+            if not cache_obj.has_key(key):
+                return 
+
+            res = cache_obj[key]['value']
+            res_deadline = cache_obj[key]['deadline']
+
+            del cache_obj[key]
+
+            if not deadline_tbl.has_key(res_deadline):
+                return
+
+            if key not in deadline_tbl[res_deadline]:
+                return 
+
+            deadline_tbl[res_deadline].remove(key)
+            if len(deadline_tbl[res_deadline]) == 0:
+                del deadline_tbl[res_deadline]
+
+            return
+
+
+    def put_inode_header(self, datastore_id, inode_header, ttl):
+        """
+        Save an inode header
+        """
+        log.debug("Cache inode header {}".format(inode_header['uuid']))
+        return self._put_data(self.header_lock, self.header_cache, self.header_deadlines, self.max_headers, '{}:{}'.format(datastore_id, inode_header['uuid']), inode_header, ttl)
+
+
+    def put_inode_directory(self, datastore_id, inode_directory, ttl):
+        """
+        Save an inode directory
+        """
+        log.debug("Cache directory {} (version {})".format(inode_directory['uuid'], inode_directory['version']))
+
+        with self.dir_lock:
+            # stash directory
+            self._put_data(None, self.dir_cache, self.dir_deadlines, self.max_dirs, '{}:{}'.format(datastore_id, inode_directory['uuid']), inode_directory, ttl)
+
+            # also, map children UUID back to the parent directory so we can properly evict the parent directory
+            # when we add/remove/update a file.
+            for child_name in inode_directory['idata']['children'].keys():
+                child_idata = inode_directory['idata']['children'][child_name]
+                child_uuid = child_idata['uuid']
+                self.dir_children[child_uuid] = inode_directory['uuid']
+
+
+    def put_datastore_record(self, datastore_id, datastore_rec, ttl):
+        """
+        Save a datastore record
+        """
+        log.debug("Cache datastore {}".format(datastore_id))
+        return self._put_data(self.datastore_lock, self.datastore_cache, self.datastore_deadlines, self.max_datastores, datastore_id, datastore_rec, ttl)
+
+
+    def get_inode_header(self, datastore_id, inode_uuid):
+        """
+        Get a cached inode header
+        Return None if stale or absent
+        """
+        res, deadline = self._get_data(self.header_lock, self.header_cache, self.header_deadlines, '{}:{}'.format(datastore_id, inode_uuid))
+        if res:
+            log.debug("Cache HIT header {}, expires at {} (now={})".format(inode_uuid, deadline, time.time()))
+
+        else:
+            log.debug("Cache MISS {}".format(inode_uuid))
+
+        return res
+
+
+    def get_inode_directory(self, datastore_id, inode_uuid):
+        """
+        Get a cached directory header
+        Return None if stale or absent
+        """
+        res, deadline = self._get_data(self.dir_lock, self.dir_cache, self.dir_deadlines, '{}:{}'.format(datastore_id, inode_uuid))
+        if res:
+            log.debug("Cache HIT directory {}, version {}, expires at {} (now={})".format(inode_uuid, res['version'], deadline, time.time()))
+
+        else:
+            log.debug("Cache MISS {}".format(inode_uuid))
+
+        return res
+
+
+    def get_datastore_record(self, datastore_id):
+        """
+        Get a cached datastore record
+        Return None if stale or absent
+        """
+        res, deadline = self._get_data(self.datastore_lock, self.datastore_cache, self.datastore_deadlines, datastore_id)
+        if res:
+            log.debug("Cache HIT datastore {}, expires at {} (now={})".format(datastore_id, deadline, time.time()))
+        
+        else:
+            log.debug("Cache MISS {}".format(datastore_id))
+
+        return res
+
+
+    def evict_inode_header(self, datastore_id, inode_uuid):
+        """
+        Evict a given inode header
+        """
+        return self._evict_data(self.header_lock, self.header_cache, self.header_deadlines, '{}:{}'.format(datastore_id, inode_uuid))
+
+
+    def evict_inode_directory(self, datastore_id, inode_uuid):
+        """
+        Evict a given directory
+        """
+        return self._evict_data(self.dir_lock, self.dir_cache, self.dir_deadlines, '{}:{}'.format(datastore_id, inode_uuid))
+
+
+    def evict_datastore_record(self, datastore_id):
+        """
+        Evict a datastore record
+        """
+        return self._evict_data(self.datastore_lock, self.datastore_cache, self.datastore_deadlines, datastore_id)
+
+
+    def evict_inode(self, datastore_id, inode_uuid):
+        """
+        Evict all inode state
+        """
+        parent_uuid = None
+        with self.dir_lock:
+            parent_uuid = self.dir_children.get(inode_uuid, None)
+
+        self.evict_inode_header(datastore_id, inode_uuid)
+        self.evict_inode_directory(datastore_id, inode_uuid)
+        
+        if parent_uuid:
+            log.debug("Evict {}, parent of {}".format(parent_uuid, inode_uuid))
+            self.evict_inode_header(datastore_id, parent_uuid)
+            self.evict_inode_directory(datastore_id, parent_uuid)
+
+            to_remove = []
+            for (cuuid, duuid) in self.dir_children.items():
+                if duuid == inode_uuid:
+                    to_remove.append(cuuid)
+
+            for cuuid in to_remove:
+                del self.dir_children[cuuid]
+
+    
+    def evict_all(self):
+        """
+        Clear the entire cache
+        """
+        with self.header_lock:
+            self.header_cache = {}
+            self.header_deadlines = {}
+
+        with self.dir_lock:
+            self.dir_cache = {}
+            self.dir_deadlines = {}
+
+        with self.datastore_lock:
+            self.datastore_cache = {}
+            self.datastore_deadliens = {}
+
+
+GLOBAL_CACHE = DataCache()
 
 
 def serialize_mutable_data_id(data_id):
@@ -157,30 +427,38 @@ def store_mutable_data_version(conf, device_id, fq_data_id, ver, config_path=CON
     d_id = serialize_mutable_data_id(data_id)
     dev_id = serialize_mutable_data_id(device_id)
 
-    ver_dir = os.path.join(metadata_dir, d_id)
-    if not os.path.isdir(ver_dir):
+    # serialize this 
+    with MUTABLE_DATA_VERSION_LOCK:
+        ver_dir = os.path.join(metadata_dir, d_id)
+        if not os.path.isdir(ver_dir):
+            try:
+                log.debug("Make metadata directory {}".format(ver_dir))
+                os.makedirs(ver_dir)
+            except OSError, oe:
+                if oe.errno != errno.EEXIST:
+                    raise
+                else:
+                    pass
+
+            except Exception, e:
+                if BLOCKSTACK_DEBUG:
+                    log.exception(e)
+
+                log.warning("No metadata directory created for {}:{}".format(device_id, fq_data_id))
+                return False
+
+        ver_path = os.path.join(ver_dir, '{}.ver'.format(dev_id))
         try:
-            log.debug("Make metadata directory {}".format(ver_dir))
-            os.makedirs(ver_dir)
-        except Exception, e:
+            with open(ver_path, 'w') as f:
+                f.write(str(ver))
+
+            return True
+
+        except Exception as e:
             if BLOCKSTACK_DEBUG:
                 log.exception(e)
 
-            log.warning("No metadata directory created for {}:{}".format(device_id, fq_data_id))
-            return False
-
-    ver_path = os.path.join(ver_dir, '{}.ver'.format(dev_id))
-    try:
-        with open(ver_path, 'w') as f:
-            f.write(str(ver))
-
-        return True
-
-    except Exception as e:
-        if BLOCKSTACK_DEBUG:
-            log.exception(e)
-
-        log.warn("Failed to store version of {}:{}".format(device_id, fq_data_id))
+            log.warn("Failed to store version of {}:{}".format(device_id, fq_data_id))
        
     return False
 
@@ -211,19 +489,20 @@ def delete_mutable_data_version(conf, device_id, fq_data_id, config_path=CONFIG_
     d_id = serialize_mutable_data_id(data_id)
     dev_id = serialize_mutable_data_id(device_id)
 
-    ver_dir = os.path.join(metadata_dir, d_id)
-    if not os.path.isdir(ver_dir):
-        return True
+    with MUTABLE_DATA_VERSION_LOCK:
+        ver_dir = os.path.join(metadata_dir, d_id)
+        if not os.path.isdir(ver_dir):
+            return True
 
-    ver_path = os.path.join(ver_dir, '{}.ver'.format(dev_id))
-    try:
-        if os.path.exists(ver_path):
-            os.unlink(ver_path)
+        ver_path = os.path.join(ver_dir, '{}.ver'.format(dev_id))
+        try:
+            if os.path.exists(ver_path):
+                os.unlink(ver_path)
 
-    except Exception as e:
-        # failed for whatever reason
-        msg = 'Failed to remove version file "{}"'
-        log.warn(msg.format(ver_file_path))
+        except Exception as e:
+            # failed for whatever reason
+            msg = 'Failed to remove version file "{}"'
+            log.warn(msg.format(ver_file_path))
 
     return False
 
@@ -581,13 +860,16 @@ def get_mutable(data_id, device_ids, raw=False, blockchain_id=None, data_pubkey=
     ))
     
     mutable_data = None
+    stale = False
     mutable_drivers = []
     latest_version = expected_version
 
-    for fq_data_id in fq_data_ids:
+    # optimization: try local drivers before non-local drivers
+    storage_drivers = prioritize_read_drivers(config_path, storage_drivers)
         
-        # which storage drivers and/or URLs will we use?
-        for driver in storage_drivers: 
+    # which storage drivers and/or URLs will we use?
+    for driver in storage_drivers: 
+        for fq_data_id in fq_data_ids:
 
             log.debug("get_mutable_data({}) from {}".format(fq_data_id, driver))
 
@@ -630,10 +912,12 @@ def get_mutable(data_id, device_ids, raw=False, blockchain_id=None, data_pubkey=
 
             elif ver_max is not None and ver_max <= version:
                 log.warn("Invalid (future) data version from {} for {}: ver_max = {}, version = {}".format(driver, fq_data_id, ver_max, version))
+                stale = True
                 continue
 
             elif expected_version > version:
                 log.warn("Invalid (stale) data version from {} for {}: expected = {}, version = {}".format(driver, fq_data_id, expected_version, version))
+                stale = True
                 continue
 
             # keep searching 
@@ -658,7 +942,13 @@ def get_mutable(data_id, device_ids, raw=False, blockchain_id=None, data_pubkey=
 
     if mutable_data is None:
         log.error("Failed to fetch mutable data for {}".format(data_id))
-        return {'error': 'Failed to fetch mutable data', 'stale': True}
+        res = {'error': 'Failed to fetch mutable data'}
+        if stale:
+            res['stale'] = stale
+            res['error'] = 'Failed to fetch mutable data for {} due to version mismatch.'
+            log.error("Failed to fetch mutable data for {} due to version mismatch.")
+
+        return res
 
     rc = put_mutable_data_version(data_id, version, device_ids, config_path=config_path)
     if 'error' in rc:
@@ -975,6 +1265,7 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, versi
 
     if storage_drivers is None:
         storage_drivers = get_required_write_storage_drivers(config_path)
+        log.debug("Storage drivers equired write defaults: {}".format(','.join(storage_drivers)))
 
     result = {}
 
@@ -998,7 +1289,7 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, versi
     # remember which version this was
     rc = store_mutable_data_version(conf, device_id, fq_data_id, version, config_path=config_path)
     if not rc:
-        log.error("failed to put mutable data version {}.{}".format(data_id, version))
+        log.error("failed to put mutable data version {}.{}".format(fq_data_id, version))
         result['error'] = 'Failed to store mutable data version'
         return result
 
@@ -1325,7 +1616,7 @@ def _init_datastore_info( datastore_type, datastore_pubkey, driver_names, device
     return {'datastore_blob': data_blob_serialize(datastore_info), 'root_blob_header': root_blob['header'], 'root_blob_idata': root_blob['idata']}
 
 
-def get_datastore( blockchain_id, datastore_id, device_ids, config_path=CONFIG_PATH, proxy=None):
+def get_datastore( blockchain_id, datastore_id, device_ids, config_path=CONFIG_PATH, proxy=None, no_cache=False, cache_ttl=None):
     """
     Get a datastore's information.
     This is a server-side method.
@@ -1335,14 +1626,25 @@ def get_datastore( blockchain_id, datastore_id, device_ids, config_path=CONFIG_P
     Returns {'status': True, 'datastore': public datastore info}
     Returns {'error': ..., 'errno':...} on failure
     """
+    
+    global GLOBAL_CACHE
+    
+    # cached?
+    if not no_cache:
+        res = GLOBAL_CACHE.get_datastore_record(datastore_id)
+        if res:
+            return {'status': True, 'datastore': res}
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    nonlocal_storage_drivers = get_read_public_storage_drivers(config_path)
+    if cache_ttl is None:
+        conf = get_config(config_path)
+        assert conf
+        cache_ttl = int(conf.get('cache_ttl', 3600))    # 1 hour
 
     data_id = '{}.datastore'.format(datastore_id)
-    datastore_info = get_mutable(data_id, device_ids, blockchain_id=blockchain_id, data_address=datastore_id, proxy=proxy, config_path=config_path, storage_drivers=nonlocal_storage_drivers)
+    datastore_info = get_mutable(data_id, device_ids, blockchain_id=blockchain_id, data_address=datastore_id, proxy=proxy, config_path=config_path)
     if 'error' in datastore_info:
         log.error("Failed to load public datastore information: {}".format(datastore_info['error']))
         return {'error': 'Failed to load public datastore record', 'errno': errno.ENOENT}
@@ -1357,6 +1659,10 @@ def get_datastore( blockchain_id, datastore_id, device_ids, config_path=CONFIG_P
         
         log.error("Invalid datastore record")
         return {'error': 'Invalid public datastore record', 'errno': errno.EIO}
+
+    # cache 
+    if not no_cache:
+        GLOBAL_CACHE.put_datastore_record(datastore_id, datastore, cache_ttl)
 
     return {'status': True, 'datastore': datastore}
 
@@ -1468,6 +1774,8 @@ def put_datastore_info( datastore_info, datastore_sigs, root_tombstones, config_
     Return {'status': True} on success
     Return {'error': ...} on error
     """
+    global GLOBAL_CACHE
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
@@ -1510,7 +1818,7 @@ def put_datastore_info( datastore_info, datastore_sigs, root_tombstones, config_
         return {'error': res['error'], 'errno': errno.EREMOTEIO}
 
     res = put_mutable( datastore_fqid, datastore_info['datastore_blob'], datastore['pubkey'], datastore_sigs['datastore_sig'], datastore_version,
-                       proxy=proxy, config_path=config_path, storage_drivers=datastore['drivers'], storage_drivers_exclusive=True )
+                       proxy=proxy, config_path=config_path, storage_drivers_exclusive=True )
 
     if 'error' in res:
         log.error("Faield to store datastore record for {}".format(datastore_id))
@@ -1521,6 +1829,9 @@ def put_datastore_info( datastore_info, datastore_sigs, root_tombstones, config_
             log.error("Failed to clean up root inode for {}".format(datastore_id))
 
         return {'error': 'Failed to store datastore information', 'errno': errno.EREMOTEIO}
+
+    # evict 
+    GLOBAL_CACHE.evict_datastore_record(datastore_id)
 
     # success!
     return {'status': True}
@@ -1568,13 +1879,15 @@ def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, 
     Return {'status': True} on success
     Return {'error': ..., 'errno': ...} on failure
     """
+    global GLOBAL_CACHE
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
    
     device_ids = [dk['device_id'] for dk in data_pubkeys]
 
     # get the datastore first
-    datastore_info = get_datastore(blockchain_id, datastore_id, device_ids, config_path=config_path, proxy=proxy )
+    datastore_info = get_datastore(blockchain_id, datastore_id, device_ids, config_path=config_path, proxy=proxy, no_cache=True )
     if 'error' in datastore_info:
         log.error("Failed to look up datastore information for {}".format(datastore_id))
         return {'error': 'Failed to look up datastore', 'errno': errno.ENOENT}
@@ -1607,6 +1920,8 @@ def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, 
         log.error("Failed to delete root inode {}".format(root_uuid))
         return {'error': 'Failed to delete root inode', 'errno': errno.EREMOTEIO}
 
+    # evict 
+    GLOBAL_CACHE.evict_datastore_record(datastore_id)
     return {'status': True}
 
 
@@ -1638,7 +1953,9 @@ def delete_datastore(api_client, datastore, datastore_privkey, data_pubkeys, con
     return {'status': True}
 
 
-def get_inode_data(blockchain_id, datastore_id, inode_uuid, inode_type, drivers, data_pubkeys, config_path=CONFIG_PATH, data_privkey=None, force=False, idata=True, proxy=None, file_idata=True, header_info=None ):
+def get_inode_data(blockchain_id, datastore_id, inode_uuid, inode_type, drivers, data_pubkeys, config_path=CONFIG_PATH, data_privkey=None, force=False, idata=True, proxy=None, file_idata=True, header_info=None, 
+        no_cache=False, cache_ttl=None ):
+
     """
     Get an inode from non-local mutable storage.  Verify that it has an
     equal or later version number than the one we have locally.
@@ -1653,17 +1970,21 @@ def get_inode_data(blockchain_id, datastore_id, inode_uuid, inode_type, drivers,
 
     Return {'error': ..., 'errno': ...} on error
     """
-    
+   
+    global GLOBAL_CACHE
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
     conf = get_config(config_path)
     assert conf
 
+    if cache_ttl is None:
+        cache_ttl = int(conf.get('cache_ttl', 3600))     # 3600 by default
+
     header_version = 0
     inode_header = None
     inode_info = None
-    inode_version = None
     res = None
 
     if header_info is None:
@@ -1696,6 +2017,20 @@ def get_inode_data(blockchain_id, datastore_id, inode_uuid, inode_type, drivers,
         # this is a file; only return header 
         return {'status': True, 'inode': inode_header, 'version': header_version, 'drivers': drivers_to_try}
 
+    # check cache for directories...
+    if inode_type == MUTABLE_DATUM_DIR_TYPE and not no_cache:
+        res = GLOBAL_CACHE.get_inode_directory(datastore_id, inode_uuid)
+        if res:
+            # check version 
+            if res['version'] == header_version:
+                log.debug("Get CACHED inode data for {}.{}, version {}: {}".format(datastore_id, inode_uuid, res['version'], res))
+                return {'status': True, 'inode': res, 'version': res['version'], 'drivers': drivers} 
+            else:
+                # stale directory
+                log.debug("Evict stale directory {}".format(inode_uuid))
+                GLOBAL_CACHE.evict_inode_directory(datastore_id, inode_uuid)
+
+
     log.debug("Get inode data for {}.{} from {}, version {}".format(datastore_id, inode_uuid, drivers_to_try, header_version))
 
     # get inode from only the driver(s) that gave back fresh information.
@@ -1710,12 +2045,14 @@ def get_inode_data(blockchain_id, datastore_id, inode_uuid, inode_type, drivers,
     res = None
     device_ids = [dk['device_id'] for dk in data_pubkeys]
 
+    drivers_to_try = prioritize_read_drivers(config_path, drivers_to_try)
+
     for driver_to_try in drivers_to_try:
         # try each driver, until we find one with the right hash.
         # try all devices IDs.
         res = get_mutable(data_id, device_ids, blockchain_id=blockchain_id, ver_min=ver_min, raw=True, data_hash=data_hash, storage_drivers=drivers_to_try, proxy=proxy, config_path=config_path)
         if 'error' in res:
-            log.error("Failed to get inode {} from {}: {}".format(inode_uuid, ','.join(drivers_to_try), res['error']))
+            log.error("Failed to get inode {} from {} (stale={}): {}".format(inode_uuid, ','.join(drivers_to_try), res.get("stale", False), res['error']))
             if res.get('stale'):
                 have_stale = True
 
@@ -1768,6 +2105,9 @@ def get_inode_data(blockchain_id, datastore_id, inode_uuid, inode_type, drivers,
         res = _put_inode_consistency_info(datastore_id, inode_uuid, header_version, device_ids, config_path=config_path)
         if 'error' in res:
             return res
+
+    if not no_cache and inode_type == MUTABLE_DATUM_DIR_TYPE:
+        GLOBAL_CACHE.put_inode_directory(datastore_id, full_inode, cache_ttl)
 
     return {'status': True, 'inode': full_inode, 'version':  header_version, 'drivers': drivers_to_try}
 
@@ -1843,7 +2183,7 @@ def _put_inode_consistency_info(datastore_id, inode_uuid, new_version, device_id
     return {'status': True}
 
 
-def get_inode_header(blockchain_id, datastore_id, inode_uuid, drivers, data_pubkeys, inode_hdr_version=None, force=False, config_path=CONFIG_PATH, proxy=None ):
+def get_inode_header(blockchain_id, datastore_id, inode_uuid, drivers, data_pubkeys, inode_hdr_version=None, force=False, config_path=CONFIG_PATH, proxy=None, no_cache=False, cache_ttl=None ):
     """
     Get an inode's header data.  Verify it matches the inode info.
     Fetch the header from *all* drivers.
@@ -1856,11 +2196,21 @@ def get_inode_header(blockchain_id, datastore_id, inode_uuid, drivers, data_pubk
     Return {'error': ..., 'errno': ...} on error.
     """
 
+    global GLOBAL_CACHE
+
+    if not no_cache:
+        res = GLOBAL_CACHE.get_inode_header(datastore_id, inode_uuid)
+        if res:
+            return {'status': True, 'inode': res, 'version': res['version'], 'drivers': drivers}
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
     conf = get_config(config_path)
     assert conf
+
+    if cache_ttl is None:
+        cache_ttl = int(conf.get('cache_ttl', 3600))  # 1 hour by default
 
     # get latest inode and inode header version
     inode_id = '{}.{}'.format(datastore_id, inode_uuid)
@@ -1887,22 +2237,31 @@ def get_inode_header(blockchain_id, datastore_id, inode_uuid, drivers, data_pubk
 
     res = None
     errcode = None
+    have_data = False
 
-    for data_pubkey_info in data_pubkeys:
-        device_id = data_pubkey_info['device_id']
-        device_pubkey = data_pubkey_info['public_key']
+    # optimization: try local drivers before non-local drivers
+    drivers = prioritize_read_drivers(config_path, drivers)
 
-        res = get_mutable(data_id, [device_id], blockchain_id=blockchain_id, ver_min=ver_min, force=force, data_pubkey=device_pubkey, storage_drivers=drivers, proxy=proxy, config_path=config_path)
-        if 'error' in res:
-            log.error("Failed to get inode data {}: {}".format(inode_uuid, res['error']))
-            errcode = errno.EREMOTEIO
-            if res.get('stale'):
-                errcode = errno.ESTALE
+    for driver in drivers:
+        for data_pubkey_info in data_pubkeys:
+            device_id = data_pubkey_info['device_id']
+            device_pubkey = data_pubkey_info['public_key']
 
-            continue
+            res = get_mutable(data_id, [device_id], blockchain_id=blockchain_id, ver_min=ver_min, force=force, data_pubkey=device_pubkey, storage_drivers=[driver], proxy=proxy, config_path=config_path)
+            if 'error' in res:
+                log.error("Failed to get inode data {} (stale={}): {}".format(inode_uuid, res.get('stale', False), res['error']))
+                errcode = errno.EREMOTEIO
+                if res.get('stale'):
+                    errcode = errno.ESTALE
 
-        else:
-            # success!
+                continue
+
+            else:
+                # success!
+                have_data = True
+                break
+
+        if have_data:
             break
 
     if 'error' in res:
@@ -1934,6 +2293,10 @@ def get_inode_header(blockchain_id, datastore_id, inode_uuid, drivers, data_pubk
         res = _put_inode_consistency_info(datastore_id, inode_uuid, max(inode_hdr_version, inode_version), device_ids, config_path=config_path)
         if 'error' in res:
             return {'error': res['error'], 'errno': res['errno']}
+
+    if not no_cache:
+        inode_hdr['version'] = max(inode_hdr_version, inode_version)
+        GLOBAL_CACHE.put_inode_header(datastore_id, inode_hdr, cache_ttl)
 
     return {'status': True, 'inode': inode_hdr, 'version': max(inode_hdr_version, inode_version), 'drivers': inode_drivers}
 
@@ -2083,6 +2446,7 @@ def analyze_inode_header_blob( datastore_id, inode_header_blob_str ):
         
         inode_uuid = parts[1]
         idata_fqid = storage.make_fq_data_id(dev_id, '{}.{}'.format(datastore_id, inode_uuid))
+        data = inode_header_blob['data']
 
     except Exception as e:
         if BLOCKSTACK_DEBUG:
@@ -2098,12 +2462,13 @@ def analyze_inode_header_blob( datastore_id, inode_header_blob_str ):
         'version': version,
         'header_fqid': header_fqid,
         'idata_fqid': idata_fqid,
+        'data': data,
     }
 
     return ret
 
 
-def put_inode_data( datastore, header_blob_str, header_blob_sig, idata_str, config_path=CONFIG_PATH, proxy=None ):
+def put_inode_data( datastore, header_blob_str, header_blob_sig, idata_str, config_path=CONFIG_PATH, proxy=None, no_cache=False, cache_ttl=None ):
     """
     Store an inode and its idata to mutable storage.  Update local consistency info on success.
     The caller should call datastore_operation_check() before calling this method.
@@ -2115,6 +2480,8 @@ def put_inode_data( datastore, header_blob_str, header_blob_sig, idata_str, conf
     Return {'status': True} on success
     Return {'error': ..., 'errno': ...} on failure
     """
+    global GLOBAL_CACHE
+
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
     
@@ -2129,13 +2496,103 @@ def put_inode_data( datastore, header_blob_str, header_blob_sig, idata_str, conf
     inode_uuid = header_info['uuid']
     header_fqid = header_info['header_fqid']
     idata_fqid = header_info['idata_fqid']
+    data_str = header_info['data']
+    inode_hdr = None
+    inode_type = None
+    
+    try:
+        inode_hdr = json.loads(data_str)
+        jsonschema.validate(inode_hdr, MUTABLE_DATUM_INODE_HEADER_SCHEMA)
+        inode_type = inode_hdr['type']
+
+    except (ValueError, ValidationError) as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        return {'error': 'Corrupt inode header'}
 
     # replicate best-effort to each driver
     # replicate (header, payload) per driver, instead of (headers) to driver and then (payloads) to driver.
     # this way, if some services are offline but others are not, this write can partially succeed to readers,
     # and the user can retry the write (from this or another device) to "complete" it.
+    log.debug("Store inode {} (version {})".format(inode_uuid, version))
+    save_idata = lambda di: put_mutable(idata_fqid, idata_str, None, None, version, raw=True, storage_drivers=[di], storage_drivers_exclusive=True, config_path=config_path, proxy=proxy)
+    save_header = lambda dh: put_mutable(header_fqid, header_blob_str, datastore['pubkey'], header_blob_sig, version, storage_drivers=[dh], storage_drivers_exclusive=True, config_path=config_path, proxy=proxy)
+
+    def _save_inode_fastpath(driver):
+        """
+        Save the inode to a specific driver.
+        Save the header and idata in parallel (fast path)
+
+        Return {'status': True} on success
+        Return {'error': ...} on failure
+        """
+        sg = ScatterGather()
+        driver_save_idata = functools.partial(save_idata, driver)
+        driver_save_header = functools.partial(save_header, driver)
+        sg.add_task( "save_idata", driver_save_idata)
+        sg.add_task( "save_header", driver_save_header)
+
+        sg.run_tasks()
+
+        res = sg.get_result('save_idata')
+        if 'error' in res:
+            log.error('Fastpath: Failed to replicate inode data {}: {}'.format(idata_fqid, res['error']))
+            return {'error': 'Failed to replicate inode data {}'.format(idata_fqid)}
+
+        res = sg.get_result('save_header')
+        if 'error' in res:
+            log.error('Fastpath: Failed to replicate inode header {}: {}'.format(header_fqid, res['error']))
+            return {'error': 'Failed to replicate inode header {}'.format(header_fqid)}
+
+        return {'status': True}
+
+
+    def _save_inode_slowpath(driver):
+        """
+        Save the inode to a specific driver.
+        Save the idata, and then the header (slow path)
+
+        Return {'status': True} on success
+        Return {'error': ...} on failure
+        """
+        res = save_idata(driver)
+        if 'error' in res:
+            log.error("Slowpath: Failed to replicate inode data {}: {}".format(idata_fqid, res['error']))
+            return {'error': 'Failed to replicate inode data {}'.format(idata_fqid)}
+
+        res = save_header(driver)
+        if 'error' in res:
+            log.error("Slowpath: Failed to replicate inode header {}: {}".format(header_fqid, res['error']))
+            return {'error': 'Failed to replicate inode header {}'.format(header_fqid)}
+
+        return {'status': True}
+
+
+    driver_failed = False
+    driver_succeeded = False
+
+    driver_sg = ScatterGather()
+    for dname in drivers:
+        save_inode_data = functools.partial(_save_inode_fastpath, dname)
+        driver_sg.add_task(dname, save_inode_data)
+
+    driver_sg.run_tasks()
+    for dname in drivers:
+        result = driver_sg.get_result(dname)
+        if 'error' in result:
+            log.error("Driver {} failed to replicate: {}".format(dname, result['error']))
+            driver_failed = True
+
+        else:
+            log.debug("Driver {} succeeded to replicate".format(dname))
+            driver_succeeded = True
+
+    '''
     driver_failed = False
     for driver in drivers:
+
+        # TODO: can we do this in parallel along a "fast path", and then try them individually on a "slow path" if one of them fails?
 
         # store payload (no signature; we'll use the header's hash)
         res = put_mutable(idata_fqid, idata_str, None, None, version, raw=True, storage_drivers=[driver], storage_drivers_exclusive=True, config_path=config_path, proxy=proxy )
@@ -2149,10 +2606,16 @@ def put_inode_data( datastore, header_blob_str, header_blob_sig, idata_str, conf
         if 'error' in res:
             log.error("Failed to replicate inode header for {}: {}".format(header_fqid, res['error']))
             driver_failed = True
-        
+    '''
+    
+    if driver_succeeded:
+        # at least one write succeeded; make sure the next read loads fresh data 
+        # evict 
+        GLOBAL_CACHE.evict_inode(datastore_id, inode_hdr['uuid'])
+
     if driver_failed:
         return {'error': 'Failed to replicate inode data to at least one driver', 'errno': errno.EREMOTEIO}
-   
+
     # save consistency info
     res = _put_inode_consistency_info(datastore_id, inode_uuid, version, datastore['device_ids'], config_path=config_path)
     return res
@@ -2185,13 +2648,15 @@ def delete_inode_data( datastore, signed_tombstones, proxy=None, config_path=CON
     Return {'status': True} on success
     Return {'error': ...} on error
     """
+    global GLOBAL_CACHE
+
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
     datastore_id = datastore_get_id( datastore['pubkey'] )
     drivers = datastore['drivers']
     device_ids = datastore['device_ids']
-  
+    
     # identify header and idata tombstones
     inode_tombstones = {}
     for ts in signed_tombstones:
@@ -2230,6 +2695,10 @@ def delete_inode_data( datastore, signed_tombstones, proxy=None, config_path=CON
    
     failed_driver = False
 
+    # evict 
+    for inode_uuid in inode_tombstones.keys():
+        GLOBAL_CACHE.evict_inode(datastore_id, inode_uuid)
+
     # delete inode idata first
     for inode_uuid in inode_tombstones.keys():
 
@@ -2254,6 +2723,10 @@ def delete_inode_data( datastore, signed_tombstones, proxy=None, config_path=CON
         if 'error' in res:
             log.error("Faled to delete idata for {}: {}".format(inode_uuid, res['error']))
             return res
+
+    # evict (again) 
+    for inode_uuid in inode_tombstones.keys():
+        GLOBAL_CACHE.evict_inode(datastore_id, inode_uuid)
 
     return {'status': True}
 
@@ -3181,8 +3654,9 @@ def datastore_putfile_make_inodes(api_client, datastore, data_path, file_data_ha
         # make a file!
         child_uuid = str(uuid.uuid4())
         parent_dir_inode, child_dirent = _mutable_data_dir_link( parent_dir_inode, MUTABLE_DATUM_FILE_TYPE, name, child_uuid )
-    
+   
     min_version = max(parent_dir_inode['version'], child_dirent['version'])
+    log.debug("Version of {} ({}) will be max({}, {}) = {}".format(data_path, child_uuid, parent_dir_inode['version'], child_dirent['version'], min_version))
 
     # make the new inode info
     child_file_info = make_file_inode_data( datastore_id, datastore_id, child_uuid, file_data_hash, device_ids, readers=[], config_path=config_path, min_version=min_version, create=create )
@@ -3804,6 +4278,46 @@ def get_read_storage_drivers(config_path):
     storage_handlers = storage.get_storage_handlers()
     storage_drivers = [sh.__name__ for sh in storage_handlers]
     return storage_drivers
+
+
+def get_read_local_storage_drivers(config_path, storage_drivers=None):
+    """
+    Get the list of storage drivers that can read locally.
+    Returns a list of driver names
+    """
+    if storage_drivers is None:
+        conf = get_config(config_path)
+        assert conf
+    
+        storage_drivers = conf.get('storage_drivers', '').split(',')
+
+    driver_classes = storage.classify_storage_drivers()
+    
+    ret = []
+    for read_local in driver_classes['read_local']:
+        if read_local in storage_drivers:
+            ret.append(read_local)
+
+    return ret
+
+
+def prioritize_read_drivers(config_path, drivers):
+    """
+    Given a set of drivers, prioritize them in order of read speed.
+    Expect local drivers to be faster than remote drivers
+    """
+    # optimization: try local drivers before non-local drivers 
+    local_read_drivers = get_read_local_storage_drivers(config_path, drivers)
+    first_drivers = []
+    last_drivers = []
+    for drvr in local_read_drivers:
+        if drvr in drivers:
+            first_drivers.append(drvr)
+        else:
+            last_drivers.append(drvr)
+
+    drivers = first_drivers + last_drivers
+    return drivers
 
 
 if __name__ == "__main__":

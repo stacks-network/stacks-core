@@ -500,7 +500,9 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, 
         if not mutable_data_json_txt.startswith("bsk2."):
             # raw data; will authenticate with data hash
             raw = True
-            assert data_hash
+            if data_hash is None:
+                log.error("Corrupt data: data text does not start with 'bsk2.', and no data hash given")
+                return None
 
         return parse_mutable_data_v2(mutable_data_json_txt, public_key, public_key_hash=public_key_hash, data_hash=data_hash, raw=raw)
         

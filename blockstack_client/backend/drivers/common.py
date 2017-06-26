@@ -32,6 +32,9 @@ import jsonschema
 import urlparse
 import posixpath
 import urllib
+import threading
+import time
+from functools import wraps
 
 if os.environ.get("BLOCKSTACK_DEBUG", None) is not None:
     DEBUG = True
@@ -59,9 +62,60 @@ INDEX_PAGE_SCHEMA = {
     },
 }
 
-# map blockchain_id --> {index_page_url: index_data}
+# map driver_name --> {index_page_url: index_data}
 INDEX_CACHE = {}
+
+# map driver_name --> {bucket ID: lock}
+INDEX_CACHE_LOCK = threading.Lock()
+INDEX_CACHE_LOCKS = {}
+
+# map blockchain_id --> manifest URL
 INDEX_MANIFEST_URL_CACHE = {}
+
+# operations in progress
+IN_PROGRESS = {}
+IN_PROGRESS_LOCK = threading.Lock()
+
+class ConcurrencyViolationException(Exception):
+    """
+    Exception thrown when we try to run a non-parallelizable
+    operation (like index initialization) in parallel with
+    another instance of that operation.
+    """
+    pass
+
+
+def nonconcurrent(operation_name):
+    """
+    Decorator to ensure that at most one instance of this function is executing.
+    Throws ConcurrencyVioaltionException if not.
+    """
+    assert(operation_name)
+
+    def decorator(function):
+        @wraps(function)
+        def inner(*args, **kw):
+            global IN_PROGRESS_LOCK, IN_PROGRESS
+            with IN_PROGRESS_LOCK:
+                if IN_PROGRESS.get(operation_name) is not None:
+                    # in progress
+                    log.debug("Non-concurrent operation already in progress: '{}'".format(operation_name))
+                    raise ConcurrencyViolationException()
+
+                log.debug("Non-concurrent operation in progress: '{}'".format(operation_name))
+                IN_PROGRESS[operation_name] = True
+
+            res = function(*args, **kw)
+
+            with IN_PROGRESS_LOCK:
+                log.debug("Finished non-concurrent operation: '{}'".format(operation_name))
+                del IN_PROGRESS[operation_name]
+
+            return res
+
+        return inner
+    return decorator
+
 
 def get_logger(name=None):
     """
@@ -94,6 +148,7 @@ def get_logger(name=None):
     return log
 
 log = get_logger('blockstack-backend-drivers-common')
+
 
 def compress_chunk( chunk_buf ):
     """
@@ -171,14 +226,22 @@ def normpath(path):
     return path
 
 
+def index_get_page_bucket_id(name):
+    """
+    Which index bucket is this in?
+    """
+    h = hashlib.sha256(name).hexdigest()
+    bucket_id = h[0:1]
+    return bucket_id
+
+
 def index_get_page_path(name, index_dir):
     """
     Get the path to an index page
     """
-    h = hashlib.sha256(name).hexdigest()
-    bucket_1 = h[0:1]
+    bucket_id = index_get_page_bucket_id(name)
 
-    path = normpath('/{}/{}'.format(index_dir, bucket_1))
+    path = normpath('/{}/{}'.format(index_dir, bucket_id))
     log.debug("Index page for {} is {}".format(name, path))
     return path
 
@@ -281,7 +344,7 @@ def get_url_type(url):
 
     if len(urlpath_parts) != 2:
         log.error("Invalid URL {}".format(url))
-        return None
+        return None, None
 
     if urlpath_parts[0] == 'blockstack':
         return ('blockstack', urlpath_parts[1])
@@ -412,6 +475,7 @@ def index_check_setup(dvconf, blockchain_id=None):
     return True
 
 
+@nonconcurrent("index_setup")
 def index_setup(dvconf, force=False):
     """
     Set up our index if we haven't already.
@@ -424,6 +488,12 @@ def index_setup(dvconf, force=False):
     put_chunk = dvconf['put_chunk']
     driver_name = dvconf['driver_name']
     index_stem = dvconf['index_stem']
+
+    # test long-running index setup...
+    if os.environ.get("TEST_BLOCKSTACK_TEST_INDEX_SETUP_DELAY") is not None:
+        delay = int(os.environ["TEST_BLOCKSTACK_TEST_INDEX_SETUP_DELAY"])
+        log.debug("Waiting {} seconds for index to complete".format(delay))
+        time.sleep(delay)
 
     index_manifest_url = index_settings_get_index_manifest_url(driver_name, config_path)
     if index_manifest_url is not None and not force:
@@ -468,20 +538,20 @@ def index_setup(dvconf, force=False):
     return index_manifest_url
 
 
-def index_get_cached_page(blockchain_id, url):
+def index_get_cached_page(driver_name, bucket_id):
     """
     Get cached index page data
     Return the cached page on success
     Return None on error
     """
     global INDEX_CACHE
-    if not INDEX_CACHE.has_key(blockchain_id):
+    if not INDEX_CACHE.has_key(driver_name):
         return None
 
-    if not INDEX_CACHE[blockchain_id].has_key(url):
+    if not INDEX_CACHE[driver_name].has_key(bucket_id):
         return None
 
-    return INDEX_CACHE[blockchain_id][url]
+    return INDEX_CACHE[driver_name][bucket_id]
 
 
 def index_get_cached_manifest_url(blockchain_id, driver_name):
@@ -498,16 +568,29 @@ def index_get_cached_manifest_url(blockchain_id, driver_name):
     return INDEX_MANIFEST_URL_CACHE[key]
 
 
-def index_set_cached_page(blockchain_id, url, data):
+def index_set_cached_page(driver_name, bucket_id, data, locked=False):
     """
     Insert a page's data into the index page cache
     """
     global INDEX_CACHE
-    if not INDEX_CACHE.has_key(blockchain_id):
-        INDEX_CACHE[blockchain_id] = {}
+    if not INDEX_CACHE.has_key(driver_name):
+        INDEX_CACHE[driver_name] = {}
 
-    log.debug("Cache {} bytes for ({}, {})".format(len(data), blockchain_id, url))
-    INDEX_CACHE[blockchain_id][url] = data
+    log.debug("Cache {} bytes for {}".format(len(data), bucket_id))
+
+    def _do_insert():
+        if not INDEX_CACHE[driver_name].has_key(bucket_id):
+            INDEX_CACHE[driver_name][bucket_id] = {}
+
+        INDEX_CACHE[driver_name][bucket_id].update(data)
+
+    if locked:
+        _do_insert()
+
+    else:
+        with index_page_get_lock(driver_name, bucket_id):
+            _do_insert()
+
     return True
 
 
@@ -522,18 +605,21 @@ def index_set_cached_manifest_url(blockchain_id, driver_name, url):
     INDEX_MANIFEST_URL_CACHE[key] = url
 
 
-def index_remove_cached_page(blockchain_id, url):
+def index_remove_cached_page(driver_name, bucket_id, url):
     """
     Remove a cached page
     """
     global INDEX_CACHE
-    if not INDEX_CACHE.has_key(blockchain_id):
+    if not INDEX_CACHE.has_key(driver_name):
         return True
 
-    if not INDEX_CACHE[blockchain_id].has_key(url):
+    if not INDEX_CACHE[driver_name].has_key(bucket_id):
         return True
 
-    del INDEX_CACHE[blockchain_id][url]
+    if not INDEX_CACHE[driver_name][bucket_id].has_key(url):
+        return True
+
+    del INDEX_CACHE[driver_name][bucket_id][url]
     return True
 
 
@@ -553,6 +639,8 @@ def index_get_page(dvconf, blockchain_id=None, path=None, url=None):
     Get an index page from the storage provider
     either @path or @url must be given.
     if @url is given, then @dvconf can be None (but blockchain_id is required)
+    
+    Does NOT load from the cache 
 
     Return the dict on success
     Return None on error
@@ -587,7 +675,7 @@ def index_get_page(dvconf, blockchain_id=None, path=None, url=None):
     return index_page
 
 
-def index_set_page(dvconf, path, index_page):
+def index_set_page(dvconf, bucket_id, path, index_page):
     """
     Store an index page to the storage provider
 
@@ -597,7 +685,8 @@ def index_set_page(dvconf, path, index_page):
     assert index_check_setup(dvconf)
     
     put_chunk = dvconf['put_chunk']
-    
+    driver_name = dvconf['driver_name']
+
     log.debug("Set index page {}".format(path))
 
     new_serialized_index_page = serialize_index_page(index_page)
@@ -610,6 +699,33 @@ def index_set_page(dvconf, path, index_page):
     return True  
 
 
+def index_locks_setup(driver_name):
+    """
+    Initialize the global index cache locks.
+    For a driver, there is one lock per bucket
+    """
+    global INDEX_CACHE_LOCKS
+    if not INDEX_CACHE_LOCKS.has_key(driver_name):
+        # add lock set for this driver
+        with INDEX_CACHE_LOCK:
+            if not INDEX_CACHE_LOCKS.has_key(driver_name):
+                INDEX_CACHE_LOCKS[driver_name] = {}
+                bucket_ids = get_index_bucket_names() + ['manifest']
+                for bid in bucket_ids:
+                    INDEX_CACHE_LOCKS[driver_name][bid] = threading.Lock()
+
+    return True
+
+
+def index_page_get_lock(driver_name, bucket_id):
+    """
+    Return a lock for a page
+    """
+    global INDEX_CACHE_LOCKS
+    index_locks_setup(driver_name)
+    return INDEX_CACHE_LOCKS[driver_name][bucket_id]
+
+
 def index_insert(dvconf, name, url):
     """
     Insert a url into the index.
@@ -619,15 +735,22 @@ def index_insert(dvconf, name, url):
     """
     assert index_check_setup(dvconf)
 
+    driver_name = dvconf['driver_name']
     index_stem = dvconf['index_stem']
+    
+    bucket_id = index_get_page_bucket_id(name)
+    path = index_get_page_path(name, index_stem) 
 
-    path = index_get_page_path(name, index_stem)
-    index_page = index_get_page( dvconf, path=path )
-    if index_page is None:
-        index_page = {}
+    with index_page_get_lock(driver_name, bucket_id):
+        index_page = index_get_cached_page(driver_name, bucket_id)
+        if index_page is None: 
+            index_page = index_get_page( dvconf, path=path )
+            if index_page is None:
+                index_page = {}
 
-    index_page[name] = url
-    return index_set_page(dvconf, path, index_page)
+        index_page[name] = url
+        index_set_cached_page(driver_name, bucket_id, index_page, locked=True)
+        return index_set_page(dvconf, bucket_id, path, index_page)
     
 
 def index_remove( dvconf, name ):
@@ -639,67 +762,78 @@ def index_remove( dvconf, name ):
     assert index_check_setup(dvconf)
 
     index_stem = dvconf['index_stem']
+    driver_name = dvconf['driver_name']
 
+    bucket_id = index_get_page_bucket_id(name)
     path = index_get_page_path(name, index_stem)
-    index_page = index_get_page(dvconf, path=path)
-    if index_page is None:
-        log.error("Failed to get index page {}".format(path))
-        return False
 
-    if name not in index_page:
-        # already gone
-        return True
+    with index_page_get_lock(driver_name, bucket_id):
+        index_page = index_get_cached_page(driver_name, bucket_id)
+        if index_page is None: 
+            index_page = index_get_page( dvconf, path=path )
+            if index_page is None:
+                log.error("Failed to get index page {}".format(path))
+                return False
 
-    del index_page[name]
-    return index_set_page(dvconf, path, index_page)
+        if name not in index_page:
+            # already gone
+            return True
+
+        del index_page[name]
+        index_set_cached_page(driver_name, bucket_id, index_page, locked=True)
+        return index_set_page(dvconf, bucket_id, path, index_page)
 
 
-def index_cached_lookup( index_manifest_url, blockchain_id, name, index_stem ):
+def index_cached_lookup( driver_name, name, index_stem ):
     """
     Do a lookup in our cache for a url to a named datum
-    Return the URL on success
-    Return None if not cached
+    Return the {'url': URL, 'manifest': manifest page} on success
+    Return {'manifest': manifest_page} if not cached
     """
-    log.debug("Index cached lookup on {} from {} via {}".format(name, blockchain_id, index_manifest_url))
+    log.debug("Index cached lookup on {} from {}".format(name, driver_name))
 
     # if this is cached, then use the cache 
     path = index_get_page_path(name, index_stem)
-    manifest_page = index_get_cached_page(blockchain_id, index_manifest_url)
+    bucket_id = index_get_page_bucket_id(name)
+    manifest_page = index_get_cached_page(driver_name, 'manifest')
+
     if manifest_page is not None:
         # cached...
-        log.debug("Cache HIT on {}".format(index_manifest_url))
+        log.debug("Cache HIT on manifest")
         if path in manifest_page.keys():
 
-            bucket_url = manifest_page[path]
-            index_page = index_get_cached_page(blockchain_id, bucket_url)
+            index_page = index_get_cached_page(driver_name, bucket_id)
             if index_page is not None:
 
                 # also cached 
-                log.debug("Cache HIT on {}".format(bucket_url))
+                log.debug("Cache HIT on bucket {}".format(bucket_id))
                 url = index_page.get(name, None)
                 if url is not None:
-                    return url
+                    return {'url': url, 'manifest': manifest_page}
 
                 else:
-                    log.debug("Missing name on cached page ({}, {} ({}))".format(blockchain_id, path, bucket_url))
+                    log.debug("Missing name {} on cached page ({}, {} (bucket {}))".format(name, driver_name, path, bucket_id))
 
             else:
-                log.debug("Cache MISS on ({}, {} ({}))".format(blockchain_id, path, bucket_url))
+                log.debug("Cache MISS on ({}, {} (bucket {}))".format(driver_name, path, bucket_id))
 
         else:
-            log.debug("Missing {} on manifest ({}, {}))".format(path, blockchain_id, index_manifest_url))
+            log.debug("Missing {} on manifest (from {})".format(path, driver_name))
 
     else:
-        log.debug("Cache MISS on manifest ({}, {}))".format(blockchain_id, index_manifest_url))
+        log.debug("Cache MISS on manifest (from {})".format(driver_name))
+
+    if manifest_page is not None:
+        return {'manifest': manifest_page}
 
     return None
 
 
-def index_lookup( dvconf, index_manifest_url, blockchain_id, name, index_stem='index' ):
+def index_lookup( dvconf, index_manifest_url, blockchain_id, name, index_stem='index', manifest_page=None ):
     """
     Given the name, find the URL
-    Return the (URL, {url: page}) on success
-    Return (None, {url: page}) on error
+    Return the (URL, {'manifest': page, 'page': page) on success
+    Return (None, {'manifest': page, 'page': page}) on error
     """
    
     log.debug("Index lookup on {} from {} via {}".format(name, blockchain_id, index_manifest_url))
@@ -708,17 +842,23 @@ def index_lookup( dvconf, index_manifest_url, blockchain_id, name, index_stem='i
     path = index_get_page_path(name, index_stem)
 
     fetched = {}
-
-    log.debug("Get index manifest page ({}, {})".format(index_manifest_url, index_manifest_path))
-    manifest_page = index_get_page(dvconf, blockchain_id=blockchain_id, url=index_manifest_url, path=index_manifest_path)
-    if manifest_page is None:
-        log.error("Failed to get manifest page {}".format(index_manifest_url))
-        return None, fetched
     
-    fetched[index_manifest_url] = manifest_page
+    if manifest_page is not None and path not in manifest_page.keys():
+        log.warning("Bucket {} not in manifest".format(path))
+        manifest_page = None
 
+    if manifest_page is None:
+        log.debug("Get index manifest page ({}, {})".format(index_manifest_url, index_manifest_path))
+        manifest_page = index_get_page(dvconf, blockchain_id=blockchain_id, url=index_manifest_url, path=index_manifest_path)
+        if manifest_page is None:
+            log.error("Failed to get manifest page {}".format(index_manifest_url))
+            return None, fetched
+    
+    fetched['manifest'] = manifest_page
+    
     if path not in manifest_page.keys():
-        log.error("Bucket {} not in manifest".format(path))
+        # not present
+        log.error("Bucket {} not in fresh manifest".format(path))
         if os.environ.get("BLOCKSTACK_TEST") == '1':
             log.debug("Index manifest:\n{}".format(json.dumps(manifest_page, indent=4, sort_keys=True)))
 
@@ -731,7 +871,7 @@ def index_lookup( dvconf, index_manifest_url, blockchain_id, name, index_stem='i
         return None, fetched
 
     url = index_page.get(name, None)
-    fetched[bucket_url] = index_page
+    fetched['page'] = index_page
     return url, fetched
 
 
@@ -789,6 +929,7 @@ def _get_indexed_data_impl( dvconf, blockchain_id, name, raw=False, index_manife
     index_stem = dvconf['index_stem']
     index_pages = {}
     cache_hit = False
+    manifest_page = None
     given_manifest_url = False
 
     if index_manifest_url is None:
@@ -819,16 +960,25 @@ def _get_indexed_data_impl( dvconf, blockchain_id, name, raw=False, index_manife
 
     if data_url is None:
         # try the cache first... 
-        data_url = index_cached_lookup(index_manifest_url, blockchain_id, name, index_stem)
-        if data_url is not None:
-            cache_hit = True
+        cached_lookup = index_cached_lookup(driver_name, name, index_stem)
+        if cached_lookup is not None:
+            if cached_lookup.has_key('url'):
+                cache_hit = True
+                data_url = cached_lookup['url']
+
+            if cached_lookup.has_key('manifest'):
+                manifest_page = cached_lookup['manifest']
 
     if data_url is None:
         # cache miss
         # go get the url for this data
-        data_url, index_pages = index_lookup(dvconf, index_manifest_url, blockchain_id, name, index_stem=index_stem)
+        data_url, index_pages = index_lookup(dvconf, index_manifest_url, blockchain_id, name, index_stem=index_stem, manifest_page=manifest_page)
         if data_url is None:
             log.error("No data URL from index for '{}'".format(name))
+
+            if os.environ.get('BLOCKSTACK_TEST') == '1':
+                log.debug("Index page: {}".format(json.dumps(index_pages['page'], indent=4, sort_keys=True)))
+
             return False, {}
 
     log.debug("Fetch {} via HTTP at {} (cached url: {})".format(name, data_url, cache_hit))
@@ -851,11 +1001,15 @@ def _get_indexed_data_impl( dvconf, blockchain_id, name, raw=False, index_manife
 
     # success! cache any index information
     if blockchain_id is not None:
-        for (url, page) in index_pages.items():
-            index_set_cached_page(blockchain_id, url, page)
-
         if not given_manifest_url:
             index_set_cached_manifest_url(blockchain_id, driver_name, index_manifest_url)
+
+    if index_pages.has_key('manifest'):
+        index_set_cached_page(driver_name, 'manifest', index_pages['manifest'])
+
+    if index_pages.has_key('page'):
+        bucket_id = index_get_page_bucket_id(name)
+        index_set_cached_page(driver_name, bucket_id, index_pages['page'])
 
     return data, None
 
@@ -869,6 +1023,7 @@ def get_indexed_data(dvconf, blockchain_id, name, raw=False, index_manifest_url=
     Return None on error
     """
     driver_name = dvconf['driver_name']
+    bucket_id = index_get_page_bucket_id(name)
 
     # try cache path first
     data, pages = _get_indexed_data_impl(dvconf, blockchain_id, name, raw=raw, index_manifest_url=index_manifest_url)
@@ -879,7 +1034,7 @@ def get_indexed_data(dvconf, blockchain_id, name, raw=False, index_manifest_url=
 
             # clear index caches for this data and try again
             for (url, _) in pages.items():
-                index_remove_cached_page(blockchain_id, url)
+                index_remove_cached_page(driver_name, bucket_id, url)
 
             index_remove_cached_manifest_url(blockchain_id, driver_name)
 
@@ -1010,7 +1165,6 @@ def index_get_mutable_handler( dvconf, url, default_get_data=http_get_data, **kw
     """
     blockchain_id = kw.get('fqu', None)
     index_manifest_url = kw.get('index_manifest_url', None)
-    
 
     urltype, urlres = get_url_type(url)
     if urltype is None and urlres is None:
@@ -1019,9 +1173,8 @@ def index_get_mutable_handler( dvconf, url, default_get_data=http_get_data, **kw
 
     if urltype == 'blockstack':
         # get via index
-        urlres = urlres.replace('/', r'-2f')
-        path = '/{}'.format(urlres)
-        return get_indexed_data(dvconf, blockchain_id, path, index_manifest_url=index_manifest_url)
+        data_id = '/' + urlres.replace('/', r'-2f')
+        return get_indexed_data(dvconf, blockchain_id, data_id, index_manifest_url=index_manifest_url)
 
     else:
         # raw url 
