@@ -36,3 +36,5 @@ without having to spend Bitcoin or wait hours for names to be registered.
 Selected Bugfixes and Fixes
 ---------------------------
 
+* Issue #469 : Blockstack Core used to die in error cases when it should be 
+able to fail more gracefully. This release fixes several such cases.
