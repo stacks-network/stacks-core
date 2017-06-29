@@ -3506,9 +3506,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if whitelist_info['name'] not in allowed_methods:
                 if os.environ.get("BLOCKSTACK_TEST_NOAUTH_SESSION") != '1':
                     # this method is not allowed
-                    log.info("Unauthorized method call to {}".format(path_info['path']))
-                    return self._send_headers(status_code=403, content_type='text/plain')
-
+                    log.warn("Unauthorized method call to {}".format(path_info['path']))
+                    err = { 'error' :
+                            "Unauthorized method. Requires '{}', you have permissions for {}".format(
+                                whitelist_info['name'], allowed_methods)}
+                    return self._reply_json(err, status_code=403)
                 else:
                     log.warning("No-session-authentication environment variable set; skipping...")
 
@@ -3516,7 +3518,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Authenticated with session")
 
         if not authorized:
-            log.info("Failed to authenticate caller")
+            log.warn("Failed to authenticate caller")
             if BLOCKSTACK_TEST:
                 log.debug("Session was: {}".format(session))
 

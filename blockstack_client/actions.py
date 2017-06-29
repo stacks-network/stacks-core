@@ -89,7 +89,7 @@ from rpc import local_api_connect, local_api_status
 import rpc as local_rpc
 import config
 
-from .config import configure_zonefile, set_advanced_mode, configure, get_utxo_provider_client, get_tx_broadcaster
+from .config import configure_zonefile, configure, get_utxo_provider_client, get_tx_broadcaster
 from .constants import (
     CONFIG_PATH, CONFIG_DIR,
     FIRST_BLOCK_MAINNET, NAME_UPDATE,
@@ -833,7 +833,6 @@ def get_server_info(config_path=CONFIG_PATH, get_local_info=False):
     result = {}
 
     result['cli_version'] = VERSION
-    result['advanced_mode'] = conf['advanced_mode']
 
     if 'error' in resp:
         result['server_alive'] = False
@@ -2021,22 +2020,6 @@ def cli_get_public_key(args, config_path=CONFIG_PATH, proxy=None):
 
     zfpubkey = keylib.key_formatting.decompress(user_zonefile_data_pubkey(zfinfo['zonefile']))
     return {'public_key': zfpubkey}
-
-
-def cli_set_advanced_mode(args, config_path=CONFIG_PATH):
-    """
-    command: set_advanced_mode
-    help: Enable advanced commands
-    arg: status (str) 'On or Off.'
-    """
-
-    status = str(args.status).lower()
-    if status not in ['on', 'off']:
-        return {'error': 'Invalid option; please use "on" or "off"'}
-
-    set_advanced_mode((status == 'on'), config_path=config_path)
-
-    return {'status': True}
 
 
 def cli_list_accounts( args, proxy=None, config_path=CONFIG_PATH ):
