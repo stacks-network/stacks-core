@@ -3511,7 +3511,7 @@ def nodejs_setup():
     """
     Set up a working directory for testing Blockstack node.js packages
     """
-    for prog in ['npm', 'node', 'babel-cli', 'browserify']:
+    for prog in ['npm', 'node', 'babel', 'browserify']:
         rc = os.system('which {}'.format(prog))
         if rc != 0:
             raise Exception("Could not find program {}".format(prog))
