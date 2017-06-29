@@ -623,10 +623,14 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None, interact
 
     error = check_valid_name(name_or_ns)
     if error:
-        # must be valid namespace
-        ns_error = check_valid_namespace(name_or_ns)
-        if ns_error:
-            return {'error': 'Neither a valid name or namespace:\n   * {}\n   * {}'.format(error, ns_error)}
+        if 'preorder' in operations:
+            # this means this is a pricecheck on a NAME, not a namespace
+            return {'error': 'Not a valid name: \n * {}'.format(error)}
+        else:
+            # must be valid namespace
+            ns_error = check_valid_namespace(name_or_ns)
+            if ns_error:
+                return {'error': 'Neither a valid name or namespace:\n   * {}\n   * {}'.format(error, ns_error)}
 
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
