@@ -1334,6 +1334,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if inode_type == 'files':
             if path is not None:
+                log.debug("Will run cli_datastore_getfile()")
                 res = internal.cli_datastore_getfile(blockchain_id, datastore_id, path, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
                 if 'error' not in res:
@@ -1342,6 +1343,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         res['inode_info']['inode']['idata'] = base64.b64encode(res['inode_info']['inode']['idata'])
 
             else:
+                log.debug("Will run cli_datastore_getinode()")
                 res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
                 if 'error' not in res and idata:
@@ -1351,14 +1353,19 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         elif inode_type == 'directories':
             if path is not None:
+                log.debug("Will run cli_datastore_listdir()")
                 res = internal.cli_datastore_listdir(blockchain_id, datastore_id, path, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
             else:
+                log.debug("Will run cli_datastore_getinode()")
                 res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
         else:
+            # inodes
             if path is not None:
+                log.debug("Will run cli_datastore_stat()")
                 res = internal.cli_datastore_stat(blockchain_id, datastore_id, path, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
             else:
+                log.debug("Will run cli_datastore_getinode()")
                 res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
         if json_is_error(res):
@@ -1373,9 +1380,15 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(res)
 
             else:
+                if BLOCKSTACK_TEST:
+                    log.debug("Reply {}".format(json.dumps(res)))
+
                 self._reply_json(res)
 
         else:
+            if BLOCKSTACK_TEST:
+                log.debug("Reply {}".format(json.dumps(res)))
+
             self._reply_json(res)
 
         return
@@ -2614,6 +2627,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             for (key, value) in path_info['qs_values'].items():
                 os.environ[key] = value
 
+            return self._send_headers(status_code=200, content_type='text/plain')
+
+        elif command == 'clearcache':
+            # clear the cache 
+            data.cache_evct_all()
             return self._send_headers(status_code=200, content_type='text/plain')
 
         else:
