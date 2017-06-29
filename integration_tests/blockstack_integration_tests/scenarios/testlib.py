@@ -619,6 +619,25 @@ def blockstack_cli_namespace_ready( namespace_id, reveal_privkey, config_path=No
 
     return resp
 
+def blockstack_cli_withdraw( password, address, amount = None, config_path = None):
+    """
+    Register a name, using the backend RPC endpoint
+    """
+    test_proxy = make_proxy(password=password, config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    args.address = address
+    args.amount = amount
+
+    resp = cli_withdraw(args, config_path = config_path, password = password, interactive = False)
+
+    if 'error' not in resp:
+        assert 'transaction_hash' in resp
+
+    return resp
+
 
 def blockstack_cli_register( name, password, recipient_address=None, zonefile=None, config_path=None):
     """
