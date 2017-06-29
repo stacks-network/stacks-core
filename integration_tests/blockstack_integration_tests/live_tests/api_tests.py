@@ -158,6 +158,7 @@ class AuthInternal(APITestCase):
                                 headers = auth_header, status_code=200)
         data = self.get_request('/v1/users/muneeb.id',
                                 headers = auth_header, status_code=403)
+        self.assertIn('error', data)
 
     def test_auth_token_no_username(self):
         auth_header = get_auth_header()
@@ -416,7 +417,7 @@ def test_main(args = []):
         print("Failure of the ping test means the rest of the unit tests will " +
               "fail. Is the blockstack api daemon running? (did you run " +
               "`blockstack api start`)")
-        return
+        sys.exit(1)
 
     if len(args) == 1 and args[0] == "--list":
         print("Tests supported: ")
@@ -447,10 +448,11 @@ def test_main(args = []):
     for test_name in args:
         test_suite.addTest( unittest.TestLoader().loadTestsFromTestCase(test_map[test_name]) )
     result = test_runner( test_suite )
-    if result.wasSuccessful():
-        sys.exit(0)
-    else:
-        sys.exit(1)
+    if result: # test_support.run_unittest returns None
+        if result.wasSuccessful():
+            sys.exit(0)
+        else:
+            sys.exit(1)
 
 if __name__ == '__main__':
     test_main(sys.argv[1:])
