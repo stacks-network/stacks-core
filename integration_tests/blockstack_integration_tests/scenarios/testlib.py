@@ -3519,6 +3519,7 @@ def nodejs_setup():
     tmpdir = tempfile.mkdtemp()
     atexit.register(nodejs_cleanup, tmpdir)
     
+    os.system("cd '{}' && npm install babel-cli babel-preset-es2015".format(tmpdir))
     print "Node install at {}".format(tmpdir)
     return tmpdir
 
@@ -3553,7 +3554,7 @@ def nodejs_run_test( testdir, test_name="core-test" ):
     """
     Run a nodejs test
     """
-    rc = os.system('cd "{}" && npm run {} 2>&1 | tee /dev/stderr | egrep "^npm ERR"'.format(testdir, test_name))
+    rc = os.system('cd "{}" && npm install && npm run {} 2>&1 | tee /dev/stderr | egrep "^npm ERR"'.format(testdir, test_name))
     if rc == 0:
         raise Exception("Test {} failed".format(test_name))
 

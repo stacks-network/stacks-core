@@ -4263,9 +4263,8 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
     if res is None:
         return {'error': 'Failed to sign and serialize profile'}
 
-    if BLOCKSTACK_DEBUG:
-        # sanity check 
-        assert storage.parse_mutable_data(res, pubkey)
+    # sanity check 
+    assert storage.parse_mutable_data(res, pubkey)
 
     return res
 
@@ -5121,7 +5120,7 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
 def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: datastore_stat advanced
-    help: Stat a file or directory in the datastore
+    help: Stat a file or directory in the datastore, returning only the header for files but returning the entire listing for directories.
     arg: blockchain_id (str) 'The ID of the datastore owner'
     arg: datastore_id (str) 'The datastore ID'
     arg: path (str) 'The path to the file or directory to stat'
