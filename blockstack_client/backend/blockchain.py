@@ -285,12 +285,7 @@ def broadcast_tx(tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None):
     except Exception as e:
         log.exception(e)
         resp['error'] = 'Failed to broadcast transaction: {}'.format(tx_hex)
-
-        if BLOCKSTACK_TEST is not None:
-            # should NEVER happen in test mode
-            msg = 'FATAL: failed to send transaction:\n{}'
-            log.error(msg.format(json.dumps(resp, indent=4, sort_keys=True)))
-            os.abort()
+        return resp
 
     # for compatibility
     resp['status'] = True
