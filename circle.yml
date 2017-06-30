@@ -9,6 +9,7 @@ dependencies:
           PYSCRYPT_NO_LINK_FLAGS: "1"
           LDFLAGS: /usr/local/opt/openssl/lib/libcrypto.a /usr/local/opt/openssl/lib/libssl.a 
           CPPFLAGS: -I/usr/local/opt/openssl/include
+    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/kantai/zone-file-py.git@txt-record-multi-string
 compile:
   post:
     - ../virtualenvs/venv-system/bin/pip install ./integration_tests
