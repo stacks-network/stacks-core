@@ -264,6 +264,7 @@ def _build_subdomain_db(domain_fqa, zonefiles):
         else:
             assert isinstance(zf, (str, unicode)) 
             zf_json = bs_zonefile.decode_name_zonefile(domain_fqa, zf)
+            assert "zonefile" not in zf_json
         print "Parsing {}".format(zf)
         subdomains = parse_zonefile_subdomains(zf_json)
 

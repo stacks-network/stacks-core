@@ -45,7 +45,7 @@ setup(
         'keychain>=0.14.2.0',
         'protocoin>=0.2',
         'blockstack-profiles>=0.14.1',
-        'blockstack-zones>=0.14.1',
+        'blockstack-zones>=0.14.3',
         'defusedxml>=0.4.1',
         'keylib>=0.1.1',
         'mixpanel>=4.3.1',
