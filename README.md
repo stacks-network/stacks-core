@@ -1,10 +1,11 @@
 # Blockstack Core
 
-[![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack-server/)
+[![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
-Blockstack is a new decentralized web, where users own their data and apps run on user devices without the need for hosting. Developers can build
-serverless apps without the need to trust any centralized services or infrastructure.
+Blockstack is a new decentralized internet where you own your data and your apps run locally without remote servers. 
+
+Blockstack provides decentralized services for naming/DNS, identity, authentication and storage. Developers can use JavaScript libraries to build serverless apps and they don't need to worry about managing infrastructure.
 
 For more info on Blockstack see: http://github.com/blockstack/blockstack
 
@@ -20,18 +21,26 @@ For more info on Blockstack see: http://github.com/blockstack/blockstack
 
 ## Quick Start
 
-The fastest way to get started with Blockstack is with pip.
+The fastest way to get started with Blockstack is with `pip`.
+
+You should use `pip2` if you have it instead of `pip`, since Blockstack requires Python 2.
 
 For Debian & Ubuntu:
 ```
-$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools build-essential
-$ sudo pip2 install blockstack
+$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools libgmp3-dev
+$ sudo pip2 install pyparsing
+$ sudo pip2 install blockstack --upgrade
+```
+For SUSE and openSUSE
+```
+$ sudo zypper update && zypper install rng-tools python-devel libffi-devel
+$ sudo pip install blockstack --upgrade 
 ```
 For macOS: 
 ```
 $ brew install gmp libffi openssl
 $ sudo pip install --upgrade pip
-$ sudo pip install blockstack
+$ sudo pip install blockstack --upgrade
 ```
 
 You can test your installation by trying:
@@ -51,17 +60,19 @@ $ blockstack-core --debug start
 $ tail -f ~/.blockstack-server/blockstack-server.log
 ```
 
-Next, visit the [basic usage docs](https://blockstack.org/docs/basic-usage) and [extended usage docs](https://blockstack.org/docs/basic-usage) to learn how to register names of your own, as well as transfer them and associate data with them.
+Next, visit the [basic usage docs](https://blockstack.org/docs) and [extended usage docs](https://blockstack.org/docs) to learn how to register names of your own, as well as transfer them and associate data with them.
 
 If you encounter any technical issues in installing or using Blockstack, please [search the open issues](https://github.com/blockstack/blockstack-core/issues) and start a new one if your issue is not covered. 
 
 ## Development Status
 
 **v0.14.1** is the current stable release of Blockstack Core (available on the master branch).<br>
-**v0.14.2** is the next release candidate for Blockstack Core (available on the [v0.14.2 branch](https://github.com/blockstack/blockstack-core/tree/rc-0.14.2)). See the [release notes](https://github.com/blockstack/blockstack-core/blob/master/release_notes/changelog-0.14.1.md).
+**v0.14.2** is the next release candidate for Blockstack Core (available on the [v0.14.2 branch](https://github.com/blockstack/blockstack-core/tree/rc-0.14.2)).
 
 Most of the development is happening in the [v0.14.2 branch](https://github.com/blockstack/blockstack-core/tree/rc-0.14.2). Please submit all
 pull requests to that branch.
+
+In the list of [release notes](https://github.com/blockstack/blockstack-core/tree/master/release_notes) you can find what has changed in these versions.
 
 ## Blockstack Docs
 

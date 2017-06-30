@@ -428,7 +428,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
             tx_only = True
         else:
             tx_only = False
-
+    
     else:
         tx_only = False
 
