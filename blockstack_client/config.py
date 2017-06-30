@@ -620,14 +620,6 @@ def delete_config_section(config_path, section_name):
     return True
 
 
-def set_advanced_mode(status, config_path=CONFIG_PATH):
-    """
-    Enable or disable advanced mode
-    @status must be a bool
-    """
-    return write_config_field(config_path, 'blockstack-client', 'advanced_mode', str(status))
-
-
 def get_utxo_provider_client(config_path=CONFIG_PATH, min_confirmations=TX_MIN_CONFIRMATIONS):
     """
     Get or instantiate our blockchain UTXO provider's client.
@@ -738,7 +730,6 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
         parser.set('blockstack-client', 'metadata', METADATA_DIRNAME)
         parser.set('blockstack-client', 'storage_drivers', BLOCKSTACK_DEFAULT_STORAGE_DRIVERS)
         parser.set('blockstack-client', 'storage_drivers_required_write', BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE)
-        parser.set('blockstack-client', 'advanced_mode', 'false')
         parser.set('blockstack-client', 'api_endpoint_port', str(DEFAULT_API_PORT))
         parser.set('blockstack-client', 'api_endpoint_host', DEFAULT_API_HOST)
         parser.set('blockstack-client', 'api_endpoint_bind', DEFAULT_API_HOST)
@@ -793,7 +784,6 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
     # these are booleans--convert them
     bool_values = {
         'blockstack-client': [
-            'advanced_mode',
             'anonymous_statistics',
         ]
     }
@@ -808,10 +798,6 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
             else:
                 # literal
                 ret[sec][opt] = parser.get(sec, opt)
-
-    # advanced mode is off by default
-    if 'advanced_mode' not in ret.get('blockstack-client', {}):
-        ret['blockstack-client']['advanced_mode'] = False
 
     # convert field names
     renamed_fields_014_1 = {

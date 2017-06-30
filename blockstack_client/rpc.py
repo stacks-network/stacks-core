@@ -64,6 +64,7 @@ from proxy import json_is_error, json_is_exception
 
 from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE
 from .method_parser import parse_methods
+from .wallet import make_wallet
 import app
 import data
 import zonefile
@@ -1333,6 +1334,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if inode_type == 'files':
             if path is not None:
+                log.debug("Will run cli_datastore_getfile()")
                 res = internal.cli_datastore_getfile(blockchain_id, datastore_id, path, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
                 if 'error' not in res:
@@ -1341,6 +1343,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         res['inode_info']['inode']['idata'] = base64.b64encode(res['inode_info']['inode']['idata'])
 
             else:
+                log.debug("Will run cli_datastore_getinode()")
                 res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
                 if 'error' not in res and idata:
@@ -1350,14 +1353,19 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         elif inode_type == 'directories':
             if path is not None:
+                log.debug("Will run cli_datastore_listdir()")
                 res = internal.cli_datastore_listdir(blockchain_id, datastore_id, path, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
             else:
+                log.debug("Will run cli_datastore_getinode()")
                 res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
         else:
+            # inodes
             if path is not None:
+                log.debug("Will run cli_datastore_stat()")
                 res = internal.cli_datastore_stat(blockchain_id, datastore_id, path, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
             else:
+                log.debug("Will run cli_datastore_getinode()")
                 res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
         if json_is_error(res):
@@ -1372,9 +1380,15 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(res)
 
             else:
+                if BLOCKSTACK_TEST:
+                    log.debug("Reply {}".format(json.dumps(res)))
+
                 self._reply_json(res)
 
         else:
+            if BLOCKSTACK_TEST:
+                log.debug("Reply {}".format(json.dumps(res)))
+
             self._reply_json(res)
 
         return
@@ -2023,6 +2037,56 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'status': True})
 
 
+    def PUT_wallet_key( self, ses, path_info, key_id ):
+        """
+        Set an individual wallet key ('owner', 'payment', 'data')
+        Return 200 on success
+        Return 401 on invalid key
+        Return 500 on error
+        """
+        if key_id not in ['owner', 'payment', 'data']:
+            return self._reply_json({'error': 'Invalid key ID'}, status_code=401)
+
+        privkey_info = self._read_json(schema=PRIVKEY_INFO_SCHEMA)
+        if privkey_info is None:
+            return self._reply_json({'error': 'Failed to validate private key'}, status_code=401)
+
+        wallet = backend.registrar.get_wallet(config_path=self.server.config_path)
+        if 'error' in wallet:
+            return self._reply_json({'error': wallet['error']}, status_code=500)
+        
+        payment_privkey_info = wallet['payment_privkey']
+        owner_privkey_info = wallet['owner_privkey']
+        data_privkey_info = wallet['data_privkey']
+
+        if key_id == 'owner':
+            owner_privkey_info = privkey_info
+
+        elif key_id == 'payment':
+            payment_privkey_info = privkey_info
+
+        elif key_id == 'data':
+            data_privkey_info = privkey_info
+
+        else:
+            return self._reply_json({'error': 'Failed to set private key info'}, status_code=401)
+
+        # convert...
+        wallet = make_wallet(None, config_path=self.server.config_path, payment_privkey_info=payment_privkey_info, owner_privkey_info=owner_privkey_info, data_privkey_info=data_privkey_info, encrypt=False)
+        if 'error' in wallet:
+            return self._reply_json({'error': 'Failed to reinstantiate wallet'}, status_code=500)
+
+        res = backend.registrar.set_wallet( (wallet['payment_addresses'][0], wallet['payment_privkey']),
+                                            (wallet['owner_addresses'][0], wallet['owner_privkey']),
+                                            (wallet['data_pubkeys'][0], wallet['data_privkey']), config_path=self.server.config_path )
+
+        if 'error' in res:
+            return self._reply_json({'error': 'Failed to set wallet: {}'.format(res['error'])}, status_code=500)
+
+        self.server.wallet_keys = wallet
+        return self._reply_json({'status': True})
+
+
     def PUT_wallet_password( self, ses, path_info ):
         """
         Change the wallet password.
@@ -2242,6 +2306,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         * force (0, 1): (DANGEROUS) forcibly set up the index, even if it appears to already exist
 
         Reply 200 on success, with the index manifest URL
+        Reply 202 on success, if we're still in the process of setting up the driver.
         Reply 401 if the driver is invalid
         Reply 500 if the driver fails to initialize
         """
@@ -2327,6 +2392,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         # instantiate...
         try:
             res = bsk_client.register_storage(driver_mod, conf, index=instantiate_index, force_index=force_instantiate_index)
+        except backend_drivers.ConcurrencyViolationException as cve:
+            # already running 
+            if BLOCKSTACK_DEBUG:
+                log.exception(cve)
+
+            return self._reply_json({'warning': 'Operation already in progress'}, status_code=202)
+
         except Exception as e:
             if BLOCKSTACK_DEBUG:
                 log.exception(e)
@@ -2555,6 +2627,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             for (key, value) in path_info['qs_values'].items():
                 os.environ[key] = value
 
+            return self._send_headers(status_code=200, content_type='text/plain')
+
+        elif command == 'clearcache':
+            # clear the cache 
+            data.cache_evct_all()
             return self._send_headers(status_code=200, content_type='text/plain')
 
         else:
@@ -2959,6 +3036,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'PUT': {
                         'name': 'wallet_write',
                         'desc': 'Change the wallet password',
+                        'auth_session': False,
+                        'auth_pass': True,
+                        'need_data_key': False
+                    },
+                },
+            },
+            r'^/v1/wallet/keys/({})$'.format(URLENCODING_CLASS): {
+                'routes': {
+                    'PUT': self.PUT_wallet_key,
+                },
+                'whitelist': {
+                    'PUT': {
+                        'name': 'wallet_write',
+                        'desc': 'Set the wallet\'s private key',
                         'auth_session': False,
                         'auth_pass': True,
                         'need_data_key': False
@@ -3415,9 +3506,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if whitelist_info['name'] not in allowed_methods:
                 if os.environ.get("BLOCKSTACK_TEST_NOAUTH_SESSION") != '1':
                     # this method is not allowed
-                    log.info("Unauthorized method call to {}".format(path_info['path']))
-                    return self._send_headers(status_code=403, content_type='text/plain')
-
+                    log.warn("Unauthorized method call to {}".format(path_info['path']))
+                    err = { 'error' :
+                            "Unauthorized method. Requires '{}', you have permissions for {}".format(
+                                whitelist_info['name'], allowed_methods)}
+                    return self._reply_json(err, status_code=403)
                 else:
                     log.warning("No-session-authentication environment variable set; skipping...")
 
@@ -3425,7 +3518,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Authenticated with session")
 
         if not authorized:
-            log.info("Failed to authenticate caller")
+            log.warn("Failed to authenticate caller")
             if BLOCKSTACK_TEST:
                 log.debug("Session was: {}".format(session))
 
@@ -3484,7 +3577,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._dispatch("PATCH")
 
 
-class BlockstackAPIEndpoint(SocketServer.TCPServer):
+class BlockstackAPIEndpoint(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     """
     Lightweight API endpoint to Blockstack server:
     exposes all of the client methods via a RESTful interface,
@@ -3574,6 +3667,9 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
 
             log.debug("Set SO_REUSADDR")
             self.socket.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 )
+            
+            # we want daemon threads, so we join on abrupt shutdown (applies if multithreaded) 
+            self.daemon_threads = True
 
             self.server_bind()
             self.server_activate()

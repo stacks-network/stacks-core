@@ -28,6 +28,7 @@ import json
 import sys
 import os
 import blockstack_client
+import blockstack_client.backend
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -64,6 +65,9 @@ def scenario( wallets, **kw ):
     # wait for the poller to pick it up
     print >> sys.stderr, "Waiting 10 seconds for the backend to submit the register"
     time.sleep(10)
+
+    r = blockstack_client.actions.cli_get_registrar_info(None)
+    assert 'errors' not in r['register'][0]
 
     # wait for the register to get confirmed 
     for i in xrange(0, 12):
@@ -103,5 +107,8 @@ def check( state_engine ):
     if ns['namespace_id'] != 'id':
         print "wrong namespace"
         return False 
+
+    r = blockstack_client.actions.cli_get_registrar_info(None)
+    assert 'errors' in r['update'][0]
 
     return True

@@ -89,7 +89,7 @@ from rpc import local_api_connect, local_api_status
 import rpc as local_rpc
 import config
 
-from .config import configure_zonefile, set_advanced_mode, configure, get_utxo_provider_client, get_tx_broadcaster
+from .config import configure_zonefile, configure, get_utxo_provider_client, get_tx_broadcaster
 from .constants import (
     CONFIG_PATH, CONFIG_DIR,
     FIRST_BLOCK_MAINNET, NAME_UPDATE,
@@ -428,7 +428,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
             tx_only = True
         else:
             tx_only = False
-
+    
     else:
         tx_only = False
 
@@ -623,10 +623,14 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None, interact
 
     error = check_valid_name(name_or_ns)
     if error:
-        # must be valid namespace
-        ns_error = check_valid_namespace(name_or_ns)
-        if ns_error:
-            return {'error': 'Neither a valid name or namespace:\n   * {}\n   * {}'.format(error, ns_error)}
+        if 'preorder' in operations:
+            # this means this is a pricecheck on a NAME, not a namespace
+            return {'error': 'Not a valid name: \n * {}'.format(error)}
+        else:
+            # must be valid namespace
+            ns_error = check_valid_namespace(name_or_ns)
+            if ns_error:
+                return {'error': 'Neither a valid name or namespace:\n   * {}\n   * {}'.format(error, ns_error)}
 
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
@@ -786,7 +790,8 @@ def cli_get_registrar_info(args, config_path=CONFIG_PATH, queues=None):
 
         new_entry['confirmations'] = confirmations
         new_entry['tx_hash'] = entry['tx_hash']
-        new_entry['errors'] = entry['errors']
+        if 'errors' in entry:
+            new_entry['errors'] = entry['errors']
 
         return new_entry
 
@@ -834,7 +839,6 @@ def get_server_info(config_path=CONFIG_PATH, get_local_info=False):
     result = {}
 
     result['cli_version'] = VERSION
-    result['advanced_mode'] = conf['advanced_mode']
 
     if 'error' in resp:
         result['server_alive'] = False
@@ -2022,22 +2026,6 @@ def cli_get_public_key(args, config_path=CONFIG_PATH, proxy=None):
 
     zfpubkey = keylib.key_formatting.decompress(user_zonefile_data_pubkey(zfinfo['zonefile']))
     return {'public_key': zfpubkey}
-
-
-def cli_set_advanced_mode(args, config_path=CONFIG_PATH):
-    """
-    command: set_advanced_mode
-    help: Enable advanced commands
-    arg: status (str) 'On or Off.'
-    """
-
-    status = str(args.status).lower()
-    if status not in ['on', 'off']:
-        return {'error': 'Invalid option; please use "on" or "off"'}
-
-    set_advanced_mode((status == 'on'), config_path=config_path)
-
-    return {'status': True}
 
 
 def cli_list_accounts( args, proxy=None, config_path=CONFIG_PATH ):
@@ -4277,9 +4265,8 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
     if res is None:
         return {'error': 'Failed to sign and serialize profile'}
 
-    if BLOCKSTACK_DEBUG:
-        # sanity check 
-        assert storage.parse_mutable_data(res, pubkey)
+    # sanity check 
+    assert storage.parse_mutable_data(res, pubkey)
 
     return res
 
@@ -5135,7 +5122,7 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
 def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: datastore_stat advanced
-    help: Stat a file or directory in the datastore
+    help: Stat a file or directory in the datastore, returning only the header for files but returning the entire listing for directories.
     arg: blockchain_id (str) 'The ID of the datastore owner'
     arg: datastore_id (str) 'The datastore ID'
     arg: path (str) 'The path to the file or directory to stat'

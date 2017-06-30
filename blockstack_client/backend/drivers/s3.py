@@ -308,7 +308,7 @@ def make_mutable_url( data_id ):
     # remove /'s
     data_id = data_id.replace( "/", r"\x2f" )
 
-    return "https://%s.s3.amazonaws.com/mutable-%s" % (AWS_BUCKET, data_id)
+    return "https://%s.s3.amazonaws.com/%s" % (AWS_BUCKET, data_id)
 
 
 def get_immutable_handler( key, **kw ):
@@ -360,9 +360,7 @@ def put_mutable_handler( data_id, data_json, **kw ):
     S3 implementation of the put_mutable_handler API call.
     Return True on success; False on failure.
     """
-
-    mutable_data_id = "mutable-%s" % data_id 
-    return write_chunk( mutable_data_id, data_json )
+    return write_chunk( data_id, data_json )
 
 
 def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
@@ -384,9 +382,7 @@ def delete_mutable_handler( data_id, signature, **kw ):
     signature over the hash of the data_id, remove data from storage.
     Return True on success; False if not.
     """
-
-    mutable_data_id = "mutable-%s" % data_id 
-    return delete_chunk( mutable_data_id )
+    return delete_chunk( data_id )
 
 
 def get_classes():
