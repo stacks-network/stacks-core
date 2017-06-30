@@ -435,8 +435,9 @@ def get_queue_state(queue_ids=None, limit=None, path=DEFAULT_QUEUE_PATH):
         state += rows
 
     for row in state:
-        row['errors'] = queue_get_error_msgs(row['type'], row['fqu'], path=path)
-
+        errors = queue_get_error_msgs(row['type'], row['fqu'], path=path)
+        if len(errors) > 0:
+            row['errors'] = errors
     return state
 
 
