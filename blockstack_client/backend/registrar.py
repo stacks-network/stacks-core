@@ -588,11 +588,19 @@ class RegistrarWorker(threading.Thread):
                 continue
 
             if update.get("transfer_address") is not None:
-                log.debug("Transfer {} to {}".format(update['fqu'], update['transfer_address']))
+                # let's see if the name already got there!
+                name_rec = get_name_blockchain_record( update['fqu'], proxy=proxy )
+                if 'address' in name_rec and name_rec['address'] == update['transfer_address']:
+                    log.debug("Requested Transfer {} to {} is owned by {} already. Declaring victory.".format(
+                        update['fqu'], update['transfer_address'], name_rec['address']))
+                    res = { 'success' : True }
+                else:
+                    log.debug("Transfer {} to {}".format(update['fqu'], update['transfer_address']))
 
-                res = transfer( update['fqu'], update['transfer_address'], config_path=config_path, proxy=proxy )
+                    res = transfer( update['fqu'], update['transfer_address'], config_path=config_path, proxy=proxy )
+
                 assert 'success' in res
-                
+
                 if res['success']:
                     # clear from update queue
                     log.debug("Clearing successful transfer of {} to {} from update queue".format(update['fqu'], update['transfer_address']))
