@@ -182,7 +182,7 @@ def scenario( wallets, **kw ):
 
     # make a session 
     datastore_pk = keylib.ECPrivateKey(wallets[-1].privkey).to_hex()
-    res = testlib.blockstack_cli_app_signin("foo.test", datastore_pk, 'register.app', ['names', 'register', 'prices', 'zonefiles', 'blockchain', 'node_read'])
+    res = testlib.blockstack_cli_app_signin("foo.test", datastore_pk, 'register.app', ['names', 'register', 'prices', 'zonefiles', 'blockchain', 'node_read', 'wallet_read'])
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
@@ -197,6 +197,22 @@ def scenario( wallets, **kw ):
 
     # register the name bar.test (no zero-conf, should fail)
     res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test', 'zonefile': zonefile_txt, 'owner_address': wallets[4].addr})
+    if res['http_status'] == 200:
+        print 'accidentally succeeded to register bar.test'
+        print res
+        return False
+
+    # let's test /v1/wallet/balance
+    res = testlib.blockstack_REST_call('GET', '/v1/wallet/balance', ses)
+    if res['http_status'] != 200:
+        print '/v1/wallet/balance returned ERR'
+        print json.dumps(res)
+        return False
+    print "FIND: {}".format(json.dumps(res))
+    return False
+
+    # register the name bar.test (1-conf, should fail)
+    res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test', 'zonefile': zonefile_txt, 'owner_address': wallets[4].addr, 'min_confs' : 1})
     if res['http_status'] == 200:
         print 'accidentally succeeded to register bar.test'
         print res
