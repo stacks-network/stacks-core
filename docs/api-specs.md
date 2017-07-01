@@ -40,6 +40,7 @@ Each application specifies in advance which family of API calls it will need to 
 | Get the wallet | GET /v1/wallet/keys | - | Requires a pre-shared secret in the `Authorization:` header |
 | - | - | - | - |
 | Get the wallet balance | GET /v1/wallet/balance | wallet_read | - |
+| Get the wallet balance, specifying the minconfs for txns included | GET /v1/wallet/balance/{minconfs} | wallet_read | - |
 | Withdraw funds from the wallet | POST /v1/wallet/balance | wallet_write | Payload: `{'address': str, 'amount': int, 'min_confs': int, 'tx_only':  bool} |
 | - | - | - | - |
 | Change wallet password | PUT /v1/wallet/password | wallet_write | Payload: `{'password': ..., 'new_password': ...}`|
