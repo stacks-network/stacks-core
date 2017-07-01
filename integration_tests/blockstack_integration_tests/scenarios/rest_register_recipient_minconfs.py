@@ -208,8 +208,21 @@ def scenario( wallets, **kw ):
         print '/v1/wallet/balance returned ERR'
         print json.dumps(res)
         return False
-    print "FIND: {}".format(json.dumps(res))
-    return False
+    if res['response']['balance']['satoshis'] > 0:
+        print '/v1/wallet/balance accidentally incorporated 0-conf txns in balance register bar.test'
+        print json.dumps(res['response'])
+        return False
+
+    # let's test /v1/wallet/balance with minconfs=0
+    res = testlib.blockstack_REST_call('GET', '/v1/wallet/balance/0', ses)
+    if res['http_status'] != 200:
+        print '/v1/wallet/balance/0 returned ERR'
+        print json.dumps(res)
+        return False
+    if res['response']['balance']['satoshis'] < 1e6:
+        print "/v1/wallet/balance/0 didn't incorporate 0-conf txns"
+        print json.dumps(res['response'])
+        return False
 
     # register the name bar.test (1-conf, should fail)
     res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test', 'zonefile': zonefile_txt, 'owner_address': wallets[4].addr, 'min_confs' : 1})

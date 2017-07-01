@@ -361,6 +361,7 @@ def cli_balance(args, config_path=CONFIG_PATH):
     """
     command: balance
     help: Get the account balance
+    opt: min_confs (int) 'The minimum confirmations of transactions to include in balance'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -370,10 +371,13 @@ def cli_balance(args, config_path=CONFIG_PATH):
     if 'error' in res:
         return res
 
+    min_confs = getattr(args, 'min_confs', None)
+
     result = {}
     addresses = []
     satoshis = 0
-    satoshis, addresses = get_total_balance(wallet_path=wallet_path, config_path=config_path)
+    satoshis, addresses = get_total_balance(
+        wallet_path=wallet_path, config_path=config_path, min_confs = min_confs)
 
     if satoshis is None:
         log.error('Failed to get balance')
