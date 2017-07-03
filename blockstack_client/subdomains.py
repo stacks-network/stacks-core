@@ -63,7 +63,7 @@ class Subdomain(object):
     def pack_subdomain(self):
         """ Returns subdomain packed into a list of strings
             Also defines the canonical order for signing!
-            PUBKEY, N, ZF_PARTS, IN_ORDER_PIECES
+            PUBKEY, N, ZF_PARTS, IN_ORDER_PIECES, (? SIG)
         """
         output = []
         output.append(txt_encode_key_value(SUBDOMAIN_PUBKEY, 
@@ -105,7 +105,7 @@ class Subdomain(object):
         as_strings = self.pack_subdomain()
         if self.sig is not None:
             as_strings = as_strings[:-1]
-        return "".join(as_strings)
+        return ",".join(as_strings)
 
     @staticmethod
     def parse_subdomain_record(rec):
@@ -291,14 +291,23 @@ def flatten_and_issue_zonefile(domain_fqa, zf):
     rpc = local_api_connect()
     assert rpc
     try:
-        rpc.backend_update(domain_fqa, user_data_txt, None, None)
+        resp = rpc.backend_update(domain_fqa, user_data_txt, None, None)
     except Exception as e:
         log.exception(e)
-        return False
-    return True
+        return {'error': 'Exception submitting zonefile for update'}
+    return resp
 
 def _extend_with_subdomain(zf_json, subdomain):
-    txt_data = subdomain.pack_subdomain()
+    """
+    subdomain := one of (Subdomain Object, packed subdomain = list<string>)
+    """
+    if isinstance(subdomain, Subdomain):
+        txt_data = subdomain.pack_subdomain()
+    elif isinsntance(subdomain, list):
+        txt_data = subdomain
+    else:
+        raise ParseError("Tried to extend zonefile with non-valid subdomain object")
+
     name = subdomain.name
 
     if "txt" not in zf_json:
@@ -313,13 +322,15 @@ def _extend_with_subdomain(zf_json, subdomain):
 
     zf_json["txt"].append(subdomain.as_zonefile_entry())
 
-def add_subdomain(subdomain, domain_fqa):
+def add_subdomains(subdomains, domain_fqa):
     """
-    subdomain => Subdomain object to add
+    subdomains => list Subdomain objects to add
     domain_fqa => fully qualified domain name to add the subdomain to.
                   - must be owned by the Core's wallet
                   - must not already have a subdomain associated with it
     """
+
+    assert isinstance(subdomains, list)
 
     # step 1: see if this resolves to an already defined subdomain
     subdomain_already = True
@@ -341,10 +352,10 @@ def add_subdomain(subdomain, domain_fqa):
         zf["txt"] = list([ x for x in zf["txt"]
                            if not is_subdomain_record(x)])
     # step 3: create a subdomain record
-
-    _extend_with_subdomain(zf, subdomain)
+    for subdomain in subdomains:
+        _extend_with_subdomain(zf, subdomain)
     # step 4: issue zonefile update
-    flatten_and_issue_zonefile(domain_fqa, zf)
+    return flatten_and_issue_zonefile(domain_fqa, zf)
 
 def is_subdomain_resolution_cached(domain_fqa):
     domains = config.get_subdomains_cached_for()
