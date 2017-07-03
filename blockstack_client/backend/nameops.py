@@ -30,7 +30,7 @@ import keylib
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 
-from .queue import in_queue, queue_append, queue_findone
+from .queue import in_queue, queue_append, queue_findone, extract_entry
 
 from .blockchain import get_tx_confirmations
 from .blockchain import get_utxos, get_tx_fee_per_byte
@@ -2102,6 +2102,11 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
         log.exception(e)
         return {'error': 'Failed to sign and broadcast preorder transaction'}
 
+    additionals = {}
+    if 'aggressive_registration' in name_data:
+        log.debug("Adding an *aggressive* preorder for {}".format(fqu))
+        additionals['aggressive_registration'] = name_data['aggressive_registration']
+        additionals['confirmations_needed'] = 4
     if 'transaction_hash' in resp:
         if not BLOCKSTACK_DRY_RUN:
             # watch this preorder, and register it when it gets queued
@@ -2112,7 +2117,7 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
                          zonefile_data=name_data.get('zonefile'),
                          profile=name_data.get('profile'),
                          config_path=config_path,
-                         path=queue_path)
+                         path=queue_path, **additionals)
     else:
         assert 'error' in resp
         log.error("Error preordering: %s with %s for %s" % (fqu, payment_address, owner_address))
@@ -2177,6 +2182,13 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
         log.exception(e)
         return {'error': 'Failed to sign and broadcast registration transaction'}
 
+    entry_data = extract_entry( preorder_entry[0] )
+    additionals = {}
+    if 'aggressive_registration' in entry_data:
+        log.debug("Adding an *aggressive* register for {}".format(fqu))
+        additionals['aggressive_registration'] = entry_data['aggressive_registration']
+        additionals['confirmations_needed'] = 1
+
     if 'transaction_hash' in resp:
         if not BLOCKSTACK_DRY_RUN:
             queue_append("register", fqu, resp['transaction_hash'],
@@ -2186,7 +2198,7 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
                          zonefile_data=name_data.get('zonefile'),
                          profile=name_data.get('profile'),
                          config_path=config_path,
-                         path=queue_path)
+                         path=queue_path, **additionals)
 
         return resp
 
@@ -2256,6 +2268,18 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
         log.exception(e)
         return {'error': 'Failed to sign and broadcast update transaction'}
 
+    register_entry = queue_findone( "register", fqu, path=queue_path )
+    if len(register_entry) == 0:
+        log.error("No register for '%s'" % fqu)
+        return {'error': 'No register found'}
+
+    entry_data = extract_entry( register_entry[0] )
+    additionals = {}
+    if 'aggressive_registration' in entry_data:
+        log.debug("Adding an *aggressive* update for {}".format(fqu))
+        additionals['aggressive_registration'] = entry_data['aggressive_registration']
+        additionals['confirmations_needed'] = 1
+
     if 'transaction_hash' in resp:
         if not BLOCKSTACK_DRY_RUN:
             queue_append("update", fqu, resp['transaction_hash'],
@@ -2265,7 +2289,7 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
                          owner_address=owner_address,
                          transfer_address=name_data.get('transfer_address'),
                          config_path=config_path,
-                         path=queue_path)
+                         path=queue_path, **additionals)
 
         resp['zonefile_hash'] = zonefile_hash
         return resp

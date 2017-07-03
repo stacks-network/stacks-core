@@ -613,6 +613,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'type': 'integer',
                     'minimum': 0,
                 },
+                'aggressive_registration': {
+                    'type': 'boolean'
+                }
             },
             'required': [
                 'name'
@@ -632,6 +635,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         recipient_address = request.get('owner_address', None)
         min_confs = request.get('min_confs', TX_MIN_CONFIRMATIONS)
         cost_satoshis = request.get('cost_satoshis', None)
+        aggressive_registration = request.get('aggressive_registration', False)
+
+        if aggressive_registration:
+            aggressive_registration = 'true'
+        else:
+            aggressive_registration = 'false'
 
         if min_confs < 0:
             min_confs = 0
@@ -670,7 +679,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             # register
             op = 'register'
             log.debug("register {}".format(name))
-            res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs, interactive=False, force_data=True, cost_satoshis=cost_satoshis)
+            res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs,
+                                        aggressive_registration, interactive=False, force_data=True,
+                                        cost_satoshis=cost_satoshis)
 
         if 'error' in res:
             log.error("Failed to {} {}".format(op, name))
@@ -3888,14 +3899,15 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_preorder(self, fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs):
+    def backend_preorder(self, fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs,
+                         aggressive_registration = False):
         """
         Queue up a name for registration.
         """
 
         if is_api_server(self.config_dir):
             # directly invoke the registrar
-            return backend.registrar.preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs, config_path=self.config_path)
+            return backend.registrar.preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs, config_path=self.config_path, aggressive_registration=aggressive_registration)
 
         else:
             res = self.check_version()

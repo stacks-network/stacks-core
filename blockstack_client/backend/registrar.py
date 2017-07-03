@@ -56,6 +56,7 @@ from ..storage import put_mutable_data, get_zonefile_data_hash
 from ..data import set_profile_timestamp
 
 from ..constants import CONFIG_PATH, DEFAULT_QUEUE_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, TX_MIN_CONFIRMATIONS
+from ..constants import PREORDER_CONFIRMATIONS
 from ..config import get_config
 from ..utils import url_to_host_port
 from ..logger import get_logger
@@ -1136,7 +1137,7 @@ def get_wallet(config_path=None, proxy=None):
 
 
 # RPC method: backend_preorder
-def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_payment_confs, proxy=None, config_path=CONFIG_PATH):
+def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_payment_confs, proxy=None, config_path=CONFIG_PATH, aggressive_registration = False):
     """
     Send preorder transaction and enter it in queue.
     Queue up additional state so we can update and transfer it as well.
@@ -1148,6 +1149,8 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
 
     state, config_path, proxy = get_registrar_state(config_path=config_path, proxy=proxy)
     data = {}
+    if aggressive_registration:
+        log.debug('Aggressive registration of {}'.format(fqu))
 
     if min_payment_confs is None:
         min_payment_confs = TX_MIN_CONFIRMATIONS
@@ -1174,7 +1177,11 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
         'zonefile': zonefile_data,
         'profile': profile,
     }
-    
+
+    if aggressive_registration:
+        name_data['confirmations_needed'] = PREORDER_CONFIRMATIONS
+        name_data['aggressive_registration'] = True
+
     log.debug("async_preorder({}, zonefile_data={}, profile={}, transfer_address={})".format(fqu, zonefile_data, profile, transfer_address)) 
     resp = async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost_satoshis,
                           name_data=name_data, min_payment_confs=min_payment_confs,

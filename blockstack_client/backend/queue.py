@@ -317,7 +317,9 @@ def in_queue( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
 def queue_append(queue_id, fqu, tx_hash, payment_address=None,
                  owner_address=None, transfer_address=None,
                  config_path=CONFIG_PATH, block_height=None,
-                 zonefile_data=None, profile=None, zonefile_hash=None, path=DEFAULT_QUEUE_PATH):
+                 zonefile_data=None, profile=None, zonefile_hash=None,
+                 aggressive_registration = None, confirmations_needed = None,
+                 path=DEFAULT_QUEUE_PATH):
 
     """
     Append a processing name operation to the named queue for the given name.
@@ -339,6 +341,11 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
     # optional, depending on queue
     new_entry['owner_address'] = owner_address
     new_entry['transfer_address'] = transfer_address
+
+    if aggressive_registration is not None:
+        new_entry['aggressive_registration'] = aggressive_registration
+    if confirmations_needed is not None:
+        new_entry['confirmations_needed'] = confirmations_needed
 
     if zonefile_data is not None:
         new_entry['zonefile_b64'] = base64.b64encode(zonefile_data)
@@ -380,7 +387,13 @@ def is_entry_accepted( entry, config_path=CONFIG_PATH ):
     Return True if so.
     Return False on error.
     """
-    return is_tx_accepted( entry['tx_hash'], config_path=config_path )
+    if 'confirmations_needed' in entry:
+        log.debug('Custom confirmations check on {} with {}'.format(
+            entry['tx_hash'], entry['confirmations_needed']))
+        return is_tx_accepted( entry['tx_hash'], num_needed = entry['confirmations_needed'],
+                               config_path=config_path )
+    else:
+        return is_tx_accepted( entry['tx_hash'], config_path=config_path )
 
 
 def is_preorder_expired( entry, config_path=CONFIG_PATH ):
@@ -446,7 +459,6 @@ def queue_findall( queue_id, limit=None, path=DEFAULT_QUEUE_PATH ):
     Load a single queue into RAM
     """
     return get_queue_state( queue_id, limit=limit, path=path )
-
 
 def queue_removeall( entries, path=DEFAULT_QUEUE_PATH ):
     """
