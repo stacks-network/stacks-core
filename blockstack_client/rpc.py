@@ -759,6 +759,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             'expire_block': name_rec['expire_block'],
         }
 
+        # make sure the address is in the right format
+        blockchain_network = os.environ.get("BLOCKSTACK_RPC_MOCK_BLOCKCHAIN_NETWORK", None)
+        ret['address'] = virtualchain.address_reencode(ret['address'], network=blockchain_network)
+
         self._reply_json(ret)
         return
 
@@ -795,6 +799,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': res['error']}, status_code=500)
             return
 
+        # re-encode addresses, if need be 
+        blockchain_network = os.environ.get("BLOCKSTACK_RPC_MOCK_BLOCKCHAIN_NETWORK", None)
+        for block_id in res.keys():
+            for state in res[block_id]:
+                for addr_key in ['address', 'recipient_address', 'importer_address']:
+                    if state.has_key(addr_key):
+                        state[addr_key] = virtualchain.address_reencode(state[addr_key], network=blockchain_network)
+            
         self._reply_json(res)
         return
 
