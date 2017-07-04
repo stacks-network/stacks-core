@@ -1352,6 +1352,8 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
 
         else:
             cost_satoshis = opchecks['name_price']
+    if transfer_address == '':
+        transfer_address = None
 
     if interactive and os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
         try:
