@@ -3931,6 +3931,9 @@ class BlockstackAPIEndpointClient(object):
             if cost_satoshis is not None:
                 data['cost_satoshis'] = cost_satoshis
 
+            if aggressive_registration:
+                data['aggressive_registration'] = True
+
             headers = self.make_request_headers()
             req = requests.post( 'http://{}:{}/v1/names'.format(self.server, self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)
             return self.get_response(req)
