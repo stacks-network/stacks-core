@@ -2308,7 +2308,8 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
                           config_path=config_path, proxy=proxy, force_update=force_update )
     except Exception, e:
         log.exception(e)
-        return {'error': 'Failed to sign and broadcast update transaction'}
+        return { 'error':
+                 'Failed to sign and broadcast update transaction. Exception: {}'.format(e) }
 
     if 'transaction_hash' in resp:
         if not BLOCKSTACK_DRY_RUN:

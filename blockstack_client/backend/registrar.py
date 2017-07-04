@@ -282,6 +282,8 @@ class RegistrarWorker(threading.Thread):
             log.debug("Register for '%s' (%s) is confirmed!" % (register['fqu'], register['tx_hash']))
             res = cls.set_zonefile( register, proxy=proxy, queue_path=queue_path, config_path=config_path )
             if 'error' in res:
+                queue_add_error_msg('register', register['fqu'], res['error'], path=queue_path)
+
                 log.error("Failed to make name profile for %s: %s" % (register['fqu'], res['error']))
                 ret = {'error': 'Failed to set up name profile'}
 
@@ -430,6 +432,8 @@ class RegistrarWorker(threading.Thread):
             # use it to remember what we've replicated, so we don't needlessly retry
             name_rec = get_name_blockchain_record( name_data['fqu'], proxy=proxy )
             if 'error' in name_rec:
+                if name_rec['error'] == 'Not found.':
+                    return {'error' : 'Name has not appeared on the resolver, cannot issue zonefile until it does.'}
                 return name_rec
 
             if BLOCKSTACK_TEST:
@@ -442,7 +446,6 @@ class RegistrarWorker(threading.Thread):
             res = zonefile_data_replicate( name_data['fqu'], zonefile_data, name_data['tx_hash'], atlas_servers, config_path=config_path, storage_drivers=storage_drivers )
             if 'error' in res:
                 log.error("Failed to replicate zonefile %s for %s: %s" % (zonefile_hash, name_data['fqu'], res['error']))
-                queue_add_error_msg('update', name_data['fqu'], res['error'], path=queue_path)
                 return res
 
             log.info("Replicated zonefile data for %s to %s server(s)" % (name_data['fqu'], len(res['servers'])))
@@ -524,6 +527,7 @@ class RegistrarWorker(threading.Thread):
             res = cls.replicate_name_data( update, atlas_servers, wallet_data, storage_drivers, config_path, proxy=proxy )
             if 'error' in res:
                 log.error("Failed to update %s: %s" % (update['fqu'], res['error']))
+                queue_add_error_msg('update', update['fqu'], res['error'], path=queue_path)
                 ret = {'error': 'Failed to finish an update'}
                 failed_names.append( update['fqu'] )
                 
