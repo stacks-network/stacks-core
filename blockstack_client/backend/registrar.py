@@ -189,10 +189,12 @@ class RegistrarWorker(threading.Thread):
                 if not in_queue("register", name_data['fqu'], path=queue_path):
                     # was preordered but not registered
                     # send the registration
-                    log.debug('Send async register for {}'.format(name_data['fqu']))
-                    log.debug("async_register({}, zonefile={}, profile={}, transfer_address={})".format(name_data['fqu'], name_data.get('zonefile'), name_data.get('profile'), name_data.get('transfer_address'))) 
-                    res = async_register( name_data['fqu'], payment_privkey_info, owner_privkey_info, name_data=name_data,
-                                          proxy=proxy, config_path=config_path, queue_path=queue_path )
+                    log.debug("async_register({}, zonefile={}, profile={}, transfer_address={})".format(
+                        name_data['fqu'], name_data.get('zonefile'), name_data.get('profile'), 
+                        name_data.get('transfer_address'))) 
+                    res = async_register( name_data['fqu'], payment_privkey_info, owner_privkey_info, 
+                                          name_data=name_data, proxy=proxy, config_path=config_path,
+                                          queue_path=queue_path )
                     return res
                 else:
                     # already queued 
@@ -1152,11 +1154,6 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
     if aggressive_registration:
         log.debug('Aggressive registration of {}'.format(fqu))
 
-    if min_payment_confs is None:
-        min_payment_confs = TX_MIN_CONFIRMATIONS
-    else:
-        log.warn("Using {} confirmations instead of the default {}".format(min_payment_confs, TX_MIN_CONFIRMATIONS))
-
     if state.payment_address is None or state.owner_address is None:
         log.debug("Wallet is not unlocked")
         data['success'] = False
@@ -1177,6 +1174,11 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
         'zonefile': zonefile_data,
         'profile': profile,
     }
+    if min_payment_confs is None:
+        min_payment_confs = TX_MIN_CONFIRMATIONS
+    else:
+        log.warn("Using {} confirmations instead of the default {}".format(min_payment_confs, TX_MIN_CONFIRMATIONS))
+        name_data['min_payment_confs'] = min_payment_confs # propogate this to later txns
 
     if aggressive_registration:
         name_data['confirmations_needed'] = PREORDER_CONFIRMATIONS

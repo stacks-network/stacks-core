@@ -2107,6 +2107,8 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
         log.debug("Adding an *aggressive* preorder for {}".format(fqu))
         additionals['aggressive_registration'] = name_data['aggressive_registration']
         additionals['confirmations_needed'] = 4
+    if 'min_payment_confs' in name_data:
+        additionals['min_payment_confs'] = name_data['min_payment_confs']
     if 'transaction_hash' in resp:
         if not BLOCKSTACK_DRY_RUN:
             # watch this preorder, and register it when it gets queued
@@ -2145,7 +2147,12 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    utxo_client = get_utxo_provider_client(config_path=config_path)
+    if 'min_payment_confs' in name_data:
+        utxo_client = get_utxo_provider_client( config_path=config_path,
+                                                min_confirmations=name_data['min_payment_confs'] )
+    else:
+        utxo_client = get_utxo_provider_client(config_path=config_path)
+
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
     owner_address = virtualchain.get_privkey_address( owner_privkey_info )
@@ -2182,12 +2189,14 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
         log.exception(e)
         return {'error': 'Failed to sign and broadcast registration transaction'}
 
-    entry_data = extract_entry( preorder_entry[0] )
+#    name_data = extract_entry( preorder_entry[0] )
     additionals = {}
-    if 'aggressive_registration' in entry_data:
+    if 'aggressive_registration' in name_data:
         log.debug("Adding an *aggressive* register for {}".format(fqu))
-        additionals['aggressive_registration'] = entry_data['aggressive_registration']
+        additionals['aggressive_registration'] = name_data['aggressive_registration']
         additionals['confirmations_needed'] = 1
+    if 'min_payment_confs' in name_data:
+        additionals['min_payment_confs'] = name_data['min_payment_confs']
 
     if 'transaction_hash' in resp:
         if not BLOCKSTACK_DRY_RUN:
@@ -2251,7 +2260,19 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    utxo_client = get_utxo_provider_client(config_path=config_path)
+    # Are we the result of a register? If so, use it to configure our transaction
+    register_entry = queue_findone( "register", fqu, path=queue_path )
+    if len(register_entry) == 0:
+        register_data = {}
+    else:
+        register_data = extract_entry( register_entry[0] )
+
+    if 'min_payment_confs' in register_data:
+        utxo_client = get_utxo_provider_client( config_path=config_path,
+                                                min_confirmations=register_data['min_payment_confs'] )
+    else:
+        utxo_client = get_utxo_provider_client(config_path=config_path)
+
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
 
     owner_address = virtualchain.get_privkey_address( owner_privkey_info )
@@ -2268,16 +2289,11 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
         log.exception(e)
         return {'error': 'Failed to sign and broadcast update transaction'}
 
-    register_entry = queue_findone( "register", fqu, path=queue_path )
-    if len(register_entry) == 0:
-        log.error("No register for '%s'" % fqu)
-        return {'error': 'No register found'}
-
-    entry_data = extract_entry( register_entry[0] )
+    # configure any additional information about the registrar entry.
     additionals = {}
-    if 'aggressive_registration' in entry_data:
+    if 'aggressive_registration' in register_data:
         log.debug("Adding an *aggressive* update for {}".format(fqu))
-        additionals['aggressive_registration'] = entry_data['aggressive_registration']
+        additionals['aggressive_registration'] = register_data['aggressive_registration']
         additionals['confirmations_needed'] = 1
 
     if 'transaction_hash' in resp:

@@ -319,7 +319,7 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
                  config_path=CONFIG_PATH, block_height=None,
                  zonefile_data=None, profile=None, zonefile_hash=None,
                  aggressive_registration = None, confirmations_needed = None,
-                 path=DEFAULT_QUEUE_PATH):
+                 min_payment_confs = None, path=DEFAULT_QUEUE_PATH):
 
     """
     Append a processing name operation to the named queue for the given name.
@@ -346,6 +346,8 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
         new_entry['aggressive_registration'] = aggressive_registration
     if confirmations_needed is not None:
         new_entry['confirmations_needed'] = confirmations_needed
+    if min_payment_confs is not None:
+        new_entry['min_payment_confs'] = min_payment_confs
 
     if zonefile_data is not None:
         new_entry['zonefile_b64'] = base64.b64encode(zonefile_data)
