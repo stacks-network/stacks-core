@@ -371,6 +371,7 @@ class RegistrarWorker(threading.Thread):
 
                 else:
                     log.error("Failed to register preordered name %s: %s" % (preorder['fqu'], res['error']))
+                    queue_add_error_msg('preorder', preorder['fqu'], res['error'], path=queue_path)
                     ret = {'error': 'Failed to preorder a name'} 
 
             else:
@@ -441,6 +442,7 @@ class RegistrarWorker(threading.Thread):
             res = zonefile_data_replicate( name_data['fqu'], zonefile_data, name_data['tx_hash'], atlas_servers, config_path=config_path, storage_drivers=storage_drivers )
             if 'error' in res:
                 log.error("Failed to replicate zonefile %s for %s: %s" % (zonefile_hash, name_data['fqu'], res['error']))
+                queue_add_error_msg('update', name_data['fqu'], res['error'], path=queue_path)
                 return res
 
             log.info("Replicated zonefile data for %s to %s server(s)" % (name_data['fqu'], len(res['servers'])))

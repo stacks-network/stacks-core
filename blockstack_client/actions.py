@@ -1295,6 +1295,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
         if not re.match(OP_BASE58CHECK_PATTERN, transfer_address):
             return {'error': 'Not a valid address'}
 
+    user_profile = None
     if user_zonefile:
         zonefile_info = analyze_zonefile_string(fqu, user_zonefile, force_data=force_data, proxy=proxy)
         if 'error' in zonefile_info:
@@ -1319,15 +1320,15 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
         user_zonefile_dict = make_empty_zonefile(fqu, data_pubkey)
         user_zonefile = blockstack_zones.make_zone_file(user_zonefile_dict)
 
-    # if we have a data key, then make an empty profile and zonefile 
-    user_profile = None
-    if not transfer_address:
-        # registering for this wallet.  Put an empty profile
-        _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
-        if not data_pubkey:
-            return {'error': 'No data key in wallet.  Please add one with `setup_wallet`'}
+        # only make an empty profile if user didn't give a zonefile.
+        # if we have a data key, then make the empty profile
+        if not transfer_address:
+            # registering for this wallet.  Put an empty profile
+            _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
+            if not data_pubkey:
+                return {'error': 'No data key in wallet.  Please add one with `setup_wallet`'}
 
-        user_profile = make_empty_user_profile()
+            user_profile = make_empty_user_profile()
 
     # operation checks (API server only)
     if local_rpc.is_api_server(config_dir=config_dir):
