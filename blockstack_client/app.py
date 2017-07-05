@@ -231,7 +231,7 @@ def app_get_config( blockchain_id, app_domain, data_pubkey=None, proxy=None, con
     proxy = get_default_proxy() if proxy is None else proxy
 
     # go get config
-    res = data.get_mutable( ".blockstack", [app_domain], data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, blockchain_id=blockchain_id )
+    res = data.get_mutable( ".blockstack", [app_domain], data_pubkeys=[data_pubkey], proxy=proxy, config_path=config_path, blockchain_id=blockchain_id )
     if 'error' in res:
         log.error("Failed to get application config file {}: {}".format(config_data_id, res['error']))
         return res
@@ -270,7 +270,7 @@ def app_get_resource( blockchain_id, app_domain, res_name, app_config=None, data
         driver_hints = app_config['driver_hints']
         urls = storage.get_driver_urls( res_data_id, storage.get_storage_handlers() )
 
-    res = data.get_mutable( res_name, [app_domain], data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, urls=urls, blockchain_id=blockchain_id )
+    res = data.get_mutable( res_name, [app_domain], data_pubkeys=[data_pubkey], proxy=proxy, config_path=config_path, urls=urls, blockchain_id=blockchain_id )
     if 'error' in res:
         log.error("Failed to get resource {}: {}".format(res_name, res['error']))
         return {'error': 'Failed to load resource'}
