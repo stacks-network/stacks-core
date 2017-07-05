@@ -2492,8 +2492,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': name_rec['error']}, status_code=status_code)
             return
 
-        pass
-
+        self._reply_json({'error' : 'Unimplemented'}, status_code = 405)
 
     def GET_blockchain_consensus( self, ses, path_info, blockchain_name ):
         """

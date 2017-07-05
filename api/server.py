@@ -27,15 +27,16 @@ import sys
 import os
 import requests
 import json
+from collections import OrderedDict
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, make_response
 from flask import render_template, send_from_directory
 
 from flask_https import RequireHTTPS
 from flask_crossdomain import crossdomain
 
 from .parameters import parameters_required
-from .utils import get_api_calls
+from .utils import get_api_calls, cache_control
 from .config import PUBLIC_NODE, PUBLIC_NODE_URL, BASE_API_URL
 from .config import SEARCH_NODE_URL, SEARCH_API_ENDPOINT_ENABLED
 
@@ -116,9 +117,11 @@ def search_people():
     return jsonify(data), 200
 
 @app.route('/<path:path>', methods=['GET'])
+@crossdomain(origin='*')
 def catch_all_get(path):
     API_URL = BASE_API_URL + '/' + path
-    return forwarded_get(API_URL)
+    params = dict(request.args)
+    return forwarded_get(API_URL, params = params)
 
 @app.route('/<path:path>', methods=['POST'])
 def catch_all_post(path):
@@ -132,16 +135,35 @@ def catch_all_post(path):
 
     return jsonify(resp.json()), 200
 
-
 @app.route('/')
+@cache_control(5*60)
 def index():
     current_dir = os.path.abspath(os.path.dirname(__file__))
-    api_calls = get_api_calls(current_dir + '/api_v1.md')
+    api_calls = [call for call in get_api_calls(current_dir + '/api_v1.md')
+                 if not ("private" in call and call["private"].lower().startswith("t"))]
     server_info = getinfo()
 
+    grouped = OrderedDict()
+    for call in api_calls:
+        if "grouping_note" in call:
+            log.debug(call["grouping_note"])
+        group = call["grouping"]
+        if "subgrouping" in call:
+            subgroup = call["subgrouping"]
+        else:
+            subgroup = None
+        if group not in grouped:
+            grouped[group] = OrderedDict()
+        if subgroup == "":
+            subgroup = None
+        if subgroup not in grouped[group]:
+            grouped[group][subgroup] = []
+        grouped[group][subgroup].append(call)
+
     return render_template('index.html', api_calls=api_calls,
-                                         server_info=server_info,
-                                         server_url=PUBLIC_NODE_URL)
+                           grouped_calls = grouped,
+                           server_info=server_info,
+                           server_url=PUBLIC_NODE_URL)
 
 
 @app.route('/favicon.ico')
