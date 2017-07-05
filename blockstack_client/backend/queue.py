@@ -318,7 +318,7 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
                  owner_address=None, transfer_address=None,
                  config_path=CONFIG_PATH, block_height=None,
                  zonefile_data=None, profile=None, zonefile_hash=None,
-                 aggressive_registration = None, confirmations_needed = None,
+                 unsafe_reg = None, confirmations_needed = None,
                  min_payment_confs = None, path=DEFAULT_QUEUE_PATH):
 
     """
@@ -342,8 +342,8 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
     new_entry['owner_address'] = owner_address
     new_entry['transfer_address'] = transfer_address
 
-    if aggressive_registration is not None:
-        new_entry['aggressive_registration'] = aggressive_registration
+    if unsafe_reg is not None:
+        new_entry['unsafe_reg'] = unsafe_reg
     if confirmations_needed is not None:
         new_entry['confirmations_needed'] = confirmations_needed
     if min_payment_confs is not None:

@@ -2112,9 +2112,9 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
         return {'error': 'Failed to sign and broadcast preorder transaction'}
 
     additionals = {}
-    if 'aggressive_registration' in name_data:
+    if 'unsafe_reg' in name_data:
         log.debug("Adding an *aggressive* preorder for {}".format(fqu))
-        additionals['aggressive_registration'] = name_data['aggressive_registration']
+        additionals['unsafe_reg'] = name_data['unsafe_reg']
         additionals['confirmations_needed'] = 4
     if 'min_payment_confs' in name_data:
         additionals['min_payment_confs'] = name_data['min_payment_confs']
@@ -2194,9 +2194,9 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
     # configure registrar with information from the preorder
     additionals = {}
     force_register = False
-    if 'aggressive_registration' in name_data:
+    if 'unsafe_reg' in name_data:
         log.debug("Adding an *aggressive* register for {}".format(fqu))
-        additionals['aggressive_registration'] = name_data['aggressive_registration']
+        additionals['unsafe_reg'] = name_data['unsafe_reg']
         additionals['confirmations_needed'] = 1
         force_register = True
     if 'min_payment_confs' in name_data:
@@ -2296,9 +2296,9 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
     additionals = {}
     force_update = True
 
-    if 'aggressive_registration' in register_data:
+    if 'unsafe_reg' in register_data:
         log.debug("Adding an *aggressive* update for {}".format(fqu))
-        additionals['aggressive_registration'] = register_data['aggressive_registration']
+        additionals['unsafe_reg'] = register_data['unsafe_reg']
         additionals['confirmations_needed'] = 1
         force_update = True
 

@@ -613,7 +613,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'type': 'integer',
                     'minimum': 0,
                 },
-                'aggressive_registration': {
+                'unsafe': {
                     'type': 'boolean'
                 }
             },
@@ -635,12 +635,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         recipient_address = request.get('owner_address', None)
         min_confs = request.get('min_confs', TX_MIN_CONFIRMATIONS)
         cost_satoshis = request.get('cost_satoshis', None)
-        aggressive_registration = request.get('aggressive_registration', False)
+        unsafe_reg = request.get('unsafe', False)
 
-        if aggressive_registration:
-            aggressive_registration = 'true'
+        if unsafe_reg:
+            unsafe_reg = 'true'
         else:
-            aggressive_registration = 'false'
+            unsafe_reg = 'false'
 
         if min_confs < 0:
             min_confs = 0
@@ -680,7 +680,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             op = 'register'
             log.debug("register {}".format(name))
             res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs,
-                                        aggressive_registration, interactive=False, force_data=True,
+                                        unsafe_reg, interactive=False, force_data=True,
                                         cost_satoshis=cost_satoshis)
 
         if 'error' in res:
@@ -3900,14 +3900,14 @@ class BlockstackAPIEndpointClient(object):
 
 
     def backend_preorder(self, fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs,
-                         aggressive_registration = False):
+                         unsafe_reg = False):
         """
         Queue up a name for registration.
         """
 
         if is_api_server(self.config_dir):
             # directly invoke the registrar
-            return backend.registrar.preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs, config_path=self.config_path, aggressive_registration=aggressive_registration)
+            return backend.registrar.preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs, config_path=self.config_path, unsafe_reg=unsafe_reg)
 
         else:
             res = self.check_version()
@@ -3931,8 +3931,8 @@ class BlockstackAPIEndpointClient(object):
             if cost_satoshis is not None:
                 data['cost_satoshis'] = cost_satoshis
 
-            if aggressive_registration:
-                data['aggressive_registration'] = True
+            if unsafe_reg:
+                data['unsafe'] = True
 
             headers = self.make_request_headers()
             req = requests.post( 'http://{}:{}/v1/names'.format(self.server, self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)

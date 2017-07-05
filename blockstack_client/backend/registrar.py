@@ -1145,7 +1145,7 @@ def get_wallet(config_path=None, proxy=None):
 
 
 # RPC method: backend_preorder
-def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_payment_confs, proxy=None, config_path=CONFIG_PATH, aggressive_registration = False):
+def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_payment_confs, proxy=None, config_path=CONFIG_PATH, unsafe_reg = False):
     """
     Send preorder transaction and enter it in queue.
     Queue up additional state so we can update and transfer it as well.
@@ -1157,7 +1157,7 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
 
     state, config_path, proxy = get_registrar_state(config_path=config_path, proxy=proxy)
     data = {}
-    if aggressive_registration:
+    if unsafe_reg:
         log.debug('Aggressive registration of {}'.format(fqu))
 
     if state.payment_address is None or state.owner_address is None:
@@ -1186,9 +1186,9 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
         log.warn("Using {} confirmations instead of the default {}".format(min_payment_confs, TX_MIN_CONFIRMATIONS))
         name_data['min_payment_confs'] = min_payment_confs # propogate this to later txns
 
-    if aggressive_registration:
+    if unsafe_reg:
         name_data['confirmations_needed'] = PREORDER_CONFIRMATIONS
-        name_data['aggressive_registration'] = True
+        name_data['unsafe_reg'] = True
 
     log.debug("async_preorder({}, zonefile_data={}, profile={}, transfer_address={})".format(fqu, zonefile_data, profile, transfer_address)) 
     resp = async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost_satoshis,

@@ -1249,7 +1249,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     opt: zonefile (str) 'The path to the zone file for this name'
     opt: recipient (str) 'The recipient address, if not this wallet'
     opt: min_confs (int) 'The minimum number of confirmations on the initial preorder'
-    opt: aggressive_registration (str) 'Should we aggressively register the name (ie, use low min confs)'
+    opt: unsafe_reg (str) 'Should we aggressively register the name (ie, use low min confs)'
     """
 
     # NOTE: if force_data == True, then the zonefile will be the zonefile text itself, not a path.
@@ -1274,12 +1274,12 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     user_zonefile = getattr(args, 'zonefile', None)
     transfer_address = getattr(args, 'recipient', None)
     min_payment_confs = getattr(args, 'min_confs', TX_MIN_CONFIRMATIONS)
-    aggressive_registration = getattr(args, 'aggressive_registration', 'False')
+    unsafe_reg = getattr(args, 'unsafe_reg', 'False')
 
-    if aggressive_registration.lower() in ('true', 't', 'yes', '1'):
-        aggressive_registration = True
+    if unsafe_reg.lower() in ('true', 't', 'yes', '1'):
+        unsafe_reg = True
     else:
-        aggressive_registration = False
+        unsafe_reg = False
 
     # name must be well-formed
     error = check_valid_name(fqu)
@@ -1410,7 +1410,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     try:
         resp = rpc.backend_preorder(fqu, cost_satoshis, user_zonefile, user_profile,
                                     transfer_address, min_payment_confs,
-                                    aggressive_registration = aggressive_registration)
+                                    unsafe_reg = unsafe_reg)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}

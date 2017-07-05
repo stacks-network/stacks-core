@@ -126,7 +126,7 @@ def scenario( wallets, **kw ):
 
     # register the name bar.test. autogenerate the rest 
     res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test',
-                                                                       'aggressive_registration' : True})
+                                                                       'unsafe' : True})
     if 'error' in res:
         res['test'] = 'Failed to register user'
         print json.dumps(res)
