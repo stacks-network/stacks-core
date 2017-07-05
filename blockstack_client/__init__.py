@@ -31,6 +31,7 @@ import user
 import snv
 import rpc
 import storage
+import token_file
 import backend
 import zonefile
 
@@ -50,7 +51,7 @@ from data import get_immutable, get_immutable_by_name, get_mutable, put_immutabl
 
 from data import set_data_pubkey
 from storage import get_announcement, put_announcement, verify_zonefile
-from profile import get_profile, put_profile, delete_profile
+from profile import get_profile
 
 from logger import get_logger
 from config import get_config, get_utxo_provider_client, get_tx_broadcaster, default_bitcoind_opts
