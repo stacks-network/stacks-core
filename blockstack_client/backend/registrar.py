@@ -52,7 +52,6 @@ from ..proxy import is_name_registered, is_zonefile_hash_current, get_default_pr
 from ..zonefile import zonefile_data_replicate
 from ..user import is_user_zonefile
 from ..storage import put_mutable_data, get_zonefile_data_hash
-from ..data import set_profile_timestamp
 
 from ..constants import CONFIG_PATH, DEFAULT_QUEUE_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, TX_MIN_CONFIRMATIONS
 from ..config import get_config
@@ -444,6 +443,10 @@ class RegistrarWorker(threading.Thread):
 
         # replicate profile to storage, if given
         # use the data keypair
+        # XXX TODO FIXME: create a token file, not a profile!
+        # * remove set_profile_timestamp()
+        # * use token_file_create()
+        # * sign with name owner keys
         if name_data.has_key('profile') and name_data['profile'] is not None:
             # only works this is actually a zonefile, since we need to use
             # the zonefile to find the appropriate data private key.
