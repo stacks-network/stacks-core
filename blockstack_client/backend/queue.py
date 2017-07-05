@@ -39,6 +39,13 @@ CREATE TABLE entries( fqu STRING NOT NULL,
                       PRIMARY KEY(fqu,queue_id) );
 """
 
+ERROR_SQL = """
+CREATE TABLE entry_errs( fqu STRING NOT NULL,
+                         queue_id STRING NOT NULL,
+                         errormsg STRING NOT NULL,
+                         PRIMARY KEY(fqu,queue_id,errormsg));
+"""
+
 from ..config import MAX_TX_CONFIRMATIONS
 from ..logger import get_logger
 
@@ -50,12 +57,13 @@ def queuedb_create( path ):
     Create all the tables and indexes we need.
     """
 
-    global QUEUE_SQL
+    global QUEUE_SQL, ERROR_SQL
 
     if os.path.exists( path ):
         raise Exception("Database '%s' already exists" % path)
 
     lines = [l + ";" for l in QUEUE_SQL.split(";")]
+    lines += [l + ";" for l in ERROR_SQL.split(";")]
     con = sqlite3.connect( path, isolation_level=None )
 
     for line in lines:
@@ -64,6 +72,17 @@ def queuedb_create( path ):
     con.row_factory = queuedb_row_factory
     return con
 
+def conditionally_create_err_table( sql_conn ):
+    """
+    Creates a table for storing registrar errors,
+    if that table doesn't already exist.
+    """
+    global ERROR_SQL
+    creation_sql = ERROR_SQL.replace("CREATE TABLE",
+                                     "CREATE TABLE IF NOT EXISTS")
+    lines = [l + ";" for l in creation_sql.split(";")]
+    assert len(lines) == 2
+    sql_conn.execute(lines[0])
 
 def queuedb_open( path ):
     """
@@ -73,6 +92,7 @@ def queuedb_open( path ):
         con = queuedb_create( path )
     else:
         con = sqlite3.connect( path, isolation_level=None )
+        conditionally_create_err_table( con )
         con.row_factory = queuedb_row_factory
     return con
 
@@ -159,6 +179,55 @@ def queuedb_find( queue_id, fqu, limit=None, path=DEFAULT_QUEUE_PATH ):
     db.close()
     return ret
 
+def queue_add_error_msg( queue_id, fqu, error_msg, path=DEFAULT_QUEUE_PATH ):
+    """
+    Add an error message for an entry
+    """
+    sql = """INSERT or REPLACE INTO entry_errs (fqu, queue_id, errormsg)
+             VALUES (?, ?, ?);"""
+    args = (fqu, queue_id, error_msg)
+    db = queuedb_open(path)
+    if db is None:
+        raise Exception("Failed to open %s" % path)
+
+    cur = db.cursor()
+    rows = queuedb_query_execute( cur, sql, args )
+    db.commit()
+    db.close()
+
+def queue_clear_error_msg( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
+    """
+    Remove all error messages for an entry
+    """
+    sql = "DELETE FROM entry_errs WHERE fqu = ? AND queue_id = ?;"
+    args = (fqu, queue_id)
+    db = queuedb_open(path)
+    if db is None:
+        raise Exception("Failed to open %s" % path)
+
+    cur = db.cursor()
+    rows = queuedb_query_execute( cur, sql, args )
+    db.commit()
+    db.close()
+
+def queue_get_error_msgs( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
+    """
+    Return any error messages associate with an entry
+    """
+    sql = "SELECT errormsg FROM entry_errs WHERE fqu = ? AND queue_id = ?;"
+    args = (fqu, queue_id)
+    db = queuedb_open(path)
+    if db is None:
+        raise Exception("Failed to open %s" % path)
+
+    cur = db.cursor()
+    rows = queuedb_query_execute( cur, sql, args )
+
+    ret = [ r['errormsg'] for r in rows ]
+    db.commit()
+    db.close()
+
+    return ret
 
 def queuedb_findall( queue_id, limit=None, path=DEFAULT_QUEUE_PATH ):
     """
@@ -248,7 +317,9 @@ def in_queue( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
 def queue_append(queue_id, fqu, tx_hash, payment_address=None,
                  owner_address=None, transfer_address=None,
                  config_path=CONFIG_PATH, block_height=None,
-                 zonefile_data=None, profile=None, zonefile_hash=None, path=DEFAULT_QUEUE_PATH):
+                 zonefile_data=None, profile=None, zonefile_hash=None,
+                 unsafe_reg = None, confirmations_needed = None,
+                 min_payment_confs = None, path=DEFAULT_QUEUE_PATH):
 
     """
     Append a processing name operation to the named queue for the given name.
@@ -270,6 +341,13 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
     # optional, depending on queue
     new_entry['owner_address'] = owner_address
     new_entry['transfer_address'] = transfer_address
+
+    if unsafe_reg is not None:
+        new_entry['unsafe_reg'] = unsafe_reg
+    if confirmations_needed is not None:
+        new_entry['confirmations_needed'] = confirmations_needed
+    if min_payment_confs is not None:
+        new_entry['min_payment_confs'] = min_payment_confs
 
     if zonefile_data is not None:
         new_entry['zonefile_b64'] = base64.b64encode(zonefile_data)
@@ -311,7 +389,13 @@ def is_entry_accepted( entry, config_path=CONFIG_PATH ):
     Return True if so.
     Return False on error.
     """
-    return is_tx_accepted( entry['tx_hash'], config_path=config_path )
+    if 'confirmations_needed' in entry:
+        log.debug('Custom confirmations check on {} with {}'.format(
+            entry['tx_hash'], entry['confirmations_needed']))
+        return is_tx_accepted( entry['tx_hash'], num_needed = entry['confirmations_needed'],
+                               config_path=config_path )
+    else:
+        return is_tx_accepted( entry['tx_hash'], config_path=config_path )
 
 
 def is_preorder_expired( entry, config_path=CONFIG_PATH ):
@@ -365,6 +449,10 @@ def get_queue_state(queue_ids=None, limit=None, path=DEFAULT_QUEUE_PATH):
         rows = [extract_entry(r) for r in raw_rows]
         state += rows
 
+    for row in state:
+        errors = queue_get_error_msgs(row['type'], row['fqu'], path=path)
+        if len(errors) > 0:
+            row['errors'] = errors
     return state
 
 
@@ -374,7 +462,6 @@ def queue_findall( queue_id, limit=None, path=DEFAULT_QUEUE_PATH ):
     """
     return get_queue_state( queue_id, limit=limit, path=path )
 
-
 def queue_removeall( entries, path=DEFAULT_QUEUE_PATH ):
     """
     Remove all given entries form their given queues
@@ -383,6 +470,8 @@ def queue_removeall( entries, path=DEFAULT_QUEUE_PATH ):
         rc = queuedb_remove( entry['type'], entry['fqu'], entry['tx_hash'], path=path )
         if not rc:
             raise Exception("Failed to remove %s.%s.%s" % (entry['type'], entry['fqu'], entry['tx_hash']))
+        # also clear out information about errors
+        queue_clear_error_msg( entry['type'], entry['fqu'], path=path )
 
     return True
 

@@ -9,7 +9,6 @@ dependencies:
           PYSCRYPT_NO_LINK_FLAGS: "1"
           LDFLAGS: /usr/local/opt/openssl/lib/libcrypto.a /usr/local/opt/openssl/lib/libssl.a 
           CPPFLAGS: -I/usr/local/opt/openssl/include
-    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/blockstack/virtualchain.git@rc-0.14.2
 compile:
   post:
     - ../virtualenvs/venv-system/bin/pip install -r api/requirements.txt
@@ -27,7 +26,7 @@ test:
     - blockstack api stop -y
 deployment:
   tarball_venv:
-    branch: [rc-0.14.2, master, osx-single-file-build]
+    branch: [rc-0.14.2, master, osx-single-file-build, rc-0.14.3]
     commands:
       - cp -r ../virtualenvs/venv-system ./venv-copy
       - virtualenv --relocatable ../virtualenvs/venv-system

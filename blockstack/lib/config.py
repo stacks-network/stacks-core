@@ -447,6 +447,9 @@ NUM_CONFIRMATIONS = 6                         # number of blocks to wait for bef
 if os.environ.get("BLOCKSTACK_TEST", None) == "1":
     NUM_CONFIRMATIONS = 0
     log.warning("NUM_CONFIRMATIONS = %s" % NUM_CONFIRMATIONS)
+if os.environ.get("BLOCKSTACK_CORE_NUM_CONFS", None) is not None:
+    NUM_CONFIRMATIONS = int(os.environ["BLOCKSTACK_CORE_NUM_CONFS"])
+    log.warning("NUM_CONFIRMATIONS = %s" % NUM_CONFIRMATIONS)
 
 # burn address for fees (the address of public key 0x0000000000000000000000000000000000000000)
 BLOCKSTACK_BURN_PUBKEY_HASH = "0000000000000000000000000000000000000000"

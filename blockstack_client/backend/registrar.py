@@ -44,6 +44,7 @@ import virtualchain
 
 from .queue import get_queue_state, in_queue, cleanup_preorder_queue, queue_removeall
 from .queue import queue_find_accepted
+from .queue import queue_add_error_msg
 
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
 
@@ -55,6 +56,7 @@ from ..storage import put_mutable_data, get_zonefile_data_hash
 from ..data import set_profile_timestamp
 
 from ..constants import CONFIG_PATH, DEFAULT_QUEUE_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, TX_MIN_CONFIRMATIONS
+from ..constants import PREORDER_CONFIRMATIONS
 from ..config import get_config
 from ..utils import url_to_host_port
 from ..logger import get_logger
@@ -187,10 +189,12 @@ class RegistrarWorker(threading.Thread):
                 if not in_queue("register", name_data['fqu'], path=queue_path):
                     # was preordered but not registered
                     # send the registration
-                    log.debug('Send async register for {}'.format(name_data['fqu']))
-                    log.debug("async_register({}, zonefile={}, profile={}, transfer_address={})".format(name_data['fqu'], name_data.get('zonefile'), name_data.get('profile'), name_data.get('transfer_address'))) 
-                    res = async_register( name_data['fqu'], payment_privkey_info, owner_privkey_info, name_data=name_data,
-                                          proxy=proxy, config_path=config_path, queue_path=queue_path )
+                    log.debug("async_register({}, zonefile={}, profile={}, transfer_address={})".format(
+                        name_data['fqu'], name_data.get('zonefile'), name_data.get('profile'), 
+                        name_data.get('transfer_address'))) 
+                    res = async_register( name_data['fqu'], payment_privkey_info, owner_privkey_info, 
+                                          name_data=name_data, proxy=proxy, config_path=config_path,
+                                          queue_path=queue_path )
                     return res
                 else:
                     # already queued 
@@ -278,6 +282,8 @@ class RegistrarWorker(threading.Thread):
             log.debug("Register for '%s' (%s) is confirmed!" % (register['fqu'], register['tx_hash']))
             res = cls.set_zonefile( register, proxy=proxy, queue_path=queue_path, config_path=config_path )
             if 'error' in res:
+                queue_add_error_msg('register', register['fqu'], res['error'], path=queue_path)
+
                 log.error("Failed to make name profile for %s: %s" % (register['fqu'], res['error']))
                 ret = {'error': 'Failed to set up name profile'}
 
@@ -367,6 +373,7 @@ class RegistrarWorker(threading.Thread):
 
                 else:
                     log.error("Failed to register preordered name %s: %s" % (preorder['fqu'], res['error']))
+                    queue_add_error_msg('preorder', preorder['fqu'], res['error'], path=queue_path)
                     ret = {'error': 'Failed to preorder a name'} 
 
             else:
@@ -425,6 +432,8 @@ class RegistrarWorker(threading.Thread):
             # use it to remember what we've replicated, so we don't needlessly retry
             name_rec = get_name_blockchain_record( name_data['fqu'], proxy=proxy )
             if 'error' in name_rec:
+                if name_rec['error'] == 'Not found.':
+                    return {'error' : 'Name has not appeared on the resolver, cannot issue zonefile until it does.'}
                 return name_rec
 
             if BLOCKSTACK_TEST:
@@ -518,6 +527,7 @@ class RegistrarWorker(threading.Thread):
             res = cls.replicate_name_data( update, atlas_servers, wallet_data, storage_drivers, config_path, proxy=proxy )
             if 'error' in res:
                 log.error("Failed to update %s: %s" % (update['fqu'], res['error']))
+                queue_add_error_msg('update', update['fqu'], res['error'], path=queue_path)
                 ret = {'error': 'Failed to finish an update'}
                 failed_names.append( update['fqu'] )
                 
@@ -587,11 +597,19 @@ class RegistrarWorker(threading.Thread):
                 continue
 
             if update.get("transfer_address") is not None:
-                log.debug("Transfer {} to {}".format(update['fqu'], update['transfer_address']))
+                # let's see if the name already got there!
+                name_rec = get_name_blockchain_record( update['fqu'], proxy=proxy )
+                if 'address' in name_rec and name_rec['address'] == update['transfer_address']:
+                    log.debug("Requested Transfer {} to {} is owned by {} already. Declaring victory.".format(
+                        update['fqu'], update['transfer_address'], name_rec['address']))
+                    res = { 'success' : True }
+                else:
+                    log.debug("Transfer {} to {}".format(update['fqu'], update['transfer_address']))
 
-                res = transfer( update['fqu'], update['transfer_address'], config_path=config_path, proxy=proxy )
+                    res = transfer( update['fqu'], update['transfer_address'], config_path=config_path, proxy=proxy )
+
                 assert 'success' in res
-                
+
                 if res['success']:
                     # clear from update queue
                     log.debug("Clearing successful transfer of {} to {} from update queue".format(update['fqu'], update['transfer_address']))
@@ -600,6 +618,7 @@ class RegistrarWorker(threading.Thread):
                 else:
                     # will try again 
                     log.error("Failed to transfer {} to {}: {}".format(update['fqu'], update['transfer_address'], res.get('error')))
+                    queue_add_error_msg('update', update['fqu'], res.get('error'), path=queue_path)
                     ret = {'error': 'Not all names transferred'}
                     failed.append(update['fqu'])
 
@@ -1126,7 +1145,7 @@ def get_wallet(config_path=None, proxy=None):
 
 
 # RPC method: backend_preorder
-def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_payment_confs, proxy=None, config_path=CONFIG_PATH):
+def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_payment_confs, proxy=None, config_path=CONFIG_PATH, unsafe_reg = False):
     """
     Send preorder transaction and enter it in queue.
     Queue up additional state so we can update and transfer it as well.
@@ -1138,11 +1157,8 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
 
     state, config_path, proxy = get_registrar_state(config_path=config_path, proxy=proxy)
     data = {}
-
-    if min_payment_confs is None:
-        min_payment_confs = TX_MIN_CONFIRMATIONS
-    else:
-        log.warn("Using {} confirmations instead of the default {}".format(min_payment_confs, TX_MIN_CONFIRMATIONS))
+    if unsafe_reg:
+        log.debug('Aggressive registration of {}'.format(fqu))
 
     if state.payment_address is None or state.owner_address is None:
         log.debug("Wallet is not unlocked")
@@ -1164,7 +1180,16 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
         'zonefile': zonefile_data,
         'profile': profile,
     }
-    
+    if min_payment_confs is None:
+        min_payment_confs = TX_MIN_CONFIRMATIONS
+    else:
+        log.warn("Using {} confirmations instead of the default {}".format(min_payment_confs, TX_MIN_CONFIRMATIONS))
+        name_data['min_payment_confs'] = min_payment_confs # propogate this to later txns
+
+    if unsafe_reg:
+        name_data['confirmations_needed'] = PREORDER_CONFIRMATIONS
+        name_data['unsafe_reg'] = True
+
     log.debug("async_preorder({}, zonefile_data={}, profile={}, transfer_address={})".format(fqu, zonefile_data, profile, transfer_address)) 
     resp = async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost_satoshis,
                           name_data=name_data, min_payment_confs=min_payment_confs,

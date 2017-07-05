@@ -619,6 +619,25 @@ def blockstack_cli_namespace_ready( namespace_id, reveal_privkey, config_path=No
 
     return resp
 
+def blockstack_cli_withdraw( password, address, amount = None, config_path = None):
+    """
+    Register a name, using the backend RPC endpoint
+    """
+    test_proxy = make_proxy(password=password, config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    args.address = address
+    args.amount = amount
+
+    resp = cli_withdraw(args, config_path = config_path, password = password, interactive = False)
+
+    if 'error' not in resp:
+        assert 'transaction_hash' in resp
+
+    return resp
+
 
 def blockstack_cli_register( name, password, recipient_address=None, zonefile=None, config_path=None):
     """
@@ -2901,6 +2920,10 @@ def check_atlas_zonefiles( state_engine, atlasdb_path ):
         if name in snv_fail_at.get(block_id, []):
             continue
 
+        if "value_hash" not in api_call.result:
+            log.warn("Api call {} on name {} in block {} has no value_hash, skipping atlas check.".format(
+                api_call.method, name, block_id))
+            continue
         value_hash = api_call.result['value_hash']
 
         log.debug("Verify Atlas zonefile hash %s for %s in '%s' at %s" % (value_hash, name, api_call.method, block_id))
@@ -3515,6 +3538,7 @@ def nodejs_setup():
     tmpdir = tempfile.mkdtemp()
     atexit.register(nodejs_cleanup, tmpdir)
     
+    os.system("cd '{}' && npm install babel-cli babel-preset-es2015".format(tmpdir))
     print "Node install at {}".format(tmpdir)
     return tmpdir
 
@@ -3549,7 +3573,7 @@ def nodejs_run_test( testdir, test_name="core-test" ):
     """
     Run a nodejs test
     """
-    rc = os.system('cd "{}" && npm run {} 2>&1 | tee /dev/stderr | egrep "^npm ERR"'.format(testdir, test_name))
+    rc = os.system('cd "{}" && npm install && npm run {} 2>&1 | tee /dev/stderr | egrep "^npm ERR"'.format(testdir, test_name))
     if rc == 0:
         raise Exception("Test {} failed".format(test_name))
 
