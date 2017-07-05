@@ -76,7 +76,7 @@ def get_profile(name, **kw):
         legacy = True
     
     else:
-        profile = token_file['profile']
+        profile = res['profile']
     
     raw_zonefile = res.get('raw_zonefile')
     name_record = res.get('name_record')
@@ -112,6 +112,7 @@ def _get_person_profile(name, proxy=None):
     if res['legacy']:
         return {'error': 'Failed to load profile: legacy format'}
 
+    token_file = res.pop('token_file')
     profile = res.pop('profile')
     person = None
     try:
@@ -120,10 +121,10 @@ def _get_person_profile(name, proxy=None):
         log.exception(e)
         return {'error': 'Failed to parse profile data into a Person record'}
     
-    return {'profile': profile, 'zonefile': zonefile, 'person': person}
+    return {'profile': profile, 'person': person, 'token_file': token_file}
 
 
-def _save_person_profile(name, profile, signing_private_key, blockchain_id=None, proxy=None, config_path=CONFIG_PATH):
+def _save_person_profile(name, cur_token_file, profile, signing_private_key, blockchain_id=None, proxy=None, config_path=CONFIG_PATH):
     """
     Save a person's profile, given information fetched with _get_person_profile.
     Return {'status': True} on success
@@ -132,11 +133,11 @@ def _save_person_profile(name, profile, signing_private_key, blockchain_id=None,
 
     conf = get_config(config_path)
     assert conf
-
+    
     required_storage_drivers = conf.get('storage_drivers_required_write', BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE)
     required_storage_drivers = required_storage_drivers.split()
 
-    res = token_file_update_profile(name, profile, signing_private_key)
+    res = token_file_update_profile(cur_token_file, profile, signing_private_key)
     if 'error' in res:
         return res
 
@@ -158,15 +159,16 @@ def profile_list_accounts(name, proxy=None):
     name_info = _get_person_profile(name, proxy=proxy)
     if 'error' in name_info:
         return name_info
-
+    
     profile = name_info.pop('profile')
     person = name_info.pop('person')
 
-    accounts = []
+    person_accounts = []
     if hasattr(person, 'account'):
-        accounts = person.account
-
-    for acct in accounts:
+        person_accounts = person.account
+    
+    accounts = [] 
+    for acct in person_accounts:
         try:
             jsonschema.validate(acct, PROFILE_ACCOUNT_SCHEMA)
             accounts.append(acct)
@@ -270,12 +272,16 @@ def profile_put_account(blockchain_id, service, identifier, content_url, extra_d
     person_info = _get_person_profile(blockchain_id, proxy=proxy)
     if 'error' in person_info:
         return person_info
+    
+    token_file = person_info['token_file']
+    if token_file is None:
+        return {'error': 'Name points to raw, legacy profile. Please use the `migrate` command to migrate to the latest profile data format'}
 
     profile = person_info.pop('profile')
     profile = profile_patch_account(profile, service, identifier, content_url, extra_data)
 
     # save
-    result = _save_person_profile(blockchain_id, profile, signing_private_key, blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
+    result = _save_person_profile(blockchain_id, token_file, profile, signing_private_key, blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
     if 'error' in result:
         return result
 
@@ -297,6 +303,10 @@ def profile_delete_account(blockchain_id, service, identifier, signing_private_k
     if not profile.has_key('account'):
         # nothing to do
         return {'error': 'No such account'}
+ 
+    token_file = person_info['token_file']
+    if token_file is None:
+        return {'error': 'Name points to raw, legacy profile. Please use the `migrate` command to migrate to the latest profile data format'}
 
     found = False
     for i in xrange(0, len(profile['account'])):
@@ -315,38 +325,10 @@ def profile_delete_account(blockchain_id, service, identifier, signing_private_k
     if not found:
         return {'error': 'No such account'}
 
-    result = _save_person_profile(blockchain_id, profile, signing_private_key, blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
+    result = _save_person_profile(blockchain_id, token_file, profile, signing_private_key, blockchain_id=blockchain_id, proxy=proxy, config_path=config_path)
     if 'error' in result:
         return result
 
     return {'status': True}
-
-
-def profile_list_device_ids( blockchain_id, proxy=None ):
-    """
-    Given a blockchain ID, identify the set of device IDs for it.
-
-    Returns {'status': True, 'device_ids': ...} on success
-    Returns {'error': ...} on error
-    """
-    raise NotImplemented("Token file logic is not implemented yet")
-
-
-def profile_add_device_id( blockchain_id, device_id, wallet_keys, config_path=CONFIG_PATH, proxy=None):
-    """
-    Add a device ID to a profile
-    Return {'status': True} on success
-    Return {'error': ...} on error
-    """
-    raise NotImplemented("Token file logic is not implemented yet")
-    
-
-def profile_remove_device_id( blockchain_id, device_id, wallet_keys, config_path=CONFIG_PATH, proxy=None):
-    """
-    Remove a device ID from a profile
-    Return {'status': True} on success
-    Return {'error': ...} on error
-    """
-    raise NotImplemented("Token file logic is not implemented yet")
 
 
