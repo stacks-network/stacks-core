@@ -30,7 +30,7 @@ import keylib
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 
-from .queue import in_queue, queue_append, queue_findone
+from .queue import in_queue, queue_append, queue_findone, extract_entry
 
 from .blockchain import get_tx_confirmations
 from .blockchain import get_utxos, get_tx_fee_per_byte
@@ -1280,14 +1280,16 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     return resp
 
 
-def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster, tx_fee=None, config_path=CONFIG_PATH,
-                 proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
+def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster, tx_fee=None, 
+                 config_path=CONFIG_PATH, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True,
+                 force_register = False ):
 
     """
     Register a name
 
     payment_privkey_info or payment_address is required.
     utxo_client or payment_utxos is required.
+    force_register still performs SOME safety checks (payment)
 
     Return {'status': True, 'transaction_hash': ...} on success
     Return {'status': True, 'tx': ...} if no private key is given, or dry_run is True.
@@ -1314,9 +1316,12 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
 
     if not dry_run and (safety_checks or tx_fee is None):
         # find tx fee, and do sanity checks
-        res = check_register(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
+        res = check_register(fqu, owner_privkey_info, payment_privkey_info, 
+                             config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations,
+                             force_it = force_register)
         if 'error' in res and safety_checks:
             log.error("Failed to check register: {}".format(res['error']))
+            
             return res
 
         tx_fee = res['tx_fee']
@@ -1355,13 +1360,15 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
     return resp
 
 
-def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, tx_fee_per_byte=None,
-               config_path=CONFIG_PATH, proxy=None, consensus_hash=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
+def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster,
+               tx_fee_per_byte=None, config_path=CONFIG_PATH, proxy=None, consensus_hash=None,
+               dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True, force_update = False ):
     """
     Put a new zonefile hash for a name.
 
     utxo_client must be given, or UTXO lists for both owner and payment private keys must be given.
     If private key(s) are missing, then dry_run must be True.
+    force_update skips only some safety checks (but still checks payment)
 
     Return {'status': True, 'transaction_hash': ..., 'value_hash': ...} on success (if dry_run is False)
     return {'status': True, 'tx': ..., 'value_hash': ...} on success (if dry_run is True)
@@ -1387,7 +1394,9 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
 
     if not dry_run and (safety_checks or tx_fee_per_byte is None):
         # find tx fee, and do sanity checks
-        res = check_update(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
+        res = check_update(fqu, owner_privkey_info, payment_privkey_info, 
+                           config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations,
+                           force_it = force_update)
         if 'error' in res and safety_checks:
             log.error("Failed to check update: {}".format(res['error']))
             return res
@@ -2099,6 +2108,13 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
         log.exception(e)
         return {'error': 'Failed to sign and broadcast preorder transaction'}
 
+    additionals = {}
+    if 'unsafe_reg' in name_data:
+        log.debug("Adding an *aggressive* preorder for {}".format(fqu))
+        additionals['unsafe_reg'] = name_data['unsafe_reg']
+        additionals['confirmations_needed'] = 4
+    if 'min_payment_confs' in name_data:
+        additionals['min_payment_confs'] = name_data['min_payment_confs']
     if 'transaction_hash' in resp:
         if not BLOCKSTACK_DRY_RUN:
             # watch this preorder, and register it when it gets queued
@@ -2109,7 +2125,7 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
                          zonefile_data=name_data.get('zonefile'),
                          token_file=name_data.get('token_file'),
                          config_path=config_path,
-                         path=queue_path)
+                         path=queue_path, **additionals)
     else:
         assert 'error' in resp
         log.error("Error preordering: %s with %s for %s" % (fqu, payment_address, owner_address))
@@ -2137,7 +2153,12 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    utxo_client = get_utxo_provider_client(config_path=config_path)
+    if 'min_payment_confs' in name_data:
+        utxo_client = get_utxo_provider_client( config_path=config_path,
+                                                min_confirmations=name_data['min_payment_confs'] )
+    else:
+        utxo_client = get_utxo_provider_client(config_path=config_path)
+
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
     owner_address = virtualchain.get_privkey_address( owner_privkey_info )
@@ -2167,9 +2188,20 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
 
         return {'error': 'Waiting on preorder confirmations'}
 
+    # configure registrar with information from the preorder
+    additionals = {}
+    force_register = False
+    if 'unsafe_reg' in name_data:
+        log.debug("Adding an *aggressive* register for {}".format(fqu))
+        additionals['unsafe_reg'] = name_data['unsafe_reg']
+        additionals['confirmations_needed'] = 1
+        force_register = True
+    if 'min_payment_confs' in name_data:
+        additionals['min_payment_confs'] = name_data['min_payment_confs']
+
     try:
         resp = do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster,
-                            config_path=config_path, proxy=proxy )
+                            config_path=config_path, proxy=proxy, force_register = force_register )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast registration transaction'}
@@ -2183,7 +2215,7 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
                          zonefile_data=name_data.get('zonefile'),
                          token_file=name_data.get('token_file'),
                          config_path=config_path,
-                         path=queue_path)
+                         path=queue_path, **additionals)
 
         return resp
 
@@ -2236,7 +2268,19 @@ def async_update(fqu, zonefile_data, token_file, owner_privkey_info, payment_pri
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    utxo_client = get_utxo_provider_client(config_path=config_path)
+    # Are we the result of a register? If so, use it to configure our transaction
+    register_entry = queue_findone( "register", fqu, path=queue_path )
+    if len(register_entry) == 0:
+        register_data = {}
+    else:
+        register_data = extract_entry( register_entry[0] )
+
+    if 'min_payment_confs' in register_data:
+        utxo_client = get_utxo_provider_client( config_path=config_path,
+                                                min_confirmations=register_data['min_payment_confs'] )
+    else:
+        utxo_client = get_utxo_provider_client(config_path=config_path)
+
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
 
     owner_address = virtualchain.get_privkey_address( owner_privkey_info )
@@ -2245,13 +2289,24 @@ def async_update(fqu, zonefile_data, token_file, owner_privkey_info, payment_pri
         log.error("Already in update queue: %s" % fqu)
         return {'error': 'Already in update queue'}
 
+    # configure any additional information about the registrar entry.
+    additionals = {}
+    force_update = True
+
+    if 'unsafe_reg' in register_data:
+        log.debug("Adding an *aggressive* update for {}".format(fqu))
+        additionals['unsafe_reg'] = register_data['unsafe_reg']
+        additionals['confirmations_needed'] = 1
+        force_update = True
+
     resp = {}
     try:
         resp = do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster,
-                          config_path=config_path, proxy=proxy )
+                          config_path=config_path, proxy=proxy, force_update=force_update )
     except Exception, e:
         log.exception(e)
-        return {'error': 'Failed to sign and broadcast update transaction'}
+        return { 'error':
+                 'Failed to sign and broadcast update transaction. Exception: {}'.format(e) }
 
     if 'transaction_hash' in resp:
         if not BLOCKSTACK_DRY_RUN:
@@ -2262,7 +2317,7 @@ def async_update(fqu, zonefile_data, token_file, owner_privkey_info, payment_pri
                          owner_address=owner_address,
                          transfer_address=name_data.get('transfer_address'),
                          config_path=config_path,
-                         path=queue_path)
+                         path=queue_path, **additionals)
 
         resp['zonefile_hash'] = zonefile_hash
         return resp

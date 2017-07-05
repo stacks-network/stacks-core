@@ -34,6 +34,7 @@ from .utils import get_json, config_log
 
 from blockstack_client.proxy import get_all_names
 from blockstack_client.profile import get_profile
+from api.utils import profile_log
 import logging
 
 log = config_log(__name__)
@@ -93,7 +94,7 @@ def fetch_profiles(max_to_fetch = None, just_test_set = False):
         resp['fqu'] = fqu
 
         try:
-            resp['profile'] = get_profile(fqu, use_legacy = True)[0]
+            resp['profile'] = get_profile(fqu, use_legacy = True)['profile']
             all_profiles.append(resp)
         except KeyboardInterrupt as e:
             raise e

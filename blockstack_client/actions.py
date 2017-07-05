@@ -1278,6 +1278,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, wallet_keys=No
     opt: zonefile (str) 'The path to the zone file for this name'
     opt: recipient (str) 'The recipient address, if not this wallet'
     opt: min_confs (int) 'The minimum number of confirmations on the initial preorder'
+    opt: unsafe_reg (str) 'Should we aggressively register the name (ie, use low min confs)'
     """
 
     # NOTE: if force_data == True, then the zonefile will be the zonefile text itself, not a path.
@@ -1302,6 +1303,12 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, wallet_keys=No
     user_zonefile = getattr(args, 'zonefile', None)
     transfer_address = getattr(args, 'recipient', None)
     min_payment_confs = getattr(args, 'min_confs', TX_MIN_CONFIRMATIONS)
+    unsafe_reg = getattr(args, 'unsafe_reg', 'False')
+
+    if unsafe_reg.lower() in ('true', 't', 'yes', '1'):
+        unsafe_reg = True
+    else:
+        unsafe_reg = False
 
     # name must be well-formed
     error = check_valid_name(fqu)
@@ -1316,6 +1323,9 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, wallet_keys=No
     if transfer_address:
         if not re.match(OP_BASE58CHECK_PATTERN, transfer_address):
             return {'error': 'Not a valid address'}
+
+    user_profile = None
+    new_token_file = None
 
     if user_zonefile:
         zonefile_info = analyze_zonefile_string(fqu, user_zonefile, force_data=force_data, proxy=proxy)
@@ -1337,21 +1347,19 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, wallet_keys=No
         user_zonefile_dict = make_empty_zonefile(fqu, None)
         user_zonefile = blockstack_zones.make_zone_file(user_zonefile_dict)
 
-    # if we have a data key, then make an empty profile and zonefile 
-    new_token_file = None
-    if not transfer_address:
-        # registering for this wallet.  Put an empty token file, signed with this wallet's signing keys
-        if not wallet_keys:
-            wallet_keys = get_wallet_keys(config_path, password)
-            if 'error' in wallet_keys:
-                return wallet_keys
+        if not transfer_address:
+            # registering for this wallet.  Put an empty token file, signed with this wallet's signing keys
+            if not wallet_keys:
+                wallet_keys = get_wallet_keys(config_path, password)
+                if 'error' in wallet_keys:
+                    return wallet_keys
 
-        user_profile = make_empty_user_profile()
-        res = migrate_profile_to_token_file(fqu, user_profile, get_owner_privkey_info(wallet_keys), config_path=config_path)
-        if 'error' in res:
-            return {'error': 'Failed to create token file: {}'.format(res['error'])}
+            user_profile = make_empty_user_profile()
+            res = migrate_profile_to_token_file(fqu, user_profile, get_owner_privkey_info(wallet_keys), config_path=config_path)
+            if 'error' in res:
+                return {'error': 'Failed to create token file: {}'.format(res['error'])}
 
-        new_token_file = res['token_file']
+            new_token_file = res['token_file']
 
     # operation checks (API server only)
     if local_rpc.is_api_server(config_dir=config_dir):
@@ -1431,7 +1439,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, wallet_keys=No
     assert rpc
 
     try:
-        resp = rpc.backend_preorder(fqu, cost_satoshis, user_zonefile, new_token_file, transfer_address, min_payment_confs )
+        resp = rpc.backend_preorder(fqu, cost_satoshis, user_zonefile, new_token_file, transfer_address, min_payment_confs, unsafe_reg=unsafe_reg)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}

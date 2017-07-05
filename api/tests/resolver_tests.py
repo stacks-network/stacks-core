@@ -45,14 +45,14 @@ class ResolverTestCase(unittest.TestCase):
         """ Check valid profiles
         """
 
-        usernames = ['fredwilson', 'davidlee']
+        usernames = [ 'muneeb', 'fredwilson', 'davidlee']
         for username in usernames:
             reply = self.get_profile(username)
             profile = reply[username]['profile']
             verifications = reply[username]['verifications']
             self.assertIsInstance(profile, dict, msg="data not properly formatted")
             self.assertIn('name', profile, msg="name not in data")
-            self.assertGreater(len(verifications), 0, msg="no varifications found")
+            self.assertGreater(len(verifications), 0, msg="no verifications found")
 
     def test_invalid_profiles(self):
         """ Check invalid profiles
@@ -61,12 +61,12 @@ class ResolverTestCase(unittest.TestCase):
         usernames = ['ben']
         for username in usernames:
             reply = self.get_profile(username)[username]
-            self.assertIn('error', reply, msg="resolver didn't give error on invalid profile")
+            self.assertIn('error', reply, msg="resolver didn't give error on invalid profile: {}".format(reply))
 
     def test_invalid_profiles(self):
         """ Check unregistered usernames
         """
         usernames = ['gfegef7ev79efv9ev23t4fv']
         for username in usernames:
-            reply = self.get_profile(username)
-            self.assertIn('error', reply, msg="resolver didn't give error on unregistered profile")
+            reply = self.get_profile(username)[username]
+            self.assertIn('error', reply, msg="resolver didn't give error on unregistered profile: {}".format(reply))
