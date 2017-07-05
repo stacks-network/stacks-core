@@ -3051,11 +3051,11 @@ def put_test_data( relpath, data, **kw ):
 
 def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=True, config_path=None ):
     """
-    Migrate a user's profile from the legacy format to the profile/zonefile format.
+    Migrate a user's profile from the legacy format to the token-file/zonefile format.
     Broadcast an update transaction with the zonefile hash.
-    Replicate the zonefile and profile.
+    Replicate the zonefile and token file.
 
-    Return {'status': True, 'zonefile': ..., 'profile': ..., 'transaction_hash': ...} on success, if the profile was migrated
+    Return {'status': True, 'zonefile': ..., 'profile': ..., 'token_file': ..., 'transaction_hash': ...} on success, if the profile was migrated
     Return {'status': True} on success, if the profile is already migrated
     Return {'error': ...} on error
     """
@@ -3072,6 +3072,7 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
     user_profile = None
     user_zonefile = None
     user_zonefile_txt = None
+    new_token_file = None
 
     res = blockstack_cli_lookup(name, config_path=config_path)
     if 'error' in res:
@@ -3111,31 +3112,29 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
             # not JSON
             user_zonefile = blockstack_zones.parse_zone_file(user_zonefile_txt)
 
-    # add public key, if absent 
-    if blockstack_client.user.user_zonefile_data_pubkey(user_zonefile) is None and zonefile_has_data_key:
-        log.debug("Adding zone file public key")
-        user_zonefile = blockstack_client.user.user_zonefile_set_data_pubkey(user_zonefile, keylib.ECPrivateKey(wallet_keys['data_privkey']).public_key().to_hex())
-
     payment_privkey_info = blockstack_client.get_payment_privkey_info( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     owner_privkey_info = blockstack_client.get_owner_privkey_info( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     data_privkey_info = blockstack_client.get_data_privkey_info( user_zonefile, wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
-
+    
+    '''
     assert data_privkey_info is not None
     assert 'error' not in data_privkey_info, str(data_privkey_info)
     assert virtualchain.is_singlesig(data_privkey_info)
+    '''
 
+    res = blockstack_client.actions.migrate_profile_to_token_file(name, user_profile, owner_privkey_info, config_path=config_path)
+    if 'error' in res:
+        return {'error': 'Failed to create new token file'}
+
+    new_token_file = res['token_file']
     user_zonefile_hash = blockstack_client.hash_zonefile( user_zonefile )
     
-    # replicate the profile
-    # TODO: this is onename-specific
-
-    rc = blockstack_client.profile.put_profile(name, user_profile, blockchain_id=name,
-                                              user_data_privkey=data_privkey_info, user_zonefile=user_zonefile,
-                                              proxy=proxy, wallet_keys=wallet_keys )
-
+    # replicate the token file
+    signing_key = blockstack_client.keys.get_signing_privkey(owner_privkey_info)
+    rc = blockstack_client.token_file.token_file_put(name, new_token_file, signing_key, config_path=config_path)
     if 'error' in rc:
-        log.error("Failed to put profile: {}".format(rc['error']))
-        return {'error': 'Failed to move legacy profile to profile zonefile'}
+        log.error("Failed to put token file: {}".format(rc['error']))
+        return {'error': 'Failed to move legacy profile to token file and zonefile'}
 
     # do the update 
     res = blockstack_client.do_update( name, user_zonefile_hash, owner_privkey_info, payment_privkey_info, proxy, proxy, config_path=proxy.config_path, proxy=proxy )
@@ -3155,7 +3154,8 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
         'transaction_hash': res['transaction_hash'],
         'zonefile': user_zonefile,
         'zonefile_txt': user_zonefile_txt,
-        'profile': user_profile
+        'profile': user_profile,
+        'token_file': new_token_file,
     }
 
     return result
