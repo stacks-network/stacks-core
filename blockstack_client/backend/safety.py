@@ -20,9 +20,10 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os
+import os, json
 import threading
 import functools
+import virtualchain
 
 from ..constants import (
     TX_MIN_CONFIRMATIONS,
@@ -34,16 +35,23 @@ from ..constants import (
     APPROX_REVOKE_TX_LEN,
     APPROX_RENEWAL_TX_LEN,
     BLOCKSTACK_DEBUG,
+    BLOCKSTACK_TEST,
+    APPROX_NAMESPACE_PREORDER_TX_LEN,
+    APPROX_NAMESPACE_REVEAL_TX_LEN,
+    APPROX_NAMESPACE_READY_TX_LEN,
 )
-from ..keys import (
-    get_privkey_info_address,
-    get_privkey_info_params,
-)
+
 from ..proxy import (
     get_default_proxy,
     is_name_registered,
     get_names_owned_by_address,
     get_name_cost,
+    is_namespace_revealed,
+    is_namespace_ready,
+    json_is_error,
+    get_namespace_cost,
+    get_namespace_blockchain_record,
+    get_num_names_in_namespace,
 )
 
 from ..config import get_utxo_provider_client
@@ -55,6 +63,8 @@ from .blockchain import (
     get_balance, is_address_usable, get_utxos,
     can_receive_name, get_tx_fee_per_byte
 )
+
+from virtualchain.lib.ecdsalib import ecdsa_private_key
 
 from ..scripts import UTXOException, is_name_valid, is_namespace_valid
 
@@ -1003,8 +1013,8 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
                 tx_fee = int(tx_fee)
 
             else:
-                tx_fee = (len('00' * APPROX_NAME_IMPORT_TX_LEN) * tx_fee_per_byte) / 2
-                insufficient_funds = True
+                return {'error' : 'Failed to get good estimate of name import tx fee, and ' + 
+                        'there is no fallback estimation'}
 
             return {'status': True, 'tx_fee': tx_fee, 'insufficient': insufficient_funds, 'estimate': estimate}
 
