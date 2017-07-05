@@ -81,7 +81,7 @@ from blockstack_client import (
     list_zonefile_history, lookup_snv, put_immutable, put_mutable, zonefile_data_replicate
 )
 
-from blockstack_client.profile import put_profile, delete_profile, get_profile, \
+from blockstack_client.profile import delete_profile, get_profile, \
         profile_add_device_id, profile_remove_device_id, profile_list_accounts, profile_get_account, \
         profile_put_account, profile_delete_account
 
@@ -136,6 +136,9 @@ from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, put_dat
         make_mutable_data_info, data_blob_parse, data_blob_serialize, make_mutable_data_tombstones, sign_mutable_data_tombstones
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
+
+from .token_file import token_file_profile_serialize, token_file_update_profile, token_file_put, token_file_delete, \
+    lookup_name_privkey, lookup_signing_privkey, lookup_signing_pubkeys, lookup_name_zonefile_pubkey
 
 import virtualchain
 from virtualchain.lib.ecdsalib import *
@@ -942,14 +945,18 @@ def cli_lookup(args, config_path=CONFIG_PATH):
         return {'error': msg}
 
     try:
-        res = get_profile(
-            str(args.name), name_record=blockchain_record, include_raw_zonefile=True, use_legacy=True, use_legacy_zonefile=True
-        )
-
+        res = get_profile(str(args.name), name_record=blockchain_record)
         if 'error' in res:
             return res
 
-        data['profile'] = res['profile']
+        if res['profile'] is not None:
+            data['profile'] = res['profile']
+        else:
+            data['profile'] = res['legacy_profile']
+
+        if data['profile'] is None:
+            return {'error': 'Failed to load a profile for this name.  Try again with --debug to diagnose.'}
+
         data['zonefile'] = res['raw_zonefile']
     except Exception as e:
         log.exception(e)
@@ -1171,9 +1178,7 @@ def analyze_zonefile_string(fqu, zonefile_data, force_data=False, check_current=
 
     if zonefile_data is None:
         # fetch remotely
-        zonefile_data_res = get_name_zonefile(
-            fqu, proxy=proxy, raw_zonefile=True
-        )
+        zonefile_data_res = get_name_zonefile(fqu, proxy=proxy)
         if 'error' not in zonefile_data_res:
             zonefile_data = zonefile_data_res['zonefile']
         else:
@@ -1181,7 +1186,7 @@ def analyze_zonefile_string(fqu, zonefile_data, force_data=False, check_current=
 
         # zone file is not given; we had to fetch it
         ret['downloaded'] = True
-        ret['raw_zonefile'] = zonefile_data
+        ret['raw_zonefile'] = zonefile_data_res['raw_zonefile']
         ret['is_path'] = False
         ret['is_string'] = False
 
@@ -1829,17 +1834,14 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     if data_pubkey is None:
         return {'error': 'No data key in wallet'}
 
-    res = get_name_zonefile(
-        fqu, proxy=proxy,
-        raw_zonefile=True, include_name_record=True
-    )
+    res = get_name_zonefile(fqu, proxy=proxy)
 
     user_zonefile = None
     user_profile = None
 
     if 'error' not in res:
         name_rec = res['name_record']
-        user_zonefile_txt = res['zonefile']
+        user_zonefile_txt = res['raw_zonefile']
         user_zonefile_hash = get_zonefile_data_hash(user_zonefile_txt)
         user_zonefile = None
         legacy = False
@@ -2071,6 +2073,7 @@ def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, w
     arg: service (str) 'The service this account is for.'
     arg: identifier (str) 'The name of the account.'
     arg: content_url (str) 'The URL that points to external contact data.'
+    arg: signing_privkey (str) 'The device-specific signing private key for this name.'
     opt: extra_data (str) 'A comma-separated list of "name1=value1,name2=value2,name3=value3..." with any extra account information you need in the account.'
     """
     password = get_default_password(password)
@@ -2086,6 +2089,12 @@ def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, w
     service = str(args.service)
     identifier = str(args.identifier)
     content_url = str(args.content_url)
+    signing_privkey = str(args.signing_privkey)
+    
+    try:
+        signing_privkey = ECPrivateKey(signing_privkey).to_hex()
+    except:
+        return {'error': 'Unable to parse private key'}
 
     if not is_name_valid(args.name):
         return {'error': 'Invalid name'}
@@ -2111,7 +2120,7 @@ def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, w
                 v = "=".join(parts[1:])
                 extra_data[k] = v
 
-    return profile_put_account(name, service, identifier, content_url, extra_data, wallet_keys, config_path=config_path, proxy=proxy)
+    return profile_put_account(name, service, identifier, content_url, extra_data, signing_privkey, config_path=config_path, proxy=proxy)
 
 
 def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None ):
@@ -2121,6 +2130,7 @@ def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None
     arg: name (str) 'The name to query.'
     arg: service (str) 'The service the account is for.'
     arg: identifier (str) 'The identifier of the account to delete.'
+    arg: signing_privkey (str) 'The device-specific signing private key for this name.'
     """
     password = get_default_password(password)
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
@@ -2134,14 +2144,20 @@ def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None
     name = str(args.name)
     service = str(args.service)
     identifier = str(args.identifier)
+    signing_privkey = str(args.signing_privkey)
+    
+    try:
+        signing_privkey = ECPrivateKey(signing_privkey).to_hex()
+    except:
+        return {'error': 'Unable to parse private key'}
 
-    if not is_name_valid(args.name):
+    if not is_name_valid(name):
         return {'error': 'Invalid name'}
 
-    if len(args.service) == 0 or len(args.identifier) == 0:
+    if len(service) == 0 or len(identifier) == 0:
         return {'error': 'Invalid data'}
 
-    return profile_delete_account(name, service, identifier, config_path=config_path, proxy=proxy)
+    return profile_delete_account(name, service, identifier, signing_privkey, config_path=config_path, proxy=proxy)
 
 
 def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False):
@@ -3264,9 +3280,6 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None, st
     result = put_mutable(mutable_data_info['fq_data_id'], mutable_data_payload, pubkey, sig, mutable_data_info['version'], \
                          blockchain_id=fqu, config_path=config_path, proxy=proxy, storage_drivers=storage_drivers, storage_drivers_exclusive=storage_drivers_exclusive) 
 
-    if 'error' in result:
-        return result
-
     return result
 
 
@@ -3297,10 +3310,7 @@ def cli_put_immutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
 
     proxy = get_default_proxy() if proxy is None else proxy
 
-    result = put_immutable(
-        fqu, str(args.data_id), data,
-        wallet_keys=wallet_keys, proxy=proxy
-    )
+    result = put_immutable(fqu, str(args.data_id), data, wallet_keys=wallet_keys, proxy=proxy)
 
     if 'error' in result:
         return result
@@ -3357,6 +3367,7 @@ def cli_get_immutable(args, config_path=CONFIG_PATH, proxy=None):
         return result
 
     return {
+        'status': True,
         'data': result['data'],
         'hash': result['hash']
     }
@@ -3554,25 +3565,27 @@ def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True):
     arg: name (str) 'The name to query'
     opt: json (str) 'If true is given, try to parse as JSON'
     """
-    # the 'raw' kwarg is set by the API daemon to False to get back structured data
+    if proxy is None:
+        proxy = get_default_proxy()
 
+    # the 'raw' kwarg is set by the API daemon to False to get back structured data
     parse_json = getattr(args, 'json', 'false')
     parse_json = parse_json is not None and parse_json.lower() in ['true', '1']
 
-    result = get_name_zonefile(str(args.name), raw_zonefile=True)
+    result = get_name_zonefile(str(args.name), proxy=proxy)
     if 'error' in result:
         log.error("get_name_zonefile failed: %s" % result['error'])
         return result
 
-    if 'zonefile' not in result:
+    if 'raw_zonefile' not in result:
         return {'error': 'No zonefile data'}
 
     if parse_json:
         # try to parse
         try:
-            new_zonefile = decode_name_zonefile(name, result['zonefile'])
+            new_zonefile = decode_name_zonefile(name, result['raw_zonefile'])
             assert new_zonefile is not None
-            result['zonefile'] = new_zonefile
+            result = {'status': True, 'zonefile': new_zonefile}
         except:
             result['warning'] = 'Non-standard zonefile'
     
@@ -3621,7 +3634,6 @@ def cli_get_all_names(args, config_path=CONFIG_PATH):
     count = 100
 
     result = get_all_names(offset=offset, count=count)
-
     return result
 
 
@@ -3646,7 +3658,6 @@ def cli_get_names_in_namespace(args, config_path=CONFIG_PATH):
     count = 100
 
     result = get_names_in_namespace(str(args.namespace_id), offset, count)
-
     return result
 
 
@@ -3730,14 +3741,88 @@ def cli_unqueue(args, config_path=CONFIG_PATH):
     return {'status': True}
 
 
+def find_signing_privkey(name, args_signing_privkey, wallet_keys=None, config_path=CONFIG_PATH, password=None, proxy=None):
+    """
+    Find the signing private key to use--either the one given in args_signing_privkey,
+    or the one from our wallet that corresponds to this device's signing public key.
+
+    Returns {'status': True, 'signing_privkey': privkey} on success
+    Returns {'error': ...} on error
+    """
+    if args_signing_privkey:
+        try:
+            signing_privkey = ECPrivateKey(str(args_privkey)).to_hex()
+        except:
+            return {'error': 'Failed to parse private key'}
+  
+    else:
+        if wallet_keys is None:
+            wallet_keys = get_wallet_keys(config_path, password)
+            if 'error' in wallet_keys:
+                return wallet_keys
+
+        res = lookup_signing_privkey(name, get_owner_privkey_info(wallet_keys), proxy=proxy)
+        if 'error' in res:
+            return {'error': 'Failed to look up signing key from wallet.  Try passing it explicitly as an argument.'}
+
+        signing_privkey = res['signing_privkey']
+        return {'status': True, 'signing_privkey': signing_privkey}
+
+
+def find_signing_pubkeys_and_address(name, args_signing_pubkey, proxy=None):
+    """
+    Find the set of public keys and possibly address to use for a given name.
+    Use either the one given in the args (args_signing_pubkey), or look it up from the token file, zone file, and name record.
+
+    Return {'status': True, 'pubkeys': [public keys, including zone file pubkey], 'address': owner address} on success
+    Return {'error': ...} on failure
+    """
+
+    pubkeys = []
+
+    if args_signing_pubkey:
+        pubkey = str(args_signing_pubkey)
+        try:
+            pubkey = ECPublicKey(pubkey).to_hex()
+        except:
+            return {'error': 'Invalid public key'}
+    
+        pubkeys = [pubkey]
+
+        return {'status': True, 'pubkeys': pubkeys, 'address': None}
+
+    else:
+        res = lookup_signing_pubkeys(name, proxy=proxy)
+        if 'error' in res:
+            log.error("Failed to look up signing keys for {}: {}".format(name, res['error']))
+            return {'error': 'Failed to look up public keys for {}'.format(name)}
+
+        pubkeys = res['pubkeys'].values()
+
+        # also grab the zone file public key, if present 
+        res = lookup_name_zonefile_pubkey(name, proxy=proxy)
+        if 'error' in res:
+            log.error("Failed to look up zone file public key for {}: {}".format(name, res['error']))
+            return {'error': 'Failed to look up zone file public key for {}'.format(name)}
+
+        zonefile_pubkey = res['pubkey']
+        if zonefile_pubkey:
+            pubkeys.append(zonefile_pubkey)
+
+        owner_address = res['name_record']['address']
+
+        return {'status': True, 'pubkeys': pubkeys, 'address': owner_address}
+
+
 def cli_put_profile(args, config_path=CONFIG_PATH, password=None, proxy=None, force_data=False, wallet_keys=None):
     """
     command: put_profile advanced
     help: Set the profile for a blockchain ID.
     arg: blockchain_id (str) 'The blockchain ID.'
     arg: data (str) 'The profile as a JSON string, or a path to the profile.'
+    opt: signing_privkey (str) 'The signing key for this device.'
     """
-
+    proxy = get_default_proxy() if proxy is None else proxy
     password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
@@ -3745,8 +3830,14 @@ def cli_put_profile(args, config_path=CONFIG_PATH, password=None, proxy=None, fo
     name = str(args.blockchain_id)
     profile_json_str = str(args.data)
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    # find the right signing private key to use
+    res = find_signing_privkey(name, getattr(args, 'signing_privkey', None), wallet_keys=wallet_keys, config_path=config_path, password=password, proxy=proxy)
+    if 'error' in res:
+        return res
 
+    signing_privkey = res['signing_privkey']
+
+    # load up the profile
     profile = None
     if not force_data and is_valid_path(profile_json_str) and os.path.exists(profile_json_str):
         # this is a path.  try to load it
@@ -3762,31 +3853,28 @@ def cli_put_profile(args, config_path=CONFIG_PATH, password=None, proxy=None, fo
     except:
         return {'error': 'Invalid profile JSON'}
 
-    if wallet_keys is None:
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-
-    required_storage_drivers = conf.get(
-        'storage_drivers_required_write',
-        config.BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE
-    )
+    required_storage_drivers = conf.get('storage_drivers_required_write', config.BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE)
     required_storage_drivers = required_storage_drivers.split()
 
-    user_zonefile = get_name_zonefile(name, proxy=proxy)
-    if 'error' in user_zonefile:
-        return user_zonefile
+    # get the current profile or token file.  If this is a profile, then tell the user to migrate.
+    res = get_profile(name, proxy=proxy)
+    if 'error' in res:
+        return {'error': 'Failed to query current profile or token file'}
+   
+    if res['legacy']:
+        return {'error': 'Profile is in legacy format (version 1).  Please use the `migrate` command to migrate your profile to the latest format.'}
 
-    user_zonefile = user_zonefile['zonefile']
-    if blockstack_profiles.is_profile_in_legacy_format(user_zonefile):
-        msg = 'Profile in legacy format.  Please migrate it with the "migrate" command first.'
-        return {'error': msg}
+    if res['token_file'] is None:
+        return {'error': 'Profile is in legacy format (version 2).  Please use the `migrate` command to migrate your profile to the latest format.'}
+    
+    # got a token file 
+    parsed_token_file = res['token_file']
+    res = token_file_update_profile(parsed_token_file, profile, signing_privkey)
+    if 'error' in res:
+        return {'error': 'Failed to update token file: {}'.format(res['error'])}
 
-    res = put_profile(name, profile, user_zonefile=user_zonefile,
-                       wallet_keys=wallet_keys, proxy=proxy,
-                       required_drivers=required_storage_drivers, blockchain_id=name,
-                       config_path=config_path)
-
+    # save it
+    res = token_file_put(name, res['token_file'], signing_privkey, proxy=proxy, required_drivers=required_storage_drivers, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -3798,19 +3886,25 @@ def cli_delete_profile(args, config_path=CONFIG_PATH, password=None, proxy=None,
     command: delete_profile advanced
     help: Delete a profile from a blockchain ID.
     arg: blockchain_id (str) 'The blockchain ID.'
+    opt: signing_privkey (str) 'The device-specific signing private key for this name, if different from the data key'
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
     password = get_default_password(password)
+    signing_privkey = None
     
     name = str(args.blockchain_id)
+    if not hasattr(arg, 'signing_privkey'):
+        return {'error': 'The "signing_privkey" argument is required at this time, but will be optional in future releases'}
 
-    if wallet_keys is None:
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
+    # find the right signing private key to use
+    res = find_signing_privkey(name, getattr(args, 'signing_privkey', None), wallet_keys=wallet_keys, config_path=config_path, password=password, proxy=proxy)
+    if 'error' in res:
+        return res
 
-    res = delete_profile(name, user_data_privkey=wallet_keys['data_privkey'], proxy=proxy, wallet_keys=wallet_keys)
+    signing_privkey = res['signing_privkey']
+
+    res = delete_profile(name, signing_privkey, proxy=proxy)
     return res
 
 
@@ -3880,13 +3974,13 @@ def cli_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, interactive=Tru
         if user_data is None:
             # not in queue.  Maybe it's available from one of the storage drivers?
             log.debug('no pending updates for "{}"; try storage'.format(name))
-            user_data = get_name_zonefile( name, raw_zonefile=True )
+            user_data = get_name_zonefile(name, proxy=proxy)
             if 'error' in user_data:
                 msg = 'Failed to get zonefile: {}'
                 log.error(msg.format(user_data['error']))
                 return user_data
 
-            user_data = user_data['zonefile']
+            user_data = user_data['raw_zonefile']
 
         # have user data
         zonefile_hash = storage.get_zonefile_data_hash(user_data)
@@ -4034,8 +4128,13 @@ def cli_app_publish( args, config_path=CONFIG_PATH, interactive=False, password=
     wallet_keys = get_wallet_keys(config_path, password)
     if 'error' in wallet_keys:
         return wallet_keys
+    
+    res = lookup_signing_privkey(name, get_owner_privkey_info(wallet_keys), proxy=proxy)
+    if 'error' in res:
+        return res
 
-    res = app_publish( blockchain_id, app_domain, methods, uris, index_file_data, app_driver_hints=drivers, wallet_keys=wallet_keys, proxy=proxy, config_path=config_path )
+    signing_privkey = res['signing_privkey']
+    res = app_publish( blockchain_id, app_domain, methods, uris, index_file_data, signing_privkey, app_driver_hints=drivers, proxy=proxy, config_path=config_path )
     if 'error' in res:
         return res
 
@@ -4116,8 +4215,13 @@ def cli_app_put_resource( args, config_path=CONFIG_PATH, interactive=False, prox
     wallet_keys = get_wallet_keys(config_path, password)
     if 'error' in wallet_keys:
         return wallet_keys
-
-    res = app_put_resource( blockchain_id, app_domain, res_path, resdata, proxy=proxy, wallet_keys=wallet_keys, config_path=config_path )
+     
+    res = lookup_signing_privkey(name, get_owner_privkey_info(wallet_keys), proxy=proxy)
+    if 'error' in res:
+        return res
+    
+    signing_privkey = res['signing_privkey']
+    res = app_put_resource( blockchain_id, app_domain, res_path, resdata, signing_privkey, proxy=proxy, config_path=config_path )
     return res
 
 
@@ -4143,8 +4247,13 @@ def cli_app_delete_resource( args, config_path=CONFIG_PATH, interactive=False, p
     wallet_keys = get_wallet_keys(config_path, password)
     if 'error' in wallet_keys:
         return wallet_keys
-
-    res = app_delete_resource( blockchain_id, app_domain, res_path, proxy=proxy, wallet_keys=wallet_keys, config_path=config_path )
+    
+    res = lookup_signing_privkey(name, get_owner_privkey_info(wallet_keys), proxy=proxy)
+    if 'error' in res:
+        return res
+    
+    signing_privkey = res['signing_privkey']
+    res = app_delete_resource( blockchain_id, app_domain, res_path, signing_privkey, proxy=proxy, config_path=config_path )
     return res
 
 
@@ -4210,14 +4319,13 @@ def cli_app_signin(args, config_path=CONFIG_PATH, interactive=True):
     return {'status': True, 'token': sesinfo['token']}
 
 
-def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, interactive=False ):
+def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, interactive=False, wallet_keys=None ):
     """
     command: sign_profile advanced raw
     help: Sign a JSON file to be used as a profile.
     arg: path (str) 'The path to the profile data on disk.'
-    opt: privkey (str) 'The optional private key to sign it with (defaults to the data private key in your wallet)'
+    opt: privkey (str) 'The device-specific signing key'
     """
-
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
     
@@ -4237,30 +4345,20 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
         log.error("Failed to load {}".format(path))
         return {'error': 'Failed to load {}'.format(path)}
 
-    privkey = None
-    if hasattr(args, "privkey") and args.privkey:
-        privkey = str(args.privkey)
+    # find the right signing private key to use
+    res = find_signing_privkey(name, getattr(args, 'privkey', None), wallet_keys=wallet_keys, config_path=config_path, password=password, proxy=proxy)
+    if 'error' in res:
+        return res
 
-    else:
-        wallet_keys = get_wallet_keys( config_path, password )
-        if 'error' in wallet_keys:
-            return wallet_keys
-
-        if not wallet_keys.has_key('data_privkey'):
-            log.error("No data private key in the wallet.  You may need to explicitly select a private key.")
-            return {'error': 'No data private key set.\nTry passing your owner private key.'}
-
-        privkey = wallet_keys['data_privkey']
+    privkey = res['signing_privkey']
 
     privkey = ECPrivateKey(privkey).to_hex()
     pubkey = get_pubkey_hex(privkey)
 
-    res = storage.serialize_mutable_data(data_json, privkey, pubkey, profile=True)
-    if res is None:
-        return {'error': 'Failed to sign and serialize profile'}
-
-    # sanity check 
-    assert storage.parse_mutable_data(res, pubkey)
+    res = token_file_profile_serialize(data_json, privkey)
+    if 'error' in res:
+        log.error("BUG: failed to serialize profile: {}".format(res['error']))
+        return {'error': 'BUG: Failed to serialize profile'}
 
     return res
 
@@ -4271,7 +4369,7 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
     help: Verify a profile JWT and deserialize it into a profile object.
     arg: name (str) 'The name that points to the public key to use to verify.'
     arg: path (str) 'The path to the profile data on disk'
-    opt: pubkey (str) 'The public key to use to verify. Overrides `name`.'
+    opt: pubkey (str) 'The public key to use to verify.'
     """
 
     if proxy is None:
@@ -4279,48 +4377,18 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
 
     name = str(args.name)
     path = str(args.path)
-    pubkey = None
+    pubkeys = []
     owner_address = None
 
     if not os.path.exists(path):
         return {'error': 'No such file or directory'}
 
-    if hasattr(args, 'pubkey') and args.pubkey is not None:
-        pubkey = str(args.pubkey)
-        try:
-            pubkey = ECPublicKey(pubkey).to_hex()
-        except:
-            return {'error': 'Invalid public key'}
+    res = find_signing_pubkeys_and_address(name, getattr(args, 'pubkey', None), proxy=proxy)
+    if 'error' in res:
+        return res
 
-    if pubkey is None:
-        zonefile_data = None
-        name_rec = None
-        # get the pubkey 
-        zonefile_data_res = get_name_zonefile(
-            name, proxy=proxy, raw_zonefile=True, include_name_record=True
-        )
-        if 'error' not in zonefile_data_res:
-            zonefile_data = zonefile_data_res['zonefile']
-            name_rec = zonefile_data_res['name_record']
-        else:
-            return {'error': "Failed to get zonefile data: {}".format(name)}
-
-        # parse 
-        zonefile_dict = None
-        try:
-            zonefile_dict = blockstack_zones.parse_zone_file(zonefile_data)
-        except:
-            return {'error': 'Nonstandard zone file'}
-
-        pubkey = user_zonefile_data_pubkey(zonefile_dict)
-        if pubkey is None:
-            # fall back to owner hash
-            owner_address = str(name_rec['address'])
-            if virtualchain.is_multisig_address(owner_address):
-                return {'error': 'No data public key in zone file, and owner is a p2sh address'}
-
-            else:
-                log.warn("Falling back to owner address")
+    pubkeys = res['pubkeys']
+    owner_address = res['address']
 
     profile_data = None
     try:
@@ -4328,20 +4396,24 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
             profile_data = f.read()
     except:
         return {'error': 'Failed to read profile file'}
+    
+    for pubkey in pubkeys:
+        log.debug("Try verifying profile with {} or {}".format(pubkey, owner_address))
+        res = storage.parse_mutable_data(profile_data, pubkey, public_key_hash=owner_address)
+        if res is not None:
+            log.debug("Success with {} or {}".format(pubkey, owner_address))
+            return res
 
-    res = storage.parse_mutable_data(profile_data, pubkey, public_key_hash=owner_address)
-    if res is None:
-        return {'error': 'Failed to verify profile'}
-
-    return res
+    return {'error': 'Failed to verify profile with all available public keys'}
 
 
 def cli_sign_data( args, config_path=CONFIG_PATH, proxy=None, password=None, interactive=False ):
     """
     command: sign_data advanced raw
     help: Sign data to be used in a data store.
+    arg: name (str) 'The name who will sign the data.'
     arg: path (str) 'The path to the profile data on disk.'
-    opt: privkey (str) 'The optional private key to sign it with (defaults to the data private key in your wallet)'
+    opt: privkey (str) 'The optional private key to sign it with'
     """
 
     if proxy is None:
@@ -4364,20 +4436,12 @@ def cli_sign_data( args, config_path=CONFIG_PATH, proxy=None, password=None, int
         log.error("Failed to load {}".format(path))
         return {'error': 'Failed to load {}'.format(path)}
 
-    privkey = None
-    if hasattr(args, "privkey") and args.privkey:
-        privkey = str(args.privkey)
+    # find the right signing private key to use
+    res = find_signing_privkey(name, getattr(args, 'privkey', None), wallet_keys=wallet_keys, config_path=config_path, password=password, proxy=proxy)
+    if 'error' in res:
+        return res
 
-    else:
-        wallet_keys = get_wallet_keys( config_path, password )
-        if 'error' in wallet_keys:
-            return wallet_keys
-
-        if not wallet_keys.has_key('data_privkey'):
-            log.error("No data private key in the wallet.  You may need to explicitly select a private key.")
-            return {'error': 'No data private key set.\nTry passing your owner private key.'}
-
-        privkey = wallet_keys['data_privkey']
+    privkey = res['signing_privkey']
 
     privkey = ECPrivateKey(privkey).to_hex()
     pubkey = get_pubkey_hex(privkey)
@@ -4387,11 +4451,12 @@ def cli_sign_data( args, config_path=CONFIG_PATH, proxy=None, password=None, int
         return {'error': 'Failed to sign and serialize data'}
 
     # sanity check
-    if BLOCKSTACK_DEBUG:
-        assert storage.parse_mutable_data(res, pubkey)
+    parser_res = storage.parse_mutable_data(res, pubkey)
+    if 'error 'in parser_res:
+        log.error("Failed to parse back into data: {}".format(parser_res['error']))
+        raise AssertionError("BUG: failed to generate valid data")
 
-    if BLOCKSTACK_TEST:
-        log.debug("Verified {} with {}".format(res, pubkey))
+    log.debug("Verified {} with {}".format(res, pubkey))
 
     return res
 
@@ -4409,43 +4474,16 @@ def cli_verify_data( args, config_path=CONFIG_PATH, proxy=None, interactive=True
 
     name = str(args.name)
     path = str(args.path)
-    pubkey = None
 
     if not os.path.exists(path):
         return {'error': 'No such file or directory'}
 
-    if hasattr(args, 'pubkey') and args.pubkey is not None:
-        pubkey = str(args.pubkey)
-        try:
-            pubkey = keylib.ECPublicKey(pubkey).to_hex()
-        except Exception as e:
-            if BLOCKSTACK_DEBUG:
-                log.exception(e)
+    res = find_signing_pubkeys_and_address(name, getattr(args, 'pubkey', None), proxy=proxy)
+    if 'error' in res:
+        return res
 
-            return {'error': 'Invalid public key'}
-
-    if pubkey is None:
-        zonefile_data = None
-
-        # get the pubkey 
-        zonefile_data_res = get_name_zonefile(
-            name, proxy=proxy, raw_zonefile=True
-        )
-        if 'error' not in zonefile_data_res:
-            zonefile_data = zonefile_data_res['zonefile']
-        else:
-            return {'error': "Failed to get zonefile data: {}".format(name)}
-
-        # parse 
-        zonefile_dict = None
-        try:
-            zonefile_dict = blockstack_zones.parse_zone_file(zonefile_data)
-        except:
-            return {'error': 'Nonstandard zone file'}
-
-        pubkey = user_zonefile_data_pubkey(zonefile_dict)
-        if pubkey is None:
-            return {'error': 'No data public key in zone file'}
+    pubkeys = res['pubkeys']
+    owner_address = res['address']
 
     data = None
     try:
@@ -4457,11 +4495,14 @@ def cli_verify_data( args, config_path=CONFIG_PATH, proxy=None, interactive=True
     if BLOCKSTACK_TEST:
         log.debug("Verify {} with {}".format(data, pubkey))
 
-    res = storage.parse_mutable_data(data, pubkey)
-    if res is None:
-        return {'error': 'Failed to verify data'}
+    for pubkey in pubkeys:
+        log.debug("Try verify with {}".format(pubkey))
+        res = storage.parse_mutable_data(data, pubkey)
+        if res is not None:
+            log.debug("Success with {}".format(pubkey))
+            return data_blob_parse(res)
 
-    return data_blob_parse(res)
+    return {"error": "Failed to verify data with public keys.  Try passing one as an argument."}
 
 
 def cli_validate_zone_file(args, config_path=CONFIG_PATH, proxy=None):
