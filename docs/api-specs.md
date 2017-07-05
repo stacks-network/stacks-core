@@ -60,7 +60,7 @@ TODO: authRequestToken format
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
 | Get all names | GET /v1/names | names | - | 
-| Register name | POST /v1/names | register | Payload: {"name": NAME} | 
+| Register name | POST /v1/names | register | Payload: {"name": NAME, "zonefile" : ZONEFILE, "owner_address" : OWNER, "min_confs" : MIN_PAYMENT_CONFS, "unsafe" : REGISTRATION_SAFETY} Required: "name" |
 | Get name info | GET /v1/names/{name} | names | - | 
 | Get name history | GET /v1/names/{name}/history | names | - | 
 | Get historical zone file | GET /names/{name}/zonefile/{zoneFileHash} | zonefiles | - | 

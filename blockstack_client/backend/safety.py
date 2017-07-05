@@ -1297,19 +1297,23 @@ def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info,
     return {'status': True, 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
 
 
-def check_register(fqu, owner_privkey_info, payment_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+def check_register(fqu, owner_privkey_info, payment_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None, force_it=False ):
     """
     Verify that a register can go through
     """
-    required_checks = ['is_name_available', 'owner_can_receive', 'is_payment_address_usable']
+    required_checks = ['is_name_available', 'is_payment_address_usable']
+    if not force_it:
+        required_checks += ['owner_can_receive']
     return _check_op(fqu, 'register', required_checks, owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy )
 
 
-def check_update(fqu, owner_privkey_info, payment_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+def check_update(fqu, owner_privkey_info, payment_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None, force_it=False ):
     """
     Verify that an update can go through
     """
-    required_checks = ['is_name_registered', 'is_owner_address_usable', 'is_payment_address_usable', 'is_name_owner']
+    required_checks = ['is_payment_address_usable']
+    if not force_it:
+        required_checks += ['is_name_registered', 'is_owner_address_usable', 'is_name_owner']
     return _check_op(fqu, 'update', required_checks, owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)
 
 
