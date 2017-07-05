@@ -58,7 +58,10 @@ INDEX_DIRNAME = "index"
 DVCONF = None
 
 BLOCKSTACK_DEBUG = (os.environ.get("BLOCKSTACK_DEBUG") == "1")
+BLOCKSTACK_TEST = (os.environ.get("BLOCKSTACK_TEST") == "1")
 
+if BLOCKSTACK_TEST:
+    INDEX_DIRNAME = "index-regtest"
 
 def dropbox_url_reformat(url):
     """
