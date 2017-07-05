@@ -43,3 +43,7 @@ able to fail more gracefully. This release fixes several such cases.
 in the indexer.  This interface had been deprecated for some time, and new 
 clients have been relying on timestamp-based fresh-profile validation for some
 time now.
+
+* Signing profiles and data is now done with a name's token file signing key,
+not the catch-all data private key.  You can still verify data signed with the
+old data key, however.
