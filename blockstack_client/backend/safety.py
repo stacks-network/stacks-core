@@ -843,7 +843,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
             return {'error': 'Could not get name price'}
 
         try:
-            utxo_client = get_utxo_provider_client(config_path=config_path)
+            utxo_client = get_utxo_provider_client(config_path=config_path, min_confirmations=min_payment_confs)
 
             insufficient_funds = False
             estimate = False
