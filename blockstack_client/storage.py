@@ -771,12 +771,12 @@ def get_driver_urls( fq_data_id, storage_drivers ):
     return ret
 
 
-def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data_hash=None,
-                     owner_address=None, drivers=None, decode=True, bsk_version=None, **driver_kw):
+def get_mutable_data(fq_data_id, data_pubkeys, urls=None, data_addresses=None, data_hash=None,
+                     drivers=None, decode=True, bsk_version=None, **driver_kw):
     """
     Low-level call to get mutable data, given a fully-qualified data name.
     
-    if decode is False, then data_pubkey, data_address, and owner_address are not needed and raw bytes will be returned.
+    if decode is False, then data_pubkeys and data_addresses are not needed and raw bytes will be returned.
 
     Return a mutable data dict on success (or raw bytes if decode=False)
     Return None on error
@@ -796,13 +796,14 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
 
     # ripemd160(sha256(pubkey))
     data_pubkey_hashes = []
-    for a in filter(lambda x: x is not None, [data_address, owner_address]):
-        try:
-            h = keylib.b58check.b58check_decode(str(a)).encode('hex')
-            data_pubkey_hashes.append(h)
-        except:
-            log.debug("Invalid address '{}'".format(a))
-            continue
+    if data_addresses:
+        for a in filter(lambda x: x is not None, data_addresses):
+            try:
+                h = keylib.b58check.b58check_decode(str(a)).encode('hex')
+                data_pubkey_hashes.append(h)
+            except:
+                log.debug("Invalid address '{}'".format(a))
+                continue
 
     log.debug('get_mutable_data {} bsk_version={}'.format(fq_data_id, bsk_version))
     for storage_handler in handlers_to_use:
@@ -850,7 +851,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
 
             log.debug('Try {} ({})'.format(storage_handler.__name__, url))
             try:
-                data_txt = storage_handler.get_mutable_handler(url, data_pubkey=data_pubkey, data_pubkey_hashes=data_pubkey_hashes, **driver_kw)
+                data_txt = storage_handler.get_mutable_handler(url, data_pubkeys=data_pubkeys, data_pubkey_hashes=data_pubkey_hashes, **driver_kw)
             except UnhandledURLException as uue:
                 # handler doesn't handle this URL
                 msg = 'Storage handler {} does not handle URLs like {}'
@@ -869,12 +870,22 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
             # parse it, if desired
             if decode:
                 data = None
-                if data_pubkey is not None or data_address is not None or data_hash is not None:
-                    data = parse_mutable_data(data_txt, data_pubkey, public_key_hash=data_address, data_hash=data_hash, bsk_version=bsk_version)
+                if data_pubkeys:
+                    # try public keys
+                    for data_pubkey in data_pubkeys:
+                        log.debug("Try to verify {} bytes with {}".format(len(data_txt), data_pubkey))
+                        data = parse_mutable_data(data_txt, data_pubkey, data_hash=data_hash, bsk_version=bsk_version)
+                        if data is not None:
+                            break
 
-                if data is None and owner_address is not None:
-                    data = parse_mutable_data(data_txt, None, public_key_hash=owner_address, bsk_version=bsk_version)
-
+                if data is None:
+                    # try public key hashes
+                    for pubkey_hash in data_pubkey_hashes:
+                        log.debug("Try to verify {} bytes with {}".format(pubkey_hash))
+                        data = parse_mutable_data(data_txt, None, public_key_hash=pubkey_hash, data_hash=data_hash, bsk_version=bsk_version)
+                        if data is not None:
+                            break
+                            
                 if data is None:
                     msg = 'Unparseable data from "{}"'
                     log.error(msg.format(url))
