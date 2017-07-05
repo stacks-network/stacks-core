@@ -20,13 +20,40 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os
+import os, json
 import threading
 import functools
+import virtualchain
 
-from ..constants import *
-from ..keys import *
-from ..proxy import *
+from ..constants import (
+    TX_MIN_CONFIRMATIONS,
+    CONFIG_PATH,
+    APPROX_PREORDER_TX_LEN,
+    APPROX_REGISTER_TX_LEN,
+    APPROX_UPDATE_TX_LEN,
+    APPROX_TRANSFER_TX_LEN,
+    APPROX_REVOKE_TX_LEN,
+    APPROX_RENEWAL_TX_LEN,
+    BLOCKSTACK_DEBUG,
+    BLOCKSTACK_TEST,
+    APPROX_NAMESPACE_PREORDER_TX_LEN,
+    APPROX_NAMESPACE_REVEAL_TX_LEN,
+    APPROX_NAMESPACE_READY_TX_LEN,
+)
+
+from ..proxy import (
+    get_default_proxy,
+    is_name_registered,
+    get_names_owned_by_address,
+    get_name_cost,
+    is_namespace_revealed,
+    is_namespace_ready,
+    json_is_error,
+    get_namespace_cost,
+    get_namespace_blockchain_record,
+    get_num_names_in_namespace,
+)
+
 from ..config import get_utxo_provider_client
 from ..b40 import is_b40
 from ..logger import get_logger
@@ -36,6 +63,8 @@ from .blockchain import (
     get_balance, is_address_usable, get_utxos,
     can_receive_name, get_tx_fee_per_byte
 )
+
+from virtualchain.lib.ecdsalib import ecdsa_private_key
 
 from ..scripts import UTXOException, is_name_valid, is_namespace_valid
 
@@ -152,10 +181,6 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-
-    config_dir = os.path.dirname(config_path)
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
@@ -541,8 +566,6 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
     # fee estimation: cost of name_or_ns + cost of preorder transaction +
     # cost of registration transaction + cost of update transaction + cost of transfer transaction
 
-    reply = {}
-    
     if owner_address:
         owner_address = str(owner_address)
     if payment_address:
@@ -820,7 +843,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
             return {'error': 'Could not get name price'}
 
         try:
-            utxo_client = get_utxo_provider_client(config_path=config_path, min_confirmations=min_payment_confs)
+            utxo_client = get_utxo_provider_client(config_path=config_path)
 
             insufficient_funds = False
             estimate = False
@@ -990,8 +1013,8 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
                 tx_fee = int(tx_fee)
 
             else:
-                tx_fee = (len('00' * APPROX_NAME_IMPORT_TX_LEN) * tx_fee_per_byte) / 2
-                insufficient_funds = True
+                return {'error' : 'Failed to get good estimate of name import tx fee, and ' + 
+                        'there is no fallback estimation'}
 
             return {'status': True, 'tx_fee': tx_fee, 'insufficient': insufficient_funds, 'estimate': estimate}
 
