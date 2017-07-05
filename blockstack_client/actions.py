@@ -81,15 +81,15 @@ from blockstack_client import (
     list_zonefile_history, lookup_snv, put_immutable, put_mutable, zonefile_data_replicate
 )
 
-from blockstack_client.profile import delete_profile, get_profile, \
-        profile_add_device_id, profile_remove_device_id, profile_list_accounts, profile_get_account, \
+from blockstack_client.profile import get_profile, \
+        profile_list_accounts, profile_get_account, \
         profile_put_account, profile_delete_account
 
 from rpc import local_api_connect, local_api_status 
 import rpc as local_rpc
 import config
 
-from .config import configure_zonefile, configure, get_utxo_provider_client, get_tx_broadcaster
+from .config import configure_zonefile, configure, get_utxo_provider_client, get_tx_broadcaster, get_local_device_id
 from .constants import (
     CONFIG_PATH, CONFIG_DIR,
     FIRST_BLOCK_MAINNET, NAME_UPDATE,
@@ -123,7 +123,7 @@ from .scripts import UTXOException, is_name_valid, is_valid_hash, is_namespace_v
 from .user import make_empty_user_profile, user_zonefile_data_pubkey
 
 from .tx import serialize_tx, sign_tx
-from .zonefile import make_empty_zonefile, url_to_uri_record
+from .zonefile import make_empty_zonefile, url_to_uri_record, lookup_name_zonefile_pubkey
 
 from .utils import exit_with_error, satoshis_to_btc, ScatterGather
 from .app import app_publish, app_get_config, app_get_resource, \
@@ -137,8 +137,9 @@ from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, put_dat
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
 
-from .token_file import token_file_profile_serialize, token_file_update_profile, token_file_put, token_file_delete, \
-    lookup_name_privkey, lookup_signing_privkey, lookup_signing_pubkeys, lookup_name_zonefile_pubkey
+from .token_file import token_file_profile_serialize, token_file_update_profile, token_file_get, token_file_put, token_file_delete, \
+    lookup_name_privkey, lookup_signing_privkey, lookup_signing_pubkeys, token_file_get_key_order, lookup_delegated_device_pubkeys, \
+    token_file_create
 
 import virtualchain
 from virtualchain.lib.ecdsalib import *
@@ -929,11 +930,14 @@ def cli_lookup(args, config_path=CONFIG_PATH):
     command: lookup
     help: Get the zone file and profile for a particular name
     arg: name (str) 'The name to look up'
+    opt: full (str) 'If True, then get the whole token file'
     """
     data = {}
 
     blockchain_record = None
     fqu = str(args.name)
+    full = str(args.full) if hasattr(args, "full") and args.full and len(args.full) > 0 else None
+    full = True if full else False
 
     error = check_valid_name(fqu)
     if error:
@@ -954,24 +958,44 @@ def cli_lookup(args, config_path=CONFIG_PATH):
         msg = 'Name is revoked. Use get_name_blockchain_record for details.'
         return {'error': msg}
 
-    try:
-        res = get_profile(str(args.name), name_record=blockchain_record)
-        if 'error' in res:
-            return res
+    if not full:
+        # just getting the profile
+        try:
+            res = get_profile(str(args.name), name_record=blockchain_record)
+            if 'error' in res:
+                return res
 
-        if res['profile'] is not None:
-            data['profile'] = res['profile']
-        else:
-            data['profile'] = res['legacy_profile']
+            if res['profile'] is not None:
+                data['profile'] = res['profile']
+            else:
+                data['profile'] = res['legacy_profile']
 
-        if data['profile'] is None:
-            return {'error': 'Failed to load a profile for this name.  Try again with --debug to diagnose.'}
+            if data['profile'] is None:
+                return {'error': 'Failed to load a profile for this name.  Try again with --debug to diagnose.'}
 
-        data['zonefile'] = res['raw_zonefile']
-    except Exception as e:
-        log.exception(e)
-        msg = 'Failed to look up name\n{}'
-        return {'error': msg.format(traceback.format_exc())}
+            data['zonefile'] = res['raw_zonefile']
+        except Exception as e:
+            log.exception(e)
+            msg = 'Failed to look up name\n{}'
+            return {'error': msg.format(traceback.format_exc())}
+
+    else:
+        # getting the token file
+        try:
+            res = token_file_get(str(args.name), name_record=blockchain_record)
+            if 'error' in res:
+                return res
+
+            if not res['token_file']:
+                return {'error': 'Name {} does not have a token file'.format(args.name)}
+            
+            del res['token_file']['jwts']
+            data['zonefile'] = res['raw_zonefile']
+            data['token_file'] = res['token_file']
+            
+        except Exception as e:
+            log.exception(e)
+            return {'error': 'Failed to look up name\n{}'.format(traceback.format_exc())}
 
     result = data
     analytics_event('Name lookup', {})
@@ -1245,7 +1269,7 @@ def analyze_zonefile_string(fqu, zonefile_data, force_data=False, check_current=
     return ret
 
 
-def cli_register(args, config_path=CONFIG_PATH, force_data=False,
+def cli_register(args, config_path=CONFIG_PATH, force_data=False, wallet_keys=None,
                  cost_satoshis=None, interactive=True, password=None, proxy=None):
     """
     command: register
@@ -1310,22 +1334,24 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     
     else:
         # make a default zonefile
-        _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
-        if not data_pubkey:
-            return {'error': 'No data key in wallet.  Please add one with `setup_wallet`'}
-
-        user_zonefile_dict = make_empty_zonefile(fqu, data_pubkey)
+        user_zonefile_dict = make_empty_zonefile(fqu, None)
         user_zonefile = blockstack_zones.make_zone_file(user_zonefile_dict)
 
     # if we have a data key, then make an empty profile and zonefile 
-    user_profile = None
+    new_token_file = None
     if not transfer_address:
-        # registering for this wallet.  Put an empty profile
-        _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
-        if not data_pubkey:
-            return {'error': 'No data key in wallet.  Please add one with `setup_wallet`'}
+        # registering for this wallet.  Put an empty token file, signed with this wallet's signing keys
+        if not wallet_keys:
+            wallet_keys = get_wallet_keys(config_path, password)
+            if 'error' in wallet_keys:
+                return wallet_keys
 
         user_profile = make_empty_user_profile()
+        res = migrate_profile_to_token_file(fqu, user_profile, get_owner_privkey_info(wallet_keys), config_path=config_path)
+        if 'error' in res:
+            return {'error': 'Failed to create token file: {}'.format(res['error'])}
+
+        new_token_file = res['token_file']
 
     # operation checks (API server only)
     if local_rpc.is_api_server(config_dir=config_dir):
@@ -1400,12 +1426,12 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
             exit(0)
 
     # forward along to RESTful server (or if we're the RESTful server, call the registrar method)
-    log.debug("Preorder {}, zonefile={}, profile={}, recipient={} min_confs={}".format(fqu, user_zonefile, user_profile, transfer_address, min_payment_confs))
+    log.debug("Preorder {}, zonefile={}, token_file={}, recipient={} min_confs={}".format(fqu, user_zonefile, new_token_file, transfer_address, min_payment_confs))
     rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     try:
-        resp = rpc.backend_preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs )
+        resp = rpc.backend_preorder(fqu, cost_satoshis, user_zonefile, new_token_file, transfer_address, min_payment_confs )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1810,13 +1836,47 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
     return resp
 
 
-def cli_migrate(args, config_path=CONFIG_PATH, password=None,
+def migrate_profile_to_token_file(name, profile, owner_privkey_info, device_id=None, config_path=CONFIG_PATH):
+    """
+    Given a user's existing profile and the wallet keys, 
+    make a serialized token file
+
+    Return {'status': True, 'token_file': token file} on success
+    Return {'error': ...} on error
+    """
+    config_dir = os.path.dirname(config_path)
+
+    if device_id is None:
+        device_id = get_local_device_id(config_dir)
+
+    name_owner_privkeys = None
+
+    if virtualchain.is_singlesig(owner_privkey_info):
+        name_owner_privkeys = {
+            device_id: str(owner_privkey_info)
+        }
+
+    else:
+        # select the first private key as belonging to this device
+        name_owner_privkeys = {
+            device_id: str(owner_privkey_info['privkeys'][0])
+        }
+
+    res = token_file_create(name, name_owner_privkeys, device_id, profile=profile, config_path=config_path)
+    if 'error' in res:
+        return {'error': 'Failed to create token file: {}'.format(res['error'])}
+
+    return {'status': True, 'token_file': res['token_file']}
+
+
+def cli_migrate(args, config_path=CONFIG_PATH, password=None, wallet_keys=None,
                 proxy=None, interactive=True, force=False):
     """
     command: migrate
-    help: Migrate a legacy blockchain-linked profile to the latest zonefile and profile format
+    help: Migrate a legacy profile to the latest zonefile and profile format
     arg: name (str) 'The blockchain ID with the profile to migrate'
     opt: force (str) 'Reset the zone file no matter what.'
+    opt: device_id (str) 'If given, use this as the device ID.'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1831,109 +1891,157 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     if 'error' in res:
         return res
 
+    if wallet_keys is None:
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
+
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
     fqu = str(args.name)
-    force = (force or (getattr(args, 'force', '').lower() in ['1', 'yes', 'force', 'true']))
+    if hasattr(args, 'force') and args.force is not None:
+        force = args.force.lower() in ['1', 'yes', 'force', 'true']
 
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
 
-    # need data public key 
-    _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
-    if data_pubkey is None:
-        return {'error': 'No data key in wallet'}
-
     res = get_name_zonefile(fqu, proxy=proxy)
+    if 'error' in res:
+        log.error("Failed to get zone file for {}: {}".format(fqu, res['error']))
+        return {'error': "Failed to get zone file for {}".format(fqu)}
 
     user_zonefile = None
     user_profile = None
+    new_token_file = None
 
-    if 'error' not in res:
-        name_rec = res['name_record']
-        user_zonefile_txt = res['raw_zonefile']
-        user_zonefile_hash = get_zonefile_data_hash(user_zonefile_txt)
-        user_zonefile = None
-        legacy = False
-        nonstandard = False
+    name_rec = res['name_record']
+    existing_profile = res['profile']
+    existing_zonefile = res['zonefile']
+    user_zonefile_txt = res['raw_zonefile']
+    user_zonefile_hash = get_zonefile_data_hash(user_zonefile_txt)
+    user_zonefile = None
+    legacy = False
+    is_token_file = True
+    nonstandard = False
+    need_name_update = False
 
-        # TODO: handle zone files that do not have data keys.
-        # try to parse
-        try:
-            user_zonefile = blockstack_zones.parse_zone_file(user_zonefile_txt)
-            legacy = blockstack_profiles.is_profile_in_legacy_format(user_zonefile)
-        except:
-            log.warning('Non-standard zonefile {}'.format(user_zonefile_hash))
-            nonstandard = True
+    # check the profile. is it a legacy profile, a raw profile, or a token file?
+    res = get_profile(name, proxy=proxy)
+    if 'error' in res:
+        return {'error': 'Failed to query current profile or token file'}
 
-        if nonstandard:
-            if force:
-                # forcibly reset the zone file
-                user_profile = make_empty_user_profile()
-                user_zonefile = make_empty_zonefile(fqu, data_pubkey)
+    if res['legacy']:
+        log.warn("Zone file is a legacy profile; migration needed")
+        legacy = True
 
-            else:
-                if os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
-                    # prompt
-                    msg = (
-                        ''
-                        'WARNING!  Non-standard zone file detected.'
-                        'If you proceed, your zone file will be reset.'
-                        ''
-                        'Proceed? (y/N): '
-                    )
+    if res['token_file'] is None:
+        log.warn("Got raw profile; token file migration needed")
+        is_token_file = False
+    
+    if res['nonstandard_zonefile']:
+        log.warn("Zone file is non-standard; migration needed")
+        nonstandard = True
 
-                    proceed_str = raw_input(msg)
-                    proceed = proceed_str.lower() in ['y']
-                    if not proceed:
-                        return {'error': 'Non-standard zonefile'}
-
-                    else:
-                        user_profile = make_empty_user_profile()
-                        user_zonefile = make_empty_zonefile(fqu, data_pubkey)
-                else:
-                    return {'error': 'Non-standard zonefile'}
-
-            # going ahead with zonefile and profile reset
+    if nonstandard:
+        if force:
+            # forcibly reset the zone file
+            user_profile = make_empty_user_profile()
+            user_zonefile = make_empty_zonefile(fqu, None)
+            need_name_update = True
 
         else:
-            # standard or legacy zone file
-            if not legacy:
-                msg = 'Zone file is in the latest format.  No migration needed'
-                return {'error': msg}
+            if os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
+                # prompt
+                msg = (
+                    ''
+                    'WARNING!  Non-standard zone file detected.'
+                    'If you proceed, your zone file will be reset.'
+                    ''
+                    'Proceed? (y/N): '
+                )
 
+                proceed_str = raw_input(msg)
+                proceed = proceed_str.lower() in ['y']
+                if not proceed:
+                    return {'error': 'Non-standard zonefile'}
+
+                else:
+                    user_profile = make_empty_user_profile()
+                    user_zonefile = make_empty_zonefile(fqu, None)
+                    need_name_update = True
+            else:
+                return {'error': 'Non-standard zonefile'}
+
+        # going ahead with zonefile and profile reset
+
+    else:
+        if not legacy:
+            # standard zone file
+            # raw profile?
+            if not is_token_file:
+                log.debug("Migrating raw profile to token file")
+                user_profile = existing_profile
+                user_zonefile = existing_zonefile
+
+            else:
+                log.debug("Zone file, profile, and token file are in the latest format.")
+                return {'status': True}
+
+        else:
+            # legacy zone file that encodes a profile
             # convert
             user_profile = blockstack_profiles.get_person_from_legacy_format(user_zonefile)
             user_zonefile = make_empty_zonefile(fqu, data_pubkey)
+            need_name_update = True
 
-    else:
-        log.error("Failed to get zone file for {}".format(fqu))
+    res = migrate_profile_to_token_file(name, profile, get_owner_privkey_info(wallet_keys), device_id=device_id, config_path=config_path)
+    if 'error' in res:
         return {'error': res['error']}
 
-    zonefile_txt = blockstack_zones.make_zone_file(user_zonefile)
-    zonefile_hash = get_zonefile_data_hash(zonefile_txt) 
+    new_token_file = res['token_file']
+    resp = {}
 
-    rpc = local_api_connect(config_path=config_path)
-    assert rpc
+    if need_name_update:
+        # need to update the zone file
+        zonefile_txt = blockstack_zones.make_zone_file(user_zonefile)
+        zonefile_hash = get_zonefile_data_hash(zonefile_txt) 
 
-    try:
-        resp = rpc.backend_update(fqu, zonefile_txt, user_profile, None)
-    except Exception as e:
-        log.exception(e)
-        return {'error': 'Error talking to server, try again.'}
+        rpc = local_api_connect(config_path=config_path)
+        assert rpc
 
-    if 'error' in resp:
-        log.debug('RPC error: {}'.format(resp['error']))
-        return resp
+        try:
+            resp = rpc.backend_update(fqu, zonefile_txt, new_token_file, None)
+        except Exception as e:
+            log.exception(e)
+            return {'error': 'Error talking to API endpoint, try again.'}
 
-    if (not 'success' in resp or not resp['success']) and 'message' in resp:
-        return {'error': resp['message']}
+        if 'error' in resp:
+            log.debug('RPC error: {}'.format(resp['error']))
+            return resp
 
-    analytics_event('Migrate name', {})
-    
-    resp['zonefile_hash'] = zonefile_hash
+        if (not 'success' in resp or not resp['success']) and 'message' in resp:
+            return {'error': resp['message']}
+
+        analytics_event('Migrate name', {})
+        resp['zonefile_hash'] = zonefile_hash
+
+    else:
+        # find the right signing private key to use
+        res = find_signing_privkey(name, wallet_keys=wallet_keys, config_path=config_path, password=password, proxy=proxy)
+        if 'error' in res:
+            return res
+
+        signing_privkey = res['signing_privkey']
+
+        # only need to store the token file
+        res = token_file_put(name, new_token_file, signing_privkey, proxy=proxy, required_drivers=required_storage_drivers, config_path=config_path)
+        if 'error' in res:
+            return res
+        
+        resp = {'status': True}
+
     return resp
 
 
@@ -2016,7 +2124,7 @@ def cli_setup_wallet(args, config_path=CONFIG_PATH, password=None, interactive=T
 def cli_get_public_key(args, config_path=CONFIG_PATH, proxy=None):
     """
     command: get_public_key
-    help: Get the ECDSA public key for a blockchain ID
+    help: Get the ECDSA signing public key for a blockchain ID
     arg: name (str) 'The blockchain ID'
     """
     # reply ENODATA if we can't load the zone file
@@ -2033,7 +2141,7 @@ def cli_get_public_key(args, config_path=CONFIG_PATH, proxy=None):
         return {'error': 'zone file for {} has no public key'.format(fqu), 'errno': errno.EINVAL}
 
     zfpubkey = keylib.key_formatting.decompress(user_zonefile_data_pubkey(zfinfo['zonefile']))
-    return {'public_key': zfpubkey}
+    return {'status': True, 'public_key': zfpubkey}
 
 
 def cli_list_accounts( args, proxy=None, config_path=CONFIG_PATH ):
@@ -2085,7 +2193,7 @@ def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, w
     arg: service (str) 'The service this account is for.'
     arg: identifier (str) 'The name of the account.'
     arg: content_url (str) 'The URL that points to external contact data.'
-    arg: signing_privkey (str) 'The device-specific signing private key for this name.'
+    opt: signing_privkey (str) 'The device-specific signing private key for this name.'
     opt: extra_data (str) 'A comma-separated list of "name1=value1,name2=value2,name3=value3..." with any extra account information you need in the account.'
     """
     password = get_default_password(password)
@@ -2101,13 +2209,8 @@ def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, w
     service = str(args.service)
     identifier = str(args.identifier)
     content_url = str(args.content_url)
-    signing_privkey = str(args.signing_privkey)
+    signing_privkey = None
     
-    try:
-        signing_privkey = ECPrivateKey(signing_privkey).to_hex()
-    except:
-        return {'error': 'Unable to parse private key'}
-
     if not is_name_valid(args.name):
         return {'error': 'Invalid name'}
 
@@ -2131,6 +2234,13 @@ def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, w
 
                 v = "=".join(parts[1:])
                 extra_data[k] = v
+ 
+    # find the right signing private key to use
+    res = find_signing_privkey(name, getattr(args, 'signing_privkey', None), wallet_keys=wallet_keys, config_path=config_path, password=password, proxy=proxy)
+    if 'error' in res:
+        return res
+
+    signing_privkey = res['signing_privkey']
 
     return profile_put_account(name, service, identifier, content_url, extra_data, signing_privkey, config_path=config_path, proxy=proxy)
 
@@ -2142,7 +2252,7 @@ def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None
     arg: name (str) 'The name to query.'
     arg: service (str) 'The service the account is for.'
     arg: identifier (str) 'The identifier of the account to delete.'
-    arg: signing_privkey (str) 'The device-specific signing private key for this name.'
+    opt: signing_privkey (str) 'The device-specific signing private key for this name.'
     """
     password = get_default_password(password)
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
@@ -2156,12 +2266,14 @@ def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None
     name = str(args.name)
     service = str(args.service)
     identifier = str(args.identifier)
-    signing_privkey = str(args.signing_privkey)
+    signing_privkey = None
     
-    try:
-        signing_privkey = ECPrivateKey(signing_privkey).to_hex()
-    except:
-        return {'error': 'Unable to parse private key'}
+    # find the right signing private key to use
+    res = find_signing_privkey(name, getattr(args, 'signing_privkey', None), wallet_keys=wallet_keys, config_path=config_path, password=password, proxy=proxy)
+    if 'error' in res:
+        return res
+
+    signing_privkey = res['signing_privkey']
 
     if not is_name_valid(name):
         return {'error': 'Invalid name'}
@@ -3342,6 +3454,12 @@ def cli_get_mutable(args, config_path=CONFIG_PATH, proxy=None):
     opt: device_ids (str) 'A CSV of devices to query'
     """
     data_pubkey = str(args.data_pubkey) if hasattr(args, 'data_pubkey') and getattr(args, 'data_pubkey') is not None else None
+    name = str(args.name)
+    proxy = get_default_proxy() if proxy is None else proxy
+    
+    pubkeys = []
+    addresses = []
+    device_pubkeys = None
 
     # get the list of device IDs to use 
     device_ids = getattr(args, 'device_ids', None)
@@ -3349,9 +3467,16 @@ def cli_get_mutable(args, config_path=CONFIG_PATH, proxy=None):
         device_ids = device_ids.split(',')
 
     else:
-        raise NotImplemented("Missing token file parsing logic")
+        res = find_signing_pubkeys_and_address(name, data_pubkey, proxy=proxy)
+        if 'error' in res:
+            return res
 
-    result = get_mutable(str(args.data_id), device_ids['device_ids'], proxy=proxy, config_path=config_path, blockchain_id=str(args.name), data_pubkey=data_pubkey)
+        pubkeys = res['pubkeys']
+        addresses = [res['address']]
+        device_pubkeys = res['device_pubkeys']
+        device_ids = device_pubkeys.keys()
+
+    result = get_mutable(str(args.data_id), device_ids, proxy=proxy, config_path=config_path, blockchain_id=str(args.name), device_data_pubkeys=device_pubkeys, data_pubkeys=pubkeys, data_pubkey_hashes=addresses)
     if 'error' in result:
         return result
 
@@ -3775,6 +3900,7 @@ def find_signing_privkey(name, args_signing_privkey, wallet_keys=None, config_pa
 
         res = lookup_signing_privkey(name, get_owner_privkey_info(wallet_keys), proxy=proxy)
         if 'error' in res:
+            log.error("Failed to load signing key for {}: {}".format(name, res['error']))
             return {'error': 'Failed to look up signing key from wallet.  Try passing it explicitly as an argument.'}
 
         signing_privkey = res['signing_privkey']
@@ -3786,7 +3912,11 @@ def find_signing_pubkeys_and_address(name, args_signing_pubkey, proxy=None):
     Find the set of public keys and possibly address to use for a given name.
     Use either the one given in the args (args_signing_pubkey), or look it up from the token file, zone file, and name record.
 
-    Return {'status': True, 'pubkeys': [public keys, including zone file pubkey], 'address': owner address} on success
+    Return {
+    'status': True,
+    'pubkeys': [public keys, including zone file pubkey],
+    'device_pubkeys': {'$device_id': '$device_signing_pubkey'},
+    'address': owner address} on success
     Return {'error': ...} on failure
     """
 
@@ -3809,6 +3939,7 @@ def find_signing_pubkeys_and_address(name, args_signing_pubkey, proxy=None):
             log.error("Failed to look up signing keys for {}: {}".format(name, res['error']))
             return {'error': 'Failed to look up public keys for {}'.format(name)}
 
+        device_pubkeys = res['pubkeys']
         pubkeys = res['pubkeys'].values()
 
         # also grab the zone file public key, if present 
@@ -3823,7 +3954,38 @@ def find_signing_pubkeys_and_address(name, args_signing_pubkey, proxy=None):
 
         owner_address = res['name_record']['address']
 
-        return {'status': True, 'pubkeys': pubkeys, 'address': owner_address}
+        return {'status': True, 'pubkeys': pubkeys, 'device_pubkeys': device_pubkeys, 'address': owner_address}
+
+
+def find_datastore_device_pubkeys(blockchain_id, args_device_ids, args_device_pubkeys, proxy=None):
+    """
+    Find the set of device IDs and public keys for a given name.
+    Use either the CSV string given in args (args_device_dis), or look it up from the token file.
+
+    Return {'status': True, 'device_ids': [{'device_id': ..., 'pubkey': ...}...[} on success
+    Return {'errro': ...} on error
+    """
+    pubkeys = None
+
+    # get the list of device IDs to use 
+    if args_device_ids and args_device_pubkeys:
+        device_ids = args_device_ids.split(',')
+        device_pubkeys = args_device_pubkeys.split(',')
+        assert len(device_ids) == len(device_pubkeys)
+
+        pubkeys = {}
+        for i in xrange(0, len(device_ids)):
+            pubkeys[device_ids[i]] = device_pubkeys[i]
+
+    else:
+        # find from token file 
+        res = lookup_delegated_device_pubkeys(blockchain_id, proxy=proxy)
+        if 'error' in res:
+            return {'error': 'Failed to query device list for {}: {}'.format(blockchain_id, res['error'])}
+
+        pubkeys = res['pubkeys'].keys()
+
+    return {'status': True, 'device_ids': pubkeys.keys(), 'pubkeys': pubkeys}
 
 
 def cli_put_profile(args, config_path=CONFIG_PATH, password=None, proxy=None, force_data=False, wallet_keys=None):
@@ -3865,9 +4027,6 @@ def cli_put_profile(args, config_path=CONFIG_PATH, password=None, proxy=None, fo
     except:
         return {'error': 'Invalid profile JSON'}
 
-    required_storage_drivers = conf.get('storage_drivers_required_write', config.BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE)
-    required_storage_drivers = required_storage_drivers.split()
-
     # get the current profile or token file.  If this is a profile, then tell the user to migrate.
     res = get_profile(name, proxy=proxy)
     if 'error' in res:
@@ -3877,7 +4036,7 @@ def cli_put_profile(args, config_path=CONFIG_PATH, password=None, proxy=None, fo
         return {'error': 'Profile is in legacy format (version 1).  Please use the `migrate` command to migrate your profile to the latest format.'}
 
     if res['token_file'] is None:
-        return {'error': 'Profile is in legacy format (version 2).  Please use the `migrate` command to migrate your profile to the latest format.'}
+        return {'error': 'Name points to a raw profile (version 2).  Please use the `migrate` command to migrate your profile to the latest format.'}
     
     # got a token file 
     parsed_token_file = res['token_file']
@@ -3886,7 +4045,7 @@ def cli_put_profile(args, config_path=CONFIG_PATH, password=None, proxy=None, fo
         return {'error': 'Failed to update token file: {}'.format(res['error'])}
 
     # save it
-    res = token_file_put(name, res['token_file'], signing_privkey, proxy=proxy, required_drivers=required_storage_drivers, config_path=config_path)
+    res = token_file_put(name, res['token_file'], signing_privkey, proxy=proxy, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -3906,8 +4065,6 @@ def cli_delete_profile(args, config_path=CONFIG_PATH, password=None, proxy=None,
     signing_privkey = None
     
     name = str(args.blockchain_id)
-    if not hasattr(arg, 'signing_privkey'):
-        return {'error': 'The "signing_privkey" argument is required at this time, but will be optional in future releases'}
 
     # find the right signing private key to use
     res = find_signing_privkey(name, getattr(args, 'signing_privkey', None), wallet_keys=wallet_keys, config_path=config_path, password=password, proxy=proxy)
@@ -3916,7 +4073,29 @@ def cli_delete_profile(args, config_path=CONFIG_PATH, password=None, proxy=None,
 
     signing_privkey = res['signing_privkey']
 
-    res = delete_profile(name, signing_privkey, proxy=proxy)
+    # get the current profile or token file.  If this is a profile, then tell the user to migrate.
+    res = get_profile(name, proxy=proxy)
+    if 'error' in res:
+        return {'error': 'Failed to query current profile or token file'}
+   
+    if res['legacy']:
+        return {'error': 'Profile is in legacy format (version 1).  Please use the `migrate` command to migrate your profile to the latest format.'}
+
+    if res['token_file'] is None:
+        return {'error': 'Name points to a raw profile (version 2).  Please use the `migrate` command to migrate your profile to the latest format.'}
+    
+    # got a token file. put an empty profile
+    empty_profile = make_empty_user_profile(config_path=config_path) 
+    parsed_token_file = res['token_file']
+    res = token_file_update_profile(parsed_token_file, empty_profile, signing_privkey)
+    if 'error' in res:
+        return {'error': 'Failed to update token file: {}'.format(res['error'])}
+
+    # save it
+    res = token_file_put(name, res['token_file'], signing_privkey, proxy=proxy, config_path=config_path)
+    if 'error' in res:
+        return res
+
     return res
 
 
@@ -4077,13 +4256,6 @@ def cli_convert_legacy_profile(args, config_path=CONFIG_PATH):
     profile = blockstack_profiles.get_person_from_legacy_format(profile)
 
     return profile
-
-
-def get_app_name(appname):
-    """
-    Get the application name, or if not given, the default name
-    """
-    return appname if appname is not None else '_default'
 
 
 def cli_app_publish( args, config_path=CONFIG_PATH, interactive=False, password=None, proxy=None ):
@@ -4335,6 +4507,7 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
     """
     command: sign_profile advanced raw
     help: Sign a JSON file to be used as a profile.
+    arg: blockchain_id (str) 'The blockchain ID that will own this profile'
     arg: path (str) 'The path to the profile data on disk.'
     opt: privkey (str) 'The device-specific signing key'
     """
@@ -4344,11 +4517,12 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
     password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
+    name = str(args.blockchain_id)
     path = str(args.path)
     data_json = None
     try:
         with open(path, 'r') as f:
-            dat = f.read()
+            dat = f.read().strip()
             data_json = json.loads(dat)
     except Exception as e:
         if os.environ.get("BLOCKSTACK_DEBUG") == "1":
@@ -4419,7 +4593,7 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
     return {'error': 'Failed to verify profile with all available public keys'}
 
 
-def cli_sign_data( args, config_path=CONFIG_PATH, proxy=None, password=None, interactive=False ):
+def cli_sign_data( args, config_path=CONFIG_PATH, proxy=None, password=None, interactive=False, wallet_keys=None ):
     """
     command: sign_data advanced raw
     help: Sign data to be used in a data store.
@@ -4432,8 +4606,9 @@ def cli_sign_data( args, config_path=CONFIG_PATH, proxy=None, password=None, int
         proxy = get_default_proxy(config_path=config_path)
     
     password = get_default_password(password)
-
     config_dir = os.path.dirname(config_path)
+    
+    name = str(args.name)
     path = str(args.path)
     data = None
     try:
@@ -4560,22 +4735,31 @@ def cli_list_devices( args, config_path=CONFIG_PATH, proxy=None ):
     command: list_devices advanced
     help: Get the list of device IDs and public keys for a particular application
     arg: blockchain_id (str) 'The blockchain ID whose devices to list'
-    arg: appname (str) 'The name of the application'
     """
     
-    raise NotImplemented("Missing token file parsing logic")
+    proxy = get_default_proxy() if proxy is None else proxy
+    
+    res = lookup_delegated_device_pubkeys(str(args.name), proxy=proxy)
+    if 'error' in res:
+        return res
+
+    pubkeys = res['pubkeys']
+    device_ids = pubkeys.keys()
+
+    return {'status': True, 'device_ids': device_ids}
 
 
-def cli_add_device( args, config_path=CONFIG_PATH, proxy=None ):
+def cli_add_device( args, config_path=CONFIG_PATH, proxy=None, wallet_keys=None ):
     """
     command: add_device advanced
     help: Add a device that can read and write your data
     arg: blockchain_id (str) 'The blockchain ID whose profile to update'
-    opt: device_id (str) 'The ID of the device to add, if not this one'
+    arg: device_id (str) 'The ID of the device to add'
+    opt: signing_privkey (str) 'The signing private key to use'
     """
-
-    raise NotImplemented("Missing token file parsing logic")
     
+    raise NotImplemented("Missing token file parsing logic")
+        
 
 def cli_remove_device( args, config_path=CONFIG_PATH, proxy=None ):
     """
@@ -4848,20 +5032,6 @@ def datastore_inode_getinode(datastore_type, blockchain_id, datastore_id, inode_
 
     res = datastore_getinode( rpc, blockchain_id, datastore, inode_uuid, data_pubkeys, extended=False, force=force, idata=idata, config_path=config_path )
     return res
-
-
-def cli_get_device_keys( args, config_path=CONFIG_PATH ):
-    """
-    command: get_device_keys advanced
-    help: Get the device IDs and public keys for a blockchain ID
-    arg: blockchain_id (str) 'The blockchain Id'
-    """
-    blockchain_id = str(args.blockchain_id)
-
-    # TODO: implement token file support 
-    log.warning("Token file support is NOT IMPLEMENTED")
-    
-    # find the "data public key"
     
 
 def cli_get_datastore( args, config_path=CONFIG_PATH ):
@@ -4874,14 +5044,17 @@ def cli_get_datastore( args, config_path=CONFIG_PATH ):
     """
     blockchain_id = str(args.blockchain_id)
     datastore_id = str(args.datastore_id)
-
-    # get the list of device IDs to use 
-    device_ids = getattr(args, 'device_ids', None)
-    if device_ids:
-        device_ids = device_ids.split(',')
+    
+    device_ids = None
+    if getattr(args, 'device_ids', None) is not None:
+        device_ids = args.device_ids.split(',')
 
     else:
-        raise NotImplemented("Missing token file parsing logic")
+        res = lookup_delegated_device_pubkeys(blockchain_id, proxy=proxy)
+        if 'error' in res:
+            return res
+
+        device_ids = res['pubkeys'].keys()
 
     return get_datastore_by_type('datastore', blockchain_id, datastore_id, device_ids, config_path=config_path )
 
@@ -4891,7 +5064,7 @@ def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None ):
     command: create_datastore advanced 
     help: Make a new datastore
     arg: blockchain_id (str) 'The blockchain ID that will own this datastore'
-    arg: privkey (str) 'The ECDSA private key of the datastore'
+    arg: privkey (str) 'The app-specific private key of the datastore'
     arg: session (str) 'The API session token'
     opt: drivers (str) 'A CSV of drivers to use.'
     """
@@ -4913,7 +5086,7 @@ def cli_delete_datastore( args, config_path=CONFIG_PATH ):
     command: delete_datastore advanced 
     help: Delete a datastore owned by a given user, and all of the data it contains.
     arg: blockchain_id (str) 'The owner of this datastore'
-    arg: privkey (str) 'The ECDSA private key of the datastore'
+    arg: privkey (str) 'The app-specific private key of the datastore'
     arg: session (str) 'The API session token'
     opt: force (str) 'If True, then delete the datastore even if it cannot be emptied'
     """
@@ -5074,25 +5247,11 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False ):
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
 
-    # get the list of device IDs to use 
-    device_ids = getattr(args, 'device_ids', None)
-    if device_ids:
-        device_ids = device_ids.split(',')
-
-    else:
-        raise NotImplemented("Missing token file parsing logic")
-
-    device_pubkeys = None
-    if hasattr(args, 'device_pubkeys'):
-        device_pubkeys = str(args.device_pubkeys).split(',')
-    else:
-        raise NotImplemented("No support for token files")
-
-    assert len(device_ids) == len(device_pubkeys)
-    data_pubkeys = [{
-        'device_id': dev_id,
-        'public_key': pubkey
-    } for (dev_id, pubkey) in zip(device_ids, device_pubkeys)]
+    res = find_datastore_device_pubkeys(name, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), proxy=proxy)
+    if 'error' in res:
+        return {'error': 'Failed to query device list for {}: {}'.format(name, res['error'])}
+   
+    data_pubkeys = res['pubkeys']
 
     res = datastore_file_get('datastore', blockchain_id, datastore_id, path, data_pubkeys, extended=extended, force=force, config_path=config_path)
     if json_is_error(res):
@@ -5128,7 +5287,6 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
     path = str(args.path)
     extended = False
     force = False
-    device_ids = None
 
     if hasattr(args, 'extended') and args.extended.lower() in ['1', 'true']:
         extended = True
@@ -5136,25 +5294,11 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
 
-    # get the list of device IDs to use 
-    device_ids = getattr(args, 'device_ids', None)
-    if device_ids:
-        device_ids = device_ids.split(',')
-
-    else:
-        raise NotImplemented("Missing token file parsing logic")
-
-    device_pubkeys = None
-    if hasattr(args, 'device_pubkeys'):
-        device_pubkeys = str(args.device_pubkeys).split(',')
-    else:
-        raise NotImplemented("No support for token files")
-
-    assert len(device_ids) == len(device_pubkeys)
-    data_pubkeys = [{
-        'device_id': dev_id,
-        'public_key': pubkey
-    } for (dev_id, pubkey) in zip(device_ids, device_pubkeys)]
+    res = find_datastore_device_pubkeys(name, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), proxy=proxy)
+    if 'error' in res:
+        return {'error': 'Failed to query device list for {}: {}'.format(name, res['error'])}
+   
+    data_pubkeys = res['pubkeys']
 
     res = datastore_dir_list('datastore', blockchain_id, datastore_id, path, data_pubkeys, extended=extended, force=force, config_path=config_path )
     if json_is_error(res):
@@ -5198,27 +5342,11 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
 
-    # get the list of device IDs to use 
-    device_ids = getattr(args, 'device_ids', None)
-    if device_ids:
-        device_ids = device_ids.split(',')
-
-    else:
-        # TODO
-        raise NotImplemented("Missing token file parsing logic")
-
-    device_pubkeys = None
-    if hasattr(args, 'device_pubkeys'):
-        device_pubkeys = str(args.device_pubkeys).split(',')
-    else:
-        # TODO
-        raise NotImplemented("No support for token files")
-
-    assert len(device_ids) == len(device_pubkeys)
-    data_pubkeys = [{
-        'device_id': dev_id,
-        'public_key': pubkey
-    } for (dev_id, pubkey) in zip(device_ids, device_pubkeys)]
+    res = find_datastore_device_pubkeys(name, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), proxy=proxy)
+    if 'error' in res:
+        return {'error': 'Failed to query device list for {}: {}'.format(name, res['error'])}
+   
+    data_pubkeys = res['pubkeys']
 
     res = datastore_path_stat('datastore', blockchain_id, datastore_id, path, data_pubkeys, extended=extended, force=force, config_path=config_path) 
     if json_is_error(res):
@@ -5270,27 +5398,11 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
     if hasattr(args, 'idata') and args.idata.lower() in ['1', 'true']:
         idata = True
 
-    # get the list of device IDs to use 
-    device_ids = getattr(args, 'device_ids', None)
-    if device_ids:
-        device_ids = device_ids.split(',')
-
-    else:
-        # TODO
-        raise NotImplemented("Missing token file parsing logic")
-
-    device_pubkeys = None
-    if hasattr(args, 'device_pubkeys'):
-        device_pubkeys = str(args.device_pubkeys).split(',')
-    else:
-        # TODO
-        raise NotImplemented("No support for token files")
-
-    assert len(device_ids) == len(device_pubkeys)
-    data_pubkeys = [{
-        'device_id': dev_id,
-        'public_key': pubkey
-    } for (dev_id, pubkey) in zip(device_ids, device_pubkeys)]
+    res = find_datastore_device_pubkeys(name, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), proxy=proxy)
+    if 'error' in res:
+        return {'error': 'Failed to query device list for {}: {}'.format(name, res['error'])}
+   
+    data_pubkeys = res['pubkeys']
 
     return datastore_inode_getinode('datastore', blockchain_id, datastore_id, inode_uuid, data_pubkeys, extended=extended, force=force, idata=idata, config_path=config_path) 
 
@@ -5363,12 +5475,6 @@ def cli_datastore_get_privkey(args, config_path=CONFIG_PATH, interactive=False )
     arg: app_domain (str) 'The name of the application'
     """
     raise NotImplemented("Token file support not yet implemented")
-
-    app_domain = str(args.app_domain)
-    master_privkey = str(args.master_privkey)
-
-    datastore_privkey = datastore_get_privkey(master_privkey, app_domain, config_path=config_path)
-    return {'status': True, 'datastore_privkey': datastore_privkey}
 
 
 def cli_datastore_get_id(args, config_path=CONFIG_PATH, interactive=False ):
