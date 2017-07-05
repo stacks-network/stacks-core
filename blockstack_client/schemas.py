@@ -24,7 +24,7 @@ from __future__ import print_function
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from .constants import *
+from constants import *
 import blockstack_profiles
 
 OP_CONSENSUS_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTH_CONSENSUS_HASH * 2)
@@ -50,7 +50,9 @@ OP_NAME_PATTERN = r'^([a-z0-9\-_.+]{{{},{}}})$'.format(3, LENGTH_MAX_NAME)
 OP_NAMESPACE_PATTERN = r'^([a-z0-9\-_+]{{{},{}}})$'.format(1, LENGTH_MAX_NAMESPACE_ID)
 OP_NAMESPACE_HASH_PATTERN = r'^([0-9a-fA-F]{16})$'
 OP_BASE64_PATTERN_SECTION = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
+OP_BASE64_URLSAFE_PATTERN_SECTION = r'(?:[A-Za-z0-9\-_]{4})*(?:[A-Za-z0-9\-_]{2}==|[A-Za-z0-9\-_]{3}=|[A-Za-z0-9\-_]{4})'
 OP_BASE64_PATTERN = r'^({})$'.format(OP_BASE64_PATTERN_SECTION)
+OP_BASE64_URLSAFE_PATTERN = r'^({})$'.format(OP_BASE64_URLSAFE_PATTERN_SECTION)
 OP_URLENCODED_NOSLASH_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'       # intentionally left out /
 OP_URLENCODED_NOSLASH_OR_EMPTY_PATTERN = r'^([a-zA-Z0-9\-_.~%]*)$'       # intentionally left out /, allow empty
 OP_URLENCODED_OR_EMPTY_PATTERN = r'^([a-zA-Z0-9\-_.~%/]*)$'
@@ -61,6 +63,9 @@ OP_USER_ID_PATTERN = r'^({}+)$'.format(OP_USER_ID_CLASS)
 OP_DATASTORE_ID_PATTERN = r'^({}+)$'.format(OP_DATASTORE_ID_CLASS)
 OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
 OP_URI_TARGET_PATTERN_NOSCHEME = r'^([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
+OP_DNS_NAME_PATTERN_SECTION = '([a-z0-9_\-]+\.)*([a-z0-9\-]+)\.([a-z0-9]+)'
+OP_BLOCKSTACK_APP_NAME_PATTERN_SECTION = '[a-z0-9\-_.+]{{{},{}}}'.format(3, LENGTH_MAX_NAME)
+OP_APP_NAME_PATTERN = r'^({})\.x|({})\.1$'.format(OP_BLOCKSTACK_APP_NAME_PATTERN_SECTION, OP_DNS_NAME_PATTERN_SECTION)
 
 OP_ANY_TYPE_SCHEMA = [
     {
@@ -1079,7 +1084,6 @@ DATASTORE_LOOKUP_RESPONSE_SCHEMA = {
             'type': 'boolean',
         },
     },
-    'additionalProperties': False,
     'required': [
         'data',
         'status',
@@ -1101,7 +1105,6 @@ DATASTORE_LOOKUP_EXTENDED_RESPONSE_SCHEMA = {
             'type': 'boolean',
         },
     },
-    'additionalProperties': False,
     'required': [
         'path_info',
         'inode_info',
@@ -1448,6 +1451,45 @@ PROFILE_ACCOUNT_SCHEMA = {
 }
 
 
+# single delegated key bundle
+KEY_DELEGATION_DEVICE_RECORD_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'app': {
+            'type': 'string',
+            'pattern': OP_PUBKEY_PATTERN,
+        },
+        'enc': {
+            'type': 'string',
+            'pattern': OP_PUBKEY_PATTERN,
+        },
+        'sign': {
+            'type': 'string',
+            'pattern': OP_PUBKEY_PATTERN,
+        },
+        'index': {
+            'type': 'integer',
+            'minimum': 0,
+            'maximum': 2**31 - 1,
+        },
+    },
+    'required': [
+        'app',
+        'enc',
+        'sign',
+        'index',
+    ],
+}
+
+
+# set of device-specific key delegations 
+KEY_DELEGATION_DEVICES_SCHEMA = {
+    'type': 'object',
+    'patternProperties': {
+        '.+': KEY_DELEGATION_DEVICE_RECORD_SCHEMA,
+    },
+}
+
 # key delegation schema 
 KEY_DELEGATION_SCHEMA = {
     'type': 'object',
@@ -1460,40 +1502,7 @@ KEY_DELEGATION_SCHEMA = {
             'type': 'string',
             'pattern': OP_NAME_PATTERN,
         },
-        'devices': {
-            'type': 'object',
-            'patternProperties': {
-                '^.+$': {
-                    'type': 'object',
-                    'properties': {
-                        'app': {
-                            'type': 'string',
-                            'pattern': OP_PUBKEY_PATTERN,
-                        },
-                        'enc': {
-                            'type': 'string',
-                            'pattern': OP_PUBKEY_PATTERN,
-                        },
-                        'sign': {
-                            'type': 'string',
-                            'pattern': OP_PUBKEY_PATTERN,
-                        },
-                        'index': {
-                            'type': 'integer',
-                            'minimum': 0,
-                            'maximum': 2**31 - 1,
-                        },
-                    },
-                    'required': [
-                        'app',
-                        'enc',
-                        'sign',
-                        'index',
-                    ],
-                    'additionalProperties': False,
-                },
-            },
-        },
+        'devices': KEY_DELEGATION_DEVICES_SCHEMA,
     },
     'required': [
         'version',
@@ -1515,7 +1524,7 @@ APP_KEY_BUNDLE_SCHEMA = {
         'apps': {
             'type': 'object',
             'patternProperties': {
-                OP_NAME_PATTERN: {
+                OP_APP_NAME_PATTERN: {
                     'type': 'string',
                     'pattern': OP_PUBKEY_PATTERN,
                 },
@@ -1538,26 +1547,56 @@ BLOCKSTACK_TOKEN_FILE_SCHEMA = {
             'type': 'string',
             'pattern': '^3\.0$',
         },
-        'profile': blockstack_profiles.person.PERSON_SCHEMA,
+        'profile': {
+            'type': 'string',
+            'pattern': '.+',
+        },
         'keys': {
-            'delegation': KEY_DELEGATION_SCHEMA,
-            'apps': {
-                'type': 'object',
-                'patternProperties': {
-                    '^.+$': APP_KEY_BUNDLE_SCHEMA
+            'type': 'object',
+            'properties': {
+                'name': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'string',
+                        'pattern': OP_PUBKEY_PATTERN,
+                    },
+                },
+                'delegation': {
+                    'type': 'string',
+                    'pattern': '.+',  # KEY_DELEGATION_SCHEMA JWT
+                },
+                'apps': {
+                    'type': 'object',
+                    'patternProperties': {
+                        '.+': {               # device ID
+                            'type': 'string',
+                            'pattern': '.+',  # APP_KEY_BUNDLE_SCHEMA JWT
+                        },
+                    },
                 },
             },
             'required': [
+                'name',
                 'delegation',
                 'apps',
             ],
             'additionalProperties': False,
+        },
+        'writes': {
+            'type': 'integer',
+            'minimum': 0,
+        },
+        'timestamp': {
+            'type': 'integer',
+            'minimum': 0,
         },
     },
     'required': [
         'version',
         'profile',
         'keys',
+        'writes',
+        'timestamp',
     ],
     'additionalProperties': False,
 }
