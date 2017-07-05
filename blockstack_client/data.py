@@ -964,9 +964,9 @@ def data_blob_sign( data_blob_str, data_privkey ):
     return sig
 
 
-def get_mutable(data_id, device_ids, raw=False, blockchain_id=None, data_pubkey=None, data_address=None, data_hash=None, storage_drivers=None,
+def get_mutable(data_id, device_ids, raw=False, data_pubkeys=None, device_data_pubkeys=None, data_addresses=None, data_hash=None, storage_drivers=None,
                                      proxy=None, ver_min=None, ver_max=None, force=False, urls=None, is_fq_data_id=False,
-                                     config_path=CONFIG_PATH):
+                                     config_path=CONFIG_PATH, blockchain_id=None):
     """
     get_mutable 
 
@@ -975,9 +975,11 @@ def get_mutable(data_id, device_ids, raw=False, blockchain_id=None, data_pubkey=
     If @ver_min is given, ensure the data's version is greater or equal to it.
     If @ver_max is given, ensure the data's version is less than it.
     
-    If data_pubkey or data_address is given, then blockchain_id will be ignored (but it will be passed as a hint to the drivers)
-    If data_hash is given, then all three will be ignored
-
+    Verification order:
+        The data will be verified against the device-specific public key in device_data_pubkeys, if given.
+        The data will be verified against *any* public key in data_pubkeys, if given.
+        The data will be verified against *any* data address in data_addresses, if given.
+    
     Return {'data': the data, 'version': the version, 'timestamp': ..., 'data_pubkey': ..., 'owner_pubkey_hash': ..., 'drivers': [driver name]} on success
     If raw=True, then only return {'data': ..., 'drivers': ...} on success.
 
@@ -987,6 +989,8 @@ def get_mutable(data_id, device_ids, raw=False, blockchain_id=None, data_pubkey=
     proxy = get_default_proxy(config_path) if proxy is None else proxy
     conf = get_config(path=config_path)
     
+    device_pubkeys = {}
+
     # find all possible fqids for this datum
     fq_data_ids = []
     if is_fq_data_id:
@@ -994,27 +998,15 @@ def get_mutable(data_id, device_ids, raw=False, blockchain_id=None, data_pubkey=
 
     else:
         for device_id in device_ids:
-            fq_data_ids.append( storage.make_fq_data_id(device_id, data_id) )
-    
-    lookup = False
-    if data_address is None and data_pubkey is None and data_hash is None:
-        # TODO: cut this code path
-        if blockchain_id is None:
-            raise ValueError("No data public key, data address, or blockchain ID given")
+            fq_data_id = storage.make_fq_data_id(device_id, data_id)
+            fq_data_ids.append( fq_data_id )
 
-        # need to find pubkey to use
-        pubkey_info = load_user_data_pubkey_addr( blockchain_id, proxy=proxy, config_path=config_path )
-        if 'error' in pubkey_info:
-            return pubkey_info
-
-        data_pubkey = pubkey_info['pubkey']
-        data_address = pubkey_info['address']
-
-        if data_pubkey is None and data_address is None:
-            log.error("No data public key or address available")
-            return {'error': 'No data public key or address available'}
-
-        lookup = True
+            if device_data_pubkeys and device_data_pubkeys.has_key(device_id):
+                device_pubkeys[fq_data_id] = device_data_pubkeys[device_id]
+   
+    # must have raw=True if we don't have public keys or addresses
+    if data_pubkeys is None and data_addresses is None:
+        assert raw, "No data public keys or public key hashes are given"
 
     if storage_drivers is None:
         storage_drivers = get_read_storage_drivers(config_path)
@@ -1027,8 +1019,8 @@ def get_mutable(data_id, device_ids, raw=False, blockchain_id=None, data_pubkey=
         version_info = get_mutable_data_version(data_id, device_ids, config_path=config_path)
         expected_version = version_info['version']
 
-    log.debug("get_mutable({}, device_ids={}, blockchain_id={}, pubkey={} ({}), addr={}, hash={}, expected_version={}, storage_drivers={})".format(
-        data_id, device_ids, blockchain_id, data_pubkey, lookup, data_address, data_hash, expected_version, ','.join(storage_drivers)
+    log.debug("get_mutable({}, device_ids={}, blockchain_id={}, pubkeys={} ({}), addrs={}, hash={}, expected_version={}, storage_drivers={})".format(
+        data_id, device_ids, blockchain_id, data_pubkeys, lookup, data_addresses, data_hash, expected_version, ','.join(storage_drivers)
     ))
     
     mutable_data = None
@@ -1044,10 +1036,17 @@ def get_mutable(data_id, device_ids, raw=False, blockchain_id=None, data_pubkey=
         for fq_data_id in fq_data_ids:
 
             log.debug("get_mutable_data({}) from {}".format(fq_data_id, driver))
+            
+            # prioritize a device-specific public key, if given
+            device_pubkey = device_pubkeys.get(fq_data_id)
+            extra_pubkeys = []
+
+            if device_pubkey:
+                extra_pubkeys = [device_pubkey]
 
             # get the mutable data itsef
             # NOTE: we only use 'bsk2' data formats; use storage.get_mutable_data() directly for loading things like profiles that have a different format.
-            data_str = storage.get_mutable_data(fq_data_id, data_pubkey, urls=urls, drivers=[driver], data_address=data_address, data_hash=data_hash, blockchain_id=blockchain_id, bsk_version=2)
+            data_str = storage.get_mutable_data(fq_data_id, extra_pubkeys + data_pubkeys, urls=urls, drivers=[driver], data_addresses=data_addresses, data_hash=data_hash, bsk_version=2, fqu=blockchain_id)
             if data_str is None:
                 log.error("Failed to get mutable datum {} from {}".format(fq_data_id, driver))
                 continue
@@ -1772,7 +1771,7 @@ def get_datastore( blockchain_id, datastore_id, device_ids, config_path=CONFIG_P
         cache_ttl = int(conf.get('cache_ttl', 3600))    # 1 hour
 
     data_id = '{}.datastore'.format(datastore_id)
-    datastore_info = get_mutable(data_id, device_ids, blockchain_id=blockchain_id, data_address=datastore_id, proxy=proxy, config_path=config_path)
+    datastore_info = get_mutable(data_id, device_ids, blockchain_id=blockchain_id, data_addresses=[datastore_id], proxy=proxy, config_path=config_path)
     if 'error' in datastore_info:
         log.error("Failed to load public datastore information: {}".format(datastore_info['error']))
         return {'error': 'Failed to load public datastore record', 'errno': errno.ENOENT}
@@ -2370,7 +2369,7 @@ def get_inode_header(blockchain_id, datastore_id, inode_uuid, drivers, data_pubk
             device_id = data_pubkey_info['device_id']
             device_pubkey = data_pubkey_info['public_key']
 
-            res = get_mutable(data_id, [device_id], blockchain_id=blockchain_id, ver_min=ver_min, force=force, data_pubkey=device_pubkey, storage_drivers=[driver], proxy=proxy, config_path=config_path)
+            res = get_mutable(data_id, [device_id], blockchain_id=blockchain_id, ver_min=ver_min, force=force, data_pubkeys=[device_pubkey], storage_drivers=[driver], proxy=proxy, config_path=config_path)
             if 'error' in res:
                 log.error("Failed to get inode data {} (stale={}): {}".format(inode_uuid, res.get('stale', False), res['error']))
                 errcode = errno.EREMOTEIO
