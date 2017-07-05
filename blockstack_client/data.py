@@ -225,7 +225,7 @@ class DataCache(object):
             log.debug("Cache HIT header {}, expires at {} (now={})".format(inode_uuid, deadline, time.time()))
 
         else:
-            log.debug("Cache MISS {}".format(inode_uuid))
+            log.debug("Cache MISS header {}".format(inode_uuid))
 
         return res
 
@@ -240,7 +240,7 @@ class DataCache(object):
             log.debug("Cache HIT directory {}, version {}, expires at {} (now={})".format(inode_uuid, res['version'], deadline, time.time()))
 
         else:
-            log.debug("Cache MISS {}".format(inode_uuid))
+            log.debug("Cache MISS directory {}".format(inode_uuid))
 
         return res
 
@@ -255,7 +255,7 @@ class DataCache(object):
             log.debug("Cache HIT datastore {}, expires at {} (now={})".format(datastore_id, deadline, time.time()))
         
         else:
-            log.debug("Cache MISS {}".format(datastore_id))
+            log.debug("Cache MISS datastore {}".format(datastore_id))
 
         return res
 
@@ -326,6 +326,14 @@ class DataCache(object):
 GLOBAL_CACHE = DataCache()
 
 
+def cache_evict_all():
+    """
+    Clear the global inode cache
+    """
+    global GLOBAL_CACHE
+    GLOBAL_CACHE.evict_all()
+
+
 def serialize_mutable_data_id(data_id):
     """
     Turn a data ID into a suitable filesystem name
@@ -347,7 +355,7 @@ def get_metadata_dir(conf):
     return metadata_dir
 
 
-def load_mutable_data_version(conf, device_id, fq_data_id, config_path=CONFIG_PATH):
+def load_mutable_data_version(device_id, fq_data_id, config_path=CONFIG_PATH):
     """
     Get the version field of a piece of mutable data from local cache.
     Return the version on success
@@ -356,11 +364,9 @@ def load_mutable_data_version(conf, device_id, fq_data_id, config_path=CONFIG_PA
     """
 
     # try to get the current, locally-cached version
-    conf = get_config(path=config_path) if conf is None else conf
-
+    conf = get_config(path=config_path)
     if conf is None:
-        msg = 'No config found; cannot load version for "{}"'
-        log.debug(msg.format(fq_data_id))
+        log.error('No config found; cannot load version for "{}"'.format(fq_data_id))
         return None
 
     _, data_id = storage.parse_fq_data_id(fq_data_id)
@@ -389,7 +395,7 @@ def load_mutable_data_version(conf, device_id, fq_data_id, config_path=CONFIG_PA
     return None
 
 
-def store_mutable_data_version(conf, device_id, fq_data_id, ver, config_path=CONFIG_PATH):
+def store_mutable_data_version(device_id, fq_data_id, ver, config_path=CONFIG_PATH):
     """
     Locally store the version of a piece of mutable data,
     so we can ensure that its version is incremented on
@@ -400,11 +406,9 @@ def store_mutable_data_version(conf, device_id, fq_data_id, ver, config_path=CON
     Raise on invalid input
     """
 
-    conf = get_config(path=config_path) if conf is None else conf
-
+    conf = get_config(path=config_path)
     if conf is None:
-        msg = 'No config found; cannot store version for "{}"'
-        log.warning(msg.format(fq_data_id))
+        log.error('No config found; cannot store version for "{}"'.format(fq_data_id))
         return False
 
     metadata_dir = get_metadata_dir(conf)
@@ -463,7 +467,7 @@ def store_mutable_data_version(conf, device_id, fq_data_id, ver, config_path=CON
     return False
 
 
-def delete_mutable_data_version(conf, device_id, fq_data_id, config_path=CONFIG_PATH):
+def delete_mutable_data_version(device_id, fq_data_id, config_path=CONFIG_PATH):
     """
     Locally delete the version of a piece of mutable data.
 
@@ -472,10 +476,9 @@ def delete_mutable_data_version(conf, device_id, fq_data_id, config_path=CONFIG_
     Raise on invalid input
     """
 
-    conf = get_config(path=config_path) if conf is None else conf
-
+    conf = get_config(path=config_path)
     if conf is None:
-        msg = 'No config found; cannot delete version for "{}"'
+        log.error('No config found; cannot delete version for "{}"'.format(fq_data_id))
         return False
 
     metadata_dir = get_metadata_dir(conf)
@@ -507,7 +510,176 @@ def delete_mutable_data_version(conf, device_id, fq_data_id, config_path=CONFIG_
     return False
 
 
+def set_partial_create_failure(fq_data_id, config_path=CONFIG_PATH):
+    """
+    Indicate that creating this particular mutable datum
+    (e.g. a datastore, a directory, a file) failed, and that
+    we should pretend like it doesn't exist (i.e. mask EEXIST)
+    
+    Return True on success
+    Return False on error
+    """
+    conf = get_config(config_path)
+    if conf is None:
+        log.error("Failed to load config {}".format(config_path))
+        return False
+
+    metadata_dir = get_metadata_dir(conf)
+    partial_create_dir = os.path.join(metadata_dir, 'create_failures')
+    if not os.path.isdir(partial_create_dir):
+        try:
+            os.makedirs(partial_create_dir)
+        except:
+            log.error("Failed to create {}".format(partial_create_dir))
+            return False
+
+    # indicate that we failed to create this item 
+    path = os.path.join(partial_create_dir, fq_data_id)
+    with open(path, 'w') as f:
+        pass
+
+    log.debug("Remembering that {} is only partially-created".format(fq_data_id))
+    return True
+
+
+def has_partial_create_failure(fq_data_id, config_path=CONFIG_PATH):
+    """
+    Did we try and fail to create this datum in the past?
+    Return True if so
+    Return False if not
+    """
+    conf = get_config(config_path)
+    if conf is None:
+        log.error("Failed to load config {}".format(config_path))
+        return False
+
+    metadata_dir = get_metadata_dir(conf)
+    partial_create_dir = os.path.join(metadata_dir, 'create_failures')
+    if not os.path.isdir(partial_create_dir):
+        return False
+
+    path = os.path.join(partial_create_dir, fq_data_id)
+    return os.path.exists(path)
+
+
+def clear_partial_create_failure(fq_data_id, config_path=CONFIG_PATH):
+    """
+    Indicate that we succeeded to create this particular mutable datum
+
+    Return True on success
+    Return False on error
+    """
+    conf = get_config(config_path)
+    if conf is None:
+        log.error("Failed to load config {}".format(config_path))
+        return False
+
+    metadata_dir = get_metadata_dir(conf)
+    partial_create_dir = os.path.join(metadata_dir, 'create_failures')
+    if not os.path.isdir(partial_create_dir):
+        return True
+
+    path = os.path.join(partial_create_dir, fq_data_id)
+    if not os.path.exists(path):
+        return True
+
+    try:
+        os.unlink(path)
+        return True
+    except:
+        log.error("Failed to remove {}".format(path))
+        return False
+
+
+def set_partial_delete_failure(path, fq_data_id, config_path=CONFIG_PATH):
+    """
+    Indicate that deleting this particular mutable adtum
+    (e.g. a datastore, a directory, a file) failed, and that
+    we should pretend like it still exists (i.e. mask ENOENT)
+    """
+    conf = get_config(config_path)
+    if conf is None:
+        log.error("Failed to load config {}".format(config_path))
+        return False
+
+    metadata_dir = get_metadata_dir(conf)
+    partial_delete_dir = os.path.join(metadata_dir, 'delete_failures')
+    if not os.path.isdir(partial_delete_dir):
+        try:
+            os.makedirs(partial_delete_dir)
+        except:
+            log.error("Failed to create {}".format(partial_delete_dir))
+            return False
+
+    # indicate that we failed to delete this item 
+    path = path.replace('/', '\\x2f')
+    storage_path = os.path.join(partial_delete_dir, path)
+    with open(storage_path, 'w') as f:
+        f.write(fq_data_id)
+
+    return True
+
+
+def has_partial_delete_failure(path, config_path=CONFIG_PATH):
+    """
+    Did we try and fail to delete this datum in the past?
+    Return the fully-qualified data ID of the failed path if so
+    Return None if not
+    """
+    conf = get_config(config_path)
+    if conf is None:
+        log.error("Failed to load config {}".format(config_path))
+        return None
+
+    metadata_dir = get_metadata_dir(conf)
+    partial_delete_dir = os.path.join(metadata_dir, 'delete_failures')
+    if not os.path.isdir(partial_delete_dir):
+        return None
+
+    path = path.replace('/', '\\x2f')
+    storage_path = os.path.join(partial_delete_dir, path)
+    fq_data_id = None
+    with open(storage_path, 'r') as f:
+        fq_data_id = f.read()
+
+    return fq_data_id
+
+
+def clear_partial_delete_failure(path, config_path=CONFIG_PATH):
+    """
+    Indicate that we succeeded to delete this particular mutable datum
+
+    Return True on success
+    Return False on error
+    """
+    conf = get_config(config_path)
+    if conf is None:
+        log.error("Failed to load config {}".format(config_path))
+        return False
+
+    metadata_dir = get_metadata_dir(conf)
+    partial_delete_dir = os.path.join(metadata_dir, 'delete_failures')
+    if not os.path.isdir(partial_delete_dir):
+        return True
+
+    path = path.replace('/', '\\x2f')
+    storage_path = os.path.join(partial_delete_dir, path)
+    if not os.path.exists(storage_path):
+        return True
+
+    try:
+        os.unlink(storage_path)
+        return True
+    except:
+        log.error("Failed to remove {}".format(path))
+        return False
+
+
 def is_obsolete_zonefile(user_zonefile):
+    """
+    Is this zone file in a legacy format?
+    Return True if so
+    """
     return (
         blockstack_profiles.is_profile_in_legacy_format(user_zonefile) or
         not user_db.is_user_zonefile(user_zonefile)
@@ -655,7 +827,7 @@ def list_zonefile_history(name, current_block=None, proxy=None):
 
     zonefiles = []
     for zh in zonefile_hashes:
-        zonefile = load_name_zonefile(name, zh, raw_zonefile=True)
+        zonefile = load_name_zonefile(name, zh)
         if zonefile is None:
             zonefile = {'error': 'Failed to load zonefile {}'.format(zh)}
         else:
@@ -722,7 +894,7 @@ def list_immutable_data_history(name, data_id, current_block=None, proxy=None):
     return hashes
 
 
-def load_user_data_pubkey_addr( name, storage_drivers=None, proxy=None, config_path=CONFIG_PATH ):
+def load_user_data_pubkey_addr( name, proxy=None, config_path=CONFIG_PATH ):
     """
     Get a user's default data public key and/or owner address by getting it's zone file.
 
@@ -730,7 +902,7 @@ def load_user_data_pubkey_addr( name, storage_drivers=None, proxy=None, config_p
     Return {'error': ...} on error
     """
     # need to find pubkey to use
-    user_zonefile = get_name_zonefile( name, storage_drivers=storage_drivers, proxy=proxy, include_name_record=True)
+    user_zonefile = get_name_zonefile(name, proxy=proxy)
     if 'error' in user_zonefile:
         log.debug("Unable to load zone file for '{}': {}".format(name, user_zonefile['error']))
         return {'error': 'Failed to load zonefile'}
@@ -831,7 +1003,7 @@ def get_mutable(data_id, device_ids, raw=False, blockchain_id=None, data_pubkey=
             raise ValueError("No data public key, data address, or blockchain ID given")
 
         # need to find pubkey to use
-        pubkey_info = load_user_data_pubkey_addr( blockchain_id, storage_drivers=storage_drivers, proxy=proxy, config_path=config_path )
+        pubkey_info = load_user_data_pubkey_addr( blockchain_id, proxy=proxy, config_path=config_path )
         if 'error' in pubkey_info:
             return pubkey_info
 
@@ -1019,10 +1191,7 @@ def put_immutable(blockchain_id, data_id, data_text, data_url=None, txid=None, p
             if not rc:
                 return {'error': 'Failed to overwrite old immutable data'}
 
-    rc = user_db.put_immutable_data_zonefile(
-        user_zonefile, data_id, data_hash, data_url=data_url
-    )
-
+    rc = user_db.put_immutable_data_zonefile(user_zonefile, data_id, data_hash, data_url=data_url)
     if not rc:
         return {'error': 'Failed to insert immutable data into user zonefile'}
 
@@ -1030,13 +1199,8 @@ def put_immutable(blockchain_id, data_id, data_text, data_url=None, txid=None, p
 
     # update zonefile, if we haven't already
     if txid is None:
-        payment_privkey_info = get_payment_privkey_info(
-            wallet_keys=wallet_keys, config_path=proxy.conf['path']
-        )
-
-        owner_privkey_info = get_owner_privkey_info(
-            wallet_keys=wallet_keys, config_path=proxy.conf['path']
-        )
+        payment_privkey_info = get_payment_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+        owner_privkey_info = get_owner_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
 
         user_zonefile_txt = blockstack_zones.make_zone_file(user_zonefile)
 
@@ -1076,35 +1240,6 @@ def put_immutable(blockchain_id, data_id, data_text, data_url=None, txid=None, p
     result['zonefile'] = user_zonefile
 
     return result
-
-
-def load_user_data_privkey( blockchain_id, storage_drivers=None, proxy=None, config_path=CONFIG_PATH, wallet_keys=None ):
-    """
-    Get the user's data private key from his/her wallet.
-    Verify it matches the zone file for this blockchain ID
-
-    Return {'privkey': ...} on success
-    Return {'error': ...} on error
-    """
-    conf = get_config(path=CONFIG_PATH)
-    user_zonefile = get_name_zonefile( blockchain_id, storage_drivers=storage_drivers, proxy=proxy)
-    if 'error' in user_zonefile:
-        log.debug("Unable to load zone file for '{}': {}".format(blockchain_id, user_zonefile['error']))
-        return {'error': 'Failed to load zonefile'}
-
-    # recover name record and zonefile
-    user_zonefile = user_zonefile['zonefile']
-
-    # get the data key
-    data_privkey = get_data_privkey_info(user_zonefile, wallet_keys=wallet_keys, config_path=config_path)
-    if json_is_error(data_privkey):
-        # error text
-        return {'error': data_privkey['error']}
-
-    else:
-        assert data_privkey is not None
-
-    return {'privkey': data_privkey}
 
 
 def make_mutable_data_tombstones( device_ids, data_id ):
@@ -1254,8 +1389,6 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, versi
     """
 
     proxy = get_default_proxy(config_path) if proxy is None else proxy
-    conf = get_config(path=config_path)
-    assert conf
 
     # NOTE: this will be None if the fq_data_id refers to a profile
     device_id, _ = storage.parse_fq_data_id(fq_data_id)
@@ -1278,8 +1411,8 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, versi
         assert data_pubkey
         assert data_signature
 
-    rc = storage.put_mutable_data(fq_data_id, mutable_data_str, data_pubkey=data_pubkey, data_signature=data_signature, sign=False, raw=raw, blockchain_id=blockchain_id,
-                                  required=storage_drivers, required_exclusive=storage_drivers_exclusive)
+    rc = storage.put_mutable_data(fq_data_id, mutable_data_str, data_pubkey=data_pubkey, data_signature=data_signature, raw=raw,
+                                  required=storage_drivers, required_exclusive=storage_drivers_exclusive, fqu=blockchain_id)
 
     if not rc:
         log.error("failed to put mutable data {}".format(fq_data_id))
@@ -1287,7 +1420,7 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, versi
         return result
 
     # remember which version this was
-    rc = store_mutable_data_version(conf, device_id, fq_data_id, version, config_path=config_path)
+    rc = store_mutable_data_version(device_id, fq_data_id, version, config_path=config_path)
     if not rc:
         log.error("failed to put mutable data version {}.{}".format(fq_data_id, version))
         result['error'] = 'Failed to store mutable data version'
@@ -1313,7 +1446,7 @@ def delete_immutable(blockchain_id, data_key, data_id=None, proxy=None, txid=Non
 
     proxy = get_default_proxy(config_path) if proxy is None else proxy
 
-    user_zonefile = get_name_zonefile(blockchain_id, proxy=proxy, include_name_record=True)
+    user_zonefile = get_name_zonefile(blockchain_id, proxy=proxy)
     if 'error' in user_zonefile:
         log.debug("Unable to load zone file for '{}': {}".format(blockchain_id, user_zonefile['error']))
         return user_zonefile
@@ -1354,13 +1487,8 @@ def delete_immutable(blockchain_id, data_key, data_id=None, proxy=None, txid=Non
 
     if txid is None:
         # actually send the transaction
-        payment_privkey_info = get_payment_privkey_info(
-            wallet_keys=wallet_keys, config_path=proxy.conf['path']
-        )
-
-        owner_privkey_info = get_owner_privkey_info(
-            wallet_keys=wallet_keys, config_path=proxy.conf['path']
-        )
+        payment_privkey_info = get_payment_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+        owner_privkey_info = get_owner_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
 
         user_zonefile_txt = blockstack_zones.make_zone_file(user_zonefile)
 
@@ -1462,7 +1590,7 @@ def delete_mutable(data_id, signed_data_tombstones, proxy=None, storage_drivers=
         # only do this if we actually succeeded in deleting from all storage providers
         for device_id in device_ids:
             for fq_data_id in fq_data_ids:
-                delete_mutable_data_version(conf, device_id, fq_data_id, config_path=config_path)
+                delete_mutable_data_version(device_id, fq_data_id, config_path=config_path)
 
     if not worst_rc:
         return {'error': 'Failed to delete from all storage providers'}
@@ -2118,12 +2246,10 @@ def get_mutable_data_version( data_id, device_ids, config_path=CONFIG_PATH ):
     Return {'status': True, 'version': version} on success
     """
     new_version = 0
-    conf = get_config(config_path)
-    assert conf
 
     for device_id in device_ids:
         fq_data_id = storage.make_fq_data_id(device_id, data_id)
-        cur_ver = load_mutable_data_version(conf, device_id, fq_data_id, config_path=config_path)
+        cur_ver = load_mutable_data_version(device_id, fq_data_id, config_path=config_path)
         if cur_ver is not None:
             new_version = max(new_version, cur_ver)
 
@@ -2138,15 +2264,12 @@ def put_mutable_data_version( data_id, new_version, device_ids, config_path=CONF
     """
 
     # advance header version and inode version
-    conf = get_config(config_path)
-    assert conf
-
     res = get_mutable_data_version(data_id, device_ids, config_path=CONFIG_PATH)
     new_version = max(res['version'], new_version)
 
     for device_id in device_ids:
         fq_data_id = storage.make_fq_data_id(device_id, data_id)
-        rc = store_mutable_data_version(conf, device_id, fq_data_id, new_version, config_path=config_path)
+        rc = store_mutable_data_version(device_id, fq_data_id, new_version, config_path=config_path)
         if not rc:
             return {'error': 'Failed to advance mutable data version {} to {}'.format(data_id, new_version), 'errno': errno.EIO}
 
@@ -2530,17 +2653,17 @@ def put_inode_data( datastore, header_blob_str, header_blob_sig, idata_str, conf
         sg = ScatterGather()
         driver_save_idata = functools.partial(save_idata, driver)
         driver_save_header = functools.partial(save_header, driver)
-        sg.add_task( "save_idata", driver_save_idata)
-        sg.add_task( "save_header", driver_save_header)
+        sg.add_task( "save_idata_{}_{}".format(idata_fqid, driver), driver_save_idata)
+        sg.add_task( "save_header_{}_{}".format(header_fqid, driver), driver_save_header)
 
         sg.run_tasks()
 
-        res = sg.get_result('save_idata')
+        res = sg.get_result('save_idata_{}_{}'.format(idata_fqid, driver))
         if 'error' in res:
             log.error('Fastpath: Failed to replicate inode data {}: {}'.format(idata_fqid, res['error']))
             return {'error': 'Failed to replicate inode data {}'.format(idata_fqid)}
 
-        res = sg.get_result('save_header')
+        res = sg.get_result('save_header_{}_{}'.format(header_fqid, driver))
         if 'error' in res:
             log.error('Fastpath: Failed to replicate inode header {}: {}'.format(header_fqid, res['error']))
             return {'error': 'Failed to replicate inode header {}'.format(header_fqid)}
@@ -2588,26 +2711,6 @@ def put_inode_data( datastore, header_blob_str, header_blob_sig, idata_str, conf
             log.debug("Driver {} succeeded to replicate".format(dname))
             driver_succeeded = True
 
-    '''
-    driver_failed = False
-    for driver in drivers:
-
-        # TODO: can we do this in parallel along a "fast path", and then try them individually on a "slow path" if one of them fails?
-
-        # store payload (no signature; we'll use the header's hash)
-        res = put_mutable(idata_fqid, idata_str, None, None, version, raw=True, storage_drivers=[driver], storage_drivers_exclusive=True, config_path=config_path, proxy=proxy )
-        if 'error' in res:
-            log.error("Failed to replicate inode {}: {}".format(idata_fqid, res['error']))
-            driver_failed = True
-            continue
-
-        # store header
-        res = put_mutable(header_fqid, header_blob_str, datastore['pubkey'], header_blob_sig, version, storage_drivers=[driver], storage_drivers_exclusive=True, config_path=config_path, proxy=proxy )
-        if 'error' in res:
-            log.error("Failed to replicate inode header for {}: {}".format(header_fqid, res['error']))
-            driver_failed = True
-    '''
-    
     if driver_succeeded:
         # at least one write succeeded; make sure the next read loads fresh data 
         # evict 
@@ -2693,14 +2796,12 @@ def delete_inode_data( datastore, signed_tombstones, proxy=None, config_path=CON
         else:
             inode_tombstones[inode_uuid]['idata_tombstones'].append(ts)
    
-    failed_driver = False
-
     # evict 
     for inode_uuid in inode_tombstones.keys():
         GLOBAL_CACHE.evict_inode(datastore_id, inode_uuid)
 
-    # delete inode idata first
-    for inode_uuid in inode_tombstones.keys():
+
+    def _delete_inode_payload(inode_uuid):
 
         # delete inode 
         data_id = '{}.{}'.format(datastore_id, inode_uuid)
@@ -2709,13 +2810,10 @@ def delete_inode_data( datastore, signed_tombstones, proxy=None, config_path=CON
 
         if 'error' in res:
             log.error("Failed to delete inode {}: {}".format(inode_uuid, res['error']))
-            failed_driver = True
 
-    if failed_driver:
-        return {'error': 'Failed to delete inode data', 'errno': errno.EREMOTEIO}
+        return res
 
-    # delete inode headers once all idata is gone
-    for inode_uuid in inode_tombstones.keys():
+    def _delete_inode_header(inode_uuid):
         hdata_id = '{}.{}.hdr'.format(datastore_id, inode_uuid)
         res = delete_mutable(hdata_id, inode_tombstones[inode_uuid]['header_tombstones'], 
                              proxy=proxy, storage_drivers=drivers, storage_drivers_exclusive=True, device_ids=device_ids, config_path=config_path)
@@ -2724,12 +2822,50 @@ def delete_inode_data( datastore, signed_tombstones, proxy=None, config_path=CON
             log.error("Faled to delete idata for {}: {}".format(inode_uuid, res['error']))
             return res
 
-    # evict (again) 
+        return res
+
+    sg = ScatterGather()
+    for inode_uuid in inode_tombstones.keys():
+        delete_inode_header = functools.partial(_delete_inode_header, inode_uuid)
+        delete_inode_payload = functools.partial(_delete_inode_payload, inode_uuid)
+
+        sg.add_task('delete_inode_header({})'.format(inode_uuid), delete_inode_header)
+        sg.add_task('delete_inode_payload({})'.format(inode_uuid), delete_inode_payload)
+
+    sg.run_tasks()
+
+    failure = False
+
+    for inode_uuid in inode_tombstones.keys():
+        res = sg.get_result('delete_inode_header({})'.format(inode_uuid))
+        if 'error' in res:
+            log.error("Failed to delete inode header for {}: {}".format(inode_uuid, res['error']))
+            failure = True
+
+        res = sg.get_result('delete_inode_payload({})'.format(inode_uuid))
+        if 'error' in res:
+            log.error("Failed to delete inode payload for {}: {}".format(inode_uuid, res['error']))
+            failure = True
+
+    # evict (again, to be sure) 
     for inode_uuid in inode_tombstones.keys():
         GLOBAL_CACHE.evict_inode(datastore_id, inode_uuid)
 
-    return {'status': True}
+    if failure:
+        return {'error': 'Failed to delete some inode data'}
 
+    else:
+        return {'status': True}
+
+
+def get_inode_header_fqids( datastore_id, inode_uuid, data_pubkeys, config_path=CONFIG_PATH):
+    """
+    Get the fully-qualified data IDs for an inode header
+    """
+    # get latest inode and inode header version
+    device_ids = [dk['device_id'] for dk in data_pubkeys]
+    data_id = '{}.{}.hdr'.format(datastore_id, inode_uuid)
+    return [storage.make_fq_data_id(dev_id, data_id) for dev_id in device_ids]
 
 
 def inode_resolve_path( blockchain_id, datastore, path, data_pubkeys, get_idata=True, force=False, config_path=CONFIG_PATH, proxy=None ):
@@ -2747,7 +2883,10 @@ def inode_resolve_path( blockchain_id, datastore, path, data_pubkeys, get_idata=
         '/': {'name': '', 'uuid': ...., 'parent': '',  'inode': directory},
         '/a': {'name': 'a', 'uuid': ...,  'parent': '/', 'inode': directory},
         '/a/b': {'name': 'b', 'uuid': ..., 'parent': '/a', 'inode': directory},
-        '/a/b/c': {'name': 'c', 'uuid': ..., 'parent': '/a/b', 'inode' file}
+        '/a/b/c': {'name': 'c', 'uuid': ..., 'parent': '/a/b', 'inode': file or directory}
+        'hints': {
+            'children_absent': [...]
+        }
     }
 
     Return {'error': ..., 'errno': ...} on error
@@ -2758,7 +2897,7 @@ def inode_resolve_path( blockchain_id, datastore, path, data_pubkeys, get_idata=
 
     log.debug("Resolve {}".format(path))
 
-    def _make_path_entry(  name, child_uuid, child_entry, prefix ):
+    def _make_path_entry( name, child_uuid, child_entry, prefix ):
         """
         Make a path entry to return
         """
@@ -2773,6 +2912,42 @@ def inode_resolve_path( blockchain_id, datastore, path, data_pubkeys, get_idata=
 
         return path_ent
 
+
+    def _is_inode_created( inode_uuid ):
+        """
+        Is the inode actually created?  That is, did we
+        fully create it, instead of partially
+        """
+        fq_data_ids = get_inode_header_fqids(datastore_id, inode_uuid, data_pubkeys, config_path=config_path)
+        for fq_data_id in fq_data_ids:
+            if has_partial_create_failure(fq_data_id):
+                return False
+
+        return True
+
+
+    def _hints_find_absent_children( ret ):
+        """
+        Insert hints for absent children
+        """
+        child_entry = ret['/' + path]['inode']
+
+        # if this is a directory, then also return the list of non-existent children 
+        children_absent = []
+        if child_entry['type'] == MUTABLE_DATUM_DIR_TYPE and child_entry.has_key('idata'):
+            for child_name in child_entry['idata']['children'].keys():
+                child_uuid = child_entry['idata']['children'][child_name]['uuid']
+                if not _is_inode_created(child_uuid):
+                    log.warning("Child '{}' ({}) of {} is partially created".format(child_name, child_uuid, prefix))
+                    children_absent.append(child_name)
+
+        ret['hints'] = {
+            'children_absent': children_absent
+        }
+
+        return ret
+
+
     path = posixpath.normpath(path).strip("/")
     path_parts = path.split('/')
     prefix = '/'
@@ -2782,6 +2957,11 @@ def inode_resolve_path( blockchain_id, datastore, path, data_pubkeys, get_idata=
     device_ids = datastore['device_ids']
     root_uuid = datastore['root_uuid']
    
+    if not _is_inode_created(root_uuid):
+        # didn't fully create root 
+        log.error("Root inode {} is only partially created".format(root_uuid))
+        return {'error': 'Inode is only partially created', 'errno': errno.ENOENT} 
+
     # getting only the root?
     root_inode = get_inode_data(blockchain_id, datastore_id, root_uuid, MUTABLE_DATUM_DIR_TYPE, drivers, data_pubkeys, force=force, config_path=CONFIG_PATH, proxy=proxy)
     if 'error' in root_inode:
@@ -2794,6 +2974,7 @@ def inode_resolve_path( blockchain_id, datastore, path, data_pubkeys, get_idata=
  
     if len(path) == 0:
         # looked up /
+        ret = _hints_find_absent_children(ret)
         return ret
   
     # walk 
@@ -2826,6 +3007,11 @@ def inode_resolve_path( blockchain_id, datastore, path, data_pubkeys, get_idata=
             # done searching, and don't want data
             break
         
+        if not _is_inode_created(child_uuid):
+            # this inode actually doesn't exist 
+            log.error("Failed to get inode {}: not fully created".format(child_uuid))
+            return {'error': 'Inode is only partially created', 'errno': errno.ENOENT}
+
         # get child, and only get the idata if it's a directory
         log.debug("Get {} at '{}'".format(child_uuid, '/' + '/'.join(path_parts[:i+1])))
         child_entry = get_inode_data(blockchain_id, datastore_id, child_uuid, child_type, drivers, data_pubkeys, force=force, config_path=CONFIG_PATH, proxy=proxy, file_idata=False)
@@ -2835,7 +3021,7 @@ def inode_resolve_path( blockchain_id, datastore, path, data_pubkeys, get_idata=
 
         last_header_info = child_entry
         child_entry = child_entry['inode']
-        assert child_entry['type'] == child_dirent['type'], "Corrupt inode {}".format(storage.make_fq_data_id(datastore_id,child_uuid))
+        assert child_entry['type'] == child_dirent['type'], "Corrupt inode {}".format(child_uuid)
 
         path_ent = _make_path_entry(name, child_uuid, child_entry, prefix)
         ret[prefix + name] = path_ent
@@ -2858,15 +3044,26 @@ def inode_resolve_path( blockchain_id, datastore, path, data_pubkeys, get_idata=
         return {'error': 'Not a directory', 'errno': errno.ENOTDIR}
 
     if child_type == MUTABLE_DATUM_DIR_TYPE or (get_idata and child_type == MUTABLE_DATUM_FILE_TYPE):
-        # get file data too 
+        # get file data too (always get directory data) 
         # NOTE: last_header_info will be the return value from the last call to get_inode_data()
         assert ret.has_key(prefix + name), "BUG: missing {}".format(prefix + name)
+
+        if not _is_inode_created(child_uuid):
+            # this inode actually doesn't exist 
+            log.error("Failed to get inode {}: not fully created".format(child_uuid))
+            return {'error': 'Inode is only partially created', 'errno': errno.ENOENT}
+
         child_entry = get_inode_data(blockchain_id, datastore_id, child_uuid, child_type, drivers, data_pubkeys, force=force, config_path=CONFIG_PATH, proxy=proxy, header_info=last_header_info )
 
     else:
         # get only inode header.
         # didn't request idata, so add a path entry here
         assert not ret.has_key(prefix + name), "BUG: already defined {}".format(prefix + name)
+
+        if not _is_inode_created(child_uuid):
+            # this inode actually doesn't exist 
+            log.error("Failed to get inode {}: not fully created".format(child_uuid))
+            return {'error': 'Inode is only partially created', 'errno': errno.ENOENT}
 
         path_ent = _make_path_entry(name, child_uuid, child_entry, prefix)
         ret[prefix + name] = path_ent
@@ -2881,6 +3078,9 @@ def inode_resolve_path( blockchain_id, datastore, path, data_pubkeys, get_idata=
 
     # update ret
     ret[prefix + name]['inode'] = child_entry
+
+    # add hints 
+    ret = _hints_find_absent_children(ret)
     
     log.debug("Resolved /{}".format(path))
     return ret
@@ -2977,6 +3177,7 @@ def _parse_data_path( data_path ):
 def inode_path_lookup(blockchain_id, datastore, data_path, data_pubkeys, get_idata=True, force=False, config_path=CONFIG_PATH, proxy=None ):
     """
     Look up all the inodes along the given fully-qualified path, verifying them and ensuring that they're fresh along the way.
+    If get_idata is True and the path refers to a file, return the file data as well (directory data is always returned)
 
     This is a server-side method.
 
@@ -3003,7 +3204,12 @@ def inode_path_lookup(blockchain_id, datastore, data_path, data_pubkeys, get_ida
     assert data_path in path_info.keys(), "Invalid path data, missing {}:\n{}".format(data_path, json.dumps(path_info, indent=4, sort_keys=True))
     inode_info = path_info[data_path]
 
-    return {'status': True, 'path_info': path_info, 'inode_info': inode_info}
+    hints = {}
+    if 'hints' in path_info:
+        hints = path_info['hints']
+        del path_info['hints']
+
+    return {'status': True, 'path_info': path_info, 'inode_info': inode_info, 'hints': hints}
 
 
 def datastore_inodes_check_consistent( datastore_id, inode_headers, creates, exists, device_ids, config_path=CONFIG_PATH ):
@@ -3150,7 +3356,9 @@ def datastore_do_inode_operation( datastore, inode_headers, inode_payloads, inod
     Do not call this method directly.  Call the op-specific helper methods instead.
 
     Return {'status': True} on success
-    Return {'error': ...} on error
+    Return {'error': ..., 'inodes': [...], 'tombstones': True/False, 'errno': ...} on error, where
+    * inodes[i] is set to True if the the ith inode header/payload/signature failed
+    * tombstones is set to True if we failed to delete data
     """
 
     if proxy is None:
@@ -3159,23 +3367,78 @@ def datastore_do_inode_operation( datastore, inode_headers, inode_payloads, inod
     assert len(inode_headers) == len(inode_payloads)
     assert len(inode_payloads) == len(inode_signatures)
 
-    # process tombstones first
-    if len(inode_tombstones) > 0:
-        res = delete_inode_data( datastore, inode_tombstones, proxy=proxy, config_path=config_path)
-        if 'error' in res:
-            log.debug("Failed to delete inode with {}".format(','.join(inode_tombstones)))
-            return res
+    # delete data 
+    def _delete_data():
+        if len(inode_tombstones) > 0:
+            res = delete_inode_data( datastore, inode_tombstones, proxy=proxy, config_path=config_path)
+            if 'error' in res:
+                log.error("Failed to delete inode with {}".format(','.join(inode_tombstones)))
+                return res
 
-    # store data
-    for i in xrange(0, len(inode_headers)):
+        return {'status': True}
+
+    # store one inode payload 
+    def _store_data(i):
         header_blob = inode_headers[i]
         payload = inode_payloads[i]
         signature = inode_signatures[i]
 
         res = put_inode_data( datastore, header_blob, signature, payload, config_path=config_path, proxy=proxy)
         if 'error' in res:
-            log.debug("Failed to put inode {}".format(header_blob))
+            log.error("Failed to put inode {}".format(header_blob))
             return res
+
+        return res
+
+    # process new data and tombstones in parallel 
+    sg = ScatterGather()
+    sg.add_task("delete_data", _delete_data)
+
+    for i in xrange(0, len(inode_headers)):
+        add_data = functools.partial(_store_data, i);
+        sg.add_task("store_data({})".format(i), add_data)
+
+    # do everything
+    log.debug("Running operation tasks...")
+    sg.run_tasks()
+    log.debug("Finished running operation tasks")
+
+    have_failure = False
+    failure_errno = None
+    failures = {
+        'tombstones': False,
+        'inodes': [False] * len(inode_headers),
+    }
+
+    # did the delete work?
+    res = sg.get_result('delete_data')
+    if 'error' in res:
+        log.error("Task 'delete_data' failed: Failed to delete inode with {}".format(', '.join(inode_tombstones)))
+        
+        have_failure = True
+        failures['tombstones'] = True
+        failure_errno = res.get('errno')
+
+    # did the writes work?
+    for i in xrange(0, len(inode_headers)):
+        res = sg.get_result("store_data({})".format(i))
+        if 'error' in res:
+            log.error("Task 'store_data({})' failed: Failed to put inode {}".format(i, inode_headers[i]))
+            
+            failures['inodes'][i] = True
+            have_failure = True
+
+            if failure_errno is None:
+                failure_errno = res.get('errno')
+
+    if have_failure:
+        failures['error'] = 'Some data failed to replicate'
+
+        if failure_errno is None:
+            failure_errno = errno.EREMOTEIO
+
+        failures['errno'] = failure_errno
+        return failures
 
     return {'status': True}
 
@@ -3212,6 +3475,7 @@ def datastore_mkdir_make_inodes(api_client, datastore, data_path, data_pubkeys, 
 
     drivers = datastore['drivers']
     device_ids = datastore['device_ids']
+    children_absent = []
 
     if parent_dir is None:
         parent_info = api_client.backend_datastore_lookup(None, datastore, 'directories', parent_path, data_pubkeys, extended=True, force=force )
@@ -3221,6 +3485,7 @@ def datastore_mkdir_make_inodes(api_client, datastore, data_path, data_pubkeys, 
        
         parent_dir_info = parent_info['inode_info']
         parent_dir = parent_dir_info['inode']
+        children_absent = parent_info.get('hints', {}).get('children_absent', [])
 
     parent_uuid = parent_dir['uuid']
 
@@ -3230,9 +3495,14 @@ def datastore_mkdir_make_inodes(api_client, datastore, data_path, data_pubkeys, 
 
     # does a file or directory already exist?
     if name in parent_dir['idata']['children'].keys():
-        log.error('Already exists: {}'.format(name))
-        return {'error': 'Entry already exists', 'errno': errno.EEXIST}
-    
+        if name not in children_absent:
+            log.error('Already exists in {}: {}'.format(parent_path, name))
+            return {'error': 'Entry already exists', 'errno': errno.EEXIST}
+   
+        else:
+            log.warning("Overwriting partially-created directory {} ({})".format(name, parent_dir['idata']['children'][name]['uuid']))
+            del parent_dir['idata']['children'][name]
+
     # make a directory!
     child_uuid = str(uuid.uuid4())
 
@@ -3281,6 +3551,8 @@ def datastore_mkdir_put_inodes( datastore, data_path, header_blobs, payloads, si
     Return {'status': True} on success
     Return {'error': ..., 'errno': ...} on failure
     """
+    global GLOBAL_CACHE
+
     assert len(header_blobs) == 2
     assert len(payloads) == 2
     assert len(signatures) == 2
@@ -3288,14 +3560,57 @@ def datastore_mkdir_put_inodes( datastore, data_path, header_blobs, payloads, si
     creates = [True, False]     # create child
     exists = [False, True]      # parent must exist
 
+    datastore_id = datastore_get_id(datastore['pubkey'])
     device_ids = datastore['device_ids']
     data_pubkey = datastore['pubkey']
+
+    # make sure this is valid...we may need it on the error path
+    child_header_blob = header_blobs[0]
+    child_header_info = analyze_inode_header_blob(datastore_id, child_header_blob)
+    if 'error' in child_header_info:
+        log.error("Unparseable child inode header")
+        return child_header_info
+
+    # make sure this is valid...we may need it on the success path
+    parent_header_blob = header_blobs[1]
+    parent_header_info = analyze_inode_header_blob(datastore_id, parent_header_blob)
+    if 'error' in parent_header_info:
+        log.error("Unparseable parent inode header")
+        return parent_header_info
+
     res = datastore_operation_check( data_pubkey, header_blobs, payloads, signatures, tombstones, creates, exists, device_ids, config_path=config_path )
     if 'error' in res:
         log.debug("Failed to check operation: {}".format(res['error']))
         return res
 
-    return datastore_do_inode_operation( datastore, header_blobs, payloads, signatures, tombstones, config_path=config_path, proxy=proxy )
+    res = datastore_do_inode_operation( datastore, header_blobs, payloads, signatures, tombstones, config_path=config_path, proxy=proxy )
+    if 'error' in res:
+        # create failed
+        if res['inodes'][0]:
+            # creating the child failed.
+            # remember to fail lookups on this child until we fix it.
+            log.error("mkdir {}: failed to store child ({})".format(data_path, child_header_info['header_fqid']))
+            rc = set_partial_create_failure(child_header_info['header_fqid'], config_path=config_path)
+            if not rc:
+                log.critical("!!! Failed to mark partial create failure !!! Inconsistency may result")
+            
+            GLOBAL_CACHE.evict_inode(datastore_id, child_header_info['uuid'])
+
+        if res['inodes'][1]:
+            # updating the parent failed
+            # we may have leaked the child 
+            log.error("mkdir {}: failed to store new parent {} ({})".format(data_path, os.path.dirname(data_path), child_header_info['header_fqid']))
+
+            GLOBAL_CACHE.evict_inode(datastore_id, parent_header_info['uuid'])
+
+        res = {'error': res['error'], 'errno': res['errno']}
+       
+    else:
+        # this parent and child *definitely* exist
+        clear_partial_create_failure(parent_header_info['header_fqid'], config_path=config_path)
+        clear_partial_create_failure(child_header_info['header_fqid'], config_path=config_path)
+
+    return res
 
 
 def datastore_mkdir(api_client, datastore, data_path, data_privkey_hex, data_pubkeys, parent_dir=None, force=False, config_path=CONFIG_PATH):
@@ -3449,8 +3764,6 @@ def datastore_rmdir_put_inodes( datastore, data_path, header_blobs, payloads, si
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    # directory must actually be empty 
-
     device_ids = datastore['device_ids']
     data_pubkey = datastore['pubkey']
     res = datastore_operation_check( data_pubkey, header_blobs, payloads, signatures, tombstones, creates, exists, device_ids, config_path=config_path )
@@ -3458,7 +3771,17 @@ def datastore_rmdir_put_inodes( datastore, data_path, header_blobs, payloads, si
         log.debug("Failed to check operation: {}".format(res['error']))
         return res
 
-    return datastore_do_inode_operation( datastore, header_blobs, payloads, signatures, tombstones, config_path=config_path, proxy=proxy )
+    res = datastore_do_inode_operation( datastore, header_blobs, payloads, signatures, tombstones, config_path=config_path, proxy=proxy )
+    if 'error' in res:
+        # maybe we need to remember a failed delete?
+        ts_data = storage.parse_signed_data_tombstone(str(tombstones[0]))
+        rc = set_partial_delete_failure(data_path, ts_data['id'], config_path=config_path)
+        if not rc:
+            log.critical("!! Failed to record delete failure at {} !! inode leakage may result".format(data_path))
+
+        res = {'error': res['error'], 'errno': res['errno']}
+
+    return res
 
 
 def datastore_rmdir(api_client, datastore, data_path, data_privkey_hex, data_pubkeys, force=False, config_path=CONFIG_PATH):
@@ -3520,7 +3843,7 @@ def datastore_getfile(api_client, blockchain_id, datastore, data_path, data_pubk
 
     file_info = api_client.backend_datastore_lookup(blockchain_id, datastore, 'files', data_path, data_pubkeys, force=force, extended=True, idata=True )
     if 'error' in file_info:
-        log.error("Failed to resolve {}".format(data_path))
+        log.error("Failed to resolve {}: {}".format(data_path, file_info))
         return file_info
 
     if file_info['inode_info']['inode']['type'] != MUTABLE_DATUM_FILE_TYPE:
@@ -3541,6 +3864,7 @@ def datastore_getfile(api_client, blockchain_id, datastore, data_path, data_pubk
             'data': file_info['inode_info']['inode']['idata']
         }
 
+    ret['hints'] = file_info.get('hints', {})
     return ret
 
 
@@ -3571,8 +3895,6 @@ def datastore_listdir(api_client, blockchain_id, datastore, data_path, data_pubk
         log.error("Not a directory: {}".format(data_path))
         return {'error': 'Not a directory', 'errno': errno.ENOTDIR}
 
-    # TODO: verify idata's header matches header for this inode
-
     ret = {
         'status': True,
     }
@@ -3591,6 +3913,7 @@ def datastore_listdir(api_client, blockchain_id, datastore, data_path, data_pubk
             'data': dir_info['inode_info']['inode']['idata']
         }
 
+    ret['hints'] = dir_info.get('hints', {})
     return ret
 
 
@@ -3623,6 +3946,7 @@ def datastore_putfile_make_inodes(api_client, datastore, data_path, file_data_ha
     
     parent_dir_inode = None
     parent_uuid = None
+    children_absent = []
 
     if parent_dir is None:
         parent_path_info = api_client.backend_datastore_lookup(None, datastore, 'directories', parent_dirpath, data_pubkeys, extended=True, force=force )
@@ -3633,15 +3957,22 @@ def datastore_putfile_make_inodes(api_client, datastore, data_path, file_data_ha
         parent_dir_info = parent_path_info['inode_info']
         parent_uuid = parent_dir_info['uuid']
         parent_dir_inode = parent_dir_info['inode']
+        children_absent = parent_path_info.get('hints', {}).get('children_absent', [])
+
     else:
         parent_dir_inode = parent_dir
         parent_uuid = parent_dir['uuid']
 
     # make sure the file doesn't exist
     if name in parent_dir_inode['idata']['children'].keys() and create:
-        # already exists
-        log.error('Already exists: {}'.format(data_path))
-        return {'error': 'Already exists', 'errno': errno.EEXIST}
+        if name not in children_absent:
+            # already exists
+            log.error('Already exists: {}'.format(data_path))
+            return {'error': 'Already exists', 'errno': errno.EEXIST}
+
+        else:
+            log.warning("Overwriting partially-created file {} ({})".format(name, parent_dir_inode['idata']['children'][name]['uuid']))
+            del parent_dir_inode['idata']['children'][name]
 
     child_uuid = None
 
@@ -3701,6 +4032,8 @@ def datastore_putfile_put_inodes( datastore, data_path, header_blobs, payloads, 
     Return {'status': True} on success
     Return {'error': ..., 'errno': ...} on failure
     """
+    global GLOBAL_CACHE
+
     assert len(header_blobs) == 2
     assert len(payloads) == 2
     assert len(signatures) == 2
@@ -3711,6 +4044,22 @@ def datastore_putfile_put_inodes( datastore, data_path, header_blobs, payloads, 
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
+    datastore_id = datastore_get_id(datastore['pubkey'])
+
+    # make sure this is valid...we may need it on the error path
+    child_header_blob = header_blobs[1]
+    child_header_info = analyze_inode_header_blob(datastore_id, child_header_blob)
+    if 'error' in child_header_info:
+        log.error("Unparseable child inode header")
+        return child_header_info
+
+    # make sure this is valid...we may need it on the success path
+    parent_header_blob = header_blobs[1]
+    parent_header_info = analyze_inode_header_blob(datastore_id, parent_header_blob)
+    if 'error' in parent_header_info:
+        log.error("Unparseable parent inode header")
+        return parent_header_info
+
     device_ids = datastore['device_ids']
     data_pubkey = datastore['pubkey']
     res = datastore_operation_check( data_pubkey, header_blobs, payloads, signatures, tombstones, creates, exists, device_ids, config_path=config_path )
@@ -3718,7 +4067,38 @@ def datastore_putfile_put_inodes( datastore, data_path, header_blobs, payloads, 
         log.debug("Failed to check operation: {}".format(res['error']))
         return res
 
-    return datastore_do_inode_operation( datastore, header_blobs, payloads, signatures, tombstones, config_path=config_path, proxy=proxy )
+    res = datastore_do_inode_operation( datastore, header_blobs, payloads, signatures, tombstones, config_path=config_path, proxy=proxy )
+    if 'error' in res:
+        # create failed
+        if res['inodes'][1]:
+            # creating/updating the child failed.
+            # did this child exist already?
+            child_version_info = get_mutable_data_version(child_header_info['header_id'], [child_header_info['device_id']], config_path=CONFIG_PATH)
+            if create or child_version_info.get('version', 0) == 0:
+                # we were creating this
+                # remember to fail lookups on this child until we fix it.
+                log.error("putfile {}: failed to store child".format(data_path))
+                rc = set_partial_create_failure(child_header_info['header_fqid'], config_path=config_path)
+                if not rc:
+                    log.critical("!!! Failed to mark partial create failure !!! Inconsistency may result")
+            
+                GLOBAL_CACHE.evict_inode(datastore_id, child_header_info['uuid'])
+
+        if res['inodes'][0]:
+            # updating the parent failed
+            # we may have leaked the child 
+            log.error("putfile {}: failed to store new parent {}.  Child leaked!".format(data_path, os.path.dirname(data_path)))
+
+            GLOBAL_CACHE.evict_inode(datastore_id, parent_header_info['uuid'])
+
+        res = {'error': res['error'], 'errno': res['errno']}
+       
+    else:
+        # parent and child *definitely* exist
+        clear_partial_create_failure(parent_header_info['header_fqid'], config_path=config_path)
+        clear_partial_create_failure(child_header_info['header_fqid'], config_path=config_path)
+
+    return res
 
 
 def datastore_putfile(api_client, datastore, data_path, file_data_bin, data_privkey_hex, data_pubkeys, create=False, exist=False, force=False, config_path=CONFIG_PATH):
@@ -3868,7 +4248,17 @@ def datastore_deletefile_put_inodes( datastore, data_path, header_blobs, payload
         log.debug("Failed to check operation: {}".format(res['error']))
         return res
 
-    return datastore_do_inode_operation( datastore, header_blobs, payloads, signatures, tombstones, config_path=config_path, proxy=proxy )
+    res = datastore_do_inode_operation( datastore, header_blobs, payloads, signatures, tombstones, config_path=config_path, proxy=proxy )
+    if 'error' in res:
+        # maybe we need to remember a failed delete?
+        ts_data = storage.parse_signed_data_tombstone(str(tombstones[0]))
+        rc = set_partial_delete_failure(data_path, ts_data['id'], config_path=config_path)
+        if not rc:
+            log.critical("!! Failed to record delete failure at {} !! Inode data may leak".format(data_path))
+
+        res = {'error': res['error'], 'errno': res['errno']}
+
+    return res
 
 
 def datastore_deletefile(api_client, datastore, data_path, data_privkey_hex, data_pubkeys, force=False, config_path=CONFIG_PATH):
@@ -3890,6 +4280,7 @@ def datastore_deletefile(api_client, datastore, data_path, data_privkey_hex, dat
 
     inode_info = datastore_deletefile_make_inodes( api_client, datastore, data_path, data_pubkeys, force=force, config_path=config_path )
     if 'error' in inode_info:
+        log.error("Failed to update inodes for deletefile")
         return inode_info
 
     inode_signatures = []
@@ -3903,7 +4294,7 @@ def datastore_deletefile(api_client, datastore, data_path, data_privkey_hex, dat
     datastore_info = datastore_serialize_and_sign(datastore, data_privkey_hex)
     res = api_client.backend_datastore_deletefile( datastore_info['str'], datastore_info['sig'], data_path, inode_info['inodes'], inode_info['payloads'], inode_signatures, signed_tombstones )
     if 'error' in res:
-        log.debug("Failed to put deletefile inodes")
+        log.error("Failed to put deletefile inodes: {}".format(res['error']))
         return res
 
     return {'status': True}
@@ -3942,6 +4333,7 @@ def datastore_stat(api_client, blockchain_id, datastore, data_path, data_pubkeys
     else:
         ret['data'] = inode_info['inode_info']['inode']
 
+    ret['hints'] = inode_info.get('hints', {})
     return ret
 
 
@@ -3976,6 +4368,7 @@ def datastore_getinode(api_client, blockchain_id, datastore, inode_uuid, extende
     else:
         ret['inode'] = inode_info['inode']
 
+    ret['hints'] = inode_info.get('hints', {})
     return ret
 
 
