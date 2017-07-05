@@ -24,9 +24,28 @@ import os
 import threading
 import functools
 
-from ..constants import *
-from ..keys import *
-from ..proxy import *
+from ..constants import (
+    TX_MIN_CONFIRMATIONS,
+    CONFIG_PATH,
+    APPROX_PREORDER_TX_LEN,
+    APPROX_REGISTER_TX_LEN,
+    APPROX_UPDATE_TX_LEN,
+    APPROX_TRANSFER_TX_LEN,
+    APPROX_REVOKE_TX_LEN,
+    APPROX_RENEWAL_TX_LEN,
+    BLOCKSTACK_DEBUG,
+)
+from ..keys import (
+    get_privkey_info_address,
+    get_privkey_info_params,
+)
+from ..proxy import (
+    get_default_proxy,
+    is_name_registered,
+    get_names_owned_by_address,
+    get_name_cost,
+)
+
 from ..config import get_utxo_provider_client
 from ..b40 import is_b40
 from ..logger import get_logger
@@ -152,10 +171,6 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-
-    config_dir = os.path.dirname(config_path)
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
@@ -541,8 +556,6 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
     # fee estimation: cost of name_or_ns + cost of preorder transaction +
     # cost of registration transaction + cost of update transaction + cost of transfer transaction
 
-    reply = {}
-    
     if owner_address:
         owner_address = str(owner_address)
     if payment_address:
@@ -820,7 +833,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
             return {'error': 'Could not get name price'}
 
         try:
-            utxo_client = get_utxo_provider_client(config_path=config_path, min_confirmations=min_payment_confs)
+            utxo_client = get_utxo_provider_client(config_path=config_path)
 
             insufficient_funds = False
             estimate = False
