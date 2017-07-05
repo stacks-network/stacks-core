@@ -734,7 +734,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 self._reply_json({'error': 'Failed to lookup name'}, status_code=500)
                 return
 
-        zonefile_res = zonefile.get_name_zonefile(name, raw_zonefile=True, name_record=name_rec)
+        zonefile_res = zonefile.get_name_zonefile(name, name_record=name_rec)
         zonefile_txt = None
         if 'error' in zonefile_res:
             error = "No zonefile for name"
@@ -744,7 +744,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.error("Failed to get name zonefile for {}: {}".format(name, error))
 
         else:
-            zonefile_txt = zonefile_res.pop("zonefile")
+            zonefile_txt = zonefile_res.pop("raw_zonefile")
 
         status = 'revoked' if name_rec['revoked'] else 'registered'
 
