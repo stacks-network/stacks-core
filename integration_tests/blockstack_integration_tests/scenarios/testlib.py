@@ -619,6 +619,25 @@ def blockstack_cli_namespace_ready( namespace_id, reveal_privkey, config_path=No
 
     return resp
 
+def blockstack_cli_withdraw( password, address, amount = None, config_path = None):
+    """
+    Register a name, using the backend RPC endpoint
+    """
+    test_proxy = make_proxy(password=password, config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    args.address = address
+    args.amount = amount
+
+    resp = cli_withdraw(args, config_path = config_path, password = password, interactive = False)
+
+    if 'error' not in resp:
+        assert 'transaction_hash' in resp
+
+    return resp
+
 
 def blockstack_cli_register( name, password, recipient_address=None, zonefile=None, config_path=None):
     """
@@ -2901,7 +2920,7 @@ def check_atlas_zonefiles( state_engine, atlasdb_path ):
         if name in snv_fail_at.get(block_id, []):
             continue
 
-        if value_hash not in api_call.result:
+        if "value_hash" not in api_call.result:
             log.warn("Api call {} on name {} in block {} has no value_hash, skipping atlas check.".format(
                 api_call.method, name, block_id))
             continue

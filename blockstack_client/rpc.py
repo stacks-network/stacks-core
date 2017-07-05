@@ -1938,14 +1938,23 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json(res)
 
 
-    def GET_wallet_balance( self, ses, path_info ):
+    def GET_wallet_balance( self, ses, path_info, min_confs = None ):
         """
         Get the wallet balance
         Return 200 with the balance
         Return 500 on error
         """
         internal = self.server.get_internal_proxy()
-        res = internal.cli_balance(config_path=self.server.config_path)
+        if min_confs is None:
+            res = internal.cli_balance(config_path=self.server.config_path)
+        else:
+            try:
+                min_confs = int(min_confs)
+            except:
+                log.warn("Couldn't parse argument to min_confs of wallet_balance.")
+                min_confs = None
+            res = internal.cli_balance(min_confs,
+                                       config_path=self.server.config_path)
         if 'error' in res:
             log.debug("Failed to query wallet balance: {}".format(res['error']))
             return self._reply_json({'error': 'Failed to query wallet balance'}, status_code=503)
@@ -3034,6 +3043,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'POST': {
                         'name': 'wallet_write',
                         'desc': 'transfer the node wallet\'s funds',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False,
+                    },
+                },
+            },
+            r'^/v1/wallet/balance/([0-9]{1,3})$': {
+                'routes': {
+                    'GET': self.GET_wallet_balance,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'wallet_read',
+                        'desc': 'get the node wallet\'s balance',
                         'auth_session': True,
                         'auth_pass': True,
                         'need_data_key': False,

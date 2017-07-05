@@ -364,6 +364,7 @@ def cli_balance(args, config_path=CONFIG_PATH):
     """
     command: balance
     help: Get the account balance
+    opt: min_confs (int) 'The minimum confirmations of transactions to include in balance'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -373,10 +374,13 @@ def cli_balance(args, config_path=CONFIG_PATH):
     if 'error' in res:
         return res
 
+    min_confs = getattr(args, 'min_confs', None)
+
     result = {}
     addresses = []
     satoshis = 0
-    satoshis, addresses = get_total_balance(wallet_path=wallet_path, config_path=config_path)
+    satoshis, addresses = get_total_balance(
+        wallet_path=wallet_path, config_path=config_path, min_confs = min_confs)
 
     if satoshis is None:
         log.error('Failed to get balance')
@@ -626,10 +630,14 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None, interact
 
     error = check_valid_name(name_or_ns)
     if error:
-        # must be valid namespace
-        ns_error = check_valid_namespace(name_or_ns)
-        if ns_error:
-            return {'error': 'Neither a valid name or namespace:\n   * {}\n   * {}'.format(error, ns_error)}
+        if 'preorder' in operations:
+            # this means this is a pricecheck on a NAME, not a namespace
+            return {'error': 'Not a valid name: \n * {}'.format(error)}
+        else:
+            # must be valid namespace
+            ns_error = check_valid_namespace(name_or_ns)
+            if ns_error:
+                return {'error': 'Neither a valid name or namespace:\n   * {}\n   * {}'.format(error, ns_error)}
 
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
@@ -789,6 +797,8 @@ def cli_get_registrar_info(args, config_path=CONFIG_PATH, queues=None):
 
         new_entry['confirmations'] = confirmations
         new_entry['tx_hash'] = entry['tx_hash']
+        if 'errors' in entry:
+            new_entry['errors'] = entry['errors']
 
         return new_entry
 
@@ -1347,6 +1357,8 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
 
         else:
             cost_satoshis = opchecks['name_price']
+    if transfer_address == '':
+        transfer_address = None
 
     if interactive and os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
         try:

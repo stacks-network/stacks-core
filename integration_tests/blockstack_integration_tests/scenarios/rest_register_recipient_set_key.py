@@ -19,13 +19,7 @@
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-"""
-
-# force 6 min confirmations by default
-"""
-TEST ENV BLOCKSTACK_MIN_CONFIRMATIONS 6
-"""
-
+""" 
 import os
 import testlib
 import pybitcoin
@@ -71,102 +65,21 @@ def scenario( wallets, **kw ):
     blockstack_client.set_default_proxy( test_proxy )
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
+    testlib.next_block( **kw )
 
-    for i in xrange(0, 3):
-        testlib.next_block( **kw )
-    
-    # try to preorder another namespace; it should fail
-    res = testlib.blockstack_namespace_preorder( "test2", wallets[1].addr, wallets[0].privkey )
-    if 'error' not in res:
-        print 'accidentally succeeded to preorder test2'
-        return False
+    testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
+    testlib.next_block( **kw )
 
-    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw)+1)
-
-    # try to reveal; it should fail 
-    res = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
-    if 'error' not in res:
-        print 'accidentally succeeded to reveal test'
-        return False
-
-    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw)+1)
-
-    for i in xrange(0, 3):
-        testlib.next_block( **kw )
-
-    # should succeed
-    res = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
-    if 'error' in res:
-        print res
-        return False
-
-    for i in xrange(0, 3):
-        testlib.next_block( **kw )
-
-    # should fail, since we have an unusable address
-    res = testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
-    if 'error' not in res:
-        print res
-        return False
-
-    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw)+1)
-
-    for i in xrange(0, 3):
-        testlib.next_block( **kw )
-
-    # should work now
-    res = testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
-    if 'error' in res:
-        print res
-        return False
-
+    testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
 
     testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
+    testlib.next_block( **kw )
     
-    for i in xrange(0, 3):
-        testlib.next_block( **kw )
-   
-    # should fail to re-preorder, since address isn't ready
-    res = testlib.blockstack_name_preorder( "foo2.test", wallets[2].privkey, wallets[3].addr )
-    if 'error' not in res:
-        print 'accidentally succeeded to preorder foo2.test'
-        return False
-
-    testlib.expect_snv_fail_at( "foo2.test", testlib.get_current_block(**kw)+1)
-
-    # should fail for the same reason: the payment address is not ready
-    res = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
-    if 'error' not in res:
-        print 'accidentally succeeded to register foo.test'
-        return False
-
-    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw)+1)
-
-    for i in xrange(0, 3):
-        testlib.next_block( **kw )
+    testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
+    testlib.next_block( **kw )
     
-    # should succeed now that it's confirmed
-    res = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
-    if 'error' in res:
-        print res
-        return False
-
-    for i in xrange(0, 3):
-        testlib.next_block( **kw )
-    
-    # should fail; address not ready
-    res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
-    if 'error' not in res:
-        print 'accidentally succeeded to migrate profile'
-        return False
-
-    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw)+1)
-
-    for i in xrange(0, 3):
-        testlib.next_block( **kw )
-    
-    # migrate profiles (should succeed now) 
+    # migrate profiles 
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
         res['test'] = 'Failed to initialize foo.test profile'
@@ -178,61 +91,66 @@ def scenario( wallets, **kw ):
     print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
     sys.stdout.flush()
     
+    testlib.next_block( **kw )
+
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
 
     # make a session 
     datastore_pk = keylib.ECPrivateKey(wallets[-1].privkey).to_hex()
-    res = testlib.blockstack_cli_app_signin("foo.test", datastore_pk, 'register.app', ['names', 'register', 'prices', 'zonefiles', 'blockchain', 'node_read', 'wallet_read'])
+    res = testlib.blockstack_cli_app_signin("foo.test", datastore_pk, 'register.app', ['names', 'register', 'prices', 'zonefiles', 'blockchain', 'node_read', 'wallet_write'])
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
         return 
 
     ses = res['token']
+
+    # for funsies, get the price of .test
+    res = testlib.blockstack_REST_call('GET', '/v1/prices/namespaces/test', ses)
+    if 'error' in res or res['http_status'] != 200:
+        res['test'] = 'Failed to get price of .test'
+        print json.dumps(res)
+        return False
+
+    test_price = res['response']['satoshis']
+    print '\n\n.test costed {} satoshis\n\n'.format(test_price)
+
+    # get the price for bar.test
+    res = testlib.blockstack_REST_call('GET', '/v1/prices/names/bar.test', ses)
+    if 'error' in res or res['http_status'] != 200:
+        res['test'] = 'Failed to get price of bar.test'
+        print json.dumps(res)
+        return False
+
+    bar_price = res['response']['total_estimated_cost']['satoshis']
+    print "\n\nbar.test will cost {} satoshis\n\n".format(bar_price)
+
+    # let's set the key to skip the transfer.
+
+    config_dir = os.path.dirname(config_path)
+     
+    conf = blockstack_client.get_config(config_path)
+    assert conf
+
+    api_pass = conf['api_password']
+
+    res = testlib.blockstack_REST_call('PUT', '/v1/wallet/keys/owner', None, api_pass=api_pass, 
+                                       data=wallets[4].privkey)
+    if res['http_status'] != 200 or 'error' in res:
+        print 'failed to set owner key'
+        print res
+        return False
+
   
     # make zonefile for recipient
     driver_urls = blockstack_client.storage.make_mutable_data_urls('bar.test', use_only=['dht', 'disk'])
     zonefile = blockstack_client.zonefile.make_empty_zonefile('bar.test', wallets[4].pubkey_hex, urls=driver_urls)
     zonefile_txt = blockstack_zones.make_zone_file( zonefile, origin='bar.test', ttl=3600 )
 
-    # register the name bar.test (no zero-conf, should fail)
+    # leaving the call format of this one the same to make sure that our registrar correctly
+    #   detects that the requested TRANSFER is superfluous
+    # register the name bar.test 
     res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test', 'zonefile': zonefile_txt, 'owner_address': wallets[4].addr})
-    if res['http_status'] == 200:
-        print 'accidentally succeeded to register bar.test'
-        print res
-        return False
-
-    # let's test /v1/wallet/balance
-    res = testlib.blockstack_REST_call('GET', '/v1/wallet/balance', ses)
-    if res['http_status'] != 200:
-        print '/v1/wallet/balance returned ERR'
-        print json.dumps(res)
-        return False
-    if res['response']['balance']['satoshis'] > 0:
-        print '/v1/wallet/balance accidentally incorporated 0-conf txns in balance register bar.test'
-        print json.dumps(res['response'])
-        return False
-
-    # let's test /v1/wallet/balance with minconfs=0
-    res = testlib.blockstack_REST_call('GET', '/v1/wallet/balance/0', ses)
-    if res['http_status'] != 200:
-        print '/v1/wallet/balance/0 returned ERR'
-        print json.dumps(res)
-        return False
-    if res['response']['balance']['satoshis'] < 1e6:
-        print "/v1/wallet/balance/0 didn't incorporate 0-conf txns"
-        print json.dumps(res['response'])
-        return False
-
-    # register the name bar.test (1-conf, should fail)
-    res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test', 'zonefile': zonefile_txt, 'owner_address': wallets[4].addr, 'min_confs' : 1})
-    if res['http_status'] == 200:
-        print 'accidentally succeeded to register bar.test'
-        print res
-        return False
-
-    # register the name bar.test (zero-conf, should succeed)
-    res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test', 'zonefile': zonefile_txt, 'owner_address': wallets[4].addr, 'min_confs': 0})
     if 'error' in res:
         res['test'] = 'Failed to register user'
         print json.dumps(res)
@@ -291,7 +209,8 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     res = testlib.verify_in_queue(ses, 'bar.test', 'transfer', None )
-    if not res:
+    if res:
+        print "Wrongly issued a TRANSFER"
         return False
 
     for i in xrange(0, 6):
@@ -323,7 +242,7 @@ def scenario( wallets, **kw ):
 
     # valid history?
     hist = res['response']
-    if len(hist.keys()) != 4:
+    if len(hist.keys()) != 3:
         res['test'] = 'Failed to get update history'
         res['history'] = hist
         print json.dumps(res, indent=4, sort_keys=True)
@@ -369,6 +288,7 @@ def check( state_engine ):
         return False 
 
     names = ['foo.test', 'bar.test']
+    owners = [ wallets[3].addr , wallets[4].addr]
     wallet_keys_list = [wallet_keys, wallet_keys]
     test_proxy = testlib.TestAPIProxy()
 
@@ -391,7 +311,7 @@ def check( state_engine ):
             return False 
 
         # owned 
-        if name_rec['address'] != wallets[wallet_owner].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[wallet_owner].addr):
+        if name_rec['address'] != owners[i]:
             print "name {} has wrong owner".format(name)
             return False 
 
