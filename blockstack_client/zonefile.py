@@ -442,3 +442,32 @@ def zonefile_data_replicate(fqu, zonefile_data, tx_hash, server_list, config_pat
         return res
 
     return {'status': True, 'servers': res['servers']}
+
+
+def lookup_name_zonefile_pubkey(name, proxy=None):
+    """
+    Given a name, get the public key in its zone file
+    Returns {'status': True, 'pubkey': ..., 'name_record': ...} on success
+    Returns {'status': True, 'pubkey': None, 'name_record': ...} if there is no public key
+    Returns {'error': ...} on failure
+    """
+    zonefile_data = None
+    name_rec = None
+    # get the pubkey 
+    zonefile_data_res = get_name_zonefile(name, proxy=proxy)
+    if 'error' not in zonefile_data_res:
+        zonefile_data = zonefile_data_res['raw_zonefile']
+        name_rec = zonefile_data_res['name_record']
+    else:
+        return {'error': "Failed to get zonefile data: {}".format(name)}
+
+    # parse 
+    zonefile_dict = None
+    try:
+        zonefile_dict = blockstack_zones.parse_zone_file(zonefile_data)
+    except:
+        return {'error': 'Nonstandard zone file'}
+
+    pubkey = user_zonefile_data_pubkey(zonefile_dict)
+    return {'status': True, 'pubkey': pubkey, 'name_record': name_rec}
+
