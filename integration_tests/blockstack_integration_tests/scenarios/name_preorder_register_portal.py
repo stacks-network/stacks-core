@@ -59,8 +59,15 @@ def scenario( wallets, **kw ):
 
     testlib.blockstack_name_register( "demo.id", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
-
-
+    
+    # add a token file
+    res = testlib.migrate_profile( "demo.id", wallet_keys=wallet )
+    if 'error' in res:
+        res['test'] = 'Failed to initialize demo.id profile'
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False 
+    
+    testlib.next_block( **kw )
     
 def check( state_engine ):
 
