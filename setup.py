@@ -41,7 +41,6 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'pyparsing>=2.2.0',
         'virtualchain>=0.14.2',
         'keychain>=0.14.2.0',
         'protocoin>=0.2',

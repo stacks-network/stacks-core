@@ -11,16 +11,13 @@ dependencies:
           CPPFLAGS: -I/usr/local/opt/openssl/include
 compile:
   post:
-    - ../virtualenvs/venv-system/bin/pip install -r api/requirements.txt
-    - ../virtualenvs/venv-system/bin/pip install xmlrunner
     - ../virtualenvs/venv-system/bin/pip install ./integration_tests
 test:
   pre:
-    - blockstack setup -y --password PASSWORD --debug
-    - blockstack api start -y --password PASSWORD --debug
+    - blockstack setup -y --password PASSWORD
+    - blockstack api start -y --password PASSWORD
   override:
     - mkdir $CIRCLE_TEST_REPORTS/django
-    - ../virtualenvs/venv-system/bin/python -m api.tests.api_tests --xunit-path "$CIRCLE_TEST_REPORTS/django/" PingTest LookupUsersTest NamespaceTest BlockChains Prices NamesOwnedTest NameHistoryTest AuthInternal BlockChainsInternal Zonefiles WalletInternal NodeInternal ResolverTestCase
     - ../virtualenvs/venv-system/bin/python -m blockstack_integration_tests.live_tests.api_tests --xunit-path "$CIRCLE_TEST_REPORTS/django/" --all
   post:
     - blockstack api stop -y
