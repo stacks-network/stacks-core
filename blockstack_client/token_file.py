@@ -26,9 +26,10 @@
 
 import schemas
 import storage
+import user as user_db
 
 from constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, CONFIG_PATH
-from proxy import get_default_proxy
+from proxy import get_default_proxy, get_name_blockchain_record
 from zonefile import get_name_zonefile
 
 import keychain
@@ -60,7 +61,7 @@ def token_file_get_name_public_keys(token_file, name_addr):
     Return {'error': ...} if the public keys in the token file do not match the address
     """
 
-    name_addr = str(name_addr)
+    name_addr = virtualchain.address_reencode(str(name_addr))
     name_owner_pubkeys = []
 
     if virtualchain.is_multisig_address(name_addr):
@@ -76,13 +77,13 @@ def token_file_get_name_public_keys(token_file, name_addr):
 
         public_keys = token_file['keys']['name']
         for public_key in public_keys:
-            if keylib.public_key_to_address(public_key) == name_addr:
-                name_owner_pubkeys = [public_key]
+            if virtualchain.address_reencode(keylib.public_key_to_address(str(public_key))) == name_addr:
+                name_owner_pubkeys = [str(public_key)]
                 break
 
         if len(name_owner_pubkeys) == 0:
             # no match 
-            return {'error': 'Address {} does not match any public key {}'.format(addr, ','.join(public_keys))}
+            return {'error': 'Address {} does not match any public key {}'.format(name_addr, ','.join(public_keys))}
 
     else:
         # invalid 
@@ -119,6 +120,10 @@ def token_file_parse(token_txt, name_owner_pubkeys_or_addr, min_writes=None):
     # get the delegation file out of the token file
     try:
         unverified_token_file = jsontokens.decode_token(token_txt)['payload']
+    except jsontokens.utils.DecodeError:
+        return {'error': 'Invalid token file: not a JWT'}
+
+    try:
         jsonschema.validate(unverified_token_file, schemas.BLOCKSTACK_TOKEN_FILE_SCHEMA)
     except ValidationError as ve:
         if BLOCKSTACK_TEST:
@@ -132,7 +137,11 @@ def token_file_parse(token_txt, name_owner_pubkeys_or_addr, min_writes=None):
 
     try:
         delegation_jwt_txt = unverified_token_file['keys']['delegation']
-        delegation_jwt = json.loads(delegation_jwt_txt)
+        try:
+            delegation_jwt = json.loads(delegation_jwt_txt)
+        except ValueError:
+            delegation_jwt = delegation_jwt_txt
+
     except ValueError as ve:
         if BLOCKSTACK_TEST:
             log.exception(ve)
@@ -314,9 +323,38 @@ def token_file_make_delegation_entry(name_owner_privkey, device_id, key_index):
     return {'status': True, 'delegation': delg, 'private_keys': privkeys}
 
 
-def token_file_create(profile, delegations, apps, name_owner_privkeys, device_id, key_order=None, write_version=1):
+def token_file_get_key_order(name_owner_privkeys, pubkeys):
     """
-    Make a token file.  Sign and serialize the delegations file,
+    Given the device -> privkey owner mapping, and a list of public keys
+    (e.g. from an on-chain multisig redeem script), calculate the key-signing order
+    (e.g. to be fed into token_file_create())
+
+    Return {'status': True, 'key_order': [...]} on success
+    Return {'error': ...} on failure
+    """
+    key_order = [None] * len(name_owner_pubkeys)
+    for (dev_id, privkey) in name_owner_privkeys.items():
+        compressed_form = keylib.key_formatting.compress(keylib.ECPrivateKey(privkey).public_key().to_hex())
+        uncompressed_form = keylib.key_formatting.decompress(keylib.ECPrivateKey(privkey).public_key().to_hex())
+
+        index = None
+        if compressed_form in pubkeys:
+            index = pubkeys.index(compressed_form)
+
+        elif uncompressed_form in pubkeys:
+            index = pubkeys.index(uncompressed_form)
+
+        else:
+            return {'error': 'Public key {} is not present in name owner keys'.format(compressed_form)}
+
+        key_order[index] = dev_id
+
+    return {'status': True, 'key_order': key_order}
+
+
+def token_file_create(name, name_owner_privkeys, device_id, key_order=None, write_version=1, apps=None, profile=None, delegations=None, config_path=CONFIG_PATH):
+    """
+    Make a new token file from a profile.  Sign and serialize the delegations file,
     and sign and serialize each of the app bundles.
 
     @name_owner_privkeys is a dict of {'$device_id': '$private_key'}
@@ -325,6 +363,29 @@ def token_file_create(profile, delegations, apps, name_owner_privkeys, device_id
     Return {'status': True, 'token_file': compact-serialized JWT} on success, signed with this device's signing key.
     Return {'error': ...} on error
     """
+    if apps is None:
+        # default
+        apps = {}
+        for dev_id in name_owner_privkeys.keys():
+            apps[dev_id] = {'version': '1.0', 'apps': {}}
+
+    if profile is None:
+        # default
+        profile = user_db.make_empty_user_profile(config_path=config_path)
+        
+    if delegations is None:
+        # default
+        delegations = {
+            'version': '1.0',
+            'name': name,
+            'devices': {},
+        }
+
+        for dev_id in name_owner_privkeys.keys():
+            delg = token_file_make_delegation_entry(name_owner_privkeys[dev_id], dev_id, 0)['delegation']
+            delegations['devices'][dev_id] = delg
+
+    # sanity check: apps must be per-device app key bundles
     for dev_id in apps.keys():
         try:
             jsonschema.validate(apps[dev_id], schemas.APP_KEY_BUNDLE_SCHEMA)
@@ -334,6 +395,7 @@ def token_file_create(profile, delegations, apps, name_owner_privkeys, device_id
 
             return {'error': 'Invalid app bundle'}
 
+    # sanity check: delegations must be well-formed
     try:
         jsonschema.validate(delegations, schemas.KEY_DELEGATION_SCHEMA)
     except ValidationError as e:
@@ -361,8 +423,15 @@ def token_file_create(profile, delegations, apps, name_owner_privkeys, device_id
 
     # make delegation jwt (to be signed by each name owner key)
     signer = jsontokens.TokenSigner()
-    delegation_jwt = signer.sign(delegations, name_owner_privkeys.values())
-    delegation_jwt_txt = json.dumps(delegation_jwt)
+
+    # store compact-form delegation JWT if there is one signature
+    delegation_jwt_txt = None
+    if len(name_owner_privkeys) == 1:
+        delegation_jwt = signer.sign(delegations, name_owner_privkeys.values()[0])
+        delegation_jwt_txt = delegation_jwt
+    else:
+        delegation_jwt = signer.sign(delegations, name_owner_privkeys.values())
+        delegation_jwt_txt = json.dumps(delegation_jwt)
 
     # make the app jwt 
     apps_jwt_txt = {}
@@ -562,22 +631,23 @@ def token_file_update_delegation(parsed_token_file, device_delegation, name_owne
     return {'status': True, 'token_file': token_file_sign(tok, signing_private_key)}
 
 
-def token_file_get_device_pubkeys(parsed_token_file, device_id):
+def token_file_get_delegated_device_pubkeys(parsed_token_file, device_id):
     """
-    Get the public keys for a device.
-    Returns {'status': true, 'pubkeys': {'app': ..., 'sign': ..., 'enc': ...}} on success
+    Get the public keys for a delegated device.
+    Returns {'status': true, 'version': ..., 'pubkeys': {'app': ..., 'sign': ..., 'enc': ...}} on success
     Returns {'error': ...} on error
     """
-    delegation = parsed_token_file.get('delegation', None)
+    delegation = parsed_token_file.get('keys', {}).get('delegation', None)
     if not delegation:
         raise ValueError('Token file does not have a "delegation" entry')
 
     device_info = delegation['devices'].get(device_id, None)
     if device_info is None:
-        return {'error': 'No device entry in delegation file for {}'.format(device_id)}
+        return {'error': 'No device entry in delegation file for "{}"'.format(device_id)}
 
     res = {
         'status': True,
+        'version': delegation['version'],
         'app': device_info['app'],
         'enc': device_info['enc'],
         'sign': device_info['sign'],
@@ -586,14 +656,36 @@ def token_file_get_device_pubkeys(parsed_token_file, device_id):
     return res
 
 
-def token_file_get_device_ids(parsed_token_file):
+def token_file_get_app_device_pubkeys(parsed_token_file, device_id):
+    """
+    Get the public keys for apps available from a particular device
+    Returns {'status': True, 'version': ..., 'pubkeys': {...}} on success
+    Returns {'error': ...} on error
+    """
+    apps = parsed_token_file.get('apps', None)
+    if not apps:
+        raise ValueError('Token file does not have an "apps" entry')
+
+    apps_info = apps.get(device_id, None)
+    if apps_info is None:
+        return {'error': 'No device entry in apps file for {}'.format(device_id)}
+
+    res = {
+        'status': True,
+        'version': apps_info['version'],
+        'app_pubkeys': apps_info['apps'],
+    }
+    return res
+
+
+def token_file_get_delegated_device_ids(parsed_token_file):
     """
     Get the list of delegated device IDs
 
     Returns {'status': True, 'device_ids': [...]} on success
     Return {'error': ...} on error
     """
-    delegation = parsed_token_file.get('delegation', None)
+    delegation = parsed_token_file.get('keys', {}).get('delegation', None)
     if not delegation:
         raise ValueError('Token file does not have a "delegation" entry')
 
@@ -616,28 +708,29 @@ def deduce_name_privkey(parsed_token_file, owner_privkey_info):
     else:
         # multisig bundle
         privkey_candidates = owner_privkey_info['privkeys']
+   
+    # map signing public keys back to the name private key that generated it
+    signing_pubkey_candidates = dict([(ecdsalib.get_pubkey_hex(get_signing_privkey(pk)), pk) for pk in privkey_candidates])
 
-    pubkey_candidates = dict([(ecdsalib.get_pubkey_hex(pk), pk) for pk in privkey_candidates])
-
-    all_device_ids = token_file_get_device_ids(parsed_token_file)
-    for device_id in all_device_ids:
-        pubkeys = token_file_get_device_pubkeys(parsed_token_file, device_id)
-        assert 'error' not in pubkeys
+    all_device_ids = token_file_get_delegated_device_ids(parsed_token_file)
+    for device_id in all_device_ids['device_ids']:
+        pubkeys = token_file_get_delegated_device_pubkeys(parsed_token_file, device_id)
+        assert 'error' not in pubkeys, pubkeys['error']
         
         signing_pubkey = pubkeys['sign']
         compressed_form = keylib.key_formatting.compress(signing_pubkey)
         uncompressed_form = keylib.key_formatting.decompress(signing_pubkey)
 
-        if compressed_form in pubkey_candidates.keys():
+        if compressed_form in signing_pubkey_candidates.keys():
             # found!
-            return {'status': True, 'name_privkey': pubkey_candidates[compressed_form]}
+            return {'status': True, 'name_privkey': signing_pubkey_candidates[compressed_form]}
             
-        if uncompressed_form in pubkey_candidates.keys():
+        if uncompressed_form in signing_pubkey_candidates.keys():
             # found!
-            return {'status': True, 'name_privkey': pubkey_candidates[uncompressed_form]}
+            return {'status': True, 'name_privkey': signing_pubkey_candidates[uncompressed_form]}
 
     # absent
-    return {'error': 'Token file is missing signing private key'}
+    return {'error': 'Token file is missing name public keys'}
 
 
 def lookup_name_privkey(name, owner_privkey_info, proxy=None):
@@ -676,10 +769,10 @@ def lookup_signing_privkey(name, owner_privkey_info, proxy=None):
     return {'status': True, 'signing_privkey': signing_privkey}
 
 
-def lookup_signing_pubkeys(name, proxy=None):
+def lookup_delegated_device_pubkeys(name, proxy=None):
     """
-    Given a name, get its signing public keys.
-    Return {'status': True, 'pubkeys': {'$device_id': ...}} on success
+    Given a name, get all of its delegated devices' public keys
+    Return {'status': True, 'pubkeys': {'$device-id': {...}}} on success
     Return {'error': ...} on error
     """
     res = token_file_get(name, proxy=proxy)
@@ -692,41 +785,31 @@ def lookup_signing_pubkeys(name, proxy=None):
         log.error("No token file for {}".format(name))
         return {'error': 'No token file available for {}'.format(name)}
 
-    all_device_ids = token_file_get_device_ids(parsed_token_file)
-    signing_pubkeys = {}
+    all_device_ids = token_file_get_delegated_device_ids(parsed_token_file)
+    all_pubkeys = {}
     for dev_id in all_device_ids:
-        pubkey_info = token_file_get_device_pubkeys(parsed_token_file, dev_id)
-        signing_pubkeys[dev_id] = pubkey_info['sign']
+        pubkey_info = token_file_get_delegated_device_pubkeys(parsed_token_file, dev_id)
+        all_pubkeys[dev_id] = pubkey_info
+    
+    return {'status': True, 'pubkeys': all_pubkeys}
+    
 
-    return signing_pubkeys
-
-
-def lookup_name_zonefile_pubkey(name, proxy=None):
+def lookup_signing_pubkeys(name, proxy=None):
     """
-    Given a name, get the public key in its zone file
-    Returns {'status': True, 'pubkey': ..., 'name_record': ...} on success
-    Returns {'status': True, 'pubkey': None, 'name_record': ...} if there is no public key
-    Returns {'error': ...} on failure
+    Given a name, get its signing public keys.
+    Return {'status': True, 'pubkeys': {'$device_id': ...}} on success
+    Return {'error': ...} on error
     """
-    zonefile_data = None
-    name_rec = None
-    # get the pubkey 
-    zonefile_data_res = get_name_zonefile(name, proxy=proxy)
-    if 'error' not in zonefile_data_res:
-        zonefile_data = zonefile_data_res['raw_zonefile']
-        name_rec = zonefile_data_res['name_record']
-    else:
-        return {'error': "Failed to get zonefile data: {}".format(name)}
+    res = lookup_delegated_device_pubkeys(name, proxy=proxy)
+    if 'error' in res:
+        return res
 
-    # parse 
-    zonefile_dict = None
-    try:
-        zonefile_dict = blockstack_zones.parse_zone_file(zonefile_data)
-    except:
-        return {'error': 'Nonstandard zone file'}
+    all_pubkeys = res['pubkeys']
+    signing_keys = {}
+    for dev_id in all_pubkeys.keys():
+        signing_keys[dev_id] = all_pubkeys[dev_id].get('sign')
 
-    pubkey = user_zonefile_data_pubkey(zonefile_dict)
-    return {'status': True, 'pubkey': pubkey, 'name_record': name_rec}
+    return {'status': True, 'pubkeys': signing_keys}
 
 
 def token_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=None,
@@ -743,6 +826,7 @@ def token_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=
     'profile': profile,
     'zonefile': zonefile
     'raw_zonefile': unparesed zone file,
+    'nonstandard_zonefile': bool whether or not this is a non-standard zonefile
     'legacy_profile': legacy parsed profile
     'name_record': name record (if needed)
     } on success.
@@ -761,6 +845,7 @@ def token_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=
         'profile': None,
         'legacy_profile': None,
         'raw_zonefile': None,
+        'nonstandard_zonefile': False,
         'zonefile': user_zonefile,
         'name_record': name_record,
     }
@@ -791,6 +876,7 @@ def token_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=
         # not a legacy profile, but a custom profile
         log.warning('Non-standard zone file; treating as legacy profile')
         ret['legacy_profile'] = copy.deepcopy(user_zonefile)
+        ret['nonstandard_zonefile'] = True
         return ret
 
     # get user's data public key from their zone file, if it is set.
@@ -839,7 +925,7 @@ def token_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=
         log.warning("Failed to parse token file: {}".format(token_file_data['error']))
 
         # try to parse as a legacy profile 
-        profile = parse_mutable_data(profile_or_token_file_txt, user_data_pubkey, public_key_hash=owner_address)
+        profile = storage.parse_mutable_data(profile_or_token_file_txt, user_data_pubkey, public_key_hash=owner_address)
         if profile is None:
             log.error("Failed to parse data as a token file or a profile")
             return {'error': 'Failed to load profile or token file'}
@@ -938,7 +1024,7 @@ if __name__ == "__main__":
     }
 
     # make token file
-    token_info = token_file_create(profile, delegations, apps, name_owner_privkeys, device_id)
+    token_info = token_file_create("test.id", name_owner_privkeys, device_id, profile=profile, delegations=delegations, apps=apps)
     assert 'error' not in token_info, token_info
 
     token_file_txt = token_info['token_file']
