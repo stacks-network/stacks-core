@@ -37,7 +37,7 @@ import virtualchain
 from virtualchain.lib import ecdsalib
 import blockstack_profiles
 
-from keys import HDWallet, get_app_privkey, get_signing_privkey, get_encryption_privkey
+from keys import HDWallet, get_app_root_privkey, get_signing_privkey, get_encryption_privkey
 
 import copy
 import time
@@ -90,6 +90,39 @@ def token_file_get_name_public_keys(token_file, name_addr):
         return {'error': 'Invalid address {}'.format(name_owner_pubkeys_or_addr)}
 
     return {'status': True, 'public_keys': name_owner_pubkeys}
+
+
+def token_file_make_datastore_index(apps):
+    """
+    Given the .keys.apps section of the token file, generate an index
+    that maps datastore IDs onto application names.
+    Return {'status': True, 'index': {'$datastore_id': '$app_name'}} on success
+    """
+    from data import datastore_get_id
+    index = {}
+    for dev_id in apps.keys():
+        dev_apps = apps[dev_id]['apps']
+        for app_name in dev_apps.keys():
+            datastore_id = datastore_get_id(dev_apps[app_name])
+            index[datastore_id] = app_name 
+        
+    return {'status': True, 'index': index}
+
+
+def token_file_get_application_name(token_file, datastore_id):
+    """
+    Given a parsed token file and a datastore ID, find the application domain.
+    Return {'status': True, 'full_application_name': ...} on success
+    Return {'error': ...} on failure
+    """
+    if 'datastore_index' not in token_file:
+        raise ValueError("Token file does not have a datastore index")
+
+    full_application_name = token_file['datastore_index'].get(datastore_id)
+    if full_application_name is None:
+        return {'error': 'No application name for "{}"'.format(datastore_id)}
+
+    return {'status': True, 'full_application_name': full_application_name}
 
 
 def token_file_parse(token_txt, name_owner_pubkeys_or_addr, min_writes=None):
@@ -274,6 +307,13 @@ def token_file_parse(token_txt, name_owner_pubkeys_or_addr, min_writes=None):
     if min_writes is not None:
         if token_file['writes'] < min_writes:
             return {'error': 'Stale token file with only {} writes'.format(token_file['writes'])}
+    
+    # map datastore_id to names
+    res = token_file_make_datastore_index(apps)
+    if 'error' in res:
+        return {'error': 'Failed to build datastore index: {}'.format(res['error'])}
+    
+    datastore_index = res['index']
 
     # success!
     token_file_data = {
@@ -293,6 +333,7 @@ def token_file_parse(token_txt, name_owner_pubkeys_or_addr, min_writes=None):
                 'apps': apps_jwts_txt,
             },
         },
+        'datastore_index': datastore_index
     }
 
     return {'status': True, 'token_file': token_file_data}
@@ -305,7 +346,7 @@ def token_file_make_delegation_entry(name_owner_privkey, device_id, key_index):
     """
     signing_privkey = get_signing_privkey(name_owner_privkey)
     encryption_privkey = get_encryption_privkey(name_owner_privkey)
-    app_privkey = get_app_privkey(name_owner_privkey)
+    app_privkey = get_app_root_privkey(name_owner_privkey)
 
     delg = {
         'app': ecdsalib.get_pubkey_hex(app_privkey),
@@ -656,13 +697,27 @@ def token_file_get_delegated_device_pubkeys(parsed_token_file, device_id):
     return res
 
 
+def token_file_get_app_device_ids(parsed_token_file):
+    """
+    Get the list of app-specific device IDs
+
+    Returns {'status': True, 'device_ids': [...]} on success
+    Return {'error': ...} on error
+    """
+    apps = parsed_token_file.get('keys', {}).get('apps', None)
+    if not apps:
+        raise ValueError('Token file does not have a "apps" entry')
+
+    return {'status': True, 'device_ids': apps.keys()}
+
+
 def token_file_get_app_device_pubkeys(parsed_token_file, device_id):
     """
     Get the public keys for apps available from a particular device
     Returns {'status': True, 'version': ..., 'pubkeys': {...}} on success
     Returns {'error': ...} on error
     """
-    apps = parsed_token_file.get('apps', None)
+    apps = parsed_token_file.get('keys', {}).get('apps', None)
     if not apps:
         raise ValueError('Token file does not have an "apps" entry')
 
@@ -733,7 +788,7 @@ def deduce_name_privkey(parsed_token_file, owner_privkey_info):
     return {'error': 'Token file is missing name public keys'}
 
 
-def lookup_name_privkey(name, owner_privkey_info, proxy=None):
+def lookup_name_privkey(name, owner_privkey_info, proxy=None, parsed_token_file=None):
     """
     Given a name and wallet keys, get the name private key
     Return {'status': True, 'name_privkey': ...} on success
@@ -741,26 +796,27 @@ def lookup_name_privkey(name, owner_privkey_info, proxy=None):
     """
     proxy = get_default_proxy() if proxy is None else proxy
 
-    res = token_file_get(name, proxy=proxy)
-    if 'error' in res:
-        log.error("Failed to get token file for {}: {}".format(name, res['error']))
-        return {'error': 'Failed to get token file for {}: {}'.format(name, res['error'])}
-
-    parsed_token_file = res['token_file']
     if parsed_token_file is None:
-        log.error("No token file for {}".format(name))
-        return {'error': 'No token file available for {}'.format(name)}
+        res = token_file_get(name, proxy=proxy)
+        if 'error' in res:
+            log.error("Failed to get token file for {}: {}".format(name, res['error']))
+            return {'error': 'Failed to get token file for {}: {}'.format(name, res['error'])}
+
+        parsed_token_file = res['token_file']
+        if parsed_token_file is None:
+            log.error("No token file for {}".format(name))
+            return {'error': 'No token file available for {}'.format(name)}
 
     return deduce_name_privkey(parsed_token_file, owner_privkey_info)
 
 
-def lookup_signing_privkey(name, owner_privkey_info, proxy=None):
+def lookup_signing_privkey(name, owner_privkey_info, proxy=None, parsed_token_file=None):
     """
     Given a name and wallet keys, get the signing private key
     Return {"status': True, 'signing_privkey': ...} on success
     Return {'error': ...} on error
     """
-    res = lookup_name_privkey(name, owner_privkey_info, proxy=proxy)
+    res = lookup_name_privkey(name, owner_privkey_info, proxy=proxy, parsed_token_file=parsed_token_file)
     if 'error' in res:
         return res
 
@@ -771,7 +827,7 @@ def lookup_signing_privkey(name, owner_privkey_info, proxy=None):
 
 def lookup_delegated_device_pubkeys(name, proxy=None):
     """
-    Given a name, get all of its delegated devices' public keys
+    Given a blockchain ID (name), get all of its delegated devices' public keys
     Return {'status': True, 'pubkeys': {'$device-id': {...}}} on success
     Return {'error': ...} on error
     """
@@ -787,29 +843,66 @@ def lookup_delegated_device_pubkeys(name, proxy=None):
 
     all_device_ids = token_file_get_delegated_device_ids(parsed_token_file)
     all_pubkeys = {}
-    for dev_id in all_device_ids:
+    for dev_id in all_device_ids['device_ids']:
         pubkey_info = token_file_get_delegated_device_pubkeys(parsed_token_file, dev_id)
+        assert 'error' not in pubkey_info, pubkey_info['error']
+
         all_pubkeys[dev_id] = pubkey_info
     
-    return {'status': True, 'pubkeys': all_pubkeys}
+    return {'status': True, 'pubkeys': all_pubkeys, 'token_file': parsed_token_file}
     
 
 def lookup_signing_pubkeys(name, proxy=None):
     """
-    Given a name, get its signing public keys.
-    Return {'status': True, 'pubkeys': {'$device_id': ...}} on success
+    Given a blockchain ID (name), get its signing public keys.
+    Return {'status': True, 'token_file': ..., 'pubkeys': {'$device_id': ...}} on success
     Return {'error': ...} on error
     """
     res = lookup_delegated_device_pubkeys(name, proxy=proxy)
     if 'error' in res:
         return res
-
+    
+    token_file = res['token_file']
     all_pubkeys = res['pubkeys']
     signing_keys = {}
     for dev_id in all_pubkeys.keys():
         signing_keys[dev_id] = all_pubkeys[dev_id].get('sign')
 
-    return {'status': True, 'pubkeys': signing_keys}
+    return {'status': True, 'pubkeys': signing_keys, 'token_file': token_file}
+
+
+def lookup_app_pubkeys(name, full_application_name, proxy=None, parsed_token_file=None):
+    """
+    Given a blockchain ID (name), and the full application name (i.e. ending in .1 or .x),
+    go and get all of the public keys for it in the app keys file
+    Return {'status': True, 'token_file': ..., 'pubkeys': {'$device_id': ...}} on success
+    Return {'error': ...} on error
+    """
+    if parsed_token_file is None:
+        res = token_file_get(name, proxy=proxy)
+        if 'error' in res:
+            log.error("Failed to get token file for {}".format(name))
+            return {'error': 'Failed to get token file for {}: {}'.format(name, res['error'])}
+        
+        parsed_token_file = res['token_file']
+        if parsed_token_file is None:
+            log.error("No token file for {}".format(name))
+            return {'error': 'No token file available for {}'.format(name)}
+
+    all_device_ids = token_file_get_app_device_ids(parsed_token_file)
+    app_pubkeys = {}
+    for dev_id in all_device_ids['device_ids']:
+        dev_app_pubkey_info = token_file_get_app_device_pubkeys(parsed_token_file, dev_id)
+        assert 'error' not in dev_app_pubkey_info, dev_app_pubkey_info['error']
+
+        dev_app_pubkeys = dev_app_pubkey_info['app_pubkeys']
+        if full_application_name not in dev_app_pubkeys.keys():
+            # this device may not access this app
+            continue
+
+        app_pubkeys[dev_id] = dev_app_pubkeys[full_application_name]
+
+    return {'status': True, 'pubkeys': app_pubkeys, 'token_file': parsed_token_file}
 
 
 def token_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=None,
