@@ -613,6 +613,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'type': 'integer',
                     'minimum': 0,
                 },
+                'unsafe': {
+                    'type': 'boolean'
+                }
             },
             'required': [
                 'name'
@@ -632,6 +635,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         recipient_address = request.get('owner_address', None)
         min_confs = request.get('min_confs', TX_MIN_CONFIRMATIONS)
         cost_satoshis = request.get('cost_satoshis', None)
+        unsafe_reg = request.get('unsafe', False)
+
+        if unsafe_reg:
+            unsafe_reg = 'true'
+        else:
+            unsafe_reg = 'false'
 
         if min_confs < 0:
             min_confs = 0
@@ -670,7 +679,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             # register
             op = 'register'
             log.debug("register {}".format(name))
-            res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs, interactive=False, force_data=True, cost_satoshis=cost_satoshis)
+            res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs,
+                                        unsafe_reg, interactive=False, force_data=True,
+                                        cost_satoshis=cost_satoshis)
 
         if 'error' in res:
             log.error("Failed to {} {}".format(op, name))
@@ -2129,7 +2140,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         new_password = str(request['password'])
 
         internal = self.server.get_internal_proxy()
-        res = internal.cli_wallet_passwod(password, new_password, config_path=self.server.config_path, interactive=False)
+        res = internal.cli_wallet_password(password, new_password, config_path=self.server.config_path, interactive=False)
         if 'error' in res:
             log.debug("Failed to change wallet password: {}".format(res['error']))
             return self._reply_json({'error': 'Failed to change password: {}'.format(res['error'])}, status_code=500)
@@ -2481,8 +2492,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': name_rec['error']}, status_code=status_code)
             return
 
-        pass
-
+        self._reply_json({'error' : 'Unimplemented'}, status_code = 405)
 
     def GET_blockchain_consensus( self, ses, path_info, blockchain_name ):
         """
@@ -3888,14 +3898,15 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_preorder(self, fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs):
+    def backend_preorder(self, fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs,
+                         unsafe_reg = False):
         """
         Queue up a name for registration.
         """
 
         if is_api_server(self.config_dir):
             # directly invoke the registrar
-            return backend.registrar.preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs, config_path=self.config_path)
+            return backend.registrar.preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs, config_path=self.config_path, unsafe_reg=unsafe_reg)
 
         else:
             res = self.check_version()
@@ -3918,6 +3929,9 @@ class BlockstackAPIEndpointClient(object):
 
             if cost_satoshis is not None:
                 data['cost_satoshis'] = cost_satoshis
+
+            if unsafe_reg:
+                data['unsafe'] = True
 
             headers = self.make_request_headers()
             req = requests.post( 'http://{}:{}/v1/names'.format(self.server, self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)

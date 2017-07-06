@@ -466,8 +466,12 @@ def inspect_wallet_data(data):
         migrated = True
 
     elif data['version'] != SERIES_VERSION:
-        log.debug("Wallet series has changed from {} to {}; triggerring migration".format(data['version'], SERIES_VERSION))
-        migrated = True
+        if data['version'] == "0.14.2" and SERIES_VERSION in ("0.14.3"):
+            pass # no migration needed
+        else:
+            log.debug("Wallet series has changed from {} to {}; triggerring migration".format(
+                data['version'], SERIES_VERSION))
+            migrated = True
 
     if any_legacy:
         migrated = True

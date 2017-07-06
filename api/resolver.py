@@ -27,23 +27,18 @@ import re
 import json
 import collections
 import logging
-import xmlrpclib
 
 from flask import Flask, make_response, jsonify, abort, request
 from flask import Blueprint
 from flask_crossdomain import crossdomain
 
 from time import time
-from basicrpc import Proxy
 
 from blockstack_proofs import profile_to_proofs, profile_v3_to_proofs
-from blockstack_profiles import resolve_zone_file_to_profile
-from blockstack_profiles import get_token_file_url_from_zone_file
-from blockstack_profiles import get_profile_from_tokens
-#from blockstack_profiles import is_profile_in_legacy_format
-from blockstack_zones import parse_zone_file
 
-from blockstack_client.proxy import get_name_blockchain_record
+import blockstack_client.profile
+
+from blockstack_client.schemas import OP_NAME_PATTERN, OP_NAMESPACE_PATTERN
 
 from api.utils import cache_control, get_mc_client
 
@@ -71,40 +66,30 @@ else:
 
 mc = get_mc_client()
 
-def validName(name):
-    """ Return True if valid name
-    """
-
-    # current regrex doesn't account for .namespace
-    regrex = re.compile('^[a-z0-9_]{1,60}$')
-
-    if regrex.match(name):
-        return True
-    else:
-        return False
-
-
-def fetch_from_dht(profile_hash):
-    """ Given a @profile_hash fetch full profile JSON
-    """
-
-    dht_client = Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
-
-    try:
-        dht_resp = dht_client.get(profile_hash)
-    except:
-        #abort(500, "Connection to DHT timed out")
-        return {"error": "Data not saved in DHT yet."}
-
-    dht_resp = dht_resp[0]
-
-    if dht_resp is None:
-        return {"error": "Data not saved in DHT yet."}
-
-    return dht_resp['value']
+# copied and patched from proofs.py
+def site_data_to_fixed_proof_url(account, zonefile):
+    service = account['service']
+    proof = None
+    if (service in zonefile and 'proof' in zonefile[service]):
+        proof = zonefile[service]['proof']
+        if isinstance(proof, dict):
+            if 'url' in proof:
+                proof = proof['url']
+            elif 'id' in proof and 'username' in zonefile[service]:
+                username = zonefile[service]['username']
+                if service == "twitter":
+                    proof = "https://twitter.com/" + username + "/status/" + proof["id"]
+                elif service == "github":
+                    proof = "https://gist.github.com/" + username + "/" + proof["id"]
+                elif service == "facebook":
+                    proof = "https://facebook.com/" + username + "/posts/" + proof["id"]
+            else:
+                proof = None
+    if proof:
+        account['proofUrl'] = proof
 
 
-def fetch_proofs(profile, username, profile_ver=2, refresh=False):
+def fetch_proofs(profile, username, profile_ver=2, zonefile = None, refresh=False):
     """ Get proofs for a profile and:
         a) check cached entries
         b) check which version of profile we're using
@@ -115,6 +100,14 @@ def fetch_proofs(profile, username, profile_ver=2, refresh=False):
         proofs_cache_reply = mc.get("proofs_" + str(username))
     else:
         proofs_cache_reply = None
+
+    if 'account' not in profile:
+        return []
+    # fix up missing proofUrls
+    for account in profile['account']:
+        if ('proofType' in account and account['proofType'] == 'http'
+            and 'proofUrl' not in account):
+            site_data_to_fixed_proof_url(account, zonefile)
 
     if proofs_cache_reply is None:
 
@@ -132,7 +125,6 @@ def fetch_proofs(profile, username, profile_ver=2, refresh=False):
         proofs = json.loads(proofs_cache_reply)
 
     return proofs
-
 
 def is_profile_in_legacy_format(profile):
     """
@@ -169,139 +161,49 @@ def is_profile_in_legacy_format(profile):
 
     return is_in_legacy_format
 
-
-def parse_uri_from_zone_file(zone_file):
-
-    token_file_url = None
-    zone_file = dict(parse_zone_file(zone_file))
-
-    if isinstance(zone_file["uri"], list) and len(zone_file["uri"]) > 0:
-
-        index = 0
-        while(index < len(zone_file["uri"])):
-
-            record = zone_file["uri"][index]
-
-            if 'name' in record and record['name'] == '_http._tcp':
-                first_uri_record = zone_file["uri"][index]
-                token_file_url = first_uri_record["target"]
-                break
-
-            index += 1
-
-    return token_file_url
-
-
-def resolve_zone_file_from_rpc(zone_file, owner_address):
-
-    rpc_uri = parse_uri_from_zone_file(zone_file)
-
-    try:
-        uri, fqu = rpc_uri.rsplit('#')
-    except:
-        return None
-
-    try:
-        s = xmlrpclib.ServerProxy(uri, allow_none=True)
-        data = s.get_profile(fqu)
-    except Exception as e:
-        print e
-
-    data = json.loads(data)
-    profile = json.loads(data['profile'])
-    pubkey = profile[0]['parentPublicKey']
-
-    try:
-        profile = get_profile_from_tokens(profile, pubkey)
-    except Exception as e:
-        print e
-
-    return profile
-
-
-def resolve_zone_file_to_profile(zone_file, address_or_public_key):
-
-    profile = None
-
-    if is_profile_in_legacy_format(zone_file):
-        return zone_file
-
-    try:
-        token_file_url = get_token_file_url_from_zone_file(zone_file)
-
-        r = requests.get(token_file_url)
-
-        profile_token_records = json.loads(r.text)
-
-        profile = get_profile_from_tokens(profile_token_records, address_or_public_key)
-    except Exception as e:
-
-        profile = resolve_zone_file_from_rpc(zone_file, address_or_public_key)
-
-    print profile
-    return profile, None
-
-
-def format_profile(profile, username, address, refresh=False):
+def format_profile(profile, fqa, zone_file, refresh=False):
     """ Process profile data and
         1) Insert verifications
         2) Check if profile data is valid JSON
     """
 
-    data = {}
-    zone_file = profile
-
-    if 'error' in profile:
-        data['profile'] = {}
-        data['error'] = profile['error']
-        data['verifications'] = []
-        data['owner_address'] = address
-        data['zone_file'] = zone_file
-
-        return data
+    data = {'profile' : profile,
+            'zone_file' : zone_file}
 
     try:
-        profile, error = resolve_zone_file_to_profile(zone_file, address)
+        username, ns = fqa.split(".")
     except:
-        if 'message' in profile:
-            data['profile'] = json.loads(profile)
-            data['verifications'] = []
-            data['owner_address'] = address
-            data['zone_file'] = zone_file
-            return data
+        data = {'error' : "Failed to split fqa into name and namespace."}
+        return data
+    if ns != 'id':
+        data['verifications'] = ["No verifications for non-id namespaces."]
+        return data
 
-    if profile is None:
-        data['profile'] = {}
+    profile_in_legacy_format = is_profile_in_legacy_format(profile)
 
-        if error is not None:
-            data['error'] = error
-        else:
-            data['error'] = "Malformed profile data."
-        data['verifications'] = []
-
+    if not profile_in_legacy_format:
+        data['verifications'] = fetch_proofs(data['profile'], username,
+                                             profile_ver=3, zonefile=zone_file,
+                                             refresh=refresh)
     else:
-
-        profile_in_legacy_format = is_profile_in_legacy_format(profile)
-
-        if not profile_in_legacy_format:
-            data['profile'] = profile
-            data['verifications'] = fetch_proofs(data['profile'], username,
-                                                 profile_ver=3, refresh=refresh)
-        else:
-            if type(profile) is not dict:
-                data['profile'] = json.loads(profile)
-            else:
-                data['profile'] = profile
-            data['verifications'] = fetch_proofs(data['profile'], username,
-                                                 refresh=refresh)
-
-    data['zone_file'] = zone_file
-    data['owner_address'] = address
+        if type(profile) is not dict:
+            data['profile'] = json.loads(profile)
+        data['verifications'] = fetch_proofs(data['profile'], username,
+                                             refresh=refresh)
 
     return data
 
+NAME_PATTERN = re.compile(OP_NAME_PATTERN)
+NS_PATTERN = re.compile(OP_NAMESPACE_PATTERN)
+def is_valid_fqa(fqa):
+    try:
+        username, ns = fqa.split(".")
+    except:
+        return False
+    return ((NAME_PATTERN.match(username) is not None) and
+            (NS_PATTERN.match(ns) is not None))
 
-def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
+def get_profile(fqa, refresh=False):
     """ Given a fully-qualified username (username.namespace)
         get the data associated with that fqu.
         Return cached entries, if possible.
@@ -310,43 +212,43 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
     global MEMCACHED_ENABLED
     global mc
 
-    username = username.lower()
+    fqa = fqa.lower()
+    if not is_valid_fqa(fqa):
+        return {'error' : 'Malformed name {}'.format(fqa)}
 
     if MEMCACHED_ENABLED and not refresh:
-        log.debug("Memcache get DHT: %s" % username)
-        dht_cache_reply = mc.get("dht_" + str(username))
+        log.debug("Memcache get DHT: %s" % fqa)
+        dht_cache_reply = mc.get("dht_" + str(fqa))
     else:
-        log.debug("Memcache disabled: %s" % username)
         dht_cache_reply = None
 
     if dht_cache_reply is None:
-
         try:
-            bs_resp = get_name_blockchain_record(username + "." + namespace)
-        except:
-            abort(500, "Connection to blockstack-server %s:%s timed out" % (BLOCKSTACKD_IP, BLOCKSTACKD_PORT))
+            res = blockstack_client.profile.get_profile(fqa, use_legacy = True)
+            if 'error' in res:
+                log.error('Error from profile.get_profile: {}'.format(res['error']))
+                return res
+            profile = res['profile']
+            zonefile = res['zonefile']
+        except Exception as e:
+            log.exception(e)
+            abort(500, "Connection to blockstack-server %s:%s timed out" % 
+                  (BLOCKSTACKD_IP, BLOCKSTACKD_PORT))
 
-        if bs_resp is None or 'error' in bs_resp:
+        if profile is None or 'error' in zonefile:
+            log.error("{}".format(zonefile))
             abort(404)
-
-        if 'value_hash' in bs_resp:
-            profile_hash = bs_resp['value_hash']
-            dht_response = fetch_from_dht(profile_hash)
-
-            dht_data = {}
-            dht_data['dht_response'] = dht_response
-            dht_data['owner_address'] = bs_resp['address']
-
-            if MEMCACHED_ENABLED or refresh:
-                log.debug("Memcache set DHT: %s" % username)
-                mc.set("dht_" + str(username), json.dumps(dht_data),
-                       int(time() + MEMCACHED_TIMEOUT))
-        else:
-            dht_data = {"error": "Not found"}
+            
+        prof_data = {'response' : profile}
+     
+        if MEMCACHED_ENABLED or refresh:
+            log.debug("Memcache set DHT: %s" % fqa)
+            mc.set("dht_" + str(fqa), json.dumps(data),
+                   int(time() + MEMCACHED_TIMEOUT))
     else:
-        dht_data = json.loads(dht_cache_reply)
+        prof_data = json.loads(dht_cache_reply)
 
-    data = format_profile(dht_data['dht_response'], username, dht_data['owner_address'])
+    data = format_profile(prof_data['response'], fqa, zonefile)
 
     return data
 
@@ -355,15 +257,10 @@ def get_all_users():
     """ Return all users in the .id namespace
     """
 
-    try:
-        fout = open(NAMES_FILE, 'r')
-        data = fout.read()
-        data = json.loads(data)
-        fout.close()
-    except:
-        data = {}
-
-    return data
+    # aaron: hardcode a non-response for the time being -- 
+    #  the previous code was trying to load a non-existent file
+    #  anyways. 
+    return {}
 
 # aaron note: do we need to support multiple users in a query?
 #    this seems like a potential avenue for abuse.
@@ -374,7 +271,6 @@ def get_all_users():
 def get_users(usernames):
     """ Fetch data from username in .id namespace
     """
-
     reply = {}
     refresh = False
 
@@ -385,39 +281,30 @@ def get_users(usernames):
 
     if usernames is None:
         reply['error'] = "No usernames given"
-        return jsonify(reply)
+        return jsonify(reply), 404
 
     if ',' not in usernames:
-
-        username = usernames
-
-        info = get_profile(username, refresh=refresh)
-
-        if 'error' in info:
-            reply[username] = info
-            return jsonify(reply), 502
-        else:
-            reply[username] = info
-
-        return jsonify(reply), 200
-
-    try:
-        usernames = usernames.rsplit(',')
-    except:
-        reply['error'] = "Invalid input format"
-        return jsonify(reply)
+        usernames = [usernames]
+    else:
+        try:
+            usernames = usernames.rsplit(',')
+        except:
+            reply['error'] = "Invalid input format"
+            return jsonify(reply), 401
 
     for username in usernames:
+        if "." not in username:
+            fqa = "{}.{}".format(username, 'id')
+        else:
+            fqa = username
+        profile = get_profile(fqa, refresh=refresh)
 
-        try:
-            profile = get_profile(username, refresh=refresh)
-
-            if 'error' in profile:
-                pass
-            else:
+        if 'error' in profile:
+            if len(usernames) == 1:
                 reply[username] = profile
-        except:
-            pass
+                return jsonify(reply), 502
+        else:
+            reply[username] = profile
 
     return jsonify(reply), 200
 
