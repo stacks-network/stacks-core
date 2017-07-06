@@ -116,7 +116,7 @@ def activate_account(blockchain_id, datastore_pk):
         return False
 
     # sign in and make a token with the given blockchain ID (whose wallet must be currently set)
-    res = testlib.blockstack_cli_app_signin(blockchain_id, datastore_pk, 'app.com', ['store_read', 'store_write', 'store_admin'])
+    res = testlib.blockstack_cli_app_signin(blockchain_id, datastore_pk, 'app.com.1', ['store_read', 'store_write', 'store_admin'])
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         return False
@@ -137,7 +137,7 @@ def core_signin(datastore_pk, blockchain_id):
     global sessions
 
     # sign in and make a token with the given blockchain ID (whose wallet must be currently set)
-    res = testlib.blockstack_cli_app_signin(blockchain_id, datastore_pk, 'app.com', ['store_read', 'store_write', 'store_admin'])
+    res = testlib.blockstack_cli_app_signin(blockchain_id, datastore_pk, 'app.com.1', ['store_read', 'store_write', 'store_admin'])
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         return False

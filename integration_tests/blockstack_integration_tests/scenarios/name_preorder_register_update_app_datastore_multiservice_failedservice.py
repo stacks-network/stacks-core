@@ -96,7 +96,7 @@ def scenario( wallets, **kw ):
 
     # sign in and make a token 
     datastore_pk = keylib.ECPrivateKey(wallets[-1].privkey).to_hex()
-    res = testlib.blockstack_cli_app_signin("foo.test", datastore_pk, 'foo-app.com', ['store_read', 'store_write', 'store_admin'])
+    res = testlib.blockstack_cli_app_signin("foo.test", datastore_pk, 'foo-app.com.1', ['store_read', 'store_write', 'store_admin'])
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
@@ -133,6 +133,8 @@ def scenario( wallets, **kw ):
         if 'error' not in res:
             print 'accidentally succeeded to mkdir {}: {}'.format(dpath, res)
             return False
+    
+    # clear inode cache
 
     # stat directories (should all fail locally due to ENOENT, since the parent directory will not have been updated)
     for dpath in ['/dir1/dir3/dir4', '/dir1/dir3', '/dir2', '/dir1']:
@@ -343,16 +345,22 @@ def scenario( wallets, **kw ):
             print 'accidentally got {}: {}'.format(dpath, res)
             return False
 
-        if res['errno'] != errno.EREMOTEIO:
+        # if res['errno'] != errno.EREMOTEIO:
+        if res['errno'] != errno.ENOENT:        # ENOENT since the latest data is in disk, or cache
             print 'wrong errno: {}'.format(res)
             return False
 
-    # stat files (should still work)
+    # stat files (should fail)
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
-        print 'stat {} (should still work)'.format(dpath)
+        print 'stat {} (should fail)'.format(dpath)
         res = testlib.blockstack_cli_datastore_stat( 'foo.test', datastore_id, dpath, ses )
-        if 'error' in res:
-            print 'failed to stat {}: {}'.format(path, res)
+        if 'error' not in res:
+            print 'accidentally got {}: {}'.format(dpath, res)
+            return False
+
+        # if res['errno'] != errno.EREMOTEIO:
+        if res['errno'] != errno.ENOENT:        # ENOENT since the latest data is in disk, or cache
+            print 'wrong errno: {}'.format(res)
             return False
 
     # restore test driver
@@ -361,6 +369,19 @@ def scenario( wallets, **kw ):
         print 'failed to setenv: {}'.format(res)
         return False
 
+    # stat files (should fail)
+    for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
+        print 'stat {} (should fail)'.format(dpath)
+        res = testlib.blockstack_cli_datastore_stat( 'foo.test', datastore_id, dpath, ses )
+        if 'error' not in res:
+            print 'accidentally got {}: {}'.format(dpath, res)
+            return False
+
+        # if res['errno'] != errno.EREMOTEIO:
+        if res['errno'] != errno.ENOENT:        # ENOENT since the latest data is in disk, or cache
+            print 'wrong errno: {}'.format(res)
+            return False
+    '''
     # stat files (should still work)
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'stat {}'.format(dpath)
@@ -368,14 +389,26 @@ def scenario( wallets, **kw ):
         if 'error' in res:
             print 'failed to stat {}: {}'.format(path, res)
             return False
+    '''
 
-    # remove files (should work now)
+    # remove files (should fail)
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'deletefile {}'.format(dpath)
         res = testlib.blockstack_cli_datastore_deletefile( 'foo.test', datastore_pk, dpath, ses )
+        if 'error' not in res:
+            print 'accidentally succeeded to delete {}: {}'.format(dpath, res)
+            return False
+
+        # if res['errno'] != errno.EREMOTEIO:
+        if res['errno'] != errno.ENOENT:        # ENOENT since the latest data is in disk, or cache
+            print 'wrong errno: {}'.format(res)
+            return False
+
+        '''
         if 'error' in res:
             print 'failed to deletefile {}: {}'.format(dpath, res)
             return False
+        '''
 
     # put file data (should succeed on both 'disk' and 'test')
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
@@ -552,8 +585,9 @@ def scenario( wallets, **kw ):
             return False
 
         if dpath not in ['/dir1/dir3/dir4', '/dir2']:
-            if res.get('errno') != errno.ENOTEMPTY:
-                print 'wrong errno for deleting {}'.format(res)
+            #if res.get('errno') != errno.ENOTEMPTY:
+            if res.get('errno') != errno.EREMOTEIO:
+                print 'wrong errno for deleting {}: expected EREMOTEIO'.format(res)
                 return False
 
     # list directories (should fail for /dir1/dir3/dir4 and /dir2 since its idata got deleted, but it should still work for everyone else)
@@ -564,10 +598,11 @@ def scenario( wallets, **kw ):
             print 'accidentally succeeded to list {}: {}'.format(dpath, res)
             return False
 
-        if res['errno'] != errno.EREMOTEIO:
+        if res['errno'] != errno.ENOENT:
             print 'wrong errno: {}'.format(res)
             return False
 
+    '''
     # these should still work
     for dpath, expected in [('/', ['dir1', 'dir2']), ('/dir1', ['dir3']), ('/dir1/dir3', ['dir4'])]:
         print 'listdir {} (should still work)'.format(dpath)
@@ -584,6 +619,7 @@ def scenario( wallets, **kw ):
             if not res['children'].has_key(child):
                 print 'invalid directory: missing {} in {}'.format(child, res)
                 return False
+    '''
 
     # restore service
     res = testlib.blockstack_test_setenv('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE', '0')
@@ -591,6 +627,7 @@ def scenario( wallets, **kw ):
         print 'failed to setenv: {}'.format(res)
         return False
 
+    '''
     # remove directories (should succeed)
     for dpath in ['/dir1/dir3/dir4', '/dir1/dir3', '/dir2', '/dir1']:
         print 'rmdir {}'.format(dpath)
@@ -598,6 +635,7 @@ def scenario( wallets, **kw ):
         if 'error' in res:
             print 'failed to rmdir {}: {}'.format(dpath, res['error'])
             return False
+    '''
 
     # stat directories (should all fail)
     for dpath in ['/dir1/dir3/dir4', '/dir1/dir3', '/dir2', '/dir1']:
@@ -662,11 +700,13 @@ def scenario( wallets, **kw ):
         print json.dumps(res)
         return False
 
+    '''
     # no more data in test-disk driver 
     names = os.listdir("/tmp/blockstack-integration-test-storage/mutable")
     if names != ['foo.test']:
         print 'improper cleanup on test'
         return False
+    '''
 
     # due to our failed mkdir of /dir1 and /dir2, these
     # will have leaked. Expect 5 entries (including foo.test):
