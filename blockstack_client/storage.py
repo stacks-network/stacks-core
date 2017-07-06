@@ -442,9 +442,7 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
 
     if public_key_hash is not None:
         pubkey_hash = keylib.address_formatting.bin_hash160_to_address(
-                keylib.address_formatting.address_to_bin_hash160(
-                    str(public_key_hash),
-                ),
+                keylib.address_formatting.address_to_bin_hash160(str(public_key_hash)),
                 version_byte=0
         )
 
@@ -784,6 +782,8 @@ def get_mutable_data(fq_data_id, data_pubkeys, urls=None, data_addresses=None, d
 
     global storage_handlers
 
+    assert data_pubkeys or data_addresses or data_hash or not decode, "BUG: no means to decode data"
+
     handlers_to_use = []
     if drivers is None:
         handlers_to_use = storage_handlers
@@ -795,12 +795,14 @@ def get_mutable_data(fq_data_id, data_pubkeys, urls=None, data_addresses=None, d
             )
 
     # ripemd160(sha256(pubkey))
+    encoded_data_pubkey_hashes = []
     data_pubkey_hashes = []
     if data_addresses:
         for a in filter(lambda x: x is not None, data_addresses):
             try:
                 h = keylib.b58check.b58check_decode(str(a)).encode('hex')
                 data_pubkey_hashes.append(h)
+                encoded_data_pubkey_hashes.append(a)
             except:
                 log.debug("Invalid address '{}'".format(a))
                 continue
@@ -873,22 +875,27 @@ def get_mutable_data(fq_data_id, data_pubkeys, urls=None, data_addresses=None, d
                 if data_pubkeys:
                     # try public keys
                     for data_pubkey in data_pubkeys:
-                        log.debug("Try to verify {} bytes with {}".format(len(data_txt), data_pubkey))
+                        log.debug("Try to verify {} bytes with public key {}".format(len(data_txt), data_pubkey))
                         data = parse_mutable_data(data_txt, data_pubkey, data_hash=data_hash, bsk_version=bsk_version)
                         if data is not None:
                             break
 
-                if data is None:
+                if data is None and len(encoded_data_pubkey_hashes) > 0:
                     # try public key hashes
-                    for pubkey_hash in data_pubkey_hashes:
-                        log.debug("Try to verify {} bytes with {}".format(pubkey_hash))
+                    for pubkey_hash in encoded_data_pubkey_hashes:
+                        log.debug("Try to verify {} bytes with public key hash {}".format(len(data_txt), pubkey_hash))
                         data = parse_mutable_data(data_txt, None, public_key_hash=pubkey_hash, data_hash=data_hash, bsk_version=bsk_version)
                         if data is not None:
                             break
-                            
+                           
+                if data_hash is not None and (data_pubkeys is None or len(data_pubkeys) == 0) and len(encoded_data_pubkey_hashes) == 0:
+                    # try data hash
+                    log.debug("Try to verify {} bytes with data hash {}".format(len(data_txt), data_hash))
+                    data = parse_mutable_data(data_txt, None, data_hash=data_hash, bsk_version=bsk_version)
+                    
                 if data is None:
-                    msg = 'Unparseable data from "{}"'
-                    log.error(msg.format(url))
+                    # out of options
+                    log.error("Unparseable data from '{}'".format(url))
                     continue
 
                 msg = 'Loaded "{}" with {}'
