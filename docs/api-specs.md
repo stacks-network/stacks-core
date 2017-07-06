@@ -44,6 +44,62 @@ Ping the blockstack node to see if it's alive.
             }
 
 ## Get the node's config [GET /v1/node/config]
+Returns the current configuation settings of the blockstack node.
+
++ Response 200 (application/json)
+  + Body
+
+             {
+                 "bitcoind": {
+                     "passwd": "blockstacksystem",
+                     "port": "18332",
+                     "regtest": "True",
+                     "server": "localhost",
+                     "spv_path": "/tmp/.../spv_headers.dat",
+                     "use_https": "False",
+                     "user": "blockstack"
+                 },
+                 "blockchain-reader": {
+                     "port": "18332",
+                     "rpc_password": "blockstacksystem",
+                     "rpc_username": "blockstack",
+                     "server": "localhost",
+                     "use_https": "False",
+                     "utxo_provider": "bitcoind_utxo",
+                     "version_byte": "0"
+                 },
+                 "blockchain-writer": {
+                     "port": "18332",
+                     "rpc_password": "blockstacksystem",
+                     "rpc_username": "blockstack",
+                     "server": "localhost",
+                     "use_https": "False",
+                     "utxo_provider": "bitcoind_utxo",
+                     "version_byte": "0"
+                 },
+                 "blockstack-client": {
+                     "accounts": "/tmp/.../client/app_accounts",
+                     "advanced_mode": "true",
+                     "anonymous_statistics": false,
+                     "api_endpoint_port": "16268",
+                     "api_password": "blockstack_integration_test_api_password",
+                     "blockchain_reader": "bitcoind_utxo",
+                     "blockchain_writer": "bitcoind_utxo",
+                     "client_version": "0.14.3.0",
+                     "datastores": "/tmp/.../client/datastores",
+                     "email": "",
+                     "metadata": "/tmp/.../client/metadata",
+                     "poll_interval": "1",
+                     "port": "16264",
+                     "queue_path": "/tmp/.../client/queues.db",
+                     "rpc_detach": "True",
+                     "server": "localhost",
+                     "storage_drivers": "disk",
+                     "storage_drivers_required_write": "disk",
+                     "users": "/tmp/.../client/users"
+                 }
+             }
+
 ## Set config field [POST /v1/node/config/{section}?{key}={value}]
 Set one or more config fields in a config section.
 
@@ -52,29 +108,79 @@ Set one or more config fields in a config section.
   + key: server (string) - configuration variable to set
   + value: node.blockstack.org (string) - value to set
 
-## Delete a config field [DELETE /v1/node/config/{section}/{key}]
++ Response 200 (application/json)
 
+             { 'status' : true }
+
+## Delete a config field [DELETE /v1/node/config/{section}/{key}]
+Delete a single field from the configuration.
 + Parameters
   + section: blockstack-client (string) - configuration section
-  + key: server (string) - configuration variable to set
+  + key: advanced_mode (string) - configuration variable to set
+
++ Response 200 (application/json)
+
+             { 'status' : true }
 
 ## Delete a config section [DELETE /v1/node/config/{section}]
-Deletes a whole section from the node's config
+Deletes a whole section from the node's configuration.
 + Parameters
     + section: blockstack-client (string) - configuration section
 
++ Response 200 (application/json)
+
+             { 'status' : true }
+
 ## Get registrar state [GET /v1/node/registrar/state]
+Gets the current state of the registrar. That is, the blockstack operations 
+that have been submitted that are still waiting on confirmations.
+
++ Requires root authorization
++ Response 200 (application/json)
+  + Body
+
+             [
+                 {
+                     "block_height": 666,
+                     "fqu": "bar.test",
+                     "owner_address": "myaPViveUWiiZQQTb51KXCDde4iLC3Rf3K",
+                     "payment_address": "mv1uqYWZpnap4VBSKTHfKW6noTZcNtxtCW",
+                     "profile": {
+                         "@type": "Person",
+                         "accounts": []
+                     },
+                     "transfer_address": null,
+                     "tx_hash": "b0fa7d4d79bb69cb3eccf40978514dec1620d05fe7822c550c2764c670efcd29",
+                     "type": "preorder",
+                     "zonefile": "$ORIGIN bar.test\n$TTL 3600\npubkey TXT \"pubkey:data:03ea5d8c2a3ba84eb17625162320bb53440557c71f7977a57d61405e86be7bdcda\"\n_file URI 10 1 \"file:///home/bar/.blockstack/storage-disk/mutable/bar.test\"\n",
+                     "zonefile_hash": "cbe11bbbfffe415b915a7f9566748f72a0d8b2bd"
+                 }
+             ]
 
 # Group Core Wallet Management
+The blockstack core node manages its own wallet -- this has three keys
+for payment, name ownership, and signing data (e.g., user profiles). This
+wallet can be managed through these endpoints.
 
 ## Get wallet payment address [GET /v1/wallet/payment_address]
 Returns core node's payment address.
 + Authorization: `wallet_read`
-## Set all wallet keys [PUT /v1/wallet/keys]
-+ Requires root authorization
-## Get all wallet keys [GET /v1/wallet/keys]
-+ Requires root authorization
++ Response 200 (application/json)
+  + Body
+
+             {
+                 "address": "mv1uqYWZpnap4VBSKTHfKW6noTZcNtxtCW"
+             }
+
 ## Set a specific wallet key [PUT /v1/wallet/keys/{keyname}]
+This call instructs the blockstack core node to use a particular key
+instead of the core node's configured wallet key. The setting of this
+key is *temporary*. It is not written to `~/.blockstack/wallet.json`,
+and on a subsequent restart, the key will return to the original key.
+Therefore, particular care should be taken when registering with such
+a key, as the registrar may be unable to issue a `REGISTER` or
+`UPDATE` if the node restarts in the middle of the registration process. 
+
 + Requires root authorization
 + Parameters
     + keyname: owner (string) - which key to set (one of 'owner', 'data', 'payment')
@@ -140,35 +246,100 @@ least a specified number of confirmations.
 + Authorization: `wallet_read`
 + Parameters
   + minconfs: 0 (number, optional) - the minimum confs of transactions to include in balance
-## Change wallet password [PUT /v1/wallet/password]
-+ Authorization: `wallet_write`
-+ Request (application/json)
++ Response 200 (application/json)
   + Body
-  
-              {'password' : 'foobarbar',
-               'new_password' : 'barfoobar'}
+
+             {
+                 "balance": {
+                     "bitcoin": 49.931727,
+                     "satoshis": 4993172700
+                 }
+             }
 
 ## Withdraw payment wallet funds [POST /v1/wallet/balance]
+Withdraw an amount (given in satoshis) from the core payment
+wallet, to a particular address.
 + Authorization: `wallet_write`
 + Request (application/json)
   + Body
   
-            {'address' : 'mF12..',
+            {'address' : 'mibZW6EBpXSTWQNQ9E4fi9hhGKYSMkjyg9',
                'amount' : 100,
                'min_confs' : 6,
                'tx_only' : false}
 
++ Response 200 (application/json)
+  + Body
+
+             {
+              "status": true, 
+              "transaction_hash": "c4ee8d1993794487e6b5aca802a1793530bdff35c763ca051fbaa4b998780822",
+              "success": true
+             }
+
 ## Get wallet owner address [GET /v1/wallet/owner_address]
 Returns core node's owner address.
 + Authorization: `wallet_read`
++ Response 200 (application/json)
+  + Body
+
+             {
+                 "address": "myaPViveUWiiZQQTb51KXCDde4iLC3Rf3K"
+             }
+
 ## Get wallet data public key [GET /v1/wallet/data_pubkey]
 Returns the public key the core node uses for signing user data
 + Authorization: `wallet_read`
++ Response 200 (application/json)
+  + Body
+
+             {
+                 "public_key": "03ea5d8c2a3ba84eb17625162320bb53440557c71f7977a57d61405e86be7bdcda"
+             }
+
+## Change wallet password [PUT /v1/wallet/password]
+This will change the password for core's wallet. Currently not working endpoint.
++ Authorization: `wallet_write`
++ Request (application/json)
+  + Body
+  
+              {'password' : '"0123456789abcdef"',
+               'new_password' : "abcdef0123456789"'}
+
+## Set all wallet keys [PUT /v1/wallet/keys]
++ Requires root authorization
+## Get all wallet keys [GET /v1/wallet/keys]
++ Requires root authorization
 
 # Group Managing Names
 
 ## Register a name [POST /v1/names]
+Registers a name. If no `owner_address` is supplied in the POSTed JSON
+object, core will register a name for the current owner address in core's
+wallet. If an `owner_address` is supplied, a `TRANSFER` operation will be
+called to send the name to appropriate owner.
+
+The `min_confs` keyword controls the minimum number of confirmations for
+UTXOs used as payments for name registration.
+
+The `unsafe` keyword instructs core's registrar to ignore certain
+safety checks while registering the name (in particular, the registrar
+will not verify that the user own's the name before issuing a
+`REGISTER` and `UPDATE`). This allows the registrar to submit
+operations before they have been confirmed on remote resolvers or
+indexers, in this mode, the registrar will wait for 4 confirmations on
+a `PREORDER`, 1 confirmation on a `REGISTER` and 1 confirmation on an
+`UPDATE`. `node.blockstack.org` will correctly detect the registration
+after the `UPDATE` has 6 confirmations.
+
 + Authorization: `register`
++ Request (application/json)
+  + Body
+
+             {
+               'name' : 'bar.test'
+             }
+
 + Request (application/json)
   + Schema
 
@@ -210,17 +381,45 @@ Returns the public key the core node uses for signing user data
                         'additionalProperties': False,
                     }
 
++ Response 200 (application/json)
+  + Body
+
+             {
+                 "message": "Name queued for registration.  The process takes several hours.  You can check the status with `blockstack info`.",
+                 "success": true,
+                 "transaction_hash": "6cdb9722f72875b30e1ab3de463e3960aced951f674be942b302581a9a9469a5"
+             }
+
 ## Revoke name [DELETE /v1/names/{name}]
 Revokes the name from blockstack.
 + Parameters
-  + name: muneeb.id (string) - fully-qualified name
+  + name: bar.test (string) - fully-qualified name
 + Authorization: `revoke`
++ Response 200 (application/json)
+  + Body
+
+             {
+                 "message": "Name queued for revocation.  The process takes ~1 hour.  You can check the status with `blockstack info`.",
+                 "success": true,
+                 "transaction_hash": "b2745b706d7a14ce652265de103d7eaefb44a75eb658d7bb1db8868da08768b2"
+             }
 
 ## Transfer name [PUT /v1/names/{name}/owner]
 Transfers a name to a different owner.
 + Authorization: `transfer`
 + Parameters
-  + name: user.id (string) - name to transfer
+  + name: bar.test (string) - name to transfer
++ Request (application/json)
+  + Body
+
+             { "owner" : "mjZicz7GSJBZuGeCMEgpzr8U9w6d41DfXm" }
++ Response 202 (application/json)
+
+             {
+                 "message": "Name queued for transfer.  The process takes ~1 hour.  You can check the status with `blockstack info`.",
+                 "success": true,
+                 "transaction_hash": "c0d677f9ee681abbed8ca6d231bc4ece517c8c6695ce883e5e196b5395402779"
+             }
 
 ## Set zone file [PUT /v1/names/{name}/zonefile]
 Sets the user's zonefile hash, and, if supplied, propagates the
@@ -322,7 +521,7 @@ Get a history of all blockchain records of a registered name.
                   "opcode": "NAME_IMPORT", 
                   "preorder_block_number": 373821,
                  }
-             ]
+               ]
              }
 
 ## Get historical zone file [GET /v1/names/{name}/zonefile/{zoneFileHash}]
@@ -471,26 +670,57 @@ Get the current transactions that the node has issued and are still pending.
   
                { 'status' : True, 'tx_hash' : '...' }
 
-# Get block operations [GET /v1/blockchains/{blockchainName}/block/{blockHeight}]
-Not implemented
 ## Get raw name history [GET /v1/blockchains/{blockchainName}/names/{nameID}/history]
 Not implemented
 
++ Response 405 (application/json)
+  + Body
+
+             { 'error' : 'Unimplemented' }
+
 # Group Gaia Endpoints
+The Gaia endpoints interface with `blockstack-storage.js` to provide
+storage to blockstack applications.
+
 ## Create "store" for this session [POST /v1/stores]
-## "Store" operations [/v1/stores/{storeID}]
-### Get "store" metadata [GET]
-### Delete "store" [DELETE]
-## Get inode info (stat) [GET /v1/stores/{storeID}/inodes?path={path}]
-## Directory operations [/v1/stores/{storeID}/directories?path={path}]
-### Get directory files (ls) [GET]
-### Create directory (mkdir) [POST]
-### Delete directory (rmdir) [DELETE]
-## File Operations [/v1/stores/{storeID}/files?path={path}]
-### Get file data (cat) [GET]
-### Create file [POST]
-### Update file [PUT]
-### Delete file (rm) [DELETE]
+## Get "store" metadata [GET /v1/stores/{storeID}]
++ Parameters
+  + storeID : (string)
+## Delete "store" [DELETE /v1/stores/{storeID}]
++ Parameters
+  + storeID : (string)
+## Get inode info [GET /v1/stores/{storeID}/inodes?path={path}]
++ Parameters
+  + storeID : (string)
+  + path : (string) - path of inode
+## Get directory files [GET /v1/stores/{storeID}/directories?path={path}]
++ Parameters
+  + storeID : (string)
+  + path : (string) - path of inode
+## Create directory [POST /v1/stores/{storeID}/directories?path={path}]
++ Parameters
+  + storeID : (string)
+  + path : (string) - path of inode
+## Delete directory [DELETE /v1/stores/{storeID}/directories?path={path}]
++ Parameters
+  + storeID : (string)
+  + path : (string) - path of inode
+## Get file data [GET /v1/stores/{storeID}/files?path={path}]
++ Parameters
+  + storeID : (string)
+  + path : (string) - path of inode
+## Create file [POST /v1/stores/{storeID}/files?path={path}]
++ Parameters
+  + storeID : (string)
+  + path : (string) - path of inode
+## Update file [PUT /v1/stores/{storeID}/files?path={path}]
++ Parameters
+  + storeID : (string)
+  + path : (string) - path of inode
+## Delete file [DELETE /v1/stores/{storeID}/files?path={path}]
++ Parameters
+  + storeID : (string)
+  + path : (string) - path of inode
 
 # Group Namespace Operations
 ## Get all namespaces [GET /v1/namespaces]
@@ -519,16 +749,10 @@ Fetch a list of names from the namespace.
                  "aldi.id", "aldighieri.id", ... ]
 
 ## Create namespace [POST /v1/namespaces]
-Not yet implemented.
+Not implemented.
 ## Pre-register a name [POST /v1/namespaces/{tld}/names]
 Not implemented.
 ## Update pre-registered name [POST /v1/namespaces/{tld}/names/{name}]
 Not implemented.
 ## Launch namespace [PUT /v1/namespaces/{tld}]
 Not implemented.
-
-# Group Proposed Collection APIs
-## Create collection [POST /v1/collections]
-## Get all collection items [GET /v1/collections/{collectionID}]
-## Create collection item [POST /v1/collections/{collectionID}]
-## Get collection item [GET /v1/collections/{collectionID}/{itemID}]
