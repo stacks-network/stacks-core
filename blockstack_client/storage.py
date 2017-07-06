@@ -73,7 +73,7 @@ def get_zonefile_data_hash(data_txt):
     Generate a hash over a user's zonefile.
     Return the hex string.
     """
-    return hex_hash160(data_txt)
+    return hex_hash160(str(data_txt))
 
 
 def get_blockchain_compat_hash(data_txt):
