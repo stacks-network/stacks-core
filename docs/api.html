@@ -1,0 +1,586 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>API Documentation</title><link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css"><style>@import url('https://fonts.googleapis.com/css?family=Roboto:400,700|Inconsolata|Raleway:200');.hljs-comment,.hljs-title{color:#8e908c}.hljs-variable,.hljs-attribute,.hljs-tag,.hljs-regexp,.ruby .hljs-constant,.xml .hljs-tag .hljs-title,.xml .hljs-pi,.xml .hljs-doctype,.html .hljs-doctype,.css .hljs-id,.css .hljs-class,.css .hljs-pseudo{color:#c82829}.hljs-number,.hljs-preprocessor,.hljs-pragma,.hljs-built_in,.hljs-literal,.hljs-params,.hljs-constant{color:#f5871f}.ruby .hljs-class .hljs-title,.css .hljs-rules .hljs-attribute{color:#eab700}.hljs-string,.hljs-value,.hljs-inheritance,.hljs-header,.ruby .hljs-symbol,.xml .hljs-cdata{color:#718c00}.css .hljs-hexcolor{color:#3e999f}.hljs-function,.python .hljs-decorator,.python .hljs-title,.ruby .hljs-function .hljs-title,.ruby .hljs-title .hljs-keyword,.perl .hljs-sub,.javascript .hljs-title,.coffeescript .hljs-title{color:#4271ae}.hljs-keyword,.javascript .hljs-function{color:#8959a8}.hljs{display:block;background:white;color:#4d4d4c;padding:.5em}.coffeescript .javascript,.javascript .xml,.tex .hljs-formula,.xml .javascript,.xml .vbscript,.xml .css,.xml .hljs-cdata{opacity:.5}.right .hljs-comment{color:#969896}.right .css .hljs-class,.right .css .hljs-id,.right .css .hljs-pseudo,.right .hljs-attribute,.right .hljs-regexp,.right .hljs-tag,.right .hljs-variable,.right .html .hljs-doctype,.right .ruby .hljs-constant,.right .xml .hljs-doctype,.right .xml .hljs-pi,.right .xml .hljs-tag .hljs-title{color:#c66}.right .hljs-built_in,.right .hljs-constant,.right .hljs-literal,.right .hljs-number,.right .hljs-params,.right .hljs-pragma,.right .hljs-preprocessor{color:#de935f}.right .css .hljs-rule .hljs-attribute,.right .ruby .hljs-class .hljs-title{color:#f0c674}.right .hljs-header,.right .hljs-inheritance,.right .hljs-name,.right .hljs-string,.right .hljs-value,.right .ruby .hljs-symbol,.right .xml .hljs-cdata{color:#b5bd68}.right .css .hljs-hexcolor,.right .hljs-title{color:#8abeb7}.right .coffeescript .hljs-title,.right .hljs-function,.right .javascript .hljs-title,.right .perl .hljs-sub,.right .python .hljs-decorator,.right .python .hljs-title,.right .ruby .hljs-function .hljs-title,.right .ruby .hljs-title .hljs-keyword{color:#81a2be}.right .hljs-keyword,.right .javascript .hljs-function{color:#b294bb}.right .hljs{display:block;overflow-x:auto;background:#1d1f21;color:#c5c8c6;padding:.5em;-webkit-text-size-adjust:none}.right .coffeescript .javascript,.right .javascript .xml,.right .tex .hljs-formula,.right .xml .css,.right .xml .hljs-cdata,.right .xml .javascript,.right .xml .vbscript{opacity:.5}body{color:black;background:white;font:400 14px / 1.42 'Roboto',Helvetica,sans-serif}header{border-bottom:1px solid #f2f2f2;margin-bottom:12px}h1,h2,h3,h4,h5{color:black;margin:12px 0}h1 .permalink,h2 .permalink,h3 .permalink,h4 .permalink,h5 .permalink{margin-left:0;opacity:0;transition:opacity .25s ease}h1:hover .permalink,h2:hover .permalink,h3:hover .permalink,h4:hover .permalink,h5:hover .permalink{opacity:1}.triple h1 .permalink,.triple h2 .permalink,.triple h3 .permalink,.triple h4 .permalink,.triple h5 .permalink{opacity:.15}.triple h1:hover .permalink,.triple h2:hover .permalink,.triple h3:hover .permalink,.triple h4:hover .permalink,.triple h5:hover .permalink{opacity:.15}h1{font:200 36px 'Raleway',Helvetica,sans-serif;font-size:36px}h2{font:200 36px 'Raleway',Helvetica,sans-serif;font-size:30px}h3{font-size:100%;text-transform:uppercase}h5{font-size:100%;font-weight:normal}p{margin:0 0 10px}p.choices{line-height:1.6}a{color:#428bca;text-decoration:none}li p{margin:0}hr.split{border:0;height:1px;width:100%;padding-left:6px;margin:12px auto;background-image:linear-gradient(to right, rgba(0,0,0,0) 20%, rgba(0,0,0,0.2) 51.4%, rgba(255,255,255,0.2) 51.4%, rgba(255,255,255,0) 80%)}dl dt{float:left;width:130px;clear:left;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}dl dd{margin-left:150px}blockquote{color:rgba(0,0,0,0.5);font-size:15.5px;padding:10px 20px;margin:12px 0;border-left:5px solid #e8e8e8}blockquote p:last-child{margin-bottom:0}pre{background-color:#f5f5f5;padding:12px;border:1px solid #cfcfcf;border-radius:6px;overflow:auto}pre code{color:black;background-color:transparent;padding:0;border:none}code{color:#444;background-color:#f5f5f5;font:'Inconsolata',monospace;padding:1px 4px;border:1px solid #cfcfcf;border-radius:3px}ul,ol{padding-left:2em}table{border-collapse:collapse;border-spacing:0;margin-bottom:12px}table tr:nth-child(2n){background-color:#fafafa}table th,table td{padding:6px 12px;border:1px solid #e6e6e6}.text-muted{opacity:.5}.note,.warning{padding:.3em 1em;margin:1em 0;border-radius:2px;font-size:90%}.note h1,.warning h1,.note h2,.warning h2,.note h3,.warning h3,.note h4,.warning h4,.note h5,.warning h5,.note h6,.warning h6{font-family:200 36px 'Raleway',Helvetica,sans-serif;font-size:135%;font-weight:500}.note p,.warning p{margin:.5em 0}.note{color:black;background-color:#f0f6fb;border-left:4px solid #428bca}.note h1,.note h2,.note h3,.note h4,.note h5,.note h6{color:#428bca}.warning{color:black;background-color:#fbf1f0;border-left:4px solid #c9302c}.warning h1,.warning h2,.warning h3,.warning h4,.warning h5,.warning h6{color:#c9302c}header{margin-top:24px}nav{position:fixed;top:24px;bottom:0;overflow-y:auto}nav .resource-group{padding:0}nav .resource-group .heading{position:relative}nav .resource-group .heading .chevron{position:absolute;top:12px;right:12px;opacity:.5}nav .resource-group .heading a{display:block;color:black;opacity:.7;border-left:2px solid transparent;margin:0}nav .resource-group .heading a:hover{text-decoration:none;background-color:bad-color;border-left:2px solid black}nav ul{list-style-type:none;padding-left:0}nav ul a{display:block;font-size:13px;color:rgba(0,0,0,0.7);padding:8px 12px;border-top:1px solid #d9d9d9;border-left:2px solid transparent;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}nav ul a:hover{text-decoration:none;background-color:bad-color;border-left:2px solid black}nav ul>li{margin:0}nav ul>li:first-child{margin-top:-12px}nav ul>li:last-child{margin-bottom:-12px}nav ul ul a{padding-left:24px}nav ul ul li{margin:0}nav ul ul li:first-child{margin-top:0}nav ul ul li:last-child{margin-bottom:0}nav>div>div>ul>li:first-child>a{border-top:none}.preload *{transition:none !important}.pull-left{float:left}.pull-right{float:right}.badge{display:inline-block;float:right;min-width:10px;min-height:14px;padding:3px 7px;font-size:12px;color:#000;background-color:#f2f2f2;border-radius:10px;margin:-2px 0}.badge.get{color:#70bbe1;background-color:#d9edf7}.badge.head{color:#70bbe1;background-color:#d9edf7}.badge.options{color:#70bbe1;background-color:#d9edf7}.badge.put{color:#f0db70;background-color:#fcf8e3}.badge.patch{color:#f0db70;background-color:#fcf8e3}.badge.post{color:#93cd7c;background-color:#dff0d8}.badge.delete{color:#ce8383;background-color:#f2dede}.collapse-button{float:right}.collapse-button .close{display:none;color:#428bca;cursor:pointer}.collapse-button .open{color:#428bca;cursor:pointer}.collapse-button.show .close{display:inline}.collapse-button.show .open{display:none}.collapse-content{max-height:0;overflow:hidden;transition:max-height .3s ease-in-out}nav{width:220px}.container{max-width:940px;margin-left:auto;margin-right:auto}.container .row .content{margin-left:244px;width:696px}.container .row:after{content:'';display:block;clear:both}.container-fluid nav{width:22%}.container-fluid .row .content{margin-left:24%}.container-fluid.triple nav{width:16.5%;padding-right:1px}.container-fluid.triple .row .content{position:relative;margin-left:16.5%;padding-left:24px}.middle:before,.middle:after{content:'';display:table}.middle:after{clear:both}.middle{box-sizing:border-box;width:51.5%;padding-right:12px}.right{box-sizing:border-box;float:right;width:48.5%;padding-left:12px}.right a{color:#428bca}.right h1,.right h2,.right h3,.right h4,.right h5,.right p,.right div{color:white}.right pre{background-color:#1d1f21;border:1px solid #1d1f21}.right pre code{color:#c5c8c6}.right .description{margin-top:12px}.triple .resource-heading{font-size:125%}.definition{margin-top:12px;margin-bottom:12px}.definition .method{font-weight:bold}.definition .method.get{color:#2e8ab8}.definition .method.head{color:#2e8ab8}.definition .method.options{color:#2e8ab8}.definition .method.post{color:#56b82e}.definition .method.put{color:#b8a22e}.definition .method.patch{color:#b8a22e}.definition .method.delete{color:#b82e2e}.definition .uri{word-break:break-all;word-wrap:break-word}.definition .hostname{opacity:.5}.example-names{background-color:#eee;padding:12px;border-radius:6px}.example-names .tab-button{cursor:pointer;color:black;border:1px solid #ddd;padding:6px;margin-left:12px}.example-names .tab-button.active{background-color:#d5d5d5}.right .example-names{background-color:#444}.right .example-names .tab-button{color:white;border:1px solid #666;border-radius:6px}.right .example-names .tab-button.active{background-color:#5e5e5e}#nav-background{position:fixed;left:0;top:0;bottom:0;width:16.5%;padding-right:14.4px;background-color:#fbfbfb;border-right:1px solid #f0f0f0;z-index:-1}#right-panel-background{position:absolute;right:-12px;top:-12px;bottom:-12px;width:48.6%;background-color:#333;z-index:-1}@media (max-width:1200px){nav{width:198px}.container{max-width:840px}.container .row .content{margin-left:224px;width:606px}}@media (max-width:992px){nav{width:169.4px}.container{max-width:720px}.container .row .content{margin-left:194px;width:526px}}@media (max-width:768px){nav{display:none}.container{width:95%;max-width:none}.container .row .content,.container-fluid .row .content,.container-fluid.triple .row .content{margin-left:auto;margin-right:auto;width:95%}#nav-background{display:none}#right-panel-background{width:48.6%}}.back-to-top{position:fixed;z-index:1;bottom:0;right:24px;padding:4px 8px;color:rgba(0,0,0,0.5);background-color:#f2f2f2;text-decoration:none !important;border-top:1px solid #d9d9d9;border-left:1px solid #d9d9d9;border-right:1px solid #d9d9d9;border-top-left-radius:3px;border-top-right-radius:3px}.resource-group{padding:12px;margin-bottom:12px;background-color:white;border:1px solid #d9d9d9;border-radius:6px}.resource-group h2.group-heading,.resource-group .heading a{padding:12px;margin:-12px -12px 12px -12px;background-color:#f2f2f2;border-bottom:1px solid #d9d9d9;border-top-left-radius:6px;border-top-right-radius:6px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.triple .content .resource-group{padding:0;border:none}.triple .content .resource-group h2.group-heading,.triple .content .resource-group .heading a{margin:0 0 12px 0;border:1px solid #d9d9d9}nav .resource-group .heading a{padding:12px;margin-bottom:0}nav .resource-group .collapse-content{padding:0}.action{margin-bottom:12px;padding:12px 12px 0 12px;overflow:hidden;border:1px solid transparent;border-radius:6px}.action h4.action-heading{padding:6px 12px;margin:-12px -12px 12px -12px;border-bottom:1px solid transparent;border-top-left-radius:6px;border-top-right-radius:6px;overflow:hidden}.action h4.action-heading .name{float:right;font-weight:normal;padding:6px 0}.action h4.action-heading .method{padding:6px 12px;margin-right:12px;border-radius:3px;display:inline-block}.action h4.action-heading .method.get{color:#fff;background-color:#337ab7}.action h4.action-heading .method.head{color:#fff;background-color:#337ab7}.action h4.action-heading .method.options{color:#fff;background-color:#337ab7}.action h4.action-heading .method.put{color:#fff;background-color:#ed9c28}.action h4.action-heading .method.patch{color:#fff;background-color:#ed9c28}.action h4.action-heading .method.post{color:#fff;background-color:#5cb85c}.action h4.action-heading .method.delete{color:#fff;background-color:#d9534f}.action h4.action-heading code{color:#444;background-color:#f5f5f5;border-color:#cfcfcf;font-weight:normal;word-break:break-all;display:inline-block;margin-top:2px}.action dl.inner{padding-bottom:2px}.action .title{border-bottom:1px solid white;margin:0 -12px -1px -12px;padding:12px}.action.get{border-color:#bce8f1}.action.get h4.action-heading{color:#337ab7;background:#d9edf7;border-bottom-color:#bce8f1}.action.head{border-color:#bce8f1}.action.head h4.action-heading{color:#337ab7;background:#d9edf7;border-bottom-color:#bce8f1}.action.options{border-color:#bce8f1}.action.options h4.action-heading{color:#337ab7;background:#d9edf7;border-bottom-color:#bce8f1}.action.post{border-color:#d6e9c6}.action.post h4.action-heading{color:#5cb85c;background:#dff0d8;border-bottom-color:#d6e9c6}.action.put{border-color:#faebcc}.action.put h4.action-heading{color:#ed9c28;background:#fcf8e3;border-bottom-color:#faebcc}.action.patch{border-color:#faebcc}.action.patch h4.action-heading{color:#ed9c28;background:#fcf8e3;border-bottom-color:#faebcc}.action.delete{border-color:#ebccd1}.action.delete h4.action-heading{color:#d9534f;background:#f2dede;border-bottom-color:#ebccd1}</style></head><body class="preload"><div id="nav-background"></div><div class="container-fluid triple"><div class="row"><nav><div class="resource-group"><div class="heading"><div class="chevron"><i class="open fa fa-angle-down"></i></div><a href="#authorization">Authorization</a></div><div class="collapse-content"><ul><li><a href="#authorization-auth-request-view-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Auth Request View</a></li></ul></div></div><div class="resource-group"><div class="heading"><div class="chevron"><i class="open fa fa-angle-down"></i></div><a href="#core-node-administration">Core Node Administration</a></div><div class="collapse-content"><ul><li><a href="#core-node-administration-ping-the-node-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Ping the node</a></li><li><a href="#core-node-administration-get-the-node-s-config-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get the node's config</a></li><li><a href="#core-node-administration-set-config-field-post"><span class="badge post"><i class="fa fa-plus"></i></span>Set config field</a></li><li><a href="#core-node-administration-delete-a-config-field-delete"><span class="badge delete"><i class="fa fa-times"></i></span>Delete a config field</a></li><li><a href="#core-node-administration-delete-a-config-section-delete"><span class="badge delete"><i class="fa fa-times"></i></span>Delete a config section</a></li><li><a href="#core-node-administration-get-registrar-state-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get registrar state</a></li></ul></div></div><div class="resource-group"><div class="heading"><div class="chevron"><i class="open fa fa-angle-down"></i></div><a href="#core-wallet-management">Core Wallet Management</a></div><div class="collapse-content"><ul><li><a href="#core-wallet-management-get-wallet-payment-address-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get wallet payment address</a></li><li><a href="#core-wallet-management-set-all-wallet-keys-put"><span class="badge put"><i class="fa fa-pencil"></i></span>Set all wallet keys</a></li><li><a href="#core-wallet-management-get-all-wallet-keys-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get all wallet keys</a></li><li><a href="#core-wallet-management-set-a-specific-wallet-key-put"><span class="badge put"><i class="fa fa-pencil"></i></span>Set a specific wallet key</a></li><li><a href="#core-wallet-management-get-payment-wallet-balance-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get payment wallet balance</a></li><li><a href="#core-wallet-management-change-wallet-password-put"><span class="badge put"><i class="fa fa-pencil"></i></span>Change wallet password</a></li><li><a href="#core-wallet-management-withdraw-payment-wallet-funds-post"><span class="badge post"><i class="fa fa-plus"></i></span>Withdraw payment wallet funds</a></li><li><a href="#core-wallet-management-get-wallet-owner-address-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get wallet owner address</a></li><li><a href="#core-wallet-management-get-wallet-data-public-key-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get wallet data public key</a></li></ul></div></div><div class="resource-group"><div class="heading"><div class="chevron"><i class="open fa fa-angle-down"></i></div><a href="#managing-names">Managing Names</a></div><div class="collapse-content"><ul><li><a href="#managing-names-register-a-name-post"><span class="badge post"><i class="fa fa-plus"></i></span>Register a name</a></li><li><a href="#managing-names-revoke-name-delete"><span class="badge delete"><i class="fa fa-times"></i></span>Revoke name</a></li><li><a href="#managing-names-transfer-name-put"><span class="badge put"><i class="fa fa-pencil"></i></span>Transfer name</a></li><li><a href="#managing-names-set-zone-file-put"><span class="badge put"><i class="fa fa-pencil"></i></span>Set zone file</a></li></ul></div></div><div class="resource-group"><div class="heading"><div class="chevron"><i class="open fa fa-angle-down"></i></div><a href="#name-querying">Name Querying</a></div><div class="collapse-content"><ul><li><a href="#name-querying-get-all-names-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get all names</a></li><li><a href="#name-querying-get-name-info-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get name info</a></li><li><a href="#name-querying-name-history-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Name history</a></li><li><a href="#name-querying-get-historical-zone-file-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get historical zone file</a></li><li><a href="#name-querying-get-names-owned-by-address-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get names owned by address</a></li></ul></div></div><div class="resource-group"><div class="heading"><div class="chevron"><i class="open fa fa-angle-down"></i></div><a href="#price-checks">Price Checks</a></div><div class="collapse-content"><ul><li><a href="#price-checks-get-namespace-price-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get namespace price</a></li><li><a href="#price-checks-get-name-price-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get name price</a></li></ul></div></div><div class="resource-group"><div class="heading"><div class="chevron"><i class="open fa fa-angle-down"></i></div><a href="#blockchain-operations">Blockchain Operations</a></div><div class="collapse-content"><ul><li><a href="#blockchain-operations-get-consensus-hash-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get consensus hash</a></li><li><a href="#blockchain-operations-get-pending-transactions-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get pending transactions</a></li><li><a href="#blockchain-operations-get-unspent-outputs-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get unspent outputs</a></li><li><a href="#blockchain-operations-broadcast-transaction-post"><span class="badge post"><i class="fa fa-plus"></i></span>Broadcast transaction</a></li><li><a href="#blockchain-operations-get-block-operations-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get block operations</a></li><li><a href="#blockchain-operations-get-raw-name-history-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get raw name history</a></li></ul></div></div><div class="resource-group"><div class="heading"><div class="chevron"><i class="open fa fa-angle-down"></i></div><a href="#gaia-endpoints">Gaia Endpoints</a></div><div class="collapse-content"><ul><li><a href="#gaia-endpoints-create-store-for-this-session-post"><span class="badge post"><i class="fa fa-plus"></i></span>Create "store" for this session</a></li><li><a href="#gaia-endpoints-store-operations">"Store" operations</a><ul><li><a href="#gaia-endpoints-store-operations-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get "store" metadata</a></li><li><a href="#gaia-endpoints-store-operations-delete"><span class="badge delete"><i class="fa fa-times"></i></span>Delete "store"</a></li><li><a href="#gaia-endpoints-store-operations-get-1"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get inode info (stat)</a></li></ul></li><li><a href="#gaia-endpoints-directory-operations">Directory operations</a><ul><li><a href="#gaia-endpoints-directory-operations-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get directory files (ls)</a></li><li><a href="#gaia-endpoints-directory-operations-post"><span class="badge post"><i class="fa fa-plus"></i></span>Create directory (mkdir)</a></li><li><a href="#gaia-endpoints-directory-operations-delete"><span class="badge delete"><i class="fa fa-times"></i></span>Delete directory (rmdir)</a></li></ul></li><li><a href="#gaia-endpoints-file-operations">File Operations</a><ul><li><a href="#gaia-endpoints-file-operations-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get file data (cat)</a></li><li><a href="#gaia-endpoints-file-operations-post"><span class="badge post"><i class="fa fa-plus"></i></span>Create file</a></li><li><a href="#gaia-endpoints-file-operations-put"><span class="badge put"><i class="fa fa-pencil"></i></span>Update file</a></li><li><a href="#gaia-endpoints-file-operations-delete"><span class="badge delete"><i class="fa fa-times"></i></span>Delete file (rm)</a></li></ul></li></ul></div></div><div class="resource-group"><div class="heading"><div class="chevron"><i class="open fa fa-angle-down"></i></div><a href="#namespace-operations">Namespace Operations</a></div><div class="collapse-content"><ul><li><a href="#namespace-operations-get-all-namespaces-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get all namespaces</a></li><li><a href="#namespace-operations-get-namespace-names-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get namespace names</a></li><li><a href="#namespace-operations-create-namespace-post"><span class="badge post"><i class="fa fa-plus"></i></span>Create namespace</a></li><li><a href="#namespace-operations-pre-register-a-name-post"><span class="badge post"><i class="fa fa-plus"></i></span>Pre-register a name</a></li><li><a href="#namespace-operations-update-pre-registered-name-post"><span class="badge post"><i class="fa fa-plus"></i></span>Update pre-registered name</a></li><li><a href="#namespace-operations-launch-namespace-put"><span class="badge put"><i class="fa fa-pencil"></i></span>Launch namespace</a></li></ul></div></div><div class="resource-group"><div class="heading"><div class="chevron"><i class="open fa fa-angle-down"></i></div><a href="#proposed-collection-apis">Proposed Collection APIs</a></div><div class="collapse-content"><ul><li><a href="#proposed-collection-apis-create-collection-post"><span class="badge post"><i class="fa fa-plus"></i></span>Create collection</a></li><li><a href="#proposed-collection-apis-get-all-collection-items-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get all collection items</a></li><li><a href="#proposed-collection-apis-create-collection-item-post"><span class="badge post"><i class="fa fa-plus"></i></span>Create collection item</a></li><li><a href="#proposed-collection-apis-get-collection-item-get"><span class="badge get"><i class="fa fa-arrow-down"></i></span>Get collection item</a></li></ul></div></div></nav><div class="content"><div id="right-panel-background"></div><div class="middle"><header><h1 id="top">API Documentation</h1></header></div><div class="right"><h5>API Endpoint</h5><a></a></div><div class="middle"></div><div class="middle"><section id="authorization" class="resource-group"><h2 class="group-heading">Authorization <a href="#authorization" class="permalink">&para;</a></h2></section></div><div class="middle"><div id="authorization-auth-request-view" class="resource"><a href="#authorization-auth-request-view" class="permalink"> </a><h3 class="resource-heading">Auth Request View &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/auth?authRequest=<span class="hljs-attribute" title="authRequestToken">a jwt token</span></span></div><div class="tabs"></div></div><div class="middle"><div id="authorization-auth-request-view-get" class="action get"><h4 class="action-heading"><div class="name">Auth Request View</div><a href="#authorization-auth-request-view-get" class="method get">GET</a><code class="uri">/auth?authRequest={authRequestToken}</code></h4><p>When the user clicks “login” in an application, the app should
+redirect the user to this endpoint. If the user already has an
+account, they will be redirected along with requested data. If the
+user doesn’t have an account, the user will be presented with each of
+the app’s requested permissions, then will satisfy or deny them. The
+dashboard will then redirect the user back with a JWT. The response
+JWT contains a signature and an API token that the app can use for
+future authorization of endpoints.</p>
+<p>Each application specifies in advance which family of API calls it
+will need to make to function properly.  This list is passed along to
+the dashboard endpoint when creating an application account.  The
+account-creation page shows this list of API endpoints and what they
+do, and allows the user to line-item approve or deny them.  The list
+is stored by the API server in the local account structure, and the
+list is given to the application as part of the session JWT.  The API
+server will NACK requests to endpoints in API families absent from the
+session JWT.</p>
+<ul>
+<li>Requires root authorization</li>
+</ul>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>authRequestToken</dt><dd><code>TODO: describe better</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>a jwt token</span></span></dd></dl></div></div></div><hr class="split"><div class="middle"><section id="core-node-administration" class="resource-group"><h2 class="group-heading">Core Node Administration <a href="#core-node-administration" class="permalink">&para;</a></h2></section></div><div class="middle"><div id="core-node-administration-ping-the-node" class="resource"><a href="#core-node-administration-ping-the-node" class="permalink"> </a><h3 class="resource-heading">Ping the node &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/node/ping</span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
+  "<span class="hljs-attribute">status</span>": <span class="hljs-value"><span class="hljs-string">"alive"</span></span>,
+  "<span class="hljs-attribute">version</span>": <span class="hljs-value"><span class="hljs-string">"0.14.2"</span>
+</span>}</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div><div class="middle"><div id="core-node-administration-ping-the-node-get" class="action get"><h4 class="action-heading"><div class="name">Ping the node</div><a href="#core-node-administration-ping-the-node-get" class="method get">GET</a><code class="uri">/v1/node/ping</code></h4><p>Ping the blockstack node to see if it’s alive.</p>
+<ul>
+<li>Public Endpoint</li>
+</ul>
+</div></div><hr class="split"><div class="middle"><div id="core-node-administration-get-the-node-s-config" class="resource"><a href="#core-node-administration-get-the-node-s-config" class="permalink"> </a><h3 class="resource-heading">Get the node's config &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/node/config</span></div><div class="tabs"></div></div><div class="middle"><div id="core-node-administration-get-the-node-s-config-get" class="action get"><h4 class="action-heading"><div class="name">Get the node's config</div><a href="#core-node-administration-get-the-node-s-config-get" class="method get">GET</a><code class="uri">/v1/node/config</code></h4></div></div><hr class="split"><div class="middle"><div id="core-node-administration-set-config-field" class="resource"><a href="#core-node-administration-set-config-field" class="permalink"> </a><h3 class="resource-heading">Set config field &para;</h3></div></div><div class="right"><div class="definition"><span class="method post">POST</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/node/config/<span class="hljs-attribute" title="section">blockstack</span>?<span class="hljs-attribute" title="key">server</span>=<span class="hljs-attribute" title="value">node.blockstack.org</span></span></div><div class="tabs"></div></div><div class="middle"><div id="core-node-administration-set-config-field-post" class="action post"><h4 class="action-heading"><div class="name">Set config field</div><a href="#core-node-administration-set-config-field-post" class="method post">POST</a><code class="uri">/v1/node/config/{section}?{key}={value}</code></h4><p>Set one or more config fields in a config section.</p>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>section</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>blockstack</span></span><p>client (string) - configuration section</p>
+</dd><dt>key</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>server</span></span><p>configuration variable to set</p>
+</dd><dt>value</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>node.blockstack.org</span></span><p>value to set</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="core-node-administration-delete-a-config-field" class="resource"><a href="#core-node-administration-delete-a-config-field" class="permalink"> </a><h3 class="resource-heading">Delete a config field &para;</h3></div></div><div class="right"><div class="definition"><span class="method delete">DELETE</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/node/config/<span class="hljs-attribute" title="section">blockstack</span>/<span class="hljs-attribute" title="key">server</span></span></div><div class="tabs"></div></div><div class="middle"><div id="core-node-administration-delete-a-config-field-delete" class="action delete"><h4 class="action-heading"><div class="name">Delete a config field</div><a href="#core-node-administration-delete-a-config-field-delete" class="method delete">DELETE</a><code class="uri">/v1/node/config/{section}/{key}</code></h4><div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>section</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>blockstack</span></span><p>client (string) - configuration section</p>
+</dd><dt>key</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>server</span></span><p>configuration variable to set</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="core-node-administration-delete-a-config-section" class="resource"><a href="#core-node-administration-delete-a-config-section" class="permalink"> </a><h3 class="resource-heading">Delete a config section &para;</h3></div></div><div class="right"><div class="definition"><span class="method delete">DELETE</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/node/config/<span class="hljs-attribute" title="section">blockstack</span></span></div><div class="tabs"></div></div><div class="middle"><div id="core-node-administration-delete-a-config-section-delete" class="action delete"><h4 class="action-heading"><div class="name">Delete a config section</div><a href="#core-node-administration-delete-a-config-section-delete" class="method delete">DELETE</a><code class="uri">/v1/node/config/{section}</code></h4><p>Deletes a whole section from the node’s config</p>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>section</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>blockstack</span></span><p>client (string) - configuration section</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="core-node-administration-get-registrar-state" class="resource"><a href="#core-node-administration-get-registrar-state" class="permalink"> </a><h3 class="resource-heading">Get registrar state &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/node/registrar/state</span></div><div class="tabs"></div></div><div class="middle"><div id="core-node-administration-get-registrar-state-get" class="action get"><h4 class="action-heading"><div class="name">Get registrar state</div><a href="#core-node-administration-get-registrar-state-get" class="method get">GET</a><code class="uri">/v1/node/registrar/state</code></h4></div></div><hr class="split"><div class="middle"><section id="core-wallet-management" class="resource-group"><h2 class="group-heading">Core Wallet Management <a href="#core-wallet-management" class="permalink">&para;</a></h2></section></div><div class="middle"><div id="core-wallet-management-get-wallet-payment-address" class="resource"><a href="#core-wallet-management-get-wallet-payment-address" class="permalink"> </a><h3 class="resource-heading">Get wallet payment address &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/wallet/payment_address</span></div><div class="tabs"></div></div><div class="middle"><div id="core-wallet-management-get-wallet-payment-address-get" class="action get"><h4 class="action-heading"><div class="name">Get wallet payment address</div><a href="#core-wallet-management-get-wallet-payment-address-get" class="method get">GET</a><code class="uri">/v1/wallet/payment_address</code></h4><p>Returns core node’s payment address.</p>
+<ul>
+<li>Authorization: <code>wallet_read</code></li>
+</ul>
+</div></div><hr class="split"><div class="middle"><div id="core-wallet-management-set-all-wallet-keys" class="resource"><a href="#core-wallet-management-set-all-wallet-keys" class="permalink"> </a><h3 class="resource-heading">Set all wallet keys &para;</h3></div></div><div class="right"><div class="definition"><span class="method put">PUT</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/wallet/keys</span></div><div class="tabs"></div></div><div class="middle"><div id="core-wallet-management-set-all-wallet-keys-put" class="action put"><h4 class="action-heading"><div class="name">Set all wallet keys</div><a href="#core-wallet-management-set-all-wallet-keys-put" class="method put">PUT</a><code class="uri">/v1/wallet/keys</code></h4><ul>
+<li>Requires root authorization</li>
+</ul>
+</div></div><hr class="split"><div class="middle"><div id="core-wallet-management-get-all-wallet-keys" class="resource"><a href="#core-wallet-management-get-all-wallet-keys" class="permalink"> </a><h3 class="resource-heading">Get all wallet keys &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/wallet/keys</span></div><div class="tabs"></div></div><div class="middle"><div id="core-wallet-management-get-all-wallet-keys-get" class="action get"><h4 class="action-heading"><div class="name">Get all wallet keys</div><a href="#core-wallet-management-get-all-wallet-keys-get" class="method get">GET</a><code class="uri">/v1/wallet/keys</code></h4><ul>
+<li>Requires root authorization</li>
+</ul>
+</div></div><hr class="split"><div class="middle"><div id="core-wallet-management-set-a-specific-wallet-key" class="resource"><a href="#core-wallet-management-set-a-specific-wallet-key" class="permalink"> </a><h3 class="resource-heading">Set a specific wallet key &para;</h3></div></div><div class="right"><div class="definition"><span class="method put">PUT</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/wallet/keys/<span class="hljs-attribute" title="keyname">owner</span></span></div><div class="tabs"><div class="example-names"><span>Requests</span><span class="tab-button">example 1</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Schema</h5><pre><code>{
+  "<span class="hljs-attribute">anyOf</span>": <span class="hljs-value">[
+    {
+      "<span class="hljs-attribute">anyOf</span>": <span class="hljs-value">[
+        {
+          "<span class="hljs-attribute">pattern</span>": <span class="hljs-value"><span class="hljs-string">"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$"</span></span>,
+          "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"string"</span>
+        </span>},
+        {
+          "<span class="hljs-attribute">pattern</span>": <span class="hljs-value"><span class="hljs-string">"^([0-9a-fA-F]+)$"</span></span>,
+          "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"string"</span>
+        </span>}
+      ]
+    </span>},
+    {
+      "<span class="hljs-attribute">properties</span>": <span class="hljs-value">{
+        "<span class="hljs-attribute">address</span>": <span class="hljs-value">{
+          "<span class="hljs-attribute">pattern</span>": <span class="hljs-value"><span class="hljs-string">"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$"</span></span>,
+          "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"string"</span>
+        </span>}</span>,
+        "<span class="hljs-attribute">private_keys</span>": <span class="hljs-value">{
+          "<span class="hljs-attribute">items</span>": <span class="hljs-value">{
+            "<span class="hljs-attribute">anyOf</span>": <span class="hljs-value">[
+              {
+                "<span class="hljs-attribute">pattern</span>": <span class="hljs-value"><span class="hljs-string">"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$"</span></span>,
+                "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"string"</span>
+              </span>},
+              {
+                "<span class="hljs-attribute">pattern</span>": <span class="hljs-value"><span class="hljs-string">"^([0-9a-fA-F]+)$"</span></span>,
+                "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"string"</span>
+              </span>}
+            ]
+          </span>}</span>,
+          "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"array"</span>
+        </span>}</span>,
+        "<span class="hljs-attribute">redeem_script</span>": <span class="hljs-value">{
+          "<span class="hljs-attribute">pattern</span>": <span class="hljs-value"><span class="hljs-string">"^([0-9a-fA-F]+)$"</span></span>,
+          "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"string"</span>
+        </span>}
+      </span>}</span>,
+      "<span class="hljs-attribute">required</span>": <span class="hljs-value">[
+        <span class="hljs-string">"address"</span>,
+        <span class="hljs-string">"redeem_script"</span>,
+        <span class="hljs-string">"private_keys"</span>
+      ]</span>,
+      "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"object"</span>
+    </span>}
+  ]
+</span>}</code></pre><div style="height: 1px;"></div></div></div><div class="tabs"><div class="example-names"><span>Responses</span></div></div></div></div></div><div class="middle"><div id="core-wallet-management-set-a-specific-wallet-key-put" class="action put"><h4 class="action-heading"><div class="name">Set a specific wallet key</div><a href="#core-wallet-management-set-a-specific-wallet-key-put" class="method put">PUT</a><code class="uri">/v1/wallet/keys/{keyname}</code></h4><ul>
+<li>Requires root authorization</li>
+</ul>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>keyname</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>owner</span></span><p>which key to set (one of ‘owner’, ‘data’, ‘payment’)</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="core-wallet-management-get-payment-wallet-balance" class="resource"><a href="#core-wallet-management-get-payment-wallet-balance" class="permalink"> </a><h3 class="resource-heading">Get payment wallet balance &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/wallet/balance/<span class="hljs-attribute" title="minconfs">0</span></span></div><div class="tabs"></div></div><div class="middle"><div id="core-wallet-management-get-payment-wallet-balance-get" class="action get"><h4 class="action-heading"><div class="name">Get payment wallet balance</div><a href="#core-wallet-management-get-payment-wallet-balance-get" class="method get">GET</a><code class="uri">/v1/wallet/balance/{minconfs}</code></h4><p>Fetches wallet balance, including UTXOs from transactions with at
+least a specified number of confirmations.</p>
+<ul>
+<li>Authorization: <code>wallet_read</code></li>
+</ul>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>minconfs</dt><dd><code>number</code>&nbsp;<span>(optional)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>0</span></span><p>the minimum confs of transactions to include in balance</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="core-wallet-management-change-wallet-password" class="resource"><a href="#core-wallet-management-change-wallet-password" class="permalink"> </a><h3 class="resource-heading">Change wallet password &para;</h3></div></div><div class="right"><div class="definition"><span class="method put">PUT</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/wallet/password</span></div><div class="tabs"><div class="example-names"><span>Requests</span><span class="tab-button">example 1</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{<span class="hljs-string">'password'</span> : <span class="hljs-string">'foobarbar'</span>,
+   <span class="hljs-string">'new_password'</span> : <span class="hljs-string">'barfoobar'</span>}</code></pre><div style="height: 1px;"></div></div></div><div class="tabs"><div class="example-names"><span>Responses</span></div></div></div></div></div><div class="middle"><div id="core-wallet-management-change-wallet-password-put" class="action put"><h4 class="action-heading"><div class="name">Change wallet password</div><a href="#core-wallet-management-change-wallet-password-put" class="method put">PUT</a><code class="uri">/v1/wallet/password</code></h4><ul>
+<li>Authorization: <code>wallet_write</code></li>
+</ul>
+</div></div><hr class="split"><div class="middle"><div id="core-wallet-management-withdraw-payment-wallet-funds" class="resource"><a href="#core-wallet-management-withdraw-payment-wallet-funds" class="permalink"> </a><h3 class="resource-heading">Withdraw payment wallet funds &para;</h3></div></div><div class="right"><div class="definition"><span class="method post">POST</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/wallet/balance</span></div><div class="tabs"><div class="example-names"><span>Requests</span><span class="tab-button">example 1</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{<span class="hljs-string">'address'</span> : <span class="hljs-string">'mF12..'</span>,
+   <span class="hljs-string">'amount'</span> : <span class="hljs-number">100</span>,
+   <span class="hljs-string">'min_confs'</span> : <span class="hljs-number">6</span>,
+   <span class="hljs-string">'tx_only'</span> : <span class="hljs-literal">false</span>}</code></pre><div style="height: 1px;"></div></div></div><div class="tabs"><div class="example-names"><span>Responses</span></div></div></div></div></div><div class="middle"><div id="core-wallet-management-withdraw-payment-wallet-funds-post" class="action post"><h4 class="action-heading"><div class="name">Withdraw payment wallet funds</div><a href="#core-wallet-management-withdraw-payment-wallet-funds-post" class="method post">POST</a><code class="uri">/v1/wallet/balance</code></h4><ul>
+<li>Authorization: <code>wallet_write</code></li>
+</ul>
+</div></div><hr class="split"><div class="middle"><div id="core-wallet-management-get-wallet-owner-address" class="resource"><a href="#core-wallet-management-get-wallet-owner-address" class="permalink"> </a><h3 class="resource-heading">Get wallet owner address &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/wallet/owner_address</span></div><div class="tabs"></div></div><div class="middle"><div id="core-wallet-management-get-wallet-owner-address-get" class="action get"><h4 class="action-heading"><div class="name">Get wallet owner address</div><a href="#core-wallet-management-get-wallet-owner-address-get" class="method get">GET</a><code class="uri">/v1/wallet/owner_address</code></h4><p>Returns core node’s owner address.</p>
+<ul>
+<li>Authorization: <code>wallet_read</code></li>
+</ul>
+</div></div><hr class="split"><div class="middle"><div id="core-wallet-management-get-wallet-data-public-key" class="resource"><a href="#core-wallet-management-get-wallet-data-public-key" class="permalink"> </a><h3 class="resource-heading">Get wallet data public key &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/wallet/data_pubkey</span></div><div class="tabs"></div></div><div class="middle"><div id="core-wallet-management-get-wallet-data-public-key-get" class="action get"><h4 class="action-heading"><div class="name">Get wallet data public key</div><a href="#core-wallet-management-get-wallet-data-public-key-get" class="method get">GET</a><code class="uri">/v1/wallet/data_pubkey</code></h4><p>Returns the public key the core node uses for signing user data</p>
+<ul>
+<li>Authorization: <code>wallet_read</code></li>
+</ul>
+</div></div><hr class="split"><div class="middle"><section id="managing-names" class="resource-group"><h2 class="group-heading">Managing Names <a href="#managing-names" class="permalink">&para;</a></h2></section></div><div class="middle"><div id="managing-names-register-a-name" class="resource"><a href="#managing-names-register-a-name" class="permalink"> </a><h3 class="resource-heading">Register a name &para;</h3></div></div><div class="right"><div class="definition"><span class="method post">POST</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/names</span></div><div class="tabs"><div class="example-names"><span>Requests</span><span class="tab-button">example 1</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Schema</h5><pre><code>{
+            'type': 'object',
+            'properties': {
+                "name": {
+                    'type': 'string',
+                    'pattern': OP_NAME_PATTERN
+                },
+                "zonefile": {
+                    'type': 'string',
+                    'maxLength': RPC_MAX_ZONEFILE_LEN,
+                },
+                "owner_address": {
+                    'type': 'string',
+                    'pattern': OP_BASE58CHECK_PATTERN,
+                },
+                'min_confs': {
+                    'type': 'integer',
+                    'minimum': 0,
+                },
+                'tx_fee': {
+                    'type': 'integer',
+                    'minimum': 0,
+                    'maximum': TX_MAX_FEE,
+                },
+                'cost_satoshis': {
+                    'type': 'integer',
+                    'minimum': 0,
+                },
+                'unsafe': {
+                    'type': 'boolean'
+                }
+            },
+            'required': [
+                'name'
+            ],
+            'additionalProperties': False,
+        }</code></pre><div style="height: 1px;"></div></div></div><div class="tabs"><div class="example-names"><span>Responses</span></div></div></div></div></div><div class="middle"><div id="managing-names-register-a-name-post" class="action post"><h4 class="action-heading"><div class="name">Register a name</div><a href="#managing-names-register-a-name-post" class="method post">POST</a><code class="uri">/v1/names</code></h4><ul>
+<li>Authorization: <code>register</code></li>
+</ul>
+</div></div><hr class="split"><div class="middle"><div id="managing-names-revoke-name" class="resource"><a href="#managing-names-revoke-name" class="permalink"> </a><h3 class="resource-heading">Revoke name &para;</h3></div></div><div class="right"><div class="definition"><span class="method delete">DELETE</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/names/<span class="hljs-attribute" title="name">muneeb.id</span></span></div><div class="tabs"></div></div><div class="middle"><div id="managing-names-revoke-name-delete" class="action delete"><h4 class="action-heading"><div class="name">Revoke name</div><a href="#managing-names-revoke-name-delete" class="method delete">DELETE</a><code class="uri">/v1/names/{name}</code></h4><p>Revokes the name from blockstack.</p>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>name</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>muneeb.id</span></span><p>fully-qualified name</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="managing-names-transfer-name" class="resource"><a href="#managing-names-transfer-name" class="permalink"> </a><h3 class="resource-heading">Transfer name &para;</h3></div></div><div class="right"><div class="definition"><span class="method put">PUT</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/names/<span class="hljs-attribute" title="name">user.id</span>/owner</span></div><div class="tabs"></div></div><div class="middle"><div id="managing-names-transfer-name-put" class="action put"><h4 class="action-heading"><div class="name">Transfer name</div><a href="#managing-names-transfer-name-put" class="method put">PUT</a><code class="uri">/v1/names/{name}/owner</code></h4><p>Transfers a name to a different owner.</p>
+<ul>
+<li>Authorization: <code>transfer</code></li>
+</ul>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>name</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>user.id</span></span><p>name to transfer</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="managing-names-set-zone-file" class="resource"><a href="#managing-names-set-zone-file" class="permalink"> </a><h3 class="resource-heading">Set zone file &para;</h3></div></div><div class="right"><div class="definition"><span class="method put">PUT</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/names/zonefile</span></div><div class="tabs"><div class="example-names"><span>Requests</span><span class="tab-button">example 1</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Schema</h5><pre><code>request_schema = {
+            'type': 'object',
+            'properties': {
+                "zonefile": {
+                    'type': 'string',
+                    'maxLength': RPC_MAX_ZONEFILE_LEN,
+                },
+                'zonefile_b64': {
+                    'type': 'string',
+                    'maxLength': (RPC_MAX_ZONEFILE_LEN * 4) / 3 + 1,
+                },
+                'zonefile_hash': {
+                    'type': 'string',
+                    'pattern': OP_ZONEFILE_HASH_PATTERN,
+                },
+                'tx_fee': {
+                    'type': 'integer',
+                    'minimum': 0,
+                    'maximum': TX_MAX_FEE
+                },
+            },
+            'additionalProperties': False,
+        }</code></pre><div style="height: 1px;"></div></div></div><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">202</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{<span class="hljs-string">'transaction_hash'</span> : <span class="hljs-string">'...'</span>}</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div></div><div class="middle"><div id="managing-names-set-zone-file-put" class="action put"><h4 class="action-heading"><div class="name">Set zone file</div><a href="#managing-names-set-zone-file-put" class="method put">PUT</a><code class="uri">/v1/names/zonefile</code></h4><p>Sets the user’s zonefile hash, and, if supplied, propagates the
+zonefile. If you supply the zonefile, the hash will be calculated from
+that. Ultimately, your requests should only supply one of <code>zonefile</code>,
+<code>zonefile_b64</code>, or <code>zonefile_hash</code>.</p>
+<ul>
+<li>Authorization: <code>update</code></li>
+</ul>
+</div></div><hr class="split"><div class="middle"><section id="name-querying" class="resource-group"><h2 class="group-heading">Name Querying <a href="#name-querying" class="permalink">&para;</a></h2><p>This family of API endpoints deals with querying name information.</p>
+</section></div><div class="middle"><div id="name-querying-get-all-names" class="resource"><a href="#name-querying-get-all-names" class="permalink"> </a><h3 class="resource-heading">Get all names &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/names?page=<span class="hljs-attribute" title="page">23</span></span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>[ <span class="hljs-string">"aldenquimby.id"</span>, <span class="hljs-string">"aldeoryn.id"</span>, 
+     <span class="hljs-string">"alderete.id"</span>, <span class="hljs-string">"aldert.id"</span>, 
+     <span class="hljs-string">"aldi.id"</span>, <span class="hljs-string">"aldighieri.id"</span>, ... ]</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div><div class="middle"><div id="name-querying-get-all-names-get" class="action get"><h4 class="action-heading"><div class="name">Get all names</div><a href="#name-querying-get-all-names-get" class="method get">GET</a><code class="uri">/v1/names?page={page}</code></h4><p>Fetch a list of all names known to the node.</p>
+<ul>
+<li>Public Endpoint</li>
+</ul>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>page</dt><dd><code>number</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>23</span></span><p>names are returned in pages of size 100,
+so specify the page number.</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="name-querying-get-name-info" class="resource"><a href="#name-querying-get-name-info" class="permalink"> </a><h3 class="resource-heading">Get name info &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/names/<span class="hljs-attribute" title="name">muneeb.id</span></span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
+  "<span class="hljs-attribute">address</span>": <span class="hljs-value"><span class="hljs-string">"1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP"</span></span>,
+  "<span class="hljs-attribute">blockchain</span>": <span class="hljs-value"><span class="hljs-string">"bitcoin"</span></span>,
+  "<span class="hljs-attribute">expire_block</span>": <span class="hljs-value"><span class="hljs-number">489247</span></span>,
+  "<span class="hljs-attribute">last_txid</span>": <span class="hljs-value"><span class="hljs-string">"1edfa419f7b83f33e00830bc9409210da6c6d1db60f99eda10c835aa339cad6b"</span></span>,
+  "<span class="hljs-attribute">status</span>": <span class="hljs-value"><span class="hljs-string">"registered"</span></span>,
+  "<span class="hljs-attribute">zonefile</span>": <span class="hljs-value"><span class="hljs-string">"$ORIGIN muneeb.id\n$TTL 3600\n_http._tcp IN URI 10 1 \"https://blockstack.s3.amazonaws.com/muneeb.id\"\n"</span></span>,
+  "<span class="hljs-attribute">zonefile_hash</span>": <span class="hljs-value"><span class="hljs-string">"b100a68235244b012854a95f9114695679002af9"</span>
+</span>}</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div><div class="middle"><div id="name-querying-get-name-info-get" class="action get"><h4 class="action-heading"><div class="name">Get name info</div><a href="#name-querying-get-name-info-get" class="method get">GET</a><code class="uri">/v1/names/{name}</code></h4><ul>
+<li>Public Endpoint</li>
+</ul>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>name</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>muneeb.id</span></span><p>fully-qualified name</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="name-querying-name-history" class="resource"><a href="#name-querying-name-history" class="permalink"> </a><h3 class="resource-heading">Name history &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/names/<span class="hljs-attribute" title="name">muneeb.id</span>/history</span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
+  "<span class="hljs-attribute">373821</span>": <span class="hljs-value">[
+    {
+      "<span class="hljs-attribute">address</span>": <span class="hljs-value"><span class="hljs-string">"1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP"</span></span>, 
+      "<span class="hljs-attribute">block_number</span>": <span class="hljs-value"><span class="hljs-number">373821</span></span>, 
+      "<span class="hljs-attribute">consensus_hash</span>": <span class="hljs-value"><span class="hljs-literal">null</span></span>, 
+      "<span class="hljs-attribute">first_registered</span>": <span class="hljs-value"><span class="hljs-number">373821</span></span>, 
+      "<span class="hljs-attribute">importer</span>": <span class="hljs-value"><span class="hljs-string">"76a9143e2b5fdd12db7580fb4d3434b31d4fe9124bd9f088ac"</span></span>, 
+      "<span class="hljs-attribute">importer_address</span>": <span class="hljs-value"><span class="hljs-string">"16firc3qZU97D1pWkyL6ZYwPX5UVnWc82V"</span></span>, 
+      "<span class="hljs-attribute">last_creation_op</span>": <span class="hljs-value"><span class="hljs-string">";"</span></span>, 
+      "<span class="hljs-attribute">last_renewed</span>": <span class="hljs-value"><span class="hljs-number">373821</span></span>, 
+      "<span class="hljs-attribute">name</span>": <span class="hljs-value"><span class="hljs-string">"muneeb.id"</span></span>, 
+      "<span class="hljs-attribute">name_hash128</span>": <span class="hljs-value"><span class="hljs-string">"deb7fe99776122b77925cbf0a24ab6f8"</span></span>, 
+      "<span class="hljs-attribute">namespace_block_number</span>": <span class="hljs-value"><span class="hljs-number">373601</span></span>, 
+      "<span class="hljs-attribute">namespace_id</span>": <span class="hljs-value"><span class="hljs-string">"id"</span></span>, 
+      "<span class="hljs-attribute">op</span>": <span class="hljs-value"><span class="hljs-string">";"</span></span>, 
+      "<span class="hljs-attribute">op_fee</span>": <span class="hljs-value"><span class="hljs-number">100000.0</span></span>, 
+      "<span class="hljs-attribute">opcode</span>": <span class="hljs-value"><span class="hljs-string">"NAME_IMPORT"</span></span>, 
+      "<span class="hljs-attribute">preorder_block_number</span>": <span class="hljs-value"><span class="hljs-number">373821</span></span>,
+     }
+ ]
+ </span>}</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div><div class="middle"><div id="name-querying-name-history-get" class="action get"><h4 class="action-heading"><div class="name">Name history</div><a href="#name-querying-name-history-get" class="method get">GET</a><code class="uri">/v1/names/{name}/history</code></h4><p>Get a history of all blockchain records of a registered name.</p>
+<ul>
+<li>Public Endpoint</li>
+</ul>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>name</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>muneeb.id</span></span><p>name to query</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="name-querying-get-historical-zone-file" class="resource"><a href="#name-querying-get-historical-zone-file" class="permalink"> </a><h3 class="resource-heading">Get historical zone file &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/names/<span class="hljs-attribute" title="name">muneeb.id</span>/zonefile/<span class="hljs-attribute" title="zoneFileHash">b100a68235244b012854a95f9114695679002af9</span></span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
+  "<span class="hljs-attribute">zonefile</span>": <span class="hljs-value"><span class="hljs-string">"$ORIGIN muneeb.id\n$TTL 3600\n_http._tcp IN URI 10 1 \"https://blockstack.s3.amazonaws.com/muneeb.id\"\n"</span>
+</span>}</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div><div class="middle"><div id="name-querying-get-historical-zone-file-get" class="action get"><h4 class="action-heading"><div class="name">Get historical zone file</div><a href="#name-querying-get-historical-zone-file-get" class="method get">GET</a><code class="uri">/v1/names/{name}/zonefile/{zoneFileHash}</code></h4><p>Fetches the historical zonefile specified by the username and zone hash.</p>
+<ul>
+<li>Public Endpoint</li>
+</ul>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>name</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>muneeb.id</span></span></dd><dt>zoneFileHash</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>b100a68235244b012854a95f9114695679002af9</span></span></dd></dl></div></div></div><hr class="split"><div class="middle"><div id="name-querying-get-names-owned-by-address" class="resource"><a href="#name-querying-get-names-owned-by-address" class="permalink"> </a><h3 class="resource-heading">Get names owned by address &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/addresses/<span class="hljs-attribute" title="blockchain">bitcoin</span>/<span class="hljs-attribute" title="address">1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP</span></span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
+  "<span class="hljs-attribute">names</span>": <span class="hljs-value">[
+    <span class="hljs-string">"muneeb.id"</span>
+  ]
+</span>}</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div><div class="middle"><div id="name-querying-get-names-owned-by-address-get" class="action get"><h4 class="action-heading"><div class="name">Get names owned by address</div><a href="#name-querying-get-names-owned-by-address-get" class="method get">GET</a><code class="uri">/v1/addresses/{blockchain}/{address}</code></h4><p>Retrieves a list of names owned by the address provided.</p>
+<ul>
+<li>Public Endpoint</li>
+</ul>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>blockchain</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>bitcoin</span></span><p>the layer-1 blockchain for the address</p>
+</dd><dt>address</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP</span></span><p>the address to lookup</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><section id="price-checks" class="resource-group"><h2 class="group-heading">Price Checks <a href="#price-checks" class="permalink">&para;</a></h2></section></div><div class="middle"><div id="price-checks-get-namespace-price" class="resource"><a href="#price-checks-get-namespace-price" class="permalink"> </a><h3 class="resource-heading">Get namespace price &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/prices/namespaces/<span class="hljs-attribute" title="tld">id</span></span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
+  "<span class="hljs-attribute">satoshis</span>": <span class="hljs-value"><span class="hljs-number">4000000000</span>
+</span>}</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div><div class="middle"><div id="price-checks-get-namespace-price-get" class="action get"><h4 class="action-heading"><div class="name">Get namespace price</div><a href="#price-checks-get-namespace-price-get" class="method get">GET</a><code class="uri">/v1/prices/namespaces/{tld}</code></h4><ul>
+<li>Public Endpoint</li>
+</ul>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>tld</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>id</span></span><p>namespace to query price for</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="price-checks-get-name-price" class="resource"><a href="#price-checks-get-name-price" class="permalink"> </a><h3 class="resource-heading">Get name price &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/prices/names/<span class="hljs-attribute" title="name">muneeb.id</span></span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
+  "<span class="hljs-attribute">name_price</span>": <span class="hljs-value">{
+    "<span class="hljs-attribute">satoshis</span>": <span class="hljs-value"><span class="hljs-number">100000</span></span>,
+    "<span class="hljs-attribute">btc</span>": <span class="hljs-value"><span class="hljs-number">0.001</span>
+  </span>}</span>,
+  "<span class="hljs-attribute">total_tx_fees</span>": <span class="hljs-value"><span class="hljs-number">519209</span></span>,
+  "<span class="hljs-attribute">register_tx_fee</span>": <span class="hljs-value">{
+    "<span class="hljs-attribute">satoshis</span>": <span class="hljs-value"><span class="hljs-number">159110</span></span>,
+    "<span class="hljs-attribute">btc</span>": <span class="hljs-value"><span class="hljs-number">0.0015911</span>
+  </span>}</span>,
+  "<span class="hljs-attribute">preorder_tx_fee</span>": <span class="hljs-value">{
+    "<span class="hljs-attribute">satoshis</span>": <span class="hljs-value"><span class="hljs-number">163703</span></span>,
+    "<span class="hljs-attribute">btc</span>": <span class="hljs-value"><span class="hljs-number">0.00163703</span>
+  </span>}</span>,
+  "<span class="hljs-attribute">warnings</span>": <span class="hljs-value">[
+    <span class="hljs-string">"Insufficient funds; fees are rough estimates."</span>
+  ]</span>,
+  "<span class="hljs-attribute">total_estimated_cost</span>": <span class="hljs-value">{
+    "<span class="hljs-attribute">satoshis</span>": <span class="hljs-value"><span class="hljs-number">619209</span></span>,
+    "<span class="hljs-attribute">btc</span>": <span class="hljs-value"><span class="hljs-number">0.00619209</span>
+  </span>}</span>,
+  "<span class="hljs-attribute">update_tx_fee</span>": <span class="hljs-value">{
+    "<span class="hljs-attribute">satoshis</span>": <span class="hljs-value"><span class="hljs-number">196396</span></span>,
+    "<span class="hljs-attribute">btc</span>": <span class="hljs-value"><span class="hljs-number">0.00196396</span>
+  </span>}
+</span>}</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div><div class="middle"><div id="price-checks-get-name-price-get" class="action get"><h4 class="action-heading"><div class="name">Get name price</div><a href="#price-checks-get-name-price-get" class="method get">GET</a><code class="uri">/v1/prices/names/{name}</code></h4><ul>
+<li>Public Endpoint</li>
+</ul>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>name</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>muneeb.id</span></span><p>name to query price information for</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><section id="blockchain-operations" class="resource-group"><h2 class="group-heading">Blockchain Operations <a href="#blockchain-operations" class="permalink">&para;</a></h2></section></div><div class="middle"><div id="blockchain-operations-get-consensus-hash" class="resource"><a href="#blockchain-operations-get-consensus-hash" class="permalink"> </a><h3 class="resource-heading">Get consensus hash &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/blockchains/<span class="hljs-attribute" title="blockchainName">bitcoin</span>/consensus</span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
+  "<span class="hljs-attribute">consensus_hash</span>": <span class="hljs-value"><span class="hljs-string">"2fcbdf66c350894fe03b42c6a2e8a6ac"</span>
+</span>}</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div><div class="middle"><div id="blockchain-operations-get-consensus-hash-get" class="action get"><h4 class="action-heading"><div class="name">Get consensus hash</div><a href="#blockchain-operations-get-consensus-hash-get" class="method get">GET</a><code class="uri">/v1/blockchains/{blockchainName}/consensus</code></h4><p>Get the current Blockstack consensus hash on a blockchain.</p>
+<ul>
+<li>Public Endpoint</li>
+</ul>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>blockchainName</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>bitcoin</span></span><p>the given blockchain</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="blockchain-operations-get-pending-transactions" class="resource"><a href="#blockchain-operations-get-pending-transactions" class="permalink"> </a><h3 class="resource-heading">Get pending transactions &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/blockchains/<span class="hljs-attribute" title="blockchainName">bitcoin</span>/pending</span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
+  "<span class="hljs-attribute">queues</span>": <span class="hljs-value">{}
+</span>}</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div><div class="middle"><div id="blockchain-operations-get-pending-transactions-get" class="action get"><h4 class="action-heading"><div class="name">Get pending transactions</div><a href="#blockchain-operations-get-pending-transactions-get" class="method get">GET</a><code class="uri">/v1/blockchains/{blockchainName}/pending</code></h4><p>Get the current transactions that the node has issued and are still pending.</p>
+<ul>
+<li>Public Endpoint</li>
+</ul>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>blockchainName</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>bitcoin</span></span><p>the given blockchain</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="blockchain-operations-get-unspent-outputs" class="resource"><a href="#blockchain-operations-get-unspent-outputs" class="permalink"> </a><h3 class="resource-heading">Get unspent outputs &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/blockchains/<span class="hljs-attribute" title="blockchainName">bitcoin</span>/<span class="hljs-attribute" title="address">1GuKR3nJi2VH3E1ZSPvuX8nAu3jNnr7xzq</span>/unspent</span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>[
+  {
+    "<span class="hljs-attribute">confirmations</span>": <span class="hljs-value"><span class="hljs-number">18</span></span>,
+    "<span class="hljs-attribute">out_script</span>": <span class="hljs-value"><span class="hljs-string">"76a914ae6ee3760fccb8225541ca89f08c927930adf97b88ac"</span></span>,
+    "<span class="hljs-attribute">outpoint</span>": <span class="hljs-value">{
+      "<span class="hljs-attribute">hash</span>": <span class="hljs-value"><span class="hljs-string">"977d3a025790e2cbdb50f63761872f36e78fbb9c53d515cb4c53155a1964932d"</span></span>,
+      "<span class="hljs-attribute">index</span>": <span class="hljs-value"><span class="hljs-number">1</span>
+    </span>}</span>,
+    "<span class="hljs-attribute">transaction_hash</span>": <span class="hljs-value"><span class="hljs-string">"977d3a025790e2cbdb50f63761872f36e78fbb9c53d515cb4c53155a1964932d"</span></span>,
+    "<span class="hljs-attribute">value</span>": <span class="hljs-value"><span class="hljs-number">76779</span>
+  </span>}
+]</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div><div class="middle"><div id="blockchain-operations-get-unspent-outputs-get" class="action get"><h4 class="action-heading"><div class="name">Get unspent outputs</div><a href="#blockchain-operations-get-unspent-outputs-get" class="method get">GET</a><code class="uri">/v1/blockchains/{blockchainName}/{address}/unspent</code></h4><ul>
+<li>Authorization: <code>blockchain</code></li>
+</ul>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>blockchainName</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>bitcoin</span></span><p>the given blockchain</p>
+</dd><dt>address</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>1GuKR3nJi2VH3E1ZSPvuX8nAu3jNnr7xzq</span></span><p>the address to get unspents for</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="blockchain-operations-broadcast-transaction" class="resource"><a href="#blockchain-operations-broadcast-transaction" class="permalink"> </a><h3 class="resource-heading">Broadcast transaction &para;</h3></div></div><div class="right"><div class="definition"><span class="method post">POST</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/blockchains/<span class="hljs-attribute" title="blockchainName">bitcoin</span>/txs</span></div><div class="tabs"><div class="example-names"><span>Requests</span><span class="tab-button">example 1</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Schema</h5><pre><code>{
+                      'type': 'object',
+                      'properties': {
+                          'tx': {
+                              'type': 'string',
+                              'pattern': OP_HEX_PATTERN,
+                          },
+                      },
+                      'additionalProperties': False,
+                      'required': [
+                          'tx'
+                      ],
+                  }</code></pre><div style="height: 1px;"></div></div></div><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{ <span class="hljs-string">'status'</span> : True, <span class="hljs-string">'tx_hash'</span> : <span class="hljs-string">'...'</span> }</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div></div><div class="middle"><div id="blockchain-operations-broadcast-transaction-post" class="action post"><h4 class="action-heading"><div class="name">Broadcast transaction</div><a href="#blockchain-operations-broadcast-transaction-post" class="method post">POST</a><code class="uri">/v1/blockchains/{blockchainName}/txs</code></h4><ul>
+<li>Authorization: <code>blockchain</code></li>
+</ul>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>blockchainName</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>bitcoin</span></span><p>the blockchain to broadcast on</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="blockchain-operations-get-block-operations" class="resource"><a href="#blockchain-operations-get-block-operations" class="permalink"> </a><h3 class="resource-heading">Get block operations &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/blockchains/block/</span></div><div class="tabs"></div></div><div class="middle"><div id="blockchain-operations-get-block-operations-get" class="action get"><h4 class="action-heading"><div class="name">Get block operations</div><a href="#blockchain-operations-get-block-operations-get" class="method get">GET</a><code class="uri">/v1/blockchains/block/</code></h4><p>Not implemented</p>
+</div></div><hr class="split"><div class="middle"><div id="blockchain-operations-get-raw-name-history" class="resource"><a href="#blockchain-operations-get-raw-name-history" class="permalink"> </a><h3 class="resource-heading">Get raw name history &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/blockchains/names/history</span></div><div class="tabs"></div></div><div class="middle"><div id="blockchain-operations-get-raw-name-history-get" class="action get"><h4 class="action-heading"><div class="name">Get raw name history</div><a href="#blockchain-operations-get-raw-name-history-get" class="method get">GET</a><code class="uri">/v1/blockchains/names/history</code></h4><p>Not implemented</p>
+</div></div><hr class="split"><div class="middle"><section id="gaia-endpoints" class="resource-group"><h2 class="group-heading">Gaia Endpoints <a href="#gaia-endpoints" class="permalink">&para;</a></h2></section></div><div class="middle"><div id="gaia-endpoints-create-store-for-this-session" class="resource"><a href="#gaia-endpoints-create-store-for-this-session" class="permalink"> </a><h3 class="resource-heading">Create "store" for this session &para;</h3></div></div><div class="right"><div class="definition"><span class="method post">POST</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/stores</span></div><div class="tabs"></div></div><div class="middle"><div id="gaia-endpoints-create-store-for-this-session-post" class="action post"><h4 class="action-heading"><div class="name">Create "store" for this session</div><a href="#gaia-endpoints-create-store-for-this-session-post" class="method post">POST</a><code class="uri">/v1/stores</code></h4></div></div><hr class="split"><div class="middle"><div id="gaia-endpoints-store-operations" class="resource"><a href="#gaia-endpoints-store-operations" class="permalink"> </a><h3 class="resource-heading">"Store" operations &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/stores/</span></div><div class="tabs"></div></div><div class="middle"><div id="gaia-endpoints-store-operations-get" class="action get"><h4 class="action-heading"><div class="name">Get "store" metadata</div><a href="#gaia-endpoints-store-operations-get" class="method get">GET</a><code class="uri">/v1/stores/</code></h4></div></div><hr class="split"><div class="right"><div class="definition"><span class="method delete">DELETE</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/stores/</span></div><div class="tabs"></div></div><div class="middle"><div id="gaia-endpoints-store-operations-delete" class="action delete"><h4 class="action-heading"><div class="name">Delete "store"</div><a href="#gaia-endpoints-store-operations-delete" class="method delete">DELETE</a><code class="uri">/v1/stores/</code></h4></div></div><hr class="split"><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/stores/inodes?path=</span></div><div class="tabs"></div></div><div class="middle"><div id="gaia-endpoints-store-operations-get-1" class="action get"><h4 class="action-heading"><div class="name">Get inode info (stat)</div><a href="#gaia-endpoints-store-operations-get-1" class="method get">GET</a><code class="uri">/v1/stores/inodes?path=</code></h4></div></div><hr class="split"><div class="middle"><div id="gaia-endpoints-directory-operations" class="resource"><a href="#gaia-endpoints-directory-operations" class="permalink"> </a><h3 class="resource-heading">Directory operations &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/stores/directories?path=</span></div><div class="tabs"></div></div><div class="middle"><div id="gaia-endpoints-directory-operations-get" class="action get"><h4 class="action-heading"><div class="name">Get directory files (ls)</div><a href="#gaia-endpoints-directory-operations-get" class="method get">GET</a><code class="uri">/v1/stores/directories?path=</code></h4></div></div><hr class="split"><div class="right"><div class="definition"><span class="method post">POST</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/stores/directories?path=</span></div><div class="tabs"></div></div><div class="middle"><div id="gaia-endpoints-directory-operations-post" class="action post"><h4 class="action-heading"><div class="name">Create directory (mkdir)</div><a href="#gaia-endpoints-directory-operations-post" class="method post">POST</a><code class="uri">/v1/stores/directories?path=</code></h4></div></div><hr class="split"><div class="right"><div class="definition"><span class="method delete">DELETE</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/stores/directories?path=</span></div><div class="tabs"></div></div><div class="middle"><div id="gaia-endpoints-directory-operations-delete" class="action delete"><h4 class="action-heading"><div class="name">Delete directory (rmdir)</div><a href="#gaia-endpoints-directory-operations-delete" class="method delete">DELETE</a><code class="uri">/v1/stores/directories?path=</code></h4></div></div><hr class="split"><div class="middle"><div id="gaia-endpoints-file-operations" class="resource"><a href="#gaia-endpoints-file-operations" class="permalink"> </a><h3 class="resource-heading">File Operations &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/stores/files?path=</span></div><div class="tabs"></div></div><div class="middle"><div id="gaia-endpoints-file-operations-get" class="action get"><h4 class="action-heading"><div class="name">Get file data (cat)</div><a href="#gaia-endpoints-file-operations-get" class="method get">GET</a><code class="uri">/v1/stores/files?path=</code></h4></div></div><hr class="split"><div class="right"><div class="definition"><span class="method post">POST</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/stores/files?path=</span></div><div class="tabs"></div></div><div class="middle"><div id="gaia-endpoints-file-operations-post" class="action post"><h4 class="action-heading"><div class="name">Create file</div><a href="#gaia-endpoints-file-operations-post" class="method post">POST</a><code class="uri">/v1/stores/files?path=</code></h4></div></div><hr class="split"><div class="right"><div class="definition"><span class="method put">PUT</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/stores/files?path=</span></div><div class="tabs"></div></div><div class="middle"><div id="gaia-endpoints-file-operations-put" class="action put"><h4 class="action-heading"><div class="name">Update file</div><a href="#gaia-endpoints-file-operations-put" class="method put">PUT</a><code class="uri">/v1/stores/files?path=</code></h4></div></div><hr class="split"><div class="right"><div class="definition"><span class="method delete">DELETE</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/stores/files?path=</span></div><div class="tabs"></div></div><div class="middle"><div id="gaia-endpoints-file-operations-delete" class="action delete"><h4 class="action-heading"><div class="name">Delete file (rm)</div><a href="#gaia-endpoints-file-operations-delete" class="method delete">DELETE</a><code class="uri">/v1/stores/files?path=</code></h4></div></div><hr class="split"><div class="middle"><section id="namespace-operations" class="resource-group"><h2 class="group-heading">Namespace Operations <a href="#namespace-operations" class="permalink">&para;</a></h2></section></div><div class="middle"><div id="namespace-operations-get-all-namespaces" class="resource"><a href="#namespace-operations-get-all-namespaces" class="permalink"> </a><h3 class="resource-heading">Get all namespaces &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/namespaces</span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
+  "<span class="hljs-attribute">namespaces</span>": <span class="hljs-value">[
+    <span class="hljs-string">".id"</span>
+  ]
+</span>}</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div><div class="middle"><div id="namespace-operations-get-all-namespaces-get" class="action get"><h4 class="action-heading"><div class="name">Get all namespaces</div><a href="#namespace-operations-get-all-namespaces-get" class="method get">GET</a><code class="uri">/v1/namespaces</code></h4><ul>
+<li>Public Endpoint</li>
+</ul>
+</div></div><hr class="split"><div class="middle"><div id="namespace-operations-get-namespace-names" class="resource"><a href="#namespace-operations-get-namespace-names" class="permalink"> </a><h3 class="resource-heading">Get namespace names &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/namespaces/<span class="hljs-attribute" title="tld">id</span>/names?page=<span class="hljs-attribute" title="page">23</span></span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>[ <span class="hljs-string">"aldenquimby.id"</span>, <span class="hljs-string">"aldeoryn.id"</span>, 
+     <span class="hljs-string">"alderete.id"</span>, <span class="hljs-string">"aldert.id"</span>, 
+     <span class="hljs-string">"aldi.id"</span>, <span class="hljs-string">"aldighieri.id"</span>, ... ]</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div><div class="middle"><div id="namespace-operations-get-namespace-names-get" class="action get"><h4 class="action-heading"><div class="name">Get namespace names</div><a href="#namespace-operations-get-namespace-names-get" class="method get">GET</a><code class="uri">/v1/namespaces/{tld}/names?page={page}</code></h4><p>Fetch a list of names from the namespace.</p>
+<ul>
+<li>Public Endpoint</li>
+</ul>
+<div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>tld</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>id</span></span><p>the namespace to fetch names from</p>
+</dd><dt>page</dt><dd><code>number</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>23</span></span><p>names are returned in pages of size 100,
+so specify the page number.</p>
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="namespace-operations-create-namespace" class="resource"><a href="#namespace-operations-create-namespace" class="permalink"> </a><h3 class="resource-heading">Create namespace &para;</h3></div></div><div class="right"><div class="definition"><span class="method post">POST</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/namespaces</span></div><div class="tabs"></div></div><div class="middle"><div id="namespace-operations-create-namespace-post" class="action post"><h4 class="action-heading"><div class="name">Create namespace</div><a href="#namespace-operations-create-namespace-post" class="method post">POST</a><code class="uri">/v1/namespaces</code></h4><p>Not yet implemented.</p>
+</div></div><hr class="split"><div class="middle"><div id="namespace-operations-pre-register-a-name" class="resource"><a href="#namespace-operations-pre-register-a-name" class="permalink"> </a><h3 class="resource-heading">Pre-register a name &para;</h3></div></div><div class="right"><div class="definition"><span class="method post">POST</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/namespaces/names</span></div><div class="tabs"></div></div><div class="middle"><div id="namespace-operations-pre-register-a-name-post" class="action post"><h4 class="action-heading"><div class="name">Pre-register a name</div><a href="#namespace-operations-pre-register-a-name-post" class="method post">POST</a><code class="uri">/v1/namespaces/names</code></h4><p>Not implemented.</p>
+</div></div><hr class="split"><div class="middle"><div id="namespace-operations-update-pre-registered-name" class="resource"><a href="#namespace-operations-update-pre-registered-name" class="permalink"> </a><h3 class="resource-heading">Update pre-registered name &para;</h3></div></div><div class="right"><div class="definition"><span class="method post">POST</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/namespaces/names/</span></div><div class="tabs"></div></div><div class="middle"><div id="namespace-operations-update-pre-registered-name-post" class="action post"><h4 class="action-heading"><div class="name">Update pre-registered name</div><a href="#namespace-operations-update-pre-registered-name-post" class="method post">POST</a><code class="uri">/v1/namespaces/names/</code></h4><p>Not implemented.</p>
+</div></div><hr class="split"><div class="middle"><div id="namespace-operations-launch-namespace" class="resource"><a href="#namespace-operations-launch-namespace" class="permalink"> </a><h3 class="resource-heading">Launch namespace &para;</h3></div></div><div class="right"><div class="definition"><span class="method put">PUT</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/namespaces/</span></div><div class="tabs"></div></div><div class="middle"><div id="namespace-operations-launch-namespace-put" class="action put"><h4 class="action-heading"><div class="name">Launch namespace</div><a href="#namespace-operations-launch-namespace-put" class="method put">PUT</a><code class="uri">/v1/namespaces/</code></h4><p>Not implemented.</p>
+</div></div><hr class="split"><div class="middle"><section id="proposed-collection-apis" class="resource-group"><h2 class="group-heading">Proposed Collection APIs <a href="#proposed-collection-apis" class="permalink">&para;</a></h2></section></div><div class="middle"><div id="proposed-collection-apis-create-collection" class="resource"><a href="#proposed-collection-apis-create-collection" class="permalink"> </a><h3 class="resource-heading">Create collection &para;</h3></div></div><div class="right"><div class="definition"><span class="method post">POST</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/collections</span></div><div class="tabs"></div></div><div class="middle"><div id="proposed-collection-apis-create-collection-post" class="action post"><h4 class="action-heading"><div class="name">Create collection</div><a href="#proposed-collection-apis-create-collection-post" class="method post">POST</a><code class="uri">/v1/collections</code></h4></div></div><hr class="split"><div class="middle"><div id="proposed-collection-apis-get-all-collection-items" class="resource"><a href="#proposed-collection-apis-get-all-collection-items" class="permalink"> </a><h3 class="resource-heading">Get all collection items &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/collections/</span></div><div class="tabs"></div></div><div class="middle"><div id="proposed-collection-apis-get-all-collection-items-get" class="action get"><h4 class="action-heading"><div class="name">Get all collection items</div><a href="#proposed-collection-apis-get-all-collection-items-get" class="method get">GET</a><code class="uri">/v1/collections/</code></h4></div></div><hr class="split"><div class="middle"><div id="proposed-collection-apis-create-collection-item" class="resource"><a href="#proposed-collection-apis-create-collection-item" class="permalink"> </a><h3 class="resource-heading">Create collection item &para;</h3></div></div><div class="right"><div class="definition"><span class="method post">POST</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/collections/</span></div><div class="tabs"></div></div><div class="middle"><div id="proposed-collection-apis-create-collection-item-post" class="action post"><h4 class="action-heading"><div class="name">Create collection item</div><a href="#proposed-collection-apis-create-collection-item-post" class="method post">POST</a><code class="uri">/v1/collections/</code></h4></div></div><hr class="split"><div class="middle"><div id="proposed-collection-apis-get-collection-item" class="resource"><a href="#proposed-collection-apis-get-collection-item" class="permalink"> </a><h3 class="resource-heading">Get collection item &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/collections/</span></div><div class="tabs"></div></div><div class="middle"><div id="proposed-collection-apis-get-collection-item-get" class="action get"><h4 class="action-heading"><div class="name">Get collection item</div><a href="#proposed-collection-apis-get-collection-item-get" class="method get">GET</a><code class="uri">/v1/collections/</code></h4></div></div><hr class="split"><div class="middle"><p style="text-align: center;" class="text-muted"></p></div></div></div></div><script>/* eslint-env browser */
+/* eslint quotes: [2, "single"] */
+'use strict';
+
+/*
+  Determine if a string ends with another string.
+*/
+function endsWith(str, suffix) {
+    return str.indexOf(suffix, str.length - suffix.length) !== -1;
+}
+
+/*
+  Get a list of direct child elements by class name.
+*/
+function childrenByClass(element, name) {
+  var filtered = [];
+
+  for (var i = 0; i < element.children.length; i++) {
+    var child = element.children[i];
+    var classNames = child.className.split(' ');
+    if (classNames.indexOf(name) !== -1) {
+      filtered.push(child);
+    }
+  }
+
+  return filtered;
+}
+
+/*
+  Get an array [width, height] of the window.
+*/
+function getWindowDimensions() {
+  var w = window,
+      d = document,
+      e = d.documentElement,
+      g = d.body,
+      x = w.innerWidth || e.clientWidth || g.clientWidth,
+      y = w.innerHeight || e.clientHeight || g.clientHeight;
+
+  return [x, y];
+}
+
+/*
+  Collapse or show a request/response example.
+*/
+function toggleCollapseButton(event) {
+    var button = event.target.parentNode;
+    var content = button.parentNode.nextSibling;
+    var inner = content.children[0];
+
+    if (button.className.indexOf('collapse-button') === -1) {
+      // Clicked without hitting the right element?
+      return;
+    }
+
+    if (content.style.maxHeight && content.style.maxHeight !== '0px') {
+        // Currently showing, so let's hide it
+        button.className = 'collapse-button';
+        content.style.maxHeight = '0px';
+    } else {
+        // Currently hidden, so let's show it
+        button.className = 'collapse-button show';
+        content.style.maxHeight = inner.offsetHeight + 12 + 'px';
+    }
+}
+
+function toggleTabButton(event) {
+    var i, index;
+    var button = event.target;
+
+    // Get index of the current button.
+    var buttons = childrenByClass(button.parentNode, 'tab-button');
+    for (i = 0; i < buttons.length; i++) {
+        if (buttons[i] === button) {
+            index = i;
+            button.className = 'tab-button active';
+        } else {
+            buttons[i].className = 'tab-button';
+        }
+    }
+
+    // Hide other tabs and show this one.
+    var tabs = childrenByClass(button.parentNode.parentNode, 'tab');
+    for (i = 0; i < tabs.length; i++) {
+        if (i === index) {
+            tabs[i].style.display = 'block';
+        } else {
+            tabs[i].style.display = 'none';
+        }
+    }
+}
+
+/*
+  Collapse or show a navigation menu. It will not be hidden unless it
+  is currently selected or `force` has been passed.
+*/
+function toggleCollapseNav(event, force) {
+    var heading = event.target.parentNode;
+    var content = heading.nextSibling;
+    var inner = content.children[0];
+
+    if (heading.className.indexOf('heading') === -1) {
+      // Clicked without hitting the right element?
+      return;
+    }
+
+    if (content.style.maxHeight && content.style.maxHeight !== '0px') {
+      // Currently showing, so let's hide it, but only if this nav item
+      // is already selected. This prevents newly selected items from
+      // collapsing in an annoying fashion.
+      if (force || window.location.hash && endsWith(event.target.href, window.location.hash)) {
+        content.style.maxHeight = '0px';
+      }
+    } else {
+      // Currently hidden, so let's show it
+      content.style.maxHeight = inner.offsetHeight + 12 + 'px';
+    }
+}
+
+/*
+  Refresh the page after a live update from the server. This only
+  works in live preview mode (using the `--server` parameter).
+*/
+function refresh(body) {
+    document.querySelector('body').className = 'preload';
+    document.body.innerHTML = body;
+
+    // Re-initialize the page
+    init();
+    autoCollapse();
+
+    document.querySelector('body').className = '';
+}
+
+/*
+  Determine which navigation items should be auto-collapsed to show as many
+  as possible on the screen, based on the current window height. This also
+  collapses them.
+*/
+function autoCollapse() {
+  var windowHeight = getWindowDimensions()[1];
+  var itemsHeight = 64; /* Account for some padding */
+  var itemsArray = Array.prototype.slice.call(
+    document.querySelectorAll('nav .resource-group .heading'));
+
+  // Get the total height of the navigation items
+  itemsArray.forEach(function (item) {
+    itemsHeight += item.parentNode.offsetHeight;
+  });
+
+  // Should we auto-collapse any nav items? Try to find the smallest item
+  // that can be collapsed to show all items on the screen. If not possible,
+  // then collapse the largest item and do it again. First, sort the items
+  // by height from smallest to largest.
+  var sortedItems = itemsArray.sort(function (a, b) {
+    return a.parentNode.offsetHeight - b.parentNode.offsetHeight;
+  });
+
+  while (sortedItems.length && itemsHeight > windowHeight) {
+    for (var i = 0; i < sortedItems.length; i++) {
+      // Will collapsing this item help?
+      var itemHeight = sortedItems[i].nextSibling.offsetHeight;
+      if ((itemsHeight - itemHeight <= windowHeight) || i === sortedItems.length - 1) {
+        // It will, so let's collapse it, remove its content height from
+        // our total and then remove it from our list of candidates
+        // that can be collapsed.
+        itemsHeight -= itemHeight;
+        toggleCollapseNav({target: sortedItems[i].children[0]}, true);
+        sortedItems.splice(i, 1);
+        break;
+      }
+    }
+  }
+}
+
+/*
+  Initialize the interactive functionality of the page.
+*/
+function init() {
+    var i, j;
+
+    // Make collapse buttons clickable
+    var buttons = document.querySelectorAll('.collapse-button');
+    for (i = 0; i < buttons.length; i++) {
+        buttons[i].onclick = toggleCollapseButton;
+
+        // Show by default? Then toggle now.
+        if (buttons[i].className.indexOf('show') !== -1) {
+            toggleCollapseButton({target: buttons[i].children[0]});
+        }
+    }
+
+    var responseCodes = document.querySelectorAll('.example-names');
+    for (i = 0; i < responseCodes.length; i++) {
+        var tabButtons = childrenByClass(responseCodes[i], 'tab-button');
+        for (j = 0; j < tabButtons.length; j++) {
+            tabButtons[j].onclick = toggleTabButton;
+
+            // Show by default?
+            if (j === 0) {
+                toggleTabButton({target: tabButtons[j]});
+            }
+        }
+    }
+
+    // Make nav items clickable to collapse/expand their content.
+    var navItems = document.querySelectorAll('nav .resource-group .heading');
+    for (i = 0; i < navItems.length; i++) {
+        navItems[i].onclick = toggleCollapseNav;
+
+        // Show all by default
+        toggleCollapseNav({target: navItems[i].children[0]});
+    }
+}
+
+// Initial call to set up buttons
+init();
+
+window.onload = function () {
+    autoCollapse();
+    // Remove the `preload` class to enable animations
+    document.querySelector('body').className = '';
+};
+</script></body></html>
