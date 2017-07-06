@@ -773,7 +773,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         # make sure the address is in the right format
         blockchain_network = os.environ.get("BLOCKSTACK_RPC_MOCK_BLOCKCHAIN_NETWORK", None)
-        ret['address'] = virtualchain.address_reencode(ret['address'], network=blockchain_network)
+        ret['address'] = virtualchain.address_reencode(str(ret['address']), network=blockchain_network)
 
         self._reply_json(ret)
         return
