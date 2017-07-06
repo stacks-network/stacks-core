@@ -3569,7 +3569,7 @@ def cli_lookup_snv(args, config_path=CONFIG_PATH):
     return result
 
 
-def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True):
+def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True, proxy=None):
     """
     command: get_name_zonefile advanced raw
     help: Get a name's zonefile
