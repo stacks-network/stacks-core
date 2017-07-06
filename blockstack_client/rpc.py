@@ -2153,7 +2153,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         new_password = str(request['password'])
 
         internal = self.server.get_internal_proxy()
-        res = internal.cli_wallet_passwod(password, new_password, config_path=self.server.config_path, interactive=False)
+        res = internal.cli_wallet_password(password, new_password, config_path=self.server.config_path, interactive=False)
         if 'error' in res:
             log.debug("Failed to change wallet password: {}".format(res['error']))
             return self._reply_json({'error': 'Failed to change password: {}'.format(res['error'])}, status_code=500)
