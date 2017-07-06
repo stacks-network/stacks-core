@@ -598,12 +598,36 @@ def get_name_privkey(master_privkey_hex, name_index):
     return name_privkey
 
 
-def get_app_privkey(name_privkey):
+def get_app_root_privkey(name_privkey):
     """
     Make the device-specific app private key from the device-specific name owner private key
     """
     hdwallet = HDWallet(name_privkey)
     app_privkey = hdwallet.get_child_privkey(index=APP_PRIVKEY_NODE, compressed=False)
+    return app_privkey
+
+
+def get_app_privkey_index(full_application_name):
+    """
+    Get the full application private key index.
+    Application name must be full. i.e. must end in '.1', or '.x'
+    """
+    full_application_name = str(full_application_name)
+    hashcode = 0
+    for i in xrange(0, len(full_application_name)):
+        next_byte = ord(full_application_name[i])
+        hashcode = ((hashcode << 5) - hashcode) + next_byte
+    
+    return hashcode & 0x7fffffff
+
+
+def get_app_privkey(app_root_privkey, full_application_name):
+    """
+    Make the app-specific, device-specific private key from the app root private key
+    """
+    hdwallet = HDWallet(app_root_privkey)
+    app_index = get_app_privkey_index(full_application_name)
+    app_privkey = hdwallet.get_child_privkey(index=app_index, compressed=False)
     return app_privkey
 
 
