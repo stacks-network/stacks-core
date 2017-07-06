@@ -1038,7 +1038,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 500 on failure to fetch data
         """
         internal = self.server.get_internal_proxy()
-        resp = internal.cli_get_name_zonefile(name, "true", raw=False)
+        resp = internal.cli_get_name_zonefile(name, "false", raw=False)
         if json_is_error(resp):
             self._reply_json({"error": resp['error']}, status_code=500)
             return
