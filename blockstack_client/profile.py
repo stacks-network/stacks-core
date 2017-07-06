@@ -32,19 +32,19 @@ import virtualchain
 from virtualchain.lib.ecdsalib import *
 import keylib
 
-from .proxy import *
+from proxy import *
 from blockstack_client import storage
 from blockstack_client import user as user_db
 
-from .logger import get_logger
-from .constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
+from logger import get_logger
+from constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 
-from .token_file import token_file_parse, token_file_update_profile, token_file_get, token_file_put
-from .zonefile import get_name_zonefile
-from .keys import get_data_privkey_info
-from .schemas import *
-from .config import get_config
-from .constants import BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE
+from token_file import token_file_parse, token_file_update_profile, token_file_get, token_file_put
+from zonefile import get_name_zonefile
+from keys import get_data_privkey_info
+from schemas import *
+from config import get_config
+from constants import BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE
 
 log = get_logger()
 
@@ -185,7 +185,7 @@ def profile_get_account(blockchain_id, service, identifier, config_path=CONFIG_P
     Return {'error': ...} on error
     """
 
-    account_info = _list_accounts(blockchain_id, proxy=proxy )
+    account_info = profile_list_accounts(blockchain_id, proxy=proxy )
     if 'error' in account_info:
         return account_info
 
