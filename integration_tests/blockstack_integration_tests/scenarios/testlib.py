@@ -1729,7 +1729,8 @@ def blockstack_cli_app_put_resource( blockchain_id, app_domain, res_path, res_fi
 
 def blockstack_cli_app_signin( blockchain_id, app_privkey, app_domain, api_methods, device_ids=None, public_keys=None, config_path=None ):
     """
-    sign in and get a token
+    sign in and get a token.
+    sign up if we need to.
     """
     if config_path is None:
         test_proxy = make_proxy(config_path=config_path)
@@ -1743,16 +1744,21 @@ def blockstack_cli_app_signin( blockchain_id, app_privkey, app_domain, api_metho
     args.api_methods = ','.join(api_methods)
     args.privkey = app_privkey
 
-    if device_ids is None and public_keys is None:
-        device_ids = [blockstack_client.config.get_local_device_id()]
-        public_keys = [keylib.ECPrivateKey(app_privkey).public_key().to_hex()]
+    res = cli_app_signin( args, config_path=config_path )
+    if 'error' in res:
+        if '`app_signup`' in res['error']:
+            # need to sign up first
+            res = cli_app_signup(args, config_path=config_path)
+            if 'error' in res:
+                return res
+        
+        else:
+            return res
 
-    device_ids = ','.join(device_ids)
-    public_keys = ','.join(public_keys)
-    args.device_ids = device_ids
-    args.public_keys = public_keys
+        # now sign in 
+        res = cli_app_signin(args, config_path=config_path)
 
-    return cli_app_signin( args, config_path=config_path )
+    return res
 
 
 def blockstack_cli_create_datastore(blockchain_id, datastore_privkey, drivers, ses, device_ids=None, config_path=None):
