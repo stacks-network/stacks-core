@@ -23,7 +23,13 @@ session JWT.
 
 + Requires root authorization
 + Parameters
-    + authRequestToken: a jwt token (TODO: describe better)
+    + authRequestToken: eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NksifQ.eyJhcHBfZG9tYWluIjoiaGVsbG9ibG9ja3N0YWNrLmNvbSIsIm1ldGhvZHMiOltdLCJhcHBfcHVibGljX2tleSI6IjAyYjk0ZjY4NDgzOGFkMjdmZTE0Nzk1MGMyNjQ1ZjRhYzhjYmU1OTJlYjYzYmQwYTQ5MWQ2YzBlYWZjNjE0YzVjMCJ9.0lLrxt8uGtB2rCKB9sb0jK1DdrrWuuuWM-nsyjvFnmjNx0XfG14Npl72w6hp9W2OHoXdPe7VuXkfvKmVNlQdeA (jwt token) - app token before signing
++ Response 200
+  + Body
+
+             {"token": 
+              "eyJhbGciOiJFUzI1NksiLCJ0eXAiOiJKV1QifQ.eyJhcHBfZG9tYWluIjoiaGVsbG9ibG9ja3N0YWNrLmNvbSIsIm1ldGhvZHMiOltdLCJ0aW1lc3RhbXAiOjE0OTkzNDc4OTUsImV4cGlyZXMiOjE0OTk5NTI2OTUsImFwcF91c2VyX2lkIjoiMUVITmE2UTRKejJ1dk5FeEw0OTdtRTQzaWtYaHdGNmtabSIsImRldmljZV9pZCI6IjAiLCJibG9ja2NoYWluX2lkIjpudWxsLCJzdG9yYWdlIjp7ImNsYXNzZXMiOnsid3JpdGVfcHJpdmF0ZSI6WyJkaXNrIiwiczMiLCJibG9ja3N0YWNrX3NlcnZlciIsImRodCJdLCJyZWFkX2xvY2FsIjpbImRpc2siXSwicmVhZF9wdWJsaWMiOlsiczMiLCJibG9ja3N0YWNrX3Jlc29sdmVyIiwiYmxvY2tzdGFja19zZXJ2ZXIiLCJodHRwIiwiZGh0Il0sIndyaXRlX2xvY2FsIjpbImRpc2siXSwid3JpdGVfcHVibGljIjpbXSwicmVhZF9wcml2YXRlIjpbImRpc2siXX0sInByZWZlcmVuY2VzIjp7fX0sImFwaV9lbmRwb2ludCI6ImxvY2FsaG9zdDo2MjcwIiwiYXBwX3B1YmxpY19rZXlzIjpbXSwidmVyc2lvbiI6MX0.Bhne8wQpPVfkV-VLf2mrsoMmNiE2e04crgLN7OUFKEh_YWeGmqjoZU7JVSzXA5r7LCpZ9Eki5uAWlJSHk-JuCA"
+             }
 
 # Group Core Node Administration
 ## Ping the node [GET /v1/node/ping]
