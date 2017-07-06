@@ -107,7 +107,7 @@ def scenario( wallets, **kw ):
                                      blockstack_zones.make_zone_file(user_zf))
 
 
-    subdomains.add_subdomain(subdomain, "foo.test")
+    subdomains.add_subdomains([subdomain], "foo.test")
 
     # wait for new update to get confirmed 
     for i in xrange(0, 12):
@@ -141,13 +141,13 @@ def scenario( wallets, **kw ):
 
 def check( state_engine ):
 
-    user_profile = subdomains.resolve_subdomain("foo", "foo.test")
+    user_profile = subdomains.resolve_subdomain("foo", "foo.test")['profile']
 
     # let's resolve!
     print "Resolved profile : {}".format(user_profile)
     assert 'foo' in user_profile
 
-    user_profile2 = subdomains.resolve_subdomain_cached_domain("foo", "foo.test")
+    user_profile2 = subdomains.resolve_subdomain_cached_domain("foo", "foo.test")['profile']
     print "Cache Resolved Profile : {}".format(user_profile2)
     assert 'foo' in user_profile2
 

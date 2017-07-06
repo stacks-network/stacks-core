@@ -22,13 +22,14 @@
 
 import sqlite3
 
-import base64, copy
+import base64, copy, re
 import ecdsa, hashlib
 import keylib
 from itertools import izip
-from blockstack_client import data, storage, actions, config, proxy
+from blockstack_client import data, storage, config, proxy, schemas
 from blockstack_client import zonefile as bs_zonefile
 from blockstack_client import user as user_db
+from blockstack_client.backend import safety
 from blockstack_client.logger import get_logger
 import blockstack_zones
 from blockstack_client.rpc import local_api_connect
@@ -109,7 +110,6 @@ class Subdomain(object):
 
     @staticmethod
     def parse_subdomain_record(rec):
-        print "Parsing {}".format(rec)
         txt_entry = rec['txt']
         if not isinstance(txt_entry, list):
             raise ParseError("Tried to parse a TXT record with only a single <character-string>")
@@ -176,7 +176,6 @@ class SubdomainDB(object):
     def _write_record(self, subdomain_obj):
         write_cmd = """INSERT INTO {} VALUES (?, ?, ?, ?, ?)""".format(self.subdomain_table)
         cursor = self.conn.cursor()
-        print "SQLITEing:  {}".format(write_cmd)
         cursor.execute(write_cmd, 
                        (subdomain_obj.name,
                         subdomain_obj.n,
@@ -189,7 +188,6 @@ class SubdomainDB(object):
     def _set_last_seen_zf_hash(self, hash):
         write_cmd = """INSERT INTO {} VALUES (?)""".format(self.status_table)
         cursor = self.conn.cursor()
-        print "SQLITEing:  {}".format(write_cmd)
         cursor.execute(write_cmd, (hash, ))
         self.conn.commit()
 
@@ -241,7 +239,12 @@ def is_address_subdomain(fqa):
         return False
     pieces = fqa.split(".")
     if len(pieces) == 3:
-        return (True, (pieces[0], ("{}.{}".format(*pieces[1:]))))
+        subd_name = pieces[0]
+        domain  = fqa[len(subd_name) + 1:]
+        error = safety.check_valid_name(domain)
+        if error:
+            return False
+        return (True, (subd_name, domain))
     return False
 
 def _transition_valid(from_sub_record, to_sub_record):
@@ -265,11 +268,9 @@ def _build_subdomain_db(domain_fqa, zonefiles):
             assert isinstance(zf, (str, unicode)) 
             zf_json = bs_zonefile.decode_name_zonefile(domain_fqa, zf)
             assert "zonefile" not in zf_json
-        print "Parsing {}".format(zf)
         subdomains = parse_zonefile_subdomains(zf_json)
 
         for subdomain in subdomains:
-            print "Parsed {}".format(subdomain.name)
             if subdomain.name in subdomain_db:
                 previous = subdomain_db[subdomain.name]
                 if _transition_valid(previous, subdomain):
@@ -332,15 +333,7 @@ def add_subdomains(subdomains, domain_fqa):
 
     assert isinstance(subdomains, list)
 
-    # step 1: see if this resolves to an already defined subdomain
-    subdomain_already = True
-    try:
-        resolve_subdomain(subdomain.name, domain_fqa)
-    except SubdomainNotFound as e:
-        subdomain_already = False
-    if subdomain_already:
-        raise SubdomainAlreadyExists("{}.{}".format(subdomain.name, domain_fqa))
-    # step 2: get domain's current zonefile and filter the subdomain entries
+    # get domain's current zonefile and filter the subdomain entries
     zf_resp = bs_zonefile.get_name_zonefile(domain_fqa)
     if 'error' in zf_resp:
         log.error(zf_resp)
@@ -351,10 +344,23 @@ def add_subdomains(subdomains, domain_fqa):
     if "txt" in zf:
         zf["txt"] = list([ x for x in zf["txt"]
                            if not is_subdomain_record(x)])
-    # step 3: create a subdomain record
+
+    if len(set(subdomains)) != len(subdomains):
+        raise Exception("Same subdomain listed multiple times")
+
     for subdomain in subdomains:
-        _extend_with_subdomain(zf, subdomain)
-    # step 4: issue zonefile update
+        # step 1: see if this resolves to an already defined subdomain
+        subdomain_already = True
+        try:
+            resolve_subdomain(subdomain.name, domain_fqa)
+        except SubdomainNotFound as e:
+            subdomain_already = False
+        if subdomain_already:
+            raise SubdomainAlreadyExists("{}.{}".format(subdomain.name, domain_fqa))
+        # step 2: create the subdomain record, adding it to zf
+        for subdomain in subdomains:
+            _extend_with_subdomain(zf, subdomain)
+    # issue zonefile update
     return flatten_and_issue_zonefile(domain_fqa, zf)
 
 def is_subdomain_resolution_cached(domain_fqa):
@@ -418,9 +424,9 @@ def subdomain_record_to_profile(my_rec):
         urls=urls, drivers=None, decode=True,
     )
 
-    return user_profile
-
-
+    data = { 'profile' : user_profile,
+             'zonefile' : parsed_zf }
+    return data
 
 # aaron: I was hesitant to write these two functions. But I did so because:
 #   1> getting the sign + verify functions from virtualchain.ecdsa 

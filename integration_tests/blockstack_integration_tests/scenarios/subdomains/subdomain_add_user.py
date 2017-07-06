@@ -120,7 +120,7 @@ def scenario( wallets, **kw ):
     subdomain = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(foo_sk), 0,
                                      blockstack_zones.make_zone_file(user_zf))
 
-    subdomains.add_subdomain(subdomain, "foo.test")
+    subdomains.add_subdomains([subdomain], "foo.test")
 
     # wait for new update to get confirmed 
     for i in xrange(0, 12):
@@ -165,13 +165,13 @@ def scenario( wallets, **kw ):
     # now try someone else's subdomain
     try:
         subdomain.name = "foo"
-        subdomains.add_subdomain(subdomain, "foo.test")
+        subdomains.add_subdomains([subdomain], "foo.test")
         assert False
     except subdomains.SubdomainAlreadyExists as e:
         subdomain.name = "baz"
 
     # now let's really do it.
-    subdomains.add_subdomain(subdomain, "foo.test")
+    subdomains.add_subdomains([subdomain], "foo.test")
 
 
     # let's write a profile for the resolver.
@@ -201,7 +201,7 @@ def check( state_engine ):
                            ("baz", "foo.test")]
     for subdomain, domain in profiles_to_resolve:
         # let's resolve!
-        user_profile = subdomains.resolve_subdomain(subdomain, domain)
+        user_profile = subdomains.resolve_subdomain(subdomain, domain)['profile']
         assert subdomain in user_profile
         print "Resolved profile : {}".format(user_profile)
 
