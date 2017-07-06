@@ -45,17 +45,17 @@ from keylib import *
 import virtualchain
 from virtualchain.lib.ecdsalib import *
 
-from .keys import *
-from .profile import *
-from .proxy import *
-from .storage import hash_zonefile
-from .zonefile import get_name_zonefile, load_name_zonefile, store_name_zonefile
-from .utils import ScatterGather
+from keys import *
+from profile import *
+from proxy import *
+from storage import hash_zonefile
+from zonefile import get_name_zonefile, load_name_zonefile, store_name_zonefile
+from utils import ScatterGather
 
-from .logger import get_logger
-from .config import get_config, get_local_device_id
-from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DATASTORE_SIGNING_KEY_INDEX, BLOCKSTACK_STORAGE_PROTO_VERSION, DEFAULT_DEVICE_ID
-from .schemas import *
+from logger import get_logger
+from config import get_config, get_local_device_id
+from constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DATASTORE_SIGNING_KEY_INDEX, BLOCKSTACK_STORAGE_PROTO_VERSION, DEFAULT_DEVICE_ID
+from schemas import *
 
 log = get_logger()
 
@@ -341,7 +341,7 @@ def serialize_mutable_data_id(data_id):
     return urllib.quote(urllib.unquote(data_id).replace('\0', '\\0')).replace('/', r'\x2f')
 
 
-def get_metadata_dir(conf):
+def get_metadata_dir(conf, config_path=CONFIG_PATH):
     """
     Get the absolute path to the metadata directory
     """
@@ -980,7 +980,7 @@ def get_mutable(data_id, device_ids, raw=False, data_pubkeys=None, device_data_p
         The data will be verified against *any* public key in data_pubkeys, if given.
         The data will be verified against *any* data address in data_addresses, if given.
     
-    Return {'data': the data, 'version': the version, 'timestamp': ..., 'data_pubkey': ..., 'owner_pubkey_hash': ..., 'drivers': [driver name]} on success
+    Return {'data': the data, 'version': the version, 'timestamp': ..., 'drivers': [driver name]} on success
     If raw=True, then only return {'data': ..., 'drivers': ...} on success.
 
     Return {'error': ...} on error
@@ -1019,8 +1019,8 @@ def get_mutable(data_id, device_ids, raw=False, data_pubkeys=None, device_data_p
         version_info = get_mutable_data_version(data_id, device_ids, config_path=config_path)
         expected_version = version_info['version']
 
-    log.debug("get_mutable({}, device_ids={}, blockchain_id={}, pubkeys={} ({}), addrs={}, hash={}, expected_version={}, storage_drivers={})".format(
-        data_id, device_ids, blockchain_id, data_pubkeys, lookup, data_addresses, data_hash, expected_version, ','.join(storage_drivers)
+    log.debug("get_mutable({}, device_ids={}, blockchain_id={}, pubkeys={}, addrs={}, hash={}, expected_version={}, storage_drivers={})".format(
+        data_id, device_ids, blockchain_id, data_pubkeys, data_addresses, data_hash, expected_version, ','.join(storage_drivers)
     ))
     
     mutable_data = None
@@ -1043,6 +1043,9 @@ def get_mutable(data_id, device_ids, raw=False, data_pubkeys=None, device_data_p
 
             if device_pubkey:
                 extra_pubkeys = [device_pubkey]
+            
+            if data_pubkeys is None:
+                data_pubkeys = []
 
             # get the mutable data itsef
             # NOTE: we only use 'bsk2' data formats; use storage.get_mutable_data() directly for loading things like profiles that have a different format.
@@ -1130,9 +1133,6 @@ def get_mutable(data_id, device_ids, raw=False, data_pubkeys=None, device_data_p
         'version': version,
         'timestamp': mutable_data['timestamp'],
         'fq_data_id': mutable_data['fq_data_id'],
-
-        'data_pubkey': data_pubkey,
-        'owner_pubkey_hash': data_address,
         'drivers': mutable_drivers
     }
 
