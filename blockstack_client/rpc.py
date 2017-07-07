@@ -614,6 +614,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'type': 'integer',
                     'minimum': 0,
                 },
+                'make_profile': {
+                    'type' : 'boolean'
+                },
                 'unsafe': {
                     'type': 'boolean'
                 }
@@ -637,6 +640,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         min_confs = request.get('min_confs', TX_MIN_CONFIRMATIONS)
         cost_satoshis = request.get('cost_satoshis', None)
         unsafe_reg = request.get('unsafe', False)
+        make_profile = request.get('make_profile', False)
 
         if unsafe_reg:
             unsafe_reg = 'true'
@@ -682,7 +686,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("register {}".format(name))
             res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs,
                                         unsafe_reg, interactive=False, force_data=True,
-                                        cost_satoshis=cost_satoshis)
+                                        cost_satoshis=cost_satoshis, make_profile = make_profile)
 
         if 'error' in res:
             log.error("Failed to {} {}".format(op, name))
@@ -3942,6 +3946,12 @@ class BlockstackAPIEndpointClient(object):
 
             if cost_satoshis is not None:
                 data['cost_satoshis'] = cost_satoshis
+
+            if user_profile:
+                # aaron: I'm making explicit a previously-baked-in assumption
+                #   if the user_profile was given to this function, and we make an RPC
+                #   cli_register() should make a *new* empty profile.
+                data['make_profile'] = True
 
             if unsafe_reg:
                 data['unsafe'] = True

@@ -1269,8 +1269,9 @@ def analyze_zonefile_string(fqu, zonefile_data, force_data=False, check_current=
     return ret
 
 
-def cli_register(args, config_path=CONFIG_PATH, force_data=False, wallet_keys=None,
-                 cost_satoshis=None, interactive=True, password=None, proxy=None):
+def cli_register(args, config_path=CONFIG_PATH, force_data=False, wallet_keys=None
+                 cost_satoshis=None, interactive=True, password=None, proxy=None,
+                 make_profile = None):
     """
     command: register
     help: Register a blockchain ID
@@ -1347,19 +1348,26 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, wallet_keys=No
         user_zonefile_dict = make_empty_zonefile(fqu, None)
         user_zonefile = blockstack_zones.make_zone_file(user_zonefile_dict)
 
-        if not transfer_address:
-            # registering for this wallet.  Put an empty token file, signed with this wallet's signing keys
-            if not wallet_keys:
-                wallet_keys = get_wallet_keys(config_path, password)
-                if 'error' in wallet_keys:
-                    return wallet_keys
+        if (make_profile and transfer_address):
+            log.error("Transfer address supplied to register, and was asked to make an empty profile. This is wrong.")
+            return {'error' : 'Error in logic surrounding profile creation. Please report this as a bug.'}
+        # only *assume* we need to make a profile if the user didn't supply
+        #   a zonefile, and didn't supply a transfer_address
+        make_profile = not transfer_address
 
-            user_profile = make_empty_user_profile()
-            res = migrate_profile_to_token_file(fqu, user_profile, get_owner_privkey_info(wallet_keys), config_path=config_path)
-            if 'error' in res:
-                return {'error': 'Failed to create token file: {}'.format(res['error'])}
+    if make_profile:
+        # registering for this wallet.  Put an empty token file, signed with this wallet's signing keys
+        if not wallet_keys:
+            wallet_keys = get_wallet_keys(config_path, password)
+            if 'error' in wallet_keys:
+                return wallet_keys
 
-            new_token_file = res['token_file']
+        user_profile = make_empty_user_profile()
+        res = migrate_profile_to_token_file(fqu, user_profile, get_owner_privkey_info(wallet_keys), config_path=config_path)
+        if 'error' in res:
+            return {'error': 'Failed to create token file: {}'.format(res['error'])}
+
+        new_token_file = res['token_file']
 
     # operation checks (API server only)
     if local_rpc.is_api_server(config_dir=config_dir):
