@@ -1269,7 +1269,7 @@ def analyze_zonefile_string(fqu, zonefile_data, force_data=False, check_current=
     return ret
 
 
-def cli_register(args, config_path=CONFIG_PATH, force_data=False, wallet_keys=None
+def cli_register(args, config_path=CONFIG_PATH, force_data=False, wallet_keys=None,
                  cost_satoshis=None, interactive=True, password=None, proxy=None,
                  make_profile = None):
     """
