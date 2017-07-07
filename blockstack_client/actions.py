@@ -1241,7 +1241,8 @@ def analyze_zonefile_string(fqu, zonefile_data, force_data=False, check_current=
 
 
 def cli_register(args, config_path=CONFIG_PATH, force_data=False,
-                 cost_satoshis=None, interactive=True, password=None, proxy=None):
+                 cost_satoshis=None, interactive=True, password=None, proxy=None,
+                 make_profile = None):
     """
     command: register
     help: Register a blockchain ID
@@ -1320,15 +1321,19 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
         user_zonefile_dict = make_empty_zonefile(fqu, data_pubkey)
         user_zonefile = blockstack_zones.make_zone_file(user_zonefile_dict)
 
-        # only make an empty profile if user didn't give a zonefile.
-        # if we have a data key, then make the empty profile
-        if not transfer_address:
-            # registering for this wallet.  Put an empty profile
-            _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
-            if not data_pubkey:
-                return {'error': 'No data key in wallet.  Please add one with `setup_wallet`'}
+        if (make_profile and transfer_address):
+            log.error("Transfer address supplied to register, and was asked to make an empty profile. This is wrong.")
+            return {'error' : 'Error in logic surrounding profile creation. Please report this as a bug.'}
+        # only *assume* we need to make a profile if the user didn't supply
+        #   a zonefile, and didn't supply a transfer_address
+        make_profile = not transfer_address
 
-            user_profile = make_empty_user_profile()
+    if make_profile:
+        # let's put an empty profile
+        _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
+        if not data_pubkey:
+            return {'error': 'No data key in wallet.  Please add one with `setup_wallet`'}
+        user_profile = make_empty_user_profile()
 
     # operation checks (API server only)
     if local_rpc.is_api_server(config_dir=config_dir):
