@@ -905,7 +905,7 @@ def put_indexed_data( dvconf, name, chunk_buf, raw=False, index=True ):
         log.debug("Insert ({}, {}) into index".format(name, new_url))
         rc = index_insert( dvconf, name, new_url )
         if not rc:
-            log.error("Failed to insert ({}, {}) into index".foramt(name, new_url))
+            log.error("Failed to insert ({}, {}) into index".format(name, new_url))
             return False
 
     return True
