@@ -745,10 +745,16 @@ APP_INFO_PROPERTIES = {
     },
     'methods': {
         'type': 'array',
-        'items': {
-            'type': 'string',
-            'pattern': '^[a-zA-Z_][a-zA-Z0-9_.]+$'   # method name
-        },
+        'items':
+        {
+            'anyOf': [
+                {
+                    'type': 'string',
+                    'pattern': '^[a-zA-Z_][a-zA-Z0-9_.]+$'   # method name
+                },
+                {'type': 'string', 'pattern': '^$'}
+            ]
+        }
     },
     'app_public_keys': {
         'type': 'array',

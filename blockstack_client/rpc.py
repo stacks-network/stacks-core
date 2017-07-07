@@ -432,28 +432,33 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         decoded_token = jsontokens.decode_token(token)
         legacy = False
+        decode_err = False
         try:
             assert isinstance(decoded_token, dict)
             assert decoded_token.has_key('payload')
-
             try:
                 jsonschema.validate(decoded_token['payload'], APP_SESSION_REQUEST_SCHEMA )
             except ValidationError as ve2:
+                decode_err = ve2
                 log.debug("Authentication request is not current; trying legacy")
                 jsonschema.validate(decoded_token['payload'], APP_SESSION_REQUEST_SCHEMA_OLD )
                 legacy = True
 
         except ValidationError as ve:
             if BLOCKSTACK_TEST or BLOCKSTACK_DEBUG:
-                log.exception(ve)
                 if BLOCKSTACK_TEST:
                     log.debug("Invalid decoded token: {}".format(decoded_token['payload']))
 
-            log.debug("Invalid token")
+            log.error('Invalid authRequest token, tried legacy and current decode paths.')
+            if decode_err:
+                log.error('Current decode error:')
+                log.exception(decode_err)
+            log.error('Legacy decode error:')
+            log.exception(ve)
             return self._reply_json({'error': 'Invalid authRequest token: does not match any known request schemas'}, status_code=401)
 
         app_domain = str(decoded_token['payload']['app_domain'])
-        methods = [str(m) for m in decoded_token['payload']['methods']]
+        methods = [str(m) for m in decoded_token['payload']['methods'] if len(m) > 0]
         blockchain_id = None
         app_private_key = None
         app_public_key = None
