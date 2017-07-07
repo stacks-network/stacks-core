@@ -409,18 +409,6 @@ def store_mutable_data_version(conf, device_id, fq_data_id, ver, config_path=CON
 
     metadata_dir = get_metadata_dir(conf)
 
-    if not os.path.isdir(metadata_dir):
-        try:
-            log.debug("Make metadata directory {}".format(metadata_dir))
-            os.makedirs(metadata_dir)
-        except Exception, e:
-            if BLOCKSTACK_DEBUG:
-                log.exception(e)
-
-            msg = 'No metadata directory created; cannot store version of "{}"'
-            log.warning(msg.format(fq_data_id))
-            return False
-
     _, data_id = storage.parse_fq_data_id(fq_data_id)
     assert data_id, "Invalid fqid {}".format(fq_data_id)
 
@@ -429,6 +417,19 @@ def store_mutable_data_version(conf, device_id, fq_data_id, ver, config_path=CON
 
     # serialize this 
     with MUTABLE_DATA_VERSION_LOCK:
+
+        if not os.path.isdir(metadata_dir):
+            try:
+                log.debug("Make metadata directory {}".format(metadata_dir))
+                os.makedirs(metadata_dir)
+            except Exception, e:
+                if BLOCKSTACK_DEBUG:
+                    log.exception(e)
+
+                msg = 'No metadata directory created; cannot store version of "{}"'
+                log.warning(msg.format(fq_data_id))
+                return False
+
         ver_dir = os.path.join(metadata_dir, d_id)
         if not os.path.isdir(ver_dir):
             try:
