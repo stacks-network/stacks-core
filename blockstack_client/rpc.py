@@ -820,7 +820,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         for block_id in res.keys():
             for state in res[block_id]:
                 for addr_key in ['address', 'recipient_address', 'importer_address']:
-                    if state.has_key(addr_key):
+                    if state.has_key(addr_key) and state[addr_key]:
                         state[addr_key] = virtualchain.address_reencode(str(state[addr_key]), network=blockchain_network)
             
         self._reply_json(res)
