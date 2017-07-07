@@ -838,7 +838,7 @@ class RegistrarWorker(threading.Thread):
             try:
                 # see if we can complete any registrations
                 # clear out any confirmed preorders
-                log.debug("register all pending preorders in %s" % (self.queue_path))
+                # log.debug("register all pending preorders in %s" % (self.queue_path))
                 res = RegistrarWorker.register_preorders( self.queue_path, wallet_data, config_path=self.config_path, proxy=proxy )
                 if 'error' in res:
                     log.warn("Registration failed: %s" % res['error'])
@@ -855,7 +855,7 @@ class RegistrarWorker(threading.Thread):
             try:
                 # see if we can put any zonefiles
                 # clear out any confirmed registers
-                log.debug("put zonefile hashes for registered names in %s" % (self.queue_path))
+                # log.debug("put zonefile hashes for registered names in %s" % (self.queue_path))
                 res = RegistrarWorker.set_zonefiles( self.queue_path, config_path=self.config_path, proxy=proxy )
                 if 'error' in res:
                     log.warn('zonefile hash broadcast failed: %s' % res['error'])
@@ -872,7 +872,7 @@ class RegistrarWorker(threading.Thread):
             try:
                 # see if we can replicate any zonefiles and token files
                 # clear out any confirmed updates
-                log.debug("replicate all pending zone files and token files for updates %s" % (self.queue_path))
+                # log.debug("replicate all pending zone files and token files for updates %s" % (self.queue_path))
                 res = RegistrarWorker.replicate_update_data( self.queue_path, wallet_data, self.required_storage_drivers, config_path=self.config_path, proxy=proxy )
                 if 'error' in res:
                     log.warn("Zone file/token file replication failed for update: %s" % res['error'])
@@ -889,7 +889,7 @@ class RegistrarWorker(threading.Thread):
 
             try:
                 # see if we can transfer any names to their new owners
-                log.debug("transfer all names in {}".format(self.queue_path))
+                # log.debug("transfer all names in {}".format(self.queue_path))
                 res = RegistrarWorker.transfer_names( self.queue_path, skip=failed_names, config_path=self.config_path, proxy=proxy )
                 if 'error' in res:
                     log.warn("Transfer failed: {}".format(res['error']))
@@ -907,7 +907,7 @@ class RegistrarWorker(threading.Thread):
             try:
                 # see if we can replicate any zonefiles for name imports
                 # clear out any confirmed imports
-                log.debug("replicate all pending zone files for name imports in {}".format(self.queue_path))
+                # log.debug("replicate all pending zone files for name imports in {}".format(self.queue_path))
                 res = RegistrarWorker.replicate_name_import_data( self.queue_path, wallet_data, self.required_storage_drivers, skip=failed_names, config_path=self.config_path, proxy=proxy )
                 if 'error' in res:
                     log.warn("Zone file replication failed: {}".format(res['error']))
@@ -924,7 +924,7 @@ class RegistrarWorker(threading.Thread):
 
             try:
                 # see if we can remove any other confirmed operations, besides preorders, registers, and updates
-                log.debug("clean out other confirmed operations")
+                # log.debug("clean out other confirmed operations")
                 res = RegistrarWorker.clear_confirmed( self.config_path, self.queue_path, proxy=proxy )
                 if 'error' in res:
                     log.warn("Failed to clear out some operations: %s" % res['error'])
@@ -947,7 +947,7 @@ class RegistrarWorker(threading.Thread):
                 poll_interval = self.poll_interval
            
             try:
-                log.debug("Sleep for %s" % poll_interval)
+                log.debug("Registrar sleeping for %s" % poll_interval)
                 for i in xrange(0, int(poll_interval)):
                     time.sleep(1)
 
