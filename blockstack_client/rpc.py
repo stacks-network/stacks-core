@@ -476,7 +476,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         else:
             # current
-            blockchain_id = str(decoded_token['payload']['blockchain_id'])
+            blockchain_id = decoded_token['payload']['blockchain_id']
             app_private_key = str(decoded_token['payload']['app_private_key'])
             app_public_key = get_pubkey_hex(app_private_key)
             app_public_keys = decoded_token['payload']['app_public_keys']
