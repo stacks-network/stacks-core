@@ -2077,10 +2077,7 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
         @fqu: fully qualified name e.g., muneeb.id
         @payment_privkey_info: private key that will pay
         @owner_address: will own the name
-
         @transfer_address: will ultimately receive the name
-        @zonefile_data: serialized zonefile for the name
-        @profile: profile for the name
 
         Returns True/False and stores tx_hash in queue
     """
@@ -2126,7 +2123,7 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
                          owner_address=owner_address,
                          transfer_address=name_data.get('transfer_address'),
                          zonefile_data=name_data.get('zonefile'),
-                         profile=name_data.get('profile'),
+                         token_file=name_data.get('token_file'),
                          config_path=config_path,
                          path=queue_path, **additionals)
     else:
@@ -2216,7 +2213,7 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
                          owner_address=owner_address,
                          transfer_address=name_data.get('transfer_address'),
                          zonefile_data=name_data.get('zonefile'),
-                         profile=name_data.get('profile'),
+                         token_file=name_data.get('token_file'),
                          config_path=config_path,
                          path=queue_path, **additionals)
 
@@ -2229,7 +2226,7 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
         return {'error': 'Failed to send registration: {}'.format(resp['error'])}
 
 
-def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privkey_info,
+def async_update(fqu, zonefile_data, token_file, owner_privkey_info, payment_privkey_info,
                  name_data={}, config_path=CONFIG_PATH,
                  zonefile_hash=None, proxy=None, queue_path=DEFAULT_QUEUE_PATH ):
     """
@@ -2237,7 +2234,7 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
 
         @fqu: fully qualified name e.g., muneeb.id
         @zonefile_data: new zonefile text, hash(zonefile) goes to blockchain.  If not given, it will be extracted from name_data
-        @profile: the name's profile.  If not given, it will be extracted from name_data
+        @token_file: the name's token file.  If not given, it will be extracted from name_data
         @owner_privkey_info: privkey of owner address, to sign update
         @payment_privkey_info: the privkey which is paying for the cost
 
@@ -2252,10 +2249,10 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
     elif name_data.get('zonefile') is not None and zonefile_data != name_data.get('zonefile'):
         assert name_data['zonefile'] == zonefile_data, "Conflicting zone file data given"
 
-    if profile is None:
-        profile = name_data.get('profile')
-    elif name_data.get('profile') is not None and profile != name_data.get('profile'):
-        assert name_data['profile'] == profile, "Conflicting profile data given"
+    if token_file is None:
+        token_file = name_data.get('token_file')
+    elif name_data.get('token_file') is not None and token_file != name_data.get('token_file'):
+        assert name_data['token_file'] == token_file, "Conflicting token_file data given"
 
     assert zonefile_hash is not None or zonefile_data is not None, "No zone file or zone file hash given"
 
@@ -2315,7 +2312,7 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
         if not BLOCKSTACK_DRY_RUN:
             queue_append("update", fqu, resp['transaction_hash'],
                          zonefile_data=zonefile_data,
-                         profile=profile,
+                         token_file=token_file,
                          zonefile_hash=zonefile_hash,
                          owner_address=owner_address,
                          transfer_address=name_data.get('transfer_address'),

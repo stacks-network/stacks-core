@@ -25,9 +25,7 @@ import sys
 import requests
 import json
 import traceback
-from ...logger import get_logger
 
-log = get_logger("insight-api")
 
 class InsightClient(object):
     def __init__(self, url, min_confirmations=None):
@@ -35,10 +33,15 @@ class InsightClient(object):
         self.url = url
         self.min_confirmations = min_confirmations
 
+        from ...logger import get_logger
+        self.log = get_logger("insight-api")
+
+
     def get_unspents(self, address):
+
         url = self.url + '/insight-api/addr/{}/utxo'.format(address)
         resp = None
-        log.debug("GET {}".format(url))
+        self.log.debug("GET {}".format(url))
         try:
             req = requests.get(url)
             resp = req.json()
@@ -49,7 +52,7 @@ class InsightClient(object):
         # format...
         try:
             unspents = format_unspents(resp)
-            log.debug("{} has {} UTXOs".format(address, len(unspents)))
+            self.log.debug("{} has {} UTXOs".format(address, len(unspents)))
             return unspents
         except Exception as e:
             traceback.print_exc()
@@ -66,12 +69,12 @@ class InsightClient(object):
         req = None
         resp = None
 
-        log.debug("POST {}".format(url))
+        self.log.debug("POST {}".format(url))
 
         try:
             req = requests.post(url, data=data, headers=headers)
         except Exception as e:
-            log.error("Failed to send transaction")
+            self.log.error("Failed to send transaction")
             raise
 
         try:

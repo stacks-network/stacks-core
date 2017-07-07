@@ -140,8 +140,8 @@ def scenario( wallets, **kw ):
     #  zonefiles :\
 
     serialized_data = blockstack_client.storage.serialize_mutable_data(
-        profile_raw, data_privkey= foo_sk.to_hex(), data_pubkey=None, 
-        data_signature=None, profile=True)
+        json.dumps(profile_raw), data_privkey= foo_sk.to_hex(), data_pubkey=None, 
+        data_signature=None)
 
     with open("/tmp/foo.profile.json", 'w') as f_out:
         f_out.write(serialized_data)

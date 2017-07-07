@@ -31,11 +31,17 @@ from keychain import PrivateKeychain
 import jsonschema
 from jsonschema.exceptions import ValidationError
 
-from .logger import get_logger
-from .constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
+from logger import get_logger
+from constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
 
 import virtualchain
 from virtualchain.lib.ecdsalib import *
+
+NAMES_PRIVKEY_NODE = 888
+NAMES_PRIVKEY_VERSION_NODE = 0
+APP_PRIVKEY_NODE = 0
+SIGNING_PRIVKEY_NODE = 1
+ENCRYPTION_PRIVKEY_NODE = 2
 
 # for compatibility
 log = get_logger()
@@ -483,7 +489,6 @@ def get_data_privkey_info(user_zonefile, wallet_keys=None, config_path=CONFIG_PA
     """
     Get the user's data private key info
     """
-
     privkey = get_data_privkey(user_zonefile, wallet_keys=wallet_keys, config_path=config_path)
     return privkey
 
@@ -549,3 +554,97 @@ def get_privkey_info_params(privkey_info, config_path=CONFIG_PATH):
 
     return None, None
 
+
+def find_name_index(name_address, master_privkey_hex, max_tries=25, start=0):
+    """
+    Given a name's device-specific address and device-specific master key,
+    find index from which it was derived.
+
+    Return the index on success
+    Return None on failure.
+    """
+    
+    hdwallet = HDWallet(master_privkey_hex)
+    for i in xrange(start, max_tries):
+        child_privkey = hdwallet.get_child_privkey(index=i)
+        child_pubkey = ecdsalib.get_pubkey_hex(child_privkey)
+
+        child_addresses = [
+            keylib.public_key_to_address(keylib.key_formatting.compress(child_pubkey)),
+            keylib.public_key_to_address(keylib.key_formatting.decompress(child_pubkey))
+        ]
+
+        if str(name_address) in child_addresses:
+            return i
+
+    return None
+
+
+def get_name_privkey(master_privkey_hex, name_index):
+    """
+    Make the device-specific private key that owns the name.
+    @master_privkey_hex is the wallet master key, e.g. from the Browser.
+    @name_index is the ith name to be created from this device.
+    """
+    hdwallet = HDWallet(master_privkey_hex)
+    names_privkey = hdwallet.get_child_privkey(index=NAMES_PRIVKEY_NODE, compressed=False)
+
+    hdwallet = HDWallet(names_privkey)
+    names_version_privkey = hdwallet.get_child_privkey(index=NAMES_PRIVKEY_VERSION_NODE, compressed=False)
+
+    hdwallet = HDWallet(names_version_privkey)
+    name_privkey = hdwallet.get_child_privkey(index=name_index, compressesd=False)
+
+    return name_privkey
+
+
+def get_app_root_privkey(name_privkey):
+    """
+    Make the device-specific app private key from the device-specific name owner private key
+    """
+    hdwallet = HDWallet(name_privkey)
+    app_privkey = hdwallet.get_child_privkey(index=APP_PRIVKEY_NODE, compressed=False)
+    return app_privkey
+
+
+def get_app_privkey_index(full_application_name):
+    """
+    Get the full application private key index.
+    Application name must be full. i.e. must end in '.1', or '.x'
+    """
+    full_application_name = str(full_application_name)
+    hashcode = 0
+    for i in xrange(0, len(full_application_name)):
+        next_byte = ord(full_application_name[i])
+        hashcode = ((hashcode << 5) - hashcode) + next_byte
+    
+    return hashcode & 0x7fffffff
+
+
+def get_app_privkey(app_root_privkey, full_application_name):
+    """
+    Make the app-specific, device-specific private key from the app root private key
+    """
+    hdwallet = HDWallet(app_root_privkey)
+    app_index = get_app_privkey_index(full_application_name)
+    app_privkey = hdwallet.get_child_privkey(index=app_index, compressed=False)
+    return app_privkey
+
+
+def get_signing_privkey(name_privkey):
+    """
+    Make the device-specific signing private key from the device-specific name owner private key
+    """
+    hdwallet = HDWallet(name_privkey)
+    signing_privkey = hdwallet.get_child_privkey(index=SIGNING_PRIVKEY_NODE, compressed=False)
+    return signing_privkey
+
+
+def get_encryption_privkey(name_privkey):
+    """
+    Make the device-specific encryption private key from the device-specific name owner private key
+    """
+    hdwallet = HDWallet(name_privkey)
+    encryption_privkey = hdwallet.get_child_privkey(index=ENCRYPTION_PRIVKEY_NODE, compressed=False)
+    return encryption_privkey
+    

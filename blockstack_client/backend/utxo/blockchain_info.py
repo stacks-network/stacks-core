@@ -25,7 +25,7 @@ import requests
 
 BLOCKCHAIN_API_BASE_URL = "https://blockchain.info"
 
-from .blockchain_client import BlockchainClient
+from blockchain_client import BlockchainClient
 
 class BlockchainInfoClient(BlockchainClient):
     def __init__(self, api_key=None, timeout=30, min_confirmations=None):

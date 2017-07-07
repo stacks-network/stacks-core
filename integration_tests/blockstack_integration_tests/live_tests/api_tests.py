@@ -169,6 +169,13 @@ class AuthInternal(APITestCase):
         data = self.get_request(url, headers = auth_header, status_code=200)
         self.assertIn('token', data)
 
+    def test_auth_new_token_no_username_issue483(self):
+        auth_header = get_auth_header()
+        test_string = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NksifQ.eyJ2ZXJzaW9uIjoxLCJibG9ja2NoYWluX2lkIjpudWxsLCJhcHBfcHJpdmF0ZV9rZXkiOiIxNDYwYWIyY2RjZmE1NDQwNzc5YWYwZDA0NWIzZTFlMjE5MjY4OGRjZTA5NDk4YWMyNDBkMTdjNzA2YWRiOThkIiwiYXBwX2RvbWFpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6NTAwMCIsIm1ldGhvZHMiOlsiIl0sImFwcF9wdWJsaWNfa2V5cyI6W3sicHVibGljX2tleSI6IjAzYTJhZmYyODhlYjI1NzVjZjE3ZTBjODc0NDZlNWExMDdmOTFkZjMzMjk5MjNkNDNmMDhmYTFmNzdlZDE0MTNmMCIsImRldmljZV9pZCI6IjAifV0sImRldmljZV9pZCI6IjAifQ.-uT-lOrvQDBZJWdg8p53LmEYBw1C8dVyGSAn96nR49MGSlNXP0vD7JsasjI6cbn9JSqGPFq1EpPLaHACkmyMcQ"
+        url = "/v1/auth?authRequest={}".format(test_string)
+        data = self.get_request(url, headers = auth_header, status_code=200)
+        self.assertIn('token', data)
+
 class UsersInternal(APITestCase):
     def test_get_users(self):
         user = "muneeb.id"

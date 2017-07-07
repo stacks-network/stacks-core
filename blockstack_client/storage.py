@@ -35,7 +35,7 @@ import time
 import blockstack_zones
 import blockstack_profiles
 
-from .logger import get_logger
+from logger import get_logger
 from constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, BLOCKSTACK_STORAGE_CLASSES
 from config import get_config
 from scripts import hex_hash160
@@ -73,7 +73,7 @@ def get_zonefile_data_hash(data_txt):
     Generate a hash over a user's zonefile.
     Return the hex string.
     """
-    return hex_hash160(data_txt)
+    return hex_hash160(str(data_txt))
 
 
 def get_blockchain_compat_hash(data_txt):
@@ -319,7 +319,7 @@ def parse_signed_data_tombstone( tombstone_data ):
     return {'id': parts2[0], 'signature': parts2[1], 'timestamp': ts}
 
 
-def serialize_mutable_data(data_text_or_json, data_privkey=None, data_pubkey=None, data_signature=None, profile=False):
+def serialize_mutable_data(data_text_or_json, data_privkey=None, data_pubkey=None, data_signature=None):
     """
     Generate a serialized mutable data record from the given information.
     Sign it with privatekey.
@@ -329,39 +329,24 @@ def serialize_mutable_data(data_text_or_json, data_privkey=None, data_pubkey=Non
 
     Return the serialized data (as a string) on success
     """
-  
-    if profile:
-        # private key required to generate signature
-        assert data_privkey is not None
 
-        # profiles must conform to a particular standard format
-        tokenized_data = blockstack_profiles.sign_token_records(
-            [data_text_or_json], data_privkey
-        )
+    # version 2 format for mutable data
+    assert data_privkey or (data_pubkey and data_signature)
 
-        del tokenized_data[0]['decodedToken']
+    if data_signature is None:
+        assert isinstance(data_text_or_json, (str, unicode)), "data must be a string"
+        data_str = str(data_text_or_json)
+        data_signature = sign_data_payload( data_str, data_privkey )
 
-        serialized_data = json.dumps(tokenized_data, sort_keys=True)
-        return serialized_data
-    
-    else:
-        # version 2 format for mutable data
-        assert data_privkey or (data_pubkey and data_signature)
+    # make sure it's compressed
+    if data_pubkey is None:
+        data_pubkey = get_pubkey_hex(data_privkey)
 
-        if data_signature is None:
-            assert isinstance(data_text_or_json, (str, unicode)), "data must be a string"
-            data_str = str(data_text_or_json)
-            data_signature = sign_data_payload( data_str, data_privkey )
+    pubkey_hex_compressed = keylib.key_formatting.compress(data_pubkey)
+    data_payload = serialize_data_payload( data_text_or_json )
+    res = "bsk2.{}.{}.{}".format(pubkey_hex_compressed, data_signature, data_payload)
 
-        # make sure it's compressed
-        if data_pubkey is None:
-            data_pubkey = get_pubkey_hex(data_privkey)
-
-        pubkey_hex_compressed = keylib.key_formatting.compress(data_pubkey)
-        data_payload = serialize_data_payload( data_text_or_json )
-        res = "bsk2.{}.{}.{}".format(pubkey_hex_compressed, data_signature, data_payload)
-
-        return res
+    return res
 
 
 def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash=None, data_hash=None, raw=False):
@@ -457,9 +442,7 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
 
     if public_key_hash is not None:
         pubkey_hash = keylib.address_formatting.bin_hash160_to_address(
-                keylib.address_formatting.address_to_bin_hash160(
-                    str(public_key_hash),
-                ),
+                keylib.address_formatting.address_to_bin_hash160(str(public_key_hash)),
                 version_byte=0
         )
 
@@ -488,6 +471,8 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, 
     parse it into a JSON document.  Verify that it was
     signed by public_key's or public_key_hash's private key.
 
+    Works on bsk2 data, as well as profiles (but not token files)
+
     Try to verify with both keys, if given.
 
     Return the parsed JSON dict on success
@@ -506,7 +491,9 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, 
 
         return parse_mutable_data_v2(mutable_data_json_txt, public_key, public_key_hash=public_key_hash, data_hash=data_hash, raw=raw)
         
-    # legacy parser
+    # Legacy parser for profiles.
+    # Does not work with token files or Gaia datastore info.
+
     assert public_key is not None or public_key_hash is not None, 'Need a public key or public key hash'
 
     mutable_data_jwt = None
@@ -522,9 +509,7 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, 
 
     # try pubkey, if given
     if public_key is not None:
-        mutable_data_json = blockstack_profiles.get_profile_from_tokens(
-            mutable_data_jwt, str(public_key)
-        )
+        mutable_data_json = blockstack_profiles.get_profile_from_tokens(mutable_data_jwt, str(public_key))
 
         if len(mutable_data_json) > 0:
             return mutable_data_json
@@ -543,9 +528,7 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, 
             version_byte=0
         )
 
-        mutable_data_json = blockstack_profiles.get_profile_from_tokens(
-            mutable_data_jwt, public_key_hash_0
-        )
+        mutable_data_json = blockstack_profiles.get_profile_from_tokens(mutable_data_jwt, public_key_hash_0)
 
         if len(mutable_data_json) > 0:
             log.debug('Verified with {}'.format(public_key_hash))
@@ -709,7 +692,7 @@ def get_immutable_data(data_hash, data_url=None, hash_func=get_data_hash, fqu=No
                 urlh.close()
             except Exception as e:
                 log.exception(e)
-                msg = 'Failed to load profile from "{}"'
+                msg = 'Failed to load data from "{}"'
                 log.error(msg.format(data_url))
                 continue
         else:
@@ -786,12 +769,12 @@ def get_driver_urls( fq_data_id, storage_drivers ):
     return ret
 
 
-def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data_hash=None,
-                     owner_address=None, blockchain_id=None, drivers=None, decode=True, bsk_version=None):
+def get_mutable_data(fq_data_id, data_pubkeys, urls=None, data_addresses=None, data_hash=None,
+                     drivers=None, decode=True, bsk_version=None, **driver_kw):
     """
     Low-level call to get mutable data, given a fully-qualified data name.
     
-    if decode is False, then data_pubkey, data_address, and owner_address are not needed and raw bytes will be returned.
+    if decode is False, then data_pubkeys and data_addresses are not needed and raw bytes will be returned.
 
     Return a mutable data dict on success (or raw bytes if decode=False)
     Return None on error
@@ -799,10 +782,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
 
     global storage_handlers
 
-    # fully-qualified username hint
-    fqu = None
-    if blockchain_id is not None:
-        fqu = blockchain_id
+    assert data_pubkeys or data_addresses or data_hash or not decode, "BUG: no means to decode data"
 
     handlers_to_use = []
     if drivers is None:
@@ -815,16 +795,19 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
             )
 
     # ripemd160(sha256(pubkey))
+    encoded_data_pubkey_hashes = []
     data_pubkey_hashes = []
-    for a in filter(lambda x: x is not None, [data_address, owner_address]):
-        try:
-            h = keylib.b58check.b58check_decode(str(a)).encode('hex')
-            data_pubkey_hashes.append(h)
-        except:
-            log.debug("Invalid address '{}'".format(a))
-            continue
+    if data_addresses:
+        for a in filter(lambda x: x is not None, data_addresses):
+            try:
+                h = keylib.b58check.b58check_decode(str(a)).encode('hex')
+                data_pubkey_hashes.append(h)
+                encoded_data_pubkey_hashes.append(a)
+            except:
+                log.debug("Invalid address '{}'".format(a))
+                continue
 
-    log.debug('get_mutable_data {} fqu={} bsk_version={}'.format(fq_data_id, fqu, bsk_version))
+    log.debug('get_mutable_data {} bsk_version={}'.format(fq_data_id, bsk_version))
     for storage_handler in handlers_to_use:
         if not getattr(storage_handler, 'get_mutable_handler', None):
             continue
@@ -870,7 +853,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
 
             log.debug('Try {} ({})'.format(storage_handler.__name__, url))
             try:
-                data_txt = storage_handler.get_mutable_handler(url, fqu=fqu, data_pubkey=data_pubkey, data_pubkey_hashes=data_pubkey_hashes)
+                data_txt = storage_handler.get_mutable_handler(url, data_pubkeys=data_pubkeys, data_pubkey_hashes=data_pubkey_hashes, **driver_kw)
             except UnhandledURLException as uue:
                 # handler doesn't handle this URL
                 msg = 'Storage handler {} does not handle URLs like {}'
@@ -889,19 +872,30 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
             # parse it, if desired
             if decode:
                 data = None
-                if data_pubkey is not None or data_address is not None or data_hash is not None:
-                    data = parse_mutable_data(
-                        data_txt, data_pubkey, public_key_hash=data_address, data_hash=data_hash, bsk_version=bsk_version
-                    )
+                if data_pubkeys:
+                    # try public keys
+                    for data_pubkey in data_pubkeys:
+                        log.debug("Try to verify {} bytes with public key {}".format(len(data_txt), data_pubkey))
+                        data = parse_mutable_data(data_txt, data_pubkey, data_hash=data_hash, bsk_version=bsk_version)
+                        if data is not None:
+                            break
 
-                if data is None and owner_address is not None:
-                    data = parse_mutable_data(
-                        data_txt, None, public_key_hash=owner_address, bsk_version=bsk_version
-                    )
-
+                if data is None and len(encoded_data_pubkey_hashes) > 0:
+                    # try public key hashes
+                    for pubkey_hash in encoded_data_pubkey_hashes:
+                        log.debug("Try to verify {} bytes with public key hash {}".format(len(data_txt), pubkey_hash))
+                        data = parse_mutable_data(data_txt, None, public_key_hash=pubkey_hash, data_hash=data_hash, bsk_version=bsk_version)
+                        if data is not None:
+                            break
+                           
+                if data_hash is not None and (data_pubkeys is None or len(data_pubkeys) == 0) and len(encoded_data_pubkey_hashes) == 0:
+                    # try data hash
+                    log.debug("Try to verify {} bytes with data hash {}".format(len(data_txt), data_hash))
+                    data = parse_mutable_data(data_txt, None, data_hash=data_hash, bsk_version=bsk_version)
+                    
                 if data is None:
-                    msg = 'Unparseable data from "{}"'
-                    log.error(msg.format(url))
+                    # out of options
+                    log.error("Unparseable data from '{}'".format(url))
                     continue
 
                 msg = 'Loaded "{}" with {}'
@@ -992,7 +986,7 @@ def put_immutable_data(data_text, txid, data_hash=None, required=None, skip=None
     return None if successes == 0 and required_successes == len(set(required) - set(skip)) else data_hash
 
 
-def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_privkey=None, data_pubkey=None, data_signature=None, profile=False, blockchain_id=None, required=None, skip=None, required_exclusive=False):
+def put_mutable_data(fq_data_id, data_text, raw=False, data_privkey=None, data_pubkey=None, data_signature=None, required=None, skip=None, required_exclusive=False, **driver_kw):
     """
     Given the unserialized data, store it into our mutable data stores.
     Do so in a best-effort way.  This method fails if all storage providers fail,
@@ -1001,8 +995,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
     @required: list of required drivers to use.  All of them must succeed for this method to succeed.
     @skip: list of drivers we can skip.  None of them will be tried.
     @required_exclusive: if True, then only the required drivers will be tried (none of the loaded but not-required drivers will be invoked)
-    @sign: if True, then a private key is required.  if False, then simply store the data without serializing it or including a public key and signature.
-    @raw: If True, then the data will be put as-is without any ancilliary metadata.  Requires sign=False
+    @raw: If True, then the data will be put as-is without any ancilliary metadata.
 
     Return True on success
     Return False on error
@@ -1011,9 +1004,9 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
     global storage_handlers
     assert len(storage_handlers) > 0, "No storage handlers initialized"
 
-    # sanity check: only take structured data if this is a profile 
-    if not isinstance(data_text_or_json, (str, unicode)):
-        assert profile, "Structured data is only supported when profile=True"
+    # sanity check: only take structured data if this is a token file
+    if not isinstance(data_text, (str, unicode)):
+        raise ValueError("Only takes strings") 
 
     required = [] if required is None else required
     skip = [] if skip is None else skip
@@ -1021,11 +1014,6 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
     assert len(set(required).intersection(set(skip))) == 0, "Overlap between required and skip driver lists"
 
     log.debug('put_mutable_data({}), required={}, skip={} required_exclusive={}'.format(fq_data_id, ','.join(required), ','.join(skip), required_exclusive))
-
-    # fully-qualified username hint
-    fqu = None
-    if blockchain_id is not None:
-        fqu = blockchain_id
 
     # sanity check: only support single-sig private keys
     if data_privkey is not None:
@@ -1035,15 +1023,12 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
 
         data_pubkey = get_pubkey_hex( data_privkey )
 
-    elif sign:
-        assert data_pubkey is not None
-        assert data_signature is not None
-
     serialized_data = None
-    if sign or not raw:
-        serialized_data = serialize_mutable_data(data_text_or_json, data_privkey=data_privkey, data_pubkey=data_pubkey, data_signature=data_signature, profile=profile)
+    if not raw:
+        assert data_privkey or data_signature
+        serialized_data = serialize_mutable_data(data_text, data_privkey=data_privkey, data_pubkey=data_pubkey, data_signature=data_signature)
     else:
-        serialized_data = data_text_or_json
+        serialized_data = data_text
     
     if BLOCKSTACK_TEST:
         log.debug("data ({}): {}".format(type(serialized_data), serialized_data))
@@ -1072,7 +1057,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
         log.debug('Try "{}"'.format(handler.__name__))
 
         try:
-            rc = handler.put_mutable_handler(fq_data_id, serialized_data, fqu=fqu, profile=profile)
+            rc = handler.put_mutable_handler(fq_data_id, serialized_data, **driver_kw)
         except Exception as e:
             log.exception(e)
             if handler.__name__ not in required:
@@ -1137,7 +1122,7 @@ def delete_immutable_data(data_hash, txid, privkey=None, signed_data_tombstone=N
     return True
 
 
-def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None, required=None, required_exclusive=False, skip=None, blockchain_id=None, profile=False):
+def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None, required=None, required_exclusive=False, skip=None, blockchain_id=None, token_file=False):
     """
     Given the data ID and private key of a user,
     go and delete the associated mutable data.
@@ -1185,7 +1170,7 @@ def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None,
 
         rc = False
         try:
-            rc = handler.delete_mutable_handler(fq_data_id, signed_data_tombstone, fqu=fqu, profile=profile)
+            rc = handler.delete_mutable_handler(fq_data_id, signed_data_tombstone, fqu=fqu, token_file=token_file)
         except Exception as e:
             log.exception(e)
             rc = False

@@ -41,9 +41,9 @@ from binascii import hexlify
 from ConfigParser import SafeConfigParser
 
 import virtualchain
-from .utxo import *
-from .constants import *
-from .logger import get_logger
+from utxo import *
+from constants import *
+from logger import get_logger
 
 log = get_logger('blockstack-client')
 

@@ -432,28 +432,33 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         decoded_token = jsontokens.decode_token(token)
         legacy = False
+        decode_err = False
         try:
             assert isinstance(decoded_token, dict)
             assert decoded_token.has_key('payload')
-
             try:
                 jsonschema.validate(decoded_token['payload'], APP_SESSION_REQUEST_SCHEMA )
             except ValidationError as ve2:
+                decode_err = ve2
                 log.debug("Authentication request is not current; trying legacy")
                 jsonschema.validate(decoded_token['payload'], APP_SESSION_REQUEST_SCHEMA_OLD )
                 legacy = True
 
         except ValidationError as ve:
             if BLOCKSTACK_TEST or BLOCKSTACK_DEBUG:
-                log.exception(ve)
                 if BLOCKSTACK_TEST:
                     log.debug("Invalid decoded token: {}".format(decoded_token['payload']))
 
-            log.debug("Invalid token")
+            log.error('Invalid authRequest token, tried legacy and current decode paths.')
+            if decode_err:
+                log.error('Current decode error:')
+                log.exception(decode_err)
+            log.error('Legacy decode error:')
+            log.exception(ve)
             return self._reply_json({'error': 'Invalid authRequest token: does not match any known request schemas'}, status_code=401)
 
         app_domain = str(decoded_token['payload']['app_domain'])
-        methods = [str(m) for m in decoded_token['payload']['methods']]
+        methods = [str(m) for m in decoded_token['payload']['methods'] if len(m) > 0]
         blockchain_id = None
         app_private_key = None
         app_public_key = None
@@ -463,6 +468,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if legacy:
             # legacy; fill in defaults
+            log.warning("Legacy authToken")
             app_public_key = str(decoded_token['payload']['app_public_key'])
             app_private_key = '0000000000000000000000000000000000000000000000000000000000000001'
             app_public_keys = []
@@ -471,7 +477,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         else:
             # current
-            blockchain_id = str(decoded_token['payload']['blockchain_id'])
+            blockchain_id = decoded_token['payload']['blockchain_id']
             app_private_key = str(decoded_token['payload']['app_private_key'])
             app_public_key = get_pubkey_hex(app_private_key)
             app_public_keys = decoded_token['payload']['app_public_keys']
@@ -613,6 +619,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'type': 'integer',
                     'minimum': 0,
                 },
+                'make_profile': {
+                    'type' : 'boolean'
+                },
                 'unsafe': {
                     'type': 'boolean'
                 }
@@ -636,6 +645,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         min_confs = request.get('min_confs', TX_MIN_CONFIRMATIONS)
         cost_satoshis = request.get('cost_satoshis', None)
         unsafe_reg = request.get('unsafe', False)
+        make_profile = request.get('make_profile', False)
 
         if unsafe_reg:
             unsafe_reg = 'true'
@@ -681,7 +691,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("register {}".format(name))
             res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs,
                                         unsafe_reg, interactive=False, force_data=True,
-                                        cost_satoshis=cost_satoshis)
+                                        cost_satoshis=cost_satoshis, make_profile = make_profile)
 
         if 'error' in res:
             log.error("Failed to {} {}".format(op, name))
@@ -745,7 +755,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 self._reply_json({'error': 'Failed to lookup name'}, status_code=500)
                 return
 
-        zonefile_res = zonefile.get_name_zonefile(name, raw_zonefile=True, name_record=name_rec)
+        zonefile_res = zonefile.get_name_zonefile(name, name_record=name_rec)
         zonefile_txt = None
         if 'error' in zonefile_res:
             error = "No zonefile for name"
@@ -755,7 +765,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.error("Failed to get name zonefile for {}: {}".format(name, error))
 
         else:
-            zonefile_txt = zonefile_res.pop("zonefile")
+            zonefile_txt = zonefile_res.pop("raw_zonefile")
 
         status = 'revoked' if name_rec['revoked'] else 'registered'
 
@@ -769,6 +779,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             'blockchain': 'bitcoin',
             'expire_block': name_rec['expire_block'],
         }
+
+        # make sure the address is in the right format
+        blockchain_network = os.environ.get("BLOCKSTACK_RPC_MOCK_BLOCKCHAIN_NETWORK", None)
+        ret['address'] = virtualchain.address_reencode(str(ret['address']), network=blockchain_network)
 
         self._reply_json(ret)
         return
@@ -806,6 +820,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': res['error']}, status_code=500)
             return
 
+        # re-encode addresses, if need be 
+        blockchain_network = os.environ.get("BLOCKSTACK_RPC_MOCK_BLOCKCHAIN_NETWORK", None)
+        for block_id in res.keys():
+            for state in res[block_id]:
+                for addr_key in ['address', 'recipient_address', 'importer_address']:
+                    if state.has_key(addr_key) and state[addr_key]:
+                        state[addr_key] = virtualchain.address_reencode(str(state[addr_key]), network=blockchain_network)
+            
         self._reply_json(res)
         return
 
@@ -1025,7 +1047,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 500 on failure to fetch data
         """
         internal = self.server.get_internal_proxy()
-        resp = internal.cli_get_name_zonefile(name, "true", raw=False)
+        resp = internal.cli_get_name_zonefile(name, "false", raw=False)
         if json_is_error(resp):
             self._reply_json({"error": resp['error']}, status_code=500)
             return
@@ -3929,6 +3951,12 @@ class BlockstackAPIEndpointClient(object):
 
             if cost_satoshis is not None:
                 data['cost_satoshis'] = cost_satoshis
+
+            if user_profile:
+                # aaron: I'm making explicit a previously-baked-in assumption
+                #   if the user_profile was given to this function, and we make an RPC
+                #   cli_register() should make a *new* empty profile.
+                data['make_profile'] = True
 
             if unsafe_reg:
                 data['unsafe'] = True

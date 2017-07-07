@@ -22,6 +22,13 @@ more conventional types of applications.
 refactored to run many I/O operations in parallel.  This leads to faster data
 interaction times, even for indexed storage systems like Dropbox.
 
+* **Support for Fast Registrations.** This release adds an `unsafe` attribute to
+registration requests which, when enabled, directs core's registrar to issue
+the blockstack transactions _preorder_, _register_, and _update_, with only 4, 
+1, and 1 confirmations respectively. To support this, core must ignore some
+of the safety checks, because our resolvers will not have processed the name
+before the _update_ is issued.
+
 * **Initial subdomain support.**  This release allows users to register
 subdomains of existing blockchain IDs, such that _subdomains are independently
 owned_.  A user Bob can register `bob.alice.id`, where `alice.id` is owned by
@@ -38,3 +45,12 @@ Selected Bugfixes and Fixes
 
 * Issue #469 : Blockstack Core used to die in error cases when it should be 
 able to fail more gracefully. This release fixes several such cases.
+
+* Removed hash-based fresh-profile validation from the storage gateway interface
+in the indexer.  This interface had been deprecated for some time, and new 
+clients have been relying on timestamp-based fresh-profile validation for some
+time now.
+
+* Signing profiles and data is now done with a name's token file signing key,
+not the catch-all data private key.  You can still verify data signed with the
+old data key, however.
