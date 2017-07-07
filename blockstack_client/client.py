@@ -95,17 +95,18 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
     proxy = BlockstackRPCClient(server_host, server_port)
 
     # load all storage drivers
+    loaded = []
     for storage_driver in storage_drivers.split(','):
         storage_impl = load_storage(storage_driver)
         if storage_impl is None:
             log.error('Failed to load storage driver "{}"'.format(storage_driver))
             sys.exit(1)
-
+        loaded.append(storage_driver)
         rc = register_storage(storage_impl, conf)
         if not rc:
             log.error('Failed to initialize storage driver "{}" ({})'.format(storage_driver, rc))
             sys.exit(1)
-
+    log.debug('Loaded storage drivers {}'.format(loaded))
     # initialize SPV
     SPVClient.init(spv_headers_path)
     proxy.spv_headers_path = spv_headers_path
@@ -125,10 +126,10 @@ def load_storage(module_name):
         prefix = 'blockstack_client.backend.drivers.{}'
         storage_impl = importlib.import_module(prefix.format(module_name))
         storage_impl.__name__ = module_name
-        log.debug('Loaded storage driver "{}"'.format(module_name))
     except ImportError as e:
         msg = ('Failed to import blockstack_client.backend.drivers.{}. '
                'Please verify that it is installed and is accessible via your PYTHONPATH')
+        log.exception(e)
         raise Exception(msg.format(module_name))
 
     return storage_impl
