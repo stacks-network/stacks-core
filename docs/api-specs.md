@@ -186,6 +186,11 @@ a key, as the registrar may be unable to issue a `REGISTER` or
     + keyname: owner (string) - which key to set (one of 'owner', 'data', 'payment')
 
 + Request (application/json)
+  + Body
+
+              "cPo24qGYz76xSbUCug6e8LzmzLGJPZoowQC7fCVPLN2tzCUJgfcW"
+
++ Request (application/json)
   + Schema
   
               {
@@ -237,6 +242,11 @@ a key, as the registrar may be unable to issue a `REGISTER` or
                     }
                 ]
               }
+
++ Response 200 (application/json)
+  + Body
+
+              {"status": true}
 
 ## Get payment wallet balance [GET /v1/wallet/balance/{minconfs}]
 
