@@ -26,7 +26,7 @@ import requests
 
 BLOCKCYPHER_BASE_URL = 'https://api.blockcypher.com/v1/btc/main'
 
-from blockchain_client import BlockchainClient
+from .blockchain_client import BlockchainClient
 
 
 class BlockcypherClient(BlockchainClient):

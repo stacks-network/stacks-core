@@ -45,12 +45,3 @@ Selected Bugfixes and Fixes
 
 * Issue #469 : Blockstack Core used to die in error cases when it should be 
 able to fail more gracefully. This release fixes several such cases.
-
-* Removed hash-based fresh-profile validation from the storage gateway interface
-in the indexer.  This interface had been deprecated for some time, and new 
-clients have been relying on timestamp-based fresh-profile validation for some
-time now.
-
-* Signing profiles and data is now done with a name's token file signing key,
-not the catch-all data private key.  You can still verify data signed with the
-old data key, however.

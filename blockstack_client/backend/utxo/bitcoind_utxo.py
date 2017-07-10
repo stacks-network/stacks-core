@@ -23,7 +23,7 @@
 
 import httplib
 from virtualchain import AuthServiceProxy
-from blockchain_client import BlockchainClient
+from .blockchain_client import BlockchainClient
 
 from decimal import Decimal
 

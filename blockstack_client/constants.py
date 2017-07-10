@@ -32,7 +32,7 @@ import subprocess
 import fcntl
 
 import virtualchain
-from version import __version__, __version_major__, __version_minor__, __version_patch__
+from .version import __version__, __version_major__, __version_minor__, __version_patch__
 
 BLOCKSTACK_TEST = os.environ.get('BLOCKSTACK_TEST', None)
 BLOCKSTACK_TEST_NODEBUG = os.environ.get('BLOCKSTACK_TEST_NODEBUG', None)
@@ -86,10 +86,10 @@ WALLET_PASSWORD_LENGTH = 8
 WALLET_DECRYPT_MAX_TRIES = 5
 WALLET_DECRYPT_BACKOFF_RESET = 3600
 
-BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = 'disk,dropbox,s3,blockstack_resolver,blockstack_server,http,dht'
+BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = 'disk,s3,blockstack_resolver,blockstack_server,http,dht'
 
 # storage drivers that must successfully acknowledge each write
-BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE = 'disk,dropbox'
+BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE = 'disk,blockstack_server,dht'
 
 BLOCKSTACK_STORAGE_CLASSES = ['read_public', 'read_private', 'write_public', 'write_private', 'read_local', 'write_local']
 
