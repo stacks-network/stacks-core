@@ -54,7 +54,9 @@ error = False
 
 index_file_data = "<html><head></head><body>foo.test hello world</body></html>"
 resource_data = "hello world"
-    
+
+new_key = "cPo24qGYz76xSbUCug6e8LzmzLGJPZoowQC7fCVPLN2tzCUJgfcW"
+new_addr = "mqnupoveYRrSHmrxFT9nQQEZt3RLsetbBQ"
 
 def scenario( wallets, **kw ):
 
@@ -134,8 +136,8 @@ def scenario( wallets, **kw ):
 
     api_pass = conf['api_password']
 
-    res = testlib.blockstack_REST_call('PUT', '/v1/wallet/keys/owner', None, api_pass=api_pass, 
-                                       data=wallets[4].privkey)
+    res = testlib.blockstack_REST_call('PUT', '/v1/wallet/keys/owner', None, api_pass=api_pass,
+                                       data=new_key)
     if res['http_status'] != 200 or 'error' in res:
         print 'failed to set owner key'
         print res
@@ -150,7 +152,7 @@ def scenario( wallets, **kw ):
     # leaving the call format of this one the same to make sure that our registrar correctly
     #   detects that the requested TRANSFER is superfluous
     # register the name bar.test 
-    res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test', 'zonefile': zonefile_txt, 'owner_address': wallets[4].addr})
+    res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test', 'zonefile': zonefile_txt, 'owner_address': new_addr })
     if 'error' in res:
         res['test'] = 'Failed to register user'
         print json.dumps(res)
@@ -288,7 +290,7 @@ def check( state_engine ):
         return False 
 
     names = ['foo.test', 'bar.test']
-    owners = [ wallets[3].addr , wallets[4].addr]
+    owners = [ wallets[3].addr , new_addr ]
     wallet_keys_list = [wallet_keys, wallet_keys]
     test_proxy = testlib.TestAPIProxy()
 
