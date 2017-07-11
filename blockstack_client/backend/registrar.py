@@ -822,6 +822,7 @@ class RegistrarWorker(threading.Thread):
 
         log.debug("Registrar worker starting up")
 
+        is_backing_off = False
         while self.running:
 
             failed = False
@@ -857,14 +858,10 @@ class RegistrarWorker(threading.Thread):
 
                     # try exponential backoff
                     failed = True
-                    if poll_interval >= self.poll_interval:
-                        poll_interval = 1.0
 
             except Exception, e:
                 log.exception(e)
                 failed = True
-                if poll_interval >= self.poll_interval:
-                    poll_interval = 1.0
 
             try:
                 # see if we can put any zonefiles
@@ -874,16 +871,11 @@ class RegistrarWorker(threading.Thread):
                 if 'error' in res:
                     log.warn('zonefile hash broadcast failed: %s' % res['error'])
 
-                    # try exponential backoff 
                     failed = True
-                    if poll_interval >= self.poll_interval:
-                        poll_interval = 1.0
 
             except Exception, e:
                 log.exception(e)
                 failed = True
-                if poll_interval >= self.poll_interval:
-                    poll_interval = 1.0
 
             try:
                 # see if we can replicate any zonefiles and profiles
@@ -893,17 +885,12 @@ class RegistrarWorker(threading.Thread):
                 if 'error' in res:
                     log.warn("Zone file/profile replication failed for update: %s" % res['error'])
 
-                    # try exponential backoff
                     failed = True
-                    if poll_interval >= self.poll_interval:
-                        poll_interval = 1.0
                     failed_names += res['names']
 
             except Exception, e:
                 log.exception(e)
                 failed = True
-                if poll_interval >= self.poll_interval:
-                    poll_interval = 1.0
 
             try:
                 # see if we can transfer any names to their new owners
@@ -912,17 +899,12 @@ class RegistrarWorker(threading.Thread):
                 if 'error' in res:
                     log.warn("Transfer failed: {}".format(res['error']))
 
-                    # try exponential backoff
                     failed = True
-                    if poll_interval >= self.poll_interval:
-                        poll_interval = 1.0
                     failed_names += res['names']
 
             except Exception as e:
                 log.exception(e)
                 failed = True
-                if poll_interval >= self.poll_interval:
-                    poll_interval = 1.0
 
             try:
                 # see if we can replicate any zonefiles for name imports
@@ -932,17 +914,12 @@ class RegistrarWorker(threading.Thread):
                 if 'error' in res:
                     log.warn("Zone file replication failed: {}".format(res['error']))
 
-                    # try exponential backoff
                     failed = True
-                    if poll_interval >= self.poll_interval:
-                        poll_interval = 1.0
                     failed_names += res['names']
 
             except Exception, e:
                 log.exception(e)
                 failed = True
-                if poll_interval >= self.poll_interval:
-                    poll_interval = 1.0
 
             try:
                 # see if we can remove any other confirmed operations, besides preorders, registers, and updates
@@ -951,26 +928,25 @@ class RegistrarWorker(threading.Thread):
                 if 'error' in res:
                     log.warn("Failed to clear out some operations: %s" % res['error'])
 
-                    # try exponential backoff
                     failed = True
-                    if poll_interval >= self.poll_interval:
-                        poll_interval = 1.0
 
             except Exception, e:
                 log.exception(e)
                 failed = True
-                if poll_interval >= self.poll_interval:
-                    poll_interval = 1.0
 
             # if we failed a step, then try again quickly with exponential backoff
             if failed:
-                poll_interval = 2 * poll_interval + random.random() * poll_interval
-                poll_interval = min( poll_interval, self.poll_interval )
-
+                if is_backing_off:
+                    poll_interval = 2 * poll_interval + random.random() * poll_interval
+                    poll_interval = min( poll_interval, self.poll_interval )
+                else:
+                    poll_interval = 1.0
+                    is_backing_off = True
             else:
                 # succeeded. resume normal polling 
                 poll_interval = self.poll_interval
-           
+                is_backing_off = False
+
             try:
                 log.debug("Registrar sleeping for %s" % poll_interval)
                 for i in xrange(0, int(poll_interval)):
