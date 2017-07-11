@@ -1224,9 +1224,9 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     payment_address = virtualchain.get_privkey_address( payment_privkey_info )
     
     min_confirmations = utxo_client.min_confirmations
-    tx_fee = 0
 
     if not dry_run and (safety_checks or (cost_satoshis is None or tx_fee is None)):
+        tx_fee = 0
         # find tx fee, and do sanity checks
         res = check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
@@ -1312,9 +1312,9 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
     owner_address = virtualchain.get_privkey_address( owner_privkey_info )
     
     min_confirmations = utxo_client.min_confirmations
-    tx_fee = 0
 
     if not dry_run and (safety_checks or tx_fee is None):
+        tx_fee = 0
         # find tx fee, and do sanity checks
         res = check_register(fqu, owner_privkey_info, payment_privkey_info, 
                              config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations,

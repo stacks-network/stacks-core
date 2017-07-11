@@ -69,7 +69,10 @@ def check( state_engine ):
         return False
     
     # paid fee 
-    if preorder['op_fee'] < blockstackd.get_name_cost( 'foo.test' ):
+    proxy = testlib.make_proxy()
+
+    if preorder['op_fee'] < proxy.get_name_cost( 'foo.test' )['satoshis']:
+        print "{} < {}".format(preorder['op_fee'], proxy.get_name_cost( 'foo.test' ))
         print "Insufficient fee"
         return False 
 
