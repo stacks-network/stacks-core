@@ -333,7 +333,7 @@ def serialize_mutable_data_id(data_id):
     return urllib.quote(urllib.unquote(data_id).replace('\0', '\\0')).replace('/', r'\x2f')
 
 
-def get_metadata_dir(conf):
+def get_metadata_dir(conf, config_path=CONFIG_PATH):
     """
     Get the absolute path to the metadata directory
     """
