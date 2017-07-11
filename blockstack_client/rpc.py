@@ -62,7 +62,7 @@ import backend.drivers as backend_drivers
 import proxy
 from proxy import json_is_error, json_is_exception
 
-from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE
+from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE, set_secret, get_secret
 from .method_parser import parse_methods
 from .wallet import make_wallet
 import app
@@ -4812,6 +4812,9 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     """
 
     global rpc_pidpath, rpc_srv, running
+
+    if password:
+        set_secret("BLOCKSTACK_CLIENT_WALLET_PASSWORD", password)
 
     p = subprocess.Popen("pip freeze", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = p.communicate()

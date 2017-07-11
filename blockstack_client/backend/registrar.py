@@ -57,9 +57,14 @@ from ..data import set_profile_timestamp
 
 from ..constants import CONFIG_PATH, DEFAULT_QUEUE_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, TX_MIN_CONFIRMATIONS
 from ..constants import PREORDER_CONFIRMATIONS
+from ..constants import get_secret
+
 from ..config import get_config
 from ..utils import url_to_host_port
 from ..logger import get_logger
+
+from binascii import hexlify
+from .crypto.utils import aes_encrypt, aes_decrypt
 
 DEBUG = True
 
@@ -240,7 +245,8 @@ class RegistrarWorker(threading.Thread):
 
         log.debug("update({}, zonefile={}, profile={}, transfer_address={})".format(name_data['fqu'], name_data.get('zonefile'), name_data.get('profile'), name_data.get('transfer_address'))) 
         res = update( name_data['fqu'], name_data.get('zonefile'), name_data.get('profile'),
-                      name_data.get('zonefile_hash'), name_data.get('transfer_address'), config_path=config_path, proxy=proxy )
+                      name_data.get('zonefile_hash'), name_data.get('transfer_address'),
+                      config_path=config_path, proxy=proxy, prior_name_data = name_data )
 
         assert 'success' in res
 
@@ -599,6 +605,9 @@ class RegistrarWorker(threading.Thread):
             if update.get("transfer_address") is not None:
                 # let's see if the name already got there!
                 name_rec = get_name_blockchain_record( update['fqu'], proxy=proxy )
+                if 'address' in name_rec:
+                    log.debug("{} updated, current owner : {}, transfer owner : {}".format(
+                        update['fqu'], name_rec['address'], update['transfer_address']))
                 if 'address' in name_rec and name_rec['address'] == update['transfer_address']:
                     log.debug("Requested Transfer {} to {} is owned by {} already. Declaring victory.".format(
                         update['fqu'], update['transfer_address'], name_rec['address']))
@@ -1190,6 +1199,15 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
         name_data['confirmations_needed'] = PREORDER_CONFIRMATIONS
         name_data['unsafe_reg'] = True
 
+    # save the current owner_privkey_info, scrypted with our password
+    passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
+    if passwd:
+        name_data['owner_privkey'] = aes_encrypt(
+            str(owner_privkey_info), hexlify( passwd ))
+    else:
+        log.warn("Registrar couldn't access wallet password to encrypt privkey," +
+                 " sheepishly refusing to store the private key unencrypted.")
+
     log.debug("async_preorder({}, zonefile_data={}, profile={}, transfer_address={})".format(fqu, zonefile_data, profile, transfer_address)) 
     resp = async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost_satoshis,
                           name_data=name_data, min_payment_confs=min_payment_confs,
@@ -1214,7 +1232,8 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
 
 
 # RPC method: backend_update
-def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, config_path=CONFIG_PATH, proxy=None ):
+def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, config_path=CONFIG_PATH, proxy=None,
+            prior_name_data = None ):
     """
     Send a new zonefile hash.  Queue the zonefile data for subsequent replication.
     zonefile_txt_b64 must be b64-encoded so we can send it over RPC sanely
@@ -1247,9 +1266,12 @@ def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, config_
 
     if not is_zonefile_hash_current(fqu, zonefile_hash, proxy=proxy ):
         # new zonefile data
-        name_data = {
-            'transfer_address': transfer_address
-        }
+        if prior_name_data is not None:
+            name_data = dict(prior_name_data)
+        else:
+            name_data = {}
+
+        name_data['transfer_address'] = transfer_address
 
         log.debug("async_update({}, zonefile_data={}, profile={}, transfer_address={})".format(fqu, zonefile_txt, profile, transfer_address)) 
         resp = async_update(fqu, zonefile_txt, profile,
@@ -1290,7 +1312,7 @@ def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, config_
 
 
 # RPC method: backend_transfer
-def transfer(fqu, transfer_address, config_path=CONFIG_PATH, proxy=None ):
+def transfer(fqu, transfer_address, prior_name_data = None, config_path=CONFIG_PATH, proxy=None ):
     """
     Send transfer transaction.
     Keeps the zonefile data.
@@ -1315,12 +1337,15 @@ def transfer(fqu, transfer_address, config_path=CONFIG_PATH, proxy=None ):
     payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
     owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
 
+    kwargs = {}
+    if prior_name_data:
+        kwargs['name_data'] = prior_name_data
     resp = async_transfer(fqu, transfer_address,
                           owner_privkey_info,
                           payment_privkey_info,
                           proxy=proxy,
                           config_path=config_path,
-                          queue_path=state.queue_path)
+                          queue_path=state.queue_path, **kwargs)
 
     if 'error' not in resp:
         data['success'] = True
