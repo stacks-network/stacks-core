@@ -768,12 +768,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         status = 'revoked' if name_rec['revoked'] else 'registered'
 
+        address = name_rec['address']
+        if address:
+            address = virtualchain.address_reencode(str(address), network='mainnet')
+
         log.debug("{} is {}".format(name, status))
         ret = {
             'status': status,
             'zonefile': zonefile_txt,
             'zonefile_hash': name_rec['value_hash'],
-            'address': name_rec['address'],
+            'address': address,
             'last_txid': name_rec['txid'],
             'blockchain': 'bitcoin',
             'expire_block': name_rec['expire_block'],
