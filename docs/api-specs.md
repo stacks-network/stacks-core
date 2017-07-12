@@ -177,9 +177,11 @@ This call instructs the blockstack core node to use a particular key
 instead of the core node's configured wallet key. The setting of this
 key is *temporary*. It is not written to `~/.blockstack/wallet.json`,
 and on a subsequent restart, the key will return to the original key.
-Therefore, particular care should be taken when registering with such
-a key, as the registrar may be unable to issue a `REGISTER` or
-`UPDATE` if the node restarts in the middle of the registration process. 
+However, the core registrar *tracks* the owner key used for each `PREORDER`,
+and stores that private key encrypted (with `scrypt` and the core wallet
+password) in the queue. When the registrar detects that the key being used
+for a particular name has changed, it will recover by submitting further
+transactions with the stored key.
 
 + Requires root authorization
 + Parameters
