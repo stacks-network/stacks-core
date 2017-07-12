@@ -173,9 +173,11 @@ wallet can be managed through these endpoints.</p>
 instead of the core node’s configured wallet key. The setting of this
 key is <em>temporary</em>. It is not written to <code>~/.blockstack/wallet.json</code>,
 and on a subsequent restart, the key will return to the original key.
-Therefore, particular care should be taken when registering with such
-a key, as the registrar may be unable to issue a <code>REGISTER</code> or
-<code>UPDATE</code> if the node restarts in the middle of the registration process.</p>
+However, the core registrar <em>tracks</em> the owner key used for each <code>PREORDER</code>,
+and stores that private key encrypted (with <code>scrypt</code> and the core wallet
+password) in the queue. When the registrar detects that the key being used
+for a particular name has changed, it will recover by submitting further
+transactions with the stored key.</p>
 <ul>
 <li>Requires root authorization</li>
 </ul>
