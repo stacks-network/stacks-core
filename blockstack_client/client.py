@@ -258,7 +258,7 @@ def analytics_user_register(u, email, config_path=CONFIG_PATH, proxy=None):
     return True
 
 
-def analytics_user_update(payload, proxy=None):
+def analytics_user_update(payload, proxy=None, config_path=CONFIG_PATH):
     """
     Update a user's info on the analytics service
     """

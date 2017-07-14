@@ -339,7 +339,7 @@ def _get_person_profile(name, proxy=None):
 
     res = get_profile(name, proxy=proxy, use_legacy_zonefile=True)
     if 'error' in res:
-        return {'error': 'Failed to load zonefile: {}'.format(zonefile['error'])}
+        return {'error': 'Failed to load zonefile: {}'.format(res['error'])}
 
     profile = res.pop('profile')
     zonefile = res.pop('zonefile')
@@ -419,7 +419,7 @@ def profile_get_account(blockchain_id, service, identifier, config_path=CONFIG_P
     Return {'error': ...} on error
     """
 
-    account_info = _list_accounts(blockchain_id, proxy=proxy )
+    account_info = profile_list_accounts(blockchain_id, proxy=proxy )
     if 'error' in account_info:
         return account_info
 
@@ -428,10 +428,10 @@ def profile_get_account(blockchain_id, service, identifier, config_path=CONFIG_P
         if account['service'] == service and account['identifier'] == identifier:
             return {'status': True, 'account': account}
 
-    return {'error': 'No such account', 'errno': errno.ENOENT}
+    return {'error': 'No such account'}
 
 
-def profile_find_accounts(cur_profile, service, identifer):
+def profile_find_accounts(cur_profile, service, identifier):
     """
     Given an profile, find accounts that match the service and identifier
     Returns a list of accounts on success
@@ -567,7 +567,7 @@ def profile_list_device_ids( blockchain_id, proxy=None ):
     Returns {'status': True, 'device_ids': ...} on success
     Returns {'error': ...} on error
     """
-    raise NotImplemented("Token file logic is not implemented yet")
+    raise NotImplementedError("Token file logic is not implemented yet")
 
 
 def profile_add_device_id( blockchain_id, device_id, wallet_keys, config_path=CONFIG_PATH, proxy=None):
@@ -576,7 +576,7 @@ def profile_add_device_id( blockchain_id, device_id, wallet_keys, config_path=CO
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-    raise NotImplemented("Token file logic is not implemented yet")
+    raise NotImplementedError("Token file logic is not implemented yet")
     
 
 def profile_remove_device_id( blockchain_id, device_id, wallet_keys, config_path=CONFIG_PATH, proxy=None):
@@ -585,6 +585,6 @@ def profile_remove_device_id( blockchain_id, device_id, wallet_keys, config_path
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-    raise NotImplemented("Token file logic is not implemented yet")
+    raise NotImplementedError("Token file logic is not implemented yet")
 
 

@@ -401,7 +401,8 @@ def connect_utxo_provider( utxo_opts, min_confirmations=TX_MIN_CONFIRMATIONS ):
                               min_confirmations=min_confirmations )
 
    elif utxo_provider == "blockstack_core":
-       return BlockstackCoreUTXOClient( utxo_opts['server'], utxo_opts['port'], min_confirmations=min_confirmations )
+       # setting min confirmations not supported by this backend
+       return BlockstackCoreUTXOClient( utxo_opts['server'], utxo_opts['port'] )
 
    elif utxo_provider == "blockstack_explorer":
        return BlockstackExplorerClient( url=utxo_opts['url'], min_confirmations=min_confirmations )

@@ -503,7 +503,7 @@ def delete_mutable_data_version(conf, device_id, fq_data_id, config_path=CONFIG_
         except Exception as e:
             # failed for whatever reason
             msg = 'Failed to remove version file "{}"'
-            log.warn(msg.format(ver_file_path))
+            log.warn(msg.format(ver_path))
 
     return False
 
@@ -551,8 +551,8 @@ def get_immutable(name, data_hash, data_id=None, config_path=CONFIG_PATH, proxy=
             # this tool doesn't allow this to happen (one ID matches
             # one hash), but that doesn't preclude the user from doing
             # this with other tools.
-            if data_hash is not None and data_hash not in h:
-                return {'error': 'Data ID/hash mismatch: {} not in {} (possibly due to invalid zonefile)'.format(data_hash, h)}
+            if data_hash is not None and data_hash not in hs:
+                return {'error': 'Data ID/hash mismatch: {} not in {} (possibly due to invalid zonefile)'.format(data_hash, hs)}
             else:
                 msg = 'Multiple matches for "{}": {}'
                 return {'error': msg.format(data_id, ','.join(h))}
@@ -2092,7 +2092,7 @@ def get_inode_data(blockchain_id, datastore_id, inode_uuid, inode_type, drivers,
         # must match owner 
         # data_address = keylib.public_key_to_address(data_pubkey_hex)
         if full_inode['owner'] != datastore_id:   # data_address:
-            log.error("Inode {} not owned by {} (but by {})".format(full_inode['uuid'], data_address, full_inode['owner']))
+            log.error("Inode {} not owned by {} (but by {})".format(full_inode['uuid'], datastore_id, full_inode['owner']))
             return {'error': 'Invalid owner'}
     
         # preserve reader pubkeys 
@@ -3226,7 +3226,7 @@ def datastore_mkdir_make_inodes(api_client, datastore, data_path, data_pubkeys, 
     parent_uuid = parent_dir['uuid']
 
     if parent_dir['type'] != MUTABLE_DATUM_DIR_TYPE:
-        log.error('Not a directory: {}'.format(dirpath))
+        log.error('Not a directory: {}'.format(parent_path))
         return {'error': 'Not a directory', 'errno': errno.ENOTDIR}
 
     # does a file or directory already exist?
@@ -3819,7 +3819,7 @@ def datastore_deletefile_make_inodes(api_client, datastore, data_path, data_pubk
                                            reader_pubkeys=parent_dir_inode['reader_pubkeys'], min_version=min_version, config_path=config_path )
 
     if 'error' in parent_dir_info:
-        log.error("Failed to update directory {}: {}".format(dir_path, parent_dir_info['error']))
+        log.error("Failed to update directory {}: {}".format(parent_dir, parent_dir_info['error']))
         return {'error': 'Failed to create parent directory', 'errno': errno.EIO}
 
     # make a child tombstone 
