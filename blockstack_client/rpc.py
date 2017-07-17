@@ -297,10 +297,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Return False if not
         """
         allowed_urlparse = [urlparse.urlparse(a) for a in allowed]
-        for a in allowed_urlparse:
-            assert a.netloc, "Invalid origin {}".format(a)
-
-        allowed_origins = dict([(a.netloc, a) for a in allowed_urlparse])
+        allowed_origins = dict()
+        for parsed, a in zip(allowed_urlparse, allowed):
+            if not parsed.netloc:
+                # try to see if we got a domainname (legacy path)
+                parsed = urlparse.urlparse("http://{}".format(a))
+                assert parsed.netloc, "Invalid origin {}".format(a)
+            allowed_origins[parsed.netloc] = parsed
 
         origin_header = self.headers.get('origin', None)
         if origin_header is not None:
@@ -3574,7 +3577,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             # got a session.
             # check origin.
             app_domain = session['app_domain']
-            if not self.verify_origin([app_domain]):
+            try:
+                session_verified = self.verify_origin([app_domain])
+            except AssertionError as e:
+                session = None
+                err = {'error' : e.message}
+                return self._reply_json(err, status_code = 403)
+
+            if not session_verified:
                 # invalid session
                 log.warning("Invalid session: app domain '{}' does not match Origin '{}'".format(app_domain, self.headers.get('origin', '')))
                 session = None
