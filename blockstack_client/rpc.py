@@ -64,6 +64,7 @@ import proxy
 from proxy import json_is_error, json_is_exception
 
 DEFAULT_UI_PORT = 8888
+DEVELOPMENT_UI_PORT = 3000
 
 from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE
 from .method_parser import parse_methods
@@ -3519,13 +3520,15 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             },
         }
         
-        LOCALHOST = [
-            'http://localhost:{}'.format(DEFAULT_UI_PORT),
-            'http://{}:{}'.format(socket.gethostname(), DEFAULT_UI_PORT),
-            'http://127.0.0.1:{}'.format(DEFAULT_UI_PORT),
-            'http://::1:{}'.format(DEFAULT_UI_PORT)
-        ]
-        
+        LOCALHOST = []
+        for port in [DEFAULT_UI_PORT, DEVELOPMENT_UI_PORT]:
+            LOCALHOST += [
+                'http://localhost:{}'.format(port),
+                'http://{}:{}'.format(socket.gethostname(), port),
+                'http://127.0.0.1:{}'.format(port),
+                'http://::1:{}'.format(port)
+            ]
+
         path_info = self.get_path_and_qs()
         if 'error' in path_info:
             self._send_headers(status_code=401, content_type='text/plain')

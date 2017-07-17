@@ -111,10 +111,11 @@ class APITestCase(unittest.TestCase):
             traceback.print_exc()
             raise e
 
-def get_auth_header(key = None):
+def get_auth_header(key = None, port = 8888):
     if key is None:
         key = API_PASSWORD
-    return {'Authorization' : 'bearer {}'.format(key)}
+    return {'Authorization' : 'bearer {}'.format(key),
+            'Origin' : 'http://localhost:{}'.format(port)}
 
 def check_data(cls, data, required_keys={}):
     for k in required_keys:
@@ -138,7 +139,8 @@ class AuthInternal(APITestCase):
         privkey = ("a28ea1a6f11fb1c755b1d102990d64d6" +
                    "b4468c10705bbcbdfca8bc4497cf8da8")
 
-        auth_header = get_auth_header()
+        # test support for the development UI port as well (3000)
+        auth_header = get_auth_header(port = 3000)
         request = {
             'app_domain': 'test.com',
             'app_public_key': blockstack_client.keys.get_pubkey_hex(privkey),
