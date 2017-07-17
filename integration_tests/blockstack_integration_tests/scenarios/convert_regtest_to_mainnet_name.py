@@ -23,7 +23,10 @@
 
 import testlib
 import pybitcoin
-import blockstack.blockstackd as blockstackd
+import json
+import time
+import blockstack_client
+import sys
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -46,34 +49,50 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
-    testlib.next_block( **kw )
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
+    resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef" )
+    if 'error' in resp:
+        print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
+        return False
+   
+    # wait for the preorder to get confirmed
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+
+    # wait for the poller to pick it up
+    print >> sys.stderr, "Waiting 10 seconds for the backend to submit the register"
+    time.sleep(10)
+
+    # wait for the register to get confirmed 
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+
+    print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
+    time.sleep(10)
+
+    # wait for update to get confirmed 
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+
+    print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
+    time.sleep(10)
+
+    # let's make sure the zonefile propagates...
+
+    res = testlib.blockstack_REST_call("GET", "/v1/names/foo.test", None)
+    if 'error' in res or res['http_status'] != 200:
+        res['test'] = 'Failed to get name bar.test'
+        print json.dumps(res)
+        return False
+
+    response_json = json.loads(res['raw'])
+
+    # assert that we're getting a mainnet address
+    if response_json['address'] != "1K4SCfqffVHTnHvqsW2whH1Jn57dDjDdQA":
+        print "Address returned to REST call isn't converted to mainnet!"
+        print "Returned: {}, Expected: {}".format(response_json['address'], "1K4SCfqffVHTnHvqsW2whH1Jn57dDjDdQA")
+        return False
 
 def check( state_engine ):
-
-    # not revealed, but ready 
-    ns = state_engine.get_namespace_reveal( "test" )
-    if ns is not None:
-        return False 
-
-    ns = state_engine.get_namespace( "test" )
-    if ns is None:
-        return False 
-
-    if ns['namespace_id'] != 'test':
-        return False 
-
-    # preordered
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
-    if preorder is None:
-        return False
-    
-    # paid fee 
-    proxy = testlib.make_proxy()
-
-    if preorder['op_fee'] < proxy.get_name_cost( 'foo.test' )['satoshis']:
-        print "{} < {}".format(preorder['op_fee'], proxy.get_name_cost( 'foo.test' ))
-        print "Insufficient fee"
-        return False 
 
     return True

@@ -301,7 +301,10 @@ def blockstack_name_register( name, privatekey, register_addr, wallet=None, subs
     owner_privkey_info = find_wallet(register_addr).privkey
     register_addr = virtualchain.address_reencode(register_addr)
 
-    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+    kwargs = {}
+    if not safety_checks:
+        kwargs = {'tx_fee' : 1} # regtest shouldn't care about the tx_fee
+    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
     api_call_history.append( APICallRecord( "register", name, resp ) )
     return resp
 
@@ -331,7 +334,7 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_k
     if subsidy_key is not None:
         payment_key = subsidy_key 
 
-    resp = blockstack_client.do_transfer( name, address, keepdata, privatekey, payment_key, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks)
+    resp = blockstack_client.do_transfer( name, address, keepdata, privatekey, payment_key, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "transfer", name, resp ) )
     return resp
 

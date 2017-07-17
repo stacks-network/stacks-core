@@ -66,7 +66,7 @@ from proxy import json_is_error, json_is_exception
 DEFAULT_UI_PORT = 8888
 DEVELOPMENT_UI_PORT = 3000
 
-from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE
+from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE, set_secret, get_secret
 from .method_parser import parse_methods
 from .wallet import make_wallet
 import app
@@ -505,7 +505,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         else:
             # current
-            blockchain_id = str(decoded_token['payload']['blockchain_id'])
+            blockchain_id = decoded_token['payload']['blockchain_id']
             app_private_key = str(decoded_token['payload']['app_private_key'])
             app_public_key = get_pubkey_hex(app_private_key)
             app_public_keys = decoded_token['payload']['app_public_keys']
@@ -797,12 +797,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         status = 'revoked' if name_rec['revoked'] else 'registered'
 
+        address = name_rec['address']
+        if address:
+            address = virtualchain.address_reencode(str(address), network='mainnet')
+
         log.debug("{} is {}".format(name, status))
         ret = {
             'status': status,
             'zonefile': zonefile_txt,
             'zonefile_hash': name_rec['value_hash'],
-            'address': name_rec['address'],
+            'address': address,
             'last_txid': name_rec['txid'],
             'blockchain': 'bitcoin',
             'expire_block': name_rec['expire_block'],
@@ -1121,8 +1125,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             'message': 'Name queued for update.  The process takes ~1 hour.  You can check the status with `blockstack info`.'
         }
 
-        if 'tx' in res:
-            ret['tx'] = res['tx']
+        if 'tx' in resp:
+            ret['tx'] = resp['tx']
 
         self._reply_json(ret)
         return
@@ -1639,7 +1643,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 503 on failure to contact remote storage providers
         """
         if datastore_id != ses['app_user_id']:
-            return self._reply_json({'error': 'Invalid user', 'errno': errno.EACCES}, status=403)
+            return self._reply_json({'error': 'Invalid user', 'errno': errno.EACCES}, status_code=403)
 
         if inode_type not in ['files', 'directories', 'inodes']:
             self._reply_json({'error': 'Invalid request', 'errno': errno.EINVAL}, status_code=401)
@@ -2081,8 +2085,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Return 500 on error
         """
         wallet = self._read_json(schema=WALLET_SCHEMA_CURRENT)
-        if request is None:
-            return self._reply_json({'error': 'Failed to validate keys'}, status_code=401)
+        if wallet is None:
+            return self._reply_json({'error': 'Failed to validate wallet keys'}, status_code=401)
 
         res = backend.registrar.set_wallet( (wallet['payment_addresses'][0], wallet['payment_privkey']),
                                             (wallet['owner_addresses'][0], wallet['owner_privkey']),
@@ -2348,6 +2352,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if index_url:
             driver_config['index_url'] = index_url
 
+        ret = {}
         ret[driver_name] = driver_config
 
         return self._reply_json(ret)
@@ -2554,7 +2559,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             else:
                 status_code = 404
 
-            self._reply_json({'error': consensus_hash['error']}, status_code=status_code)
+            self._reply_json({'error': info['error']}, status_code=status_code)
             return
 
         self._reply_json({'consensus_hash': info['consensus']})
@@ -2688,7 +2693,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         elif command == 'clearcache':
             # clear the cache 
-            data.cache_evct_all()
+            data.cache_evict_all()
             return self._send_headers(status_code=200, content_type='text/plain')
 
         else:
@@ -3691,7 +3696,7 @@ class BlockstackAPIEndpoint(SocketServer.ThreadingMixIn, SocketServer.TCPServer)
         (i.e. a mock module with all of the wrapped CLI methods
         that follow the Python calling convention)
         """
-        name = func.__name__ if name is None else name
+        name = func_internal.__name__ if name is None else name
         assert name
 
         setattr(self.internal_proxy, name, func_internal)
@@ -3826,7 +3831,7 @@ class BlockstackAPIEndpointClient(object):
         # random ID to match in logs
         r = random.randint(0, 2 ** 16) if r == -1 else r
         if self.debug_timeline:
-            log.debug('RPC({}) {} {} {}'.format(r, event, self.url, key))
+            log.debug('RPC({}) {} {}'.format(r, event, key))
         return r
 
 
@@ -4305,7 +4310,9 @@ class BlockstackAPIEndpointClient(object):
         """
         if is_api_server(self.config_dir):
             # directly get the inode
-            return data.get_inode_data(blockchain_id, data.datastore_get_id(datastore['pubkey']), inode_uuid, 0, data_pubkeys, datastore['drivers'], datastore['device_ids'], idata=idata, config_path=self.config_path )
+            return data.get_inode_data(blockchain_id, data.datastore_get_id(datastore['pubkey']), inode_uuid, 0,
+                                       datastore['drivers'], data_pubkeys, idata=idata,
+                                       config_path=self.config_path )
 
         else:
             res = self.check_version()
@@ -4473,7 +4480,7 @@ class BlockstackAPIEndpointClient(object):
         """
         if is_api_server(self.config_dir):
             # delete
-            return data.datastore_rmtree_put_inodes( datastore, inoes, payloads, signatures, tombstones, config_path=self.config_path )
+            return data.datastore_rmtree_put_inodes( datastore, inodes, payloads, signatures, tombstones, config_path=self.config_path )
 
         else:
             res = self.check_version()
@@ -4730,6 +4737,9 @@ def local_api_unlink_pidfile(pidfile_path):
     except:
         pass
 
+# used when running in a separate process
+rpc_pidpath = None
+rpc_srv = None
 
 def local_api_atexit():
     """
@@ -4803,11 +4813,6 @@ def local_api_start_wait( api_host='localhost', api_port=DEFAULT_API_PORT, confi
     return running
 
 
-# used when running in a separate process
-rpc_pidpath = None
-rpc_srv = None
-
-
 def local_api_check_alive(config_path, api_host=None, api_port=None):
     """
     Is the local API daemon alive?
@@ -4866,6 +4871,9 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     """
 
     global rpc_pidpath, rpc_srv, running
+
+    if password:
+        set_secret("BLOCKSTACK_CLIENT_WALLET_PASSWORD", password)
 
     p = subprocess.Popen("pip freeze", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = p.communicate()

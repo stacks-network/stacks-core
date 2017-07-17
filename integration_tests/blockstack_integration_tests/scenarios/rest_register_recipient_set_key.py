@@ -54,7 +54,11 @@ error = False
 
 index_file_data = "<html><head></head><body>foo.test hello world</body></html>"
 resource_data = "hello world"
-    
+
+new_key = "cPo24qGYz76xSbUCug6e8LzmzLGJPZoowQC7fCVPLN2tzCUJgfcW"
+new_addr = "mqnupoveYRrSHmrxFT9nQQEZt3RLsetbBQ"
+
+insanity_key = "cSCyE5Q1AFVyDAL8LkHo1sFMVqmwdvFcCbGJ71xEvto2Nrtzjm67"
 
 def scenario( wallets, **kw ):
 
@@ -134,8 +138,8 @@ def scenario( wallets, **kw ):
 
     api_pass = conf['api_password']
 
-    res = testlib.blockstack_REST_call('PUT', '/v1/wallet/keys/owner', None, api_pass=api_pass, 
-                                       data=wallets[4].privkey)
+    res = testlib.blockstack_REST_call('PUT', '/v1/wallet/keys/owner', None, api_pass=api_pass,
+                                       data=new_key)
     if res['http_status'] != 200 or 'error' in res:
         print 'failed to set owner key'
         print res
@@ -150,7 +154,7 @@ def scenario( wallets, **kw ):
     # leaving the call format of this one the same to make sure that our registrar correctly
     #   detects that the requested TRANSFER is superfluous
     # register the name bar.test 
-    res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test', 'zonefile': zonefile_txt, 'owner_address': wallets[4].addr})
+    res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test', 'zonefile': zonefile_txt, 'owner_address': new_addr })
     if 'error' in res:
         res['test'] = 'Failed to register user'
         print json.dumps(res)
@@ -261,6 +265,104 @@ def scenario( wallets, **kw ):
         print json.dumps(res)
         return False
 
+
+    ### Now, we'll do it again, but this time, we're going to CHANGE THE KEY in the middle of registrations.
+    ### to test the different paths, I'll start 3 registrations:
+    # 1 has submitted preorder
+    # 1 has submitted register
+    # 1 has submitted update
+    ### And then I'll issue a change-key
+
+
+    # make zonefile for recipients
+    zonefiles = []
+    for i in [1,2,3]:
+        name = "tricky{}.test".format(i)
+        driver_urls = blockstack_client.storage.make_mutable_data_urls(name, use_only=['dht', 'disk'])
+        zonefile = blockstack_client.zonefile.make_empty_zonefile(name, wallets[4].pubkey_hex, urls=driver_urls)
+        zonefiles.append(blockstack_zones.make_zone_file( zonefile, origin=name, ttl=3600 ))
+
+    # leaving the call format of this one the same to make sure that our registrar correctly
+    #   detects that the requested TRANSFER is superfluous
+    res = testlib.blockstack_REST_call(
+        'POST', '/v1/names', ses, data={'name':'tricky1.test', 'zonefile':zonefiles[0], 'owner_address':new_addr})
+    if 'error' in res:
+        res['test'] = 'Failed to register tricky1.test'
+        print json.dumps(res)
+        error = True
+        return False
+
+    tx_hash = res['response']['transaction_hash']
+    # wait for preorder to get confirmed...
+    for i in xrange(0, 6):
+        testlib.next_block( **kw )
+
+    res = testlib.blockstack_REST_call(
+        'POST', '/v1/names', ses, data={'name':'tricky2.test', 'zonefile':zonefiles[1], 'owner_address':new_addr})
+    if 'error' in res:
+        res['test'] = 'Failed to register tricky2.test'
+        print json.dumps(res)
+        error = True
+        return False
+
+    # wait for the preorder to get confirmed
+    for i in xrange(0, 6):
+        testlib.next_block( **kw )
+
+    # wait for register to go through
+    print 'Wait for register to be submitted'
+    time.sleep(10)
+
+    # wait for the register to get confirmed
+    for i in xrange(0, 6):
+        testlib.next_block( **kw )
+
+    res = testlib.blockstack_REST_call(
+        'POST', '/v1/names', ses, data={'name':'tricky3.test', 'zonefile':zonefiles[2], 'owner_address':new_addr})
+    if 'error' in res:
+        res['test'] = 'Failed to register tricky3.test'
+        print json.dumps(res)
+        error = True
+        return False
+
+    for i in xrange(0, 6):
+        testlib.next_block( **kw )
+
+    print 'Wait for update to be submitted'
+    time.sleep(10)
+
+    for i in xrange(0, 1):
+        testlib.next_block( **kw )
+
+
+
+    res = testlib.verify_in_queue(ses, 'tricky1.test', 'update', None)
+    res = testlib.verify_in_queue(ses, 'tricky2.test', 'register', None)
+    res = testlib.verify_in_queue(ses, 'tricky3.test', 'preorder', None)
+
+    # let's go crazy.
+    res = testlib.blockstack_REST_call('PUT', '/v1/wallet/keys/owner', None, api_pass=api_pass,
+                                       data=insanity_key)
+    if res['http_status'] != 200 or 'error' in res:
+        print 'failed to set owner key'
+        print res
+        return False
+
+
+    # wait for preorder to get confirmed
+    for i in xrange(0, 6):
+        testlib.next_block( **kw )
+    # wake up registrar, submit register
+    time.sleep(10)
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    # wake up registrar, submit update
+    time.sleep(10)
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    # wake up registrar, propogate zonefile
+    time.sleep(10)
+
 def check( state_engine ):
 
     global wallet_keys, error, index_file_data, resource_data
@@ -287,9 +389,8 @@ def check( state_engine ):
         print "wrong namespace"
         return False 
 
-    names = ['foo.test', 'bar.test']
-    owners = [ wallets[3].addr , wallets[4].addr]
-    wallet_keys_list = [wallet_keys, wallet_keys]
+    names = ['foo.test', 'bar.test', 'tricky1.test', 'tricky2.test', 'tricky3.test']
+    owners = [ wallets[3].addr , new_addr, new_addr, new_addr, new_addr ]
     test_proxy = testlib.TestAPIProxy()
 
     for i in xrange(0, len(names)):
