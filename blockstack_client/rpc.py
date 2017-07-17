@@ -63,7 +63,9 @@ import backend.drivers as backend_drivers
 import proxy
 from proxy import json_is_error, json_is_exception
 
-from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE, DEFAULT_UI_PORT
+DEFAULT_UI_PORT = 8888
+
+from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE
 from .method_parser import parse_methods
 from .wallet import make_wallet
 import app
