@@ -45,6 +45,7 @@ import jsontokens
 import subprocess
 import platform
 import shutil
+import urlparse
 from jsonschema import ValidationError
 from schemas import *
 import client as bsk_client
@@ -61,6 +62,9 @@ import backend.blockchain as backend_blockchain
 import backend.drivers as backend_drivers
 import proxy
 from proxy import json_is_error, json_is_exception
+
+DEFAULT_UI_PORT = 8888
+DEVELOPMENT_UI_PORT = 3000
 
 from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE, set_secret, get_secret
 from .method_parser import parse_methods
@@ -285,6 +289,33 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return ret
 
 
+    def verify_origin(self, allowed):
+        """
+        Verify that the Origin: header is present and listed
+        in our list of allowed origins
+        Return True if so
+        Return False if not
+        """
+        allowed_urlparse = [urlparse.urlparse(a) for a in allowed]
+        allowed_origins = dict()
+        for parsed, a in zip(allowed_urlparse, allowed):
+            if not parsed.netloc:
+                # try to see if we got a domainname (legacy path)
+                parsed = urlparse.urlparse("http://{}".format(a))
+                assert parsed.netloc, "Invalid origin {}".format(a)
+            allowed_origins[parsed.netloc] = parsed
+
+        origin_header = self.headers.get('origin', None)
+        if origin_header is not None:
+            origin_info = urlparse.urlparse(origin_header)
+            if origin_info.netloc in allowed_origins.keys():
+                allowed_origin = allowed_origins[origin_info.netloc]
+                if origin_info.scheme == allowed_origin.scheme and origin_info.netloc == allowed_origin.netloc:
+                    return True
+
+        return False
+
+
     def verify_session(self, qs_values):
         """
         Verify and return the application's session.
@@ -453,6 +484,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if decode_err:
                 log.error('Current decode error:')
                 log.exception(decode_err)
+
             log.error('Legacy decode error:')
             log.exception(ve)
             return self._reply_json({'error': 'Invalid authRequest token: does not match any known request schemas'}, status_code=401)
@@ -3495,6 +3527,15 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 },
             },
         }
+        
+        LOCALHOST = []
+        for port in [DEFAULT_UI_PORT, DEVELOPMENT_UI_PORT]:
+            LOCALHOST += [
+                'http://localhost:{}'.format(port),
+                'http://{}:{}'.format(socket.gethostname(), port),
+                'http://127.0.0.1:{}'.format(port),
+                'http://::1:{}'.format(port)
+            ]
 
         path_info = self.get_path_and_qs()
         if 'error' in path_info:
@@ -3519,12 +3560,34 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         use_session = whitelist_info['auth_session']
         use_password = whitelist_info['auth_pass']
 
-        log.debug("\nfull path: {}\nmethod: {}\npath: {}\nqs: {}\nheaders:\n {}\n".format(self.path, method_name, path_info['path'], qs_values, '\n'.join( '{}: {}'.format(k, v) for (k, v) in self.headers.items() )))
+        log.debug("\nfull path: {}\nmethod: {}\npath: {}\nqs: {}\nheaders:\n{}\n".format(self.path, method_name, path_info['path'], qs_values, '\n'.join( '{}: {}'.format(k, v) for (k, v) in self.headers.items() )))
 
         have_password = False
         session = self.verify_session(qs_values)
         if not session:
-            have_password = self.verify_password()
+            # password authentication
+            # don't even try to authenticate with the password unless the Origin is set appropriately 
+            if self.verify_origin(LOCALHOST):
+                # can authenticate
+                have_password = self.verify_password()
+            else:
+                log.warning("Origin is absent or not local")
+        
+        else:
+            # got a session.
+            # check origin.
+            app_domain = session['app_domain']
+            try:
+                session_verified = self.verify_origin([app_domain])
+            except AssertionError as e:
+                session = None
+                err = {'error' : e.message}
+                return self._reply_json(err, status_code = 403)
+
+            if not session_verified:
+                # invalid session
+                log.warning("Invalid session: app domain '{}' does not match Origin '{}'".format(app_domain, self.headers.get('origin', '')))
+                session = None
 
         authorized = False
 
@@ -3805,6 +3868,7 @@ class BlockstackAPIEndpointClient(object):
             elif self.session:
                 headers['Authorization'] = 'bearer {}'.format(self.session)
 
+        headers['Origin'] = 'http://localhost:{}'.format(DEFAULT_UI_PORT)
         return headers
 
 
