@@ -25,7 +25,6 @@ EXISTING_LOGS="$3"
 test -d "$OUTPUTS" || mkdir -p "$OUTPUTS"
 
 while IFS= read SCENARIO_FILE; do
-   killall bitcoind
 
    if ! [ "$(echo "$SCENARIO_FILE" | egrep '.py$')" ]; then 
       continue 
@@ -100,6 +99,7 @@ while IFS= read SCENARIO_FILE; do
 
       echo " SUCCESS"
       rm -rf "$TESTDIR"
+      killall bitcoind
    fi
 
 done <<EOF
