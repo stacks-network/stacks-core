@@ -262,7 +262,7 @@ def tx_make_subsidization_output(payer_utxo_inputs, payer_address, op_fee, dust_
 
 
 def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_client, tx_fee=0,
-                         subsidy_address=None, add_dust_fee=True):
+                         subsidy_address=None, add_dust_fee=True, simulated_sign = False):
     """
     Given an unsigned serialized transaction from Blockstack, make it into a subsidized transaction
     for the client to go sign off on.
@@ -271,8 +271,10 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
     * Sign our inputs with SIGHASH_ANYONECANPAY (if subsidy_key_info is not None)
 
     @tx_fee should be in fundamental units (i.e. satoshis)
+    @simulated_sign tells us not to actually sign, but just compute expected sig lengths
 
-    Returns the transaction; signed if subsidy_key_info is given; unsigned otherwise
+    Returns the transaction; signed if subsidy_key_info is given; unsigned otherwise;
+    if simulated_sign, returns a tuple (unsigned tx, expected length of hex encoded signatures)
     Returns None if we can't get subsidy info
     Raise ValueError if there are not enough inputs to subsidize
     """
@@ -330,17 +332,30 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
 
     # sign each of our inputs with our key, but use
     # SIGHASH_ANYONECANPAY so the client can sign its inputs
-    if subsidy_key_info is not None:
+    log.debug("Length of unsigned subsidized = {}".format(len(subsidized_tx)))
+
+    unsigned = subsidized_tx
+    if subsidy_key_info is not None and not simulated_sign:
         for i in range(len(consumed_inputs)):
             idx = i + len(tx_inputs)
             subsidized_tx = tx_sign_input(
                 subsidized_tx, idx, subsidy_key_info, hashcode=virtualchain.SIGHASH_ANYONECANPAY
             )
-    
+    elif simulated_sign:
+        return subsidized_tx, 2*(len(consumed_inputs) * tx_estimate_signature_len_bytes(subsidy_key_info))
     else:
         log.debug("Warning: no subsidy key given; transaction will be subsidized but not signed")
 
     return subsidized_tx
+
+def tx_estimate_signature_len_bytes(privkey_info):
+    if virtualchain.is_singlesig(privkey_info):
+        return 73
+    else:
+        m, _ = virtualchain.parse_multisig_redeemscript( privkey_info['redeem_script'] )
+        siglengths = 74 * m
+        scriptlen = len(privkey_info['redeem_script']) / 2
+        return 6 + scriptlen + siglengths
 
 
 def tx_get_unspents(address, utxo_client, min_confirmations=None):

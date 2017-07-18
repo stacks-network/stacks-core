@@ -48,7 +48,7 @@ from ..proxy import get_namespace_blockchain_record as blockstack_get_namespace_
 from ..tx import sign_tx, sign_and_broadcast_tx, deserialize_tx, preorder_tx, register_tx, update_tx, transfer_tx, revoke_tx, \
         namespace_preorder_tx, namespace_reveal_tx, namespace_ready_tx, announce_tx, name_import_tx
 
-from ..scripts import tx_make_subsidizable, tx_get_unspents
+from ..scripts import tx_make_subsidizable, tx_get_unspents, tx_estimate_signature_len_bytes
 from ..storage import get_blockchain_compat_hash, put_announcement, get_zonefile_data_hash
 
 from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration, fees_preorder, \
@@ -161,7 +161,7 @@ def make_cheapest_nameop( opcode, utxo_client, payment_address, payment_utxos, *
         try:
             log.debug("Try building a {} with inputs 0-{} of {}".format(opcode, i, payment_address))
             utxo_client = build_utxo_client(utxo_client, address=payment_address, utxos=payment_utxos[0:i])
-            unsigned_tx = tx_builder(*tx_args, **tx_kw) 
+            unsigned_tx = tx_builder(*tx_args, **tx_kw)
             assert unsigned_tx
 
             log.debug("Funded {} with inputs 0-{} of {}".format(opcode, i, payment_address))
@@ -169,71 +169,88 @@ def make_cheapest_nameop( opcode, utxo_client, payment_address, payment_utxos, *
         except (AssertionError, ValueError):
             pass
 
-    return unsigned_tx
+    return unsigned_tx, i
 
 
-def make_cheapest_namespace_preorder( namespace_id, payment_address, reveal_address, cost, consensus_hash, utxo_client, payment_utxos, tx_fee=0 ):
+def make_cheapest_namespace_preorder( namespace_id, payment_address, reveal_address, cost, consensus_hash, utxo_client, payment_utxos, tx_fee=0, return_n_funded_inputs = False ):
     """
     Given namespace preorder info, make the cheapest possible namespace preorder transaction.
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success.
     Return None on error
     """
-    return make_cheapest_nameop('NAMESPACE_PREORDER', utxo_client, payment_address, payment_utxos, namespace_id, reveal_address, cost, consensus_hash, payment_address, utxo_client, tx_fee=tx_fee )
+    ret = make_cheapest_nameop('NAMESPACE_PREORDER', utxo_client, payment_address, payment_utxos, namespace_id, reveal_address, cost, consensus_hash, payment_address, utxo_client, tx_fee=tx_fee )
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
-
-def make_cheapest_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, preorder_addr, utxo_client, payment_utxos, tx_fee=0 ):
+def make_cheapest_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, preorder_addr, utxo_client, payment_utxos, tx_fee=0, return_n_funded_inputs = False ):
     """
     Given namespace reveal info, make the cheapest possible namespace reveal transaction.
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success
     Return None on error
     """
-    return make_cheapest_nameop('NAMESPACE_REVEAL', utxo_client, preorder_addr, payment_utxos, namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, preorder_addr, utxo_client,
+    ret = make_cheapest_nameop('NAMESPACE_REVEAL', utxo_client, preorder_addr, payment_utxos, namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, preorder_addr, utxo_client,
                                 tx_fee=tx_fee)
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_namespace_ready( namespace_id, reveal_addr, utxo_client, payment_utxos, tx_fee=0 ):
+def make_cheapest_namespace_ready( namespace_id, reveal_addr, utxo_client, payment_utxos, tx_fee=0, return_n_funded_inputs = False ):
     """
     Given namespace ready info, make the cheapest possible namespace ready transaction
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success
     Return None on error
     """
-    return make_cheapest_nameop('NAMESPACE_READY', utxo_client, reveal_addr, payment_utxos, namespace_id, reveal_addr, utxo_client, tx_fee=tx_fee)
+    ret = make_cheapest_nameop('NAMESPACE_READY', utxo_client, reveal_addr, payment_utxos, namespace_id, reveal_addr, utxo_client, tx_fee=tx_fee)
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_name_import( name, recipient_address, zonefile_hash, reveal_address, utxo_client, payment_utxos, tx_fee=0 ):
+def make_cheapest_name_import( name, recipient_address, zonefile_hash, reveal_address, utxo_client, payment_utxos, tx_fee=0, return_n_funded_inputs = False ):
     """
     Given name import info, make the cheapest possible name import transaction
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success
     Return None on error
     """
-    return make_cheapest_nameop("NAME_IMPORT", utxo_client, reveal_address, payment_utxos, name, recipient_address, zonefile_hash, reveal_address, utxo_client, tx_fee=tx_fee )
+    ret = make_cheapest_nameop("NAME_IMPORT", utxo_client, reveal_address, payment_utxos, name, recipient_address, zonefile_hash, reveal_address, utxo_client, tx_fee=tx_fee )
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_name_preorder( name, payment_address, owner_address, cost, consensus_hash, utxo_client, payment_utxos, tx_fee=0 ):
+def make_cheapest_name_preorder( name, payment_address, owner_address, cost, consensus_hash, utxo_client, payment_utxos, tx_fee=0, return_n_funded_inputs = False ):
     """
     Given name preorder info, make the cheapest possible name preorder transaction.
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success.
     Return None on error
     """
-    return make_cheapest_nameop('NAME_PREORDER', utxo_client, payment_address, payment_utxos, name, payment_address, owner_address, cost, consensus_hash, utxo_client, tx_fee=tx_fee )
+    ret = make_cheapest_nameop('NAME_PREORDER', utxo_client, payment_address, payment_utxos, name, payment_address, owner_address, cost, consensus_hash, utxo_client, tx_fee=tx_fee )
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_name_registration( name, payment_address, owner_address, utxo_client, payment_utxos, tx_fee=0, subsidize=False ):
+def make_cheapest_name_registration( name, payment_address, owner_address, utxo_client, payment_utxos, tx_fee=0, subsidize=False, return_n_funded_inputs = False ):
     """
     Given name registration info, make the cheapest possible name register transaction
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success.
     Return None on error
     """
-    return make_cheapest_nameop('NAME_REGISTRATION', utxo_client, payment_address, payment_utxos, name, payment_address, owner_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    ret = make_cheapest_nameop('NAME_REGISTRATION', utxo_client, payment_address, payment_utxos, name, payment_address, owner_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_name_renewal( name, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False ):
+def make_cheapest_name_renewal( name, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False, return_n_funded_inputs = False ):
     """
     Given name renewal info, make the cheapest possible name renewal transaction
     @payment_utxos should be sorted by decreasing value
@@ -242,47 +259,62 @@ def make_cheapest_name_renewal( name, owner_address, renewal_fee, utxo_client, p
     """
     # NOTE: for name renewal, the owner address is both the "preorder" and "register" address.
     # the payment address and UTXOs given here are for the address that will subsidize the operation.
-    return make_cheapest_nameop('NAME_RENEWAL', utxo_client, payment_address, payment_utxos, name, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee, subsidize=subsidize, tx_fee=tx_fee)
+    ret = make_cheapest_nameop('NAME_RENEWAL', utxo_client, payment_address, payment_utxos, name, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee, subsidize=subsidize, tx_fee=tx_fee)
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_name_update( name, data_hash, consensus_hash, owner_address, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False ):
+def make_cheapest_name_update( name, data_hash, consensus_hash, owner_address, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False, return_n_funded_inputs = False ):
     """
     Given name update info, make the cheapest possible name update transaction
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success
     Return None on error
     """
-    return make_cheapest_nameop('NAME_UPDATE', utxo_client, payment_address, payment_utxos, name, data_hash, consensus_hash, owner_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    ret = make_cheapest_nameop('NAME_UPDATE', utxo_client, payment_address, payment_utxos, name, data_hash, consensus_hash, owner_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_name_transfer( name, recipient_address, keepdata, consensus_hash, owner_address, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False ):
+def make_cheapest_name_transfer( name, recipient_address, keepdata, consensus_hash, owner_address, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False, return_n_funded_inputs = False ):
     """
     Given name transfer info, make the cheapest possible name transfer transaction
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success
     Return None on error
     """
-    return make_cheapest_nameop('NAME_TRANSFER', utxo_client, payment_address, payment_utxos, name, recipient_address, keepdata, consensus_hash, owner_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    ret = make_cheapest_nameop('NAME_TRANSFER', utxo_client, payment_address, payment_utxos, name, recipient_address, keepdata, consensus_hash, owner_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_name_revoke( name, owner_address, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False ):
+def make_cheapest_name_revoke( name, owner_address, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False, return_n_funded_inputs = False ):
     """
     Given name revoke info, make the cheapest possible name revoke transaction
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success
     Return None on error 
     """
-    return make_cheapest_nameop('NAME_REVOKE', utxo_client, payment_address, payment_utxos, name, owner_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    ret = make_cheapest_nameop('NAME_REVOKE', utxo_client, payment_address, payment_utxos, name, owner_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_announce( announce_hash, sender_address, utxo_client, payment_utxos, tx_fee=0, subsidize=False ):
+def make_cheapest_announce( announce_hash, sender_address, utxo_client, payment_utxos, tx_fee=0, subsidize=False, return_n_funded_inputs = False ):
     """
     Given announce info, make the cheapest possible announce transaction
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success
     Return None on error
     """
-    return make_cheapest_nameop('ANNOUNCE', utxo_client, sender_address, payment_utxos, announce_hash, sender_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    ret = make_cheapest_nameop('ANNOUNCE', utxo_client, sender_address, payment_utxos, announce_hash, sender_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
 def get_estimated_signed_subsidized(unsigned_tx, op_fees, max_fee, payment_privkey_info,
@@ -296,16 +328,17 @@ def get_estimated_signed_subsidized(unsigned_tx, op_fees, max_fee, payment_privk
     MAX_RETRIES = 10
     tx_fee_guess = 0
     for _ in range(MAX_RETRIES):
-        subsidized_tx = tx_make_subsidizable( unsigned_tx, op_fees, max_fee, payment_privkey_info, 
-                                              utxo_client, tx_fee = tx_fee_guess )
+        subsidized_tx, sign_lens = tx_make_subsidizable(unsigned_tx, op_fees, max_fee, payment_privkey_info,
+                                                        utxo_client, tx_fee = tx_fee_guess,
+                                                        simulated_sign = True)
         assert subsidized_tx is not None
+        pad_length = sign_lens + 2*tx_estimate_signature_len_bytes(owner_privkey_info)
+        padded_tx = subsidized_tx + ("0" * pad_length)
 
-        signed_subsidized_tx = sign_tx(subsidized_tx, owner_privkey_info)
-
-        tx_fee = (len(signed_subsidized_tx) * tx_fee_per_byte) / 2
+        tx_fee = (len(padded_tx) * tx_fee_per_byte)/2
         if tx_fee <= tx_fee_guess:
-            log.debug("Estimated TX Length and fee per byte: {} + {}".format(len(signed_subsidized_tx) / 2, tx_fee_per_byte))
-            return signed_subsidized_tx
+            log.debug("Estimated TX Length and fee per byte: {} + {}".format(len(padded_tx)/2, tx_fee_per_byte))
+            return padded_tx
         tx_fee_guess = tx_fee
     raise Exception("Failed to cover the tx_fee in getting estimated subsidized tx")
 
@@ -336,10 +369,14 @@ def estimate_preorder_tx_fee( name, name_cost, payment_privkey_info, owner_privk
 
     try:
         try:
-            unsigned_tx = make_cheapest_name_preorder(name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client, payment_utxos )
+            unsigned_tx, n_inputs = make_cheapest_name_preorder(
+                name, payment_addr, owner_address, name_cost, fake_consensus_hash,
+                utxo_client, payment_utxos, return_n_funded_inputs = True)
             assert unsigned_tx
 
-            signed_tx = sign_tx(unsigned_tx, payment_privkey_info)
+            pad_len = n_inputs * tx_estimate_signature_len_bytes(payment_privkey_info)
+            signed_tx = unsigned_tx + ("00" * pad_len)
+
             assert signed_tx is not None
 
         except AssertionError as e:
@@ -400,10 +437,14 @@ def estimate_register_tx_fee( name, payment_privkey_info, owner_privkey_info, tx
     signed_tx = None
     try:
         try:
-            unsigned_tx = make_cheapest_name_registration(name, payment_addr, owner_addr, utxo_client, payment_utxos)
+            unsigned_tx, n_inputs = make_cheapest_name_registration(
+                name, payment_addr, owner_addr, utxo_client,
+                payment_utxos, return_n_funded_inputs = True)
             assert unsigned_tx
-            
-            signed_tx = sign_tx(unsigned_tx, payment_privkey_info)
+
+            pad_len = n_inputs * tx_estimate_signature_len_bytes(payment_privkey_info)
+            signed_tx = unsigned_tx + ("00" * pad_len)
+
             assert signed_tx is not None
 
         except AssertionError as e:
