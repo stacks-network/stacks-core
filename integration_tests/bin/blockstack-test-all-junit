@@ -57,11 +57,11 @@ while IFS= read SCENARIO_FILE; do
       OUTPUT_FILE="$OUTPUTS/$SCENARIO_MODULE_BASE.xml"
 
       echo '<?xml version="1.0" encoding="UTF-8"?><testsuite>' > "$OUTPUT_FILE"
-      echo "<testcase name=\"$SCENARIO_MODULE_BASE\" classname=\"$SCENARIO_MODULE_BASE\">" > "$OUTPUT_FILE"
+      echo "<testcase name=\"$SCENARIO_MODULE_BASE\" classname=\"$SCENARIO_MODULE_BASE\">" >> "$OUTPUT_FILE"
       if [ $RC -ne 0 ]; then
-	 echo '<failure message="Integration test failed."></failure>' > "$OUTPUT_FILE"
+	 echo '<failure message="Integration test failed."></failure>' >> "$OUTPUT_FILE"
       fi
-      echo "</testcase></testsuite>" > "$OUTPUT_FILE"
+      echo "</testcase></testsuite>" >> "$OUTPUT_FILE"
 
       if [ $RC -ne 0 ]; then 
          # failed 
