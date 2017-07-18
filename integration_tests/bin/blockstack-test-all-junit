@@ -1,0 +1,110 @@
+#!/bin/sh
+
+usage() {
+   echo "Usage: $0 [path/to/test/output/dir] [path/to/archival/outputs] [OPTIONAL: path/to/tests/to/skip.txt] [OPTIONAL: path/to/existing/test/logdir/]"
+   exit 1
+}
+
+if [ $# -lt 1 ]; then 
+   usage $0
+fi
+
+RUN_SCENARIO="blockstack-test-scenario"
+CHECK_SERIALIZATION="blockstack-test-check-serialization"
+SCENARIOS_PYTHON="blockstack_integration_tests.scenarios"
+SCENARIOS="$(BLOCKSTACK_TESTNET=1 python -c "import blockstack_integration_tests; import blockstack_integration_tests.scenarios; print blockstack_integration_tests.scenarios.__path__[0]")"
+if [ $? -ne 0 ]; then 
+   echo >&2 "Failed to load blockstack integration test scenarios"
+   exit 1
+fi
+
+OUTPUTS="$1"
+TESTS_SKIP="$3"
+EXISTING_LOGS="$4"
+
+test -d "$OUTPUTS" || mkdir -p "$OUTPUTS"
+test -d "$ARCHIVALS" || mkdir -p "$ARCHIVALS"
+
+while IFS= read SCENARIO_FILE; do
+   killall bitcoind
+
+   if ! [ "$(echo "$SCENARIO_FILE" | egrep '.py$')" ]; then 
+      continue 
+   fi
+
+   if [ "$SCENARIO_FILE" = "__init__.py" ] || [ "$SCENARIO_FILE" = "testlib.py" ]; then 
+      continue
+   fi
+
+   SCENARIO_MODULE_BASE="$(echo "$SCENARIO_FILE" | sed 's/\.py//g')"
+   SCENARIO_MODULE="$SCENARIOS_PYTHON.$SCENARIO_MODULE_BASE"
+
+   if [ -n "$TESTS_SKIP" ] && [ -n "$(fgrep "$SCENARIO_MODULE_BASE" "$TESTS_SKIP")" ]; then 
+      continue
+   fi
+
+   TESTDIR="/tmp/blockstack-test"
+
+   if ! [ -f "$OUTPUTS/$SCENARIO_MODULE_BASE.log" ]; then 
+   
+      echo -n "$SCENARIO_MODULE ... "
+
+      mkdir -p "$TESTDIR"
+      "$RUN_SCENARIO" "$SCENARIO_MODULE" "$TESTDIR" > "$OUTPUTS/$SCENARIO_MODULE_BASE.log" 2>&1
+
+      RC=$?
+
+      # make the xunit file
+      OUTPUT_FILE="$OUTPUTS/$SCENARIO_MODULE_BASE.xml"
+
+      echo '<?xml version="1.0" encoding="UTF-8"?><testsuite>' > "$OUTPUT_FILE"
+      echo "<testcase name=\"$SCENARIO_MODULE_BASE\" classname=\"$SCENARIO_MODULE_BASE\">" > "$OUTPUT_FILE"
+      if [ $RC -ne 0 ]; then
+	 echo '<failure message="Integration test failed."></failure>' > "$OUTPUT_FILE"
+      fi
+      echo "</testcase></testsuite>" > "$OUTPUT_FILE"
+
+      if [ $RC -ne 0 ]; then 
+         # failed 
+         echo " FAILURE"
+         mv "$TESTDIR" "$OUTPUTS/$SCENARIO_MODULE_BASE.d"
+
+         continue
+      fi
+
+      # compare serialized consensus fields with older release
+      EXISTING_LOG="$EXISTING_LOGS/$SCENARIO_MODULE_BASE.log"
+      if [ -f "$EXISTING_LOG" ]; then 
+
+         "$CHECK_SERIALIZATION" "$EXISTING_LOGS/$SCENARIO_MODULE_BASE.log" "$OUTPUTS/$SCENARIO_MODULE_BASE.log"
+         RC=$?
+
+         if [ $RC -ne 0 ]; then
+
+            if [ $RC -eq 1 ]; then
+                # generated incorrect serialization output
+                echo " (ERROR: mismatched serialization) FAILURE"
+                mv "$TESTDIR" "$OUTPUTS/$SCENARIO_MODULE_BASE.d"
+
+                # TODO: only exit with option 
+                exit 1
+            
+            else
+               # exit 2 means no serialization check happened
+               echo " (WARN: SKIPPED SERIALIZATION CHECK) SUCCESS"
+            fi
+         fi
+      else
+
+         echo -n " (WARN: no existing log) "
+      fi 
+
+      echo " SUCCESS"
+      rm -rf "$TESTDIR"
+   fi
+
+done <<EOF
+$(ls "$SCENARIOS")
+EOF
+
+exit 0
