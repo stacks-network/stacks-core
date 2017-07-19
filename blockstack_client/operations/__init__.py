@@ -291,9 +291,15 @@ def nameop_snv_consensus_extra_quirks( extras, namerec, block_id ):
 
     log.debug("apply SNV QURIKS on %s at %s (created with %s)" % (namerec.get('name', "UNKNOWN"), block_id, last_creation_opcode))
 
+    # NAME_IMPORT requires a float for this
     if namerec.has_key('name') and last_creation_opcode == 'NAME_IMPORT':
         log.debug("apply SNV QUIRK on %s: %s --> %s"  % (namerec.get('name', "UNKNOWN"), namerec['op_fee'], float(namerec['op_fee'])))
         extras['op_fee'] = float(namerec['op_fee'])
+        
+    # restore namespace ID hash
+    elif namerec.has_key('namespace_id') and namerec['op'] in [NAMESPACE_REVEAL, NAMESPACE_READY]:
+        log.debug("apply SNV QUIRK on %s: %s --> %s" % (namerec['namespace_id'], 'preorder_hash', 'namespace_id_hash'))
+        extras['namespace_id_hash'] = namerec['preorder_hash']
 
     return extras
 
