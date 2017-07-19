@@ -1286,7 +1286,7 @@ def get_name_blockchain_history(name, start_block, end_block, proxy=None):
     return ret
 
 
-def get_op_history_rows(name, proxy=None):
+def get_op_history_rows(history_id, proxy=None):
     """
     Get the history rows for a name or namespace.
     """
@@ -1301,7 +1301,7 @@ def get_op_history_rows(name, proxy=None):
                 },
                 'history_id': {
                     'type': 'string',
-                    'pattern': '^({})$'.format(name),
+                    'pattern': '^({})$'.format(history_id),
                 },
                 'block_id': {
                     'type': 'integer',
@@ -1361,7 +1361,7 @@ def get_op_history_rows(name, proxy=None):
     # how many history rows?
     history_rows_count = None
     try:
-        history_rows_count = proxy.get_num_op_history_rows(name)
+        history_rows_count = proxy.get_num_op_history_rows(history_id)
         history_rows_count = json_validate(count_schema, history_rows_count)
         if json_is_error(history_rows_count):
             return history_rows_count
@@ -1383,7 +1383,7 @@ def get_op_history_rows(name, proxy=None):
     while len(history_rows) < history_rows_count:
         resp = {}
         try:
-            resp = proxy.get_op_history_rows(name, len(history_rows), page_size)
+            resp = proxy.get_op_history_rows(history_id, len(history_rows), page_size)
             resp = json_validate(resp_schema, resp)
             if json_is_error(resp):
                 return resp
@@ -1523,6 +1523,27 @@ def get_nameops_affected_at(block_id, proxy=None):
     return all_nameops
 
 
+def _get_record_key_and_id(nameop):
+    """
+    Determine whether or not this is a name or namespace operation.
+    Return {'key': the op's primary key, 'id': the value of the primary key}.
+    """
+
+    rec_id = None
+    rec_key = None
+    if 'name' in nameop:
+        rec_key = 'name'
+    elif 'namespace_id' in nameop:
+        rec_key = 'namespace_id'
+    
+    if rec_key:
+        rec_id = nameop[rec_key]
+    else:
+        rec_id = 'UNKNOWN'
+
+    return {'key': rec_key, 'id': rec_id}
+
+
 def get_nameops_at(block_id, proxy=None):
     """
     Get all the name operation that happened at a given block,
@@ -1542,29 +1563,34 @@ def get_nameops_at(block_id, proxy=None):
     nameops = []
     nameop_histories = {}   # cache histories
     for nameop in all_nameops:
+        
+        rec_info = _get_record_key_and_id(nameop)
+        rec_id = rec_info['id']
+        rec_key = rec_info['key']
+
         # get history (if not a preorder)
         history_rows = []
-        if nameop.has_key('name'):
+        if rec_key is not None:
             # If the nameop has a 'name' field, then it's not an outstanding preorder.
             # Outstanding preorders have no history, so we don't need to worry about 
             # getting history for them.
-            history_rows = nameop_histories.get(nameop['name'])
+            history_rows = nameop_histories.get(nameop[rec_key])
             if history_rows is None:
-                history_rows = get_op_history_rows( nameop['name'], proxy=proxy )
+                history_rows = get_op_history_rows( nameop[rec_key], proxy=proxy )
                 if json_is_error(history_rows):
                     return history_rows
 
-                nameop_histories[nameop['name']] = history_rows
+                nameop_histories[nameop[rec_key]] = history_rows
 
         # restore history
         history = nameop_history_extract(history_rows)
         historic_nameops = nameop_restore_from_history(nameop, history, block_id)
 
-        msg = '{} had {} operations ({} history rows, {} historic nameops, txids: {}) at {}'
+        msg = '{} had {} operations ({} history rows, {} historic nameops, txids: {})'
         log.debug(
             msg.format(
-                nameop.get('name', 'UNKNOWN'), len(history), len(history_rows),
-                len(historic_nameops), [op['txid'] for op in historic_nameops], block_id
+                rec_id, len(history), len(history_rows),
+                len(historic_nameops), [op['txid'] for op in historic_nameops]
             )
         )
 
