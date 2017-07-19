@@ -109,7 +109,7 @@ def token_file_make_datastore_index(apps):
     return {'status': True, 'index': index}
 
 
-def token_file_get_application_name(token_file, datastore_id):
+def token_file_get_app_name(token_file, datastore_id):
     """
     Given a parsed token file and a datastore ID, find the application domain.
     Return {'status': True, 'full_application_name': ...} on success
@@ -878,6 +878,9 @@ def lookup_app_pubkeys(name, full_application_name, proxy=None, parsed_token_fil
     Return {'status': True, 'token_file': ..., 'pubkeys': {'$device_id': ...}} on success
     Return {'error': ...} on error
     """
+    assert name
+    assert full_application_name
+
     if parsed_token_file is None:
         res = token_file_get(name, proxy=proxy)
         if 'error' in res:
@@ -898,6 +901,7 @@ def lookup_app_pubkeys(name, full_application_name, proxy=None, parsed_token_fil
         dev_app_pubkeys = dev_app_pubkey_info['app_pubkeys']
         if full_application_name not in dev_app_pubkeys.keys():
             # this device may not access this app
+            log.debug("Device '{}' does not have access to application '{}'".format(dev_id, full_application_name))
             continue
 
         app_pubkeys[dev_id] = dev_app_pubkeys[full_application_name]
