@@ -61,6 +61,7 @@ import backend.blockchain as backend_blockchain
 import backend.drivers as backend_drivers
 import proxy
 from proxy import json_is_error, json_is_exception
+import scripts
 
 from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE
 from .method_parser import parse_methods
@@ -1130,27 +1131,66 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def GET_store( self, ses, path_info, datastore_id ):
+    def _parse_datastore_id(self, datastore_id_or_app_name):
         """
-        Get the specific data store for this app user account or app domain
+        Identify whether or not a string is a datastore ID or an app name
+        Return {'status': True, 'datastore_id': ..., 'app_name': ...} on success
+        Return {'error': ...} on error
+        """
+        datastore_id = ''
+        app_name = ''
+
+        if not app.is_valid_app_name(datastore_id_or_app_name) and re.match(OP_BASE58CHECK_PATTERN, datastore_id_or_app_name):
+            # datastore ID
+            datastore_id = datastore_id_or_app_name
+
+        elif app.is_valid_app_name(datastore_id_or_app_name):
+            # app name
+            app_name = datastore_id_or_app_name
+
+        if not app_name and not datastore_id:
+            return {'error': 'Invalid datastore ID or app name'}
+    
+        return {'status': True, 'datastore_id': datastore_id, 'app_name': app_name}
+
+
+    def GET_store( self, ses, path_info, datastore_id_or_app_name ):
+        """
+        Get the specific data store for this app user account or app domain.
+        Takes the following query string arguments:
+        * blockchain_id: owner of this datastore
+        * device_ids: list of devices that write to this datastore
+
         Reply 200 on success with {'datastore': ...}
         Reply 401 if we're missing 'device_ids' or 'blockchain_id' query arguments
         Reply 503 on failure to load
         """
 
         device_ids = ''
-        if not path_info['qs_values'].has_key('device_ids'):
-            return self._reply_json({'error': 'Missing device_ids query argument'}, status_code=401)
-
         blockchain_id = ''
+        datastore_id = ''
+        app_name = ''
+
         if not path_info['qs_values'].has_key('blockchain_id'):
             return self._reply_json({'error': 'Missing blockchain_id query argument'}, status_code=401)
 
-        blockchain_id = path_info['qs_values']['blockchain_id']
-        device_ids = path_info['qs_values']['device_ids']
+        blockchain_id = path_info['qs_values'].get('blockchain_id', '')
+        device_ids = path_info['qs_values'].get('device_ids', '')
+        
+        res = self._parse_datastore_id(datastore_id_or_app_name)
+        if 'error' in res:
+            self._reply_json({'error': res['error']}, status_code=401)
+
+        datastore_id = res['datastore_id']
+        app_name = res['app_name']
+
+        if not scripts.is_name_valid(blockchain_id):
+            # need device IDs and datastore_id
+            if not device_ids:
+                return self._reply_json({'error': 'Device IDs are required if the blockchain ID is not a real name'}, status_code=401)
 
         internal = self.server.get_internal_proxy()
-        res = internal.cli_get_datastore(blockchain_id, datastore_id, device_ids, config_path=self.server.config_path)
+        res = internal.cli_get_datastore(blockchain_id, app_name, datastore_id, device_ids, config_path=self.server.config_path)
         if 'error' in res:
             log.debug("Failed to get datastore: {}".format(res['error']))
             if res.has_key('errno'):
@@ -1291,7 +1331,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Missing signed datastore info', 'errno': errno.EINVAL}, status_code=401)
 
 
-    def GET_store_item( self, ses, path_info, datastore_id, inode_type ):
+    def GET_store_item( self, ses, path_info, datastore_id_or_app_name, inode_type ):
         """
         Get a store item.
         Accepts as query string arguments:
@@ -1316,6 +1356,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         qs = path_info['qs_values']
         blockchain_id = qs.get('blockchain_id', '')
+
+        res = self._parse_datastore_id(datastore_id_or_app_name)
+        if 'error' in res:
+            self._reply_json({'error': res['error']}, status_code=401)
+
+        datastore_id = res['datastore_id']
+        app_name = res['app_name']
 
         # include extended information
         include_extended = qs.get('extended', '0')
@@ -1368,7 +1415,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if inode_type == 'files':
             if path is not None:
                 log.debug("Will run cli_datastore_getfile()")
-                res = internal.cli_datastore_getfile(blockchain_id, datastore_id, path, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
+                res = internal.cli_datastore_getfile(blockchain_id, app_name, path, datastore_id, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
                 if 'error' not in res:
                     # base64-encode the result, if we're returning extended information
@@ -1377,7 +1424,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
             else:
                 log.debug("Will run cli_datastore_getinode()")
-                res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(blockchain_id, app_name, inode_uuid, datastore_id, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
                 if 'error' not in res and idata:
                     # base64-encode the result
@@ -1387,19 +1434,19 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         elif inode_type == 'directories':
             if path is not None:
                 log.debug("Will run cli_datastore_listdir()")
-                res = internal.cli_datastore_listdir(blockchain_id, datastore_id, path, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
+                res = internal.cli_datastore_listdir(blockchain_id, app_name, path, datastore_id, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
             else:
                 log.debug("Will run cli_datastore_getinode()")
-                res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(blockchain_id, app_name, inode_uuid, datastore_id, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
         else:
             # inodes
             if path is not None:
                 log.debug("Will run cli_datastore_stat()")
-                res = internal.cli_datastore_stat(blockchain_id, datastore_id, path, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
+                res = internal.cli_datastore_stat(blockchain_id, app_name, path, datastore_id, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
             else:
                 log.debug("Will run cli_datastore_getinode()")
-                res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
+                res = internal.cli_datastore_getinode(blockchain_id, app_name, inode_uuid, datastore_id, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
         if json_is_error(res):
             err = {'error': 'Failed to read {}: {}'.format(inode_type, res['error']), 'errno': res.get('errno', errno.EPERM)}
@@ -4132,7 +4179,7 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_datastore_get( self, blockchain_id, datastore_id, device_ids ):
+    def backend_datastore_get( self, blockchain_id, full_app_name, datastore_id=None, device_ids=None ):
         """
         Get a datastore from the backend
         Return {'status': True, 'datastore': ...} on success
@@ -4140,7 +4187,7 @@ class BlockstackAPIEndpointClient(object):
         """
         if is_api_server(self.config_dir):
             # directly do this
-            return data.get_datastore(blockchain_id, datastore_id, device_ids, config_path=self.config_path)
+            return data.get_datastore(blockchain_id=blockchain_id, full_app_name=full_app_name, datastore_id=datastore_id, device_ids=device_ids, config_path=self.config_path)
 
         else:
             res = self.check_version()
@@ -4195,7 +4242,7 @@ class BlockstackAPIEndpointClient(object):
         """
         if is_api_server(self.config_dir):
             # directly do the lookup
-            return data.inode_path_lookup(blockchain_id, datastore, path, data_pubkeys, get_idata=idata, force=force, config_path=self.config_path )
+            return data.inode_path_lookup(datastore, path, data_pubkeys, get_idata=idata, force=force, config_path=self.config_path, blockchain_id=blockchain_id)
 
         else:
             res = self.check_version()
@@ -4264,7 +4311,11 @@ class BlockstackAPIEndpointClient(object):
         """
         if is_api_server(self.config_dir):
             # directly get the inode
-            return data.get_inode_data(blockchain_id, data.datastore_get_id(datastore['pubkey']), inode_uuid, 0, data_pubkeys, datastore['drivers'], datastore['device_ids'], idata=idata, config_path=self.config_path )
+            datastore_id = data.datastore_get_id(datastore['pubkey'])
+            if data.is_partially_created(datastore_id, inode_uuid):
+                return {'error': 'Inode {} does not exist: not fully created'.format(inode_uuid), 'errno': errno.ENOENT}
+
+            return data.get_inode_data(data.datastore_get_id(datastore['pubkey']), inode_uuid, 0, data_pubkeys, datastore['drivers'], datastore['device_ids'], idata=idata, config_path=self.config_path, blockchain_id=blockchain_id)
 
         else:
             res = self.check_version()
