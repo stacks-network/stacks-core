@@ -172,13 +172,12 @@ def api_cli_wrapper(method_info, config_path, check_rpc=True, include_kw=False):
     argwrapper.__name__ = method_info['method'].__name__
     return argwrapper
 
+JSONRPC_MAX_SIZE = 1024 * 1024
 
 class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
     '''
     Blockstack RESTful API endpoint.
     '''
-
-    JSONRPC_MAX_SIZE = 1024 * 1024
 
     http_errors = {
         errno.ENOENT: 404,
@@ -237,7 +236,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return request_str
 
 
-    def _read_json(self, schema=None):
+    def _read_json(self, schema=None, maxlen=JSONRPC_MAX_SIZE):
         """
         Read a JSON payload from the requester
         Return the parsed payload on success
@@ -251,7 +250,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.error("Invalid request of type {} from {}".format(request_type, client_address_str))
             return None
 
-        request_str = self._read_payload(maxlen=self.JSONRPC_MAX_SIZE)
+        request_str = self._read_payload(maxlen=maxlen)
         if request_str is None:
             log.error("Failed to read request")
             return None
@@ -1599,6 +1598,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Return 200 on successful save
         Return 401 on invalid request
         return 503 on storage failure
+
+        Allows arbitrary sized PUTs/POSTs
         """
 
         if datastore_id != ses['app_user_id']:
@@ -1618,7 +1619,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         create = qs.get('create', '0') == '1'
         exist = qs.get('exist', '0') == '1'
 
-        request = self._read_json()
+        request = self._read_json(maxlen=None)
         if request:
             # sent externally-signed data
             operation = None
