@@ -402,14 +402,15 @@ def profile_list_accounts(name, proxy=None):
     if hasattr(person, 'account'):
         accounts = person.account
 
+    output_accounts = []
     for acct in accounts:
         try:
             jsonschema.validate(acct, PROFILE_ACCOUNT_SCHEMA)
-            accounts.append(acct)
+            output_accounts.append(acct)
         except jsonschema.ValidationError:
             continue
 
-    return {'accounts': accounts}
+    return {'accounts': output_accounts}
 
 
 def profile_get_account(blockchain_id, service, identifier, config_path=CONFIG_PATH, proxy=None):
