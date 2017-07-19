@@ -2168,7 +2168,7 @@ def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None
     if len(args.service) == 0 or len(args.identifier) == 0:
         return {'error': 'Invalid data'}
 
-    return profile_delete_account(name, service, identifier, config_path=config_path, proxy=proxy)
+    return profile_delete_account(name, service, identifier, wallet_keys, config_path=config_path, proxy=proxy)
 
 
 def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False):
