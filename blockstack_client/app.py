@@ -32,8 +32,10 @@ from keylib import *
 import virtualchain
 from virtualchain.lib.ecdsalib import *
 
+import re
 import jsontokens
 import storage
+import urlparse
 import data
 import user as user_db
 from .proxy import *
@@ -42,6 +44,30 @@ from config import get_config
 from .constants import CONFIG_PATH, BLOCKSTACK_TEST, LENGTH_MAX_NAME, DEFAULT_API_PORT, DEFAULT_API_HOST
 from .schemas import *
 from .storage import classify_storage_drivers
+
+def is_valid_app_name(app_name):
+    """
+    Is the given application name valid?
+    i.e. does it match either of our app name schemas?
+    """
+    if not re.match(OP_APP_NAME_PATTERN, app_name):
+        return False
+    else:
+        return True
+   
+
+def app_domain_to_app_name(app_domain):
+    """
+    Convert an app comain (e.g. an Origin: string, a DNS name)
+    to its fully-qualified application name for use in the token file
+    """
+    if is_valid_app_name(app_domain):
+        return app_domain
+
+    urlinfo = urlparse.urlparse(app_domain)
+    assert urlinfo.netloc, app_domain
+    return '{}.1'.format(urlinfo.netloc)
+
 
 def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_public_keys, requester_device_id, master_data_privkey, session_lifetime=None, config_path=CONFIG_PATH ):
     """
