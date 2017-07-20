@@ -81,7 +81,7 @@ virtualenv --python=python2.7 "$CORE_VENV"
 
 cd "$DIR"
 
-git clone https://github.com/blockstack/blockstack-portal.git -bv11.1
+git clone https://github.com/blockstack/blockstack-browser.git -bv0.11.1
 cd blockstack-portal
 
 npm install node-sass
