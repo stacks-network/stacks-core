@@ -74,14 +74,14 @@ mkdir -p "$DIR"
 
 virtualenv --python=python2.7 "$CORE_VENV"
 
-"$CORE_VENV/bin/python" -m pip install git+https://github.com/blockstack/virtualchain.git@rc-0.14.2
-"$CORE_VENV/bin/python" -m pip install git+https://github.com/blockstack/blockstack-core.git@rc-0.14.2
+"$CORE_VENV/bin/python" -m pip install git+https://github.com/blockstack/virtualchain.git@rc-0.14.3
+"$CORE_VENV/bin/python" -m pip install git+https://github.com/blockstack/blockstack-core.git@rc-0.14.3
 
 "$CORE_VENV/bin/python" "$CORE_VENV/bin/blockstack" setup -y --password "$BITCOIN_WALLET_PASSWORD"
 
 cd "$DIR"
 
-git clone https://github.com/blockstack/blockstack-portal.git -bv0.9
+git clone https://github.com/blockstack/blockstack-portal.git -bv11.1
 cd blockstack-portal
 
 npm install node-sass
