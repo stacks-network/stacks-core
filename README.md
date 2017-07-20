@@ -40,7 +40,7 @@ $ curl -sL https://deb.nodesource.com/setup_8.x | sudo -E bash -
 $ sudo apt install blockstack-browser
 ```
 
-#### Support for Integratoin Tests and Regtest Environment
+#### Support for Integration Tests and Regtest Environment
 
 Our integration test suite allows you to easily get a regtest environment up and running with Blockstack, and the above `apt` package includes the suite. However, you'll need to install `bitcoind` and `sqlite3` for the tests to execute properly. For that you'll need to add bitcoin's PPA (or install it otherwise).
 
