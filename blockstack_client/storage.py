@@ -1166,7 +1166,7 @@ def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None,
     if signed_data_tombstone is None:
         assert privatekey
         ts = make_data_tombstone(fq_data_id)
-        signed_data_tombstone = sign_data_tombstone(ts, privkey)
+        signed_data_tombstone = sign_data_tombstone(ts, privatekey)
 
     required_successes = 0
 

@@ -465,8 +465,6 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             if len(sys.argv) <= 1 or sys.argv[1] != 'setup_wallet':
                 exit_with_error("Wallet is in legacy format.  Please unlock and migrate it with `blockstack setup_wallet`.")
 
-    advanced_mode = conf['blockstack-client'].get('advanced_mode', False)
-
     parser = BlockstackArgumentParser(
         description='Blockstack cli version {}'.format(config.VERSION)
     )
@@ -478,10 +476,6 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     all_method_names = get_cli_methods()
     all_methods = parse_methods(all_method_names)
     build_method_subparsers(subparsers, all_methods)
-
-    if not advanced_mode:
-        # remove advanced methods 
-        all_methods = filter( lambda m: 'advanced' not in m['pragmas'], all_methods ) 
 
     # Print default help message, if no argument is given
     if len(argv) == 1 or '-h' in argv or '--help' in argv:

@@ -30,7 +30,7 @@ import keylib
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 
-from .queue import in_queue, queue_append, queue_findone
+from .queue import in_queue, queue_append, queue_findone, extract_entry
 
 from .blockchain import get_tx_confirmations
 from .blockchain import get_utxos, get_tx_fee_per_byte
@@ -48,7 +48,7 @@ from ..proxy import get_namespace_blockchain_record as blockstack_get_namespace_
 from ..tx import sign_tx, sign_and_broadcast_tx, deserialize_tx, preorder_tx, register_tx, update_tx, transfer_tx, revoke_tx, \
         namespace_preorder_tx, namespace_reveal_tx, namespace_ready_tx, announce_tx, name_import_tx
 
-from ..scripts import tx_make_subsidizable, tx_get_unspents
+from ..scripts import tx_make_subsidizable, tx_get_unspents, tx_estimate_signature_len_bytes
 from ..storage import get_blockchain_compat_hash, put_announcement, get_zonefile_data_hash
 
 from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration, fees_preorder, \
@@ -60,6 +60,10 @@ from ..utxo import get_unspents
 
 import virtualchain
 from virtualchain.lib.ecdsalib import ecdsa_private_key
+
+from ..constants import get_secret
+from .crypto.utils import aes_decrypt
+from binascii import hexlify
 
 log = get_logger("blockstack-client")
 
@@ -157,7 +161,7 @@ def make_cheapest_nameop( opcode, utxo_client, payment_address, payment_utxos, *
         try:
             log.debug("Try building a {} with inputs 0-{} of {}".format(opcode, i, payment_address))
             utxo_client = build_utxo_client(utxo_client, address=payment_address, utxos=payment_utxos[0:i])
-            unsigned_tx = tx_builder(*tx_args, **tx_kw) 
+            unsigned_tx = tx_builder(*tx_args, **tx_kw)
             assert unsigned_tx
 
             log.debug("Funded {} with inputs 0-{} of {}".format(opcode, i, payment_address))
@@ -165,71 +169,88 @@ def make_cheapest_nameop( opcode, utxo_client, payment_address, payment_utxos, *
         except (AssertionError, ValueError):
             pass
 
-    return unsigned_tx
+    return unsigned_tx, i
 
 
-def make_cheapest_namespace_preorder( namespace_id, payment_address, reveal_address, cost, consensus_hash, utxo_client, payment_utxos, tx_fee=0 ):
+def make_cheapest_namespace_preorder( namespace_id, payment_address, reveal_address, cost, consensus_hash, utxo_client, payment_utxos, tx_fee=0, return_n_funded_inputs = False ):
     """
     Given namespace preorder info, make the cheapest possible namespace preorder transaction.
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success.
     Return None on error
     """
-    return make_cheapest_nameop('NAMESPACE_PREORDER', utxo_client, payment_address, payment_utxos, namespace_id, reveal_address, cost, consensus_hash, payment_address, utxo_client, tx_fee=tx_fee )
+    ret = make_cheapest_nameop('NAMESPACE_PREORDER', utxo_client, payment_address, payment_utxos, namespace_id, reveal_address, cost, consensus_hash, payment_address, utxo_client, tx_fee=tx_fee )
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
-
-def make_cheapest_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, preorder_addr, utxo_client, payment_utxos, tx_fee=0 ):
+def make_cheapest_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, preorder_addr, utxo_client, payment_utxos, tx_fee=0, return_n_funded_inputs = False ):
     """
     Given namespace reveal info, make the cheapest possible namespace reveal transaction.
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success
     Return None on error
     """
-    return make_cheapest_nameop('NAMESPACE_REVEAL', utxo_client, preorder_addr, payment_utxos, namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, preorder_addr, utxo_client,
+    ret = make_cheapest_nameop('NAMESPACE_REVEAL', utxo_client, preorder_addr, payment_utxos, namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, preorder_addr, utxo_client,
                                 tx_fee=tx_fee)
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_namespace_ready( namespace_id, reveal_addr, utxo_client, payment_utxos, tx_fee=0 ):
+def make_cheapest_namespace_ready( namespace_id, reveal_addr, utxo_client, payment_utxos, tx_fee=0, return_n_funded_inputs = False ):
     """
     Given namespace ready info, make the cheapest possible namespace ready transaction
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success
     Return None on error
     """
-    return make_cheapest_nameop('NAMESPACE_READY', utxo_client, reveal_addr, payment_utxos, namespace_id, reveal_addr, utxo_client, tx_fee=tx_fee)
+    ret = make_cheapest_nameop('NAMESPACE_READY', utxo_client, reveal_addr, payment_utxos, namespace_id, reveal_addr, utxo_client, tx_fee=tx_fee)
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_name_import( name, recipient_address, zonefile_hash, reveal_address, utxo_client, payment_utxos, tx_fee=0 ):
+def make_cheapest_name_import( name, recipient_address, zonefile_hash, reveal_address, utxo_client, payment_utxos, tx_fee=0, return_n_funded_inputs = False ):
     """
     Given name import info, make the cheapest possible name import transaction
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success
     Return None on error
     """
-    return make_cheapest_nameop("NAME_IMPORT", utxo_client, reveal_address, payment_utxos, name, recipient_address, zonefile_hash, reveal_address, utxo_client, tx_fee=tx_fee )
+    ret = make_cheapest_nameop("NAME_IMPORT", utxo_client, reveal_address, payment_utxos, name, recipient_address, zonefile_hash, reveal_address, utxo_client, tx_fee=tx_fee )
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_name_preorder( name, payment_address, owner_address, cost, consensus_hash, utxo_client, payment_utxos, tx_fee=0 ):
+def make_cheapest_name_preorder( name, payment_address, owner_address, cost, consensus_hash, utxo_client, payment_utxos, tx_fee=0, return_n_funded_inputs = False ):
     """
     Given name preorder info, make the cheapest possible name preorder transaction.
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success.
     Return None on error
     """
-    return make_cheapest_nameop('NAME_PREORDER', utxo_client, payment_address, payment_utxos, name, payment_address, owner_address, cost, consensus_hash, utxo_client, tx_fee=tx_fee )
+    ret = make_cheapest_nameop('NAME_PREORDER', utxo_client, payment_address, payment_utxos, name, payment_address, owner_address, cost, consensus_hash, utxo_client, tx_fee=tx_fee )
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_name_registration( name, payment_address, owner_address, utxo_client, payment_utxos, tx_fee=0, subsidize=False ):
+def make_cheapest_name_registration( name, payment_address, owner_address, utxo_client, payment_utxos, tx_fee=0, subsidize=False, return_n_funded_inputs = False ):
     """
     Given name registration info, make the cheapest possible name register transaction
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success.
     Return None on error
     """
-    return make_cheapest_nameop('NAME_REGISTRATION', utxo_client, payment_address, payment_utxos, name, payment_address, owner_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    ret = make_cheapest_nameop('NAME_REGISTRATION', utxo_client, payment_address, payment_utxos, name, payment_address, owner_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_name_renewal( name, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False ):
+def make_cheapest_name_renewal( name, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False, return_n_funded_inputs = False ):
     """
     Given name renewal info, make the cheapest possible name renewal transaction
     @payment_utxos should be sorted by decreasing value
@@ -238,47 +259,62 @@ def make_cheapest_name_renewal( name, owner_address, renewal_fee, utxo_client, p
     """
     # NOTE: for name renewal, the owner address is both the "preorder" and "register" address.
     # the payment address and UTXOs given here are for the address that will subsidize the operation.
-    return make_cheapest_nameop('NAME_RENEWAL', utxo_client, payment_address, payment_utxos, name, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee, subsidize=subsidize, tx_fee=tx_fee)
+    ret = make_cheapest_nameop('NAME_RENEWAL', utxo_client, payment_address, payment_utxos, name, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee, subsidize=subsidize, tx_fee=tx_fee)
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_name_update( name, data_hash, consensus_hash, owner_address, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False ):
+def make_cheapest_name_update( name, data_hash, consensus_hash, owner_address, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False, return_n_funded_inputs = False ):
     """
     Given name update info, make the cheapest possible name update transaction
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success
     Return None on error
     """
-    return make_cheapest_nameop('NAME_UPDATE', utxo_client, payment_address, payment_utxos, name, data_hash, consensus_hash, owner_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    ret = make_cheapest_nameop('NAME_UPDATE', utxo_client, payment_address, payment_utxos, name, data_hash, consensus_hash, owner_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_name_transfer( name, recipient_address, keepdata, consensus_hash, owner_address, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False ):
+def make_cheapest_name_transfer( name, recipient_address, keepdata, consensus_hash, owner_address, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False, return_n_funded_inputs = False ):
     """
     Given name transfer info, make the cheapest possible name transfer transaction
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success
     Return None on error
     """
-    return make_cheapest_nameop('NAME_TRANSFER', utxo_client, payment_address, payment_utxos, name, recipient_address, keepdata, consensus_hash, owner_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    ret = make_cheapest_nameop('NAME_TRANSFER', utxo_client, payment_address, payment_utxos, name, recipient_address, keepdata, consensus_hash, owner_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_name_revoke( name, owner_address, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False ):
+def make_cheapest_name_revoke( name, owner_address, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False, return_n_funded_inputs = False ):
     """
     Given name revoke info, make the cheapest possible name revoke transaction
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success
     Return None on error 
     """
-    return make_cheapest_nameop('NAME_REVOKE', utxo_client, payment_address, payment_utxos, name, owner_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    ret = make_cheapest_nameop('NAME_REVOKE', utxo_client, payment_address, payment_utxos, name, owner_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
-def make_cheapest_announce( announce_hash, sender_address, utxo_client, payment_utxos, tx_fee=0, subsidize=False ):
+def make_cheapest_announce( announce_hash, sender_address, utxo_client, payment_utxos, tx_fee=0, subsidize=False, return_n_funded_inputs = False ):
     """
     Given announce info, make the cheapest possible announce transaction
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success
     Return None on error
     """
-    return make_cheapest_nameop('ANNOUNCE', utxo_client, sender_address, payment_utxos, announce_hash, sender_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    ret = make_cheapest_nameop('ANNOUNCE', utxo_client, sender_address, payment_utxos, announce_hash, sender_address, utxo_client, subsidize=subsidize, tx_fee=tx_fee )
+    if return_n_funded_inputs:
+        return ret
+    return ret[0]
 
 
 def get_estimated_signed_subsidized(unsigned_tx, op_fees, max_fee, payment_privkey_info,
@@ -292,16 +328,17 @@ def get_estimated_signed_subsidized(unsigned_tx, op_fees, max_fee, payment_privk
     MAX_RETRIES = 10
     tx_fee_guess = 0
     for _ in range(MAX_RETRIES):
-        subsidized_tx = tx_make_subsidizable( unsigned_tx, op_fees, max_fee, payment_privkey_info, 
-                                              utxo_client, tx_fee = tx_fee_guess )
+        subsidized_tx, sign_lens = tx_make_subsidizable(unsigned_tx, op_fees, max_fee, payment_privkey_info,
+                                                        utxo_client, tx_fee = tx_fee_guess,
+                                                        simulated_sign = True)
         assert subsidized_tx is not None
+        pad_length = sign_lens + 2*tx_estimate_signature_len_bytes(owner_privkey_info)
+        padded_tx = subsidized_tx + ("0" * pad_length)
 
-        signed_subsidized_tx = sign_tx(subsidized_tx, owner_privkey_info)
-
-        tx_fee = (len(signed_subsidized_tx) * tx_fee_per_byte) / 2
+        tx_fee = (len(padded_tx) * tx_fee_per_byte)/2
         if tx_fee <= tx_fee_guess:
-            log.debug("Estimated TX Length and fee per byte: {} + {}".format(len(signed_subsidized_tx) / 2, tx_fee_per_byte))
-            return signed_subsidized_tx
+            log.debug("Estimated TX Length and fee per byte: {} + {}".format(len(padded_tx)/2, tx_fee_per_byte))
+            return padded_tx
         tx_fee_guess = tx_fee
     raise Exception("Failed to cover the tx_fee in getting estimated subsidized tx")
 
@@ -332,10 +369,14 @@ def estimate_preorder_tx_fee( name, name_cost, payment_privkey_info, owner_privk
 
     try:
         try:
-            unsigned_tx = make_cheapest_name_preorder(name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client, payment_utxos )
+            unsigned_tx, n_inputs = make_cheapest_name_preorder(
+                name, payment_addr, owner_address, name_cost, fake_consensus_hash,
+                utxo_client, payment_utxos, return_n_funded_inputs = True)
             assert unsigned_tx
 
-            signed_tx = sign_tx(unsigned_tx, payment_privkey_info)
+            pad_len = n_inputs * tx_estimate_signature_len_bytes(payment_privkey_info)
+            signed_tx = unsigned_tx + ("00" * pad_len)
+
             assert signed_tx is not None
 
         except AssertionError as e:
@@ -396,10 +437,14 @@ def estimate_register_tx_fee( name, payment_privkey_info, owner_privkey_info, tx
     signed_tx = None
     try:
         try:
-            unsigned_tx = make_cheapest_name_registration(name, payment_addr, owner_addr, utxo_client, payment_utxos)
+            unsigned_tx, n_inputs = make_cheapest_name_registration(
+                name, payment_addr, owner_addr, utxo_client,
+                payment_utxos, return_n_funded_inputs = True)
             assert unsigned_tx
-            
-            signed_tx = sign_tx(unsigned_tx, payment_privkey_info)
+
+            pad_len = n_inputs * tx_estimate_signature_len_bytes(payment_privkey_info)
+            signed_tx = unsigned_tx + ("00" * pad_len)
+
             assert signed_tx is not None
 
         except AssertionError as e:
@@ -1224,9 +1269,9 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     payment_address = virtualchain.get_privkey_address( payment_privkey_info )
     
     min_confirmations = utxo_client.min_confirmations
-    tx_fee = 0
 
     if not dry_run and (safety_checks or (cost_satoshis is None or tx_fee is None)):
+        tx_fee = 0
         # find tx fee, and do sanity checks
         res = check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
@@ -1280,14 +1325,16 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     return resp
 
 
-def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster, tx_fee=None, config_path=CONFIG_PATH,
-                 proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
+def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster, tx_fee=None, 
+                 config_path=CONFIG_PATH, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True,
+                 force_register = False ):
 
     """
     Register a name
 
     payment_privkey_info or payment_address is required.
     utxo_client or payment_utxos is required.
+    force_register still performs SOME safety checks (payment)
 
     Return {'status': True, 'transaction_hash': ...} on success
     Return {'status': True, 'tx': ...} if no private key is given, or dry_run is True.
@@ -1310,13 +1357,16 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
     owner_address = virtualchain.get_privkey_address( owner_privkey_info )
     
     min_confirmations = utxo_client.min_confirmations
-    tx_fee = 0
 
     if not dry_run and (safety_checks or tx_fee is None):
+        tx_fee = 0
         # find tx fee, and do sanity checks
-        res = check_register(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
+        res = check_register(fqu, owner_privkey_info, payment_privkey_info, 
+                             config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations,
+                             force_it = force_register)
         if 'error' in res and safety_checks:
             log.error("Failed to check register: {}".format(res['error']))
+            
             return res
 
         tx_fee = res['tx_fee']
@@ -1355,13 +1405,15 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
     return resp
 
 
-def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, tx_fee_per_byte=None,
-               config_path=CONFIG_PATH, proxy=None, consensus_hash=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
+def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster,
+               tx_fee_per_byte=None, config_path=CONFIG_PATH, proxy=None, consensus_hash=None,
+               dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True, force_update = False ):
     """
     Put a new zonefile hash for a name.
 
     utxo_client must be given, or UTXO lists for both owner and payment private keys must be given.
     If private key(s) are missing, then dry_run must be True.
+    force_update skips only some safety checks (but still checks payment)
 
     Return {'status': True, 'transaction_hash': ..., 'value_hash': ...} on success (if dry_run is False)
     return {'status': True, 'tx': ..., 'value_hash': ...} on success (if dry_run is True)
@@ -1387,7 +1439,9 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
 
     if not dry_run and (safety_checks or tx_fee_per_byte is None):
         # find tx fee, and do sanity checks
-        res = check_update(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
+        res = check_update(fqu, owner_privkey_info, payment_privkey_info, 
+                           config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations,
+                           force_it = force_update)
         if 'error' in res and safety_checks:
             log.error("Failed to check update: {}".format(res['error']))
             return res
@@ -2102,6 +2156,15 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
         log.exception(e)
         return {'error': 'Failed to sign and broadcast preorder transaction'}
 
+    additionals = {}
+    if 'unsafe_reg' in name_data:
+        log.debug("Adding an *aggressive* preorder for {}".format(fqu))
+        additionals['unsafe_reg'] = name_data['unsafe_reg']
+        additionals['confirmations_needed'] = 4
+    if 'min_payment_confs' in name_data:
+        additionals['min_payment_confs'] = name_data['min_payment_confs']
+    if 'owner_privkey' in name_data:
+        additionals['owner_privkey'] = name_data['owner_privkey']
     if 'transaction_hash' in resp:
         if not BLOCKSTACK_DRY_RUN:
             # watch this preorder, and register it when it gets queued
@@ -2112,7 +2175,7 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
                          zonefile_data=name_data.get('zonefile'),
                          profile=name_data.get('profile'),
                          config_path=config_path,
-                         path=queue_path)
+                         path=queue_path, **additionals)
     else:
         assert 'error' in resp
         log.error("Error preordering: %s with %s for %s" % (fqu, payment_address, owner_address))
@@ -2121,6 +2184,18 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
 
     return resp
 
+def check_owner_privkey_info(owner_privkey_info, name_data):
+    owner_address = virtualchain.get_privkey_address(owner_privkey_info)
+    if 'owner_address' in name_data and owner_address != name_data['owner_address']:
+       log.debug("Registrar owner address changed since beginning registration : from {} to {}".format(
+           name_data['owner_address'], owner_address))
+       owner_address = name_data['owner_address']
+       passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
+       owner_privkey_info = aes_decrypt(
+           str(name_data['owner_privkey']), hexlify( passwd ))
+       if not virtualchain.get_privkey_address(owner_privkey_info) == owner_address:
+           raise Exception("Attempting to correct registrar address to {}, but failed!".format(owner_address))
+    return owner_address, owner_privkey_info
 
 def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
                    proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH, safety_checks=True):
@@ -2140,10 +2215,16 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    utxo_client = get_utxo_provider_client(config_path=config_path)
+    if 'min_payment_confs' in name_data:
+        utxo_client = get_utxo_provider_client( config_path=config_path,
+                                                min_confirmations=name_data['min_payment_confs'] )
+    else:
+        utxo_client = get_utxo_provider_client(config_path=config_path)
+
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
-    owner_address = virtualchain.get_privkey_address( owner_privkey_info )
+    owner_address, owner_privkey_info = check_owner_privkey_info( owner_privkey_info, name_data )
+
     payment_address = virtualchain.get_privkey_address( payment_privkey_info )
 
     # check register_queue first
@@ -2170,9 +2251,22 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
 
         return {'error': 'Waiting on preorder confirmations'}
 
+    # configure registrar with information from the preorder
+    additionals = {}
+    force_register = False
+    if 'unsafe_reg' in name_data:
+        log.debug("Adding an *aggressive* register for {}".format(fqu))
+        additionals['unsafe_reg'] = name_data['unsafe_reg']
+        additionals['confirmations_needed'] = 1
+        force_register = True
+    if 'min_payment_confs' in name_data:
+        additionals['min_payment_confs'] = name_data['min_payment_confs']
+    if 'owner_privkey' in name_data:
+        additionals['owner_privkey'] = name_data['owner_privkey']
+
     try:
         resp = do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster,
-                            config_path=config_path, proxy=proxy )
+                            config_path=config_path, proxy=proxy, force_register = force_register )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast registration transaction'}
@@ -2186,7 +2280,7 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
                          zonefile_data=name_data.get('zonefile'),
                          profile=name_data.get('profile'),
                          config_path=config_path,
-                         path=queue_path)
+                         path=queue_path, **additionals)
 
         return resp
 
@@ -2239,22 +2333,48 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    utxo_client = get_utxo_provider_client(config_path=config_path)
+    # Are we the result of a register? If so, use it to configure our transaction
+    register_entry = queue_findone( "register", fqu, path=queue_path )
+    if len(register_entry) == 0:
+        register_data = {}
+    else:
+        register_data = extract_entry( register_entry[0] )
+
+    if 'min_payment_confs' in register_data:
+        utxo_client = get_utxo_provider_client( config_path=config_path,
+                                                min_confirmations=register_data['min_payment_confs'] )
+    else:
+        utxo_client = get_utxo_provider_client(config_path=config_path)
+
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
 
-    owner_address = virtualchain.get_privkey_address( owner_privkey_info )
+    owner_address, owner_privkey_info = check_owner_privkey_info( owner_privkey_info, name_data )
 
     if in_queue("update", fqu, path=queue_path):
         log.error("Already in update queue: %s" % fqu)
         return {'error': 'Already in update queue'}
 
+    # configure any additional information about the registrar entry.
+    additionals = {}
+    force_update = True
+
+    if 'unsafe_reg' in register_data:
+        log.debug("Adding an *aggressive* update for {}".format(fqu))
+        additionals['unsafe_reg'] = register_data['unsafe_reg']
+        additionals['confirmations_needed'] = 1
+        force_update = True
+
+    if 'owner_privkey' in name_data:
+        additionals['owner_privkey'] = name_data['owner_privkey']
+
     resp = {}
     try:
         resp = do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster,
-                          config_path=config_path, proxy=proxy )
+                          config_path=config_path, proxy=proxy, force_update=force_update )
     except Exception, e:
         log.exception(e)
-        return {'error': 'Failed to sign and broadcast update transaction'}
+        return { 'error':
+                 'Failed to sign and broadcast update transaction. Exception: {}'.format(e) }
 
     if 'transaction_hash' in resp:
         if not BLOCKSTACK_DRY_RUN:
@@ -2265,7 +2385,7 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
                          owner_address=owner_address,
                          transfer_address=name_data.get('transfer_address'),
                          config_path=config_path,
-                         path=queue_path)
+                         path=queue_path, **additionals)
 
         resp['zonefile_hash'] = zonefile_hash
         return resp
@@ -2278,7 +2398,7 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
 
 
 def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_info, 
-                   config_path=CONFIG_PATH, proxy=None, queue_path=DEFAULT_QUEUE_PATH):
+                   config_path=CONFIG_PATH, proxy=None, queue_path=DEFAULT_QUEUE_PATH, name_data = {}):
     """
         Transfer a previously registered fqu, using a different payment address.
         Preserves the zonefile.
@@ -2298,7 +2418,7 @@ def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
 
-    owner_address = virtualchain.get_privkey_address( owner_privkey_info )
+    owner_address, owner_privkey_info = check_owner_privkey_info( owner_privkey_info, name_data )
 
     if in_queue("transfer", fqu, path=queue_path):
         log.error("Already in transfer queue: %s" % fqu)
@@ -2311,13 +2431,17 @@ def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
         log.exception(e)
         return {'error': 'Failed to sign and broadcast transfer transaction'}
 
+    additionals = {}
+    if 'owner_privkey' in name_data:
+        additionals['owner_privkey'] = name_data['owner_privkey']
+
     if 'transaction_hash' in resp:
         if not BLOCKSTACK_DRY_RUN:
             queue_append("transfer", fqu, resp['transaction_hash'],
                          owner_address=owner_address,
                          transfer_address=transfer_address,
                          config_path=config_path,
-                         path=queue_path)
+                         path=queue_path, **additionals)
     else:
         assert 'error' in resp
         log.error("Error transferring: %s" % fqu)

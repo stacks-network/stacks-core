@@ -89,7 +89,7 @@ from rpc import local_api_connect, local_api_status
 import rpc as local_rpc
 import config
 
-from .config import configure_zonefile, set_advanced_mode, configure, get_utxo_provider_client, get_tx_broadcaster
+from .config import configure_zonefile, configure, get_utxo_provider_client, get_tx_broadcaster
 from .constants import (
     CONFIG_PATH, CONFIG_DIR,
     FIRST_BLOCK_MAINNET, NAME_UPDATE,
@@ -361,6 +361,7 @@ def cli_balance(args, config_path=CONFIG_PATH):
     """
     command: balance
     help: Get the account balance
+    opt: min_confs (int) 'The minimum confirmations of transactions to include in balance'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -370,10 +371,13 @@ def cli_balance(args, config_path=CONFIG_PATH):
     if 'error' in res:
         return res
 
+    min_confs = getattr(args, 'min_confs', None)
+
     result = {}
     addresses = []
     satoshis = 0
-    satoshis, addresses = get_total_balance(wallet_path=wallet_path, config_path=config_path)
+    satoshis, addresses = get_total_balance(
+        wallet_path=wallet_path, config_path=config_path, min_confs = min_confs)
 
     if satoshis is None:
         log.error('Failed to get balance')
@@ -623,10 +627,14 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None, interact
 
     error = check_valid_name(name_or_ns)
     if error:
-        # must be valid namespace
-        ns_error = check_valid_namespace(name_or_ns)
-        if ns_error:
-            return {'error': 'Neither a valid name or namespace:\n   * {}\n   * {}'.format(error, ns_error)}
+        if 'preorder' in operations:
+            # this means this is a pricecheck on a NAME, not a namespace
+            return {'error': 'Not a valid name: \n * {}'.format(error)}
+        else:
+            # must be valid namespace
+            ns_error = check_valid_namespace(name_or_ns)
+            if ns_error:
+                return {'error': 'Neither a valid name or namespace:\n   * {}\n   * {}'.format(error, ns_error)}
 
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
@@ -786,6 +794,8 @@ def cli_get_registrar_info(args, config_path=CONFIG_PATH, queues=None):
 
         new_entry['confirmations'] = confirmations
         new_entry['tx_hash'] = entry['tx_hash']
+        if 'errors' in entry:
+            new_entry['errors'] = entry['errors']
 
         return new_entry
 
@@ -833,7 +843,6 @@ def get_server_info(config_path=CONFIG_PATH, get_local_info=False):
     result = {}
 
     result['cli_version'] = VERSION
-    result['advanced_mode'] = conf['advanced_mode']
 
     if 'error' in resp:
         result['server_alive'] = False
@@ -1232,7 +1241,8 @@ def analyze_zonefile_string(fqu, zonefile_data, force_data=False, check_current=
 
 
 def cli_register(args, config_path=CONFIG_PATH, force_data=False,
-                 cost_satoshis=None, interactive=True, password=None, proxy=None):
+                 cost_satoshis=None, interactive=True, password=None, proxy=None,
+                 make_profile = None):
     """
     command: register
     help: Register a blockchain ID
@@ -1240,6 +1250,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     opt: zonefile (str) 'The path to the zone file for this name'
     opt: recipient (str) 'The recipient address, if not this wallet'
     opt: min_confs (int) 'The minimum number of confirmations on the initial preorder'
+    opt: unsafe_reg (str) 'Should we aggressively register the name (ie, use low min confs)'
     """
 
     # NOTE: if force_data == True, then the zonefile will be the zonefile text itself, not a path.
@@ -1264,6 +1275,12 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     user_zonefile = getattr(args, 'zonefile', None)
     transfer_address = getattr(args, 'recipient', None)
     min_payment_confs = getattr(args, 'min_confs', TX_MIN_CONFIRMATIONS)
+    unsafe_reg = getattr(args, 'unsafe_reg', 'False')
+
+    if unsafe_reg.lower() in ('true', 't', 'yes', '1'):
+        unsafe_reg = True
+    else:
+        unsafe_reg = False
 
     # name must be well-formed
     error = check_valid_name(fqu)
@@ -1279,6 +1296,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
         if not re.match(OP_BASE58CHECK_PATTERN, transfer_address):
             return {'error': 'Not a valid address'}
 
+    user_profile = None
     if user_zonefile:
         zonefile_info = analyze_zonefile_string(fqu, user_zonefile, force_data=force_data, proxy=proxy)
         if 'error' in zonefile_info:
@@ -1303,14 +1321,18 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
         user_zonefile_dict = make_empty_zonefile(fqu, data_pubkey)
         user_zonefile = blockstack_zones.make_zone_file(user_zonefile_dict)
 
-    # if we have a data key, then make an empty profile and zonefile 
-    user_profile = None
-    if not transfer_address:
-        # registering for this wallet.  Put an empty profile
+        if (make_profile and transfer_address):
+            log.error("Transfer address supplied to register, and was asked to make an empty profile. This is wrong.")
+            return {'error' : 'Error in logic surrounding profile creation. Please report this as a bug.'}
+        # only *assume* we need to make a profile if the user didn't supply
+        #   a zonefile, and didn't supply a transfer_address
+        make_profile = not transfer_address
+
+    if make_profile:
+        # let's put an empty profile
         _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
         if not data_pubkey:
             return {'error': 'No data key in wallet.  Please add one with `setup_wallet`'}
-
         user_profile = make_empty_user_profile()
 
     # operation checks (API server only)
@@ -1343,6 +1365,8 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
 
         else:
             cost_satoshis = opchecks['name_price']
+    if transfer_address == '':
+        transfer_address = None
 
     if interactive and os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
         try:
@@ -1389,7 +1413,9 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     assert rpc
 
     try:
-        resp = rpc.backend_preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs )
+        resp = rpc.backend_preorder(fqu, cost_satoshis, user_zonefile, user_profile,
+                                    transfer_address, min_payment_confs,
+                                    unsafe_reg = unsafe_reg)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -2023,22 +2049,6 @@ def cli_get_public_key(args, config_path=CONFIG_PATH, proxy=None):
     return {'public_key': zfpubkey}
 
 
-def cli_set_advanced_mode(args, config_path=CONFIG_PATH):
-    """
-    command: set_advanced_mode
-    help: Enable advanced commands
-    arg: status (str) 'On or Off.'
-    """
-
-    status = str(args.status).lower()
-    if status not in ['on', 'off']:
-        return {'error': 'Invalid option; please use "on" or "off"'}
-
-    set_advanced_mode((status == 'on'), config_path=config_path)
-
-    return {'status': True}
-
-
 def cli_list_accounts( args, proxy=None, config_path=CONFIG_PATH ):
     """
     command: list_accounts advanced
@@ -2158,7 +2168,7 @@ def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None
     if len(args.service) == 0 or len(args.identifier) == 0:
         return {'error': 'Invalid data'}
 
-    return profile_delete_account(name, service, identifier, config_path=config_path, proxy=proxy)
+    return profile_delete_account(name, service, identifier, wallet_keys, config_path=config_path, proxy=proxy)
 
 
 def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False):
@@ -3564,7 +3574,7 @@ def cli_lookup_snv(args, config_path=CONFIG_PATH):
     return result
 
 
-def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True):
+def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True, proxy=None):
     """
     command: get_name_zonefile advanced raw
     help: Get a name's zonefile
@@ -4276,9 +4286,8 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
     if res is None:
         return {'error': 'Failed to sign and serialize profile'}
 
-    if BLOCKSTACK_DEBUG:
-        # sanity check 
-        assert storage.parse_mutable_data(res, pubkey)
+    # sanity check 
+    assert storage.parse_mutable_data(res, pubkey)
 
     return res
 
@@ -5134,7 +5143,7 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
 def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     """
     command: datastore_stat advanced
-    help: Stat a file or directory in the datastore
+    help: Stat a file or directory in the datastore, returning only the header for files but returning the entire listing for directories.
     arg: blockchain_id (str) 'The ID of the datastore owner'
     arg: datastore_id (str) 'The datastore ID'
     arg: path (str) 'The path to the file or directory to stat'

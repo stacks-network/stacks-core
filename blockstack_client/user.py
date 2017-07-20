@@ -80,7 +80,8 @@ def user_zonefile_data_pubkey(user_zonefile, key_prefix='pubkey:data:'):
             continue
 
         if data_pubkey is not None:
-            log.error('Invalid zone file: multiple data keys')
+            msg = 'Invalid zone file: multiple data keys'
+            log.error(msg)
             raise ValueError('{} starting with "{}"'.format(msg, key_prefix))
 
         data_pubkey = txtrec['txt'][len(key_prefix):]

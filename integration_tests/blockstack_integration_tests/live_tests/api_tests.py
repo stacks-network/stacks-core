@@ -111,10 +111,11 @@ class APITestCase(unittest.TestCase):
             traceback.print_exc()
             raise e
 
-def get_auth_header(key = None):
+def get_auth_header(key = None, port = 8888):
     if key is None:
         key = API_PASSWORD
-    return {'Authorization' : 'bearer {}'.format(key)}
+    return {'Authorization' : 'bearer {}'.format(key),
+            'Origin' : 'http://localhost:{}'.format(port)}
 
 def check_data(cls, data, required_keys={}):
     for k in required_keys:
@@ -134,11 +135,12 @@ class PingTest(APITestCase):
         self.assertTrue(data['status'] == 'alive')
 
 class AuthInternal(APITestCase):
-    def test_get_and_use_session_token(self):
+    def test_get_and_use_session_token_domain(self):
         privkey = ("a28ea1a6f11fb1c755b1d102990d64d6" +
                    "b4468c10705bbcbdfca8bc4497cf8da8")
 
-        auth_header = get_auth_header()
+        # test support for the development UI port as well (3000)
+        auth_header = get_auth_header(port = 3000)
         request = {
             'app_domain': 'test.com',
             'app_public_key': blockstack_client.keys.get_pubkey_hex(privkey),
@@ -150,20 +152,71 @@ class AuthInternal(APITestCase):
 
         url = "/v1/auth?authRequest={}".format(package)
         data = self.get_request(url, headers = auth_header, status_code=200)
+
         self.assertIn('token', data)
         session = data['token']
 
         auth_header = get_auth_header(session)
+
+        # test wrong origin
+        data = self.get_request('/v1/wallet/payment_address',
+                                headers = auth_header, status_code=403)
+        # test correct origin
+        auth_header['Origin'] = 'http://test.com'
         data = self.get_request('/v1/wallet/payment_address',
                                 headers = auth_header, status_code=200)
+
         data = self.get_request('/v1/users/muneeb.id',
                                 headers = auth_header, status_code=403)
+        self.assertIn('error', data)
+
+    def test_get_and_use_session_token_url(self):
+        privkey = ("a28ea1a6f11fb1c755b1d102990d64d6" +
+                   "b4468c10705bbcbdfca8bc4497cf8da8")
+
+        # test support for the development UI port as well (3000)
+        auth_header = get_auth_header(port = 3000)
+        request = {
+            'app_domain': 'http://test.com',
+            'app_public_key': blockstack_client.keys.get_pubkey_hex(privkey),
+            'methods': ['wallet_read'],
+        }
+
+        signer = jsontokens.TokenSigner()
+        package = signer.sign(request, privkey)
+
+        url = "/v1/auth?authRequest={}".format(package)
+        data = self.get_request(url, headers = auth_header, status_code=200)
+
+        self.assertIn('token', data)
+        session = data['token']
+
+        auth_header = get_auth_header(session)
+
+        # test wrong origin
+        data = self.get_request('/v1/wallet/payment_address',
+                                headers = auth_header, status_code=403)
+        # test correct origin
+        auth_header['Origin'] = 'http://test.com'
+        data = self.get_request('/v1/wallet/payment_address',
+                                headers = auth_header, status_code=200)
+
+        data = self.get_request('/v1/users/muneeb.id',
+                                headers = auth_header, status_code=403)
+        self.assertIn('error', data)
 
     def test_auth_token_no_username(self):
         auth_header = get_auth_header()
 
         test_string = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NksifQ.eyJhcHBfZG9tYWluIjoiaGVsbG9ibG9ja3N0YWNrLmNvbSIsIm1ldGhvZHMiOltdLCJhcHBfcHVibGljX2tleSI6IjAyYjk0ZjY4NDgzOGFkMjdmZTE0Nzk1MGMyNjQ1ZjRhYzhjYmU1OTJlYjYzYmQwYTQ5MWQ2YzBlYWZjNjE0YzVjMCJ9.0lLrxt8uGtB2rCKB9sb0jK1DdrrWuuuWM-nsyjvFnmjNx0XfG14Npl72w6hp9W2OHoXdPe7VuXkfvKmVNlQdeA"
 
+        url = "/v1/auth?authRequest={}".format(test_string)
+        data = self.get_request(url, headers = auth_header, status_code=200)
+        self.assertIn('token', data)
+
+    def test_auth_new_token_no_username_issue483(self):
+        auth_header = get_auth_header()
+        test_string = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NksifQ.eyJ2ZXJzaW9uIjoxLCJibG9ja2NoYWluX2lkIjpudWxsLCJhcHBfcHJpdmF0ZV9rZXkiOiIxNDYwYWIyY2RjZmE1NDQwNzc5YWYwZDA0NWIzZTFlMjE5MjY4OGRjZTA5NDk4YWMyNDBkMTdjNzA2YWRiOThkIiwiYXBwX2RvbWFpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6NTAwMCIsIm1ldGhvZHMiOlsiIl0sImFwcF9wdWJsaWNfa2V5cyI6W3sicHVibGljX2tleSI6IjAzYTJhZmYyODhlYjI1NzVjZjE3ZTBjODc0NDZlNWExMDdmOTFkZjMzMjk5MjNkNDNmMDhmYTFmNzdlZDE0MTNmMCIsImRldmljZV9pZCI6IjAifV0sImRldmljZV9pZCI6IjAifQ.-uT-lOrvQDBZJWdg8p53LmEYBw1C8dVyGSAn96nR49MGSlNXP0vD7JsasjI6cbn9JSqGPFq1EpPLaHACkmyMcQ"
         url = "/v1/auth?authRequest={}".format(test_string)
         data = self.get_request(url, headers = auth_header, status_code=200)
         self.assertIn('token', data)
@@ -416,7 +469,7 @@ def test_main(args = []):
         print("Failure of the ping test means the rest of the unit tests will " +
               "fail. Is the blockstack api daemon running? (did you run " +
               "`blockstack api start`)")
-        return
+        sys.exit(1)
 
     if len(args) == 1 and args[0] == "--list":
         print("Tests supported: ")
@@ -447,10 +500,11 @@ def test_main(args = []):
     for test_name in args:
         test_suite.addTest( unittest.TestLoader().loadTestsFromTestCase(test_map[test_name]) )
     result = test_runner( test_suite )
-    if result.wasSuccessful():
-        sys.exit(0)
-    else:
-        sys.exit(1)
+    if result: # test_support.run_unittest returns None
+        if result.wasSuccessful():
+            sys.exit(0)
+        else:
+            sys.exit(1)
 
 if __name__ == '__main__':
     test_main(sys.argv[1:])
