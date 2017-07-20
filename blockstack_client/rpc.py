@@ -185,13 +185,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         errno.EEXIST: 409,
     }
 
-    def _send_headers(self, status_code=200, content_type='application/json'):
+    def _send_headers(self, status_code=200, content_type='application/json', more_headers={}):
         """
         Generate and reply headers
         """
         self.send_response(status_code)
         self.send_header('content-type', content_type)
         self.send_header('Access-Control-Allow-Origin', '*')    # CORS
+        for (hdr, val) in more_headers.items():
+            self.send_header(hdr, val)
+
         self.end_headers()
 
 
@@ -407,7 +410,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')    # CORS
         self.send_header('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE')
-        self.send_header('Access-Control-Allow-Headers', 'content-type, authorization')
+        self.send_header('Access-Control-Allow-Headers', 'content-type, authorization, range')
+        self.send_header('Access-Control-Expose-Headers', 'content-length, content-range')
         self.send_header('Access-Control-Max-Age', 21600)
         self.end_headers()
         return
@@ -1331,6 +1335,32 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Missing signed datastore info', 'errno': errno.EINVAL}, status_code=401)
 
 
+    def _get_request_range(self):
+        """
+        Get the request's HTTP Range: header values
+        TODO: does not yet support multi-range
+
+        Returns (start, end), or (None, None)
+        """
+        range_header = self.headers.get('range', None)
+        if range_header is None:
+            return (None, None)
+        
+        range_header = range_header.strip()
+        ranges = re.match("^bytes=([0-9]+)-([0-9]+)$", range_header)
+        if not ranges:
+            return (None, None)
+
+        start, end = ranges.groups()
+        start = int(start)
+        end = int(end)
+
+        if start >= end:
+            return (None, None)
+
+        return (start, end)
+
+
     def GET_store_item( self, ses, path_info, datastore_id_or_app_name, inode_type ):
         """
         Get a store item.
@@ -1341,6 +1371,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         * extended (0, 1)
         * device_ids (list)
         * device_pubkeys (list)
+        
+        Honors Range: headers for files, if given 
 
         Reply 200 on succes, with the raw data (as application/octet-stream for files, and as application/json for directories and inodes)
         Reply 401 if no path is given
@@ -1456,8 +1488,30 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if inode_type == 'files':
 
             if include_extended == '0':
-                self._send_headers(status_code=200, content_type='application/octet-stream')
-                self.wfile.write(res)
+                bytes_range = self._get_request_range()
+                if bytes_range == (None, None):
+                    # no bytes range
+                    self._send_headers(status_code=200, content_type='application/octet-stream')
+                    self.wfile.write(res)
+
+                else:
+                    # serve back only the parts we want
+                    start, end = bytes_range
+                    res_len = len(res)
+                    if len(res) < start:
+                        res = ""
+                    elif len(res) < end+1:
+                        res = res[start:]
+                    else:
+                        res = res[start:end+1]
+
+                    more_headers = {
+                        'content-length': end+1-start,
+                        'content-range': 'bytes {}-{}/{}'.format(start, end, res_len)
+                    }
+
+                    self._send_headers(status_code=206, content_type='application/octet-stream', more_headers=more_headers)
+                    self.wfile.write(res)
 
             else:
                 if BLOCKSTACK_TEST:
