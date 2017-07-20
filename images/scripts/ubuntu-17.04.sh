@@ -4,11 +4,11 @@
 # This script will create a folder `blockstack` in your current directory
 #   this folder will contain: 
 #        a Python virtualenv with Blockstack-Core
-#        a git clone of the Blockstack-Portal node app 
+#        a git clone of the Blockstack-Browser node app 
 #                (with dependencies installed)
 #        a `bin` directory with scripts:
-#          blockstack_portal_start.sh -> for starting core and portal
-#          blockstack_portal_stop.sh  -> for stopping portal
+#          blockstack_browser_start.sh -> for starting core and browser
+#          blockstack_browser_stop.sh  -> for stopping browser
 #          blockstack_core_stop.sh    -> for stopping core
 #          blockstack_copy_api_pass.sh-> copies the API key to the clipboard
 #
@@ -82,25 +82,25 @@ virtualenv --python=python2.7 "$CORE_VENV"
 cd "$DIR"
 
 git clone https://github.com/blockstack/blockstack-browser.git -bv0.11.1
-cd blockstack-portal
+cd blockstack-browser
 
 npm install node-sass
 npm install
 
-echo "Installed Blockstack Core + Portal!"
+echo "Installed Blockstack Core + Browser!"
 
 # make some bin scripts.
 
 mkdir "$DIR/bin"
 cd "$DIR/bin"
 
-START_PORTAL_NAME=blockstack_portal_start.sh
-STOP_PORTAL_NAME=blockstack_portal_stop.sh
+START_PORTAL_NAME=blockstack_browser_start.sh
+STOP_PORTAL_NAME=blockstack_browser_stop.sh
 STOP_CORE_NAME=blockstack_core_stop.sh
 COPY_API_NAME=blockstack_copy_api_pass.sh
 
 echo "#!/bin/bash" > $START_PORTAL_NAME
-echo "cd \"$DIR/blockstack-portal\"" >> $START_PORTAL_NAME
+echo "cd \"$DIR/blockstack-browser\"" >> $START_PORTAL_NAME
 echo "\"$CORE_VENV/bin/python\" \"$CORE_VENV/bin/blockstack\" api status -y | grep 'true' > /dev/null" >> $START_PORTAL_NAME
 echo "if [ \$? -ne 0 ]; then" >> $START_PORTAL_NAME
 echo "\"$CORE_VENV/bin/python\" \"$CORE_VENV/bin/blockstack\" api start -y --debug" >> $START_PORTAL_NAME
@@ -118,7 +118,7 @@ echo "#!/bin/bash" > $STOP_PORTAL_NAME
 echo "tokill=\$(cat /tmp/dev.pid)" >> $STOP_PORTAL_NAME
 echo "echo 'Terminating process group of \$tokill'" >> $STOP_PORTAL_NAME
 echo "kill -s SIGTERM -\$(ps -o pgid= \$tokill | cut -d\\  -f2)" >> $STOP_PORTAL_NAME
-echo "echo 'Killed Blockstack Portal'" >> $STOP_PORTAL_NAME
+echo "echo 'Killed Blockstack Browser'" >> $STOP_PORTAL_NAME
 
 echo "#!/bin/bash" > $STOP_CORE_NAME
 echo "\"$CORE_VENV/bin/python\" \"$CORE_VENV/bin/blockstack\" api stop -y" >> $STOP_CORE_NAME
@@ -134,3 +134,13 @@ chmod +x $STOP_CORE_NAME
 
 echo "Made app scripts!"
 echo "You can add bins to your path with \$ export PATH=\$PWD/blockstack/bin:\$PATH"
+echo "You may need to add a protocol handler for your system, add a .desktop like the following and it should work: "
+echo
+echo "[Desktop Entry]"
+echo "Type=Application"
+echo "Terminal=false"
+echo "Exec=bash -c 'xdg-open http://localhost:3000/auth?authRequest=\$(echo \"%u\" | sed s,blockstack:/*,,)'"
+echo "Name=Blockstack-Browser"
+echo "MimeType=x-scheme-handler/blockstack;"
+echo
+echo
