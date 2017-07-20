@@ -438,8 +438,9 @@ Sets the user's zonefile hash, and, if supplied, propagates the
 zonefile. If you supply the zonefile, the hash will be calculated from
 that. Ultimately, your requests should only supply one of `zonefile`,
 `zonefile_b64`, or `zonefile_hash`.
-
 + Authorization: `update`
++ Parameters
+  + name: bar.test (string) - fully-qualified name
 + Request (application/json)
   + Schema
 
@@ -448,20 +449,18 @@ that. Ultimately, your requests should only supply one of `zonefile`,
                         'properties': {
                             "zonefile": {
                                 'type': 'string',
-                                'maxLength': RPC_MAX_ZONEFILE_LEN,
                             },
                             'zonefile_b64': {
                                 'type': 'string',
-                                'maxLength': (RPC_MAX_ZONEFILE_LEN * 4) / 3 + 1,
                             },
                             'zonefile_hash': {
                                 'type': 'string',
-                                'pattern': OP_ZONEFILE_HASH_PATTERN,
+                                'pattern': '^([0-9a-fA-F]{20})$'
                             },
                             'tx_fee': {
                                 'type': 'integer',
                                 'minimum': 0,
-                                'maximum': TX_MAX_FEE
+                                'maximum': 500000
                             },
                         },
                         'additionalProperties': False,
@@ -471,6 +470,18 @@ that. Ultimately, your requests should only supply one of `zonefile`,
   + Body
 
                 {'transaction_hash' : '...'}
+
+## Fetch zone file [GET /v1/names/{name}/zonefile]
+Fetch a user's raw zonefile.
++ Parameters
+  + name: bar.test (string) - fully-qualified name
++ Response 200 (application/json)
+  + Body
+
+               {
+                   "zonefile": "$ORIGIN bar.test\n$TTL 3600\n_https._tcp URI 10 1 \"https://blockstack.s3.amazonaws.com/bar.test\"\n"
+               }
+
 
 # Group Name Querying
 This family of API endpoints deals with querying name information.
