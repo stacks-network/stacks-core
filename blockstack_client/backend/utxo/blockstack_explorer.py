@@ -21,7 +21,7 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from insight_api import InsightClient, _get_unspents, _broadcast_transaction
+from .insight_api import InsightClient, _get_unspents, _broadcast_transaction
 
 BLOCKSTACK_EXPLORER_URL = "https://explorer.blockstack.org"
 

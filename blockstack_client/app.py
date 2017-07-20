@@ -153,7 +153,7 @@ def app_get_datastore_pubkey( session ):
     return None
 
 
-def app_publish( dev_blockchain_id, app_domain, app_method_list, app_index_uris, app_index_file, data_privkey, app_driver_hints=[], proxy=None, config_path=CONFIG_PATH ):
+def app_publish( dev_blockchain_id, app_domain, app_method_list, app_index_uris, app_index_file, app_driver_hints=[], data_privkey=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH ):
     """
     Instantiate an application.
     * replicate the (opaque) app index file to "index.html" to each URL in app_uris
@@ -169,6 +169,11 @@ def app_publish( dev_blockchain_id, app_domain, app_method_list, app_index_uris,
     Return {'status': True, 'config_fq_data_id': config's fully-qualified data ID, 'index_fq_data_id': index file's fully-qualified data ID} on success
     Return {'error': ...} on error
     """
+
+    if data_privkey is None:
+        assert wallet_keys, 'Missing both data private key and wallet keys'
+        data_privkey = wallet_keys.get('data_privkey')
+        assert data_privkey, "Wallet does not have a data private key"
 
     proxy = get_default_proxy() if proxy is None else proxy
 
@@ -231,7 +236,7 @@ def app_get_config( blockchain_id, app_domain, data_pubkey=None, proxy=None, con
     proxy = get_default_proxy() if proxy is None else proxy
 
     # go get config
-    res = data.get_mutable( ".blockstack", [app_domain], data_pubkeys=[data_pubkey], proxy=proxy, config_path=config_path, blockchain_id=blockchain_id )
+    res = data.get_mutable( ".blockstack", [app_domain], data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, blockchain_id=blockchain_id )
     if 'error' in res:
         log.error("Failed to get application config file {}: {}".format(config_data_id, res['error']))
         return res
@@ -270,7 +275,7 @@ def app_get_resource( blockchain_id, app_domain, res_name, app_config=None, data
         driver_hints = app_config['driver_hints']
         urls = storage.get_driver_urls( res_data_id, storage.get_storage_handlers() )
 
-    res = data.get_mutable( res_name, [app_domain], data_pubkeys=[data_pubkey], proxy=proxy, config_path=config_path, urls=urls, blockchain_id=blockchain_id )
+    res = data.get_mutable( res_name, [app_domain], data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, urls=urls, blockchain_id=blockchain_id )
     if 'error' in res:
         log.error("Failed to get resource {}: {}".format(res_name, res['error']))
         return {'error': 'Failed to load resource'}
@@ -278,7 +283,7 @@ def app_get_resource( blockchain_id, app_domain, res_name, app_config=None, data
     return {'status': True, 'res': res['data']}
    
 
-def app_put_resource( blockchain_id, app_domain, res_name, res_data, data_privkey, app_config=None, proxy=None, config_path=CONFIG_PATH ):
+def app_put_resource( blockchain_id, app_domain, res_name, res_data, app_config=None, data_privkey=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH ):
     """
     Store data to a named application resource in mutable storage.
 
@@ -296,6 +301,11 @@ def app_put_resource( blockchain_id, app_domain, res_name, res_data, data_privke
         json.dumps(res_data)
     except:
         raise AssertionError("Resource must be a JSON-serializable string")
+
+    if data_privkey is None:
+        assert wallet_keys, 'Missing both data private key and wallet keys'
+        data_privkey = wallet_keys.get('data_privkey')
+        assert data_privkey, "Wallet does not have a data private key"
 
     proxy = get_default_proxy() if proxy is None else proxy
 
@@ -318,7 +328,7 @@ def app_put_resource( blockchain_id, app_domain, res_name, res_data, data_privke
     return {'status': True, 'version': res_blob['version']}
 
 
-def app_delete_resource( blockchain_id, app_domain, res_name, data_privkey, app_config=None, proxy=None, config_path=CONFIG_PATH ):
+def app_delete_resource( blockchain_id, app_domain, res_name, app_config=None, data_privkey=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH ):
     """
     Remove data from a named application resource in mutable storage.
 
@@ -330,6 +340,11 @@ def app_delete_resource( blockchain_id, app_domain, res_name, data_privkey, app_
     Return {'status': True, 'version': ...} on success
     Return {'error': ...} on error
     """
+
+    if data_privkey is None:
+        assert wallet_keys, "No data private key or wallet given"
+        data_privkey = wallet_keys.get('data_privkey', None)
+        assert data_privkey, "Wallet does not contain a data private key"
 
     data_pubkey = get_pubkey_hex(data_privkey)
 

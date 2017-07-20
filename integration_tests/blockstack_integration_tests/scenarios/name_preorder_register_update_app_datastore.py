@@ -93,7 +93,7 @@ def scenario( wallets, **kw ):
    
     # sign in and make a token 
     datastore_pk = keylib.ECPrivateKey(wallets[-1].privkey).to_hex()
-    res = testlib.blockstack_cli_app_signin("foo.test", datastore_pk, 'foo-app.com.1', ['store_read', 'store_write', 'store_admin'])
+    res = testlib.blockstack_cli_app_signin("foo.test", datastore_pk, 'foo-app.com', ['store_read', 'store_write', 'store_admin'])
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         error = True

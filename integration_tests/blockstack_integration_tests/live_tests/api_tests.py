@@ -111,10 +111,11 @@ class APITestCase(unittest.TestCase):
             traceback.print_exc()
             raise e
 
-def get_auth_header(key = None):
+def get_auth_header(key = None, port = 8888):
     if key is None:
         key = API_PASSWORD
-    return {'Authorization' : 'bearer {}'.format(key)}
+    return {'Authorization' : 'bearer {}'.format(key),
+            'Origin' : 'http://localhost:{}'.format(port)}
 
 def check_data(cls, data, required_keys={}):
     for k in required_keys:
@@ -134,11 +135,12 @@ class PingTest(APITestCase):
         self.assertTrue(data['status'] == 'alive')
 
 class AuthInternal(APITestCase):
-    def test_get_and_use_session_token(self):
+    def test_get_and_use_session_token_domain(self):
         privkey = ("a28ea1a6f11fb1c755b1d102990d64d6" +
                    "b4468c10705bbcbdfca8bc4497cf8da8")
 
-        auth_header = get_auth_header()
+        # test support for the development UI port as well (3000)
+        auth_header = get_auth_header(port = 3000)
         request = {
             'app_domain': 'test.com',
             'app_public_key': blockstack_client.keys.get_pubkey_hex(privkey),
@@ -150,12 +152,55 @@ class AuthInternal(APITestCase):
 
         url = "/v1/auth?authRequest={}".format(package)
         data = self.get_request(url, headers = auth_header, status_code=200)
+
         self.assertIn('token', data)
         session = data['token']
 
         auth_header = get_auth_header(session)
+
+        # test wrong origin
+        data = self.get_request('/v1/wallet/payment_address',
+                                headers = auth_header, status_code=403)
+        # test correct origin
+        auth_header['Origin'] = 'http://test.com'
         data = self.get_request('/v1/wallet/payment_address',
                                 headers = auth_header, status_code=200)
+
+        data = self.get_request('/v1/users/muneeb.id',
+                                headers = auth_header, status_code=403)
+        self.assertIn('error', data)
+
+    def test_get_and_use_session_token_url(self):
+        privkey = ("a28ea1a6f11fb1c755b1d102990d64d6" +
+                   "b4468c10705bbcbdfca8bc4497cf8da8")
+
+        # test support for the development UI port as well (3000)
+        auth_header = get_auth_header(port = 3000)
+        request = {
+            'app_domain': 'http://test.com',
+            'app_public_key': blockstack_client.keys.get_pubkey_hex(privkey),
+            'methods': ['wallet_read'],
+        }
+
+        signer = jsontokens.TokenSigner()
+        package = signer.sign(request, privkey)
+
+        url = "/v1/auth?authRequest={}".format(package)
+        data = self.get_request(url, headers = auth_header, status_code=200)
+
+        self.assertIn('token', data)
+        session = data['token']
+
+        auth_header = get_auth_header(session)
+
+        # test wrong origin
+        data = self.get_request('/v1/wallet/payment_address',
+                                headers = auth_header, status_code=403)
+        # test correct origin
+        auth_header['Origin'] = 'http://test.com'
+        data = self.get_request('/v1/wallet/payment_address',
+                                headers = auth_header, status_code=200)
+
         data = self.get_request('/v1/users/muneeb.id',
                                 headers = auth_header, status_code=403)
         self.assertIn('error', data)

@@ -317,9 +317,10 @@ def in_queue( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
 def queue_append(queue_id, fqu, tx_hash, payment_address=None,
                  owner_address=None, transfer_address=None,
                  config_path=CONFIG_PATH, block_height=None,
-                 zonefile_data=None, token_file=None, zonefile_hash=None,
-                 unsafe_reg=None, confirmations_needed=None,
-                 min_payment_confs=None, path=DEFAULT_QUEUE_PATH):
+                 zonefile_data=None, profile=None, zonefile_hash=None,
+                 unsafe_reg = None, confirmations_needed = None,
+                 owner_privkey=None,
+                 min_payment_confs = None, path=DEFAULT_QUEUE_PATH):
 
     """
     Append a processing name operation to the named queue for the given name.
@@ -348,11 +349,13 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
         new_entry['confirmations_needed'] = confirmations_needed
     if min_payment_confs is not None:
         new_entry['min_payment_confs'] = min_payment_confs
+    if owner_privkey is not None:
+        new_entry['owner_privkey'] = owner_privkey
 
     if zonefile_data is not None:
         new_entry['zonefile_b64'] = base64.b64encode(zonefile_data)
 
-    new_entry['token_file'] = token_file
+    new_entry['profile'] = profile
     if zonefile_hash is None and zonefile_data is not None:
         zonefile_hash = get_zonefile_data_hash(zonefile_data)
 

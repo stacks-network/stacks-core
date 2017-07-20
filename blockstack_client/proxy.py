@@ -43,18 +43,18 @@ xmlrpc.monkey_patch()
 import storage
 import scripts
 
-from constants import (
+from .constants import (
     MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST, DEFAULT_TIMEOUT
 )
 
-from logger import get_logger
+from .logger import get_logger
 
-from operations import (
+from .operations import (
     nameop_history_extract, nameop_restore_from_history,
     nameop_restore_snv_consensus_fields
 )
 
-from schemas import *
+from .schemas import *
 
 log = get_logger('blockstack-client')
 

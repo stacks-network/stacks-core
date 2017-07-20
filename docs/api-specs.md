@@ -177,13 +177,20 @@ This call instructs the blockstack core node to use a particular key
 instead of the core node's configured wallet key. The setting of this
 key is *temporary*. It is not written to `~/.blockstack/wallet.json`,
 and on a subsequent restart, the key will return to the original key.
-Therefore, particular care should be taken when registering with such
-a key, as the registrar may be unable to issue a `REGISTER` or
-`UPDATE` if the node restarts in the middle of the registration process. 
+However, the core registrar *tracks* the owner key used for each `PREORDER`,
+and stores that private key encrypted (with `scrypt` and the core wallet
+password) in the queue. When the registrar detects that the key being used
+for a particular name has changed, it will recover by submitting further
+transactions with the stored key.
 
 + Requires root authorization
 + Parameters
     + keyname: owner (string) - which key to set (one of 'owner', 'data', 'payment')
+
++ Request (application/json)
+  + Body
+
+              "cPo24qGYz76xSbUCug6e8LzmzLGJPZoowQC7fCVPLN2tzCUJgfcW"
 
 + Request (application/json)
   + Schema
@@ -237,6 +244,11 @@ a key, as the registrar may be unable to issue a `REGISTER` or
                     }
                 ]
               }
+
++ Response 200 (application/json)
+  + Body
+
+              {"status": true}
 
 ## Get payment wallet balance [GET /v1/wallet/balance/{minconfs}]
 
@@ -426,8 +438,9 @@ Sets the user's zonefile hash, and, if supplied, propagates the
 zonefile. If you supply the zonefile, the hash will be calculated from
 that. Ultimately, your requests should only supply one of `zonefile`,
 `zonefile_b64`, or `zonefile_hash`.
-
 + Authorization: `update`
++ Parameters
+  + name: bar.test (string) - fully-qualified name
 + Request (application/json)
   + Schema
 
@@ -436,20 +449,18 @@ that. Ultimately, your requests should only supply one of `zonefile`,
                         'properties': {
                             "zonefile": {
                                 'type': 'string',
-                                'maxLength': RPC_MAX_ZONEFILE_LEN,
                             },
                             'zonefile_b64': {
                                 'type': 'string',
-                                'maxLength': (RPC_MAX_ZONEFILE_LEN * 4) / 3 + 1,
                             },
                             'zonefile_hash': {
                                 'type': 'string',
-                                'pattern': OP_ZONEFILE_HASH_PATTERN,
+                                'pattern': '^([0-9a-fA-F]{20})$'
                             },
                             'tx_fee': {
                                 'type': 'integer',
                                 'minimum': 0,
-                                'maximum': TX_MAX_FEE
+                                'maximum': 500000
                             },
                         },
                         'additionalProperties': False,
@@ -459,6 +470,18 @@ that. Ultimately, your requests should only supply one of `zonefile`,
   + Body
 
                 {'transaction_hash' : '...'}
+
+## Fetch zone file [GET /v1/names/{name}/zonefile]
+Fetch a user's raw zonefile.
++ Parameters
+  + name: bar.test (string) - fully-qualified name
++ Response 200 (application/json)
+  + Body
+
+               {
+                   "zonefile": "$ORIGIN bar.test\n$TTL 3600\n_https._tcp URI 10 1 \"https://blockstack.s3.amazonaws.com/bar.test\"\n"
+               }
+
 
 # Group Name Querying
 This family of API endpoints deals with querying name information.
