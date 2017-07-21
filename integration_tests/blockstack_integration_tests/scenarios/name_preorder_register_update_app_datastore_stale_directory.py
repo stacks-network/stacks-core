@@ -162,6 +162,9 @@ def scenario( wallets, **kw ):
         shutil.rmtree(backup_dir)
 
     shutil.copytree('/tmp/blockstack-disk', backup_dir)
+    res = testlib.blockstack_clear_data_cache()
+    if 'error' in res:
+        return False
 
     # put files 
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
@@ -242,6 +245,9 @@ def scenario( wallets, **kw ):
     shutil.copytree('/tmp/blockstack-disk', backup_dir_2)
     shutil.rmtree('/tmp/blockstack-disk')
     shutil.copytree(backup_dir, '/tmp/blockstack-disk')
+    res = testlib.blockstack_clear_data_cache()
+    if 'error' in res:
+        return False
 
     # stat files (should all fail with ESTALE)
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
@@ -300,7 +306,7 @@ def scenario( wallets, **kw ):
         print 'listdir {} (expect failure)'.format(dpath)
         res = testlib.blockstack_cli_datastore_listdir( "foo.test", datastore_id, dpath, ses )
         if 'error' not in res or 'errno' not in res:
-            print 'accidentally succeeded to listdir {}: {}'.format(dpath, res['error'])
+            print 'accidentally succeeded to listdir {}: {}'.format(dpath, res)
             shutil.rmtree(backup_dir_2)
             return False
 
