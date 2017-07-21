@@ -1855,7 +1855,7 @@ def blockstack_cli_datastore_rmtree( blockchain_id, datastore_privkey, path, ses
     return cli_datastore_rmtree( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_listdir(blockchain_id, datastore_id, path, ses=None, data_pubkeys=None, config_path=None, force=False, interactive=False ):
+def blockstack_cli_datastore_listdir(blockchain_id, datastore_id, path, ses=None, app_name=None, data_pubkeys=None, config_path=None, force=False, interactive=False ):
     """
     listdir
     """
@@ -1869,6 +1869,7 @@ def blockstack_cli_datastore_listdir(blockchain_id, datastore_id, path, ses=None
     args.blockchain_id = blockchain_id
     args.datastore_id = datastore_id
     args.path = path 
+    args.app_name = app_name
     args.force = '1' if force else '0'
 
     if data_pubkeys is not None:
@@ -1891,7 +1892,7 @@ def blockstack_cli_datastore_listdir(blockchain_id, datastore_id, path, ses=None
     return cli_datastore_listdir( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_stat( blockchain_id, datastore_id, path, ses=None, data_pubkeys=None, config_path=None, force=False, interactive=False ):
+def blockstack_cli_datastore_stat( blockchain_id, datastore_id, path, ses=None, app_name=None, data_pubkeys=None, config_path=None, force=False, interactive=False ):
     """
     stat
     """
@@ -1905,6 +1906,7 @@ def blockstack_cli_datastore_stat( blockchain_id, datastore_id, path, ses=None, 
     args.blockchain_id = blockchain_id
     args.datastore_id = datastore_id
     args.path = path 
+    args.app_name = app_name
     args.force = '1' if force else '0'
 
     if data_pubkeys is not None:
@@ -1927,7 +1929,7 @@ def blockstack_cli_datastore_stat( blockchain_id, datastore_id, path, ses=None, 
     return cli_datastore_stat( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_getfile( blockchain_id, datastore_id, path, ses=None, data_pubkeys=None, config_path=None, force=False, interactive=False ):
+def blockstack_cli_datastore_getfile( blockchain_id, datastore_id, path, ses=None, app_name=None, data_pubkeys=None, config_path=None, force=False, interactive=False ):
     """
     getfile
     """
@@ -1940,6 +1942,7 @@ def blockstack_cli_datastore_getfile( blockchain_id, datastore_id, path, ses=Non
     
     args.blockchain_id = blockchain_id
     args.datastore_id = datastore_id
+    args.app_name = app_name
     args.path = path
     args.force = '1' if force else '0'
 
@@ -2263,6 +2266,18 @@ def blockstack_test_setenv(key, value):
     Set an environment variable on a running API daemon via the test interface
     """
     res = blockstack_REST_call('POST', '/v1/test/envar?{}={}'.format(urllib.quote(key), urllib.quote(value)), None)
+    if res['http_status'] != 200:
+        res['error'] = 'Failed to issue test RPC call'
+        return res
+
+    return res
+
+
+def blockstack_clear_data_cache():
+    """
+    Clear the inode cache
+    """
+    res = blockstack_REST_call('POST', '/v1/test/clearcache', None)
     if res['http_status'] != 200:
         res['error'] = 'Failed to issue test RPC call'
         return res
