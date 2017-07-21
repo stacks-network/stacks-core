@@ -2773,7 +2773,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         elif command == 'clearcache':
             # clear the cache 
-            data.cache_evct_all()
+            data.cache_evict_all()
             return self._send_headers(status_code=200, content_type='text/plain')
 
         else:
@@ -4239,6 +4239,8 @@ class BlockstackAPIEndpointClient(object):
         Return {'status': True, 'datastore': ...} on success
         Return {'error': ..., 'errno': ...} on error
         """
+        assert (blockchain_id and full_app_name) or datastore_id, 'Need both blockchain ID and full_app_name or need datastore ID'
+
         if is_api_server(self.config_dir):
             # directly do this
             return data.get_datastore(blockchain_id=blockchain_id, full_app_name=full_app_name, datastore_id=datastore_id, device_ids=device_ids, config_path=self.config_path)
@@ -4250,11 +4252,29 @@ class BlockstackAPIEndpointClient(object):
 
             # ask the API server
             headers = self.make_request_headers(need_session=True)
-            url = 'http://{}:{}/v1/stores/{}'.format(self.server, self.port, datastore_id)
-            url += '?device_ids={}'.format(','.join(device_ids))
+            store_id = None
+            if full_app_name:
+                store_id = full_app_name
+            else:
+                store_id = datastore_id
+
+            url = 'http://{}:{}/v1/stores/{}'.format(self.server, self.port, store_id)
+
+            if device_ids:
+                if '?' not in url:
+                    url += '?'
+                else:
+                    url += '&'
+
+                url += 'device_ids={}'.format(','.join(device_ids))
 
             if blockchain_id:
-                url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
+                if '?' not in url:
+                    url += '?'
+                else:
+                    url += '&'
+
+                url += 'blockchain_id={}'.format(urllib.quote(blockchain_id))
 
             req = requests.get( url, timeout=self.timeout, headers=headers)
             return self.get_response(req)
