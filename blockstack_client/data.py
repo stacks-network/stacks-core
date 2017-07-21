@@ -1065,6 +1065,7 @@ def get_mutable(fq_data_id, device_ids=None, raw=False, data_pubkeys=None, data_
         version = data['version']
         if ver_min is not None and ver_min > version:
             log.warn("Invalid (stale) data version from {} for {}: ver_min = {}, version = {}".format(driver, fq_data_id, ver_min, version))
+            stale = True
             continue
 
         elif ver_max is not None and ver_max <= version:
@@ -1617,8 +1618,6 @@ def set_data_pubkey(blockchain_id, data_pubkey, proxy=None, wallet_keys=None, tx
     Set the data public key for a blockchain ID
     Overwrites the public key that is present (if given at all).
 
-    # TODO: back up old public key to wallet and mutable storage
-
     WARN: you will need to re-sign your profile after you do this; otherwise
     no one will be able to use your current zonefile contents (with your new
     key) to verify their authenticity.
@@ -1796,6 +1795,10 @@ def get_datastore( blockchain_id=None, datastore_id=None, device_ids=None, full_
             if not pubkeys.has_key(dev_id):
                 log.warning("No public key for device '{}'".format(dev_id))
                 continue
+            
+            if pubkeys[dev_id] is None:
+                log.warning("Skipping device '{}', since it has 'None' public key")
+                continue
 
             found_device_ids.append(dev_id)
             datastore_addresses.append(datastore_get_id(pubkeys[dev_id]))
@@ -1817,7 +1820,7 @@ def get_datastore( blockchain_id=None, datastore_id=None, device_ids=None, full_
     log.debug("Search {} possible datastore record candidate(s)".format(len(data_ids)))
 
     for (data_id, device_id, data_address) in zip(data_ids, device_ids, datastore_addresses):
-        datastore_id = data_id.rstrip('.datastore')
+        datastore_id = data_id[0:-len('.datastore')]
         datastore = None
         datastore_timestamp = None
 
@@ -2079,8 +2082,6 @@ def put_datastore(api_client, datastore_info, datastore_privkey, config_path=CON
 def make_datastore_tombstones( datastore_id, device_ids ):
     """
     Make datastore tombstones
-
-    TODO: expand to include all devices (requires token file)
     """
     datastore_tombstones = make_mutable_data_tombstones( device_ids, '{}.datastore'.format(datastore_id) )
     return datastore_tombstones
@@ -2324,7 +2325,7 @@ def get_inode_data(datastore_id, inode_uuid, inode_type, drivers, data_pubkeys, 
         if 'error' in res:
             return res
 
-    if not no_cache and inode_type == MUTABLE_DATUM_DIR_TYPE:
+    if not no_cache and inode_type == MUTABLE_DATUM_DIR_TYPE and not force:
         GLOBAL_CACHE.put_inode_directory(datastore_id, full_inode, cache_ttl)
 
     return {'status': True, 'inode': full_inode, 'version':  header_version, 'drivers': drivers_to_try}
@@ -2506,7 +2507,7 @@ def get_inode_header(datastore_id, inode_uuid, drivers, data_pubkeys, inode_hdr_
         if 'error' in res:
             return {'error': res['error'], 'errno': res['errno']}
 
-    if not no_cache:
+    if not no_cache and not force:
         inode_hdr['version'] = max(inode_hdr_version, inode_version)
         GLOBAL_CACHE.put_inode_header(datastore_id, inode_hdr, cache_ttl)
 
@@ -2832,8 +2833,6 @@ def delete_inode_data( datastore, signed_tombstones, proxy=None, config_path=CON
     * signed_tombstones is a list of signed data tombstones for inode headers and idata.
 
     This is a server-side method.
-
-    TODO: datastore is ambiguous.  We need to be certain that it corresponds to the caller's device-specific datastore
 
     Return {'status': True} on success
     Return {'error': ...} on error
@@ -3848,8 +3847,6 @@ def datastore_rmdir_put_inodes( datastore, data_path, header_blobs, payloads, si
 
     This is a server-side method.
 
-    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
-
     Return {'status': True} on success
     Return {'error': ..., 'errno': ...} on failure
     """
@@ -4321,8 +4318,6 @@ def datastore_deletefile_put_inodes( datastore, data_path, header_blobs, payload
     Given the header blobs and payloads from datastore_deletfile_make_inodes() and cliet-given signatures and signed tombstones,
     go and store them all.
 
-    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
-
     Order matters:
     header_blobs[0], payloads[0], and signatures[0] are for the parent
     tombstones[0] is for the child deleted
@@ -4639,8 +4634,6 @@ def datastore_rmtree_put_inodes( datastore, header_blobs, payloads, signatures, 
     tombstones[0] is for the child deleted
 
     Server-side method
-
-    TODO: rework datastore and datastore_id; we need to be sure that we're making inodes to write to this device's datastore and data_pubkeys corresponds to the owner's other devices
 
     Return {'status': True} on success
     Return {'error': ..., 'errno': ...} on failure
