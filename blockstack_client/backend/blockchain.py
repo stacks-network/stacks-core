@@ -29,7 +29,7 @@ import json
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 
-from ..constants import TX_EXPIRED_INTERVAL, TX_CONFIRMATIONS_NEEDED, TX_MIN_CONFIRMATIONS
+from ..constants import TX_EXPIRED_INTERVAL, DEFAULT_TX_CONFIRMATIONS_NEEDED, TX_MIN_CONFIRMATIONS
 from ..constants import MAXIMUM_NAMES_PER_ADDRESS
 from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DRY_RUN
 from ..constants import CONFIG_PATH, BLOCKSTACK_DEBUG
@@ -154,12 +154,12 @@ def get_tx_fee( tx_hex, config_path=CONFIG_PATH ):
     return fee_per_byte * len(tx_hex)/2
   
 
-def is_tx_accepted( tx_hash, num_needed=TX_CONFIRMATIONS_NEEDED, config_path=CONFIG_PATH ):
+def is_tx_accepted( tx_hash, num_needed=DEFAULT_TX_CONFIRMATIONS_NEEDED, config_path=CONFIG_PATH ):
     """
     Determine whether or not a transaction was accepted.
     """
     tx_confirmations = get_tx_confirmations(tx_hash, config_path=config_path)
-    if tx_confirmations > num_needed:
+    if tx_confirmations >= num_needed:
         return True
 
     return False
@@ -285,12 +285,7 @@ def broadcast_tx(tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None):
     except Exception as e:
         log.exception(e)
         resp['error'] = 'Failed to broadcast transaction: {}'.format(tx_hex)
-
-        if BLOCKSTACK_TEST is not None:
-            # should NEVER happen in test mode
-            msg = 'FATAL: failed to send transaction:\n{}'
-            log.error(msg.format(json.dumps(resp, indent=4, sort_keys=True)))
-            os.abort()
+        return resp
 
     # for compatibility
     resp['status'] = True

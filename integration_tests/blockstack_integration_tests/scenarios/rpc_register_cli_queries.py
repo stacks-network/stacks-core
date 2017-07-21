@@ -294,12 +294,8 @@ def check( state_engine ):
             return False
 
     # zonefile info
-    if zonefile_info is None or type(zonefile_info) != dict:
+    if zonefile_info is None or type(zonefile_info) != str:
         print "invalid zonefile\n%s\n" % zonefile_info
-        return False
-
-    if not zonefile_info.has_key('zonefile'):
-        print "missing zonefile\n%s\n" % zonefile_info
         return False
 
     # name query
@@ -334,8 +330,8 @@ def check( state_engine ):
             print "missing '%s'\n%s" % (k, json.dumps(lookup_info, indent=4, sort_keys=True))
             return False
 
-    if lookup_info['zonefile'] != zonefile_info['zonefile']:
-        print "unequal zonefiles:\n%s\n%s" % (json.dumps(lookup_info['zonefile'], indent=4, sort_keys=True), json.dumps(zonefile_info['zonefile'], indent=4, sort_keys=True))
+    if lookup_info['zonefile'] != zonefile_info:
+        print "unequal zonefiles:\n%s\n%s" % (json.dumps(lookup_info['zonefile'], indent=4, sort_keys=True), json.dumps(zonefile_info, indent=4, sort_keys=True))
         return False
 
     # update history (2 items)
@@ -344,8 +340,9 @@ def check( state_engine ):
         return False
 
     # zonefile history (expect 2 items)
-    if len(zonefile_history) != 2 or zonefile_history[1] != zonefile_info['zonefile']:
+    if len(zonefile_history) != 2 or zonefile_history[1] != zonefile_info:
         print "invalid zonefile history\n%s" % json.dumps(zonefile_history, indent=4, sort_keys=True)
+        print "zonefile current:\n%s" % json.dumps(zonefile_info, indent=4, sort_keys=True)
         return False
 
     # names info

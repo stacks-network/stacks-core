@@ -30,6 +30,7 @@ import blockstack_profiles
 import sys
 import keylib
 import time
+import virtualchain
 
 from keylib import ECPrivateKey, ECPublicKey
 
@@ -204,8 +205,10 @@ def scenario( wallets, **kw ):
         print json.dumps(res)
         return False
 
-    if res['response']['address'] != wallets[7].addr:
+    address_testnet = virtualchain.address_reencode(str(res['response']['address']), network='testnet')
+    if address_testnet != wallets[7].addr:
         res['test'] = 'Failed to transfer name to new address {}'.format(wallets[7].addr)
+        res['owner_address_testnet'] = address_testnet
         print json.dumps(res)
         return False
 

@@ -23,7 +23,9 @@
 
 import testlib
 import pybitcoin
-import blockstack.blockstackd as blockstackd
+import json
+
+from blockstack_client import actions
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -34,6 +36,13 @@ wallets = [
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
+
+class ARGS:
+    def __init__(self):
+        self.address = wallets[1].addr
+        self.tx_only = "true"
+        self.min_confs = 0
+
 
 def scenario( wallets, **kw ):
 
@@ -46,34 +55,36 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
-def check( state_engine ):
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
 
-    # not revealed, but ready 
-    ns = state_engine.get_namespace_reveal( "test" )
-    if ns is not None:
-        return False 
+    args = ARGS()
 
-    ns = state_engine.get_namespace( "test" )
-    if ns is None:
-        return False 
+    ret = actions.cli_withdraw(args, "0123456789abcdef", False)
 
-    if ns['namespace_id'] != 'test':
-        return False 
+    print ret
 
-    # preordered
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
-    if preorder is None:
+    tx = ret['tx']
+
+    # these should end up having the SAME utxo.
+
+    resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef" )
+    if 'error' in resp:
+        print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
         return False
-    
-    # paid fee 
-    proxy = testlib.make_proxy()
 
-    if preorder['op_fee'] < proxy.get_name_cost( 'foo.test' )['satoshis']:
-        print "{} < {}".format(preorder['op_fee'], proxy.get_name_cost( 'foo.test' ))
-        print "Insufficient fee"
-        return False 
 
+    testlib.next_block( **kw )
+    testlib.broadcast_tx(tx)
+
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+
+
+def check( state_engine ):
+    # bug was blockstack dying, so we only need to make sure that 
+    # blockstack lives through the test.
+    # so if we get here, it always passes.
     return True

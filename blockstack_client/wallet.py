@@ -232,8 +232,9 @@ def make_legacy_wallet_keys(data, password):
         if BLOCKSTACK_DEBUG is not None:
             log.exception(e)
 
-        log.debug('Failed to decrypt encrypted_master_private_key: {}'.format(ret['error']))
-        return ret
+        err = 'Failed to decrypt encrypted_master_private_key'
+        log.debug(err)
+        return {'error' : err}
 
     # legacy compat: use the master private key to generate child keys.
     # If the specific key they are purposed for is not defined in the wallet,
@@ -466,8 +467,12 @@ def inspect_wallet_data(data):
         migrated = True
 
     elif data['version'] != SERIES_VERSION:
-        log.debug("Wallet series has changed from {} to {}; triggerring migration".format(data['version'], SERIES_VERSION))
-        migrated = True
+        if data['version'] == "0.14.2" and SERIES_VERSION in ("0.14.3"):
+            pass # no migration needed
+        else:
+            log.debug("Wallet series has changed from {} to {}; triggerring migration".format(
+                data['version'], SERIES_VERSION))
+            migrated = True
 
     if any_legacy:
         migrated = True
@@ -893,7 +898,7 @@ def unlock_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None):
         try:
             res = save_keys_to_memory( wallet, config_path=config_path )
         except KeyError as ke:
-            if BLOCKSACK_DEBUG is not None:
+            if BLOCKSTACK_DEBUG is not None:
                 data = json.dumps(wallet, indent=4, sort_keys=True)
                 log.error('data:\n{}\n'.format(data))
             raise
@@ -1049,7 +1054,7 @@ def get_addresses_from_file(config_dir=CONFIG_DIR, wallet_path=None):
     return payment_address, owner_address, data_pubkey
 
 
-def get_payment_addresses_and_balances(config_path=CONFIG_PATH, wallet_path=None):
+def get_payment_addresses_and_balances(config_path=CONFIG_PATH, wallet_path=None, min_confs=None):
     """
     Get payment addresses and balances.
     Each payment address will have a balance in satoshis.
@@ -1068,7 +1073,7 @@ def get_payment_addresses_and_balances(config_path=CONFIG_PATH, wallet_path=None
     )
 
     if payment_address is not None:
-        balance = get_balance(payment_address, config_path=config_path)
+        balance = get_balance(payment_address, config_path=config_path, min_confirmations=min_confs)
         if balance is None:
             payment_addresses.append( {'error': 'Failed to get balance for {}'.format(payment_address)} )
 
@@ -1124,7 +1129,7 @@ def get_all_names_owned(wallet_path=WALLET_PATH):
     return names_owned
 
 
-def get_total_balance(config_path=CONFIG_PATH, wallet_path=WALLET_PATH):
+def get_total_balance(config_path=CONFIG_PATH, wallet_path=WALLET_PATH, min_confs=None):
     """
     Get the total balance for the wallet's payment address.
     Units will be in satoshis.
@@ -1132,7 +1137,8 @@ def get_total_balance(config_path=CONFIG_PATH, wallet_path=WALLET_PATH):
     Returns units, addresses on success
     Returns None, {'error': ...} on error
     """
-    payment_addresses = get_payment_addresses_and_balances(wallet_path=wallet_path, config_path=config_path)
+    payment_addresses = get_payment_addresses_and_balances(
+        wallet_path=wallet_path, config_path=config_path, min_confs=min_confs)
     total_balance = 0.0
 
     for entry in payment_addresses:

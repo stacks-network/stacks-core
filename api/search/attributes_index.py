@@ -138,7 +138,7 @@ def create_twitter_index():
                             print "already in index"
                         else:
                             print new_entry
-                            twitter_payment.save(new_entry)
+                            twitter_index.save(new_entry)
 
                             counter += 1
                             print counter
@@ -173,13 +173,13 @@ def create_facebook__index():
                         new_entry['facebook_username'] = proof['identifier'].lower()
                         new_entry['profile'] = profile
 
-                        check_entry = facebook_payment.find_one({"username": entry['username']})
+                        check_entry = facebook_index.find_one({"username": entry['username']})
 
                         if check_entry is not None:
                             print "already in index"
                         else:
                             print new_entry
-                            facebook_payment.save(new_entry)
+                            facebook_index.save(new_entry)
 
                             counter += 1
                             print counter
@@ -220,13 +220,13 @@ def create_github_proofs_index():
                         new_entry['github_username'] = proof['identifier'].lower()
                         new_entry['profile'] = profile
 
-                        check_entry = github_payment.find_one({"username": entry['username']})
+                        check_entry = github_index.find_one({"username": entry['username']})
 
                         if check_entry is not None:
                             print "already in index"
                         else:
                             print new_entry
-                            github_payment.save(new_entry)
+                            github_index.save(new_entry)
 
                             counter += 1
                             print counter
@@ -278,13 +278,13 @@ def create_domain_proofs_index():
                 new_entry['domain_url'] = domain
                 new_entry['profile'] = profile
 
-                check_entry = domain_payment.find_one({"username": entry['username']})
+                check_entry = domain_index.find_one({"username": entry['username']})
 
                 if check_entry is not None:
                     print "already in index"
                 else:
                     print new_entry
-                    domain_payment.save(new_entry)
+                    domain_index.save(new_entry)
 
                     counter += 1
                     print counter
@@ -333,22 +333,22 @@ def search_proofs(query):
 
     if query_type == 'twitter':
 
-        check_entry = twitter_payment.find({"twitter_handle": query_keyword})
+        check_entry = twitter_index.find({"twitter_handle": query_keyword})
         return format_results(check_entry)
 
     elif query_type == 'facebook':
 
-        check_entry = facebook_payment.find({"facebook_username": query_keyword})
+        check_entry = facebook_index.find({"facebook_username": query_keyword})
         return format_results(check_entry)
 
     elif query_type == 'github':
 
-        check_entry = github_payment.find({"github_username": query_keyword})
+        check_entry = github_index.find({"github_username": query_keyword})
         return format_results(check_entry)
 
     elif query_type == 'domain':
 
-        check_entry = domain_payment.find({"domain_url": query_keyword})
+        check_entry = domain_index.find({"domain_url": query_keyword})
         return format_results(check_entry)
 
 if __name__ == "__main__":

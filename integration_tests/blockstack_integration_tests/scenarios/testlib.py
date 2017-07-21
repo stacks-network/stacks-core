@@ -301,7 +301,10 @@ def blockstack_name_register( name, privatekey, register_addr, wallet=None, subs
     owner_privkey_info = find_wallet(register_addr).privkey
     register_addr = virtualchain.address_reencode(register_addr)
 
-    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+    kwargs = {}
+    if not safety_checks:
+        kwargs = {'tx_fee' : 1} # regtest shouldn't care about the tx_fee
+    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
     api_call_history.append( APICallRecord( "register", name, resp ) )
     return resp
 
@@ -331,7 +334,7 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_k
     if subsidy_key is not None:
         payment_key = subsidy_key 
 
-    resp = blockstack_client.do_transfer( name, address, keepdata, privatekey, payment_key, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks)
+    resp = blockstack_client.do_transfer( name, address, keepdata, privatekey, payment_key, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "transfer", name, resp ) )
     return resp
 
@@ -614,6 +617,25 @@ def blockstack_cli_namespace_ready( namespace_id, reveal_privkey, config_path=No
     args.reveal_privkey = reveal_privkey
 
     resp = cli_namespace_ready(args, config_path=config_path, interactive=False, proxy=test_proxy)
+    if 'error' not in resp:
+        assert 'transaction_hash' in resp
+
+    return resp
+
+def blockstack_cli_withdraw( password, address, amount = None, config_path = None):
+    """
+    Register a name, using the backend RPC endpoint
+    """
+    test_proxy = make_proxy(password=password, config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    args.address = address
+    args.amount = amount
+
+    resp = cli_withdraw(args, config_path = config_path, password = password, interactive = False)
+
     if 'error' not in resp:
         assert 'transaction_hash' in resp
 
@@ -2204,8 +2226,11 @@ def blockstack_REST_call( method, route, session, api_pass=None, app_fqu=None, a
     headers = {}
     if session:
         headers['authorization'] = 'bearer {}'.format(session)
+        app_domain = jsontokens.decode_token(session)["payload"]["app_domain"]
+        headers['origin'] = "http://{}".format(app_domain)
     elif api_pass:
         headers['authorization'] = 'bearer {}'.format(api_pass)
+        headers['origin'] = 'http://localhost:3000'
 
     assert not (data and raw_data), "Multiple data given"
 
@@ -2901,6 +2926,10 @@ def check_atlas_zonefiles( state_engine, atlasdb_path ):
         if name in snv_fail_at.get(block_id, []):
             continue
 
+        if "value_hash" not in api_call.result:
+            log.warn("Api call {} on name {} in block {} has no value_hash, skipping atlas check.".format(
+                api_call.method, name, block_id))
+            continue
         value_hash = api_call.result['value_hash']
 
         log.debug("Verify Atlas zonefile hash %s for %s in '%s' at %s" % (value_hash, name, api_call.method, block_id))
@@ -3515,6 +3544,7 @@ def nodejs_setup():
     tmpdir = tempfile.mkdtemp()
     atexit.register(nodejs_cleanup, tmpdir)
     
+    os.system("cd '{}' && npm install babel-cli babel-preset-es2015".format(tmpdir))
     print "Node install at {}".format(tmpdir)
     return tmpdir
 
@@ -3549,7 +3579,7 @@ def nodejs_run_test( testdir, test_name="core-test" ):
     """
     Run a nodejs test
     """
-    rc = os.system('cd "{}" && npm run {} 2>&1 | tee /dev/stderr | egrep "^npm ERR"'.format(testdir, test_name))
+    rc = os.system('cd "{}" && npm install && npm run {} 2>&1 | tee /dev/stderr | egrep "^npm ERR"'.format(testdir, test_name))
     if rc == 0:
         raise Exception("Test {} failed".format(test_name))
 

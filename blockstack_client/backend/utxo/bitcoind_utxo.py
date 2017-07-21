@@ -25,6 +25,7 @@ import httplib
 from virtualchain import AuthServiceProxy
 from .blockchain_client import BlockchainClient
 
+from blockstack_client import constants
 from decimal import Decimal
 
 SATOSHIS_PER_COIN = 10**8
@@ -94,6 +95,11 @@ def get_unspents(address, blockchain_client):
     max_confirmation = 2000000000  # just a very large number for max
     unspents = bitcoind.listunspent(min_confirmations, max_confirmation,
                                     addresses)
+
+    if constants.BLOCKSTACK_TESTNET and len(unspents) == 0:
+        bitcoind.importaddress(str(address))
+        unspents = bitcoind.listunspent(min_confirmations, max_confirmation,
+                                        addresses)
 
     return format_unspents(unspents)
 
