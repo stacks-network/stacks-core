@@ -8,15 +8,8 @@ This marks the beginning of a per-sprint release cycle.  Release notes will be
 shorter between releases, since new releases will be scheduled every two to
 three weeks.
 
-Release Highlights (Anticipated)
+Release Highlights
 --------------------------------
-
-* **Multi-player Storage**.  This release includes an improved release of Gaia,
-which now allows multi-user applications to share state.  Gaia was limited to
-single-user applications in the previous release.  With Gaia, one user can store
-data to their storage providers, and other users can read it.  This further
-removes the need for developer-hosted data, and opens Blockstack up to a lot
-more conventional types of applications.
 
 * **Gaia Performance Improvements.**  The read and write paths of Gaia have been
 refactored to run many I/O operations in parallel.  This leads to faster data
@@ -29,12 +22,6 @@ the blockstack transactions _preorder_, _register_, and _update_, with only 4,
 of the safety checks, because our resolvers will not have processed the name
 before the _update_ is issued.
 
-* **Initial subdomain support.**  This release allows users to register
-subdomains of existing blockchain IDs, such that _subdomains are independently
-owned_.  A user Bob can register `bob.alice.id`, where `alice.id` is owned by
-Alice.  Queries on `bob.alice.id` resolve to Bob's signed profile and data, and
-Alice cannot change Bob's public key.
-
 * **Better Packaging for Test Mode.**  This release makes it easier to get
 started testing Blockstack Core and Blockstack Browser alongside a Bitcoin
 node in `regtest` mode.  Developers can register names and interact with storage
@@ -42,6 +29,13 @@ without having to spend Bitcoin or wait hours for names to be registered.
 
 Selected Bugfixes and Fixes
 ---------------------------
+More information on bugfixes can be found in GitHub issues (#454-#488 span this release).
 
+* Improved performance of price checks
+* Added zero confirmation balance checks
+* In regtest, core will rewrite testnet adddresses so that browser does not need to "understand" testnet addresses
+* Fixed bad behavior of setting temporary wallet keys
+* Support for logging in without blockchain ID
 * Issue #469 : Blockstack Core used to die in error cases when it should be 
 able to fail more gracefully. This release fixes several such cases.
+
