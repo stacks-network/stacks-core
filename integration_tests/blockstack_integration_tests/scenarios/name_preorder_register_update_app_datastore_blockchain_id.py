@@ -103,9 +103,8 @@ def scenario( wallets, **kw ):
     blockstack_client.set_secret("BLOCKSTACK_API_SESSION", res['token'])
     
     ses = res['token']
-
-    datastore_id_res = testlib.blockstack_cli_datastore_get_id( datastore_pk )
-    datastore_id = datastore_id_res['datastore_id']
+    
+    app_name = 'foo-app.com.1'
 
     # use random data for file 
     file_data = None
@@ -145,7 +144,7 @@ def scenario( wallets, **kw ):
     # stat directories 
     for dpath in ['/dir1', '/dir2', '/dir1/dir3', '/dir1/dir3/dir4']:
         print 'stat {}'.format(dpath)
-        res = testlib.blockstack_cli_datastore_stat( "foo.test", datastore_id, dpath, None )
+        res = testlib.blockstack_cli_datastore_stat( "foo.test", None, dpath, None, app_name=app_name )
         if 'error' in res:
             print 'failed to stat {}: {}'.format(dpath, res['error'])
             return False
@@ -157,7 +156,7 @@ def scenario( wallets, **kw ):
     # list directories 
     for dpath, expected in [('/', ['dir1', 'dir2']), ('/dir1', ['dir3']), ('/dir1/dir3', ['dir4']), ('/dir1/dir3/dir4', [])]:
         print 'listdir {}'.format(dpath)
-        res = testlib.blockstack_cli_datastore_listdir( "foo.test", datastore_id, dpath, None )
+        res = testlib.blockstack_cli_datastore_listdir( "foo.test", None, dpath, None, app_name=app_name )
         if 'error' in res:
             print 'failed to listdir {}: {}'.format(dpath, res['error'])
             return False
@@ -184,7 +183,7 @@ def scenario( wallets, **kw ):
     # stat files
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'stat {}'.format(dpath)
-        res = testlib.blockstack_cli_datastore_stat( "foo.test", datastore_id, dpath, None )
+        res = testlib.blockstack_cli_datastore_stat( "foo.test", None, dpath, None, app_name=app_name )
         if 'error' in res:
             print 'failed to stat {}: {}'.format(dpath, res['error'])
             return False
@@ -196,7 +195,7 @@ def scenario( wallets, **kw ):
     # list directories again 
     for dpath, expected in [('/', ['dir1', 'dir2', 'file1', 'file2']), ('/dir1', ['dir3', 'file3']), ('/dir1/dir3', ['dir4', 'file4']), ('/dir1/dir3/dir4', ['file5'])]:
         print 'listdir {}'.format(dpath)
-        res = testlib.blockstack_cli_datastore_listdir( "foo.test", datastore_id, dpath, None )
+        res = testlib.blockstack_cli_datastore_listdir( "foo.test", None, dpath, None, app_name=app_name )
         if 'error' in res:
             print 'failed to listdir {}: {}'.format(dpath, res['error'])
             return False
@@ -213,7 +212,7 @@ def scenario( wallets, **kw ):
     # get files
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'getfile {}'.format(dpath)
-        res = testlib.blockstack_cli_datastore_getfile( "foo.test", datastore_id, dpath, None )
+        res = testlib.blockstack_cli_datastore_getfile( "foo.test", None, dpath, None, app_name=app_name )
         if 'error' in res:
             print 'failed to getfile {}: {}'.format(dpath, res['error'])
             return False
@@ -234,7 +233,7 @@ def scenario( wallets, **kw ):
     # get files again!
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'getfile {}'.format(dpath)
-        res = testlib.blockstack_cli_datastore_getfile( "foo.test", datastore_id, dpath, None )
+        res = testlib.blockstack_cli_datastore_getfile( "foo.test", None, dpath, None, app_name=app_name )
         if 'error' in res:
             print 'failed to getfile {}: {}'.format(dpath, res['error'])
             return False
@@ -254,7 +253,7 @@ def scenario( wallets, **kw ):
     # stat files (should all fail)
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'stat {} (expect failure)'.format(dpath)
-        res = testlib.blockstack_cli_datastore_stat( "foo.test", datastore_id, dpath, None )
+        res = testlib.blockstack_cli_datastore_stat( "foo.test", None, dpath, None, app_name=app_name )
         if 'error' not in res or 'errno' not in res:
             print 'accidentally succeeded to stat {}: {}'.format(dpath, res)
             return False
@@ -266,7 +265,7 @@ def scenario( wallets, **kw ):
     # get files (should all fail)
     for dpath in ['/file1', '/file2', '/dir1/file3', '/dir1/dir3/file4', '/dir1/dir3/dir4/file5']:
         print 'getfile {} (expect failure)'.format(dpath)
-        res = testlib.blockstack_cli_datastore_getfile( "foo.test", datastore_id, dpath, None )
+        res = testlib.blockstack_cli_datastore_getfile( "foo.test", None, dpath, None, app_name=app_name )
         if 'error' not in res or 'errno' not in res:
             print 'accidentally succeeded to get {}: {}'.format(dpath, res)
             return False
@@ -278,7 +277,7 @@ def scenario( wallets, **kw ):
     # list directories, 3rd time 
     for dpath, expected in [('/', ['dir1', 'dir2']), ('/dir1', ['dir3']), ('/dir1/dir3', ['dir4']), ('/dir1/dir3/dir4', [])]:
         print 'listdir {}'.format(dpath)
-        res = testlib.blockstack_cli_datastore_listdir( "foo.test", datastore_id, dpath, None )
+        res = testlib.blockstack_cli_datastore_listdir( "foo.test", None, dpath, None, app_name=app_name )
         if 'error' in res:
             print 'failed to listdir {}: {}'.format(dpath, res['error'])
             return False
@@ -303,7 +302,7 @@ def scenario( wallets, **kw ):
     # stat directories (should all fail)
     for dpath in ['/dir1/dir3/dir4', '/dir1/dir3', '/dir2', '/dir1']:
         print 'stat {} (expect failure)'.format(dpath)
-        res = testlib.blockstack_cli_datastore_stat( "foo.test", datastore_id, dpath, None )
+        res = testlib.blockstack_cli_datastore_stat( "foo.test", None, dpath, None, app_name=app_name )
         if 'error' not in res or 'errno' not in res:
             print 'accidentally succeeded to stat {}: {}'.format(dpath, res)
             return False
@@ -315,7 +314,7 @@ def scenario( wallets, **kw ):
     # list directories (should all fail) 
     for dpath, expected in [('/dir1', ['dir3']), ('/dir1/dir3', ['dir4']), ('/dir1/dir3/dir4', [])]:
         print 'listdir {} (expect failure)'.format(dpath)
-        res = testlib.blockstack_cli_datastore_listdir( "foo.test", datastore_id, dpath, None )
+        res = testlib.blockstack_cli_datastore_listdir( "foo.test", None, dpath, None, app_name=app_name )
         if 'error' not in res or 'errno' not in res:
             print 'accidentally succeeded to list {}: {}'.format(dpath, res)
             return False
@@ -338,7 +337,7 @@ def scenario( wallets, **kw ):
 
     # root should be empty 
     print 'listdir {}'.format('/')
-    res = testlib.blockstack_cli_datastore_listdir( "foo.test", datastore_id, '/', None )
+    res = testlib.blockstack_cli_datastore_listdir( "foo.test", None, '/', None, app_name=app_name )
     if 'error' in res:
         print 'failed to listdir /: {}'.format(res['error'])
         return False
