@@ -96,6 +96,11 @@ def token_file_make_datastore_index(apps):
     """
     Given the .keys.apps section of the token file, generate an index
     that maps datastore IDs onto application names.
+
+    The existence of a datastore ID does not imply that the datastore ever existed.
+    All this index does is map the datastore ID *that this device would have calculated if it created the datastore*
+    to the name of the application.
+
     Return {'status': True, 'index': {'$datastore_id': '$app_name'}} on success
     """
     from data import datastore_get_id
