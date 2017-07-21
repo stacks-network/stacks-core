@@ -4011,13 +4011,13 @@ def find_datastore_device_pubkeys(blockchain_id, args_device_ids, args_device_pu
         log.debug("Look up datastore public keys for '{}'".format(blockchain_id))
         
         if full_application_name is None:
-            res = get_token_file(blockchain_id, proxy=proxy)
+            res = token_file_get(blockchain_id, proxy=proxy)
             if 'error' in res:
                 return {'error': 'Failed to load token file for "{}"'.format(blockchain_id)}
 
             parsed_token_file = res['token_file']
 
-            res = token_file_get_app_name(datastore_id)
+            res = token_file_get_app_name(parsed_token_file, datastore_id)
             if 'error' in res:
                 return res
 
@@ -5331,7 +5331,6 @@ def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False ):
         return datastore_info
 
     datastore = datastore_info['datastore']
-    assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
 
     res = datastore_mkdir(rpc, datastore, path, datastore_privkey_hex, data_pubkeys, config_path=config_path )
     if 'error' in res:
@@ -5363,6 +5362,7 @@ def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False ):
     datastore_privkey_hex = str(args.privkey)
     datastore_pubkey_hex = get_pubkey_hex(datastore_privkey_hex)
     datastore_id = datastore_get_id(datastore_pubkey_hex)
+
     force = (str(getattr(args, 'force', '').lower()) in ['1', 'true'])
 
     session = jsontokens.decode_token(str(args.session))
@@ -5381,7 +5381,6 @@ def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False ):
         return datastore_info
 
     datastore = datastore_info['datastore']
-    assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
 
     res = datastore_rmdir(rpc, datastore, path, datastore_privkey_hex, data_pubkeys, force=force, config_path=config_path )
     return res
@@ -5423,7 +5422,6 @@ def cli_datastore_rmtree( args, config_path=CONFIG_PATH, interactive=False ):
         return datastore_info
 
     datastore = datastore_info['datastore']
-    assert datastore_id == datastore_get_id(get_pubkey_hex(datastore_privkey_hex))
 
     res = datastore_rmtree(rpc, datastore, path, datastore_privkey_hex, data_pubkeys, config_path=config_path )
     return res
@@ -5452,13 +5450,13 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False, pro
         blockchain_id = str(blockchain_id)
     
     app_name = getattr(args, 'app_name', '')
-    if len(app_name) == 0:
+    if app_name is None or len(app_name) == 0:
         app_name = None
     else:
         app_name = str(app_name)
 
     datastore_id = getattr(args, 'datastore_id', '')
-    if len(datastore_id) == 0:
+    if datastore_id is None or len(datastore_id) == 0:
         datastore_id = None
     else:
         datastore_id = str(args.datastore_id)
@@ -5474,7 +5472,7 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False, pro
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
 
-    res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), datastore_id=datastore_id, proxy=proxy)
+    res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), full_application_name=app_name, datastore_id=datastore_id, proxy=proxy)
     if 'error' in res:
         return {'error': 'Failed to query device list for {}: {}'.format(name, res['error'])}
    
@@ -5512,13 +5510,13 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False, prox
         blockchain_id = str(blockchain_id)
      
     app_name = getattr(args, 'app_name', '')
-    if len(app_name) == 0:
+    if app_name is None or len(app_name) == 0:
         app_name = None
     else:
         app_name = str(app_name)
 
     datastore_id = getattr(args, 'datastore_id', '')
-    if len(datastore_id) == 0:
+    if datastore_id is None or len(datastore_id) == 0:
         datastore_id = None
     else:
         datastore_id = str(args.datastore_id)
@@ -5535,7 +5533,7 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False, prox
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
 
-    res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), datastore_id=datastore_id, proxy=proxy)
+    res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), full_application_name=app_name, datastore_id=datastore_id, proxy=proxy)
     if 'error' in res:
         return {'error': 'Failed to query device list for {}: {}'.format(name, res['error'])}
    
@@ -5574,13 +5572,13 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False, proxy=N
         blockchain_id = str(blockchain_id)
 
     app_name = getattr(args, 'app_name', '')
-    if len(app_name) == 0:
+    if app_name is None or len(app_name) == 0:
         app_name = None
     else:
         app_name = str(app_name)
 
     datastore_id = getattr(args, 'datastore_id', '')
-    if len(datastore_id) == 0:
+    if datastore_id is None or len(datastore_id) == 0:
         datastore_id = None
     else:
         datastore_id = str(args.datastore_id)
@@ -5597,7 +5595,7 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False, proxy=N
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
 
-    res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), datastore_id=datastore_id, proxy=proxy)
+    res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), full_application_name=app_name, datastore_id=datastore_id, proxy=proxy)
     if 'error' in res:
         return {'error': 'Failed to query device list for {}: {}'.format(name, res['error'])}
    
@@ -5637,13 +5635,13 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False, pro
         blockchain_id = str(blockchain_id)
 
     app_name = getattr(args, 'app_name', '')
-    if len(app_name) == 0:
+    if app_name is None or len(app_name) == 0:
         app_name = None
     else:
         app_name = str(app_name)
 
     datastore_id = getattr(args, 'datastore_id', '')
-    if len(datastore_id) == 0:
+    if datastore_id is None or len(datastore_id) == 0:
         datastore_id = None
     else:
         datastore_id = str(args.datastore_id)
@@ -5667,7 +5665,7 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False, pro
     if hasattr(args, 'idata') and args.idata.lower() in ['1', 'true']:
         idata = True
 
-    res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), datastore_id=datastore_id, proxy=proxy)
+    res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), full_application_name=app_name, datastore_id=datastore_id, proxy=proxy)
     if 'error' in res:
         return {'error': 'Failed to query device list for {}: {}'.format(name, res['error'])}
    
