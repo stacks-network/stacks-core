@@ -286,9 +286,7 @@ def _build_subdomain_db(domain_fqa, zonefiles):
                 subdomain_db[subdomain.name] = subdomain
     return subdomain_db
 
-def flatten_and_issue_zonefile(domain_fqa, zf):
-    user_data_txt = blockstack_zones.make_zone_file(zf)
-
+def issue_zonefile(domain_fqa, user_data_txt):
     rpc = local_api_connect()
     assert rpc
     try:
@@ -323,12 +321,14 @@ def _extend_with_subdomain(zf_json, subdomain):
 
     zf_json["txt"].append(subdomain.as_zonefile_entry())
 
-def add_subdomains(subdomains, domain_fqa):
+def add_subdomains(subdomains, domain_fqa, broadcast_tx = True):
     """
     subdomains => list Subdomain objects to add
     domain_fqa => fully qualified domain name to add the subdomain to.
                   - must be owned by the Core's wallet
                   - must not already have a subdomain associated with it
+    broadcast_tx => either broadcast transaction and return response OR
+                    just return the new zonefile
     """
 
     assert isinstance(subdomains, list)
@@ -360,8 +360,12 @@ def add_subdomains(subdomains, domain_fqa):
         # step 2: create the subdomain record, adding it to zf
         for subdomain in subdomains:
             _extend_with_subdomain(zf, subdomain)
-    # issue zonefile update
-    return flatten_and_issue_zonefile(domain_fqa, zf)
+
+    zf_txt = blockstack_zones.make_zone_file(zf)
+    if broadcast_tx:
+        return issue_zonefile(domain_fqa, zf_txt)
+    else:
+        return zf_txt
 
 def is_subdomain_resolution_cached(domain_fqa):
     domains = config.get_subdomains_cached_for()
@@ -446,14 +450,12 @@ def verify(pk, plaintext, sigb64):
 
 
 def decode_pubkey_entry(pubkey_entry):
-    assert pubkey_entry.startswith("data:")
-    pubkey_entry = pubkey_entry[len("data:"):]
-    header, data = pubkey_entry.split(":")
+    assert pubkey_entry.startswith("pubkey:data:")
+    pubkey_entry = pubkey_entry[len("pubkey:data:"):]
 
-    if header == "echex":
-        return keylib.ECPublicKey(data)
+    return keylib.ECPublicKey(data)
 
-    return header, data
+    return False
 
 def encode_pubkey_entry(key):
     """
@@ -463,14 +465,12 @@ def encode_pubkey_entry(key):
     """
     if isinstance(key, keylib.ECPrivateKey):
         data = key.public_key().to_hex()
-        head = "echex"
     elif isinstance(key, keylib.ECPublicKey):
         data = key.to_hex()
-        head = "echex"
     else:
         raise NotImplementedError("No support for this key type")
 
-    return "data:{}:{}".format(head, data)
+    return "pubkey:data:{}".format(data)
 
 def txt_encode_key_value(key, value):
     return "{}={}".format(key,
