@@ -11,13 +11,11 @@ import blockstack_zones
 
 from . import config
 
-#logging.addHandler(logging.FileHandler(config.get_logfile()))
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
-fh = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+fh = logging.FileHandler(config.get_logfile())
 fh.setLevel(logging.DEBUG)
-fh.setFormatter(formatter)
+#fh.setFormatter(formatter)
 log.addHandler(fh)
 
 class SubdomainOpsQueue(object):
@@ -35,6 +33,7 @@ class SubdomainOpsQueue(object):
         queue = """CREATE TABLE {} (
         received_at INTEGER PRIMARY KEY,
         subdomain TEXT NOT NULL,
+        subdomain_name TEXT NOT NULL,
         in_tx TEXT);
         """.format(self.queue_table)
 
@@ -58,16 +57,20 @@ class SubdomainOpsQueue(object):
         self.conn.commit()
         return r_val
 
-    def _add_subdomain_row(self, jsoned_strings):
-        sql = "INSERT INTO {} (subdomain) VALUES (?)".format(self.queue_table)
-        self._execute(sql, (jsoned_strings,))
+    def _add_subdomain_row(self, jsoned_strings, subdomain_name):
+        isin_sql = "SELECT * FROM {} WHERE subdomain_name = ?".format(self.queue_table)
+        rows = self._execute(isin_sql, (subdomain_name,)).fetchall()
+        if len(rows) > 0:
+            raise subdomains.SubdomainAlreadyExists(subdomain_name, self.domain)
+
+        sql = "INSERT INTO {} (subdomain, subdomain_name) VALUES (?,?)".format(self.queue_table)
+        self._execute(sql, (jsoned_strings, subdomain_name))
 
     def _get_queued_rows(self):
         sql = """SELECT received_at, subdomain FROM {} 
         WHERE in_tx ISNULL ORDER BY received_at ASC LIMIT {};
         """.format(self.queue_table, config.get_tx_limit())
         out = list(self._execute(sql, ()).fetchall())
-        log.debug(out)
         return [ (received_at, 
                   subdomains.Subdomain.parse_subdomain_record(json.loads(packed_subdomain))) 
                  for received_at, packed_subdomain in out ]
@@ -77,12 +80,13 @@ class SubdomainOpsQueue(object):
         WHERE received_at IN ({})""".format(
             self.queue_table,
             ",".join("?" * len(subds)))
-        self._execute(sql, (txid,) + subds)
+        self._execute(sql, [txid] + list(subds))
 
     def add_subdomain_to_queue(self, subdomain):
+        name = subdomain.name
         packed_dict = subdomain.as_zonefile_entry()
         jsoned = json.dumps(packed_dict)
-        self._add_subdomain_row(jsoned)
+        self._add_subdomain_row(jsoned, name)
 
     def submit_transaction(self):
         queued_rows = self._get_queued_rows()
@@ -90,8 +94,25 @@ class SubdomainOpsQueue(object):
             return {'status' : 'true',
                     'subdomain_updates' : 0}
         indexes, entries = zip(* queued_rows)
-        print [ e.name for e in entries ]
-        zf_txt = subdomains.add_subdomains(list(entries), self.domain, broadcast_tx = False)
+
+        zonefile_made = False
+        to_add = list(entries)
+
+        zf_txt, subs_failed = subdomains.add_subdomains(
+            to_add, self.domain, broadcast_tx = False)
+
+        if len(subs_failed) > 0:
+            indexes = list(indexes)
+            db_indexes_failed = []
+            subs_failed.sort(reverse=True)
+            for i in subs_failed:
+                db_indexes_failed.append(indexes.pop(i))
+            log.info("Subdomain already existed for ({})".format(
+                [ entries[i].name for i in subs_failed ] ))
+            self._set_in_tx(db_indexes_failed, "ALREADYEXISTED")
+            if len(indexes) == 0:
+                return {'status' : 'true',
+                        'subdomain_updates' : 0}
 
         # issue user zonefile update to API endpoint
         api_endpoint, authentication = config.get_core_api_endpoint()
@@ -122,12 +143,17 @@ class SubdomainOpsQueue(object):
         self._set_in_tx(indexes, txid)
 
         log.info('Issued update for {} subdomain entries. In tx: {}'.format(
-            len(entries), txid))
+            len(indexes), txid))
         return {'status' : 'true',
-                'subdomain_updates' : len(entries),
+                'subdomain_updates' : len(indexes),
                 'transaction_hash' : txid}
 
 def queue_name_for_registration(subdomain, domain_name):
+    try:
+        subdomains.resolve_subdomain(subdomain.name, domain_name)
+        raise subdomains.SubdomainAlreadyExists(subdomain.name, domain_name)
+    except subdomains.SubdomainNotFound as e:
+        pass
     q =  SubdomainOpsQueue(domain_name, config.get_subdomain_registrar_db_path())
     q.add_subdomain_to_queue(subdomain)
     return {'status' : 'true',
@@ -270,14 +296,16 @@ class SubdomainRegistrarRPCHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         if length > 1024 * 1024:
             return self.send_response(403, json.dumps({"error" : "Content length too long. Request Denied."}))
         try:
-
             subdomain = parse_subdomain_request(self.rfile.read(length))
-
         except Exception as e:
             log.exception(e)
             return self.send_response(401, json.dumps({"error" : "Problem parsing request"}))
 
-        queued_resp = queue_name_for_registration(subdomain, self.server.domain_name)
+        try:
+            queued_resp = queue_name_for_registration(subdomain, self.server.domain_name)
+        except subdomains.SubdomainAlreadyExists as e:
+            log.exception(e)
+            return self.send_response(403, json.dumps({"error" : "Subdomain already exists on this domain"}))
 
         if "error" in queued_resp:
             return self.send_response(500, json.dumps(queued_resp))

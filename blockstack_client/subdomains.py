@@ -51,7 +51,11 @@ class SubdomainNotFound(Exception):
 class SubdomainNotFound(Exception):
     pass
 class SubdomainAlreadyExists(Exception):
-    pass
+    def __init__(self, subdomain, domain):
+        self.subdomain = subdomain
+        self.domain = domain
+        super(SubdomainAlreadyExists, self).__init__(
+            "Subdomain already exists: {}.{}".format(subdomain, domain))
 
 class Subdomain(object):
     def __init__(self, name, pubkey_encoded, n, zonefile_str, sig=None):
@@ -350,7 +354,8 @@ def add_subdomains(subdomains, domain_fqa, broadcast_tx = True):
     if len(set(subdomains)) != len(subdomains):
         raise Exception("Same subdomain listed multiple times")
 
-    for subdomain in subdomains:
+    subdomains_failed = []
+    for ix, subdomain in enumerate(subdomains):
         # step 1: see if this resolves to an already defined subdomain
         subdomain_already = True
         try:
@@ -358,16 +363,22 @@ def add_subdomains(subdomains, domain_fqa, broadcast_tx = True):
         except SubdomainNotFound as e:
             subdomain_already = False
         if subdomain_already:
-            raise SubdomainAlreadyExists("{}.{}".format(subdomain.name, domain_fqa))
-        # step 2: create the subdomain record, adding it to zf
-    for subdomain in subdomains:
-        _extend_with_subdomain(zf, subdomain)
+            if broadcast_tx:
+                raise SubdomainAlreadyExists(subdomain, domain)
+            subdomains_failed.append(ix)
+        else:
+            # step 2: create the subdomain record, adding it to zf
+            try:
+                _extend_with_subdomain(zf, subdomain)
+            except Exception as e:
+                log.exception(e)
+                subdomains_failed.append(ix)
 
     zf_txt = blockstack_zones.make_zone_file(zf)
     if broadcast_tx:
         return issue_zonefile(domain_fqa, zf_txt)
     else:
-        return zf_txt
+        return zf_txt, subdomains_failed
 
 def is_subdomain_resolution_cached(domain_fqa):
     domains = config.get_subdomains_cached_for()
