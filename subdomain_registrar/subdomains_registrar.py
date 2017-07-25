@@ -58,13 +58,13 @@ class SubdomainOpsQueue(object):
         return r_val
 
     def _add_subdomain_row(self, jsoned_strings, subdomain_name):
-        isin_sql = "SELECT * FROM {} WHERE subdomain_name = ?".format(self.queue_table)
-        rows = self._execute(isin_sql, (subdomain_name,)).fetchall()
-        if len(rows) > 0:
+        sql = """INSERT INTO {} (subdomain, subdomain_name)
+                 SELECT ?, ?
+                 WHERE NOT EXISTS ( SELECT 1 FROM {} WHERE subdomain_name = ? )""".format(
+                     self.queue_table, self.queue_table)
+        inserted = self._execute(sql, (jsoned_strings, subdomain_name, subdomain_name)).rowcount
+        if inserted <= 0:
             raise subdomains.SubdomainAlreadyExists(subdomain_name, self.domain)
-
-        sql = "INSERT INTO {} (subdomain, subdomain_name) VALUES (?,?)".format(self.queue_table)
-        self._execute(sql, (jsoned_strings, subdomain_name))
 
     def _get_queued_rows(self):
         sql = """SELECT received_at, subdomain FROM {} 
@@ -126,19 +126,24 @@ class SubdomainOpsQueue(object):
         resp = requests.put(target, headers = headers, 
                             data = json.dumps({'zonefile' : zf_txt}))
         if resp.status_code != 202:
-            log.error('Error submitting subdomain bundle: {}'.format(
-                resp.text))
-            return False
+            msg = 'Error submitting subdomain bundle: {}'.format(resp.text)
+            log.error(msg)
+            self._set_in_tx(indexes, msg)
+            return {'error' : msg}
+
         try:
             resp_js = resp.json()
         except Exception as e:
             log.error("Error in response: {}".format(resp))
             log.exception(e)
-            return False
+            return {'error' : 'Error in parsing response'}
 
         if 'error' in resp_js:
-            log.error('Error submitting subdomain bundle: {}'.format(tx_resp['error']))
-            return tx_resp
+            msg = 'Error submitting subdomain bundle: {}'.format(tx_resp['error'])
+            log.error(msg)
+            self._set_in_tx(indexes, msg)
+            return {'error' : msg}
+
         txid = str(resp_js['transaction_hash'])
         self._set_in_tx(indexes, txid)
 
