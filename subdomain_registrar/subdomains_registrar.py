@@ -1,9 +1,8 @@
-
 import os, tempfile, sys, time
 import json, logging
 import sqlite3
 import thread, threading
-import BaseHTTPServer
+import BaseHTTPServer, requests
 import jsonschema
 
 from blockstack_client import schemas, subdomains
@@ -20,8 +19,6 @@ formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messag
 fh.setLevel(logging.DEBUG)
 fh.setFormatter(formatter)
 log.addHandler(fh)
-
-log.error("Hey!")
 
 class SubdomainOpsQueue(object):
     def __init__(self, domain, db_path, entries_per_tx = 100):
@@ -62,27 +59,30 @@ class SubdomainOpsQueue(object):
         return r_val
 
     def _add_subdomain_row(self, jsoned_strings):
-        sql = "INSERT INTO {} VALUES (?)".format(self.queue_table)
+        sql = "INSERT INTO {} (subdomain) VALUES (?)".format(self.queue_table)
         self._execute(sql, (jsoned_strings,))
 
     def _get_queued_rows(self):
         sql = """SELECT received_at, subdomain FROM {} 
         WHERE in_tx ISNULL ORDER BY received_at ASC LIMIT {};
         """.format(self.queue_table, config.get_tx_limit())
-        return [ (index, json.loads( packed_subdomain )) for received_at, packed_subdomain in
-                 self._execute(sql, ()).fetchall() ]
+        out = list(self._execute(sql, ()).fetchall())
+        log.debug(out)
+        return [ (received_at, 
+                  subdomains.Subdomain.parse_subdomain_record(json.loads(packed_subdomain))) 
+                 for received_at, packed_subdomain in out ]
 
     def _set_in_tx(self, subds, txid):
         sql = """UPDATE {} SET in_tx = ?
         WHERE received_at IN ({})""".format(
             self.queue_table,
             ",".join("?" * len(subds)))
-        self._execute(sql, subds)
+        self._execute(sql, (txid,) + subds)
 
     def add_subdomain_to_queue(self, subdomain):
-        packed_strings = subdomain.pack_subdomain()
-        jsoned_strings = json.dumps(packed_strings)
-        self._add_subdomain_row(jsoned_strings)
+        packed_dict = subdomain.as_zonefile_entry()
+        jsoned = json.dumps(packed_dict)
+        self._add_subdomain_row(jsoned)
 
     def submit_transaction(self):
         queued_rows = self._get_queued_rows()
@@ -90,7 +90,8 @@ class SubdomainOpsQueue(object):
             return {'status' : 'true',
                     'subdomain_updates' : 0}
         indexes, entries = zip(* queued_rows)
-        zf_txt = subdomains.add_subdomains(entries, self.domain, broadcast_tx = False)
+        print [ e.name for e in entries ]
+        zf_txt = subdomains.add_subdomains(list(entries), self.domain, broadcast_tx = False)
 
         # issue user zonefile update to API endpoint
         api_endpoint, authentication = config.get_core_api_endpoint()
@@ -98,23 +99,26 @@ class SubdomainOpsQueue(object):
         headers['authorization'] = 'bearer {}'.format(authentication)
         headers['origin'] = 'http://localhost:3000' # lies.
         headers['content-type'] = 'application/json'
-        resp = requests.post(api_endpoint, headers = headers, 
-                             data = json.dumps({'zonefile' : zf_txt}))
+        target = api_endpoint + "/v1/names/{}/zonefile"
+        target = target.format(self.domain)
+
+        resp = requests.put(target, headers = headers, 
+                            data = json.dumps({'zonefile' : zf_txt}))
         if resp.status_code != 202:
             log.error('Error submitting subdomain bundle: {}'.format(
                 resp.text))
             return False
         try:
-            resp = resp.json()
-            resp_js = resp['response']
+            resp_js = resp.json()
         except Exception as e:
+            log.error("Error in response: {}".format(resp))
             log.exception(e)
             return False
 
         if 'error' in resp_js:
             log.error('Error submitting subdomain bundle: {}'.format(tx_resp['error']))
             return tx_resp
-        txid = resp_js['transaction_hash']
+        txid = str(resp_js['transaction_hash'])
         self._set_in_tx(indexes, txid)
 
         log.info('Issued update for {} subdomain entries. In tx: {}'.format(

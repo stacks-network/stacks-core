@@ -7,6 +7,8 @@ def get_core_auth():
     auth = config.get_config(config_file)['api_password']
     assert auth
 
+    return auth
+
 def get_core_api_endpoint():
     return 'http://localhost:6270', get_core_auth()
 

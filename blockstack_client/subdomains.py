@@ -115,6 +115,8 @@ class Subdomain(object):
             raise ParseError("Tried to parse a TXT record with only a single <character-string>")
         entries = {}
         for item in txt_entry:
+            if isinstance(item, unicode):
+                item = str(item)
             first_equal = item.index("=")
             key = item[:first_equal]
             value = item[first_equal + 1:]
@@ -358,8 +360,8 @@ def add_subdomains(subdomains, domain_fqa, broadcast_tx = True):
         if subdomain_already:
             raise SubdomainAlreadyExists("{}.{}".format(subdomain.name, domain_fqa))
         # step 2: create the subdomain record, adding it to zf
-        for subdomain in subdomains:
-            _extend_with_subdomain(zf, subdomain)
+    for subdomain in subdomains:
+        _extend_with_subdomain(zf, subdomain)
 
     zf_txt = blockstack_zones.make_zone_file(zf)
     if broadcast_tx:
@@ -451,11 +453,9 @@ def verify(pk, plaintext, sigb64):
 
 def decode_pubkey_entry(pubkey_entry):
     assert pubkey_entry.startswith("pubkey:data:")
-    pubkey_entry = pubkey_entry[len("pubkey:data:"):]
+    data = pubkey_entry[len("pubkey:data:"):]
 
     return keylib.ECPublicKey(data)
-
-    return False
 
 def encode_pubkey_entry(key):
     """
