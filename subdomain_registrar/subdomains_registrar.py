@@ -37,8 +37,8 @@ class SubdomainOpsQueue(object):
         in_tx TEXT);
         """.format(self.queue_table)
 
-        index = "CREATE INDEX subdomain ON {} (subdomain)".format(
-            self.queue_table)
+        index = "CREATE INDEX subdomain_{} ON {} (subdomain)".format(
+            self.queue_table, self.queue_table)
 
         check = """SELECT name FROM sqlite_master WHERE
          type='table' AND name='{}';""".format(self.queue_table)
