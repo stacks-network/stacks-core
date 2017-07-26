@@ -48,7 +48,7 @@ class DomainNotOwned(Exception):
     pass
 class SubdomainNotFound(Exception):
     pass
-class SubdomainNotFound(Exception):
+class SubdomainNotFound(KeyError):
     pass
 class SubdomainAlreadyExists(Exception):
     def __init__(self, subdomain, domain):
@@ -150,19 +150,22 @@ class SubdomainDB(object):
             domain_fqa.replace('.', '_'))
         self.conn = sqlite3.connect(config.get_subdomains_db_path())
 
-    def last_seen_zonefile_hash(self):
+    def last_seen(self):
         get_cmd = """SELECT * FROM {}""".format(self.status_table)
         cursor = self.conn.cursor()
         cursor.execute(get_cmd)
         # aaron: note, if there's no entry, we'll get such a lovely exception.
-        zonefile_hash = str(cursor.fetchone()[0])
-        return zonefile_hash
+        last_hash, last_block = cursor.fetchone()
+        return str(last_hash), int(last_block)
 
     def get_subdomain_entry(self, subdomain_name):
         get_cmd = "SELECT * FROM {} WHERE subdomain=?".format(self.subdomain_table)
         cursor = self.conn.cursor()
         cursor.execute(get_cmd, (subdomain_name,))
-        (name, n, encoded_pubkey, zonefile_str, sig) = cursor.fetchone()
+        try:
+            (name, n, encoded_pubkey, zonefile_str, sig) = cursor.fetchone()
+        except:
+            raise SubdomainNotFound(subdomain_name)
         if sig == '':
             sig = None
         else:
@@ -170,31 +173,57 @@ class SubdomainDB(object):
         # lol, unicode support.
         return Subdomain(str(name), str(encoded_pubkey), int(n), str(zonefile_str), sig)
 
-    def update(self):
-        self._drop_and_create_table()
-        zonefiles, hashes = data.list_zonefile_history(self.domain, return_hashes = True)
-        in_mem = _build_subdomain_db(self.domain, zonefiles)
+    def initialize_db(self):
+        return self.update(full_refresh=True)
 
-        for record in in_mem.values():
-            self._write_record(record)
-        self._set_last_seen_zf_hash(hashes[-1])
+    def update(self, full_refresh=False):
+        if full_refresh:
+            self._drop_and_create_table()
+            last_block = 0
+        else:
+            last_block = self.last_seen()
 
-    def _write_record(self, subdomain_obj):
-        write_cmd = """INSERT INTO {} VALUES (?, ?, ?, ?, ?)""".format(self.subdomain_table)
+        zonefiles, hashes, blockids = data.list_zonefile_history(
+            self.domain, return_hashes = True, from_block = last_block, return_blockids = True)
+        assert len(hashes) == len(blockids)
+        assert len(hashes) == len(zonefiles)
+        if len(hashes) == 0:
+            return
+        _build_subdomain_db(self.domain, zonefiles, self)
+        
+        last_hash = hashes[-1]
+        last_block = blockids[-1]
+
+        self._set_last_seen_zf_hash(hashes[-1], last_block)
+
+    def __setitem__(self, subdomain_name, subdomain_obj):
+        assert isinstance(subdomain_obj, Subdomain)
+        assert subdomain_name == subdomain_obj.name
+        write_cmd = """INSERT OR REPLACE INTO {} VALUES
+                       (?, ?, ?, ?, ?) """.format(self.subdomain_table)
         cursor = self.conn.cursor()
-        cursor.execute(write_cmd, 
+        cursor.execute(write_cmd,
                        (subdomain_obj.name,
                         subdomain_obj.n,
                         encode_pubkey_entry(subdomain_obj.pubkey),
                         subdomain_obj.zonefile_str,
-                        subdomain_obj.sig
-                       ))
+                        subdomain_obj.sig))
         self.conn.commit()
 
-    def _set_last_seen_zf_hash(self, hash):
-        write_cmd = """INSERT INTO {} VALUES (?)""".format(self.status_table)
+    def __getitem__(self, subdomain_name):
+        return self.get_subdomain_entry(subdomain_name)
+
+    def __contains__(self, subdomain_name):
+        try:
+            _ = self[subdomain_name]
+            return True
+        except SubdomainNotFound:
+            return False
+
+    def _set_last_seen_zf_hash(self, hash, block):
+        write_cmd = """INSERT INTO {} VALUES (?,?)""".format(self.status_table)
         cursor = self.conn.cursor()
-        cursor.execute(write_cmd, (hash, ))
+        cursor.execute(write_cmd, (hash, block))
         self.conn.commit()
 
     def _drop_and_create_table(self):
@@ -206,7 +235,7 @@ class SubdomainDB(object):
         zonefile TEXT, 
         signature TEXT);
         """.format(self.subdomain_table)
-        create_status_cmd = """CREATE TABLE {} (zonefileHash TEXT);""".format(
+        create_status_cmd = """CREATE TABLE {} (zonefileHash TEXT, lastBlock INTEGER);""".format(
             self.status_table)
         cursor = self.conn.cursor()
         cursor.execute(drop_cmd.format(self.subdomain_table))
@@ -264,8 +293,7 @@ def _transition_valid(from_sub_record, to_sub_record):
         return False
     return True
 
-def _build_subdomain_db(domain_fqa, zonefiles):
-    subdomain_db = {}
+def _build_subdomain_db(domain_fqa, zonefiles, subdomain_db = {}):
     for zf in zonefiles:
         if isinstance(zf, dict):
             assert "zonefile" not in zf
@@ -388,12 +416,12 @@ def resolve_subdomain_cached_domain(subdomain, domain_fqa):
     db = SubdomainDB(domain_fqa)
     # check if db is current with zonefile hash
     zf_hash = proxy.get_name_blockchain_record(domain_fqa)['value_hash']
-    if zf_hash != db.last_seen_zonefile_hash():
-        log.debug("SubdomainDB Zonefile {} not up to date with {}".format(db.last_seen_zonefile_hash(), 
+    if zf_hash != db.last_seen()[0]:
+        log.debug("SubdomainDB Zonefile {} not up to date with {}".format(db.last_seen(), 
                                                                           zf_hash))
         db.update()
     else:
-        log.debug("SubdomainDB Zonefile {} up to date with {}".format(db.last_seen_zonefile_hash(), 
+        log.debug("SubdomainDB Zonefile {} up to date with {}".format(db.last_seen(), 
                                                                       zf_hash))
     subdomain_obj = db.get_subdomain_entry(subdomain)
 

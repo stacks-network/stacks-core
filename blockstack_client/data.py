@@ -593,7 +593,8 @@ def get_immutable_by_name(name, data_id, proxy=None):
     return get_immutable(name, None, data_id=data_id, proxy=proxy)
 
 
-def list_update_history(name, current_block=None, config_path=CONFIG_PATH, proxy=None):
+def list_update_history(name, current_block=None, config_path=CONFIG_PATH, proxy=None,
+                        from_block=0, return_blockids=False):
     """
     list_update_history
 
@@ -617,7 +618,7 @@ def list_update_history(name, current_block=None, config_path=CONFIG_PATH, proxy
             log.error('Invalid getinfo reply')
             return {'error': 'Failed to contact Blockstack server'}
 
-    name_history = get_name_blockchain_history( name, 0, current_block )
+    name_history = get_name_blockchain_history( name, from_block, current_block )
     if 'error' in name_history:
         log.error('Failed to get name history for {}: {}'.format(name, name_history['error']))
         return name_history
@@ -638,10 +639,13 @@ def list_update_history(name, current_block=None, config_path=CONFIG_PATH, proxy
             # changed
             all_update_hashes.append(value_hash)
 
+    if return_blockids:
+        return all_update_hashes, block_ids
     return all_update_hashes
 
 
-def list_zonefile_history(name, current_block=None, proxy=None, return_hashes = False):
+def list_zonefile_history(name, current_block=None, proxy=None, return_hashes = False,
+                          from_block=None, return_blockids=False):
     """
     list_zonefile_history
 
@@ -650,9 +654,16 @@ def list_zonefile_history(name, current_block=None, proxy=None, return_hashes = 
     or a dict with only the key 'error' defined.  This method can successfully return
     some but not all zonefiles.
     """
-    zonefile_hashes = list_update_history(
-        name, current_block=current_block, proxy=proxy
-    )
+    kwargs = {}
+    if from_block:
+        kwargs['from_block'] = from_block
+    if return_blockids:
+        kwargs['return_blockids'] = return_blockids
+        zonefile_hashes, zonefile_blockids = list_update_history(
+            name, current_block=current_block, proxy=proxy, **kwargs)
+    else:
+        zonefile_hashes = list_update_history(
+            name, current_block=current_block, proxy=proxy, **kwargs)
 
     zonefiles = []
     for zh in zonefile_hashes:
@@ -665,9 +676,14 @@ def list_zonefile_history(name, current_block=None, proxy=None, return_hashes = 
 
         zonefiles.append(zonefile)
 
+    rval = (zonefiles, )
     if return_hashes:
-        return zonefiles, zonefile_hashes
-    return zonefiles
+        rval += (zonefile_hashes,)
+    if return_blockids:
+        rval += (zonefile_blockids,)
+    if len(rval) == 1:
+        return rval[0]
+    return rval
 
 
 def list_immutable_data_history(name, data_id, current_block=None, proxy=None):

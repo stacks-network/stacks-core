@@ -137,7 +137,55 @@ def scenario( wallets, **kw ):
     #### Let's test out a db.
 
     subdomainDB = subdomains.SubdomainDB("foo.test")
-    subdomainDB.update()
+    subdomainDB.initialize_db()
+
+    user_profile2 = subdomains.resolve_subdomain_cached_domain("foo", "foo.test")['profile']
+    print "Cache Resolved Profile : {}".format(user_profile2)
+    assert 'foo' in user_profile2
+
+    #### Write another zonefile
+
+    user_zf = {
+        '$origin': 'bar',
+        '$ttl': 3600,
+        'txt' : [], 'uri' : []
+    }
+    user_zf['uri'].append(blockstack_client.zonefile.url_to_uri_record("file:///tmp/bar.profile.json"))
+
+
+    bar_sk = keylib.ECPrivateKey()
+    print "Resolving key {}".format(bar_sk.to_hex())
+
+    subdomain = subdomains.Subdomain("bar", subdomains.encode_pubkey_entry(bar_sk), 0,
+                                     blockstack_zones.make_zone_file(user_zf))
+
+
+    subdomains.add_subdomains([subdomain], "foo.test")
+
+    # wait for new update to get confirmed 
+    for i in xrange(0, 12):
+        sys.stdout.flush()        
+        testlib.next_block( **kw )
+
+    print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
+    time.sleep(10)
+
+    # let's write a profile for the resolver.
+    profile_raw = {"bar" : {
+        "@type" : "Person",
+        "description" : "Lorem Ipsum Dolorem"
+        }}
+    # as of now, can't use storage's put_mutable_data, because it tries to figure out
+    #  where to write things based on a user's zonefile and subdomains don't have
+    #  zonefiles :\
+
+    serialized_data = blockstack_client.storage.serialize_mutable_data(
+        profile_raw, data_privkey= bar_sk.to_hex(), data_pubkey=None, 
+        data_signature=None, profile=True)
+
+    with open("/tmp/bar.profile.json", 'w') as f_out:
+        f_out.write(serialized_data)
+
 
 def check( state_engine ):
 
@@ -150,5 +198,9 @@ def check( state_engine ):
     user_profile2 = subdomains.resolve_subdomain_cached_domain("foo", "foo.test")['profile']
     print "Cache Resolved Profile : {}".format(user_profile2)
     assert 'foo' in user_profile2
+
+    user_profile3 = subdomains.resolve_subdomain_cached_domain("bar", "foo.test")['profile']
+    print "Cache Resolved Profile : {}".format(user_profile2)
+    assert 'bar' in user_profile2
 
     return True
