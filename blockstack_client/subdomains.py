@@ -181,7 +181,7 @@ class SubdomainDB(object):
             self._drop_and_create_table()
             last_block = 0
         else:
-            last_block = self.last_seen()
+            last_block = self.last_seen()[1]
 
         zonefiles, hashes, blockids = data.list_zonefile_history(
             self.domain, return_hashes = True, from_block = last_block, return_blockids = True)
@@ -294,6 +294,10 @@ def _transition_valid(from_sub_record, to_sub_record):
     return True
 
 def _build_subdomain_db(domain_fqa, zonefiles, subdomain_db = {}):
+    """
+    IMPORTANT: zonefiles' origins must ALREADY be verified.
+               
+    """
     for zf in zonefiles:
         if isinstance(zf, dict):
             assert "zonefile" not in zf
@@ -302,7 +306,9 @@ def _build_subdomain_db(domain_fqa, zonefiles, subdomain_db = {}):
             assert isinstance(zf, (str, unicode)) 
             zf_json = bs_zonefile.decode_name_zonefile(domain_fqa, zf)
             assert "zonefile" not in zf_json
+
         subdomains = parse_zonefile_subdomains(zf_json)
+        domain_name = zf_json["$origin"]
 
         for subdomain in subdomains:
             if subdomain.name in subdomain_db:

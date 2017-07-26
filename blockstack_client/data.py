@@ -624,6 +624,7 @@ def list_update_history(name, current_block=None, config_path=CONFIG_PATH, proxy
         return name_history
 
     all_update_hashes = []
+    corresponding_block_ids = []
     block_ids = name_history.keys()
     block_ids.sort()
     for block_id in block_ids:
@@ -638,9 +639,10 @@ def list_update_history(name, current_block=None, config_path=CONFIG_PATH, proxy
 
             # changed
             all_update_hashes.append(value_hash)
+            corresponding_block_ids.append(block_id)
 
     if return_blockids:
-        return all_update_hashes, block_ids
+        return all_update_hashes, corresponding_block_ids
     return all_update_hashes
 
 

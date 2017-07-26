@@ -200,7 +200,7 @@ def check( state_engine ):
     assert 'foo' in user_profile2
 
     user_profile3 = subdomains.resolve_subdomain_cached_domain("bar", "foo.test")['profile']
-    print "Cache Resolved Profile : {}".format(user_profile2)
-    assert 'bar' in user_profile2
+    print "Cache Resolved Profile : {}".format(user_profile3)
+    assert 'bar' in user_profile3
 
     return True
