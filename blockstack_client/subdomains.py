@@ -293,11 +293,9 @@ def _transition_valid(from_sub_record, to_sub_record):
         return False
     return True
 
-def _build_subdomain_db(domain_fqa, zonefiles, subdomain_db = {}):
-    """
-    IMPORTANT: zonefiles' origins must ALREADY be verified.
-               
-    """
+def _build_subdomain_db(domain_fqa, zonefiles, subdomain_db = None):
+    if subdomain_db is None:
+        subdomain_db = {}
     for zf in zonefiles:
         if isinstance(zf, dict):
             assert "zonefile" not in zf
@@ -308,7 +306,6 @@ def _build_subdomain_db(domain_fqa, zonefiles, subdomain_db = {}):
             assert "zonefile" not in zf_json
 
         subdomains = parse_zonefile_subdomains(zf_json)
-        domain_name = zf_json["$origin"]
 
         for subdomain in subdomains:
             if subdomain.name in subdomain_db:

@@ -267,6 +267,14 @@ registrar URI 10 1 "bsreg://foo.com:8234"
         self.assertEqual(subdomain_db["foo"].n, 0)
         self.assertEqual(subdomain_db["bar"].n, 0)
 
+        # handle repeated zonefile
+
+        subdomain_db = subdomains._build_subdomain_db("bar.id", history[:3])
+        self.assertEqual(subdomain_db["foo"].n, 0)
+        self.assertEqual(subdomain_db["bar"].n, 0)
+        subdomains._build_subdomain_db("bar.id", history[:3], subdomain_db = subdomain_db)
+        self.assertEqual(subdomain_db["foo"].n, 0)
+        self.assertEqual(subdomain_db["bar"].n, 0)        
 
 
 if __name__ == '__main__':
