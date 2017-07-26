@@ -115,19 +115,21 @@ class SubdomainOpsQueue(object):
                         'subdomain_updates' : 0}
 
         # issue user zonefile update to API endpoint
-        api_endpoint, authentication = config.get_core_api_endpoint()
-        headers = {}
-        headers['authorization'] = 'bearer {}'.format(authentication)
-        headers['origin'] = 'http://localhost:3000' # lies.
-        headers['content-type'] = 'application/json'
-        target = api_endpoint + "/v1/names/{}/zonefile"
-        target = target.format(self.domain)
 
-        resp = requests.put(target, headers = headers, 
-                            data = json.dumps({'zonefile' : zf_txt}))
+        target = "/v1/names/{}/zonefile".format(self.domain)
+        resp = rest_to_api(target, data = json.dumps({'zonefile' : zf_txt}), call = requests.put)
+
         if resp.status_code != 202:
             msg = 'Error submitting subdomain bundle: {}'.format(resp.text)
             log.error(msg)
+            try:
+                resp_js = resp.json()
+                if "maxLength" in str(resp_js["error"]):
+                    self.entries_per_tx = 0.8 * int(self.entries_per_tx)
+                    
+            except Exception as e:
+                pass
+
             self._set_in_tx(indexes, msg)
             return {'error' : msg}
 
@@ -379,8 +381,19 @@ class SubdomainLock(object):
             return False
 
 
+def rest_to_api(target, data=None, call = requests.get):
+    api_endpoint, authentication = config.get_core_api_endpoint()
+    headers = {}
+    headers['authorization'] = 'bearer {}'.format(authentication)
+    headers['origin'] = 'http://localhost:3000' # lies.
+    headers['content-type'] = 'application/json'
+    target = api_endpoint + target
 
-
+    if data is None:
+        return call(target, headers = headers)
+    else:
+        return call(target, headers = headers,
+                    data = data)
 
 START_HELP = """ usage: service start <domainname:required> """
 

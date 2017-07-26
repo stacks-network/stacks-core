@@ -276,6 +276,16 @@ registrar URI 10 1 "bsreg://foo.com:8234"
         self.assertEqual(subdomain_db["foo"].n, 0)
         self.assertEqual(subdomain_db["bar"].n, 0)        
 
+    def test_large_zonefile(self):
+        empty_zf = """$ORIGIN registrar.id
+        $TTL 3600
+        pubkey TXT "pubkey:data:0"
+        registrar URI 10 1 "bsreg://foo.com:8234"
+        """
+        domain_name = "registrar.id"
+        zf_js = zonefile.decode_name_zonefile(domain_name, empty_zf)
+        #for i in range(0, 200):
+
 
 if __name__ == '__main__':
     unittest.main()

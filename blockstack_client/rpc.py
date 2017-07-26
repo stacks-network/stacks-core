@@ -262,7 +262,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if schema is not None:
                 jsonschema.validate( request, schema )
 
-        except (TypeError, ValueError, ValidationError) as ve:
+        except ValidationError as ve:
+            if BLOCKSTACK_DEBUG:
+                log.exception(ve)
+            log.error("Validation error on request {}...".format(
+                request_str[:15]))
+            if ve.validator == "maxLength":
+                
+        except (TypeError, ValueError) as ve:
             if BLOCKSTACK_DEBUG:
                 log.exception(ve)
 
@@ -666,7 +673,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         internal = self.server.get_internal_proxy()
 
         request = self._read_json(schema=request_schema)
-        if request is None:
+        if request is None or 'error' in request:
             return self._reply_json({"error": 'Invalid request'}, status_code=401)
 
         name = request['name']
@@ -884,7 +891,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         internal = self.server.get_internal_proxy()
 
         request = self._read_json(schema=request_schema)
-        if request is None:
+        if request is None or 'error' in request:
             self._reply_json({"error": 'Invalid request'}, status_code=401)
             return
 
@@ -957,6 +964,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         request = self._read_json(schema=request_schema)
         if request is None:
             self._reply_json({"error": 'Invalid request'}, status_code=401)
+            return
+        elif 'error' in request:
+            self._reply_json({"error": request["error"]}, status_code=401)
             return
 
         zonefile_hash = request.get('zonefile_hash')
@@ -1240,7 +1250,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         # maybe storing signed datastore?
         request = self._read_json()
-        if request:
+        if request and 'error' not in request:
             return self._store_signed_datastore(ses, path_info, request)
         else:
             return self._reply_json({'error': 'Missing signed datastore info', 'errno': errno.EINVAL}, status_code=401)
@@ -1306,7 +1316,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         # deleting from signed tombstones?
         request = self._read_json()
-        if request:
+        if request and 'error' not in request:
             return self._delete_signed_datastore( ses, path_info, request, device_ids )
 
         else:
@@ -1620,7 +1630,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         exist = qs.get('exist', '0') == '1'
 
         request = self._read_json(maxlen=None)
-        if request:
+        if request and 'error' not in request:
             # sent externally-signed data
             operation = None
             if inode_type == 'files':
@@ -1666,7 +1676,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 return self._reply_json({'error': 'Invalid request: rmtree is for inodes', 'errno': errno.EINVAL}, status_code=401)
 
         request = self._read_json()
-        if request:
+        if request and 'error' not in request:
             # sent externally-signed data
             operation = None
             if rmtree:
@@ -2042,7 +2052,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         }
 
         request = self._read_json(schema=address_schema)
-        if request is None:
+        if request is None or 'error' in request:
             return self._reply_json({'error': 'Invalid request'}, status_code=401)
 
         address = str(request['address'])
@@ -2089,7 +2099,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Return 500 on error
         """
         wallet = self._read_json(schema=WALLET_SCHEMA_CURRENT)
-        if wallet is None:
+        if wallet is None or 'error' in request:
             return self._reply_json({'error': 'Failed to validate wallet keys'}, status_code=401)
 
         res = backend.registrar.set_wallet( (wallet['payment_addresses'][0], wallet['payment_privkey']),
@@ -2114,7 +2124,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Invalid key ID'}, status_code=401)
 
         privkey_info = self._read_json(schema=PRIVKEY_INFO_SCHEMA)
-        if privkey_info is None:
+        if privkey_info is None or 'error' in request:
             return self._reply_json({'error': 'Failed to validate private key'}, status_code=401)
 
         wallet = backend.registrar.get_wallet(config_path=self.server.config_path)
@@ -2179,7 +2189,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         }
 
         request = self._read_json(schema=password_schema)
-        if request is None:
+        if request is None or 'error' in request:
             return self._reply_json({'error': 'Invalid request'}, status_code=401)
 
         password = str(request['password'])
@@ -2422,7 +2432,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         }
 
         driver_request = self._read_json(request_schema)
-        if driver_request is not None:
+        if driver_request is not None and 'error' not in request:
             log.debug("Updating driver config for {}".format(driver_name))
             driver_config = driver_request['driver_config']
 
@@ -2660,7 +2670,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         tx_req = None
         tx_req = self._read_json(tx_schema)
-        if tx_req is None:
+        if tx_req is None or 'error' in request:
             return self._reply_json({'error': 'Failed to parse request.  Expected {}'.format(json.dumps(tx_schema))}, status_code=401)
 
         # broadcast!

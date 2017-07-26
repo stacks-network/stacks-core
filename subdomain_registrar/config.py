@@ -14,7 +14,7 @@ def get_core_api_endpoint():
 
 def get_tx_frequency():
     """ Returns transaction frequency of subdomain registrations in seconds """
-    return 15
+    return 60
 
 def get_tx_limit():
     return 100
