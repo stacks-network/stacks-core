@@ -268,7 +268,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.error("Validation error on request {}...".format(
                 request_str[:15]))
             if ve.validator == "maxLength":
-                
+                return {"error" : "maxLength"}
         except (TypeError, ValueError) as ve:
             if BLOCKSTACK_DEBUG:
                 log.exception(ve)
@@ -2099,7 +2099,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Return 500 on error
         """
         wallet = self._read_json(schema=WALLET_SCHEMA_CURRENT)
-        if wallet is None or 'error' in request:
+        if wallet is None or 'error' in wallet:
             return self._reply_json({'error': 'Failed to validate wallet keys'}, status_code=401)
 
         res = backend.registrar.set_wallet( (wallet['payment_addresses'][0], wallet['payment_privkey']),
@@ -2124,7 +2124,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Invalid key ID'}, status_code=401)
 
         privkey_info = self._read_json(schema=PRIVKEY_INFO_SCHEMA)
-        if privkey_info is None or 'error' in request:
+        if privkey_info is None or 'error' in privkey_info:
             return self._reply_json({'error': 'Failed to validate private key'}, status_code=401)
 
         wallet = backend.registrar.get_wallet(config_path=self.server.config_path)
@@ -2432,7 +2432,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         }
 
         driver_request = self._read_json(request_schema)
-        if driver_request is not None and 'error' not in request:
+        if driver_request is not None and 'error' not in driver_request:
             log.debug("Updating driver config for {}".format(driver_name))
             driver_config = driver_request['driver_config']
 
@@ -2670,7 +2670,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         tx_req = None
         tx_req = self._read_json(tx_schema)
-        if tx_req is None or 'error' in request:
+        if tx_req is None or 'error' in tx_req:
             return self._reply_json({'error': 'Failed to parse request.  Expected {}'.format(json.dumps(tx_schema))}, status_code=401)
 
         # broadcast!
