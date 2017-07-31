@@ -116,7 +116,7 @@ def activate_account(blockchain_id, datastore_pk):
         return False
 
     # sign in and make a token with the given blockchain ID (whose wallet must be currently set)
-    res = testlib.blockstack_cli_app_signin(blockchain_id, datastore_pk, 'app.com.1', ['store_read', 'store_write', 'store_admin'])
+    res = testlib.blockstack_cli_app_signin(blockchain_id, datastore_pk, 'app.com', ['store_read', 'store_write', 'store_admin'])
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         return False
@@ -137,7 +137,7 @@ def core_signin(datastore_pk, blockchain_id):
     global sessions
 
     # sign in and make a token with the given blockchain ID (whose wallet must be currently set)
-    res = testlib.blockstack_cli_app_signin(blockchain_id, datastore_pk, 'app.com.1', ['store_read', 'store_write', 'store_admin'])
+    res = testlib.blockstack_cli_app_signin(blockchain_id, datastore_pk, 'app.com', ['store_read', 'store_write', 'store_admin'])
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         return False
@@ -167,26 +167,8 @@ def target_datastore(blockchain_id):
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         return False
-   
-    old_root = os.environ.get('TEST_BLOCKSTACK_TEST_DISK_ROOT', None)
-    old_blockchain_id = None
-
-    if old_root:
-        old_root_parts = old_root.split('-')
-        if old_root_parts[-1].endswith('.test'):
-            old_blockchain_id = old_root_parts[-1]
-
-    new_root = '/tmp/blockstack-integration-test-storage{}'.format(blockchain_id)
-    os.environ['TEST_BLOCKSTACK_TEST_DISK_ROOT'] = new_root
-
-    if old_blockchain_id and os.path.exists(new_root + '/index'):
-        # sanity check: look for weird race conditions 
-        rc = os.system("fgrep '{}' -r '{}/index' >/dev/null".format(old_blockchain_id, new_root))
-        if rc != 0:
-            print '\n\nBUG: blockchain ID {} found in {}/index'.format(old_blockchain_id, new_root)
-            return False
-
-    return True
+    
+    os.environ['TEST_BLOCKSTACK_TEST_DISK_ROOT'] = '/tmp/blockstack-integration-test-storage{}'.format(blockchain_id)
 
 
 def setup_datastore(datastore_pk, blockchain_id, write_iteration):
@@ -560,9 +542,7 @@ def scenario( wallets, **kw ):
         print 'failed to start API for foo.test: {}'.format(res)
         return False
 
-    rc = target_datastore('foo.test')
-    if not rc:
-        return False
+    target_datastore('foo.test')
 
     # instantiate foo.test's test driver
     res = testlib.blockstack_REST_call('POST', '/v1/node/drivers/storage/test?index=1&force=1', None, api_pass='blockstack_integration_test_api_password')
@@ -585,9 +565,7 @@ def scenario( wallets, **kw ):
 
     # link test account for bar.test
     # BUT! make sure we store the profile for bar.test into foo.test's and bar.test's storage directories!
-    rc = target_datastore('bar.test')
-    if not rc:
-        return False
+    target_datastore('bar.test')
 
     # instantiate bar.test's test driver 
     res = testlib.blockstack_REST_call('POST', '/v1/node/drivers/storage/test?index=1&force=1', None, api_pass='blockstack_integration_test_api_password')
@@ -641,9 +619,7 @@ def scenario( wallets, **kw ):
     # make *absolutely certain* that the test driver does not load data from
     # foo.test's or bar.test's storage directories.  We want to verify that we can look up
     # the index manifest URLs from the profile
-    rc = target_datastore(None)
-    if not rc:
-        return False
+    target_datastore(None)
 
     print "\n\nbar.test tries to read foo.test's datastore {}\n\n".format(foo_datastore_id)
     res = read_datastore(foo_datastore_id, "foo.test", 1)
@@ -666,9 +642,7 @@ def scenario( wallets, **kw ):
     # make *absolutely certain* that the test driver does not load data from
     # foo.test's or bar.test's storage directories.  We want to verify that we can look up
     # the index manifest URLs from the profile
-    rc = target_datastore(None)
-    if not rc:
-        return False
+    target_datastore(None)
 
     # try to read all of bar.test's files
     print "\n\nfoo.test tries to read bar.test's datastore {}\n\n".format(bar_datastore_id)
@@ -678,9 +652,7 @@ def scenario( wallets, **kw ):
         return False
 
     # re-target foo.test's datastore
-    rc = target_datastore('foo.test')
-    if not rc:
-        return False
+    target_datastore('foo.test')
 
     # have foo.test write new files 
     print '\n\nupdate foo.test datastore\n\n'
@@ -698,9 +670,7 @@ def scenario( wallets, **kw ):
     # make *absolutely certain* that the test driver does not load data from
     # foo.test's or bar.test's storage directories.  We want to verify that we can look up
     # the index manifest URLs from the profile
-    rc = target_datastore(None)
-    if not rc:
-        return False
+    target_datastore(None)
 
     # get foo.test's new files 
     res = read_datastore(foo_datastore_id, 'foo.test', 3)
@@ -709,9 +679,7 @@ def scenario( wallets, **kw ):
         return False
 
     # re-target bar.test's datastore
-    rc = target_datastore('bar.test')
-    if not rc:
-        return False
+    target_datastore('bar.test')
 
     # have bar write some new files 
     print '\n\nupdate bar.test datastore\n\n'
@@ -742,9 +710,7 @@ def scenario( wallets, **kw ):
     # make *absolutely certain* that the test driver does not load data from
     # foo.test's or bar.test's storage directories.  We want to verify that we can look up
     # the index manifest URLs from the profile
-    rc = target_datastore(None)
-    if not rc:
-        return False
+    target_datastore(None)
 
     # verify that foo's files are gone 
     res = check_datastore_files_absent(foo_datastore_id, 'foo.test')
@@ -753,9 +719,7 @@ def scenario( wallets, **kw ):
         return False
 
     # re-target bar.test's datastore
-    rc = target_datastore('bar.test')
-    if not rc:
-        return False
+    target_datastore('bar.test')
 
     # clear bar.test's files
     print '\n\ndelete bar.test files\n\n'
@@ -773,9 +737,7 @@ def scenario( wallets, **kw ):
     # make *absolutely certain* that the test driver does not load data from
     # foo.test's or bar.test's storage directories.  We want to verify that we can look up
     # the index manifest URLs from the profile
-    rc = target_datastore(None)
-    if not rc:
-        return False
+    target_datastore(None)
 
     # verify that bar's files are gone 
     res = check_datastore_files_absent(bar_datastore_id, 'bar.test')
@@ -784,9 +746,7 @@ def scenario( wallets, **kw ):
         return False
 
     # re-target foo.test's datastore
-    rc = target_datastore("foo.test")
-    if not rc:
-        return False
+    target_datastore("foo.test")
 
     # clear foo's directories 
     res = clear_datastore_directories('foo.test', foo_datastore_pk)
@@ -803,9 +763,7 @@ def scenario( wallets, **kw ):
     # make *absolutely certain* that the test driver does not load data from
     # foo.test's or bar.test's storage directories.  We want to verify that we can look up
     # the index manifest URLs from the profile
-    rc = target_datastore(None)
-    if not rc:
-        return False
+    target_datastore(None)
 
     # verify that foo's directories are gone 
     res = check_datastore_directories_absent(foo_datastore_id, "foo.test")
@@ -814,9 +772,7 @@ def scenario( wallets, **kw ):
         return False
 
     # re-target bar.test's datastore
-    rc = target_datastore('bar.test')
-    if not rc:
-        return False
+    target_datastore('bar.test')
 
     # clear bar's directories
     res = clear_datastore_directories('bar.test', bar_datastore_pk)
@@ -833,9 +789,7 @@ def scenario( wallets, **kw ):
     # make *absolutely certain* that the test driver does not load data from
     # foo.test's or bar.test's storage directories.  We want to verify that we can look up
     # the index manifest URLs from the profile
-    rc = target_datastore(None)
-    if not rc:
-        return False
+    target_datastore(None)
 
     # verify that bar's directories are gone
     res = check_datastore_directories_absent(bar_datastore_id, "bar.test")

@@ -22,7 +22,37 @@ For more info on Blockstack see: http://github.com/blockstack/blockstack
 
 ## Quick Start
 
-The fastest way to get started with Blockstack is with `pip`.
+### Installing from apt
+
+The fastest way to get started with Blockstack is with `apt`.
+
+First, you'll need to add our repositories to apt.
+
+```
+$ wget -qO - https://raw.githubusercontent.com/blockstack/packaging/master/repo-key.pub | sudo apt-key add -
+$ echo "echo 'deb http://packages.blockstack.com/repositories/ubuntu/ xenial main' > /etc/apt/sources.list.d/blockstack.list" | sudo -E bash -
+$ sudo apt update
+$ sudo apt install blockstack
+```
+
+To install browser, you'll need `nodejs >= 6`, which for Ubuntu, means you'll need to install from (nodejs.org)[https://nodejs.org/en/download/package-manager/#debian-and-ubuntu-based-linux-distributions]:
+```
+$ curl -sL https://deb.nodesource.com/setup_8.x | sudo -E bash -
+$ sudo apt install blockstack-browser
+```
+
+#### Support for Integration Tests and Regtest Environment
+
+Our integration test suite allows you to easily get a regtest environment up and running with Blockstack, and the above `apt` package includes the suite. However, you'll need to install `bitcoind` and `sqlite3` for the tests to execute properly. For that you'll need to add bitcoin's PPA (or install it otherwise).
+
+```
+$ sudo apt install software-properties-common
+$ sudo add-apt-repository ppa:bitcoin/bitcoin
+$ sudo apt update
+$ sudo apt install sqlite3 bitcoind
+```
+
+### Installing from pip
 
 You should use `pip2` if you have it instead of `pip`, since Blockstack requires Python 2.
 
@@ -37,12 +67,8 @@ For SUSE and openSUSE
 $ sudo zypper update && zypper install rng-tools python-devel libffi-devel
 $ sudo pip install blockstack --upgrade 
 ```
-For macOS: 
-```
-$ brew install gmp libffi openssl
-$ sudo pip install --upgrade pip
-$ sudo pip install blockstack --upgrade
-```
+
+### Testing your install
 
 You can test your installation by trying:
 ```

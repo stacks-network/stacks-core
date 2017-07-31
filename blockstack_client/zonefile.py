@@ -28,13 +28,13 @@ import base64
 import socket
 from keylib import ECPrivateKey
 
-from proxy import *
+from .proxy import *
 import storage
 import user as user_db
 
-from config import get_config
-from logger import get_logger
-from constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
+from .config import get_config
+from .logger import get_logger
+from .constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 
 log = get_logger()
 
@@ -178,13 +178,16 @@ def decode_name_zonefile(name, zonefile_txt, allow_legacy=False):
     return user_zonefile
 
 
-def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, proxy=None ):
+def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_zonefile=False, allow_legacy=False, proxy=None ):
     """
-    Fetch and load a raw user zonefile from the storage implementation with the given hex string hash,
+    Fetch and load a user zonefile from the storage implementation with the given hex string hash,
     The user zonefile hash should have been loaded from the blockchain, and thereby be the
     authentic hash.
 
-    Return the raw user zonefile (as a string)
+    If raw_zonefile is True, then return the raw zonefile data.  Don't parse it.
+    If however, raw_zonefile is False, the zonefile will be parsed.  If name is given, the $ORIGIN will be checked.
+
+    Return the user zonefile (as a dict) on success
     Return None on error
     """
 
@@ -219,17 +222,21 @@ def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, proxy
         log.debug('Fetched {} from Atlas peer {}'.format(expected_zonefile_hash, hostport))
         zonefile_txt = res['zonefiles'][expected_zonefile_hash]
 
-    try:
-        assert isinstance(zonefile_txt, (str, unicode)), msg
-    except AssertionError as ae:
-        if BLOCKSTACK_TEST is not None:
-            log.exception(ae)
-
+    if raw_zonefile:
         msg = 'Driver did not return a serialized zonefile'
-        log.error(msg)
-        return None
+        try:
+            assert isinstance(zonefile_txt, (str, unicode)), msg
+        except AssertionError as ae:
+            if BLOCKSTACK_TEST is not None:
+                log.exception(ae)
 
-    return zonefile_txt
+            log.error(msg)
+            return None
+
+        return zonefile_txt
+
+    parsed_zonefile = decode_name_zonefile(name, zonefile_txt, allow_legacy=allow_legacy)
+    return parsed_zonefile
 
 
 def load_data_pubkey_for_new_zonefile(wallet_keys={}, config_path=CONFIG_PATH):
@@ -251,14 +258,22 @@ def load_data_pubkey_for_new_zonefile(wallet_keys={}, config_path=CONFIG_PATH):
 
 
 def get_name_zonefile(name, storage_drivers=None, proxy=None,
-                      name_record=None, allow_legacy=False):
+                      name_record=None, include_name_record=False,
+                      raw_zonefile=False, include_raw_zonefile=False, allow_legacy=False):
     """
     Given a name, go fetch its zonefile.
     Verifies that the hash on the blockchain matches the zonefile.
 
-    Returns {'status': True, 'zonefile': zonefile dict (if well-formed, otherwise None), 'raw_zonefile': raw bytes, 'name_record': bns name record} on success.
-    Return {'error': ...} if we failed to load the zone file
+    Returns {'status': True, 'zonefile': zonefile dict} on success.
+    Returns a dict with "error" defined and a message on failure to load.
+    Return None if there is no zonefile (i.e. the hash is null)
 
+    if 'include_name_record' is true, then zonefile will contain
+    an extra key called 'name_record' that includes the blockchain name record.
+
+    If 'raw_zonefile' is true, no attempt to parse the zonefile will be made.
+    The raw zonefile will be returned in 'zonefile'.  allow_legacy is ignored.
+    
     If 'allow_legacy' is true, then support returning older supported versions of the zone file
     (including old Onename profiles).  Otherwise, this method fails.
     """
@@ -288,18 +303,40 @@ def get_name_zonefile(name, storage_drivers=None, proxy=None,
     raw_zonefile_data = None
     user_zonefile_data = None
 
-    raw_zonefile_data = load_name_zonefile(name, user_zonefile_hash, storage_drivers=storage_drivers, proxy=proxy)
-    if raw_zonefile_data is None:
-        return {'error': 'Failed to load raw name zonefile'}
+    if raw_zonefile or include_raw_zonefile:
+        raw_zonefile_data = load_name_zonefile(
+            name, user_zonefile_hash, storage_drivers=storage_drivers,
+            raw_zonefile=True, proxy=proxy, allow_legacy=allow_legacy
+        )
 
-    # further decode (it's okay if this is None)
-    user_zonefile_data = decode_name_zonefile(name, raw_zonefile_data, allow_legacy=allow_legacy)
+        if raw_zonefile_data is None:
+            return {'error': 'Failed to load raw name zonefile'}
+
+        if raw_zonefile:
+            user_zonefile_data = raw_zonefile_data
+
+        else:
+            # further decode
+            user_zonefile_data = decode_name_zonefile(name, raw_zonefile_data, allow_legacy=allow_legacy)
+            if user_zonefile_data is None:
+                return {'error': 'Failed to decode name zonefile'}
+
+    else:
+        user_zonefile_data = load_name_zonefile(
+            name, user_zonefile_hash, storage_drivers=storage_drivers, proxy=proxy, allow_legacy=allow_legacy
+        )
+        if user_zonefile_data is None:
+            return {'error': 'Failed to load or decode name zonefile'}
 
     ret = {
-        'zonefile': user_zonefile_data,
-        'raw_zonefile': raw_zonefile_data,
-        'name_record': name_record,
+        'zonefile': user_zonefile_data
     }
+
+    if include_name_record:
+        ret['name_record'] = name_record
+
+    if include_raw_zonefile:
+        ret['raw_zonefile'] = raw_zonefile_data
 
     return ret
 
@@ -442,32 +479,3 @@ def zonefile_data_replicate(fqu, zonefile_data, tx_hash, server_list, config_pat
         return res
 
     return {'status': True, 'servers': res['servers']}
-
-
-def lookup_name_zonefile_pubkey(name, proxy=None):
-    """
-    Given a name, get the public key in its zone file
-    Returns {'status': True, 'pubkey': ..., 'name_record': ...} on success
-    Returns {'status': True, 'pubkey': None, 'name_record': ...} if there is no public key
-    Returns {'error': ...} on failure
-    """
-    zonefile_data = None
-    name_rec = None
-    # get the pubkey 
-    zonefile_data_res = get_name_zonefile(name, proxy=proxy)
-    if 'error' not in zonefile_data_res:
-        zonefile_data = zonefile_data_res['raw_zonefile']
-        name_rec = zonefile_data_res['name_record']
-    else:
-        return {'error': "Failed to get zonefile data: {}".format(name)}
-
-    # parse 
-    zonefile_dict = None
-    try:
-        zonefile_dict = blockstack_zones.parse_zone_file(zonefile_data)
-    except:
-        return {'error': 'Nonstandard zone file'}
-
-    pubkey = user_zonefile_data_pubkey(zonefile_dict)
-    return {'status': True, 'pubkey': pubkey, 'name_record': name_rec}
-

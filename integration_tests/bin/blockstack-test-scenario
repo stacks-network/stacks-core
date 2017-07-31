@@ -1160,7 +1160,9 @@ if __name__ == "__main__":
     client_datastores_path = os.path.join( client_working_dir, "datastores" )
 
     os.makedirs(client_working_dir)
-    # os.makedirs(client_metadata) 
+    os.makedirs(client_metadata) 
+    os.makedirs(client_accounts_path)
+    os.makedirs(client_datastores_path)
 
     # export to test 
     os.environ["BLOCKSTACK_CLIENT_CONFIG"] = client_config_file

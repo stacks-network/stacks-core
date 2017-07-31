@@ -1266,24 +1266,22 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             res = blockstack_client.get_profile(name, profile_storage_drivers=profile_storage_drivers,
                                                 zonefile_storage_drivers=zonefile_storage_drivers,
                                                 user_zonefile=zonefile_dict, name_record=name_rec,
-                                                use_zonefile_urls=False, decode=False)
+                                                use_zonefile_urls=False, decode_profile=False)
             if 'error' in res:
                log.error("Failed to load profile '{}'".format(name))
                return res
-
             profile = res['profile']
-            if profile is None:
-                profile = res['legacy_profile']
-
-            if profile is None:
-                return {'error': 'No profile could be loaded with the given configuration'}
-
+            zonefile = res['zonefile']
         except Exception, e:
             log.exception(e)
             log.error("Failed to load profile for '{}'".fomrat(name))
             return {'error': 'Failed to load profile'}
 
-        return self.success_response( {'profile': profile} )
+        if 'error' in zonefile:
+            return zonefile
+        
+        else:
+            return self.success_response( {'profile': profile} )
 
 
     def verify_data_timestamp( self, datum ):
@@ -1314,6 +1312,49 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         else:
             log.debug("Client and server differ by %s seconds" % abs(now - timestamp))
             return {'status': True}
+
+
+    def verify_profile_hash( self, name, name_rec, zonefile_dict, profile_txt, prev_profile_hash, sigb64, user_data_pubkey ):
+        """
+        DEPRECATED
+
+        Verify that the uploader signed the profile's previous hash.
+        Return {'status': True} on success
+        Return {'error': ...} on error
+        """
+
+        conf = get_blockstack_opts()
+        if not conf['serve_profiles']:
+            return {'error': 'No data'}
+
+        profile_storage_drivers = conf['profile_storage_drivers'].split(",")
+        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
+
+        # verify that the previous profile actually does have this hash 
+        try:
+            old_profile_txt, zonefile = blockstack_client.get_profile(name, profile_storage_drivers=profile_storage_drivers, zonefile_storage_drivers=zonefile_storage_drivers,
+                                                                       user_zonefile=zonefile_dict, name_record=name_rec, use_zonefile_urls=False, decode_profile=False)
+        except Exception, e:
+            log.exception(e)
+            log.debug("Failed to load profile for '%s'" % name)
+            return {'error': 'Failed to load profile'}
+
+        if old_profile_txt is None:
+            # no profile yet (or error)
+            old_profile_txt = ""
+
+        old_profile_hash = hex_hash160(old_profile_txt)
+        if old_profile_hash != prev_profile_hash:
+            log.debug("Invalid previous profile hash")
+            return {'error': 'Invalid previous profile hash'}
+
+        # finally, verify the signature over the previous profile hash and this new profile
+        rc = blockstack_client.storage.verify_raw_data( "%s%s" % (prev_profile_hash, profile_txt), user_data_pubkey, sigb64 )
+        if not rc:
+            log.debug("Invalid signature")
+            return {'error': 'Invalid signature'}
+
+        return {'status': True}
 
 
     def load_mutable_data( self, name, data_txt, max_len=RPC_MAX_PROFILE_LEN, storage_drivers=None ):
@@ -1449,7 +1490,19 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         data_info = self.load_mutable_data(name, profile_txt, max_len=RPC_MAX_PROFILE_LEN)
         if 'error' in data_info:
-            return data_info
+            if data_info.has_key('reason') and data_info['reason'] == 'timestamp' and data_info.has_key('data_pubkey') and data_info.has_key('zonefile'):
+
+                user_data_pubkey = data_info['data_pubkey']
+                zonefile_dict = data_info['zonefile']
+
+                # try hash-based verification (deprecated)
+                res = self.verify_profile_hash( name, name_rec, zonefile_dict, profile_txt, prev_profile_hash_or_ignored, sigb64_or_ignored, user_data_pubkey )
+                if 'error' in res:
+                    log.debug("Failed to verify profile by owner hash")
+                    return {'error': 'Failed to validate profile: invalid or missing timestamp and/or previous hash'}
+
+            else:
+                return data_info
        
         res = storage_enqueue_profile( name, str(profile_txt) )
         if not res:

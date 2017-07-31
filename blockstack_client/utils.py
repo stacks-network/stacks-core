@@ -29,8 +29,8 @@ import hashlib
 import threading
 import traceback
 
-from constants import DEFAULT_BLOCKSTACKD_PORT
-from logger import get_logger
+from .constants import DEFAULT_BLOCKSTACKD_PORT
+from .logger import get_logger
 
 log = get_logger('blockstack-client')
 

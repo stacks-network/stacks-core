@@ -232,8 +232,9 @@ def make_legacy_wallet_keys(data, password):
         if BLOCKSTACK_DEBUG is not None:
             log.exception(e)
 
-        log.debug('Failed to decrypt encrypted_master_private_key: {}'.format(ret['error']))
-        return ret
+        err = 'Failed to decrypt encrypted_master_private_key'
+        log.debug(err)
+        return {'error' : err}
 
     # legacy compat: use the master private key to generate child keys.
     # If the specific key they are purposed for is not defined in the wallet,
@@ -897,7 +898,7 @@ def unlock_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None):
         try:
             res = save_keys_to_memory( wallet, config_path=config_path )
         except KeyError as ke:
-            if BLOCKSACK_DEBUG is not None:
+            if BLOCKSTACK_DEBUG is not None:
                 data = json.dumps(wallet, indent=4, sort_keys=True)
                 log.error('data:\n{}\n'.format(data))
             raise

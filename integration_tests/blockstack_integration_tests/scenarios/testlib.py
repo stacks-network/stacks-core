@@ -301,7 +301,10 @@ def blockstack_name_register( name, privatekey, register_addr, wallet=None, subs
     owner_privkey_info = find_wallet(register_addr).privkey
     register_addr = virtualchain.address_reencode(register_addr)
 
-    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+    kwargs = {}
+    if not safety_checks:
+        kwargs = {'tx_fee' : 1} # regtest shouldn't care about the tx_fee
+    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
     api_call_history.append( APICallRecord( "register", name, resp ) )
     return resp
 
@@ -331,7 +334,7 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_k
     if subsidy_key is not None:
         payment_key = subsidy_key 
 
-    resp = blockstack_client.do_transfer( name, address, keepdata, privatekey, payment_key, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks)
+    resp = blockstack_client.do_transfer( name, address, keepdata, privatekey, payment_key, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "transfer", name, resp ) )
     return resp
 
@@ -1729,8 +1732,7 @@ def blockstack_cli_app_put_resource( blockchain_id, app_domain, res_path, res_fi
 
 def blockstack_cli_app_signin( blockchain_id, app_privkey, app_domain, api_methods, device_ids=None, public_keys=None, config_path=None ):
     """
-    sign in and get a token.
-    sign up if we need to.
+    sign in and get a token
     """
     if config_path is None:
         test_proxy = make_proxy(config_path=config_path)
@@ -1744,21 +1746,16 @@ def blockstack_cli_app_signin( blockchain_id, app_privkey, app_domain, api_metho
     args.api_methods = ','.join(api_methods)
     args.privkey = app_privkey
 
-    res = cli_app_signin( args, config_path=config_path )
-    if 'error' in res:
-        if '`app_signup`' in res['error']:
-            # need to sign up first
-            res = cli_app_signup(args, config_path=config_path)
-            if 'error' in res:
-                return res
-        
-        else:
-            return res
+    if device_ids is None and public_keys is None:
+        device_ids = [blockstack_client.config.get_local_device_id()]
+        public_keys = [keylib.ECPrivateKey(app_privkey).public_key().to_hex()]
 
-        # now sign in 
-        res = cli_app_signin(args, config_path=config_path)
+    device_ids = ','.join(device_ids)
+    public_keys = ','.join(public_keys)
+    args.device_ids = device_ids
+    args.public_keys = public_keys
 
-    return res
+    return cli_app_signin( args, config_path=config_path )
 
 
 def blockstack_cli_create_datastore(blockchain_id, datastore_privkey, drivers, ses, device_ids=None, config_path=None):
@@ -2232,8 +2229,11 @@ def blockstack_REST_call( method, route, session, api_pass=None, app_fqu=None, a
     headers = {}
     if session:
         headers['authorization'] = 'bearer {}'.format(session)
+        app_domain = jsontokens.decode_token(session)["payload"]["app_domain"]
+        headers['origin'] = "http://{}".format(app_domain)
     elif api_pass:
         headers['authorization'] = 'bearer {}'.format(api_pass)
+        headers['origin'] = 'http://localhost:3000'
 
     assert not (data and raw_data), "Multiple data given"
 
@@ -3072,11 +3072,11 @@ def put_test_data( relpath, data, **kw ):
 
 def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=True, config_path=None ):
     """
-    Migrate a user's profile from the legacy format to the token-file/zonefile format.
+    Migrate a user's profile from the legacy format to the profile/zonefile format.
     Broadcast an update transaction with the zonefile hash.
-    Replicate the zonefile and token file.
+    Replicate the zonefile and profile.
 
-    Return {'status': True, 'zonefile': ..., 'profile': ..., 'token_file': ..., 'transaction_hash': ...} on success, if the profile was migrated
+    Return {'status': True, 'zonefile': ..., 'profile': ..., 'transaction_hash': ...} on success, if the profile was migrated
     Return {'status': True} on success, if the profile is already migrated
     Return {'error': ...} on error
     """
@@ -3093,7 +3093,6 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
     user_profile = None
     user_zonefile = None
     user_zonefile_txt = None
-    new_token_file = None
 
     res = blockstack_cli_lookup(name, config_path=config_path)
     if 'error' in res:
@@ -3133,29 +3132,31 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
             # not JSON
             user_zonefile = blockstack_zones.parse_zone_file(user_zonefile_txt)
 
+    # add public key, if absent 
+    if blockstack_client.user.user_zonefile_data_pubkey(user_zonefile) is None and zonefile_has_data_key:
+        log.debug("Adding zone file public key")
+        user_zonefile = blockstack_client.user.user_zonefile_set_data_pubkey(user_zonefile, keylib.ECPrivateKey(wallet_keys['data_privkey']).public_key().to_hex())
+
     payment_privkey_info = blockstack_client.get_payment_privkey_info( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     owner_privkey_info = blockstack_client.get_owner_privkey_info( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     data_privkey_info = blockstack_client.get_data_privkey_info( user_zonefile, wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
-    
-    '''
+
     assert data_privkey_info is not None
     assert 'error' not in data_privkey_info, str(data_privkey_info)
     assert virtualchain.is_singlesig(data_privkey_info)
-    '''
 
-    res = blockstack_client.actions.migrate_profile_to_token_file(name, user_profile, owner_privkey_info, config_path=config_path)
-    if 'error' in res:
-        return {'error': 'Failed to create new token file'}
-
-    new_token_file = res['token_file']
     user_zonefile_hash = blockstack_client.hash_zonefile( user_zonefile )
     
-    # replicate the token file
-    signing_key = blockstack_client.keys.get_signing_privkey(owner_privkey_info)
-    rc = blockstack_client.token_file.token_file_put(name, new_token_file, signing_key, config_path=config_path)
+    # replicate the profile
+    # TODO: this is onename-specific
+
+    rc = blockstack_client.profile.put_profile(name, user_profile, blockchain_id=name,
+                                              user_data_privkey=data_privkey_info, user_zonefile=user_zonefile,
+                                              proxy=proxy, wallet_keys=wallet_keys )
+
     if 'error' in rc:
-        log.error("Failed to put token file: {}".format(rc['error']))
-        return {'error': 'Failed to move legacy profile to token file and zonefile'}
+        log.error("Failed to put profile: {}".format(rc['error']))
+        return {'error': 'Failed to move legacy profile to profile zonefile'}
 
     # do the update 
     res = blockstack_client.do_update( name, user_zonefile_hash, owner_privkey_info, payment_privkey_info, proxy, proxy, config_path=proxy.config_path, proxy=proxy )
@@ -3175,8 +3176,7 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
         'transaction_hash': res['transaction_hash'],
         'zonefile': user_zonefile,
         'zonefile_txt': user_zonefile_txt,
-        'profile': user_profile,
-        'token_file': new_token_file,
+        'profile': user_profile
     }
 
     return result

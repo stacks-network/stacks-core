@@ -32,7 +32,7 @@ import subprocess
 import fcntl
 
 import virtualchain
-from version import __version__, __version_major__, __version_minor__, __version_patch__
+from .version import __version__, __version_major__, __version_minor__, __version_patch__
 
 BLOCKSTACK_TEST = os.environ.get('BLOCKSTACK_TEST', None)
 BLOCKSTACK_TEST_NODEBUG = os.environ.get('BLOCKSTACK_TEST_NODEBUG', None)
