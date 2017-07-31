@@ -793,9 +793,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 error = zonefile_res['error']
 
             log.error("Failed to get name zonefile for {}: {}".format(name, error))
+            zonefile_txt = {'error': 'No zone file loaded'}
 
         else:
             zonefile_txt = zonefile_res.pop("zonefile")
+            
+            # make sure it's well-formed
+            res = zonefile.decode_name_zonefile(name, zonefile_txt, allow_legacy=True)
+            if res is None:
+                log.error("Failed to parse zone file for {}".format(name))
+                zonefile_txt = {'error': 'Non-standard zone file'}
 
         status = 'revoked' if name_rec['revoked'] else 'registered'
 
@@ -1064,27 +1071,44 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
     def GET_name_zonefile( self, ses, path_info, name ):
         """
-        Get the name's current zonefile data
+        Get the name's current zonefile data.
+        With `raw=1` on the query string, return the raw zone file.
+
         Reply the {'zonefile': zonefile} on success
         Reply 500 on failure to fetch data
         """
+        raw = path_info['qs_values'].get('raw', '')
+        raw = (raw.lower() in ['1', 'true'])
+        
         internal = self.server.get_internal_proxy()
-        resp = internal.cli_get_name_zonefile(name, "true", raw=False)
+        resp = internal.cli_get_name_zonefile(name, "true" if not raw else "false", raw=False)
         if json_is_error(resp):
             self._reply_json({"error": resp['error']}, status_code=500)
             return
 
-        self._reply_json({'zonefile': resp['zonefile']})
+        if raw:
+            self._send_headers(status_code=200, content_type='application/octet-stream')
+            self.wfile.write(resp['zonefile'])
+
+        else:
+            self._reply_json({'zonefile': resp['zonefile']})
+
         return
 
 
     def GET_name_zonefile_by_hash( self, ses, path_info, name, zonefile_hash ):
         """
         Get a historic zonefile for a name
-        Reply {'zonefile': zonefile} on success
+        With `raw=1` on the query string, return the raw zone file
+
+        Reply 200 with {'zonefile': zonefile} on success
+        Reply 204 with {'error': ...} if the zone file is non-standard
         Reply 404 on not found
         Reply 500 on failure to fetch data
         """
+        raw = path_info['qs_values'].get('raw', '')
+        raw = (raw.lower() in ['1', 'true'])
+
         conf = blockstack_config.get_config(self.server.config_path)
 
         blockstack_server = conf['server']
@@ -1105,7 +1129,21 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': resp['error']}, status_code=500)
             return
 
-        self._reply_json({'zonefile': resp['zonefiles'][str(zonefile_hash)]})
+        if raw:
+            self._send_headers(status_code=200, content_type='application/octet-stream')
+            self.wfile.write(resp['zonefiles'][str(zonefile_hash)])
+
+        else:
+            # make sure it's valid
+            zonefile_txt = resp['zonefiles'][str(zonefile_hash)]
+            res = zonefile.decode_name_zonefile(name, zonefile_txt, allow_legacy=True)
+            if res is None:
+                log.error("Failed to parse zone file for {}".format(name))
+                self._reply_json({'error': 'Non-standard zone file for {}'.format(name)}, status_code=204)
+                return 
+
+            self._reply_json({'zonefile': zonefile_txt})
+
         return
 
 

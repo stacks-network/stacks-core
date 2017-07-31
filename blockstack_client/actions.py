@@ -490,10 +490,26 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
             if amt < 0:
                 log.error("Dust: total value = {}, tx fee = {}".format(total_value, tx_fee))
                 return {'error': 'Cannot withdraw dust'}
-            
+           
+            if total_value < amt:
+                # too high 
+                return {'error': 'Requested withdraw value {} exceeds balance {}'.format(amt, total_value)}
+
             selected_inputs = select_utxos(inputs, amt)
+            if selected_inputs is None:
+                # too high 
+                return {'error': 'Not enough inputs: requested withdraw value {} exceeds balance {}'.format(amt, total_value)}
+
         else:
+            if total_value < amt:
+                # too high 
+                return {'error': 'Requested withdraw value {} exceeds balance {}'.format(amt, total_value)}
+
             selected_inputs = select_utxos(inputs, amt)
+            if selected_inputs is None:
+                # too high 
+                return {'error': 'Not enough inputs: requested withdraw value {} exceeds balance {}'.format(amt, total_value)}
+
             change = virtualchain.calculate_change_amount(selected_inputs, amt, tx_fee)
             log.debug("Withdraw {}, tx fee {}".format(amt, tx_fee))
             
@@ -519,14 +535,18 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         return signed_tx
 
     tx = mktx(amount, 0)
+    if json_is_error(tx):
+        return tx
+
     tx_fee = get_tx_fee(tx, config_path=config_path)
+
     tx = mktx(amount, tx_fee)
+    if json_is_error(tx):
+        return tx
 
     if tx_only:
         return {'status': True, 'tx': tx}
     
-    log.debug("Withdraw {} from {} to {}".format(amount, send_addr, recipient_addr))
-
     log.debug("Withdraw {} from {} to {}".format(amount, send_addr, recipient_addr))
 
     res = broadcast_tx( tx, config_path=config_path )
@@ -3601,7 +3621,7 @@ def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True, proxy=None):
             assert new_zonefile is not None
             result['zonefile'] = new_zonefile
         except:
-            result['warning'] = 'Non-standard zonefile'
+            return {'error': 'Non-standard zonefile.'}
     
     if raw:
         return result['zonefile']
