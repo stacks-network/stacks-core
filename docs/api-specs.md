@@ -997,7 +997,7 @@ The `zonefile` field is preserved for legacy compatibility.
 + Request (application/json)
   + Schema
 
-                      request_schema = {
+                      {
                         'type': 'object',
                         'properties': {
                             "zonefile": {
@@ -1097,7 +1097,7 @@ Fetch a list of all names known to the node.
 + Response 200 (application/json)
   + Body
 
-               \[ "aldenquimby.id", "aldeoryn.id", 
+               [ "aldenquimby.id", "aldeoryn.id", 
                  "alderete.id", "aldert.id", 
                  "aldi.id", "aldighieri.id", ... ]
 
@@ -1153,17 +1153,17 @@ Fetch a list of all names known to the node.
             },
             'zonefile': {
                 'anyOf': [
-                {
-                    'type': 'string',
-                },
-                {
-                    'type': 'object',
-                    'properties': {
-                        'error': {
-                            'type': 'string',
-                        },
-                    },
-                },
+                   {
+                       'type': 'string',
+                   },
+                   {
+                       'type': 'object',
+                       'properties': {
+                           'error': {
+                               'type': 'string',
+                           },
+                       },
+                   },
                 ],
             },
             'zonefile_hash': {
@@ -1413,18 +1413,18 @@ Fetches the historical zonefile specified by the username and zone hash.
   + Schema
         {
             'anyOf': [
-            {
-                'type': 'object',
-                'properties': {
-                    'zonefile': { 'type': 'string' },
-                },
-            },
-            {
-                'type': 'object',
-                'properties': {
-                    'error': { 'type': 'string' },
-                },
-            },
+               {
+                   'type': 'object',
+                   'properties': {
+                       'zonefile': { 'type': 'string' },
+                   },
+               },
+               {
+                   'type': 'object',
+                   'properties': {
+                       'error': { 'type': 'string' },
+                   },
+               },
             ],
         }
     
