@@ -1,6 +1,8 @@
 import os
 from blockstack_client import config
 
+SUBDOMAIN_NAME_PATTERN = r'([a-z0-9\-_+]{{{},{}}})$'.format(3, 36)
+
 def get_core_auth():
     config_file = os.environ.get(
         "BLOCKSTACK_CLIENT_CONFIG", os.path.expanduser("~/.blockstack/client.ini"))
@@ -16,7 +18,9 @@ def get_tx_frequency():
     """ Returns transaction frequency of subdomain registrations in seconds """
     return 60
 
-def get_tx_limit():
+def max_entries_per_zonefile():
+    """ Maximum entries you will try to pack in a zonefile, actual maximum may be lower
+        since zonefiles can only store 4kb data """
     return 100
 
 def get_logfile():

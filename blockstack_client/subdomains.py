@@ -36,11 +36,11 @@ from blockstack_client.rpc import local_api_connect
 
 log = get_logger()
 
-SUBDOMAIN_ZF_PARTS = "zf-parts"
+SUBDOMAIN_ZF_PARTS = "parts"
 SUBDOMAIN_ZF_PIECE = "zf%d"
 SUBDOMAIN_SIG = "sig"
-SUBDOMAIN_PUBKEY = "pub-key"
-SUBDOMAIN_N = "sequence-n"
+SUBDOMAIN_PUBKEY = "pk"
+SUBDOMAIN_N = "seqn"
 
 class ParseError(Exception):
     pass
@@ -358,7 +358,7 @@ def _extend_with_subdomain(zf_json, subdomain):
 
     zf_json["txt"].append(subdomain.as_zonefile_entry())
 
-def add_subdomains(subdomains, domain_fqa, broadcast_tx = True):
+def add_subdomains(subdomains, domain_fqa, broadcast_tx = True, zonefile_in = None):
     """
     subdomains => list Subdomain objects to add
     domain_fqa => fully qualified domain name to add the subdomain to.
@@ -371,11 +371,14 @@ def add_subdomains(subdomains, domain_fqa, broadcast_tx = True):
     assert isinstance(subdomains, list)
 
     # get domain's current zonefile and filter the subdomain entries
-    zf_resp = bs_zonefile.get_name_zonefile(domain_fqa)
-    if 'error' in zf_resp:
-        log.error(zf_resp)
-        raise Exception(zf_resp['error'])
-    zonefile_json = zf_resp['zonefile']
+    if zonefile_in is None:
+        zf_resp = bs_zonefile.get_name_zonefile(domain_fqa)
+        if 'error' in zf_resp:
+            log.error(zf_resp)
+            raise Exception(zf_resp['error'])
+        zonefile_json = zf_resp['zonefile']
+    else:
+        zonefile_json = zonefile_in
 
     zf = copy.deepcopy(zonefile_json)
     if "txt" in zf:

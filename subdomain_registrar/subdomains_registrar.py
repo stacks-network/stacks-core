@@ -1,4 +1,4 @@
-import os, tempfile, sys, time
+import os, tempfile, sys, time, re
 import json, logging
 import sqlite3
 import thread, threading
@@ -15,19 +15,20 @@ log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 fh = logging.FileHandler(config.get_logfile())
 fh.setLevel(logging.DEBUG)
-#fh.setFormatter(formatter)
 log.addHandler(fh)
 
 class SubdomainOpsQueue(object):
-    def __init__(self, domain, db_path, entries_per_tx = 100):
+    def __init__(self, domain, db_path):
         dirname = os.path.dirname(db_path)
         if not os.path.exists(dirname):
             os.makedirs(dirname)
+
+        self.entries_per_tx_hint = 24
+        self.zonefile_limit = 4096
         self.domain = domain
         self.conn = sqlite3.connect(db_path)
         self.queue_table = "queue_{}".format(domain.replace('.', '_'))
         self._create_if_needed()
-        self.entries_per_tx = entries_per_tx
 
     def _create_if_needed(self):
         queue = """CREATE TABLE {} (
@@ -69,7 +70,7 @@ class SubdomainOpsQueue(object):
     def _get_queued_rows(self):
         sql = """SELECT received_at, subdomain FROM {} 
         WHERE in_tx ISNULL ORDER BY received_at ASC LIMIT {};
-        """.format(self.queue_table, config.get_tx_limit())
+        """.format(self.queue_table, self.entries_per_tx_hint)
         out = list(self._execute(sql, ()).fetchall())
         return [ (received_at, 
                   subdomains.Subdomain.parse_subdomain_record(json.loads(packed_subdomain))) 
@@ -82,6 +83,25 @@ class SubdomainOpsQueue(object):
             ",".join("?" * len(subds)))
         self._execute(sql, [txid] + list(subds))
 
+    def get_subdomain_status(self, subdomain):
+        sql = """SELECT in_tx FROM {} WHERE subdomain_name = ?""".format(
+            self.queue_table)
+        out = self._execute(sql, (subdomain,))
+        try:
+            status = out.fetchone()[0]
+        except Exception as e:
+            log.warn("Subdomain {} not found in registrar".format(subdomain))
+            return None
+        if not status:
+            return {"status" : "Subdomain is queued for update and should be announced within the next few blocks."}
+        if status.startswith("ERR"):
+            return {"error" : 
+                    "There was a problem propagating your subdomain registration. The" +
+                    " server experience an {} error while trying to issue the update.".format(status)}
+        return {"status" :
+                ("Your subdomain was registered in transaction {} -- it should propagate" +
+                 " on the network once it has 6 confirmations.").format(status)}
+
     def add_subdomain_to_queue(self, subdomain):
         name = subdomain.name
         packed_dict = subdomain.as_zonefile_entry()
@@ -89,35 +109,50 @@ class SubdomainOpsQueue(object):
         self._add_subdomain_row(jsoned, name)
 
     def submit_transaction(self):
-        queued_rows = self._get_queued_rows()
+        queued_rows = list(self._get_queued_rows())
         if len(queued_rows) == 0:
             return {'status' : 'true',
                     'subdomain_updates' : 0}
-        indexes, entries = zip(* queued_rows)
 
-        zonefile_made = False
-        to_add = list(entries)
+        zf_txt = None
+        for slice_sz in range(len(queued_rows), -1, -1):
+            if slice_sz == 0:
+                return {'error' : 
+                        "Failed to construct small enough zonefile (size < {})".format(self.zonefile_limit)}
+            cur_queued_rows = queued_rows[:slice_sz]
+            indexes, entries = zip(* cur_queued_rows)
 
-        zf_txt, subs_failed = subdomains.add_subdomains(
-            to_add, self.domain, broadcast_tx = False)
+            to_add = list(entries)
 
-        if len(subs_failed) > 0:
-            indexes = list(indexes)
-            db_indexes_failed = []
-            subs_failed.sort(reverse=True)
-            for i in subs_failed:
-                db_indexes_failed.append(indexes.pop(i))
-            log.info("Subdomain already existed for ({})".format(
-                [ entries[i].name for i in subs_failed ] ))
-            self._set_in_tx(db_indexes_failed, "ALREADYEXISTED")
-            if len(indexes) == 0:
-                return {'status' : 'true',
-                        'subdomain_updates' : 0}
+            kwargs = {}
+            if zf_txt is not None:
+                zf_json = blockstack_zones.parse_zone_file(zf_txt)
+                kwargs["zonefile_in"] = zf_json
+            zf_txt, subs_failed = subdomains.add_subdomains(
+                to_add, self.domain, broadcast_tx = False, **kwargs)
+
+            if len(subs_failed) > 0:
+                indexes = list(indexes)
+                db_indexes_failed = []
+                subs_failed.sort(reverse=True)
+                for i in subs_failed:
+                    db_indexes_failed.append(indexes.pop(i))
+                    log.info("Subdomain already existed for ({})".format(
+                        [ entries[i].name for i in subs_failed ] ))
+                    self._set_in_tx(db_indexes_failed, "ERR:ALREADYEXISTED")
+                if len(indexes) == 0:
+                    return {'status' : 'true',
+                            'subdomain_updates' : 0}
+
+            if len(zf_txt) < self.zonefile_limit:
+                break
 
         # issue user zonefile update to API endpoint
 
         target = "/v1/names/{}/zonefile".format(self.domain)
         resp = rest_to_api(target, data = json.dumps({'zonefile' : zf_txt}), call = requests.put)
+
+        log.info("Submitting zonefile (length = {})".format(len(zf_txt)))
 
         if resp.status_code != 202:
             msg = 'Error submitting subdomain bundle: {}'.format(resp.text)
@@ -125,12 +160,14 @@ class SubdomainOpsQueue(object):
             try:
                 resp_js = resp.json()
                 if "maxLength" in str(resp_js["error"]):
-                    self.entries_per_tx = 0.8 * int(self.entries_per_tx)
-                    
+                    self.zonefile_limit = len(zf_txt) - 1
+                    log.warn("Zonefile too large for server, reducing zonefile size to {}".format(
+                        self.zonefile_limit))
+                    return {'error' : 'Zonefile too large, try again.', 'retry' : True}
             except Exception as e:
                 pass
 
-            self._set_in_tx(indexes, msg)
+            self._set_in_tx(indexes, "ERR:{}".format(msg))
             return {'error' : msg}
 
         try:
@@ -143,17 +180,31 @@ class SubdomainOpsQueue(object):
         if 'error' in resp_js:
             msg = 'Error submitting subdomain bundle: {}'.format(tx_resp['error'])
             log.error(msg)
-            self._set_in_tx(indexes, msg)
+            self._set_in_tx(indexes, "ERR:{}".format(msg))
             return {'error' : msg}
 
         txid = str(resp_js['transaction_hash'])
         self._set_in_tx(indexes, txid)
+
+        self.entries_per_tx_hint = min(len(indexes) + 1, config.max_entries_per_zonefile())
 
         log.info('Issued update for {} subdomain entries. In tx: {}'.format(
             len(indexes), txid))
         return {'status' : 'true',
                 'subdomain_updates' : len(indexes),
                 'transaction_hash' : txid}
+
+def get_queued_name(subdomain, domain_name):
+    try:
+        subdomains.resolve_subdomain(subdomain, domain_name)
+        return {'status' : 'Subdomain already propagated'}
+    except subdomains.SubdomainNotFound as e:
+        pass
+    q =  SubdomainOpsQueue(domain_name, config.get_subdomain_registrar_db_path())
+    status = q.get_subdomain_status(subdomain)
+    if status:
+        return status
+    return {'error' : 'Subdomain not registered with this registrar', 'status_code' : 404}
 
 def queue_name_for_registration(subdomain, domain_name):
     try:
@@ -172,7 +223,7 @@ def parse_subdomain_request(input_str):
         'properties' : {
             'subdomain' : {
                 'type': 'string',
-                'pattern': r'([a-z0-9\-_+]{{{},{}}})$'.format(3, 36)
+                'pattern': config.SUBDOMAIN_NAME_PATTERN
             },
             'data_pubkey' : {
                 'type': 'string',
@@ -211,7 +262,7 @@ def parse_subdomain_request(input_str):
         request['subdomain'], pubkey_entry,
         n=0, zonefile_str = zonefile_str)
 
-def set_registrar_state(domain_name):
+def run_registrar(domain_name):
     """
     Set singleton state and start the registrar thread.
     Return the registrar state on success
@@ -247,13 +298,19 @@ def set_registrar_state(domain_name):
         try:
             time.sleep(60)
         except (KeyboardInterrupt, Exception) as e:
-            log.info("Interrupt received, beginning shutdown.")
-            api_thread.request_stop()
-            api_thread.join()
-            registrar_thread.request_stop()
-            registrar_thread.join()
-            log.info("Registrar threads shutdown")
-            return
+            return handle_interrupt(api_thread, registrar_thread)
+
+def handle_interrupt(api_thread, registrar_thread):
+    try:
+        log.info("Interrupt received, beginning shutdown.")
+        api_thread.request_stop()
+        api_thread.join()
+        registrar_thread.request_stop()
+        registrar_thread.join()
+        log.info("Registrar threads shutdown")
+        return
+    except (KeyboardInterrupt, Exception) as e:
+        return handle_interrupt(api_thread, registrar_thread)
 
 class SubdomainRegistrarWorker(threading.Thread):
     def __init__(self, domain_name):
@@ -271,7 +328,11 @@ class SubdomainRegistrarWorker(threading.Thread):
             # todo: wake up more frequently, poll blocks,
             #        track last block with tx, and do tx_every in
             #        block time, rather than clock time.
-            queue.submit_transaction()
+
+            for i in range(5): # number of retries
+                result = queue.submit_transaction()
+                if not ('error' in result and result.get('retry', False)):
+                    break
 
             for i in xrange(0, int(self.tx_every)):
                 try:
@@ -295,6 +356,18 @@ class SubdomainRegistrarRPCWorker(threading.Thread):
         self.server.serve_forever()
 
 class SubdomainRegistrarRPCHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if not str(self.path).startswith("/status/"):
+            return self.send_response(404, json.dumps({"error" : "Unsupported API method"}))
+        name = self.path[len("/status/"):]
+        if re.match(config.SUBDOMAIN_NAME_PATTERN, name) is None:
+            return self.send_response(404, json.dumps({"error" : "Invalid subdomain supplied"}))
+        status = get_queued_name(name, self.server.domain_name)
+        if "error" in status:
+            status_code = status.get("status_code", 500)
+            return self.send_response(status_code, json.dumps({"error": status["error"]}))
+        return self.send_response(200, json.dumps(status))
+
     def do_POST(self):
         self.send_header("Content-Type", "application/json") 
         if str(self.path) != "/register":
@@ -404,6 +477,4 @@ if __name__ == "__main__":
             print START_HELP
             exit(1)
         domain_name = sys.argv[1]
-        set_registrar_state(domain_name)
-    elif command == "stop":
-        print "lol. whatever."
+        run_registrar(domain_name)
