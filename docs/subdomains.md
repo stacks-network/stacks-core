@@ -66,43 +66,154 @@ At 4kb zonefile size, we can only fit around 20 updates per zonefile.
 
 ### Domain Operator Endpoint
 
-We'll need to provide an API endpoint for sending operations to the
-domain operator *and* an interface for sending commands to that
-endpoint.
-
-Operating a domain should be something that anyone running a Core node
-should be able to do with a simple command:
+The directory `subdomain_registrar/` contains our code for running a
+subdomain registrar. It can be executed by running:
 
 ```
-$ blockstack domain foo.id start
+$ blockstack-subdomain-registrar start foo.id
 ```
 
+Here, `foo.id` is the domain for which subdomains will be associated.
 
-#### AddSubdomain Command
+#### Configuration and Registration Files
+
+Configuration of the subdomain registrar is done through `~/.blockstack_subdomains/config.ini`
+
+The sqlite database which stores the registrations is located alongside the config `~/.blockstack_subdomains/registrar.db`.
+
+You can change the location of the config file (and the database), by setting the environment variable `BLOCKSTACK_SUBDOMAIN_CONFIG`
+
+#### Register Subdomain
+
+Subdomain registrations can be submitted to this endpoint using a REST
+API.
 
 ```
-addSubdomain("foo", "bar.id", pubkey_hex, urls)
+POST /register
 ```
 
-This command adds a subdomain `foo` to a domain `bar.id`. This will:
+The schema for registration is:
+
+```
+{
+        'type' : 'object',
+        'properties' : {
+            'subdomain' : {
+                'type': 'string',
+                'pattern': '([a-z0-9\-_+]{3,36})$'
+            },
+            'data_pubkey' : {
+                'type': 'string',
+                'pattern': r'^(pubkey:data:[0-9a-fA-F]+)$'
+            },
+            'uris' : {
+                'type': 'array',
+                'items':
+                         {
+                             'type': 'object',
+                             'properties': {
+                                 'name': {
+                                     'type': 'string'
+                                 },
+                                 'priority': {
+                                     'type': 'integer',
+                                     'minimum': 0,
+                                     'maximum': 65535,
+                                 },
+                                 'weight': {
+                                     'type': 'integer',
+                                     'minimum': 0,
+                                     'maximum': 65535,
+                                 },
+                                 'target': {
+                                     'anyOf': [
+                                         {
+                                             'type': 'string',
+                                             'pattern': '^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
+                                         },
+                                         {
+                                             'type': 'string',
+                                             'pattern': '^([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
+                                         },
+                                     ],
+                                 },
+                                 'class': {
+                                     'type': 'string'
+                                 },
+                                 '_missing_class': {
+                                     'type': 'boolean'
+                                 },
+                             },
+                             'required': [
+                                 'name',
+                                 'priority',
+                                 'weight',
+                                 'target'
+                             ],
+                         }
+            },
+            'zonefile_str' : {
+                'type' : 'string',
+                'maxLength' : 4096
+            }
+        }
+        'required': ['data_pubkey', 'subdomain']
+}
+```
+
+The request supplies *either* a list of URIs for the subdomain,
+or a raw zonefile for the subdomain.
+
+The registrar will:
 
 1. Check if the subdomain `foo` exists already on the domain.
-2. Add a record to the zonefile. 
-3. Issue zonefile update.
+2. Add the subdomain to the queue.
 
-#### UpdateSubdomain Command
+On success, this returns `202` and the message
 
 ```
-updateSubdomain("foo", "bar.id", pubkey_hex, n, urls, signature)
+{"status": "true", "message": "Subdomain registration queued."}
 ```
 
-This command updates subdomain `foo` to a domain `bar.id`. This will:
+When the registrar wakes up to prepare a transaction, it packs the queued
+registrations together and issues an `UPDATE`.
 
-1. Check if the subdomain `foo` exists already on the domain
-2. Check that n = n' + 1
-3. Check the signature 
-4. Issue zonefile update
 
+#### Check subdomain registration status
+
+A user can check on the registration status of their name via querying the
+registrar.
+
+This is an API call:
+```
+GET /status/{subdomain}
+```
+
+The registrar checks if the subdomain has propagated (i.e., the
+registration is completed), in which case the following is returned:
+
+```
+{"status": "Subdomain already propagated"}
+```
+
+Or, if the subdomain has already been submitted in a transaction:
+
+```
+{"status": "Your subdomain was registered in transaction 09a40d6ea362608c68da6e1ebeb3210367abf7aa39ece5fd57fd63d269336399 -- it should propagate on the network once it has 6 confirmations."}
+```
+
+If the subdomain still hasn't been submitted yet:
+
+```
+{"status": "Subdomain is queued for update and should be announced within the next few blocks."}
+```
+
+If an error occurred trying to submit the `UPDATE` transaction, this endpoint will return an error
+message in the `"error"` key of a JSON object.
+
+#### Updating Entries
+
+The subdomain registrar does not currently support updating subdomain entries.
 
 ### Resolver Behavior
 
@@ -126,7 +237,8 @@ all the current subdomain records.
 1. Testing bad zonefile transitions / updates.
    a. Wrong _n_ : this could be a rewrite, roll-back, whatever. [x]
    b. Bad signature [x]
-2. Caching resolver database [o]
-3. Batching updates [o]
-4. Web API [o]
-5. Endpoint support for changing zonefiles/rotating keys
+2. Caching resolver database [x]
+3. Batching updates [x]
+4. Web API [x]
+5. Resolver database cache for holding *multiple* domains, instead of just one [o]
+6. Endpoint support for changing zonefiles/rotating keys [o]

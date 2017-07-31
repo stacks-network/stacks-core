@@ -356,40 +356,45 @@ class SubdomainRegistrarRPCWorker(threading.Thread):
         self.server.serve_forever()
 
 class SubdomainRegistrarRPCHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+    def send_message(self, code, message): 
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json") 
+        self.end_headers()
+        self.wfile.write(message + "\r\n")
+
     def do_GET(self):
         if not str(self.path).startswith("/status/"):
-            return self.send_response(404, json.dumps({"error" : "Unsupported API method"}))
+            return self.send_message(404, json.dumps({"error" : "Unsupported API method"}))
         name = self.path[len("/status/"):]
         if re.match(config.SUBDOMAIN_NAME_PATTERN, name) is None:
-            return self.send_response(404, json.dumps({"error" : "Invalid subdomain supplied"}))
+            return self.send_message(404, json.dumps({"error" : "Invalid subdomain supplied"}))
         status = get_queued_name(name, self.server.domain_name)
         if "error" in status:
             status_code = status.get("status_code", 500)
-            return self.send_response(status_code, json.dumps({"error": status["error"]}))
-        return self.send_response(200, json.dumps(status))
+            return self.send_message(status_code, json.dumps({"error": status["error"]}))
+        return self.send_message(200, json.dumps(status))
 
     def do_POST(self):
-        self.send_header("Content-Type", "application/json") 
         if str(self.path) != "/register":
-            return self.send_response(404, json.dumps({"error" : "Unsupported API method"}))
+            return self.send_message(404, json.dumps({"error" : "Unsupported API method"}))
         length = int(self.headers.getheader('content-length'))
         if length > 1024 * 1024:
-            return self.send_response(403, json.dumps({"error" : "Content length too long. Request Denied."}))
+            return self.send_message(403, json.dumps({"error" : "Content length too long. Request Denied."}))
         try:
             subdomain = parse_subdomain_request(self.rfile.read(length))
         except Exception as e:
             log.exception(e)
-            return self.send_response(401, json.dumps({"error" : "Problem parsing request"}))
+            return self.send_message(401, json.dumps({"error" : "Problem parsing request"}))
 
         try:
             queued_resp = queue_name_for_registration(subdomain, self.server.domain_name)
         except subdomains.SubdomainAlreadyExists as e:
             log.exception(e)
-            return self.send_response(403, json.dumps({"error" : "Subdomain already exists on this domain"}))
+            return self.send_message(403, json.dumps({"error" : "Subdomain already exists on this domain"}))
 
         if "error" in queued_resp:
-            return self.send_response(500, json.dumps(queued_resp))
-        return self.send_response(202, json.dumps(queued_resp))
+            return self.send_message(500, json.dumps(queued_resp))
+        return self.send_message(202, json.dumps(queued_resp))
 
 class SubdomainLock(object):
     @staticmethod
