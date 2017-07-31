@@ -9,7 +9,7 @@ from blockstack_client import schemas, subdomains
 from blockstack_client import constants as blockstack_constants
 import blockstack_zones
 
-from . import config
+from subdomain_registrar import config
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
@@ -468,9 +468,11 @@ def rest_to_api(target, data=None, call = requests.get):
         return call(target, headers = headers,
                     data = data)
 
-START_HELP = """ usage: service start <domainname:required> """
-
-if __name__ == "__main__":
+START_HELP = """ usage: blockstack-subdomain-registrar start <domainname:required> """
+def main_entry():
+    if len(sys.argv) < 2:
+        print START_HELP
+        exit(1)
     command = sys.argv.pop(1)
     if command == "start":
         if len(sys.argv) < 2:
@@ -478,3 +480,6 @@ if __name__ == "__main__":
             exit(1)
         domain_name = sys.argv[1]
         run_registrar(domain_name)
+
+if __name__ == "__main__":
+    main_entry()

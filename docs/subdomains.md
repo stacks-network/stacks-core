@@ -41,14 +41,12 @@ this information. The entry name will be `$(subdomain)`.
 We'll use the format of [RFC 1464](https://tools.ietf.org/html/rfc1464) 
 for the TXT entry. We'll have the following strings with identifiers:
 
-1. **zf-parts** : this specifies the number of pieces that the
+1. **parts** : this specifies the number of pieces that the
 zonefile has been chopped into. TXT strings can only be 255 bytes,
 so we chop up the zonefile.
-2. **zf-n**: part n of the zonefile. this will need to be escaped, 
-backslashes `\` and doublequotes `"` need to be prefaced with a backslash
-`\`.
-3. **pub-key**: the public key delegated to operate the subdomain
-4. **sequence-n**: the sequence number
+2. **zf{n}**: part *n* of the zonefile, base64 encoded
+3. **pk**: the public key delegated to operate the subdomain
+4. **seqn**: the sequence number
 5. **sig**: signature of the above data. 
 
 ```
@@ -56,16 +54,15 @@ $ORIGIN bar.id
 $TTL 3600
 pubkey TXT "pubkey:data:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 registrar URI 10 1 "bsreg://foo.com:8234"
-_subd.foo TXT "pubkey:data:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,N:3,url:https://foobar.com/profile,url:https://dropbox.com/profile2,sig:data:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+aaron TXT "pk=pubkey:data:045a501e341fbf1b403ce3a6e66836a3a40a06d76f62ee46d22f39b280b3eb0e6a9c44f7a06645bac259fcf7703a74b794dd805559db30f780e5cf4c63e5646730" "seqn=0" "parts=1" "zf0=JE9SSUdJTiBhYXJvbgokVFRMIDM2MDAKbWFpbiBVUkkgMSAxICJwdWJrZXk6ZGF0YTowMzAyYWRlNTdlNjNiMzc1NDRmOGQ5Nzk4NjJhNDlkMDBkYmNlMDdmMjkzYmJlYjJhZWNmZTI5OTkxYTg3Mzk4YjgiCg=="
 ```
 
 The `registrar` entry indicates how to contact the registrar service
 for clients of the domain wishing to register or modify their entry.
 
-#### Support for compression
+#### Operations per Zonefile
 
-As we will be packing more data into the zonefiles, 4K may become
-cumbersome. Compression can be explored in this case.
+At 4kb zonefile size, we can only fit around 20 updates per zonefile.
 
 ### Domain Operator Endpoint
 

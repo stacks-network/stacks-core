@@ -469,6 +469,9 @@ def subdomain_record_to_profile(my_rec):
     if user_data_pubkey is None:
         user_data_pubkey = owner_pubkey.to_hex()
 
+    print("Fetching profile from {} with pubkey {}".format(
+        urls, user_data_pubkey))
+
     user_profile = storage.get_mutable_data(
         None, user_data_pubkey, blockchain_id=None,
         data_address=None, owner_address=None,
