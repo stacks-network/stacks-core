@@ -43,17 +43,18 @@ Ping the blockstack node to see if it's alive.
              "version": "0.14.2"
             }
   + Schema
-      {
-           'type': 'object',
-           'properties': {
-               'status': {
-                   'type': 'string'
-               },
-           },
-           'required': [
-               'status'
-           ]
-       }
+
+            {
+                 'type': 'object',
+                 'properties': {
+                     'status': {
+                         'type': 'string'
+                     },
+                 },
+                 'required': [
+                     'status'
+                 ]
+             }
 
 ## Get the node's config [GET /v1/node/config]
 Returns the current configuation settings of the blockstack node.
@@ -113,14 +114,15 @@ Returns the current configuation settings of the blockstack node.
              }
     
   + Schema
-        {
-            'type': 'object',
-            'patternProperties': {
-                '.+': {
-                    'type': 'string',
-                    'pattern': '.+',
-            },
-        }
+
+             {
+                 'type': 'object',
+                 'patternProperties': {
+                     '.+': {
+                         'type': 'string',
+                         'pattern': '.+',
+                 },
+             }
      
 ## Set config field [POST /v1/node/config/{section}?{key}={value}]
 Set one or more config fields in a config section.
@@ -132,29 +134,31 @@ Set one or more config fields in a config section.
 
 + Response 200 (application/json)
   + Body
+
              { 'status' : true }
 
   + Schema
-            {
-              'anyOf': [
-                {
-                      'type': 'object',
-                      'properties': {
-                           'status': {
-                              'type': 'boolean'
+
+                 {
+                   'anyOf': [
+                     {
+                           'type': 'object',
+                           'properties': {
+                                'status': {
+                                   'type': 'boolean'
+                                },
                            },
-                      },
-                },
-                {
-                    'type': 'object',
-                    'properties': {
-                        'error': {
-                            'type': 'string',
-                        },
-                    },
-                },
-              ],
-           }
+                     },
+                     {
+                         'type': 'object',
+                         'properties': {
+                             'error': {
+                                 'type': 'string',
+                             },
+                         },
+                     },
+                   ],
+                }
 
 ## Delete a config field [DELETE /v1/node/config/{section}/{key}]
 Delete a single field from the configuration.
@@ -165,9 +169,11 @@ Delete a single field from the configuration.
 + Response 200 (application/json)
 
   + Body
+
              { 'status' : true }
 
   + Schema
+
              {
               'anyOf': [
                 {
@@ -187,7 +193,7 @@ Delete a single field from the configuration.
                     },
                 },
               ],
-           }
+             }
 
 ## Delete a config section [DELETE /v1/node/config/{section}]
 Deletes a whole section from the node's configuration.
@@ -195,10 +201,12 @@ Deletes a whole section from the node's configuration.
     + section: blockstack-client (string) - configuration section
 
 + Response 200 (application/json)
+  + Body
 
              { 'status' : true }
 
-+ Schema
+  + Schema
+
              {
               'anyOf': [
                 {
@@ -218,7 +226,7 @@ Deletes a whole section from the node's configuration.
                     },
                 },
               ],
-           }
+             }
 
 ## Get registrar state [GET /v1/node/registrar/state]
 Gets the current state of the registrar. That is, the blockstack operations 
@@ -247,6 +255,7 @@ that have been submitted that are still waiting on confirmations.
              ]
 
   + Schema
+
             {
                 'type': 'array',
                 'items': {
@@ -464,13 +473,14 @@ Returns core node's payment address.
              }
 
   + Schema
-        {
-            'type': 'object',
-            'properties': {
-                'type': 'string',
-                'pattern': r'^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
-            }
-        }
+
+             {
+                 'type': 'object',
+                 'properties': {
+                     'type': 'string',
+                     'pattern': r'^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                 }
+             }
 
 ## Set a specific wallet key [PUT /v1/wallet/keys/{keyname}]
 This call instructs the blockstack core node to use a particular key
@@ -551,6 +561,7 @@ transactions with the stored key.
               {"status": true}
 
   + Schema
+
              {
               'anyOf': [
                 {
@@ -570,7 +581,7 @@ transactions with the stored key.
                     },
                 },
               ],
-           }
+             }
 
 ## Get payment wallet balance [GET /v1/wallet/balance/{minconfs}]
 
@@ -591,25 +602,25 @@ least a specified number of confirmations.
              }
 
   + Schema
-         {
-            'type': 'object',
-            'properties': {
-                'balance': {
-                    'type': 'object',
-                        'properties': {
-                            'bitcoin': {
-                                'type': 'number',
-                                'minimum': 0,
-                            },
-                            'satoshis': {
-                                'type': 'integer',
-                                'minimum': 0,
-                            },
-                        },
-                    },
-              },
-           }
-                            
+
+              {
+                 'type': 'object',
+                 'properties': {
+                     'balance': {
+                         'type': 'object',
+                             'properties': {
+                                 'bitcoin': {
+                                     'type': 'number',
+                                     'minimum': 0,
+                                 },
+                                 'satoshis': {
+                                     'type': 'integer',
+                                     'minimum': 0,
+                                 },
+                             },
+                         },
+                   },
+                }
 
 ## Withdraw payment wallet funds [POST /v1/wallet/balance]
 Withdraw an amount (given in satoshis) from the core payment
@@ -624,6 +635,7 @@ wallet, to a particular address.
                'tx_only' : false}
 
   + Schema
+
             {
                 'type': 'object',
                 'properties': {
@@ -652,7 +664,6 @@ wallet, to a particular address.
                 ],
             }
 
-
 + Response 200 (application/json)
   + Body
 
@@ -662,6 +673,7 @@ wallet, to a particular address.
               "success": true
              }
   + Schema
+
             {
               'anyOf': [
                 {
@@ -685,7 +697,7 @@ wallet, to a particular address.
                     },
                 },
               ],
-           }
+            }
                 
 
 ## Get wallet owner address [GET /v1/wallet/owner_address]
@@ -698,6 +710,7 @@ Returns core node's owner address.
                  "address": "myaPViveUWiiZQQTb51KXCDde4iLC3Rf3K"
              }
   + Schema
+
             {
               'anyOf': [
                 {
@@ -718,7 +731,7 @@ Returns core node's owner address.
                     },
                 },
               ],
-           }
+            }
 
 
 ## Get wallet data public key [GET /v1/wallet/data_pubkey]
@@ -731,6 +744,7 @@ Returns the public key the core node uses for signing user data
                  "public_key": "03ea5d8c2a3ba84eb17625162320bb53440557c71f7977a57d61405e86be7bdcda"
              }
   + Schema
+
             {
               'anyOf': [
                 {
@@ -751,7 +765,7 @@ Returns the public key the core node uses for signing user data
                     },
                 },
               ],
-           }
+            }
 
 ## Change wallet password [PUT /v1/wallet/password]
 This will change the password for core's wallet. Currently not working endpoint.
@@ -762,6 +776,7 @@ This will change the password for core's wallet. Currently not working endpoint.
               {'password' : '"0123456789abcdef"',
                'new_password' : "abcdef0123456789"'}
   + Schema
+
             {
               'anyOf': [
                 {
@@ -784,7 +799,7 @@ This will change the password for core's wallet. Currently not working endpoint.
                     },
                 },
               ],
-           }
+            }
 
 ## Set all wallet keys [PUT /v1/wallet/keys]
 + Requires root authorization
@@ -871,6 +886,7 @@ after the `UPDATE` has 6 confirmations.
              }
 
   + Schema
+
             {
               'anyOf': [
                 {
@@ -894,14 +910,14 @@ after the `UPDATE` has 6 confirmations.
                     },
                 },
               ],
-           }
+            }
                 
 
 ## Revoke name [DELETE /v1/names/{name}]
 Revokes the name from blockstack.
++ Authorization: `revoke`
 + Parameters
   + name: bar.test (string) - fully-qualified name
-+ Authorization: `revoke`
 + Response 200 (application/json)
   + Body
 
@@ -910,7 +926,9 @@ Revokes the name from blockstack.
                  "success": true,
                  "transaction_hash": "b2745b706d7a14ce652265de103d7eaefb44a75eb658d7bb1db8868da08768b2"
              }
+
   + Schema
+
             {
               'anyOf': [
                 {
@@ -934,7 +952,7 @@ Revokes the name from blockstack.
                     },
                 },
               ],
-           }
+            }
                 
 
 ## Transfer name [PUT /v1/names/{name}/owner]
@@ -948,6 +966,7 @@ Transfers a name to a different owner.
              { "owner" : "mjZicz7GSJBZuGeCMEgpzr8U9w6d41DfXm" }
 + Response 202 (application/json)
   + Body
+
              {
                  "message": "Name queued for transfer.  The process takes ~1 hour.  You can check the status with `blockstack info`.",
                  "success": true,
@@ -955,6 +974,7 @@ Transfers a name to a different owner.
              }
 
   + Schema
+
             {
               'anyOf': [
                 {
@@ -978,7 +998,7 @@ Transfers a name to a different owner.
                     },
                 },
               ],
-           }
+            }
                 
 
 ## Set zone file [PUT /v1/names/{name}/zonefile]
@@ -1025,6 +1045,7 @@ The `zonefile` field is preserved for legacy compatibility.
 
                 {'success': true, 'transaction_hash' : '...'}
   + Schema
+
             {
               'anyOf': [
                 {
@@ -1048,7 +1069,7 @@ The `zonefile` field is preserved for legacy compatibility.
                     },
                 },
               ],
-           }
+            }
 
 ## Fetch zone file [GET /v1/names/{name}/zonefile]
 Fetch a user's raw zone file.  This only works for RFC-compliant zone files.
@@ -1064,6 +1085,7 @@ This method returns an error for names that have non-standard zone files.
                }
 
   + Schema
+
             {
                 'anyOf': [
                   {
@@ -1102,13 +1124,14 @@ Fetch a list of all names known to the node.
                  "aldi.id", "aldighieri.id", ... ]
 
   + Schema
-       {
-          'type': 'array',
-          'items': {
-                'type': 'string',
-                'pattern': r'^([a-z0-9\\-_.+]{3,37})$',
-          }
-       }
+
+              {
+                 'type': 'array',
+                 'items': {
+                       'type': 'string',
+                       'pattern': r'^([a-z0-9\\-_.+]{3,37})$',
+                 }
+              }
  
 ## Get name info [GET /v1/names/{name}]
 + Public Endpoint
@@ -1128,50 +1151,51 @@ Fetch a list of all names known to the node.
               }
 
   + Schema
-        {
-          'type': 'object',
-          'properties': {
-            'address': {
-                'type': 'string',
-                'pattern': r"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$", 
-            },
-            'blockchain': {
-                'type': 'string',
-                'pattern': '^bitcoin$',
-            },
-            'expire_block': {
-                'type': 'integer',
-                'minimum': 0,
-            },
-            'last_txid': {
-                'type': 'string',
-                'pattern': '^[0-9a-fA-F]+$',
-            },
-            'status': {
-                'type': 'string',
-                'pattern': '^(registered|revoked)$',
-            },
-            'zonefile': {
-                'anyOf': [
-                   {
+
+               {
+                 'type': 'object',
+                 'properties': {
+                   'address': {
                        'type': 'string',
+                       'pattern': r"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$", 
                    },
-                   {
-                       'type': 'object',
-                       'properties': {
-                           'error': {
-                               'type': 'string',
-                           },
-                       },
+                   'blockchain': {
+                       'type': 'string',
+                       'pattern': '^bitcoin$',
                    },
-                ],
-            },
-            'zonefile_hash': {
-                'type': 'string',
-                'pattern': '^[0-9a-fA-F]{20}$`,
-            },
-          },
-        }
+                   'expire_block': {
+                       'type': 'integer',
+                       'minimum': 0,
+                   },
+                   'last_txid': {
+                       'type': 'string',
+                       'pattern': '^[0-9a-fA-F]+$',
+                   },
+                   'status': {
+                       'type': 'string',
+                       'pattern': '^(registered|revoked)$',
+                   },
+                   'zonefile': {
+                       'anyOf': [
+                          {
+                              'type': 'string',
+                          },
+                          {
+                              'type': 'object',
+                              'properties': {
+                                  'error': {
+                                      'type': 'string',
+                                  },
+                              },
+                          },
+                       ],
+                   },
+                   'zonefile_hash': {
+                       'type': 'string',
+                       'pattern': '^[0-9a-fA-F]{20}$`,
+                   },
+                 },
+               }
                 
 ## Name history [GET /v1/names/{name}/history]
 Get a history of all blockchain records of a registered name.
@@ -1204,197 +1228,196 @@ Get a history of all blockchain records of a registered name.
                ]
              }
 
-    + Schema
+  + Schema
 
-  {
-   'type': 'object',
-   'patternProperties': {
-     '^[0-9]+': {
-       'type': 'array',
-       'items': {
-          'type': 'object',
-          'properties': {
-              'address': {
-                  'type': 'string',
-                  'pattern': r"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$", 
-              },
-              'base': {
-                  'type': 'integer',
-                  'minimum': 0,
-                  'maximum': 255,
-              },
-              'buckets': {
-                  'anyOf': [
-                      {
-                          'type': 'array',
-                          'items': {
-                              'type': 'integer',
-                              'minItems': 16,
-                              'maxItems': 16,
-                          },
-                      },
-                      {
-                          'type': 'null',
-                      },
-                  ],
-              },
-              'block_number': {
-                  'type': 'integer',
-                  'minimum': 0,
-              },
-              'coeff': {
-                  'anyOf': [
-                      {
-                          'type': 'integer',
-                          'minimum': 0,
-                          'maximum': 255,
-                      },
-                      {
-                          'type': 'null'
-                      },
-                  ],
-              },
-              'consensus_hash': {
-                  'anyOf': [
-                      {
-                          'type': 'string',
-                          'pattern': '^[0-9a-fA-F]{32}',
-                      },
-                      {
-                          'type': 'null'
-                      },
-                  ],
-              },
-              'fee': {
-                  'type': 'integer',
-                  'minimum': 0,
-              },
-              'first_registered': {
-                  'type': 'integer',
-                  'minimum': 0,
-              },
-              'history_snapshot': {
-                  'type': 'boolean',
-              },
-              'importer': {
-                  'anyOf': [
-                      {
-                          'type': 'string',
-                          'pattern': r'^76[aA]914[0-9a-fA-F]{40}88[aA][cC]$',
-                      },
-                      {
-                          'type': 'null',
-                      },
-                  ],
-              },
-              'importer_address': {
-                  'anyOf': [
-                      {
-                          'type': 'string',
-                          'pattern': r"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$", 
-                      },
-                      {
-                          'type': 'null',
-                      },
-                  ],
-              },
-              'last_renewed': {
-                  'type': 'integer',
-                  'minimum': 0,
-              },
-              'op': {
-                  'type': 'string',
-                  'pattern': '^([>?+~:!&*:;#]{1}|>>|>~|::)$',
-              },
-              'op_fee': {
-                  'type': 'number',
-              },
-              'opcode': {
-                  'type': 'string',
-                  'pattern': '^NAME_TRANSFER|NAME_PREORDER|NAME_UPDATE|NAME_REVOKE|NAME_REGISTRATION|NAMESPACE_READY|NAMESPACE_REVEAL|NAMESPACE_PREORDER|NAME_RENEWAL|NAME_IMPORT|ANNOUNCE$'
-              },
-              'revoked': {
-                  'type': 'boolean',
-              },
-              'sender': {
-                  'type': 'string',
-                  'pattern': '^([0-9a-fA-F]+)$',
-              },
-              'sender_pubkey': {
-                  'anyOf': [
-                      {
-                          'type': 'string',
-                          'pattern': '^([0-9a-fA-F]+)$',
-                      },
-                      {
-                          'type': 'null'
-                      },
-                  ],
-              },
-              'recipient': {
-                  'anyOf': [
-                      {
-                          'type': 'string',
-                          'pattern': '^([0-9a-fA-F]+)$',
-                      },
-                      {
-                          'type': 'null'
-                      },
-                  ],
-              },
-              'recipient_address': {
-                  'anyOf': [
-                      {
-                          'type': 'string',
-                          'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
-                      },
-                      {
-                          'type': 'null'
-                      },
-                  ],
-              },
-              'recipient_pubkey': {
-                  'anyOf': [
-                      {
-                          'type': 'string',
-                          'pattern': '^([0-9a-fA-F]+)$',
-                      },
-                      {
-                          'type': 'null'
-                      },
-                  ],
-              },
-              'txid': {
-                  'type': 'string',
-                  'pattern': '^([0-9a-fA-F]+)$',
-              },
-              'value_hash': {
-                  'anyOf': [
-                      {
-                          'type': 'string',
-                          'pattern': '^([0-9a-fA-F]{40})$',
-                      },
-                      {
-                          'type': 'null',
-                      },
-                  ],
-              },
-              'vtxindex': {
-                  'type': 'integer',
-                  'minimum': 0,
-              },
-          },
-          'required': [
-              'op',
-              'opcode',
-              'txid',
-              'vtxindex'
-          ],
-        }
-     }
-   }
- }
-
+            {
+             'type': 'object',
+             'patternProperties': {
+               '^[0-9]+': {
+                 'type': 'array',
+                 'items': {
+                    'type': 'object',
+                    'properties': {
+                        'address': {
+                            'type': 'string',
+                            'pattern': r"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$", 
+                        },
+                        'base': {
+                            'type': 'integer',
+                            'minimum': 0,
+                            'maximum': 255,
+                        },
+                        'buckets': {
+                            'anyOf': [
+                                {
+                                    'type': 'array',
+                                    'items': {
+                                        'type': 'integer',
+                                        'minItems': 16,
+                                        'maxItems': 16,
+                                    },
+                                },
+                                {
+                                    'type': 'null',
+                                },
+                            ],
+                        },
+                        'block_number': {
+                            'type': 'integer',
+                            'minimum': 0,
+                        },
+                        'coeff': {
+                            'anyOf': [
+                                {
+                                    'type': 'integer',
+                                    'minimum': 0,
+                                    'maximum': 255,
+                                },
+                                {
+                                    'type': 'null'
+                                },
+                            ],
+                        },
+                        'consensus_hash': {
+                            'anyOf': [
+                                {
+                                    'type': 'string',
+                                    'pattern': '^[0-9a-fA-F]{32}',
+                                },
+                                {
+                                    'type': 'null'
+                                },
+                            ],
+                        },
+                        'fee': {
+                            'type': 'integer',
+                            'minimum': 0,
+                        },
+                        'first_registered': {
+                            'type': 'integer',
+                            'minimum': 0,
+                        },
+                        'history_snapshot': {
+                            'type': 'boolean',
+                        },
+                        'importer': {
+                            'anyOf': [
+                                {
+                                    'type': 'string',
+                                    'pattern': r'^76[aA]914[0-9a-fA-F]{40}88[aA][cC]$',
+                                },
+                                {
+                                    'type': 'null',
+                                },
+                            ],
+                        },
+                        'importer_address': {
+                            'anyOf': [
+                                {
+                                    'type': 'string',
+                                    'pattern': r"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$", 
+                                },
+                                {
+                                    'type': 'null',
+                                },
+                            ],
+                        },
+                        'last_renewed': {
+                            'type': 'integer',
+                            'minimum': 0,
+                        },
+                        'op': {
+                            'type': 'string',
+                            'pattern': '^([>?+~:!&*:;#]{1}|>>|>~|::)$',
+                        },
+                        'op_fee': {
+                            'type': 'number',
+                        },
+                        'opcode': {
+                            'type': 'string',
+                            'pattern': '^NAME_TRANSFER|NAME_PREORDER|NAME_UPDATE|NAME_REVOKE|NAME_REGISTRATION|NAMESPACE_READY|NAMESPACE_REVEAL|NAMESPACE_PREORDER|NAME_RENEWAL|NAME_IMPORT|ANNOUNCE$'
+                        },
+                        'revoked': {
+                            'type': 'boolean',
+                        },
+                        'sender': {
+                            'type': 'string',
+                            'pattern': '^([0-9a-fA-F]+)$',
+                        },
+                        'sender_pubkey': {
+                            'anyOf': [
+                                {
+                                    'type': 'string',
+                                    'pattern': '^([0-9a-fA-F]+)$',
+                                },
+                                {
+                                    'type': 'null'
+                                },
+                            ],
+                        },
+                        'recipient': {
+                            'anyOf': [
+                                {
+                                    'type': 'string',
+                                    'pattern': '^([0-9a-fA-F]+)$',
+                                },
+                                {
+                                    'type': 'null'
+                                },
+                            ],
+                        },
+                        'recipient_address': {
+                            'anyOf': [
+                                {
+                                    'type': 'string',
+                                    'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                },
+                                {
+                                    'type': 'null'
+                                },
+                            ],
+                        },
+                        'recipient_pubkey': {
+                            'anyOf': [
+                                {
+                                    'type': 'string',
+                                    'pattern': '^([0-9a-fA-F]+)$',
+                                },
+                                {
+                                    'type': 'null'
+                                },
+                            ],
+                        },
+                        'txid': {
+                            'type': 'string',
+                            'pattern': '^([0-9a-fA-F]+)$',
+                        },
+                        'value_hash': {
+                            'anyOf': [
+                                {
+                                    'type': 'string',
+                                    'pattern': '^([0-9a-fA-F]{40})$',
+                                },
+                                {
+                                    'type': 'null',
+                                },
+                            ],
+                        },
+                        'vtxindex': {
+                            'type': 'integer',
+                            'minimum': 0,
+                        },
+                    },
+                    'required': [
+                        'op',
+                        'opcode',
+                        'txid',
+                        'vtxindex'
+                    ],
+                  }
+               }
+              }
+            }
 
 ## Get historical zone file [GET /v1/names/{name}/zonefile/{zoneFileHash}]
 Fetches the historical zonefile specified by the username and zone hash.
@@ -1411,23 +1434,23 @@ Fetches the historical zonefile specified by the username and zone hash.
              }
 
   + Schema
-        {
-            'anyOf': [
+
                {
-                   'type': 'object',
-                   'properties': {
-                       'zonefile': { 'type': 'string' },
-                   },
-               },
-               {
-                   'type': 'object',
-                   'properties': {
-                       'error': { 'type': 'string' },
-                   },
-               },
-            ],
-        }
-    
+                   'anyOf': [
+                      {
+                          'type': 'object',
+                          'properties': {
+                              'zonefile': { 'type': 'string' },
+                          },
+                      },
+                      {
+                          'type': 'object',
+                          'properties': {
+                              'error': { 'type': 'string' },
+                          },
+                      },
+                   ],
+               }
 
 ## Get names owned by address [GET /v1/addresses/{blockchain}/{address}]
 Retrieves a list of names owned by the address provided.
@@ -1444,19 +1467,19 @@ Retrieves a list of names owned by the address provided.
                 }
 
    + Schema
-        {
-            'type': 'object',
-            'properties': {
-                'names': {
-                    'type': 'array',
-                    'items': {
-                        'type': 'string',
-                        'pattern': '^([a-z0-9\-_.+]{3,37})$',
-                    },
-                },
-            },
-        }
 
+               {
+                   'type': 'object',
+                   'properties': {
+                       'names': {
+                           'type': 'array',
+                           'items': {
+                               'type': 'string',
+                               'pattern': '^([a-z0-9\-_.+]{3,37})$',
+                           },
+                       },
+                   },
+               }
 
 # Group Price Checks
 ## Get namespace price [GET /v1/prices/namespaces/{tld}]
@@ -1471,6 +1494,7 @@ Retrieves a list of names owned by the address provided.
              }
 
   + Schema
+
             {
                 'type': 'object',
                 'properties': {
@@ -1516,63 +1540,64 @@ Retrieves a list of names owned by the address provided.
                }
 
     + Schema
-        {
-            'type': 'object',
-            'properties': {
-                'name_price': {
-                    'type': 'object',
-                    'properties': {
-                        'btc': { 'type': 'number', 'minimum': 0 },
-                        'satoshis': { 'type': 'integer', 'minimum': 0 }
-                    }
-                },
-                'preorder_tx_fee': {
-                    'type': 'object',
-                    'properties': {
-                        'btc': { 'type': 'number', 'minimum': 0 },
-                        'satoshis': { 'type': 'integer', 'minimum': 0 }
-                    }
-                },
-                'register_tx_fee': {
-                    'type': 'object',
-                    'properties': {
-                        'btc': { 'type': 'number', 'minimum': 0 },
-                        'satoshis': { 'type': 'integer', 'minimum': 0 }
-                    }
-                },
-                'update_tx_fee': {
-                    'type': 'object',
-                    'properties': {
-                        'btc': { 'type': 'number', 'minimum': 0 },
-                        'satoshis': { 'type': 'integer', 'minimum': 0 }
-                    }
-                },
-                'total_estimated_cost': {
-                    'type': 'object',
-                    'properties': {
-                        'btc': { 'type': 'number', 'minimum': 0 },
-                        'satoshis': { 'type': 'integer', 'minimum': 0 }
-                    }
-                },
-                'total_tx_fees': {
-                    'type': 'integer',
-                    'minimum': 0,
-                }
-                'name_price': {
-                    'type': 'object',
-                    'properties': {
-                        'btc': { 'type': 'number', 'minimum': 0 },
-                        'satoshis': { 'type': 'integer', 'minimum': 0 }
-                    }
-                },
-                'warnings': {
-                    'type': 'array',
-                    'items': {
-                        'type': 'string',
-                    },
-                },
-            },
-        }
+
+               {
+                   'type': 'object',
+                   'properties': {
+                       'name_price': {
+                           'type': 'object',
+                           'properties': {
+                               'btc': { 'type': 'number', 'minimum': 0 },
+                               'satoshis': { 'type': 'integer', 'minimum': 0 }
+                           }
+                       },
+                       'preorder_tx_fee': {
+                           'type': 'object',
+                           'properties': {
+                               'btc': { 'type': 'number', 'minimum': 0 },
+                               'satoshis': { 'type': 'integer', 'minimum': 0 }
+                           }
+                       },
+                       'register_tx_fee': {
+                           'type': 'object',
+                           'properties': {
+                               'btc': { 'type': 'number', 'minimum': 0 },
+                               'satoshis': { 'type': 'integer', 'minimum': 0 }
+                           }
+                       },
+                       'update_tx_fee': {
+                           'type': 'object',
+                           'properties': {
+                               'btc': { 'type': 'number', 'minimum': 0 },
+                               'satoshis': { 'type': 'integer', 'minimum': 0 }
+                           }
+                       },
+                       'total_estimated_cost': {
+                           'type': 'object',
+                           'properties': {
+                               'btc': { 'type': 'number', 'minimum': 0 },
+                               'satoshis': { 'type': 'integer', 'minimum': 0 }
+                           }
+                       },
+                       'total_tx_fees': {
+                           'type': 'integer',
+                           'minimum': 0,
+                       }
+                       'name_price': {
+                           'type': 'object',
+                           'properties': {
+                               'btc': { 'type': 'number', 'minimum': 0 },
+                               'satoshis': { 'type': 'integer', 'minimum': 0 }
+                           }
+                       },
+                       'warnings': {
+                           'type': 'array',
+                           'items': {
+                               'type': 'string',
+                           },
+                       },
+                   },
+               }
 
 # Group Blockchain Operations
 ## Get consensus hash [GET /v1/blockchains/{blockchainName}/consensus]
@@ -1588,6 +1613,7 @@ Get the current Blockstack consensus hash on a blockchain.
                }
 
   + Schema
+
             {
                 'type': 'object',
                 'properties': {
@@ -1611,6 +1637,7 @@ Get the current transactions that the node has issued and are still pending.
                }
 
   + Schema
+
             {
                 'type': 'object',
                 'properties': {
@@ -1716,26 +1743,26 @@ Get the current transactions that the node has issued and are still pending.
                ]
 
    + Schema
-        {
-            'type': 'array',
-            'items': {
-                'type': 'object',
-                'properties': {
-                    'confirmations': { 'type': 'integer', 'minimum': 0 },
-                    'out_script': { 'type': 'string', 'pattern': '^[0-9a-fA-F]+$' },
-                    'outpoint': {
-                        'type': 'object',
-                        'properties': {
-                            'hash': { 'type': 'string', 'pattern': '^[0-9a-fA-F]+$' },
-                            'index': { 'type': 'integer', 'minimum': 0 },
-                        },
-                    },
-                    'transaction_hash': { 'type': 'string', 'pattern': '^[0-9a-fA-F]+$' },
-                    'value': { 'type': 'integer', 'minimum': 0 },
-                },
-            },
-        }
 
+               {
+                   'type': 'array',
+                   'items': {
+                       'type': 'object',
+                       'properties': {
+                           'confirmations': { 'type': 'integer', 'minimum': 0 },
+                           'out_script': { 'type': 'string', 'pattern': '^[0-9a-fA-F]+$' },
+                           'outpoint': {
+                               'type': 'object',
+                               'properties': {
+                                   'hash': { 'type': 'string', 'pattern': '^[0-9a-fA-F]+$' },
+                                   'index': { 'type': 'integer', 'minimum': 0 },
+                               },
+                           },
+                           'transaction_hash': { 'type': 'string', 'pattern': '^[0-9a-fA-F]+$' },
+                           'value': { 'type': 'integer', 'minimum': 0 },
+                       },
+                   },
+               }
 
 ## Broadcast transaction [POST /v1/blockchains/{blockchainName}/txs]
 + Authorization: `blockchain`
@@ -1764,23 +1791,24 @@ Get the current transactions that the node has issued and are still pending.
                { 'status' : True, 'tx_hash' : '...' }
 
  + Schema
-        {
-            'anyOf': [  
-                {
-                    'type': 'object',
-                    'properties': {
-                        'status': { 'type': 'boolean' },
-                        'tx_hash': { 'type': 'string', 'pattern': '^[0-9a-fA-F]+$' },
-                    },
-                },
-                {
-                    'type': 'object',
-                    'properties': {
-                        'error': { 'type': 'string' },
-                    },
-                },
-            ]
-        }
+
+               {
+                   'anyOf': [
+                       {
+                           'type': 'object',
+                           'properties': {
+                               'status': { 'type': 'boolean' },
+                               'tx_hash': { 'type': 'string', 'pattern': '^[0-9a-fA-F]+$' },
+                           },
+                       },
+                       {
+                           'type': 'object',
+                           'properties': {
+                               'error': { 'type': 'string' },
+                           },
+                       },
+                   ]
+               }
 
 ## Get raw name history [GET /v1/blockchains/{blockchainName}/names/{nameID}/history]
 Not implemented
@@ -1864,7 +1892,110 @@ Fetch a list of names from the namespace.
 Not implemented.
 ## Pre-register a name [POST /v1/namespaces/{tld}/names]
 Not implemented.
++ Parameters
+  + tld: id (string) - the namespace to fetch names from
 ## Update pre-registered name [POST /v1/namespaces/{tld}/names/{name}]
 Not implemented.
++ Parameters
+  + tld: id (string) - the namespace to fetch names from
+  + name: muneeb (string) - the name to update
 ## Launch namespace [PUT /v1/namespaces/{tld}]
 Not implemented.
++ Parameters
+  + tld: id (string) - the namespace to fetch names from
+# Group Resolver Endpoints
+## Lookup User [GET /v2/users/{username}]
+Lookup and resolver a user's profile. Defaults to the `id` namespace.
++ Public Only Endpoint
++ Legacy Endpoint
++ Parameters
+  + username: fredwilson (string) - username to lookup
++ Response 200 (application/json)
+
+               {
+                 "fredwilson": {
+                   "profile": {
+                     "avatar": {
+                       "url": "https://s3.amazonaws.com/kd4/fredwilson1"
+                     },
+                     "bio": "I am a VC",
+                     "bitcoin": {
+                       "address": "1Fbi3WDPEK6FxKppCXReCPFTgr9KhWhNB7"
+                     },
+                     "cover": {
+                       "url": "https://s3.amazonaws.com/dx3/fredwilson"
+                     },
+                     "facebook": {
+                       "proof": {
+                         "url": "https://facebook.com/fred.wilson.963871/posts/10100401430876108"
+                       },
+                       "username": "fred.wilson.963871"
+                     },
+                     "graph": {
+                       "url": "https://s3.amazonaws.com/grph/fredwilson"
+                     },
+                     "location": {
+                       "formatted": "New York City"
+                     },
+                     "name": {
+                       "formatted": "Fred Wilson"
+                     },
+                     "twitter": {
+                       "proof": {
+                         "url": "https://twitter.com/fredwilson/status/533040726146162689"
+                       },
+                       "username": "fredwilson"
+                     },
+                     "v": "0.2",
+                     "website": "http://avc.com"
+                   }
+                 }
+               }
+
+## Profile Search [GET /v1/search?query={query}]
+Searches for a profile using a search string.
++ Public Only Endpoint
++ Parameters
+  + query: wenger (string) - the search query
++ Response 200 (application/json)
+  + Body
+
+               {
+                 "results": [
+                   {
+                     "profile": {
+                       "@type": "Person", 
+                       "account": [
+                         {
+                           "@type": "Account", 
+                           "identifier": "albertwenger", 
+                           "proofType": "http", 
+                           "service": "twitter"
+                         }, 
+                         {
+                           "@type": "Account", 
+                           "identifier": "albertwenger", 
+                           "proofType": "http", 
+                           "service": "facebook"
+                         }, 
+                         {
+                           "@type": "Account", 
+                           "identifier": "albertwenger", 
+                           "proofType": "http", 
+                           "service": "github"
+                         }, 
+                         {
+                           "@type": "Account", 
+                           "identifier": "1QHDGGLEKK7FZWsBEL78acV9edGCTarqXt", 
+                           "role": "payment", 
+                           "service": "bitcoin"
+                         }
+                       ], 
+                       "address": {
+                         "@type": "PostalAddress", 
+                         "addressLocality": "New York"
+                       }, 
+                       "description": "VC at USV.com", 
+                       ...
+               }
+

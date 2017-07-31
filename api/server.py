@@ -139,29 +139,9 @@ def catch_all_post(path):
 @cache_control(5*60)
 def index():
     current_dir = os.path.abspath(os.path.dirname(__file__))
-    api_calls = [call for call in get_api_calls(current_dir + '/api_v1.md')
-                 if not ("private" in call and call["private"].lower().startswith("t"))]
     server_info = getinfo()
 
-    grouped = OrderedDict()
-    for call in api_calls:
-        if "grouping_note" in call:
-            log.debug(call["grouping_note"])
-        group = call["grouping"]
-        if "subgrouping" in call:
-            subgroup = call["subgrouping"]
-        else:
-            subgroup = None
-        if group not in grouped:
-            grouped[group] = OrderedDict()
-        if subgroup == "":
-            subgroup = None
-        if subgroup not in grouped[group]:
-            grouped[group][subgroup] = []
-        grouped[group][subgroup].append(call)
-
-    return render_template('index.html', api_calls=api_calls,
-                           grouped_calls = grouped,
+    return render_template('index.html',
                            server_info=server_info,
                            server_url=PUBLIC_NODE_URL)
 
