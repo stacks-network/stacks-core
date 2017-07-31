@@ -123,7 +123,7 @@ from .scripts import UTXOException, is_name_valid, is_valid_hash, is_namespace_v
 from .user import make_empty_user_profile, user_zonefile_data_pubkey
 
 from .tx import serialize_tx, sign_tx
-from .zonefile import make_empty_zonefile, url_to_uri_record
+from .zonefile import make_empty_zonefile, url_to_uri_record, decode_name_zonefile
 
 from .utils import exit_with_error, satoshis_to_btc, ScatterGather
 from .app import app_publish, app_get_config, app_get_resource, \
@@ -3603,6 +3603,7 @@ def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True, proxy=None):
     """
     # the 'raw' kwarg is set by the API daemon to False to get back structured data
 
+    name = str(args.name)
     parse_json = getattr(args, 'json', 'false')
     parse_json = parse_json is not None and parse_json.lower() in ['true', '1']
 
@@ -3618,9 +3619,12 @@ def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True, proxy=None):
         # try to parse
         try:
             new_zonefile = decode_name_zonefile(name, result['zonefile'])
-            assert new_zonefile is not None
+            assert new_zonefile is not None, "Failed to decode zone file"
             result['zonefile'] = new_zonefile
-        except:
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
             return {'error': 'Non-standard zonefile.'}
     
     if raw:

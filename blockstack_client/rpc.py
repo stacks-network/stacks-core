@@ -1075,7 +1075,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         With `raw=1` on the query string, return the raw zone file.
 
         Reply the {'zonefile': zonefile} on success
-        Reply 500 on failure to fetch data
+        Reply 500 on failure to fetch or parse data
         """
         raw = path_info['qs_values'].get('raw', '')
         raw = (raw.lower() in ['1', 'true'])
@@ -1083,6 +1083,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         internal = self.server.get_internal_proxy()
         resp = internal.cli_get_name_zonefile(name, "true" if not raw else "false", raw=False)
         if json_is_error(resp):
+            log.error("Failed to load zone file for {}: {}".format(name, resp['error']))
             self._reply_json({"error": resp['error']}, status_code=500)
             return
 
