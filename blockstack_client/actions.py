@@ -3621,7 +3621,7 @@ def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True, proxy=None):
             assert new_zonefile is not None
             result['zonefile'] = new_zonefile
         except:
-            result['warning'] = 'Non-standard zonefile'
+            return {'error': 'Non-standard zonefile.'}
     
     if raw:
         return result['zonefile']
