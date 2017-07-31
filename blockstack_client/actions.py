@@ -3620,7 +3620,7 @@ def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True, proxy=None):
         try:
             new_zonefile = decode_name_zonefile(name, result['zonefile'])
             assert new_zonefile is not None, "Failed to decode zone file"
-            result['zonefile'] = new_zonefile
+            result['zonefile'] = result['zonefile']
         except Exception as e:
             if BLOCKSTACK_DEBUG:
                 log.exception(e)
