@@ -779,3 +779,100 @@ Not implemented.
 Not implemented.
 ## Launch namespace [PUT /v1/namespaces/{tld}]
 Not implemented.
+
+# Group Resolver Endpoints
+## Lookup User [GET /v2/users/{username}]
+Lookup and resolver a user's profile. Defaults to the `id` namespace.
++ Public Only Endpoint
++ Legacy Endpoint
++ Parameters
+  + username: fredwilson (string) - username to lookup
++ Response 200 (application/json)
+
+               {
+                 "fredwilson": {
+                   "profile": {
+                     "avatar": {
+                       "url": "https://s3.amazonaws.com/kd4/fredwilson1"
+                     },
+                     "bio": "I am a VC",
+                     "bitcoin": {
+                       "address": "1Fbi3WDPEK6FxKppCXReCPFTgr9KhWhNB7"
+                     },
+                     "cover": {
+                       "url": "https://s3.amazonaws.com/dx3/fredwilson"
+                     },
+                     "facebook": {
+                       "proof": {
+                         "url": "https://facebook.com/fred.wilson.963871/posts/10100401430876108"
+                       },
+                       "username": "fred.wilson.963871"
+                     },
+                     "graph": {
+                       "url": "https://s3.amazonaws.com/grph/fredwilson"
+                     },
+                     "location": {
+                       "formatted": "New York City"
+                     },
+                     "name": {
+                       "formatted": "Fred Wilson"
+                     },
+                     "twitter": {
+                       "proof": {
+                         "url": "https://twitter.com/fredwilson/status/533040726146162689"
+                       },
+                       "username": "fredwilson"
+                     },
+                     "v": "0.2",
+                     "website": "http://avc.com"
+                   }
+                 }
+               }
+
+## Profile Search [GET /v1/search?query={query}]
+Searches for a profile using a search string.
++ Public Only Endpoint
++ Parameters
+  + query: wenger (string) - the search query
++ Response 200 (application/json)
+  + Body
+
+               {
+                 "results": [
+                   {
+                     "profile": {
+                       "@type": "Person", 
+                       "account": [
+                         {
+                           "@type": "Account", 
+                           "identifier": "albertwenger", 
+                           "proofType": "http", 
+                           "service": "twitter"
+                         }, 
+                         {
+                           "@type": "Account", 
+                           "identifier": "albertwenger", 
+                           "proofType": "http", 
+                           "service": "facebook"
+                         }, 
+                         {
+                           "@type": "Account", 
+                           "identifier": "albertwenger", 
+                           "proofType": "http", 
+                           "service": "github"
+                         }, 
+                         {
+                           "@type": "Account", 
+                           "identifier": "1QHDGGLEKK7FZWsBEL78acV9edGCTarqXt", 
+                           "role": "payment", 
+                           "service": "bitcoin"
+                         }
+                       ], 
+                       "address": {
+                         "@type": "PostalAddress", 
+                         "addressLocality": "New York"
+                       }, 
+                       "description": "VC at USV.com", 
+                       ...
+               }
+

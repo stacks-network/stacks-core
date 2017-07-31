@@ -49,7 +49,7 @@ mixin Nav(onlyPublic)
         - if (onlyPublic){
         - myGroups = self.api.resourceGroups.filter( filter_public_resourcegroups )
         - }else{
-        - myGroups = self.api.resourceGroups
+        - myGroups = self.api.resourceGroups.filter( filter_core_resourcegroups )
         - }
         each resourceGroup in myGroups || []
             .resource-group
@@ -65,14 +65,14 @@ mixin Nav(onlyPublic)
                     - if (onlyPublic){
                     - myResources = resourceGroup.resources.filter( filter_public_resources )
                     - }else{
-                    - myResources = resourceGroup.resources
+                    - myResources = resourceGroup.resources.filter( filter_core_resources )
                     - }
                     each resource in myResources || []
                       li
                           - if (onlyPublic){
                           - myActions = resource.actions.filter( filter_public_actions )
                           - }else{
-                          - myActions = resource.actions
+                          - myActions = resource.actions.filter( filter_core_actions )
                           - }
                           if !self.condenseNav || (myActions.length != 1)
                               a(href=resource.elementLink)!= resource.name || 'Resource'
@@ -229,13 +229,22 @@ mixin Content()
                                 +Examples(resourceGroup, resource, action)
 
 - function filter_public_actions(x){
--   return x.description.includes('+ Public Endpoint')
+-   return (x.description.includes('+ Public Endpoint') || x.description.includes('+ Public Only Endpoint'))
 - }
 - function filter_public_resources(x){
 -   return (x.actions.filter( filter_public_actions ).length > 0)
 - }
 - function filter_public_resourcegroups(x){
 -   return (x.resources.filter( filter_public_resources ).length > 0)
+- }
+- function filter_core_actions(x){
+-   return !(x.description.includes('+ Public Only Endpoint'))
+- }
+- function filter_core_resources(x){
+-   return (x.actions.filter( filter_core_actions ).length > 0)
+- }
+- function filter_core_resourcegroups(x){
+-   return (x.resources.filter( filter_core_resources ).length > 0)
 - }
 
 mixin ContentTriple(onlyPublic)
@@ -256,7 +265,7 @@ mixin ContentTriple(onlyPublic)
     - if (onlyPublic){
     - myGroups = self.api.resourceGroups.filter( filter_public_resourcegroups )
     - }else{
-    - myGroups = self.api.resourceGroups
+    - myGroups = self.api.resourceGroups.filter( filter_core_resourcegroups )
     - }
     each resourceGroup in myGroups || []
         .middle
@@ -271,7 +280,7 @@ mixin ContentTriple(onlyPublic)
         - if (onlyPublic){
         - myResources = resourceGroup.resources.filter( filter_public_resources )
         - }else{
-        - myResources = resourceGroup.resources
+        - myResources = resourceGroup.resources.filter( filter_core_resources )
         - }
         each resource in myResources || []
             if resource.public != null
@@ -288,7 +297,7 @@ mixin ContentTriple(onlyPublic)
             - if (onlyPublic){
             - myActions = resource.actions.filter( filter_public_actions )
             - }else{
-            - myActions = resource.actions
+            - myActions = resource.actions.filter( filter_core_actions )
             - }
             each action in myActions || []
                 if action.examples
