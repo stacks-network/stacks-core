@@ -29,6 +29,8 @@ from blockstack_client import user as user_db
 from blockstack_client import subdomains
 import virtualchain.lib.ecdsalib as vc_ecdsa
 
+from subdomain_registrar import util as subdomain_util
+
 import jsonschema
 from blockstack_client.schemas import USER_ZONEFILE_SCHEMA
 import keylib
@@ -40,7 +42,7 @@ class SubdomainZonefiles(unittest.TestCase):
 $TTL 3600
 pubkey TXT "pubkey:data:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 registrar URI 10 1 "bsreg://foo.com:8234"
-foo TXT "pub-key={}" "sequence-n=3" "zf-parts=0"
+foo TXT "pk={}" "seqn=3" "parts=0"
         """
 
 
@@ -79,7 +81,7 @@ foo TXT should_not_parse
 $TTL 3600
 pubkey TXT "pubkey:data:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 registrar URI 10 1 "bsreg://foo.com:8234"
-foo TXT "pub-key={}" "sequence-n=3" "should_not_parse"
+foo TXT "pk={}" "seqn=3" "should_not_parse"
         """
         zf_json = zonefile.decode_name_zonefile(domain_name, zf)
         self.assertEqual(len(subdomains.parse_zonefile_subdomains(zf_json)), 0)
@@ -150,13 +152,13 @@ foo TXT "pub-key={}" "sequence-n=3" "should_not_parse"
 $TTL 3600
 pubkey TXT "pubkey:data:0"
 registrar URI 10 1 "bsreg://foo.com:8234"
-foo TXT "pub-key={}" "sequence-n=0" "zf-parts=0"
+foo TXT "pk={}" "seqn=0" "parts=0"
 """,
             """$ORIGIN bar.id
 $TTL 3600
 pubkey TXT "pubkey:data:0"
 registrar URI 10 1 "bsreg://foo.com:8234"
-bar TXT "pub-key={}" "sequence-n=0" "zf-parts=0"
+bar TXT "pk={}" "seqn=0" "parts=0"
 """,
 ]
 
@@ -182,16 +184,17 @@ registrar URI 10 1 "bsreg://foo.com:8234"
         sub1.add_signature(foo_bar_sk)
         sub2.add_signature(bar_bar_sk)
 
-        subdomains._extend_with_subdomain(zf_json, sub2)
+        subdomain_util._extend_with_subdomain(zf_json, sub2)
 
         history.append(blockstack_zones.make_zone_file(zf_json))
 
         zf_json = zonefile.decode_name_zonefile(domain_name, empty_zf)
-        subdomains._extend_with_subdomain(zf_json, sub1)
+        subdomain_util._extend_with_subdomain(zf_json, sub1)
 
         history.append(blockstack_zones.make_zone_file(zf_json))
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history[:1])
+        self.assertIn("foo", subdomain_db, "Contents actually: {}".format(subdomain_db.keys()))
         self.assertEqual(subdomain_db["foo"].n, 0)
         self.assertNotIn("bar", subdomain_db)
 
@@ -213,13 +216,13 @@ registrar URI 10 1 "bsreg://foo.com:8234"
 $TTL 3600
 pubkey TXT "pubkey:data:0"
 registrar URI 10 1 "bsreg://foo.com:8234"
-foo TXT "pub-key={}" "sequence-n=0" "zf-parts=0"
+foo TXT "pk={}" "seqn=0" "parts=0"
 """,
             """$ORIGIN bar.id
 $TTL 3600
 pubkey TXT "pubkey:data:0"
 registrar URI 10 1 "bsreg://foo.com:8234"
-bar TXT "pub-key={}" "sequence-n=0" "zf-parts=0"
+bar TXT "pk={}" "seqn=0" "parts=0"
 """,
 ]
 
@@ -243,7 +246,7 @@ registrar URI 10 1 "bsreg://foo.com:8234"
         # bad transition n=0 -> n=0
         sub1 = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(foo_bar_sk), 0, "")
 
-        subdomains._extend_with_subdomain(zf_json, sub1)
+        subdomain_util._extend_with_subdomain(zf_json, sub1)
 
         history.append(blockstack_zones.make_zone_file(zf_json))
 
@@ -252,7 +255,7 @@ registrar URI 10 1 "bsreg://foo.com:8234"
         self.assertEqual(zf_json['$origin'], domain_name)
 
         sub2 = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(bar_bar_sk), 1, "")
-        subdomains._extend_with_subdomain(zf_json, sub2)
+        subdomain_util._extend_with_subdomain(zf_json, sub2)
         history.append(blockstack_zones.make_zone_file(zf_json))
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history[:1])

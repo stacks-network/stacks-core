@@ -938,7 +938,11 @@ def cli_lookup(args, config_path=CONFIG_PATH):
         res = subdomains.is_address_subdomain(fqu)
         if res:
             subdomain, domain = res[1]
-            return subdomains.resolve_subdomain(subdomain, domain)
+            try:
+                return subdomains.resolve_subdomain(subdomain, domain)
+            except subdomains.SubdomainNotFound as e:
+                log.exception(e)
+                return {'error' : "Failed to find name {}.{}".format(subdomain, domain)}
         return {'error': error}
 
     try:

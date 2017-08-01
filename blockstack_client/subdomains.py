@@ -34,16 +34,13 @@ from blockstack_client.logger import get_logger
 import blockstack_zones
 from blockstack_client.rpc import local_api_connect
 
+from subdomain_registrar import util as subdomain_util
+from subdomain_registrar.util import (SUBDOMAIN_ZF_PARTS, SUBDOMAIN_ZF_PIECE, 
+                                      SUBDOMAIN_SIG, SUBDOMAIN_PUBKEY, SUBDOMAIN_N)
+
 log = get_logger()
 
-SUBDOMAIN_ZF_PARTS = "parts"
-SUBDOMAIN_ZF_PIECE = "zf%d"
-SUBDOMAIN_SIG = "sig"
-SUBDOMAIN_PUBKEY = "pk"
-SUBDOMAIN_N = "seqn"
 
-class ParseError(Exception):
-    pass
 class DomainNotOwned(Exception):
     pass
 class SubdomainNotFound(Exception):
@@ -116,7 +113,7 @@ class Subdomain(object):
     def parse_subdomain_record(rec):
         txt_entry = rec['txt']
         if not isinstance(txt_entry, list):
-            raise ParseError("Tried to parse a TXT record with only a single <character-string>")
+            raise subdomain_util.ParseError("Tried to parse a TXT record with only a single <character-string>")
         entries = {}
         for item in txt_entry:
             if isinstance(item, unicode):
@@ -244,21 +241,12 @@ class SubdomainDB(object):
         cursor.execute(create_cmd)
         cursor.execute(create_status_cmd)
 
-def is_subdomain_record(rec):
-    txt_entry = rec['txt']
-    if not isinstance(txt_entry, list):
-        return False
-    for entry in txt_entry:
-        if entry.startswith(SUBDOMAIN_ZF_PARTS + "="):
-            return True
-    return False
-
 def parse_zonefile_subdomains(zonefile_json):
     registrar_urls = []
 
     if "txt" in zonefile_json:
         subdomains = [ Subdomain.parse_subdomain_record(x) for x in zonefile_json["txt"]
-                       if is_subdomain_record(x) ]
+                       if subdomain_util.is_subdomain_record(x) ]
     else:
         subdomains = []
 
@@ -333,86 +321,35 @@ def issue_zonefile(domain_fqa, user_data_txt):
         return {'error': 'Exception submitting zonefile for update'}
     return resp
 
-def _extend_with_subdomain(zf_json, subdomain):
-    """
-    subdomain := one of (Subdomain Object, packed subdomain = list<string>)
-    """
-    if isinstance(subdomain, Subdomain):
-        txt_data = subdomain.pack_subdomain()
-    elif isinsntance(subdomain, list):
-        txt_data = subdomain
-    else:
-        raise ParseError("Tried to extend zonefile with non-valid subdomain object")
-
-    name = subdomain.name
-
-    if "txt" not in zf_json:
-        zf_json["txt"] = []
-
-    txt_records = zf_json["txt"]
-
-    for rec in txt_records:
-        if name == rec["name"]:
-            raise Exception("Name {} already exists in zonefile TXT records.".format(
-                name))
-
-    zf_json["txt"].append(subdomain.as_zonefile_entry())
-
-def add_subdomains(subdomains, domain_fqa, broadcast_tx = True, zonefile_in = None):
+def add_subdomains(subdomains, domain_fqa):
     """
     subdomains => list Subdomain objects to add
     domain_fqa => fully qualified domain name to add the subdomain to.
                   - must be owned by the Core's wallet
                   - must not already have a subdomain associated with it
-    broadcast_tx => either broadcast transaction and return response OR
-                    just return the new zonefile
     """
 
     assert isinstance(subdomains, list)
 
-    # get domain's current zonefile and filter the subdomain entries
-    if zonefile_in is None:
-        zf_resp = bs_zonefile.get_name_zonefile(domain_fqa)
-        if 'error' in zf_resp:
-            log.error(zf_resp)
-            raise Exception(zf_resp['error'])
-        zonefile_json = zf_resp['zonefile']
-    else:
-        zonefile_json = zonefile_in
+    # get domain's current zonefile
+    zf_resp = bs_zonefile.get_name_zonefile(domain_fqa)
+    if 'error' in zf_resp:
+        log.error(zf_resp)
+        raise Exception(zf_resp['error'])
+    zonefile_json = zf_resp['zonefile']
 
-    zf = copy.deepcopy(zonefile_json)
-    if "txt" in zf:
-        zf["txt"] = list([ x for x in zf["txt"]
-                           if not is_subdomain_record(x)])
-
-    if len(set(subdomains)) != len(subdomains):
-        raise Exception("Same subdomain listed multiple times")
-
-    subdomains_failed = []
-    for ix, subdomain in enumerate(subdomains):
-        # step 1: see if this resolves to an already defined subdomain
-        subdomain_already = True
+    def filter_by(x, y):
         try:
-            resolve_subdomain(subdomain.name, domain_fqa)
+            resolve_subdomain(x, y)
+            return False
         except SubdomainNotFound as e:
-            subdomain_already = False
-        if subdomain_already:
-            if broadcast_tx:
-                raise SubdomainAlreadyExists(subdomain, domain)
-            subdomains_failed.append(ix)
-        else:
-            # step 2: create the subdomain record, adding it to zf
-            try:
-                _extend_with_subdomain(zf, subdomain)
-            except Exception as e:
-                log.exception(e)
-                subdomains_failed.append(ix)
+            return True
 
-    zf_txt = blockstack_zones.make_zone_file(zf)
-    if broadcast_tx:
-        return issue_zonefile(domain_fqa, zf_txt)
-    else:
-        return zf_txt, subdomains_failed
+    zf_txt, subdomains_failed = subdomain_util.add_subdomains(
+        subdomains, domain_fqa, zonefile_json, filter_by)
+    if len(subdomains_failed) > 0:
+        raise SubdomainAlreadyExists(subdomains[subdomains_failed[0]], domain_fqa)
+    return issue_zonefile(domain_fqa, zf_txt)
 
 def is_subdomain_resolution_cached(domain_fqa):
     domains = config.get_subdomains_cached_for()
@@ -469,11 +406,14 @@ def subdomain_record_to_profile(my_rec):
     if user_data_pubkey is None:
         user_data_pubkey = owner_pubkey.to_hex()
 
-    user_profile = storage.get_mutable_data(
-        None, user_data_pubkey, blockchain_id=None,
-        data_address=None, owner_address=None,
-        urls=urls, drivers=None, decode=True,
-    )
+    try:
+        user_profile = storage.get_mutable_data(
+            None, user_data_pubkey, blockchain_id=None,
+            data_address=None, owner_address=None,
+            urls=urls, drivers=None, decode=True,
+        )
+    except:
+        user_profile = None
 
     data = { 'profile' : user_profile,
              'zonefile' : parsed_zf }

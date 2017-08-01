@@ -9,7 +9,7 @@ from blockstack_client import schemas, subdomains
 from blockstack_client import constants as blockstack_constants
 import blockstack_zones
 
-from subdomain_registrar import config
+from subdomain_registrar import config, util
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
@@ -114,7 +114,7 @@ class SubdomainOpsQueue(object):
             return {'status' : 'true',
                     'subdomain_updates' : 0}
 
-        zf_txt = None
+        zf_init = get_zonefile(self.domain)
         for slice_sz in range(len(queued_rows), -1, -1):
             if slice_sz == 0:
                 return {'error' : 
@@ -125,11 +125,7 @@ class SubdomainOpsQueue(object):
             to_add = list(entries)
 
             kwargs = {}
-            if zf_txt is not None:
-                zf_json = blockstack_zones.parse_zone_file(zf_txt)
-                kwargs["zonefile_in"] = zf_json
-            zf_txt, subs_failed = subdomains.add_subdomains(
-                to_add, self.domain, broadcast_tx = False, **kwargs)
+            zf_txt, subs_failed = util.add_subdomains(to_add, self.domain, zf_init)
 
             if len(subs_failed) > 0:
                 indexes = list(indexes)
@@ -195,11 +191,8 @@ class SubdomainOpsQueue(object):
                 'transaction_hash' : txid}
 
 def get_queued_name(subdomain, domain_name):
-    try:
-        subdomains.resolve_subdomain(subdomain, domain_name)
+    if does_subdomain_exist(subdomain, domain_name):
         return {'status' : 'Subdomain already propagated'}
-    except subdomains.SubdomainNotFound as e:
-        pass
     q =  SubdomainOpsQueue(domain_name, config.get_subdomain_registrar_db_path())
     status = q.get_subdomain_status(subdomain)
     if status:
@@ -207,11 +200,8 @@ def get_queued_name(subdomain, domain_name):
     return {'error' : 'Subdomain not registered with this registrar', 'status_code' : 404}
 
 def queue_name_for_registration(subdomain, domain_name):
-    try:
-        subdomains.resolve_subdomain(subdomain.name, domain_name)
+    if does_subdomain_exist(subdomain.name, domain_name):
         raise subdomains.SubdomainAlreadyExists(subdomain.name, domain_name)
-    except subdomains.SubdomainNotFound as e:
-        pass
     q =  SubdomainOpsQueue(domain_name, config.get_subdomain_registrar_db_path())
     q.add_subdomain_to_queue(subdomain)
     return {'status' : 'true',
@@ -330,7 +320,12 @@ class SubdomainRegistrarWorker(threading.Thread):
             #        block time, rather than clock time.
 
             for i in range(5): # number of retries
-                result = queue.submit_transaction()
+                try:
+                    result = queue.submit_transaction()
+                except Exception as e:
+                    log.error("Error trying to submit transaction")
+                    log.exception(e)
+                    break
                 if not ('error' in result and result.get('retry', False)):
                     break
 
@@ -363,9 +358,12 @@ class SubdomainRegistrarRPCHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         self.wfile.write(message + "\r\n")
 
     def do_GET(self):
-        if not str(self.path).startswith("/status/"):
+        path = self.path
+        if path[-1] == "/":
+            path = path[:-1]
+        if not str(path).startswith("/status/"):
             return self.send_message(404, json.dumps({"error" : "Unsupported API method"}))
-        name = self.path[len("/status/"):]
+        name = path[len("/status/"):]
         if re.match(config.SUBDOMAIN_NAME_PATTERN, name) is None:
             return self.send_message(404, json.dumps({"error" : "Invalid subdomain supplied"}))
         status = get_queued_name(name, self.server.domain_name)
@@ -375,7 +373,10 @@ class SubdomainRegistrarRPCHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         return self.send_message(200, json.dumps(status))
 
     def do_POST(self):
-        if str(self.path) != "/register":
+        path = self.path
+        if path[-1] == "/":
+            path = path[:-1]
+        if str(path) != "/register":
             return self.send_message(404, json.dumps({"error" : "Unsupported API method"}))
         length = int(self.headers.getheader('content-length'))
         if length > 1024 * 1024:
@@ -458,6 +459,20 @@ class SubdomainLock(object):
         else:
             return False
 
+def get_zonefile(domain):
+    resp = rest_to_api("/v1/names/{}/zonefile".format(domain))
+    if resp.status_code != 200:
+        log.error("Error fetch zonefile for {} : {} {}".format(
+            domain, resp.status_code, resp.text))
+        raise Exception("Failed to fetch zonefile")
+    zf_raw = resp.json()["zonefile"]
+    if zf_raw:
+        return blockstack_zones.parse_zone_file(str(zf_raw))
+    raise Exception("No zonefile returned")
+
+def does_subdomain_exist(subdomain, domain):
+    resp = rest_to_api("/v1/users/{}.{}/".format(subdomain, domain))
+    return (resp.status_code == 200)
 
 def rest_to_api(target, data=None, call = requests.get):
     api_endpoint, authentication = config.get_core_api_endpoint()
