@@ -44,13 +44,15 @@ wallets = [
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 zonefile_hash = None
 
+SLEEP_TIME = 20
+
 def wait_for_registration( kw ):
     # wait for the preorder to get confirmed
     for i in xrange(0, 12):
         testlib.next_block(**kw )
     # wait for the poller to pick it up
     print >> sys.stderr, "Waiting 10 seconds for the backend to submit the register"
-    time.sleep(10)
+    time.sleep(SLEEP_TIME)
     # wait for the register to get confirmed 
     for i in xrange(0, 12):
         # warn the serialization checker that this changes behavior from 0.13
@@ -60,7 +62,7 @@ def wait_for_registration( kw ):
         testlib.next_block(**kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
-    time.sleep(10)
+    time.sleep(SLEEP_TIME)
     # wait for initial update to get confirmed 
     for i in xrange(0, 12):
         # warn the serialization checker that this changes behavior from 0.13
@@ -70,7 +72,7 @@ def wait_for_registration( kw ):
         testlib.next_block(**kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
-    time.sleep(10)
+    time.sleep(SLEEP_TIME)
 
 def scenario( wallets, **kw ):
 
@@ -128,7 +130,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
-    time.sleep(10)
+    time.sleep(SLEEP_TIME)
 
     # let's write a profile for the resolver.
     profile_raw = {"foo" : {
@@ -184,7 +186,7 @@ def scenario( wallets, **kw ):
     #  zonefiles :\
 
     print >> sys.stderr, "Waiting to acknowledge the latest update"
-    time.sleep(10)
+    time.sleep(SLEEP_TIME)
     for i in xrange(0, 12):
         sys.stdout.flush()
         testlib.next_block( **kw )
@@ -202,6 +204,9 @@ def check( state_engine ):
     for subdomain, domain in profiles_to_resolve:
         # let's resolve!
         user_profile = subdomains.resolve_subdomain(subdomain, domain)['profile']
+        assert subdomain in user_profile
+        print "Resolved profile : {}".format(user_profile)
+        user_profile = subdomains.resolve_subdomain(subdomain, domain, use_cache=False)['profile']
         assert subdomain in user_profile
         print "Resolved profile : {}".format(user_profile)
 
