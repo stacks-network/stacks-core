@@ -215,9 +215,9 @@ def parse_subdomain_request(input_str):
                 'type': 'string',
                 'pattern': config.SUBDOMAIN_NAME_PATTERN
             },
-            'data_pubkey' : {
+            'owner' : {
                 'type': 'string',
-                'pattern': r'^(pubkey:data:[0-9a-fA-F]+)$'
+                'pattern': schemas.OP_ADDRESS_PATTERN
             },
             'uris' : {
                 'type': 'array',
@@ -245,11 +245,10 @@ def parse_subdomain_request(input_str):
     if zonefile_str is None:
         raise Exception("Request lacked either a zonefile_str or an uris entry")
 
-    pubkey_entry = subdomains.encode_pubkey_entry(
-        subdomains.decode_pubkey_entry(str(request['data_pubkey'])))
+    owner_entry = str(request['owner'])
 
     return subdomains.Subdomain(
-        request['subdomain'], pubkey_entry,
+        request['subdomain'], owner_entry,
         n=0, zonefile_str = zonefile_str)
 
 def run_registrar(domain_name):

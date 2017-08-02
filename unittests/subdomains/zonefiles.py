@@ -42,7 +42,7 @@ class SubdomainZonefiles(unittest.TestCase):
 $TTL 3600
 pubkey TXT "pubkey:data:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 registrar URI 10 1 "bsreg://foo.com:8234"
-foo TXT "pk={}" "seqn=3" "parts=0"
+foo TXT "owner={}" "seqn=3" "parts=0"
         """
 
 
@@ -81,7 +81,7 @@ foo TXT should_not_parse
 $TTL 3600
 pubkey TXT "pubkey:data:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 registrar URI 10 1 "bsreg://foo.com:8234"
-foo TXT "pk={}" "seqn=3" "should_not_parse"
+foo TXT "owner={}" "seqn=3" "should_not_parse"
         """
         zf_json = zonefile.decode_name_zonefile(domain_name, zf)
         self.assertEqual(len(subdomains.parse_zonefile_subdomains(zf_json)), 0)
@@ -92,7 +92,7 @@ foo TXT "pk={}" "seqn=3" "should_not_parse"
         pk = sk.public_key()
 
         for t in ["foo", "bar", "bassoon"]:
-            self.assertTrue(subdomains.verify(pk, t,
+            self.assertTrue(subdomains.verify(pk.address(), t,
                                               subdomains.sign(sk, t)), t)
 
         subdomain = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(sk), 3, "")
@@ -110,7 +110,7 @@ foo TXT "pk={}" "seqn=3" "should_not_parse"
 
         subdomain.add_signature(sk)
 
-        self.assertTrue(subdomain.verify_signature(pk))
+        self.assertTrue(subdomain.verify_signature(pk.address()))
 
         parsed_zf = zonefile.decode_name_zonefile(subdomain.name, subdomain.zonefile_str)
         urls = user_db.user_zonefile_urls(parsed_zf)
@@ -152,13 +152,13 @@ foo TXT "pk={}" "seqn=3" "should_not_parse"
 $TTL 3600
 pubkey TXT "pubkey:data:0"
 registrar URI 10 1 "bsreg://foo.com:8234"
-foo TXT "pk={}" "seqn=0" "parts=0"
+foo TXT "owner={}" "seqn=0" "parts=0"
 """,
             """$ORIGIN bar.id
 $TTL 3600
 pubkey TXT "pubkey:data:0"
 registrar URI 10 1 "bsreg://foo.com:8234"
-bar TXT "pk={}" "seqn=0" "parts=0"
+bar TXT "owner={}" "seqn=0" "parts=0"
 """,
 ]
 
@@ -216,13 +216,13 @@ registrar URI 10 1 "bsreg://foo.com:8234"
 $TTL 3600
 pubkey TXT "pubkey:data:0"
 registrar URI 10 1 "bsreg://foo.com:8234"
-foo TXT "pk={}" "seqn=0" "parts=0"
+foo TXT "owner={}" "seqn=0" "parts=0"
 """,
             """$ORIGIN bar.id
 $TTL 3600
 pubkey TXT "pubkey:data:0"
 registrar URI 10 1 "bsreg://foo.com:8234"
-bar TXT "pk={}" "seqn=0" "parts=0"
+bar TXT "owner={}" "seqn=0" "parts=0"
 """,
 ]
 

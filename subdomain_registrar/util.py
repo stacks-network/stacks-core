@@ -4,7 +4,7 @@ import copy
 SUBDOMAIN_ZF_PARTS = "parts"
 SUBDOMAIN_ZF_PIECE = "zf%d"
 SUBDOMAIN_SIG = "sig"
-SUBDOMAIN_PUBKEY = "pk"
+SUBDOMAIN_PUBKEY = "owner"
 SUBDOMAIN_N = "seqn"
 
 def is_subdomain_record(rec):

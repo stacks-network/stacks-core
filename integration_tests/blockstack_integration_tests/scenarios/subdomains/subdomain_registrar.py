@@ -109,9 +109,11 @@ core_auth_token = False
     baz_sk = keylib.ECPrivateKey()
     uri_rec = (blockstack_client.zonefile.url_to_uri_record("file:///tmp/baz.profile.json"))
 
+    owner_address = baz_sk.public_key().address()
+
     requests.post("http://localhost:7103/register",
                   data = json.dumps({"subdomain": "bar",
-                                     "data_pubkey" : blockstack_client.subdomains.encode_pubkey_entry(baz_sk), 
+                                     "owner" : owner_address,
                                      "uris" : [uri_rec]}))
 
     profile_raw = {"bar" : {

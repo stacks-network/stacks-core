@@ -407,7 +407,8 @@ def profile_list_accounts(name, proxy=None):
         try:
             jsonschema.validate(acct, PROFILE_ACCOUNT_SCHEMA)
             output_accounts.append(acct)
-        except jsonschema.ValidationError:
+        except jsonschema.ValidationError as e:
+            log.exception(e)
             continue
 
     return {'accounts': output_accounts}

@@ -22,9 +22,11 @@
 
 import sqlite3
 
-import base64, copy, re
+import base64, copy, re, binascii
 import ecdsa, hashlib
 import keylib
+import virtualchain
+
 from itertools import izip
 from blockstack_client import data, storage, config, proxy, schemas
 from blockstack_client import zonefile as bs_zonefile
@@ -53,9 +55,9 @@ class SubdomainAlreadyExists(Exception):
             "Subdomain already exists: {}.{}".format(subdomain, domain))
 
 class Subdomain(object):
-    def __init__(self, name, pubkey_encoded, n, zonefile_str, sig=None):
+    def __init__(self, name, address, n, zonefile_str, sig=None):
         self.name = name
-        self.pubkey = decode_pubkey_entry(pubkey_encoded)
+        self.address = address
         self.n = n
         self.zonefile_str = zonefile_str
         self.sig = sig
@@ -63,11 +65,11 @@ class Subdomain(object):
     def pack_subdomain(self):
         """ Returns subdomain packed into a list of strings
             Also defines the canonical order for signing!
-            PUBKEY, N, ZF_PARTS, IN_ORDER_PIECES, (? SIG)
+            ADDR, N, ZF_PARTS, IN_ORDER_PIECES, (? SIG)
         """
         output = []
         output.append(txt_encode_key_value(SUBDOMAIN_PUBKEY, 
-                                           encode_pubkey_entry(self.pubkey)))
+                                           self.address))
         output.append(txt_encode_key_value(SUBDOMAIN_N, "{}".format(self.n)))
         
         encoded_zf = base64.b64encode(self.zonefile_str)
@@ -224,7 +226,7 @@ class SubdomainDB(object):
         cursor.execute(write_cmd,
                        (subdomain_obj.name,
                         subdomain_obj.n,
-                        encode_pubkey_entry(subdomain_obj.pubkey),
+                        subdomain_obj.address,
                         subdomain_obj.zonefile_str,
                         subdomain_obj.sig))
         self.conn.commit()
@@ -301,7 +303,7 @@ def _transition_valid(from_sub_record, to_sub_record):
         log.warn("Failed subdomain {} transition because of N:{}->{}".format(
             to_sub_record.name, from_sub_record.n, to_sub_record.n))
         return False
-    if not to_sub_record.verify_signature(from_sub_record.pubkey):
+    if not to_sub_record.verify_signature(from_sub_record.address):
         log.warn("Failed subdomain {} transition because of signature failure".format(
             to_sub_record.name))
         return False
@@ -408,7 +410,7 @@ def resolve_subdomain(subdomain, domain_fqa, use_cache = True):
     return subdomain_record_to_profile(subdomain_obj)
 
 def subdomain_record_to_profile(my_rec):
-    owner_pubkey = my_rec.pubkey
+    owner_addr = my_rec.address
 
     assert isinstance(my_rec.zonefile_str, (str, unicode))
 
@@ -424,13 +426,10 @@ def subdomain_record_to_profile(my_rec):
     except ValueError:
         pass # no pubkey defined in zonefile
 
-    if user_data_pubkey is None:
-        user_data_pubkey = owner_pubkey.to_hex()
-
     try:
         user_profile = storage.get_mutable_data(
             None, user_data_pubkey, blockchain_id=None,
-            data_address=None, owner_address=None,
+            data_address=owner_addr, owner_address=None,
             urls=urls, drivers=None, decode=True,
         )
     except:
@@ -450,22 +449,38 @@ def subdomain_record_to_profile(my_rec):
 #      SK to PK
 #   2> didn't want this code to necessarily depend on virtualchain
 
+def verify(address, plaintext, scriptSigb64):
+    assert isinstance(address, str)
+
+    scriptSig = base64.b64decode(scriptSigb64)
+
+    vb = keylib.b58check.b58check_version_byte(address)
+
+    if vb != 0:
+        raise NotImplementedError("Addresses must be single-sig: version-byte == 0")
+
+    sighex, pubkey_hex = virtualchain.btc_script_deserialize(scriptSig)
+    # verify pubkey_hex corresponds to address
+    if keylib.ECPublicKey(pubkey_hex).address() != address:
+        raise Exception(("Address {} does not match the public key in the" +
+                         " provided scriptSig: provided pubkey = {}").format(
+                             address, pubkey_hex))
+    sig64 = base64.b64encode(binascii.unhexlify(sighex))
+
+    hash_hex = binascii.hexlify(hashlib.sha256(plaintext).digest())
+    return virtualchain.ecdsalib.verify_digest(hash_hex, pubkey_hex, sig64)
+
 def sign(sk, plaintext):
-    signer = ecdsa.SigningKey.from_pem(sk.to_pem())
-    blob = signer.sign_deterministic(plaintext, hashfunc = hashlib.sha256)
-    return base64.b64encode(blob)
-
-def verify(pk, plaintext, sigb64):
-    signature = base64.b64decode(sigb64)
-    verifier = ecdsa.VerifyingKey.from_pem(pk.to_pem())
-    return verifier.verify(signature, plaintext, hashfunc = hashlib.sha256)
-
-
-def decode_pubkey_entry(pubkey_entry):
-    assert pubkey_entry.startswith("pubkey:data:")
-    data = pubkey_entry[len("pubkey:data:"):]
-
-    return keylib.ECPublicKey(data)
+    """
+    This returns a signature of the given plaintext with the given SK.
+    This is in the form of a p2pkh scriptSig
+    """
+    privkey_hex = sk.to_hex()
+    hash_hex = binascii.hexlify(hashlib.sha256(plaintext).digest())
+    b64sig = virtualchain.ecdsalib.sign_digest(hash_hex, privkey_hex)
+    sighex = binascii.hexlify(base64.b64decode(b64sig))
+    pubkey_hex = sk.public_key().to_hex()
+    return base64.b64encode(virtualchain.btc_script_serialize([sighex, pubkey_hex]))
 
 def encode_pubkey_entry(key):
     """
@@ -474,13 +489,16 @@ def encode_pubkey_entry(key):
         keylib.ECPublicKey
     """
     if isinstance(key, keylib.ECPrivateKey):
-        data = key.public_key().to_hex()
+        pubkey = key.public_key()
     elif isinstance(key, keylib.ECPublicKey):
-        data = key.to_hex()
+        pubkey = key
     else:
         raise NotImplementedError("No support for this key type")
 
-    return "pubkey:data:{}".format(data)
+    addr = pubkey.address()
+
+    return "{}".format(addr)
+
 
 def txt_encode_key_value(key, value):
     return "{}={}".format(key,
