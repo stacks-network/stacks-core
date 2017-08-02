@@ -24,12 +24,12 @@ without any changes to the core protocol.
 We can do this by having a zone file record for each subdomain *i*
 containing the following information:
 
-1. A public key *PK*
+1. An owner address *addr*
 2. A sequence number *N*
 3. A zonefile
 4. A signature *S* of the above
 
-The signature *S_i* must be provided by the public key in the
+The signature *S_i* must be verifiable with the address in the
 *(N-1)*th entry for subdomain *i*.
 
 ### Zonefile Format
@@ -45,7 +45,7 @@ for the TXT entry. We'll have the following strings with identifiers:
 zonefile has been chopped into. TXT strings can only be 255 bytes,
 so we chop up the zonefile.
 2. **zf{n}**: part *n* of the zonefile, base64 encoded
-3. **pk**: the public key delegated to operate the subdomain
+3. **owner**: the owner address delegated to operate the subdomain
 4. **seqn**: the sequence number
 5. **sig**: signature of the above data. 
 
@@ -54,7 +54,7 @@ $ORIGIN bar.id
 $TTL 3600
 pubkey TXT "pubkey:data:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 registrar URI 10 1 "bsreg://foo.com:8234"
-aaron TXT "pk=pubkey:data:045a501e341fbf1b403ce3a6e66836a3a40a06d76f62ee46d22f39b280b3eb0e6a9c44f7a06645bac259fcf7703a74b794dd805559db30f780e5cf4c63e5646730" "seqn=0" "parts=1" "zf0=JE9SSUdJTiBhYXJvbgokVFRMIDM2MDAKbWFpbiBVUkkgMSAxICJwdWJrZXk6ZGF0YTowMzAyYWRlNTdlNjNiMzc1NDRmOGQ5Nzk4NjJhNDlkMDBkYmNlMDdmMjkzYmJlYjJhZWNmZTI5OTkxYTg3Mzk4YjgiCg=="
+aaron TXT "owner=33VvhhSQsYQyCVE2VzG3EHa9gfRCpboqHy" "seqn=0" "parts=1" "zf0=JE9SSUdJTiBhYXJvbgokVFRMIDM2MDAKbWFpbiBVUkkgMSAxICJwdWJrZXk6ZGF0YTowMzAyYWRlNTdlNjNiMzc1NDRmOGQ5Nzk4NjJhNDlkMDBkYmNlMDdmMjkzYmJlYjJhZWNmZTI5OTkxYTg3Mzk4YjgiCg=="
 ```
 
 The `registrar` entry indicates how to contact the registrar service
@@ -98,71 +98,25 @@ The schema for registration is:
 {
         'type' : 'object',
         'properties' : {
-            'subdomain' : {
+            'name' : {
                 'type': 'string',
                 'pattern': '([a-z0-9\-_+]{3,36})$'
             },
-            'data_pubkey' : {
+            'owner_address' : {
                 'type': 'string',
-                'pattern': r'^(pubkey:data:[0-9a-fA-F]+)$'
+                'pattern': schemas.OP_ADDRESS_PATTERN
             },
-            'uris' : {
-                'type': 'array',
-                'items':
-                         {
-                             'type': 'object',
-                             'properties': {
-                                 'name': {
-                                     'type': 'string'
-                                 },
-                                 'priority': {
-                                     'type': 'integer',
-                                     'minimum': 0,
-                                     'maximum': 65535,
-                                 },
-                                 'weight': {
-                                     'type': 'integer',
-                                     'minimum': 0,
-                                     'maximum': 65535,
-                                 },
-                                 'target': {
-                                     'anyOf': [
-                                         {
-                                             'type': 'string',
-                                             'pattern': '^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
-                                         },
-                                         {
-                                             'type': 'string',
-                                             'pattern': '^([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
-                                         },
-                                     ],
-                                 },
-                                 'class': {
-                                     'type': 'string'
-                                 },
-                                 '_missing_class': {
-                                     'type': 'boolean'
-                                 },
-                             },
-                             'required': [
-                                 'name',
-                                 'priority',
-                                 'weight',
-                                 'target'
-                             ],
-                         }
-            },
-            'zonefile_str' : {
+            'zonefile' : {
                 'type' : 'string',
-                'maxLength' : 4096
+                'maxLength' : blockstack_constants.RPC_MAX_ZONEFILE_LEN
             }
-        }
-        'required': ['data_pubkey', 'subdomain']
+        },
+        'required':[
+            'name', 'owner_address', 'zonefile'
+        ],
+        'additionalProperties' : True
 }
 ```
-
-The request supplies *either* a list of URIs for the subdomain,
-or a raw zonefile for the subdomain.
 
 The registrar will:
 
@@ -228,8 +182,10 @@ When a lookup like `foo.bar.id` hits the resolver, the resolver will need to:
 
 #### Subdomain Caching
 
-A resolver may *cache* a subdomain's state by keeping a database of
-all the current subdomain records.
+A resolver *caches* a subdomain's state by keeping a database of all
+the current subdomain records. This database is automatically updated
+when a new zonefile for a particularly domain is seen by the resolver
+(this is performed lazily).
 
 
 #### Todos
@@ -240,5 +196,5 @@ all the current subdomain records.
 2. Caching resolver database [x]
 3. Batching updates [x]
 4. Web API [x]
-5. Resolver database cache for holding *multiple* domains, instead of just one [o]
+5. Resolver database cache for holding *multiple* domains, instead of just one [x]
 6. Endpoint support for changing zonefiles/rotating keys [o]

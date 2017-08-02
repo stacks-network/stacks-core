@@ -443,11 +443,20 @@ def subdomain_record_to_profile(my_rec):
              'zonefile' : parsed_zf }
     return data
 
-# aaron: I was hesitant to write these two functions. But I did so because:
-#   1> getting the sign + verify functions from virtualchain.ecdsa 
-#      was tricky because of the hashfunc getting lost in translating from
-#      SK to PK
-#   2> didn't want this code to necessarily depend on virtualchain
+##
+# Aaron: what follows is verification and signing code for subdomains.
+#   because subdomains are ownable by either a single-sig *address* or
+#   a multi-sig *address*, the sign/verify process has to be 'bitcoin-like'
+#   the data to be verified is hashed, and then verified using one of two
+#   processes:
+#
+#       multi-sig: parse b64 signature blob as a scriptSig, parse out the
+#                  redeem script portion and sigs, verify with OPCHECKMULTISIG
+#                  verify redeem script matches owner address.
+#       single-sig: parse b64 signature blob as a scriptSig, parse out the
+#                   pubkey and sig, verify like OPCHECKSIG. 
+#                   verify pubkey matches owner address.
+##
 
 def verify(address, plaintext, scriptSigb64):
     assert isinstance(address, str)
