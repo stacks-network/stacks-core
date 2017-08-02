@@ -211,44 +211,35 @@ def parse_subdomain_request(input_str):
     schema = {
         'type' : 'object',
         'properties' : {
-            'subdomain' : {
+            'name' : {
                 'type': 'string',
                 'pattern': config.SUBDOMAIN_NAME_PATTERN
             },
-            'owner' : {
+            'owner_address' : {
                 'type': 'string',
                 'pattern': schemas.OP_ADDRESS_PATTERN
             },
-            'uris' : {
-                'type': 'array',
-                'items': schemas.URI_RECORD_SCHEMA
-            },
-            'zonefile_str' : {
+            'zonefile' : {
                 'type' : 'string',
                 'maxLength' : blockstack_constants.RPC_MAX_ZONEFILE_LEN
             }
-        }
+        },
+        'required':[
+            'name', 'owner_address', 'zonefile'
+        ],
+        'additionalProperties' : True
     }
     request = json.loads(input_str)
     jsonschema.validate(request, schema)
-    
-    zonefile_str = None
-    if 'zonefile_str' in request:
-        zonefile_str = request['zonefile_str']
-    elif 'uris' in request:
-        zonefile_dict = {
-            '$origin' : request['subdomain'],
-            '$ttl' : 3600,
-            'uri' : request['uris']
-        }
-        zonefile_str = blockstack_zones.make_zone_file(zonefile_dict)
+
+    zonefile_str = str(request['zonefile'])
     if zonefile_str is None:
         raise Exception("Request lacked either a zonefile_str or an uris entry")
 
-    owner_entry = str(request['owner'])
+    owner_entry = str(request['owner_address'])
 
     return subdomains.Subdomain(
-        request['subdomain'], owner_entry,
+        request['name'], owner_entry,
         n=0, zonefile_str = zonefile_str)
 
 def run_registrar(domain_name):

@@ -27,6 +27,7 @@ import json
 import sys
 import os, subprocess
 import blockstack_client
+import blockstack_zones
 import keylib
 import requests
 from blockstack_integration_tests.scenarios import testlib
@@ -107,14 +108,22 @@ core_auth_token = False
     time.sleep(SLEEP_TIME)
 
     baz_sk = keylib.ECPrivateKey()
-    uri_rec = (blockstack_client.zonefile.url_to_uri_record("file:///tmp/baz.profile.json"))
+    uri_rec = blockstack_client.zonefile.url_to_uri_record("file:///tmp/baz.profile.json")
 
     owner_address = baz_sk.public_key().address()
 
+    zonefile_obj = { 
+        '$origin' : "bar",
+        '$ttl' : 3600,
+        'uri' : [uri_rec]
+    }
+    zonefile_str = blockstack_zones.make_zone_file(zonefile_obj)
+
     requests.post("http://localhost:7103/register",
-                  data = json.dumps({"subdomain": "bar",
-                                     "owner" : owner_address,
-                                     "uris" : [uri_rec]}))
+                  data = json.dumps({"name": "bar",
+                                     "min_confs" : 0,
+                                     "owner_address" : owner_address,
+                                     "zonefile" : zonefile_str}))
 
     profile_raw = {"bar" : {
         "@type" : "Person",
