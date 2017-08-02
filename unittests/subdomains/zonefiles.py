@@ -35,6 +35,9 @@ import jsonschema
 from blockstack_client.schemas import USER_ZONEFILE_SCHEMA
 import keylib
 import blockstack_zones
+import virtualchain
+
+import binascii, base64, hashlib
 
 class SubdomainZonefiles(unittest.TestCase):
     def test_basic(self):
@@ -65,6 +68,72 @@ foo TXT "owner={}" "seqn=3" "parts=0"
         self.assertEqual(sub.sig, None)
 
         self.assertEqual(sub.name, "foo")
+
+    def test_basic_with_multisig(self):
+        test_zf = """$ORIGIN bar.id
+$TTL 3600
+pubkey TXT "pubkey:data:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+registrar URI 10 1 "bsreg://foo.com:8234"
+foo TXT "owner={}" "seqn=3" "parts=0"
+        """
+
+        my_keys = [ keylib.ECPrivateKey() for _ in range(3) ]
+        my_pubkeys = [ k.public_key().to_hex() for k in my_keys ]
+        owner_addr = virtualchain.make_multisig_address(my_pubkeys, 3)
+
+        test_zf = test_zf.format(owner_addr)
+
+        domain_name = "bar.id"
+
+        zf_json = zonefile.decode_name_zonefile(domain_name, test_zf)
+
+        self.assertEqual(zf_json['$origin'], domain_name)
+
+        subds = subdomains.parse_zonefile_subdomains(zf_json)
+        self.assertEqual(len(subds), 1)
+        sub = subds[0]
+        self.assertEqual(sub.n, 3)
+        self.assertEqual(sub.sig, None)
+
+        self.assertEqual(sub.name, "foo")
+
+    def test_sign_verify_multisig(self):
+        my_keys = [ keylib.ECPrivateKey() for _ in range(9) ]
+        my_pubkeys = [ k.public_key().to_hex() for k in my_keys ]
+        my_sk_hexes = [ k.to_hex() for k in my_keys ]
+
+        blob = "bar_the_foo"
+        hash_hex = binascii.hexlify(hashlib.sha256(blob).digest())
+
+        attempted_pairs = [(1, 1), (1, 2), (1, 3), (3, 3),
+                           (2, 4), (3, 4), (2, 7), (5, 5)]
+
+        for m, n in attempted_pairs:
+            script_pubkeys = my_pubkeys[:n]
+            redeem_script = virtualchain.make_multisig_script(script_pubkeys, m)
+            owner_addr = virtualchain.make_multisig_address(script_pubkeys, m)
+
+            sks_to_use = list(my_sk_hexes[:n])
+            if m < n:
+                # force 1 failed sig check during verify
+                sks_to_use = sks_to_use[1:]
+
+            sigb64 = subdomains.sign_multisig(hash_hex, redeem_script, sks_to_use)
+
+            self.assertTrue(subdomains.verify(owner_addr, blob, sigb64))
+
+        # try to mess with the plaintext blob
+        self.assertFalse(subdomains.verify(owner_addr, blob + "0", sigb64))
+
+        for m, n in [(2, 3)]:
+            script_pubkeys = my_pubkeys[:n]
+            redeem_script = virtualchain.make_multisig_script(script_pubkeys, m)
+            owner_addr = virtualchain.make_multisig_address(script_pubkeys, m)
+
+            # try with a wrong redeem script
+            redeem_script_broke = virtualchain.make_multisig_script(script_pubkeys, m - 1)
+            sigb64 = subdomains.sign_multisig(hash_hex, redeem_script_broke, my_sk_hexes)
+            self.assertFalse(subdomains.verify(owner_addr, blob, sigb64))
 
     def test_parse_errs(self):
         zf = """$ORIGIN bar.id

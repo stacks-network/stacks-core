@@ -453,22 +453,16 @@ def verify(address, plaintext, scriptSigb64):
     assert isinstance(address, str)
 
     scriptSig = base64.b64decode(scriptSigb64)
+    hash_hex = binascii.hexlify(hashlib.sha256(plaintext).digest())
 
     vb = keylib.b58check.b58check_version_byte(address)
 
-    if vb != 0:
-        raise NotImplementedError("Addresses must be single-sig: version-byte == 0")
-
-    sighex, pubkey_hex = virtualchain.btc_script_deserialize(scriptSig)
-    # verify pubkey_hex corresponds to address
-    if keylib.ECPublicKey(pubkey_hex).address() != address:
-        raise Exception(("Address {} does not match the public key in the" +
-                         " provided scriptSig: provided pubkey = {}").format(
-                             address, pubkey_hex))
-    sig64 = base64.b64encode(binascii.unhexlify(sighex))
-
-    hash_hex = binascii.hexlify(hashlib.sha256(plaintext).digest())
-    return virtualchain.ecdsalib.verify_digest(hash_hex, pubkey_hex, sig64)
+    if vb == 0:
+        return verify_singlesig(address, hash_hex, scriptSig)
+    elif vb == 5:
+        return verify_multisig(address, hash_hex, scriptSig)
+    else:
+        raise NotImplementedError("Addresses must be single-sig (version-byte = 0) or multi-sig (version-byte = 5)")
 
 def sign(sk, plaintext):
     """
@@ -481,6 +475,85 @@ def sign(sk, plaintext):
     sighex = binascii.hexlify(base64.b64decode(b64sig))
     pubkey_hex = sk.public_key().to_hex()
     return base64.b64encode(virtualchain.btc_script_serialize([sighex, pubkey_hex]))
+
+def verify_singlesig(address, hash_hex, scriptSig):
+    sighex, pubkey_hex = virtualchain.btc_script_deserialize(scriptSig)
+    # verify pubkey_hex corresponds to address
+    if keylib.ECPublicKey(pubkey_hex).address() != address:
+        log.warn(("Address {} does not match the public key in the" +
+                  " provided scriptSig: provided pubkey = {}").format(
+                      address, pubkey_hex))
+        return False
+
+    sig64 = base64.b64encode(binascii.unhexlify(sighex))
+
+    return virtualchain.ecdsalib.verify_digest(hash_hex, pubkey_hex, sig64)
+
+def sign_multisig(hash_hex, redeem_script, secret_keys):
+    assert len(redeem_script) > 0
+    m, pk_hexes = virtualchain.parse_multisig_redeemscript(redeem_script)
+
+    privs = {}
+    for sk in secret_keys:
+        pk = virtualchain.ecdsalib.ecdsa_private_key(sk).public_key().to_hex()
+
+        compressed_pubkey = keylib.key_formatting.compress(pk)
+        uncompressed_pubkey = keylib.key_formatting.decompress(pk)
+
+        privs[compressed_pubkey] = sk
+        privs[uncompressed_pubkey] = sk
+
+    used_keys, sigs = [],[]
+    for pk in pk_hexes:
+        if pk not in privs:
+            continue
+        if len(used_keys) == m:
+            break
+        assert pk not in used_keys, 'Tried to reuse key {}'.format(pk)
+
+        sk_hex = privs[pk]
+        used_keys.append(pk)
+
+        b64sig = virtualchain.ecdsalib.sign_digest(hash_hex, sk_hex)
+        sighex = binascii.hexlify(base64.b64decode(b64sig))
+        sigs.append(sighex)
+
+    assert len(used_keys) == m, 'Missing private keys (used {}, required {})'.format(len(used_keys), m)
+    return base64.b64encode(virtualchain.btc_script_serialize([None] + sigs + [redeem_script]))
+
+
+def verify_multisig(address, hash_hex, scriptSig):
+    script_parts = virtualchain.btc_script_deserialize(scriptSig)
+    if len(script_parts) < 2:
+        log.warn("Verfiying multisig failed, couldn't grab script parts")
+        return False
+    redeem_script = script_parts[-1]
+    script_sigs = script_parts[1:-1]
+
+    if virtualchain.btc_make_p2sh_address(redeem_script) != address:
+        log.warn(("Address {} does not match the public key in the" +
+                  " provided scriptSig: provided redeemscript = {}").format(
+                      address, redeem_script))
+        return False
+
+    m, pk_hexes = virtualchain.parse_multisig_redeemscript(redeem_script)
+    if len(script_sigs) != m:
+        log.warn("Failed to validate multi-sig, not correct number of signatures: have {}, require {}".format(
+            len(script_sigs), m))
+        return False
+
+    cur_pk = 0
+    for cur_sig in script_sigs:
+        sig64 = base64.b64encode(binascii.unhexlify(cur_sig))
+        sig_passed = False
+        while not sig_passed:
+            if cur_pk >= len(pk_hexes):
+                log.warn("Failed to validate multi-signature, ran out of pks to check")
+                return False
+            sig_passed = virtualchain.ecdsalib.verify_digest(hash_hex, pk_hexes[cur_pk], sig64)
+            cur_pk += 1
+
+    return True
 
 def encode_pubkey_entry(key):
     """
