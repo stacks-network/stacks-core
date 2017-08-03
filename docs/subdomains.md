@@ -180,13 +180,54 @@ When a lookup like `foo.bar.id` hits the resolver, the resolver will need to:
 5. Do a profile lookup for `foo.bar.id` by fetching the URLs in the entry.
 *Note*, this spec does not define a priority order for fetching those URLs.
 
+#### Supported Core / Resolver Endpoints
+
+Generally, domain endpoints are not aware of subdomains (only endpoint
+aware of subdomains is `/v1/users/<foo.bar.tld>`)
+
+This means that search, login, and 'names owned by address X' queries
+are *not* yet supported. Support for these requires varying levels of
+engineering, with login and zonefile lookups being the easiest to
+support, while names owned by address X lookups will require that the
+resolver subdomain cache be greedily populated rather than lazily.
+
+The lookup works just like a normal lookup -- it returns the user's
+profile object:
+
+```
+$ curl -H "Authorization: bearer blockstack_integration_test_api_password" -H "Origin: http://localhost:3000" http://localhost:16268/v1/users/bar.foo.id -v -s | python -m json.tool
+*   Trying 127.0.0.1...
+* Connected to localhost (127.0.0.1) port 16268 (#0)
+> GET /v1/users/bar.foo.id HTTP/1.1
+> Host: localhost:16268
+> User-Agent: curl/7.50.1
+> Accept: */*
+> Authorization: bearer blockstack_integration_test_api_password
+> Origin: http://localhost:3000
+> 
+* HTTP 1.0, assume close after body
+< HTTP/1.0 200 OK
+< Server: SimpleHTTP/0.6 Python/2.7.12+
+< Date: Thu, 03 Aug 2017 14:39:16 GMT
+< content-type: application/json
+< Access-Control-Allow-Origin: *
+< 
+{ [66 bytes data]
+* Closing connection 0
+{
+    "bar": {
+        "@type": "Person",
+        "description": "Lorem Ipsum Bazorem"
+    }
+}
+```
+
 #### Subdomain Caching
 
 A resolver *caches* a subdomain's state by keeping a database of all
 the current subdomain records. This database is automatically updated
 when a new zonefile for a particularly domain is seen by the resolver
 (this is performed lazily).
-
 
 #### Todos
 
@@ -197,4 +238,6 @@ when a new zonefile for a particularly domain is seen by the resolver
 3. Batching updates [x]
 4. Web API [x]
 5. Resolver database cache for holding *multiple* domains, instead of just one [x]
-6. Endpoint support for changing zonefiles/rotating keys [o]
+6. Resolver should be able to authenticate an owned subdomain [o]
+7. Resolver should be able to respond to *names_owned_by_address* queries [o]
+8. Endpoint support for changing zonefiles/rotating keys [o]
