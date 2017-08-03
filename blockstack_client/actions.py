@@ -124,7 +124,7 @@ from .scripts import UTXOException, is_name_valid, is_valid_hash, is_namespace_v
 from .user import make_empty_user_profile, user_zonefile_data_pubkey
 
 from .tx import serialize_tx, sign_tx
-from .zonefile import make_empty_zonefile, url_to_uri_record
+from .zonefile import make_empty_zonefile, url_to_uri_record, decode_name_zonefile
 
 from .utils import exit_with_error, satoshis_to_btc, ScatterGather
 from .app import app_publish, app_get_config, app_get_resource, \
@@ -428,7 +428,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
     if min_confs is None:
         min_confs = TX_MIN_CONFIRMATIONS
 
-    if tx_only:
+    if tx_only and isinstance(tx_only, (str,unicode)):
         if tx_only.lower() in ['1', 'yes', 'true']:
             tx_only = True
         else:
@@ -491,10 +491,26 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
             if amt < 0:
                 log.error("Dust: total value = {}, tx fee = {}".format(total_value, tx_fee))
                 return {'error': 'Cannot withdraw dust'}
-            
+           
+            if total_value < amt:
+                # too high 
+                return {'error': 'Requested withdraw value {} exceeds balance {}'.format(amt, total_value)}
+
             selected_inputs = select_utxos(inputs, amt)
+            if selected_inputs is None:
+                # too high 
+                return {'error': 'Not enough inputs: requested withdraw value {} exceeds balance {}'.format(amt, total_value)}
+
         else:
+            if total_value < amt:
+                # too high 
+                return {'error': 'Requested withdraw value {} exceeds balance {}'.format(amt, total_value)}
+
             selected_inputs = select_utxos(inputs, amt)
+            if selected_inputs is None:
+                # too high 
+                return {'error': 'Not enough inputs: requested withdraw value {} exceeds balance {}'.format(amt, total_value)}
+
             change = virtualchain.calculate_change_amount(selected_inputs, amt, tx_fee)
             log.debug("Withdraw {}, tx fee {}".format(amt, tx_fee))
             
@@ -520,14 +536,18 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
         return signed_tx
 
     tx = mktx(amount, 0)
+    if json_is_error(tx):
+        return tx
+
     tx_fee = get_tx_fee(tx, config_path=config_path)
+
     tx = mktx(amount, tx_fee)
+    if json_is_error(tx):
+        return tx
 
     if tx_only:
         return {'status': True, 'tx': tx}
     
-    log.debug("Withdraw {} from {} to {}".format(amount, send_addr, recipient_addr))
-
     log.debug("Withdraw {} from {} to {}".format(amount, send_addr, recipient_addr))
 
     res = broadcast_tx( tx, config_path=config_path )
@@ -1286,6 +1306,12 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     min_payment_confs = getattr(args, 'min_confs', TX_MIN_CONFIRMATIONS)
     unsafe_reg = getattr(args, 'unsafe_reg', 'False')
 
+    if min_payment_confs is None:
+        min_payment_confs = TX_MIN_CONFIRMATIONS
+
+    if unsafe_reg is None:
+        unsafe_reg = 'False'
+
     if unsafe_reg.lower() in ('true', 't', 'yes', '1'):
         unsafe_reg = True
     else:
@@ -1296,10 +1322,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     if error:
         return {'error': error}
 
-    if min_payment_confs is None:
-        min_payment_confs = TX_MIN_CONFIRMATIONS
-    else:
-        log.debug("Use UTXOs with a minimum of {} confirmations".format(min_payment_confs))
+    log.debug("Use UTXOs with a minimum of {} confirmations".format(min_payment_confs))
 
     if transfer_address:
         if not re.match(OP_BASE58CHECK_PATTERN, transfer_address):
@@ -1854,7 +1877,15 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
         proxy = get_default_proxy(config_path=config_path)
 
     fqu = str(args.name)
-    force = (force or (getattr(args, 'force', '').lower() in ['1', 'yes', 'force', 'true']))
+
+    if hasattr(args, 'force'):
+        force = args.force
+        if force is None:
+            force = ''
+    else:
+        force = ''
+
+    force = (force.lower() in ['1', 'yes', 'force', 'true'])
 
     error = check_valid_name(fqu)
     if error:
@@ -2930,13 +2961,23 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
 
     infinite_lifetime = 0xffffffff       # means "infinite" to blockstack-core
     
+    def _sane_default(argvec, value, default):
+        res = None
+        if hasattr(argvec, value):
+            res = getattr(argvec, value)
+        
+        if res is None:
+            res = default
+
+        return res
+
     # sane defaults
-    lifetime = int(getattr(args, 'lifetime', infinite_lifetime))
-    coeff = int(getattr(args, 'coeff', 4))
-    base = int(getattr(args, 'base', 4))
-    bucket_exponents_str = getattr(args, 'buckets', "15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0")
-    nonalpha_discount = int(getattr(args, 'nonalpha_discount', 2))
-    no_vowel_discount = int(getattr(args, 'no_vowel_discount', 5))
+    lifetime = int(_sane_default(args, 'lifetime', infinite_lifetime))
+    coeff = int(_sane_default(args, 'coeff', 4))
+    base = int(_sane_default(args, 'base', 4))
+    bucket_exponents_str = _sane_default(args, 'buckets', "15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0")
+    nonalpha_discount = int(_sane_default(args, 'nonalpha_discount', 2))
+    no_vowel_discount = int(_sane_default(args, 'no_vowel_discount', 5))
 
     def parse_bucket_exponents(exp_str):
 
@@ -3592,6 +3633,7 @@ def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True, proxy=None):
     """
     # the 'raw' kwarg is set by the API daemon to False to get back structured data
 
+    name = str(args.name)
     parse_json = getattr(args, 'json', 'false')
     parse_json = parse_json is not None and parse_json.lower() in ['true', '1']
 
@@ -3607,10 +3649,13 @@ def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True, proxy=None):
         # try to parse
         try:
             new_zonefile = decode_name_zonefile(name, result['zonefile'])
-            assert new_zonefile is not None
-            result['zonefile'] = new_zonefile
-        except:
-            result['warning'] = 'Non-standard zonefile'
+            assert new_zonefile is not None, "Failed to decode zone file"
+            result['zonefile'] = result['zonefile']
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            return {'error': 'Non-standard zonefile.'}
     
     if raw:
         return result['zonefile']
@@ -5163,7 +5208,7 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     """
 
     blockchain_id = getattr(args, 'blockchain_id', '')
-    if len(blockchain_id) == 0:
+    if blockchain_id is None or len(blockchain_id) == 0:
         blockchain_id = None
     else:
         blockchain_id = str(blockchain_id)
@@ -5228,7 +5273,7 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
     """
 
     blockchain_id = getattr(args, 'blockchain_id', '')
-    if len(blockchain_id) == 0:
+    if blockchain_id is None or len(blockchain_id) == 0:
         blockchain_id = None
     else:
         blockchain_id = str(blockchain_id)
@@ -5589,7 +5634,7 @@ def cli_collection_getitem( args, config_path=CONFIG_PATH, interactive=False, pa
 
     config_dir = os.path.dirname(config_path)
     blockchain_id = getattr(args, 'blockchain_id', '')
-    if len(blockchain_id) == 0:
+    if blockchain_id is None or len(blockchain_id) == 0:
         blockchain_id = None
     else:
         blockchain_id = str(blockchain_id)
