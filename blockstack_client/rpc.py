@@ -63,6 +63,8 @@ import backend.drivers as backend_drivers
 import proxy
 from proxy import json_is_error, json_is_exception
 
+import subdomains
+
 DEFAULT_UI_PORT = 8888
 DEVELOPMENT_UI_PORT = 3000
 
@@ -776,6 +778,28 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     return
 
         # not pending. get name
+        # is this a subdomain?
+        log.debug("let's go!")
+        res = subdomains.is_address_subdomain(name)
+        if res:
+            subdomain, domain = res[1]
+            log.debug("here too!")
+            subdomain_obj = subdomains.get_subdomain_info(subdomain, domain)
+            log.debug("here too!")
+        
+            ret = {
+                'satus' : 'registered_subdomain',
+                'zonefile_txt' : subdomain_obj.zonefile_str,
+                'zonefile_hash' : storage.get_zonefile_data_hash(subdomain_obj.zonefile_str),
+                'address' : subdomain_obj.address,
+                'blockchain' : 'bitcoin',
+                'last_txid' : subdomain_obj.last_txid,
+                'expire_block': -1,
+            }
+
+            self._reply_json(ret)
+            return
+
         name_rec = proxy.get_name_blockchain_record(name)
         if json_is_error(name_rec):
             # does it exist?

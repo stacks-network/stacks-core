@@ -594,7 +594,7 @@ def get_immutable_by_name(name, data_id, proxy=None):
 
 
 def list_update_history(name, current_block=None, config_path=CONFIG_PATH, proxy=None,
-                        from_block=0, return_blockids=False):
+                        from_block=0, return_blockids=False, return_txids=False):
     """
     list_update_history
 
@@ -625,6 +625,7 @@ def list_update_history(name, current_block=None, config_path=CONFIG_PATH, proxy
 
     all_update_hashes = []
     corresponding_block_ids = []
+    corresponding_txids = []
     block_ids = name_history.keys()
     block_ids.sort()
     for block_id in block_ids:
@@ -640,14 +641,21 @@ def list_update_history(name, current_block=None, config_path=CONFIG_PATH, proxy
             # changed
             all_update_hashes.append(value_hash)
             corresponding_block_ids.append(block_id)
+            if return_txids:
+                corresponding_txids.append(history_item.get('txid',None))
 
+    rval = (all_update_hashes,)
     if return_blockids:
-        return all_update_hashes, corresponding_block_ids
-    return all_update_hashes
+        rval += (corresponding_block_ids,)
+    if return_txids:
+        rval += (corresponding_txids,)
+    if len(rval) == 1:
+        return rval[0]
+    return rval
 
 
 def list_zonefile_history(name, current_block=None, proxy=None, return_hashes = False,
-                          from_block=None, return_blockids=False):
+                          from_block=None, return_blockids=False, return_txids=False):
     """
     list_zonefile_history
 
@@ -661,11 +669,18 @@ def list_zonefile_history(name, current_block=None, proxy=None, return_hashes = 
         kwargs['from_block'] = from_block
     if return_blockids:
         kwargs['return_blockids'] = return_blockids
-        zonefile_hashes, zonefile_blockids = list_update_history(
+    if return_txids:
+        kwargs['return_txids'] = return_txids
+
+    res = list_update_history(
             name, current_block=current_block, proxy=proxy, **kwargs)
+    if return_blockids or return_txids:
+        zonefile_hashes = res[0]
+        return_rest = res[1:]
+        do_return_more = True
     else:
-        zonefile_hashes = list_update_history(
-            name, current_block=current_block, proxy=proxy, **kwargs)
+        zonefile_hashes = res
+        do_return_more = False
 
     zonefiles = []
     for zh in zonefile_hashes:
@@ -681,8 +696,8 @@ def list_zonefile_history(name, current_block=None, proxy=None, return_hashes = 
     rval = (zonefiles, )
     if return_hashes:
         rval += (zonefile_hashes,)
-    if return_blockids:
-        rval += (zonefile_blockids,)
+    if do_return_more:
+        rval += tuple(return_rest)
     if len(rval) == 1:
         return rval[0]
     return rval

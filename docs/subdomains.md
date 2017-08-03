@@ -183,15 +183,15 @@ When a lookup like `foo.bar.id` hits the resolver, the resolver will need to:
 #### Supported Core / Resolver Endpoints
 
 Generally, domain endpoints are not aware of subdomains (only endpoint
-aware of subdomains is `/v1/users/<foo.bar.tld>`)
+aware of subdomains is `/v1/users/<foo.bar.tld>` and
+`/v1/names/<foo.bar.tld>`)
 
-This means that search, login, and 'names owned by address X' queries
+This means that search and 'names owned by address X' queries
 are *not* yet supported. Support for these requires varying levels of
-engineering, with login and zonefile lookups being the easiest to
-support, while names owned by address X lookups will require that the
+engineering--- names owned by address X lookups will require that the
 resolver subdomain cache be greedily populated rather than lazily.
 
-The lookup works just like a normal lookup -- it returns the user's
+The lookups work just like normal -- it returns the user's
 profile object:
 
 ```
@@ -219,6 +219,22 @@ $ curl -H "Authorization: bearer blockstack_integration_test_api_password" -H "O
         "@type": "Person",
         "description": "Lorem Ipsum Bazorem"
     }
+}
+```
+
+Name info lookups are also supported (this should enable authenticating logins
+with `blockstack.js`, but I will need to double check).
+
+```
+$ curl -H "Authorization: bearer XXXX" -H "Origin: http://localhost:3000" http://localhost:6270/v1/names/created_equal.self_evident_truth.id -s | python -m json.tool
+{
+    "address": "1AYddAnfHbw6bPNvnsQFFrEuUdhMhf2XG9",
+    "blockchain": "bitcoin",
+    "expire_block": -1,
+    "last_txid": "0bacfd5a3e0ec68723d5948d6c1a04ad0de1378c872d45fa2276ebbd7be230f7",
+    "satus": "registered_subdomain",
+    "zonefile_hash": "48fc1b351ce81cf0a9fd9b4eae7a3f80e93c0451",
+    "zonefile_txt": "$ORIGIN created_equal\n$TTL 3600\n_https._tcp URI 10 1 \"https://www.cs.princeton.edu/~ablankst/created_equal.json\"\n_file URI 10 1 \"file:///tmp/created_equal.json\"\n"
 }
 ```
 

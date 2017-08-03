@@ -34,7 +34,6 @@ from blockstack_client import user as user_db
 from blockstack_client.backend import safety
 from blockstack_client.logger import get_logger
 import blockstack_zones
-from blockstack_client.rpc import local_api_connect
 
 from subdomain_registrar import util as subdomain_util
 from subdomain_registrar.util import (SUBDOMAIN_ZF_PARTS, SUBDOMAIN_ZF_PIECE, 
@@ -55,12 +54,13 @@ class SubdomainAlreadyExists(Exception):
             "Subdomain already exists: {}.{}".format(subdomain, domain))
 
 class Subdomain(object):
-    def __init__(self, name, address, n, zonefile_str, sig=None):
+    def __init__(self, name, address, n, zonefile_str, sig=None, last_txid=None):
         self.name = name
         self.address = address
         self.n = n
         self.zonefile_str = zonefile_str
         self.sig = sig
+        self.last_txid = last_txid
 
     def pack_subdomain(self):
         """ Returns subdomain packed into a list of strings
@@ -164,7 +164,7 @@ class SubdomainDB(object):
         cursor = self.conn.cursor()
         cursor.execute(get_cmd, (subdomain_name,))
         try:
-            (name, n, encoded_pubkey, zonefile_str, sig) = cursor.fetchone()
+            (name, n, encoded_pubkey, zonefile_str, sig, txid) = cursor.fetchone()
         except:
             raise SubdomainNotFound(subdomain_name)
         if sig == '':
@@ -172,7 +172,7 @@ class SubdomainDB(object):
         else:
             sig = str(sig)
         # lol, unicode support.
-        return Subdomain(str(name), str(encoded_pubkey), int(n), str(zonefile_str), sig)
+        return Subdomain(str(name), str(encoded_pubkey), int(n), str(zonefile_str), sig, txid)
 
     def initialize_db(self):
         return self.update(full_refresh=True)
@@ -185,8 +185,9 @@ class SubdomainDB(object):
         else:
             last_block = self.last_seen()[1]
 
-        zonefiles, hashes, blockids = data.list_zonefile_history(
-            self.domain, return_hashes = True, from_block = last_block, return_blockids = True)
+        zonefiles, hashes, blockids, txids = data.list_zonefile_history(
+            self.domain, return_hashes = True, from_block = last_block, return_blockids = True,
+            return_txids = True)
         assert len(hashes) == len(blockids)
         assert len(hashes) == len(zonefiles)
         if len(blockids) > 0 and blockids[0] == last_block:
@@ -210,7 +211,7 @@ class SubdomainDB(object):
         if len(hashes) == 0:
             return
 
-        _build_subdomain_db(self.domain, zonefiles, self)
+        _build_subdomain_db(self.domain, zonefiles, self, txids)
         
         last_hash = hashes[-1]
         last_block = blockids[-1]
@@ -221,14 +222,15 @@ class SubdomainDB(object):
         assert isinstance(subdomain_obj, Subdomain)
         assert subdomain_name == subdomain_obj.name
         write_cmd = """INSERT OR REPLACE INTO {} VALUES
-                       (?, ?, ?, ?, ?) """.format(self.subdomain_table)
+                       (?, ?, ?, ?, ?, ?) """.format(self.subdomain_table)
         cursor = self.conn.cursor()
         cursor.execute(write_cmd,
                        (subdomain_obj.name,
                         subdomain_obj.n,
                         subdomain_obj.address,
                         subdomain_obj.zonefile_str,
-                        subdomain_obj.sig))
+                        subdomain_obj.sig,
+                        subdomain_obj.last_txid))
         self.conn.commit()
 
     def __getitem__(self, subdomain_name):
@@ -259,7 +261,8 @@ class SubdomainDB(object):
         sequence INTEGER,
         pubkey TEXT,
         zonefile TEXT, 
-        signature TEXT);
+        signature TEXT,
+        last_txid TEXT);
         """.format(self.subdomain_table)
         create_status_cmd = """CREATE TABLE IF NOT EXISTS {} (
         zonefileHash TEXT, lastBlock INTEGER);""".format(
@@ -309,10 +312,19 @@ def _transition_valid(from_sub_record, to_sub_record):
         return False
     return True
 
-def _build_subdomain_db(domain_fqa, zonefiles, subdomain_db = None):
+def _build_subdomain_db(domain_fqa, zonefiles, subdomain_db = None, txids = None):
     if subdomain_db is None:
         subdomain_db = {}
-    for zf in zonefiles:
+    if txids is not None:
+        iterator = zip(zonefiles, txids)
+    else:
+        iterator = zonefiles
+    for cur_row in iterator:
+        if txids is not None:
+            zf, txid = cur_row
+        else:
+            zf, txid = cur_row, None
+
         if isinstance(zf, dict):
             assert "zonefile" not in zf
             zf_json = zf
@@ -324,6 +336,8 @@ def _build_subdomain_db(domain_fqa, zonefiles, subdomain_db = None):
         subdomains = parse_zonefile_subdomains(zf_json)
 
         for subdomain in subdomains:
+            if txid:
+                subdomain.last_txid = txid
             if subdomain.name in subdomain_db:
                 previous = subdomain_db[subdomain.name]
                 if _transition_valid(previous, subdomain):
@@ -340,6 +354,7 @@ def _build_subdomain_db(domain_fqa, zonefiles, subdomain_db = None):
     return subdomain_db
 
 def issue_zonefile(domain_fqa, user_data_txt):
+    from blockstack_client.rpc import local_api_connect
     rpc = local_api_connect()
     assert rpc
     try:
@@ -383,7 +398,7 @@ def is_subdomain_resolution_cached(domain_fqa):
     domains = config.get_subdomains_cached_for()
     return domain_fqa in domains
 
-def resolve_subdomain(subdomain, domain_fqa, use_cache = True):
+def get_subdomain_info(subdomain, domain_fqa, use_cache = True):
     if not use_cache:
         zonefiles = data.list_zonefile_history(domain_fqa)
         subdomain_db = _build_subdomain_db(domain_fqa, zonefiles)        
@@ -407,6 +422,10 @@ def resolve_subdomain(subdomain, domain_fqa, use_cache = True):
         log.error("Raising SubdomainNotFound({}) from exception {}".format(subdomain, e))
         raise SubdomainNotFound(subdomain)
 
+    return subdomain_obj
+
+def resolve_subdomain(subdomain, domain_fqa, use_cache = True):
+    subdomain_obj = get_subdomain_info(subdomain, domain_fqa, use_cache = use_cache)
     return subdomain_record_to_profile(subdomain_obj)
 
 def subdomain_record_to_profile(my_rec):
