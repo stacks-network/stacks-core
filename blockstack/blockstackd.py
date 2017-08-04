@@ -1677,6 +1677,11 @@ class BlockstackdRPCServer( threading.Thread, object ):
         Stop serving.  Also stops the thread.
         """
         if self.rpc_server is not None:
+            try:
+                self.rpc_server.socket.shutdown(socket.SHUT_RDWR)
+            except:
+                log.warning("Failed to shut down server socket")
+
             self.rpc_server.shutdown()
 
 
