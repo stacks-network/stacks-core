@@ -51,6 +51,7 @@ setup(
         'mixpanel>=4.3.1',
         'simplejson>=3.8.2',
         'jsonschema>=2.5.1',
+        'jsontokens>=0.0.3',
         'scrypt>=0.8.0',
         'pyparsing>=2.2.0',     # not required, but causes problems if not installed properly
         'basicrpc>=0.0.2',      # DHT storage driver
