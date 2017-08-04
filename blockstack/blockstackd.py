@@ -1857,7 +1857,9 @@ class BlockstackStoragePusher( threading.Thread ):
             return False
 
         entry = entries[0]
-        res = store_zonefile_data_to_storage( str(entry['zonefile']), entry['tx_hash'], required=self.zonefile_storage_drivers_write, skip=['blockstack_server'], cache=False, zonefile_dir=self.zonefile_dir, tx_required=False )
+        res = store_zonefile_data_to_storage( str(entry['zonefile']), entry['tx_hash'], required=self.zonefile_storage_drivers_write,
+                                              skip=['blockstack_server','blockstack_resolver','dht'], cache=False, zonefile_dir=self.zonefile_dir, tx_required=False )
+
         if not res:
             log.error("Failed to store zonefile {} ({} bytes)".format(entry['zonefile_hash'], len(entry['zonefile'])))
             return False
@@ -1917,7 +1919,7 @@ class BlockstackStoragePusher( threading.Thread ):
             queue_removeall( entries, path=self.queue_path )
             return False
         
-        success = store_mutable_data_to_storage( blockchain_id, fq_data_id, data_txt, profile=profile, required=storage_drivers, skip=['blockstack_server'])
+        success = store_mutable_data_to_storage( blockchain_id, fq_data_id, data_txt, profile=profile, required=storage_drivers, skip=['blockstack_server','blockstack_resolver'])
         if not success:
             log.error("Failed to store data for {} ({} bytes) (rc = {})".format(blockchain_id, len(data_txt), success))
             queue_removeall( entries, path=self.queue_path )
