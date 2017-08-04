@@ -122,7 +122,6 @@ def dht_get_key(data_key):
     else:
         raise Exception("No data returned from %s" % data_key)
 
-    log.debug(ret)
     return ret
 
 
