@@ -237,6 +237,7 @@ def get_mutable_handler( url, **kw ):
 def put_immutable_handler( key, data, txid, **kw ):
     """
     Put data by hash and txid
+    Returns a URL on success; None on error
     """
     return index_put_immutable_handler(DVCONF, key, data, txid, **kw)
 
@@ -244,6 +245,7 @@ def put_immutable_handler( key, data, txid, **kw ):
 def put_mutable_handler( data_id, data_bin, **kw ):
     """
     Put data by file ID
+    Returns a URL on success; None on error
     """
     return index_put_mutable_handler(DVCONF, data_id, data_bin, **kw)
 

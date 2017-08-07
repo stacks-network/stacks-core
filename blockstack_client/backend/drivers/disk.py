@@ -209,7 +209,7 @@ def put_immutable_handler( key, data, txid, **kw ):
        except Exception, e:
            if DEBUG:
                log.exception(e)
-           return False
+           return None
    
    try:
       with open( path, "w") as f:
@@ -221,15 +221,15 @@ def put_immutable_handler( key, data, txid, **kw ):
    except Exception, e:
       if DEBUG:
          traceback.print_exc()
-      return False 
+      return None
    
-   return True 
+   return 'file://{}'.format(path)
 
 
 def put_mutable_handler( data_id, data_bin, **kw ):
    """
    Local disk implementation of the put_mutable_handler API call.
-   Return True on success; False on failure.
+   Return the URL on success; None on error
    """
    
    global MUTABLE_STORAGE_ROOT, DEBUG
@@ -245,7 +245,7 @@ def put_mutable_handler( data_id, data_bin, **kw ):
        except Exception, e:
            if DEBUG:
                log.exception(e)
-           return False
+           return None
 
    try:
       with open( path, "w" ) as f:
@@ -258,9 +258,9 @@ def put_mutable_handler( data_id, data_bin, **kw ):
    except Exception, e:
        if DEBUG:
            log.exception(e)
-       return False
-   
-   return True 
+       return None
+
+   return 'file://{}'.format(path)
 
 
 def delete_immutable_handler( key, txid, sig_key_txid, **kw ):

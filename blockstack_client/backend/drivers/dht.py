@@ -131,7 +131,11 @@ def dht_put_data(data_key, data_value):
     Given a key and value, put it into the DHT.
     """
     dht_client = get_dht_client()
-    return dht_client.set(data_key, data_value)
+    res = dht_client.set(data_key, data_value)
+    if res:
+        return make_mutable_url(data_key)
+    else:
+        return None
 
 
 # ---------------------------------------------------------
@@ -192,7 +196,7 @@ def put_immutable_handler(key, data, txid, **kw):
     Given the hash of the data (key), the serialized data itself,
     and the transaction ID in the blockchain that contains the data's hash,
     put the data into the storage system.
-    Return True on success; False on failure.
+    Return the URL on success; None on error
     """
 
     # TODO: the DHT in use at Onename should check to see that the user exists
@@ -204,7 +208,7 @@ def put_immutable_handler(key, data, txid, **kw):
 def put_mutable_handler(data_id, data_json, **kw):
     """
     DHT implementation of the put_mutable_handler API call.
-    Return True on success; False on failure.
+    Return the URL on success; None on error
     """
 
     # TODO: the DHT in use at Onename should check to see that the user exists,

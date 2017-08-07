@@ -489,9 +489,9 @@ class RegistrarWorker(threading.Thread):
 
             profile_payload = set_profile_timestamp(profile_payload)
             
-            rc = put_mutable_data( name_data['fqu'], profile_payload, data_privkey=data_privkey, required=storage_drivers, profile=True, blockchain_id=name_data['fqu'] )
-            if not rc:
-                log.info("Failed to replicate profile for %s" % (name_data['fqu']))
+            storage_res = put_mutable_data( name_data['fqu'], profile_payload, data_privkey=data_privkey, required=storage_drivers, profile=True, blockchain_id=name_data['fqu'] )
+            if 'error' in storage_res:
+                log.info("Failed to replicate profile for %s: %s" % (name_data['fqu'], storage_res['error']))
                 return {'error': 'Failed to store profile'}
             else:
                 log.info("Replicated profile for %s" % (name_data['fqu']))
