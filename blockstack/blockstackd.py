@@ -526,7 +526,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         return self.success_response( {'count': num_history_rows} )
 
-
     def rpc_get_nameops_affected_at( self, block_id, offset, count, **con_info ):
         """
         Get the sequence of name and namespace records affected at the given block.
@@ -556,6 +555,11 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         prior_records = db.get_all_ops_at( block_id, offset=offset, count=count, include_history=False, restore_history=False )
         db.close()
         log.debug("%s name operations at block %s, offset %s, count %s" % (len(prior_records), block_id, offset, count))
+        for rec in prior_records:
+           if 'buckets' in rec and (isinstance(rec['buckets'], str) or
+                                    isinstance(rec['buckets'], unicode)):
+              rec['buckets'] = json.loads(rec['buckets'])
+
         return self.success_response( {'nameops': prior_records} )
 
 
@@ -810,7 +814,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         db.close()
 
         return self.success_response( {'namespaces': all_namespaces} )
-
 
     def rpc_get_num_names_in_namespace( self, namespace_id, **con_info ):
         """
@@ -1573,6 +1576,19 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         servers = filter(lambda x: len(x) > 0, conf['data_servers'].split(','))
         return {'status': True, 'servers': servers}
 
+
+
+    def rpc_get_zonefiles_from_blocks( self, from_block, to_block, offset, count, **con_info ):
+        conf = get_blockstack_opts()
+        if not conf['atlas']:
+            return {'error': 'Not an atlas node'}
+
+        zonefile_info = atlasdb_get_zonefiles_by_block(
+           from_block, to_block, offset, count)
+        if 'error' in zonefile_info:
+           return zonefile_info
+
+        return self.success_response( {'zonefile_info': zonefile_info } )
 
     def rpc_get_atlas_peers( self, **con_info ):
         """

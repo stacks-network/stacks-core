@@ -579,13 +579,19 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Re-encode {} to {}".format(new_addr, address))
             address = new_addr
 
+        subdomain_names = subdomains.get_subdomains_owned_by_address(address)
+        if json_is_error(subdomain_names):
+            log.error("Failed to fetch subdomains owned by address")
+            log.error(subdomain_names)
+            subdomain_names = []
+
         res = proxy.get_names_owned_by_address(address)
         if json_is_error(res):
             log.error("Failed to get names owned by address")
             self._reply_json({'error': 'Failed to list names by address'}, status_code=500)
             return
 
-        self._reply_json({'names': res})
+        self._reply_json({'names': res + subdomain_names})
         return
 
 

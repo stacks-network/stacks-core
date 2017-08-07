@@ -60,7 +60,7 @@ def add_subdomains(subdomains, domain_fqa, zonefile_json, filter_function = None
     subdomains_failed = []
     for ix, subdomain in enumerate(subdomains):
         # step 1: see if this resolves to an already defined subdomain
-        filter_passed = filter_function(subdomain.name, domain_fqa)
+        filter_passed = filter_function(subdomain.subdomain_name, domain_fqa)
         if not filter_passed:
             subdomains_failed.append(ix)
         else:
@@ -85,7 +85,7 @@ def _extend_with_subdomain(zf_json, subdomain):
         except:
             raise ParseError("Tried to extend zonefile with non-valid subdomain object")
 
-    name = subdomain.name
+    name = subdomain.subdomain_name
 
     if "txt" not in zf_json:
         zf_json["txt"] = []

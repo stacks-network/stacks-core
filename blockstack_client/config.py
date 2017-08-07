@@ -640,7 +640,7 @@ def get_utxo_provider_client(config_path=CONFIG_PATH, min_confirmations=TX_MIN_C
     return
 
 
-def get_subdomains_cached_for(config_path=CONFIG_PATH):
+def get_subdomains_domains_tracked(config_path=CONFIG_PATH):
     opts = configure(interactive=False, config_file=config_path)
     subdomain_opts = opts['subdomain-resolution']
     domains_list = subdomain_opts['domains_tracked']

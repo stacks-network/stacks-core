@@ -714,6 +714,41 @@ def atlasdb_get_zonefile( zonefile_hash, con=None, path=None ):
 
     return ret
 
+def atlasdb_get_zonefiles_by_block( from_block, to_block, offset, count, con=None, path=None ):
+    """
+    Look up all information on this zonefile.
+    Returns {'zonefile_hash': ..., 'indexes': [...], etc}
+    """
+    if path is None:
+        path = atlasdb_path()
+
+    ret = None
+
+    if count > 100:
+        return {'error' : 'Count must be less than 100'}
+
+    with AtlasDBOpen(con=con, path=path) as dbcon:
+
+        sql = """SELECT zonefile_hash, txid, block_height FROM zonefiles 
+        WHERE block_height >= ? and block_height <= ? 
+        ORDER BY inv_index LIMIT ? OFFSET ?;"""
+        args = (from_block, to_block, count, offset)
+
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
+
+        ret = []
+
+        for zfinfo in res:
+            ret.append({
+                'zonefile_hash' : zfinfo['zonefile_hash'],
+                'block_height' : zfinfo['block_height'],
+                'txid' : zfinfo['txid'],
+            })
+
+    return ret
+
 
 def atlasdb_find_zonefile_by_txid( txid, con=None, path=None ):
     """

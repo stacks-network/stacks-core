@@ -27,8 +27,10 @@ import ecdsa, hashlib
 import keylib
 import virtualchain
 
+from multiprocessing import Pool
+
 from itertools import izip
-from blockstack_client import data, storage, config, proxy, schemas
+from blockstack_client import data, storage, config, proxy, schemas, constants
 from blockstack_client import zonefile as bs_zonefile
 from blockstack_client import user as user_db
 from blockstack_client.backend import safety
@@ -41,6 +43,7 @@ from subdomain_registrar.util import (SUBDOMAIN_ZF_PARTS, SUBDOMAIN_ZF_PIECE,
 
 log = get_logger()
 
+SUBDOMAINS_FIRST_BLOCK = 478873
 
 class DomainNotOwned(Exception):
     pass
@@ -54,13 +57,17 @@ class SubdomainAlreadyExists(Exception):
             "Subdomain already exists: {}.{}".format(subdomain, domain))
 
 class Subdomain(object):
-    def __init__(self, name, address, n, zonefile_str, sig=None, last_txid=None):
-        self.name = name
+    def __init__(self, domain, subdomain_name, address, n, zonefile_str, sig=None, last_txid=None):
+        self.subdomain_name = subdomain_name
+        self.domain = domain
         self.address = address
         self.n = n
         self.zonefile_str = zonefile_str
         self.sig = sig
         self.last_txid = last_txid
+
+    def get_fqn(self):
+        return "{}.{}".format(self.subdomain_name, self.domain)
 
     def pack_subdomain(self):
         """ Returns subdomain packed into a list of strings
@@ -99,7 +106,7 @@ class Subdomain(object):
         return verify(pubkey, self.get_plaintext_to_sign(), self.sig)
 
     def as_zonefile_entry(self):
-        d = { "name" : self.name,
+        d = { "name" : self.subdomain_name,
               "txt" : self.pack_subdomain() }
         return d
 
@@ -110,7 +117,7 @@ class Subdomain(object):
         return ",".join(as_strings)
 
     @staticmethod
-    def parse_subdomain_record(rec):
+    def parse_subdomain_record(domain_name, rec):
         txt_entry = rec['txt']
         if not isinstance(txt_entry, list):
             raise subdomain_util.ParseError("Tried to parse a TXT record with only a single <character-string>")
@@ -135,44 +142,51 @@ class Subdomain(object):
         b64_zonefile = "".join([ entries[SUBDOMAIN_ZF_PIECE % zf_index] for
                                  zf_index in range(zonefile_parts) ])
 
-        return Subdomain(rec['name'], pubkey, int(n),
+        return Subdomain(domain_name, rec['name'], pubkey, int(n),
                          base64.b64decode(b64_zonefile), sig)
 
 class SubdomainDB(object):
-    def __init__(self, domain_fqa):
-        self.domain = domain_fqa
-        self.subdomain_table = "subdomain_{}".format(
-            domain_fqa.replace('.', '_'))
-        self.status_table = "status_{}".format(
-            domain_fqa.replace('.', '_'))
+    def __init__(self):
+        self.subdomain_table = "subdomain_records"
+        self.status_table = "domains_last_seen"
         self.conn = sqlite3.connect(config.get_subdomains_db_path())
         self._create_tables()
 
-    def last_seen(self):
-        get_cmd = """SELECT * FROM {} ORDER BY lastBlock DESC LIMIT 1""".format(
-            self.status_table)
+    def get_subdomain_entry(self, fqn):
+        """
+        Returns a subdomain object corresponding to the fully-qualified name
+        """
+        get_cmd = "SELECT * FROM {} WHERE fully_qualified_subdomain=?".format(
+            self.subdomain_table)
         cursor = self.conn.cursor()
-        cursor.execute(get_cmd)
-        try:
-            last_hash, last_block = cursor.fetchone()
-        except:
-            return False, 0
-        return str(last_hash), int(last_block)
-
-    def get_subdomain_entry(self, subdomain_name):
-        get_cmd = "SELECT * FROM {} WHERE subdomain=?".format(self.subdomain_table)
-        cursor = self.conn.cursor()
-        cursor.execute(get_cmd, (subdomain_name,))
+        cursor.execute(get_cmd, (fqn,))
         try:
             (name, n, encoded_pubkey, zonefile_str, sig, txid) = cursor.fetchone()
         except:
-            raise SubdomainNotFound(subdomain_name)
+            raise SubdomainNotFound(fqn)
         if sig == '':
             sig = None
         else:
             sig = str(sig)
-        # lol, unicode support.
-        return Subdomain(str(name), str(encoded_pubkey), int(n), str(zonefile_str), sig, txid)
+
+        name = str(name)
+        is_subdomain = is_address_subdomain(name)
+        if is_subdomain:
+            (subdomain_name, domain_name) = is_subdomain[1]
+        else:
+            raise Exception("Subdomain DB lookup returned bad subdomain result {}".format(name))
+
+        return Subdomain(domain_name, subdomain_name, str(encoded_pubkey), int(n), str(zonefile_str), sig, txid)
+
+    def get_subdomains_owned_by_address(self, owner):
+        get_cmd = "SELECT fully_qualified_subdomain FROM {} WHERE owner = ?".format(
+            self.subdomain_table)
+        cursor = self.conn.cursor()
+        cursor.execute(get_cmd, (owner,))
+        try:
+            return [ x[0] for x in cursor.fetchall() ]
+        except:
+            return []
 
     def initialize_db(self):
         return self.update(full_refresh=True)
@@ -182,50 +196,69 @@ class SubdomainDB(object):
             self._drop_tables()
             self._create_tables()
             last_block = 0
+            if not constants.BLOCKSTACK_TESTNET:
+                last_block = SUBDOMAINS_FIRST_BLOCK
         else:
-            last_block = self.last_seen()[1]
+            last_block = self.last_seen()
+            if not constants.BLOCKSTACK_TESTNET:
+                last_block = max(last_block, SUBDOMAINS_FIRST_BLOCK)
 
-        zonefiles, hashes, blockids, txids = data.list_zonefile_history(
-            self.domain, return_hashes = True, from_block = last_block, return_blockids = True,
-            return_txids = True)
-        assert len(hashes) == len(blockids)
-        assert len(hashes) == len(zonefiles)
-        if len(blockids) > 0 and blockids[0] == last_block:
-            zonefiles = list(zonefiles[1:])
-            hashes = list(hashes[1:])
-            blockids = list(blockids[1:])
-        if len(hashes) == 0:
-            return
+        core_last_block = proxy.getinfo()['last_block_processed']
+        domains_to_check = set()
+        log.debug("Fetching nameops affected in range ({}, {})".format(
+            last_block + 1, core_last_block))
 
-        failed_zonefiles = []
-        for ix, zonefile in enumerate(zonefiles):
-            if 'error' in zonefile:
-                failed_zonefiles.append(ix)
-                log.error("Failed to get zonefile for hash ({}), error: {}".format(
-                    hashes[ix], zonefile))
-        failed_zonefiles.sort(reverse=True)
-        for ix in failed_zonefiles:
-            del zonefiles[ix]
-            del hashes[ix]
-            del blockids[ix]
-        if len(hashes) == 0:
-            return
+        for block in range(last_block + 1, core_last_block):
+            log.debug("Block: {}".format(block))
+            nameops_at = proxy.get_nameops_affected_at(block)
+            for n in nameops_at:
+                if n['opcode'] == "NAME_UPDATE":
+                    domains_to_check.add(str(n['name']))
 
-        _build_subdomain_db(self.domain, zonefiles, self, txids)
-        
-        last_hash = hashes[-1]
-        last_block = blockids[-1]
+        for domain in domains_to_check:
+            zonefiles, hashes, blockids, txids = data.list_zonefile_history(
+                domain, return_hashes = True, from_block = last_block + 1, return_blockids = True,
+                return_txids = True)
 
-        self._set_last_seen_zf_hash(hashes[-1], last_block)
+            if len(hashes) == 0:
+                continue
 
-    def __setitem__(self, subdomain_name, subdomain_obj):
+            failed_zonefiles = []
+            for ix, zonefile in enumerate(zonefiles):
+                if 'error' in zonefile:
+                    failed_zonefiles.append(ix)
+                    log.error("Failed to get zonefile for hash ({}), error: {}".format(
+                        hashes[ix], zonefile))
+            failed_zonefiles.sort(reverse=True)
+            for ix in failed_zonefiles:
+                del zonefiles[ix]
+                del hashes[ix]
+                del blockids[ix]
+            if len(hashes) == 0:
+                continue
+
+            _build_subdomain_db(domain, zonefiles, self, txids)
+
+        last_block = core_last_block
+
+        self._set_last_seen(last_block)
+
+    def __setitem__(self, fqn, subdomain_obj):
         assert isinstance(subdomain_obj, Subdomain)
-        assert subdomain_name == subdomain_obj.name
+        is_subdomain = is_address_subdomain(fqn)
+        if is_subdomain:
+            (subdomain_name, domain_name) = is_subdomain[1]
+        else:
+            raise Exception("Must give fully qualified name: given: {}".format(fqn))
+
+        assert subdomain_name == subdomain_obj.subdomain_name
+        assert domain_name == subdomain_obj.domain
+
         write_cmd = """INSERT OR REPLACE INTO {} VALUES
                        (?, ?, ?, ?, ?, ?) """.format(self.subdomain_table)
         cursor = self.conn.cursor()
         cursor.execute(write_cmd,
-                       (subdomain_obj.name,
+                       (fqn,
                         subdomain_obj.n,
                         subdomain_obj.address,
                         subdomain_obj.zonefile_str,
@@ -233,21 +266,32 @@ class SubdomainDB(object):
                         subdomain_obj.last_txid))
         self.conn.commit()
 
-    def __getitem__(self, subdomain_name):
-        return self.get_subdomain_entry(subdomain_name)
+    def __getitem__(self, fqn):
+        return self.get_subdomain_entry(fqn)
 
-    def __contains__(self, subdomain_name):
+    def __contains__(self, fqn):
         try:
-            _ = self[subdomain_name]
+            _ = self[fqn]
             return True
         except SubdomainNotFound:
             return False
 
-    def _set_last_seen_zf_hash(self, hash, block):
-        write_cmd = """INSERT INTO {} VALUES (?,?)""".format(self.status_table)
+    def _set_last_seen(self, block):
+        write_cmd = """INSERT INTO {} VALUES (?)""".format(self.status_table)
         cursor = self.conn.cursor()
-        cursor.execute(write_cmd, (hash, block))
+        cursor.execute(write_cmd, (block,))
         self.conn.commit()
+
+    def last_seen(self):
+        get_cmd = """SELECT * FROM {} ORDER BY lastBlock DESC LIMIT 1""".format(
+            self.status_table)
+        cursor = self.conn.cursor()
+        cursor.execute(get_cmd)
+        try:
+            last_block = cursor.fetchone()[0]
+        except:
+            return 0
+        return int(last_block)
 
     def _drop_tables(self):
         drop_cmd = "DROP TABLE IF EXISTS {};"
@@ -257,26 +301,26 @@ class SubdomainDB(object):
 
     def _create_tables(self):
         create_cmd = """CREATE TABLE IF NOT EXISTS {} (
-        subdomain TEXT PRIMARY KEY,
+        fully_qualified_subdomain TEXT PRIMARY KEY,
         sequence INTEGER,
-        pubkey TEXT,
+        owner TEXT,
         zonefile TEXT, 
         signature TEXT,
         last_txid TEXT);
         """.format(self.subdomain_table)
         create_status_cmd = """CREATE TABLE IF NOT EXISTS {} (
-        zonefileHash TEXT, lastBlock INTEGER);""".format(
+        lastBlock INTEGER);""".format(
             self.status_table)
         cursor = self.conn.cursor()
         cursor.execute(create_cmd)
         cursor.execute(create_status_cmd)
 
 
-def parse_zonefile_subdomains(zonefile_json):
+def parse_zonefile_subdomains(domain, zonefile_json):
     registrar_urls = []
 
     if "txt" in zonefile_json:
-        subdomains = [ Subdomain.parse_subdomain_record(x) for x in zonefile_json["txt"]
+        subdomains = [ Subdomain.parse_subdomain_record(domain, x) for x in zonefile_json["txt"]
                        if subdomain_util.is_subdomain_record(x) ]
     else:
         subdomains = []
@@ -304,11 +348,11 @@ def is_address_subdomain(fqa):
 def _transition_valid(from_sub_record, to_sub_record):
     if from_sub_record.n + 1 != to_sub_record.n:
         log.warn("Failed subdomain {} transition because of N:{}->{}".format(
-            to_sub_record.name, from_sub_record.n, to_sub_record.n))
+            to_sub_record.get_fqn() , from_sub_record.n, to_sub_record.n))
         return False
     if not to_sub_record.verify_signature(from_sub_record.address):
         log.warn("Failed subdomain {} transition because of signature failure".format(
-            to_sub_record.name))
+            to_sub_record.get_fqn()))
         return False
     return True
 
@@ -333,24 +377,24 @@ def _build_subdomain_db(domain_fqa, zonefiles, subdomain_db = None, txids = None
             zf_json = bs_zonefile.decode_name_zonefile(domain_fqa, zf)
             assert "zonefile" not in zf_json
 
-        subdomains = parse_zonefile_subdomains(zf_json)
+        subdomains = parse_zonefile_subdomains(domain_fqa, zf_json)
 
         for subdomain in subdomains:
             if txid:
                 subdomain.last_txid = txid
-            if subdomain.name in subdomain_db:
-                previous = subdomain_db[subdomain.name]
+            if subdomain.get_fqn() in subdomain_db:
+                previous = subdomain_db[subdomain.get_fqn()]
                 if _transition_valid(previous, subdomain):
-                    subdomain_db[subdomain.name] = subdomain
+                    subdomain_db[subdomain.get_fqn()] = subdomain
                 else:
-                    log.warn("Failed subdomain transition for {}.{} on N:{}->{}".format(
-                        subdomain.name, domain_fqa, previous.n, subdomain.n))
+                    log.warn("Failed subdomain transition for {} on N:{}->{}".format(
+                        subdomain.get_fqn(), previous.n, subdomain.n))
             else:
                 if subdomain.n != 0:
-                    log.warn("First sight of subdomain {}.{} with N={}".format(
-                        subdomain.name, domain_fqa, subdomain.n))
+                    log.warn("First sight of subdomain {} with N={}".format(
+                        subdomain.get_fqn(), subdomain.n))
                     continue
-                subdomain_db[subdomain.name] = subdomain
+                subdomain_db[subdomain.get_fqn()] = subdomain
     return subdomain_db
 
 def issue_zonefile(domain_fqa, user_data_txt):
@@ -394,29 +438,15 @@ def add_subdomains(subdomains, domain_fqa):
         raise SubdomainAlreadyExists(subdomains[subdomains_failed[0]], domain_fqa)
     return issue_zonefile(domain_fqa, zf_txt)
 
-def is_subdomain_resolution_cached(domain_fqa):
-    domains = config.get_subdomains_cached_for()
-    return domain_fqa in domains
-
 def get_subdomain_info(subdomain, domain_fqa, use_cache = True):
     if not use_cache:
         zonefiles = data.list_zonefile_history(domain_fqa)
         subdomain_db = _build_subdomain_db(domain_fqa, zonefiles)        
     else:
-        blockchain_record = proxy.get_name_blockchain_record(domain_fqa)
-        if 'value_hash' not in blockchain_record:
-            raise SubdomainNotFound("Failed to get zonefile for domain {}".format(domain_fqa))
-        zf_hash = blockchain_record['value_hash']
-        subdomain_db = SubdomainDB(domain_fqa)
-        if zf_hash != subdomain_db.last_seen()[0]:
-            log.debug("SubdomainDB Zonefile {} not up to date with {}".format(
-                subdomain_db.last_seen(), zf_hash))
-            subdomain_db.update()
-        else:
-            log.debug("SubdomainDB Zonefile {} up to date with {}".format(
-                subdomain_db.last_seen(), zf_hash))
+        subdomain_db = SubdomainDB()
+        subdomain_db.update()
     try:
-        subdomain_obj = subdomain_db[subdomain]
+        subdomain_obj = subdomain_db["{}.{}".format(subdomain, domain_fqa)]
     except Exception as e:
         log.exception(e)
         log.error("Raising SubdomainNotFound({}) from exception {}".format(subdomain, e))
@@ -433,7 +463,7 @@ def subdomain_record_to_profile(my_rec):
 
     assert isinstance(my_rec.zonefile_str, (str, unicode))
 
-    parsed_zf = bs_zonefile.decode_name_zonefile(my_rec.name, my_rec.zonefile_str)
+    parsed_zf = bs_zonefile.decode_name_zonefile(my_rec.subdomain_name, my_rec.zonefile_str)
     urls = user_db.user_zonefile_urls(parsed_zf)
 
     # try to get pubkey from zonefile, or default to ``owner`` pubkey
@@ -456,11 +486,16 @@ def subdomain_record_to_profile(my_rec):
 
     if user_profile is None:
         user_profile = {'error' :
-                        'Error fetching the data for subdomain {}'.format(my_rec.name)}
+                        'Error fetching the data for subdomain {}'.format(my_rec.get_fqn())}
 
     data = { 'profile' : user_profile,
              'zonefile' : parsed_zf }
     return data
+
+def get_subdomains_owned_by_address(address):
+    db = SubdomainDB()
+    db.update()
+    return db.get_subdomains_owned_by_address(address)
 
 ##
 # Aaron: what follows is verification and signing code for subdomains.
@@ -605,3 +640,8 @@ def txt_encode_key_value(key, value):
     return "{}={}".format(key,
                           value.replace("=", "\\="))
 
+
+
+def get_update_nameops(block):
+    nameops_at = proxy.get_nameops_affected_at(block)
+    return [ str(n['name']) for n in nameops_at if n['opcode'] == "NAME_UPDATE" ]

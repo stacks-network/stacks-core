@@ -61,13 +61,13 @@ foo TXT "owner={}" "seqn=3" "parts=0"
 
         self.assertEqual(zf_json['$origin'], domain_name)
 
-        subds = subdomains.parse_zonefile_subdomains(zf_json)
+        subds = subdomains.parse_zonefile_subdomains(domain_name, zf_json)
         self.assertEqual(len(subds), 1)
         sub = subds[0]
         self.assertEqual(sub.n, 3)
         self.assertEqual(sub.sig, None)
 
-        self.assertEqual(sub.name, "foo")
+        self.assertEqual(sub.subdomain_name, "foo")
 
     def test_basic_with_multisig(self):
         test_zf = """$ORIGIN bar.id
@@ -89,13 +89,13 @@ foo TXT "owner={}" "seqn=3" "parts=0"
 
         self.assertEqual(zf_json['$origin'], domain_name)
 
-        subds = subdomains.parse_zonefile_subdomains(zf_json)
+        subds = subdomains.parse_zonefile_subdomains(domain_name, zf_json)
         self.assertEqual(len(subds), 1)
         sub = subds[0]
         self.assertEqual(sub.n, 3)
         self.assertEqual(sub.sig, None)
 
-        self.assertEqual(sub.name, "foo")
+        self.assertEqual(sub.subdomain_name, "foo")
 
     def test_sign_verify_multisig(self):
         my_keys = [ keylib.ECPrivateKey() for _ in range(9) ]
@@ -144,7 +144,7 @@ foo TXT should_not_parse
         """
         domain_name = "bar.id"
         zf_json = zonefile.decode_name_zonefile(domain_name, zf)
-        self.assertEqual(len(subdomains.parse_zonefile_subdomains(zf_json)), 0)
+        self.assertEqual(len(subdomains.parse_zonefile_subdomains(domain_name, zf_json)), 0)
 
         zf = """$ORIGIN bar.id
 $TTL 3600
@@ -153,7 +153,7 @@ registrar URI 10 1 "bsreg://foo.com:8234"
 foo TXT "owner={}" "seqn=3" "should_not_parse"
         """
         zf_json = zonefile.decode_name_zonefile(domain_name, zf)
-        self.assertEqual(len(subdomains.parse_zonefile_subdomains(zf_json)), 0)
+        self.assertEqual(len(subdomains.parse_zonefile_subdomains(domain_name, zf_json)), 0)
 
     def test_sigs(self):
         fake_privkey_hex = "5512612ed6ef10ea8c5f9839c63f62107c73db7306b98588a46d0cd2c3d15ea5"
@@ -164,7 +164,7 @@ foo TXT "owner={}" "seqn=3" "should_not_parse"
             self.assertTrue(subdomains.verify(pk.address(), t,
                                               subdomains.sign(sk, t)), t)
 
-        subdomain = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(sk), 3, "")
+        subdomain = subdomains.Subdomain("bar.id", "foo", subdomains.encode_pubkey_entry(sk), 3, "")
 
         user_zf = {
             '$origin': 'foo',
@@ -181,7 +181,7 @@ foo TXT "owner={}" "seqn=3" "should_not_parse"
 
         self.assertTrue(subdomain.verify_signature(pk.address()))
 
-        parsed_zf = zonefile.decode_name_zonefile(subdomain.name, subdomain.zonefile_str)
+        parsed_zf = zonefile.decode_name_zonefile(subdomain.subdomain_name, subdomain.zonefile_str)
         urls = user_db.user_zonefile_urls(parsed_zf)
 
         self.assertEqual(len(urls), 1)
@@ -208,8 +208,8 @@ foo TXT "owner={}" "seqn=3" "should_not_parse"
             "urls": ["https://none.com"]
         }
 
-        subdomain1 = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(sk), 3, "")
-        subdomain2 = subdomains.Subdomain("bar", subdomains.encode_pubkey_entry(sk), 4, "")
+        subdomain1 = subdomains.Subdomain("bar.id", "foo", subdomains.encode_pubkey_entry(sk), 3, "")
+        subdomain2 = subdomains.Subdomain("bar.id", "bar", subdomains.encode_pubkey_entry(sk), 4, "")
 
         subdomain2.add_signature(sk)
         self.assertTrue(
@@ -248,8 +248,8 @@ registrar URI 10 1 "bsreg://foo.com:8234"
         zf_json = zonefile.decode_name_zonefile(domain_name, empty_zf)
         self.assertEqual(zf_json['$origin'], domain_name)
 
-        sub1 = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(foo_bar_sk), 1, "")
-        sub2 = subdomains.Subdomain("bar", subdomains.encode_pubkey_entry(bar_bar_sk), 1, "")
+        sub1 = subdomains.Subdomain(domain_name, "foo", subdomains.encode_pubkey_entry(foo_bar_sk), 1, "")
+        sub2 = subdomains.Subdomain(domain_name, "bar", subdomains.encode_pubkey_entry(bar_bar_sk), 1, "")
         sub1.add_signature(foo_bar_sk)
         sub2.add_signature(bar_bar_sk)
 
@@ -263,21 +263,21 @@ registrar URI 10 1 "bsreg://foo.com:8234"
         history.append(blockstack_zones.make_zone_file(zf_json))
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history[:1])
-        self.assertIn("foo", subdomain_db, "Contents actually: {}".format(subdomain_db.keys()))
-        self.assertEqual(subdomain_db["foo"].n, 0)
-        self.assertNotIn("bar", subdomain_db)
+        self.assertIn("foo.bar.id", subdomain_db, "Contents actually: {}".format(subdomain_db.keys()))
+        self.assertEqual(subdomain_db["foo.bar.id"].n, 0)
+        self.assertNotIn("bar.bar.id", subdomain_db)
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history[:2])
-        self.assertIn("bar", subdomain_db)
-        self.assertEqual(subdomain_db["bar"].n, 0)
+        self.assertIn("bar.bar.id", subdomain_db)
+        self.assertEqual(subdomain_db["bar.bar.id"].n, 0)
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history[:3])
-        self.assertEqual(subdomain_db["foo"].n, 0)
-        self.assertEqual(subdomain_db["bar"].n, 1)
+        self.assertEqual(subdomain_db["foo.bar.id"].n, 0)
+        self.assertEqual(subdomain_db["bar.bar.id"].n, 1)
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history)
-        self.assertEqual(subdomain_db["foo"].n, 1)
-        self.assertEqual(subdomain_db["bar"].n, 1)
+        self.assertEqual(subdomain_db["foo.bar.id"].n, 1)
+        self.assertEqual(subdomain_db["bar.bar.id"].n, 1)
 
     def test_db_builder_bad_transitions(self):
         history = [
@@ -313,7 +313,7 @@ registrar URI 10 1 "bsreg://foo.com:8234"
         self.assertEqual(zf_json['$origin'], domain_name)
 
         # bad transition n=0 -> n=0
-        sub1 = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(foo_bar_sk), 0, "")
+        sub1 = subdomains.Subdomain("foo", domain_name, subdomains.encode_pubkey_entry(foo_bar_sk), 0, "")
 
         subdomain_util._extend_with_subdomain(zf_json, sub1)
 
@@ -323,30 +323,30 @@ registrar URI 10 1 "bsreg://foo.com:8234"
         zf_json = zonefile.decode_name_zonefile(domain_name, empty_zf)
         self.assertEqual(zf_json['$origin'], domain_name)
 
-        sub2 = subdomains.Subdomain("foo", subdomains.encode_pubkey_entry(bar_bar_sk), 1, "")
+        sub2 = subdomains.Subdomain("foo", domain_name, subdomains.encode_pubkey_entry(bar_bar_sk), 1, "")
         subdomain_util._extend_with_subdomain(zf_json, sub2)
         history.append(blockstack_zones.make_zone_file(zf_json))
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history[:1])
-        self.assertEqual(subdomain_db["foo"].n, 0)
-        self.assertNotIn("bar", subdomain_db)
+        self.assertEqual(subdomain_db["foo.bar.id"].n, 0)
+        self.assertNotIn("bar.bar.id", subdomain_db)
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history[:2])
-        self.assertIn("bar", subdomain_db)
-        self.assertEqual(subdomain_db["bar"].n, 0)
+        self.assertIn("bar.bar.id", subdomain_db)
+        self.assertEqual(subdomain_db["bar.bar.id"].n, 0)
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history[:3])
-        self.assertEqual(subdomain_db["foo"].n, 0)
-        self.assertEqual(subdomain_db["bar"].n, 0)
+        self.assertEqual(subdomain_db["foo.bar.id"].n, 0)
+        self.assertEqual(subdomain_db["bar.bar.id"].n, 0)
 
         # handle repeated zonefile
 
         subdomain_db = subdomains._build_subdomain_db("bar.id", history[:3])
-        self.assertEqual(subdomain_db["foo"].n, 0)
-        self.assertEqual(subdomain_db["bar"].n, 0)
+        self.assertEqual(subdomain_db["foo.bar.id"].n, 0)
+        self.assertEqual(subdomain_db["bar.bar.id"].n, 0)
         subdomains._build_subdomain_db("bar.id", history[:3], subdomain_db = subdomain_db)
-        self.assertEqual(subdomain_db["foo"].n, 0)
-        self.assertEqual(subdomain_db["bar"].n, 0)        
+        self.assertEqual(subdomain_db["foo.bar.id"].n, 0)
+        self.assertEqual(subdomain_db["bar.bar.id"].n, 0)        
 
     def test_large_zonefile(self):
         empty_zf = """$ORIGIN registrar.id

@@ -23,7 +23,7 @@
 import os, tempfile, sys, time, re
 import json, logging
 import sqlite3
-import thread, threading
+import threading
 import BaseHTTPServer, requests
 import jsonschema
 
@@ -95,7 +95,7 @@ class SubdomainOpsQueue(object):
         """.format(self.queue_table, self.entries_per_tx_hint)
         out = list(self._execute(sql, ()).fetchall())
         return [ (received_at, 
-                  subdomains.Subdomain.parse_subdomain_record(json.loads(packed_subdomain))) 
+                  subdomains.Subdomain.parse_subdomain_record(self.domain, json.loads(packed_subdomain))) 
                  for received_at, packed_subdomain in out ]
 
     def _set_in_tx(self, subds, txid):
@@ -125,7 +125,7 @@ class SubdomainOpsQueue(object):
                  " on the network once it has 6 confirmations.").format(status)}
 
     def add_subdomain_to_queue(self, subdomain):
-        name = subdomain.name
+        name = subdomain.subdomain_name
         packed_dict = subdomain.as_zonefile_entry()
         jsoned = json.dumps(packed_dict)
         self._add_subdomain_row(jsoned, name)
@@ -196,7 +196,7 @@ class SubdomainOpsQueue(object):
             return {'error' : 'Error in parsing response'}
 
         if 'error' in resp_js:
-            msg = 'Error submitting subdomain bundle: {}'.format(tx_resp['error'])
+            msg = 'Error submitting subdomain bundle: {}'.format(resp_js['error'])
             log.error(msg)
             self._set_in_tx(indexes, "ERR:{}".format(msg))
             return {'error' : msg}
@@ -222,14 +222,14 @@ def get_queued_name(subdomain, domain_name):
     return {'error' : 'Subdomain not registered with this registrar', 'status_code' : 404}
 
 def queue_name_for_registration(subdomain, domain_name):
-    if does_subdomain_exist(subdomain.name, domain_name):
-        raise subdomains.SubdomainAlreadyExists(subdomain.name, domain_name)
+    if does_subdomain_exist(subdomain.subdomain_name, domain_name):
+        raise subdomains.SubdomainAlreadyExists(subdomain.subdomain_name, domain_name)
     q =  SubdomainOpsQueue(domain_name, config.get_subdomain_registrar_db_path())
     q.add_subdomain_to_queue(subdomain)
     return {'status' : 'true',
             'message' : 'Subdomain registration queued.'}
 
-def parse_subdomain_request(input_str):
+def parse_subdomain_request(domain_name, input_str):
     schema = {
         'type' : 'object',
         'properties' : {
@@ -261,6 +261,7 @@ def parse_subdomain_request(input_str):
     owner_entry = str(request['owner_address'])
 
     return subdomains.Subdomain(
+        domain_name,
         request['name'], owner_entry,
         n=0, zonefile_str = zonefile_str)
 
@@ -273,15 +274,15 @@ def run_registrar(domain_name):
     lockfile = config.get_lockfile()
 
     # if we're already running, then bail
-    if SubdomainLock.is_lockfile_valid( lockfile ):
+    if SubdomainLock.is_lockfile_valid(lockfile):
         log.debug("SubdomainRegistrarWorker already initialized")
         return None
 
     try:
-        SubdomainLock.acquire( lockfile )
+        SubdomainLock.acquire(lockfile)
     except (IOError, OSError):
         try:
-            os.unlink(path)
+            os.unlink(lockfile)
         except:
             pass
 
@@ -394,7 +395,7 @@ class SubdomainRegistrarRPCHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         if length > 1024 * 1024:
             return self.send_message(403, json.dumps({"error" : "Content length too long. Request Denied."}))
         try:
-            subdomain = parse_subdomain_request(self.rfile.read(length))
+            subdomain = parse_subdomain_request(self.server.domain_name, self.rfile.read(length))
         except Exception as e:
             log.exception(e)
             return self.send_message(401, json.dumps({"error" : "Problem parsing request"}))
