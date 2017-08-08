@@ -729,8 +729,8 @@ def atlasdb_get_zonefiles_by_block( from_block, to_block, offset, count, con=Non
 
     with AtlasDBOpen(con=con, path=path) as dbcon:
 
-        sql = """SELECT zonefile_hash, txid, block_height FROM zonefiles 
-        WHERE block_height >= ? and block_height <= ? 
+        sql = """SELECT name, zonefile_hash, txid, block_height FROM zonefiles
+        WHERE block_height >= ? and block_height <= ?
         ORDER BY inv_index LIMIT ? OFFSET ?;"""
         args = (from_block, to_block, count, offset)
 
@@ -742,6 +742,7 @@ def atlasdb_get_zonefiles_by_block( from_block, to_block, offset, count, con=Non
 
         for zfinfo in res:
             ret.append({
+                'name' : zfinfo['name'],
                 'zonefile_hash' : zfinfo['zonefile_hash'],
                 'block_height' : zfinfo['block_height'],
                 'txid' : zfinfo['txid'],

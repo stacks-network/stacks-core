@@ -262,20 +262,20 @@ registrar URI 10 1 "bsreg://foo.com:8234"
 
         history.append(blockstack_zones.make_zone_file(zf_json))
 
-        subdomain_db = subdomains._build_subdomain_db("bar.id", history[:1])
+        subdomain_db = subdomains._build_subdomain_db(["bar.id" for x in range(1)], history[:1])
         self.assertIn("foo.bar.id", subdomain_db, "Contents actually: {}".format(subdomain_db.keys()))
         self.assertEqual(subdomain_db["foo.bar.id"].n, 0)
         self.assertNotIn("bar.bar.id", subdomain_db)
 
-        subdomain_db = subdomains._build_subdomain_db("bar.id", history[:2])
+        subdomain_db = subdomains._build_subdomain_db(["bar.id" for x in range(2)], history[:2])
         self.assertIn("bar.bar.id", subdomain_db)
         self.assertEqual(subdomain_db["bar.bar.id"].n, 0)
 
-        subdomain_db = subdomains._build_subdomain_db("bar.id", history[:3])
+        subdomain_db = subdomains._build_subdomain_db(["bar.id" for x in range(3)], history[:3])
         self.assertEqual(subdomain_db["foo.bar.id"].n, 0)
         self.assertEqual(subdomain_db["bar.bar.id"].n, 1)
 
-        subdomain_db = subdomains._build_subdomain_db("bar.id", history)
+        subdomain_db = subdomains._build_subdomain_db(["bar.id" for x in range(len(history))], history)
         self.assertEqual(subdomain_db["foo.bar.id"].n, 1)
         self.assertEqual(subdomain_db["bar.bar.id"].n, 1)
 
@@ -327,24 +327,24 @@ registrar URI 10 1 "bsreg://foo.com:8234"
         subdomain_util._extend_with_subdomain(zf_json, sub2)
         history.append(blockstack_zones.make_zone_file(zf_json))
 
-        subdomain_db = subdomains._build_subdomain_db("bar.id", history[:1])
+        subdomain_db = subdomains._build_subdomain_db(["bar.id" for x in range(1)], history[:1])
         self.assertEqual(subdomain_db["foo.bar.id"].n, 0)
         self.assertNotIn("bar.bar.id", subdomain_db)
 
-        subdomain_db = subdomains._build_subdomain_db("bar.id", history[:2])
+        subdomain_db = subdomains._build_subdomain_db(["bar.id" for x in range(2)], history[:2])
         self.assertIn("bar.bar.id", subdomain_db)
         self.assertEqual(subdomain_db["bar.bar.id"].n, 0)
 
-        subdomain_db = subdomains._build_subdomain_db("bar.id", history[:3])
+        subdomain_db = subdomains._build_subdomain_db(["bar.id" for x in range(3)], history[:3])
         self.assertEqual(subdomain_db["foo.bar.id"].n, 0)
         self.assertEqual(subdomain_db["bar.bar.id"].n, 0)
 
         # handle repeated zonefile
 
-        subdomain_db = subdomains._build_subdomain_db("bar.id", history[:3])
+        subdomain_db = subdomains._build_subdomain_db(["bar.id" for x in range(3)], history[:3])
         self.assertEqual(subdomain_db["foo.bar.id"].n, 0)
         self.assertEqual(subdomain_db["bar.bar.id"].n, 0)
-        subdomains._build_subdomain_db("bar.id", history[:3], subdomain_db = subdomain_db)
+        subdomains._build_subdomain_db(["bar.id" for x in range(3)], history[:3], subdomain_db = subdomain_db)
         self.assertEqual(subdomain_db["foo.bar.id"].n, 0)
         self.assertEqual(subdomain_db["bar.bar.id"].n, 0)        
 

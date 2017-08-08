@@ -1578,7 +1578,17 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
 
 
-    def rpc_get_zonefiles_from_blocks( self, from_block, to_block, offset, count, **con_info ):
+    def rpc_get_zonefiles_by_block( self, from_block, to_block, offset, count, **con_info ):
+        """
+        Get information about zonefiles announced in blocks [@from_block, @to_block]
+        @offset - offset into result set
+        @count - max records to return, must be <= 100
+
+        Returns {'status': True, 'lastblock' : blockNumber,
+                 'zonefile_info' : [ { 'block_height' : 470000,
+                                       'txid' : '0000000',
+                                       'zonefile_hash' : '0000000' } ] }
+        """
         conf = get_blockstack_opts()
         if not conf['atlas']:
             return {'error': 'Not an atlas node'}

@@ -43,7 +43,7 @@ from subdomain_registrar.util import (SUBDOMAIN_ZF_PARTS, SUBDOMAIN_ZF_PIECE,
 
 log = get_logger()
 
-SUBDOMAINS_FIRST_BLOCK = 478873
+SUBDOMAINS_FIRST_BLOCK = 478872
 
 class DomainNotOwned(Exception):
     pass
@@ -204,40 +204,53 @@ class SubdomainDB(object):
                 last_block = max(last_block, SUBDOMAINS_FIRST_BLOCK)
 
         core_last_block = proxy.getinfo()['last_block_processed']
-        domains_to_check = set()
-        log.debug("Fetching nameops affected in range ({}, {})".format(
+        log.debug("Fetching zonefiles in range ({}, {})".format(
             last_block + 1, core_last_block))
 
-        for block in range(last_block + 1, core_last_block):
-            log.debug("Block: {}".format(block))
-            nameops_at = proxy.get_nameops_affected_at(block)
-            for n in nameops_at:
-                if n['opcode'] == "NAME_UPDATE":
-                    domains_to_check.add(str(n['name']))
+        zonefiles_in_blocks = proxy.get_zonefiles_by_block(last_block + 1,
+                                                           core_last_block)
+        if 'error' in zonefiles_in_blocks:
+            log.error(zonefiles_in_blocks)
+            return
+        core_last_block = min(zonefiles_in_blocks['last_block'],
+                              core_last_block)
+        zonefiles_info = zonefiles_in_blocks['zonefile_info']
+        if len(zonefiles_info) == 0:
+            return
+        zonefiles_info.sort( key = lambda a : a['block_height'] )
+        domains, hashes, blockids, txids = map( list,
+                                                zip(* [ ( x['name'], x['zonefile_hash'],
+                                                          x['block_height'],
+                                                          x['txid'] )
+                                                        for x in zonefiles_info ]))
+        zf_dict = {}
+        zonefiles_to_fetch_per = 100
+        for offset in range(0, len(hashes)/zonefiles_to_fetch_per + 1):
+            lower = offset * zonefiles_to_fetch_per
+            upper = min(lower + zonefiles_to_fetch_per, len(hashes))
+            zf_resp = proxy.get_zonefiles(
+                None, hashes[lower:upper], proxy = proxy.get_default_proxy())
+            if 'zonefiles' not in zf_resp:
+                log.error("Couldn't get zonefiles from proxy {}".format(zf_resp))
+                return
+            zf_dict.update( zf_resp['zonefiles'] )
+        if len(zf_dict) == 0:
+            return
+        could_not_find = []
+        zonefiles = []
+        for ix, zf_hash in enumerate(hashes):
+            if zf_hash not in zf_dict:
+                could_not_find.append(ix)
+            else:
+                zonefiles.append(zf_dict[zf_hash])
+        could_not_find.sort(reverse=True)
+        for ix in could_not_find:
+            del domains[ix]
+            del hashes[ix]
+            del blockids[ix]
+            del txids[ix]
 
-        for domain in domains_to_check:
-            zonefiles, hashes, blockids, txids = data.list_zonefile_history(
-                domain, return_hashes = True, from_block = last_block + 1, return_blockids = True,
-                return_txids = True)
-
-            if len(hashes) == 0:
-                continue
-
-            failed_zonefiles = []
-            for ix, zonefile in enumerate(zonefiles):
-                if 'error' in zonefile:
-                    failed_zonefiles.append(ix)
-                    log.error("Failed to get zonefile for hash ({}), error: {}".format(
-                        hashes[ix], zonefile))
-            failed_zonefiles.sort(reverse=True)
-            for ix in failed_zonefiles:
-                del zonefiles[ix]
-                del hashes[ix]
-                del blockids[ix]
-            if len(hashes) == 0:
-                continue
-
-            _build_subdomain_db(domain, zonefiles, self, txids)
+        _build_subdomain_db(domains, zonefiles, self, txids)
 
         last_block = core_last_block
 
@@ -356,19 +369,12 @@ def _transition_valid(from_sub_record, to_sub_record):
         return False
     return True
 
-def _build_subdomain_db(domain_fqa, zonefiles, subdomain_db = None, txids = None):
+def _build_subdomain_db(domain_fqas, zonefiles, subdomain_db = None, txids = None):
     if subdomain_db is None:
         subdomain_db = {}
-    if txids is not None:
-        iterator = zip(zonefiles, txids)
-    else:
-        iterator = zonefiles
-    for cur_row in iterator:
-        if txids is not None:
-            zf, txid = cur_row
-        else:
-            zf, txid = cur_row, None
-
+    if txids is None:
+        txids = [None for x in zonefiles]
+    for zf, domain_fqa, txid in zip(zonefiles, domain_fqas, txids):
         if isinstance(zf, dict):
             assert "zonefile" not in zf
             zf_json = zf
@@ -441,7 +447,7 @@ def add_subdomains(subdomains, domain_fqa):
 def get_subdomain_info(subdomain, domain_fqa, use_cache = True):
     if not use_cache:
         zonefiles = data.list_zonefile_history(domain_fqa)
-        subdomain_db = _build_subdomain_db(domain_fqa, zonefiles)        
+        subdomain_db = _build_subdomain_db([domain_fqa for z in zonefiles], zonefiles)
     else:
         subdomain_db = SubdomainDB()
         subdomain_db.update()
