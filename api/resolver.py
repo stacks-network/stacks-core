@@ -37,6 +37,7 @@ from time import time
 from blockstack_proofs import profile_to_proofs, profile_v3_to_proofs
 
 import blockstack_client.profile
+import blockstack_client.subdomains
 
 from blockstack_client.schemas import OP_NAME_PATTERN, OP_NAMESPACE_PATTERN
 
@@ -214,6 +215,20 @@ def get_profile(fqa, refresh=False):
 
     fqa = fqa.lower()
     if not is_valid_fqa(fqa):
+        fqa = str(fqa)
+        res = blockstack_client.subdomains.is_address_subdomain(fqa)
+        if res:
+            subdomain, domain = res[1]
+            try:
+                resp = blockstack_client.subdomains.resolve_subdomain(subdomain, domain)
+                data = { 'profile' : resp['profile'],
+                         'zone_file': resp['zonefile'],
+                         'verifications' : [] }
+                return data
+            except blockstack_client.subdomains.SubdomainNotFound as e:
+                log.exception(e)
+                abort(404, jsonify({'error' : 'Name {} not found'.format(fqa)}))
+
         return {'error' : 'Malformed name {}'.format(fqa)}
 
     if MEMCACHED_ENABLED and not refresh:
