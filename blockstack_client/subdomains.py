@@ -210,7 +210,7 @@ class SubdomainDB(object):
         zonefiles_in_blocks = proxy.get_zonefiles_by_block(last_block + 1,
                                                            core_last_block)
         if 'error' in zonefiles_in_blocks:
-            log.error(zonefiles_in_blocks)
+            log.error("Error fetching zonefile info: {}".format(zonefiles_in_blocks))
             return
         core_last_block = min(zonefiles_in_blocks['last_block'],
                               core_last_block)
