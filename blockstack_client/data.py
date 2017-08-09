@@ -725,51 +725,6 @@ def list_immutable_data_history(name, data_id, current_block=None, proxy=None):
     return hashes
 
 
-def load_user_data_pubkey_addr( name, storage_drivers=None, proxy=None, config_path=CONFIG_PATH ):
-    """
-    Get a user's default data public key and/or owner address by getting it's zone file.
-
-    Returns {'pubkey': ..., 'address': ...} on success
-    Return {'error': ...} on error
-    """
-    # need to find pubkey to use
-    user_zonefile = get_name_zonefile( name, storage_drivers=storage_drivers, proxy=proxy, include_name_record=True)
-    if 'error' in user_zonefile:
-        log.debug("Unable to load zone file for '{}': {}".format(name, user_zonefile['error']))
-        return {'error': 'Failed to load zonefile'}
-
-    # recover name record
-    name_record = user_zonefile.pop('name_record')
-    user_zonefile = user_zonefile['zonefile']
-
-    # get user's data public key and owner address
-    data_pubkey = None
-    data_address = name_record['address']
-    
-    assert data_address is not None
-    data_address = str(data_address)
-
-    # data address cannot be a p2sh address
-    if data_address is not None and virtualchain.is_multisig_address(data_address):
-        log.warning("Address {} cannot be a data address".format(data_address))
-        data_address = None
-
-    try:
-        data_pubkey = user_db.user_zonefile_data_pubkey(user_zonefile)
-        if data_pubkey is not None:
-            log.debug("Zone file data public key for {} is {}".format(name, data_pubkey))
-
-    except ValueError:
-        # multiple keys
-        data_pubkey = None
-
-    if data_pubkey is None and data_address is None:
-        log.error("No public key or address usable")
-        return {'error': 'No usable data public key or address'}
-
-    return {'pubkey': data_pubkey, 'address': data_address}
-
-
 def data_blob_parse( data_blob_payload ):
     """
     Parse a serialized data structure
@@ -1068,35 +1023,6 @@ def put_immutable(blockchain_id, data_id, data_text, data_url=None, txid=None, p
     return result
 
 
-def load_user_data_privkey( blockchain_id, storage_drivers=None, proxy=None, config_path=CONFIG_PATH, wallet_keys=None ):
-    """
-    Get the user's data private key from his/her wallet.
-    Verify it matches the zone file for this blockchain ID
-
-    Return {'privkey': ...} on success
-    Return {'error': ...} on error
-    """
-    conf = get_config(path=CONFIG_PATH)
-    user_zonefile = get_name_zonefile( blockchain_id, storage_drivers=storage_drivers, proxy=proxy)
-    if 'error' in user_zonefile:
-        log.debug("Unable to load zone file for '{}': {}".format(blockchain_id, user_zonefile['error']))
-        return {'error': 'Failed to load zonefile'}
-
-    # recover name record and zonefile
-    user_zonefile = user_zonefile['zonefile']
-
-    # get the data key
-    data_privkey = get_data_privkey_info(user_zonefile, wallet_keys=wallet_keys, config_path=config_path)
-    if json_is_error(data_privkey):
-        # error text
-        return {'error': data_privkey['error']}
-
-    else:
-        assert data_privkey is not None
-
-    return {'privkey': data_privkey}
-
-
 def make_mutable_data_tombstones( device_ids, data_id ):
     """
     Make tombstones for mutable data across devices
@@ -1242,7 +1168,7 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, versi
     * if storage_drivers is not None, then each storage driver in storage_drivers *must* succeed
     * If data_signature is not None, it must be the signature over the serialized payload form of data_payload
 
-    Return {'status': True} on success
+    Return {'status': True, 'urls': {'$driver_name': '$url'}} on success
     Return {'error': ...} on error
     """
 
@@ -1271,11 +1197,11 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, versi
         assert data_pubkey
         assert data_signature
 
-    rc = storage.put_mutable_data(fq_data_id, mutable_data_str, data_pubkey=data_pubkey, data_signature=data_signature, sign=False, raw=raw, blockchain_id=blockchain_id,
-                                  required=storage_drivers, required_exclusive=storage_drivers_exclusive)
+    storage_res = storage.put_mutable_data(fq_data_id, mutable_data_str, data_pubkey=data_pubkey, data_signature=data_signature, sign=False, raw=raw, blockchain_id=blockchain_id,
+                                           required=storage_drivers, required_exclusive=storage_drivers_exclusive)
 
-    if not rc:
-        log.error("failed to put mutable data {}".format(fq_data_id))
+    if 'error' in storage_res:
+        log.error("failed to put mutable data {}: {}".format(fq_data_id, storage_res['error']))
         result['error'] = 'Failed to store mutable data'
         return result
 
@@ -1290,7 +1216,7 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, versi
         msg = 'Put "{}" mutable data (version {}) for blockchain ID {}'
         log.debug(msg.format(fq_data_id, version, blockchain_id))
 
-    return {'status': True}
+    return storage_res
 
 
 def delete_immutable(blockchain_id, data_key, data_id=None, proxy=None, txid=None, wallet_keys=None, config_path=CONFIG_PATH):
@@ -1929,7 +1855,7 @@ def put_datastore_info( datastore_info, datastore_sigs, root_tombstones, config_
     GLOBAL_CACHE.evict_datastore_record(datastore_id)
 
     # success!
-    return {'status': True}
+    return res
 
 
 def put_datastore(api_client, datastore_info, datastore_privkey, config_path=CONFIG_PATH):
