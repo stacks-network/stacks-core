@@ -30,6 +30,7 @@ import blockstack_zones
 import keylib
 import requests
 from blockstack_integration_tests.scenarios import testlib
+import atexit
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -61,7 +62,8 @@ core_auth_token = False
 """.format(blockstack_client.config.read_config_file()['blockstack-client']['api_endpoint_port'])
         out_f.write(file_out)
 
-
+    # spawn the registrar
+    SUBPROC = subprocess.Popen(["blockstack-subdomain-registrar", "start", "foo.id"])
 
     testlib.blockstack_namespace_preorder( "id", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -100,8 +102,6 @@ core_auth_token = False
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
     time.sleep(SLEEP_TIME)
 
-    # spawn the registrar
-    SUBPROC = subprocess.Popen(["blockstack-subdomain-registrar", "start", "foo.id"])
 
     print >> sys.stderr, "Waiting for subdomain to start up"
     time.sleep(SLEEP_TIME)
@@ -148,9 +148,6 @@ core_auth_token = False
     time.sleep(SLEEP_TIME)
 
 def check( state_engine ):
-    global SUBPROC
-    SUBPROC.kill()
-
     subdomain = "bar"
     domain = "foo.id"
     user_profile = blockstack_client.subdomains.resolve_subdomain(subdomain, domain)['profile']

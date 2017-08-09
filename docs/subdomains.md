@@ -182,14 +182,11 @@ When a lookup like `foo.bar.id` hits the resolver, the resolver will need to:
 
 #### Supported Core / Resolver Endpoints
 
-Generally, domain endpoints are not aware of subdomains (only endpoint
-aware of subdomains is `/v1/users/<foo.bar.tld>` and
-`/v1/names/<foo.bar.tld>`)
+Generally, domain endpoints are not aware of subdomains (only endpoints
+aware of subdomains is `/v1/users/<foo.bar.tld>`,
+`/v1/names/<foo.bar.tld>`, and `/v1/addresses/bitcoin/<foo.bar.tld>`)
 
-This means that search and 'names owned by address X' queries
-are *not* yet supported. Support for these requires varying levels of
-engineering--- names owned by address X lookups will require that the
-resolver subdomain cache be greedily populated rather than lazily.
+This means that search is *not* yet supported.
 
 The lookups work just like normal -- it returns the user's
 profile object:
@@ -244,6 +241,54 @@ A resolver *caches* a subdomain's state by keeping a database of all
 the current subdomain records. This database is automatically updated
 when a new zonefile for a particularly domain is seen by the resolver
 (this is performed lazily).
+
+#### Testing Subdomain Registrar and Resolution
+
+You can run a subdomain registrar and resolver with blockstack-core in
+regtest mode as follows:
+
+```
+BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.subdomain_registrar 2>&1 | tee /tmp/stdout | grep "inished"
+```
+
+Once you see `Test finished; doing checks` on the command line, the
+registrar has started and is ready to accept requests.
+
+You can issue a registration request from curl:
+
+```
+curl -X POST --data '{"zonefile": "$ORIGIN baz\n$TTL 3600\n_file URI 10 1 \"file:///tmp/baz.profile.json\"\n", "name": "baz", "owner_address": "14x2EMRz1gf16UzGbxZh2c6sJg4A8wcHLD"}' http://localhost:7103/register/
+```
+
+This registers `baz.foo.id` -- you can check the registrar's status with
+
+```
+curl http://localhost:7103/status/baz
+```
+
+The API endpoints `/v1/users/<foo.bar.tld>`,
+`/v1/names/<foo.bar.tld>`, and `/v1/addresses/bitcoin/<foo.bar.tld>` all work, so if you query the core API, you'll get a response.
+
+For example:
+
+```
+curl http://localhost:16268/v1/names/bar.foo.id | python -m json.tool
+```
+
+Will return:
+```
+{
+    "address": "1Nup2UcbVuVoDZeZCtR4vjSkrvTi8toTqc",
+    "blockchain": "bitcoin",
+    "expire_block": -1,
+    "last_txid": "43bbcbd8793cdc52f1b0bd2713ed136f4f104a683a9fd5c89911a57a8c4b28b6",
+    "satus": "registered_subdomain",
+    "zonefile_hash": "e7e3aada18c9ac5189f1c54089e987f58c0fa51e",
+    "zonefile_txt": "$ORIGIN bar\n$TTL 3600\n_file URI 10 1 \"file:///tmp/baz.profile.json\"\n"
+}
+```
+
+The integration test registers `bar.foo.id` during the setup (so remember that for your own testing!)
 
 #### Todos
 

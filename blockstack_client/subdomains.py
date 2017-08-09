@@ -206,6 +206,8 @@ class SubdomainDB(object):
         core_last_block = proxy.getinfo()['last_block_processed']
         log.debug("Fetching zonefiles in range ({}, {})".format(
             last_block + 1, core_last_block))
+        if core_last_block < last_block + 1:
+            return
 
         zonefiles_in_blocks = proxy.get_zonefiles_by_block(last_block + 1,
                                                            core_last_block)
