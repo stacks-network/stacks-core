@@ -20,7 +20,7 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os, configparser
+import os, ConfigParser
 from blockstack_client import config as blockstack_client_config
 
 SUBDOMAIN_NAME_PATTERN = r'([a-z0-9\-_+]{{{},{}}})$'.format(3, 36)
@@ -35,7 +35,7 @@ def __get_homedir():
 def __get_or_load_config():
     global config, homedir
     if config and homedir:
-        return config["registrar-config"]
+        return dict(config.items("registrar-config"))
 
     filename = os.environ.get(
         "BLOCKSTACK_SUBDOMAIN_CONFIG", 
@@ -44,7 +44,7 @@ def __get_or_load_config():
     if not os.path.exists(homedir):
         os.makedirs(homedir)
     if not os.path.exists(filename):
-        newconfig = configparser.ConfigParser()
+        newconfig = ConfigParser.ConfigParser()
         subdomain_defaults = {
             "bind_address" : "localhost",
             "bind_port" : "7103",
@@ -56,13 +56,13 @@ def __get_or_load_config():
         }
         newconfig.add_section("registrar-config")
         for k,v in subdomain_defaults.items():
-            newconfig["registrar-config"][k] = v
+            newconfig.set("registrar-config", k, v)
         with open(filename, 'w') as configout:
             newconfig.write(configout)
 
-    config = configparser.ConfigParser()
+    config = ConfigParser.ConfigParser()
     config.read(filename)
-    return config["registrar-config"]
+    return dict(config.items("registrar-config"))
 
 def get_core_auth():
     c = __get_or_load_config()
