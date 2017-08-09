@@ -42,10 +42,12 @@ wallets = [
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 SLEEP_TIME = 25
-SUBPROC = None
+
+def killer(subproc):
+    print "Killing subdomain registrar"
+    subproc.kill()
 
 def scenario( wallets, **kw ):
-    global SUBPROC
     # write our subdomain_registrar config
     client_dir = os.path.normpath(os.path.dirname(os.environ["BLOCKSTACK_CLIENT_CONFIG"]) + "/../subdomain_registrar")
     if not os.path.exists(client_dir):
@@ -146,6 +148,8 @@ core_auth_token = False
 
     print >> sys.stderr, "Waiting for the update to be acknowledged"
     time.sleep(SLEEP_TIME)
+
+    atexit.register(killer, SUBPROC)
 
 def check( state_engine ):
     subdomain = "bar"

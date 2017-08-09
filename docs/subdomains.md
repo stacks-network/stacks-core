@@ -272,7 +272,7 @@ The API endpoints `/v1/users/<foo.bar.tld>`,
 For example:
 
 ```
-curl http://localhost:16268/v1/names/bar.foo.id | python -m json.tool
+curl http://localhost:6270/v1/names/bar.foo.id | python -m json.tool
 ```
 
 Will return:
@@ -292,7 +292,7 @@ The integration test registers `bar.foo.id` during the setup (so remember that f
 
 #### Todos
 
-1. Testing bad zonefile transitions / updates.
+1. Testing bad zonefile transitions / updates. [x]
    a. Wrong _n_ : this could be a rewrite, roll-back, whatever. [x]
    b. Bad signature [x]
 2. Caching resolver database [x]
@@ -300,9 +300,11 @@ The integration test registers `bar.foo.id` during the setup (so remember that f
 4. Web API [x]
 5. Resolver database cache for holding *multiple* domains, instead of just one [x]
 6. Resolver should be able to authenticate an owned subdomain [x]
-7. Test authentication with subdomain [o]
-8. Spin up registrar (includes spam filter?) [o]
+7. Test blockstack.js with subdomains [o]
+   a. authentication [o]
+   b. storage [o]
+8. Spin up registrar [o]
 9. Search endpoint should index subdomains [o]
-10. Push and update core.blockstack.org [o]
-11. Resolver should be able to respond to *names_owned_by_address* queries [o]
+10. Push and update core.blockstack.org [x]
+11. Resolver should be able to respond to *names_owned_by_address* queries [x]
 12. Endpoint support for changing zonefiles/rotating keys [o]
