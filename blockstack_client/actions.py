@@ -90,7 +90,7 @@ from rpc import local_api_connect, local_api_status
 import rpc as local_rpc
 import config
 
-from .config import configure_zonefile, configure, get_utxo_provider_client, get_tx_broadcaster
+from .config import configure_zonefile, configure, get_utxo_provider_client, get_tx_broadcaster, get_local_device_id
 from .constants import (
     CONFIG_PATH, CONFIG_DIR,
     FIRST_BLOCK_MAINNET, NAME_UPDATE,
@@ -3404,9 +3404,9 @@ def cli_get_mutable(args, config_path=CONFIG_PATH, proxy=None):
         device_ids = device_ids.split(',')
 
     else:
-        raise NotImplemented("Missing token file parsing logic")
+        device_ids = [get_local_device_id(os.path.dirname(config_path))]
 
-    result = get_mutable(str(args.data_id), device_ids['device_ids'], proxy=proxy, config_path=config_path, blockchain_id=str(args.name), data_pubkey=data_pubkey)
+    result = get_mutable(str(args.data_id), device_ids, proxy=proxy, config_path=config_path, blockchain_id=str(args.name), data_pubkey=data_pubkey)
     if 'error' in result:
         return result
 

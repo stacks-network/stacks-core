@@ -902,7 +902,7 @@ def get_mutable(data_id, device_ids, raw=False, blockchain_id=None, data_pubkey=
 
     # optimization: try local drivers before non-local drivers
     storage_drivers = prioritize_read_drivers(config_path, storage_drivers)
-        
+
     # which storage drivers and/or URLs will we use?
     for driver in storage_drivers: 
         for fq_data_id in fq_data_ids:
@@ -982,7 +982,7 @@ def get_mutable(data_id, device_ids, raw=False, blockchain_id=None, data_pubkey=
         if stale:
             res['stale'] = stale
             res['error'] = 'Failed to fetch mutable data for {} due to version mismatch.'
-            log.error("Failed to fetch mutable data for {} due to version mismatch.")
+            log.error("Failed to fetch mutable data for {} due to version mismatch.".format(data_id))
 
         return res
 
@@ -4346,8 +4346,8 @@ def prioritize_read_drivers(config_path, drivers):
     local_read_drivers = get_read_local_storage_drivers(config_path, drivers)
     first_drivers = []
     last_drivers = []
-    for drvr in local_read_drivers:
-        if drvr in drivers:
+    for drvr in drivers:
+        if drvr in local_read_drivers:
             first_drivers.append(drvr)
         else:
             last_drivers.append(drvr)
