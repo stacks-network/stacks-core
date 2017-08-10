@@ -494,7 +494,7 @@ def blockstack_client_initialize_wallet( password, payment_privkey, owner_privke
 
         print "\nstopping API daemon\n"
 
-        res = blockstack_client.rpc.local_api_stop(config_dir=config_dir)
+        res = hard_local_api_stop(config_dir=config_dir)
 
         print "\nstarting API daemon\n"
 
@@ -2461,7 +2461,7 @@ def start_api(password):
     port = int(conf['api_endpoint_port'])
     api_pass = conf['api_password']
 
-    res = blockstack_client.rpc.local_api_stop(config_dir=config_dir)
+    hard_local_api_stop(config_dir=config_dir)
 
     res = blockstack_client.rpc.local_api_start(api_pass=api_pass, port=port, config_dir=config_dir, password=password)
     if not res:
@@ -2483,13 +2483,35 @@ def stop_api():
     port = int(conf['api_endpoint_port'])
     api_pass = conf['api_password']
 
-    res = blockstack_client.rpc.local_api_stop(config_dir=config_dir)
+    res = hard_local_api_stop(config_dir)
     if not res:
         return {'error': 'Failed to stop API server'}
 
     return {'status': True}
 
-    
+def hard_local_api_stop(config_dir):
+    pidpath = blockstack_client.rpc.local_api_pidfile_path(
+        config_dir=config_dir)
+    if not os.path.exists(pidpath):
+        print 'Not running ({})'.format(pidpath)
+        return False
+
+    pid = blockstack_client.rpc.local_api_read_pidfile(pidpath)
+    if pid is None:
+        print "Failed to read pid file to kill api"
+        return False
+
+    print 'Sending SIGKILL to {}'.format(pid)
+
+    # sigkill ensure process will die
+    try:
+        os.kill(pid, signal.SIGKILL)
+        os.unlink(pidpath)
+    except:
+        print 'Issues killing API'
+
+    return True
+
 def instantiate_wallet():
     """
     Load the current wallet's addresses into bitcoin.
