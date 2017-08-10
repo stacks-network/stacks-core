@@ -994,7 +994,12 @@ so specify the page number.</p>
        },
      },
    }</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div><div class="middle"><div id="name-querying-get-name-info-get" class="action get"><h4 class="action-heading"><div class="name">Get name info</div><a href="#name-querying-get-name-info-get" class="method get">GET</a><code class="uri">/v1/names/{name}</code></h4><ul>
-<li>Public Endpoint</li>
+<li>
+<p>Public Endpoint</p>
+</li>
+<li>
+<p>Subdomain Aware</p>
+</li>
 </ul>
 <div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>name</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>muneeb.id</span></span><p>fully-qualified name</p>
 </dd></dl></div></div></div><hr class="split"><div class="middle"><div id="name-querying-name-history" class="resource"><a href="#name-querying-name-history" class="permalink"> </a><h3 class="resource-heading">Name history &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/names/<span class="hljs-attribute" title="name">muneeb.id</span>/history</span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
@@ -1248,7 +1253,12 @@ so specify the page number.</p>
        },
    }</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div><div class="middle"><div id="name-querying-get-names-owned-by-address-get" class="action get"><h4 class="action-heading"><div class="name">Get names owned by address</div><a href="#name-querying-get-names-owned-by-address-get" class="method get">GET</a><code class="uri">/v1/addresses/{blockchain}/{address}</code></h4><p>Retrieves a list of names owned by the address provided.</p>
 <ul>
-<li>Public Endpoint</li>
+<li>
+<p>Subdomain Aware</p>
+</li>
+<li>
+<p>Public Endpoint</p>
+</li>
 </ul>
 <div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>blockchain</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>bitcoin</span></span><p>the layer-1 blockchain for the address</p>
 </dd><dt>address</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP</span></span><p>the address to lookup</p>
