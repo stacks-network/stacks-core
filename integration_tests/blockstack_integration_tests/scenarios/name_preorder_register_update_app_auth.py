@@ -164,7 +164,7 @@ def scenario( wallets, **kw ):
         return False
    
     # access index.html 
-    res = testlib.blockstack_REST_call("GET", "/v1/resources/foo.test/ping.app?name=index.html&pubkey={}".format(pubk), ses)
+    res = testlib.blockstack_REST_call("GET", "/v1/resources/foo.test/ping.app?name=index.html&pubkey={}".format(wallets[4].pubkey_hex), ses)
     if 'error' in res or res['http_status'] != 200:
         print 'failed to GET /v1/resources?name=/index.html'
         print json.dumps(res)
