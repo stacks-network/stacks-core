@@ -29,7 +29,7 @@ exec(open("blockstack_client/version.py").read())
 setup(
     name='blockstack',
     version=__version__,
-    url='https://github.com/blockstack/blockack-core',
+    url='https://github.com/blockstack/blockstack-core',
     license='GPLv3',
     author='Blockstack.org',
     author_email='support@blockstack.org',
