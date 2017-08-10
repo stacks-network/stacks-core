@@ -164,7 +164,7 @@ def check( state_engine ):
 
     for i in xrange(0, len(datasets)):
         print "get hello_world_%s" % (i+1)
-        dat = testlib.blockstack_cli_get_mutable( "foo.test", "hello_world_{}".format(i+1) )
+        dat = testlib.blockstack_cli_get_mutable( "foo.test", "hello_world_{}".format(i+1), public_key=wallets[4].pubkey_hex )
         if dat is None:
             print "No data '%s'" % ("hello_world_%s" % (i+1))
             return False
