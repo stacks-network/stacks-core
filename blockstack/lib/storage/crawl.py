@@ -326,7 +326,7 @@ def store_mutable_data_to_storage( blockchain_id, data_id, data_txt, profile=Fal
         nocollide_data_id = '{}-{}'.format(blockchain_id, data_id)
 
     log.debug("Store {} to drivers '{}', skipping '{}'".format('profile' if profile else 'mutable datum', ','.join(required if required is not None else []), ','.join(skip if skip is not None else [])))
-    res = blockstack_client.storage.put_mutable_data(nocollide_data_id, data_txt, sign=False, required=required, skip=skip, blockchain_id=blockchain_id)
+    res = blockstack_client.storage.put_mutable_data(nocollide_data_id, data_txt, sign=False, raw=True, required=required, skip=skip, blockchain_id=blockchain_id)
     return res
 
 
