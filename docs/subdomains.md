@@ -289,22 +289,3 @@ Will return:
 ```
 
 The integration test registers `bar.foo.id` during the setup (so remember that for your own testing!)
-
-#### Todos
-
-1. Testing bad zonefile transitions / updates. [x]
-   a. Wrong _n_ : this could be a rewrite, roll-back, whatever. [x]
-   b. Bad signature [x]
-2. Caching resolver database [x]
-3. Batching updates [x]
-4. Web API [x]
-5. Resolver database cache for holding *multiple* domains, instead of just one [x]
-6. Resolver should be able to authenticate an owned subdomain [x]
-7. Test blockstack.js with subdomains [o]
-   a. authentication [o]
-   b. storage [o]
-8. Spin up registrar [o]
-9. Search endpoint should index subdomains [o]
-10. Push and update core.blockstack.org [x]
-11. Resolver should be able to respond to *names_owned_by_address* queries [x]
-12. Endpoint support for changing zonefiles/rotating keys [o]
