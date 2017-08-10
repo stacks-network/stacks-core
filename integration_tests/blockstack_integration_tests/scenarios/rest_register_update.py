@@ -254,13 +254,13 @@ def scenario( wallets, **kw ):
         return False
 
     # get the latest zonefile
-    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile/{}".format(last_zonefile_hash), ses )
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile/{}?raw=1".format(last_zonefile_hash), ses )
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get last zonefile'
         print json.dumps(res)
         return False
 
-    if res['response']['zonefile'] != 'hello world':
+    if res['raw'] != 'hello world':
         res['test'] = 'Failed to set zonefile data'
         print json.dumps(res)
         return False

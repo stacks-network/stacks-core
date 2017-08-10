@@ -225,13 +225,13 @@ def scenario( wallets, **kw ):
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
-    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile/", ses )
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile/?raw=1", ses )
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get name zonefile'
         print json.dumps(res)
         return False
 
-    if res['response']['zonefile'] != zf_str:
+    if res['raw'] != zf_str:
         print "Zonefile wasn't updated."
         print "Expected: {}".format(zf_str)
         print "Received: {}".format(res['response']['zonefile'])
