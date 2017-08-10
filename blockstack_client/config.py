@@ -639,13 +639,6 @@ def get_utxo_provider_client(config_path=CONFIG_PATH, min_confirmations=TX_MIN_C
 
     return
 
-
-def get_subdomains_domains_tracked(config_path=CONFIG_PATH):
-    opts = configure(interactive=False, config_file=config_path)
-    subdomain_opts = opts['subdomain-resolution']
-    domains_list = subdomain_opts['domains_tracked']
-    return [d.strip() for d in domains_list.split(",")]
-
 def get_subdomains_db_path(config_path=CONFIG_PATH):
     opts = configure(interactive=False, config_file=config_path)
     subdomain_opts = opts['subdomain-resolution']
@@ -768,7 +761,6 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
                 parser.set('bitcoind', k, '{}'.format(v))
 
         parser.add_section('subdomain-resolution')
-        parser.set('subdomain-resolution', 'domains_tracked', '')
         parser.set('subdomain-resolution', 'subdomains_db', str(config_dir) + "/subdomains.db")
 
         # save
@@ -830,7 +822,6 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
     changed_fields_014_subdomains = {}
     added_fields_014_subdomains = {
         'subdomain-resolution': {
-            'domains_tracked' : "",
             'subdomains_db' : str(config_dir) + "/subdomains.db"
         },
     }
