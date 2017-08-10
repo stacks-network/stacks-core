@@ -120,7 +120,7 @@ If you have high-level questions about Blockstack, try [searching our forum](htt
 ## API Docs
 
 A local core node will expose a RESTful API after starting the api with `blockstack api start`.
-Documentation for that lives [here](https://kantai.github.io/blockstack-core/), which is generated from blueprint markdown [here](docs/api-specs.md).
+Documentation for that lives [here](https://blockstack.github.io/blockstack-core/), which is generated from blueprint markdown [here](docs/api-specs.md).
 
 ## Contributing
 
