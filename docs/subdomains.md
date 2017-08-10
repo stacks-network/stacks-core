@@ -1,13 +1,8 @@
 # Subdomain Design and Implementation
 
-This section is predominantly cribbed from 
-[this issue](https://github.com/blockstack/blockstack/issues/308).
-The discussion there may be more active than the design doc here, but I 
-will try to keep this up to date.
+Subdomains allow us to provide names to end users cheaply (and quickly). 
 
-Subdomains will allow us to provide names to end users cheaply (and quickly). 
-
-### Strong subdomain ownership
+## Strong subdomain ownership
 
 For those who are new to this concept, it's a model where domains can
 permanently, cryptographically delegate subdomains to particular keys,
@@ -16,7 +11,7 @@ resolution details.
 
 These names will be indicated with an `.`, e.g., `foo.bar.id`
 
-### Overall Design
+## Overall Design
 
 We can do this today with a special indexer & resolver endpoint and
 without any changes to the core protocol.
@@ -32,7 +27,7 @@ containing the following information:
 The signature *S_i* must be verifiable with the address in the
 *(N-1)*th entry for subdomain *i*.
 
-### Zonefile Format
+## Zonefile Format
 
 For now, the resolver will use an *TXT* record per subdomain to define
 this information. The entry name will be `$(subdomain)`.
@@ -60,11 +55,11 @@ aaron TXT "owner=33VvhhSQsYQyCVE2VzG3EHa9gfRCpboqHy" "seqn=0" "parts=1" "zf0=JE9
 The `registrar` entry indicates how to contact the registrar service
 for clients of the domain wishing to register or modify their entry.
 
-#### Operations per Zonefile
+### Operations per Zonefile
 
 At 4kb zonefile size, we can only fit around 20 updates per zonefile.
 
-### Domain Operator Endpoint
+## Domain Operator Endpoint
 
 The directory `subdomain_registrar/` contains our code for running a
 subdomain registrar. It can be executed by running:
@@ -75,7 +70,7 @@ $ blockstack-subdomain-registrar start foo.id
 
 Here, `foo.id` is the domain for which subdomains will be associated.
 
-#### Configuration and Registration Files
+### Configuration and Registration Files
 
 Configuration of the subdomain registrar is done through `~/.blockstack_subdomains/config.ini`
 
@@ -83,7 +78,7 @@ The sqlite database which stores the registrations is located alongside the conf
 
 You can change the location of the config file (and the database), by setting the environment variable `BLOCKSTACK_SUBDOMAIN_CONFIG`
 
-#### Register Subdomain
+### Register Subdomain
 
 Subdomain registrations can be submitted to this endpoint using a REST
 API.
@@ -133,7 +128,7 @@ When the registrar wakes up to prepare a transaction, it packs the queued
 registrations together and issues an `UPDATE`.
 
 
-#### Check subdomain registration status
+### Check subdomain registration status
 
 A user can check on the registration status of their name via querying the
 registrar.
@@ -165,11 +160,11 @@ If the subdomain still hasn't been submitted yet:
 If an error occurred trying to submit the `UPDATE` transaction, this endpoint will return an error
 message in the `"error"` key of a JSON object.
 
-#### Updating Entries
+### Updating Entries
 
 The subdomain registrar does not currently support updating subdomain entries.
 
-### Resolver Behavior
+## Resolver Behavior
 
 When a lookup like `foo.bar.id` hits the resolver, the resolver will need to:
 
@@ -180,11 +175,14 @@ When a lookup like `foo.bar.id` hits the resolver, the resolver will need to:
 5. Do a profile lookup for `foo.bar.id` by fetching the URLs in the entry.
 *Note*, this spec does not define a priority order for fetching those URLs.
 
-#### Supported Core / Resolver Endpoints
+### Supported Core / Resolver Endpoints
 
 Generally, domain endpoints are not aware of subdomains (only endpoints
 aware of subdomains is `/v1/users/<foo.bar.tld>`,
 `/v1/names/<foo.bar.tld>`, and `/v1/addresses/bitcoin/<foo.bar.tld>`)
+The endpoints which *are* subdomain aware are marked as such in
+[api-specs.md], the cli command `blockstack lookup` is subdomain
+aware.
 
 This means that search is *not* yet supported.
 
@@ -235,14 +233,14 @@ $ curl -H "Authorization: bearer XXXX" -H "Origin: http://localhost:3000" http:/
 }
 ```
 
-#### Subdomain Caching
+### Subdomain Caching
 
 A resolver *caches* a subdomain's state by keeping a database of all
 the current subdomain records. This database is automatically updated
 when a new zonefile for a particularly domain is seen by the resolver
 (this is performed lazily).
 
-#### Testing Subdomain Registrar and Resolution
+### Testing Subdomain Registrar and Resolution
 
 You can run a subdomain registrar and resolver with blockstack-core in
 regtest mode as follows:

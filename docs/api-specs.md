@@ -1135,6 +1135,7 @@ Fetch a list of all names known to the node.
  
 ## Get name info [GET /v1/names/{name}]
 + Public Endpoint
++ Subdomain Aware
 + Parameters
   + name: muneeb.id (string) - fully-qualified name
 + Response 200 (application/json)
@@ -1454,6 +1455,7 @@ Fetches the historical zonefile specified by the username and zone hash.
 
 ## Get names owned by address [GET /v1/addresses/{blockchain}/{address}]
 Retrieves a list of names owned by the address provided.
++ Subdomain Aware
 + Public Endpoint
 + Parameters
   + blockchain: bitcoin (string) - the layer-1 blockchain for the address
@@ -1907,6 +1909,7 @@ Not implemented.
 ## Lookup User [GET /v2/users/{username}]
 Lookup and resolver a user's profile. Defaults to the `id` namespace.
 + Public Only Endpoint
++ Subdomain Aware
 + Legacy Endpoint
 + Parameters
   + username: fredwilson (string) - username to lookup
