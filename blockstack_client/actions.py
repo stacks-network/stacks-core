@@ -81,6 +81,7 @@ from blockstack_client import (
     list_zonefile_history, lookup_snv, put_immutable, put_mutable, zonefile_data_replicate
 )
 
+from blockstack_client import subdomains
 from blockstack_client.profile import put_profile, delete_profile, get_profile, \
         profile_add_device_id, profile_remove_device_id, profile_list_accounts, profile_get_account, \
         profile_put_account, profile_delete_account
@@ -954,6 +955,14 @@ def cli_lookup(args, config_path=CONFIG_PATH):
 
     error = check_valid_name(fqu)
     if error:
+        res = subdomains.is_address_subdomain(fqu)
+        if res:
+            subdomain, domain = res[1]
+            try:
+                return subdomains.resolve_subdomain(subdomain, domain)
+            except subdomains.SubdomainNotFound as e:
+                log.exception(e)
+                return {'error' : "Failed to find name {}.{}".format(subdomain, domain)}
         return {'error': error}
 
     try:

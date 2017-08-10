@@ -304,6 +304,15 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True, set_migrat
         prompt_missing=interactive
     )
 
+    subdomain_opts_defaults = all_opts['subdomain-resolution']
+    subdomain_opts, missing_subdomain_opts, _ = find_missing(
+        "Configuring faster subdomain resolution.",
+        subdomain_opts_defaults.keys(),
+        subdomain_opts_defaults,
+        subdomain_opts_defaults,
+        prompt_missing=interactive
+    )
+
     # get bitcoind options
     bitcoind_message = (
         'Blockstack does not have enough information to connect\n'
@@ -399,6 +408,7 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True, set_migrat
     )
 
     blockchain_writer_opts['utxo_provider'] = blockchain_writer_defaults['utxo_provider']
+
     missing_opts = [missing_bitcoin_opts, missing_writer_opts, missing_reader_opts, missing_blockstack_opts]
     if not interactive and any(missing_opts):
         # cannot continue
@@ -441,7 +451,8 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True, set_migrat
         'blockstack-client': blockstack_opts,
         'bitcoind': bitcoind_opts,
         'blockchain-reader': blockchain_reader_opts,
-        'blockchain-writer': blockchain_writer_opts
+        'blockchain-writer': blockchain_writer_opts,
+        'subdomain-resolution' : subdomain_opts
     }
 
     # if we prompted, then save
@@ -628,6 +639,10 @@ def get_utxo_provider_client(config_path=CONFIG_PATH, min_confirmations=TX_MIN_C
 
     return
 
+def get_subdomains_db_path(config_path=CONFIG_PATH):
+    opts = configure(interactive=False, config_file=config_path)
+    subdomain_opts = opts['subdomain-resolution']
+    return subdomain_opts['subdomains_db']
 
 def get_tx_broadcaster(config_path=CONFIG_PATH):
     """
@@ -745,6 +760,9 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
             if v is not None:
                 parser.set('bitcoind', k, '{}'.format(v))
 
+        parser.add_section('subdomain-resolution')
+        parser.set('subdomain-resolution', 'subdomains_db', str(config_dir) + "/subdomains.db")
+
         # save
         if config_path is not None:
             with open(config_path, 'w') as f:
@@ -798,11 +816,21 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
         }
     }
 
+    # convert field names
+    renamed_fields_014_subdomains = {}
+    dropped_fields_014_subdomains = {}
+    changed_fields_014_subdomains = {}
+    added_fields_014_subdomains = {
+        'subdomain-resolution': {
+            'subdomains_db' : str(config_dir) + "/subdomains.db"
+        },
+    }
+
     # grow this list with future releases...
-    renamed_fields = [renamed_fields_014_1]
-    removed_fields = [dropped_fields_014_1]
-    added_fields = [added_fields_014_1]
-    changed_fields = [changed_fields_014_1]
+    renamed_fields = [renamed_fields_014_1, renamed_fields_014_subdomains]
+    removed_fields = [dropped_fields_014_1, dropped_fields_014_subdomains]
+    added_fields = [added_fields_014_1, added_fields_014_subdomains]
+    changed_fields = [changed_fields_014_1, changed_fields_014_subdomains]
 
     migrated = False
 
