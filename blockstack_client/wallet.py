@@ -467,7 +467,7 @@ def inspect_wallet_data(data):
         migrated = True
 
     elif data['version'] != SERIES_VERSION:
-        if data['version'] == "0.14.2" and SERIES_VERSION in ("0.14.3"):
+        if data['version'] == "0.14.2" and SERIES_VERSION in ("0.14.3", "0.14.4"):
             pass # no migration needed
         else:
             log.debug("Wallet series has changed from {} to {}; triggerring migration".format(
