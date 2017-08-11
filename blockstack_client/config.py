@@ -440,6 +440,7 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True, set_migrat
             blockstack_opts['email'] = email_opts['email']
 
         else:
+            num_blockstack_opts_prompted += 1
             blockstack_opts['email'] = ''
 
     # get client UUID for analytics
