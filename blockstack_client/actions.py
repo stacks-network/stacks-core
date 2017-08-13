@@ -1013,6 +1013,23 @@ def cli_whois(args, config_path=CONFIG_PATH):
 
     error = check_valid_name(fqu)
     if error:
+        res = subdomains.is_address_subdomain(fqu)
+        if res:
+            subdomain, domain = res[1]
+            try:
+                subdomain_obj = subdomains.get_subdomain_info(subdomain, domain)
+            except subdomains.SubdomainNotFound:
+                return {'error': 'Not found.'}
+
+            ret = {
+                'satus' : 'registered_subdomain',
+                'zonefile_txt' : subdomain_obj.zonefile_str,
+                'zonefile_hash' : storage.get_zonefile_data_hash(subdomain_obj.zonefile_str),
+                'address' : subdomain_obj.address,
+                'blockchain' : 'bitcoin',
+                'last_txid' : subdomain_obj.last_txid,
+            }
+            return ret
         return {'error': error}
 
     try:

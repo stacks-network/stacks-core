@@ -458,7 +458,15 @@ def inspect_wallet_data(data):
                     return {'error': 'Invalid wallet data'}
 
     any_legacy = (legacy or legacy_013 or legacy_014)
-    
+
+    # wallets with same group number don't need to be migrated
+    # between each other.
+    wallet_version_compatibility_groups = {
+        "0.14.2" : 0,
+        "0.14.3" : 0,
+        "0.14.4" : 0,
+    }
+
     # version check 
     # if the version has changed, we'll need to potentially migrate
     # to e.g. trigger a re-encryption 
@@ -467,7 +475,9 @@ def inspect_wallet_data(data):
         migrated = True
 
     elif data['version'] != SERIES_VERSION:
-        if data['version'] == "0.14.2" and SERIES_VERSION in ("0.14.3", "0.14.4"):
+        if (data['version'] in wallet_version_compatibility_groups and
+            wallet_version_compatibility_groups.get(SERIES_VERSION, None) ==
+            wallet_version_compatibility_groups[data['version']]):
             pass # no migration needed
         else:
             log.debug("Wallet series has changed from {} to {}; triggerring migration".format(

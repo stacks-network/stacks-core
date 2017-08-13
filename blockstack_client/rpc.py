@@ -789,14 +789,15 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         # not pending. get name
         # is this a subdomain?
-        log.debug("let's go!")
         res = subdomains.is_address_subdomain(name)
         if res:
             subdomain, domain = res[1]
-            log.debug("here too!")
-            subdomain_obj = subdomains.get_subdomain_info(subdomain, domain)
-            log.debug("here too!")
-        
+            try:
+                subdomain_obj = subdomains.get_subdomain_info(subdomain, domain)
+            except subdomains.SubdomainNotFound:
+                self._reply_json({"status" : "available"}, status_code=404)
+                return
+
             ret = {
                 'satus' : 'registered_subdomain',
                 'zonefile_txt' : subdomain_obj.zonefile_str,
@@ -804,7 +805,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'address' : subdomain_obj.address,
                 'blockchain' : 'bitcoin',
                 'last_txid' : subdomain_obj.last_txid,
-                'expire_block': -1,
             }
 
             self._reply_json(ret)
