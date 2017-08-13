@@ -993,6 +993,12 @@ so specify the page number.</p>
            'pattern': '^[0-9a-fA-F]{20}$`,
        },
      },
+     { 'required': 
+       [
+         'address', 'blockchain', 'last_txid',
+         'status', 'zonefile', 'zonefile_hash'
+       ]
+     }
    }</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div><div class="middle"><div id="name-querying-get-name-info-get" class="action get"><h4 class="action-heading"><div class="name">Get name info</div><a href="#name-querying-get-name-info-get" class="method get">GET</a><code class="uri">/v1/names/{name}</code></h4><ul>
 <li>
 <p>Public Endpoint</p>
