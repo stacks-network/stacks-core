@@ -1196,6 +1196,12 @@ Fetch a list of all names known to the node.
                        'pattern': '^[0-9a-fA-F]{20}$`,
                    },
                  },
+                 { 'required': 
+                   [
+                     'address', 'blockchain', 'last_txid',
+                     'status', 'zonefile', 'zonefile_hash'
+                   ]
+                 }
                }
                 
 ## Name history [GET /v1/names/{name}/history]
