@@ -108,7 +108,7 @@ def scenario( wallets, **kw ):
     #   detects that the requested TRANSFER is superfluous
     # register the name bar.test
     res = testlib.blockstack_REST_call(
-        'POST', '/v1/names', ses, data={
+        'POST', '/v1/names', None, api_pass=api_pass, data={
             'name': 'bar.test', 'zonefile': zonefile_txt, 'owner_address': new_addr
         })
     if 'error' in res:
@@ -124,7 +124,7 @@ def scenario( wallets, **kw ):
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
-    res = testlib.verify_in_queue(ses, 'bar.test', 'preorder', tx_hash )
+    res = testlib.verify_in_queue(None, 'bar.test', 'preorder', tx_hash, api_pass = api_pass )
     if not res:
         return False
 
@@ -140,7 +140,7 @@ def scenario( wallets, **kw ):
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
-    res = testlib.verify_in_queue(ses, 'bar.test', 'register', None )
+    res = testlib.verify_in_queue(None, 'bar.test', 'register', None, api_pass = api_pass )
     if not res:
         return False
 
@@ -154,8 +154,10 @@ def scenario( wallets, **kw ):
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
-    res = testlib.verify_in_queue(ses, 'bar.test', 'update', None )
+    res = testlib.verify_in_queue(None, 'bar.test', 'update', None, api_pass = api_pass )
     if not res:
+        print res
+        print "update error in first update"
         return False
 
     for i in xrange(0, 6):
@@ -168,12 +170,13 @@ def scenario( wallets, **kw ):
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
-    res = testlib.verify_in_queue(ses, 'bar.test', 'transfer', None )
+    res = testlib.verify_in_queue(None, 'bar.test', 'transfer', None, api_pass = api_pass )
     if res:
         print "Wrongly issued a TRANSFER"
         return False
 
-    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", ses)
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test",
+                                       None, api_pass=api_pass)
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get name bar.test'
         print json.dumps(res)
@@ -188,7 +191,8 @@ def scenario( wallets, **kw ):
         return False
 
     # do we have the history for the name?
-    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/history", ses )
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/history",
+                                       None, api_pass=api_pass )
     if 'error' in res or res['http_status'] != 200:
         res['test'] = "Failed to get name history for foo.test"
         print json.dumps(res)
@@ -203,7 +207,8 @@ def scenario( wallets, **kw ):
         return False
 
     # get the zonefile
-    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile/{}".format(zonefile_hash), ses )
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile/{}".format(zonefile_hash),
+                                       None, api_pass=api_pass )
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get name zonefile'
         print json.dumps(res)
@@ -232,14 +237,17 @@ def scenario( wallets, **kw ):
 
     # let's do this update.
     res = testlib.blockstack_REST_call(
-        'POST', '/v1/names/bar.test/zonefile', ses, data={
+        'PUT', '/v1/names/bar.test/zonefile', None, api_pass=api_pass, data={
             'zonefile': zonefile_txt, 'owner_key' : new_key
         })
-    if 'error' in res:
+    if 'error' in res or res['http_status'] != 202:
         res['test'] = 'Failed to register user'
         print json.dumps(res)
         error = True
         return False
+    else:
+        print "Submitted update!"
+        print res
 
     print 'Wait for update to be submitted'
     time.sleep(10)
@@ -248,8 +256,10 @@ def scenario( wallets, **kw ):
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
-    res = testlib.verify_in_queue(ses, 'bar.test', 'update', None )
+    res = testlib.verify_in_queue(None, 'bar.test', 'update', None, api_pass = api_pass )
     if not res:
+        print "update error in second update"
+        print res
         return False
 
     for i in xrange(0, 6):
@@ -258,7 +268,8 @@ def scenario( wallets, **kw ):
     # wait for zonefile to propagate
     time.sleep(10)
 
-    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", ses)
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test",
+                                       None, api_pass=api_pass)
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get name bar.test'
         print json.dumps(res)
@@ -266,7 +277,8 @@ def scenario( wallets, **kw ):
 
     zonefile_hash = res['response']['zonefile_hash']
     # get the zonefile
-    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile/{}".format(zonefile_hash), ses )
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile/{}".format(zonefile_hash),
+                                       None, api_pass=api_pass )
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get name zonefile'
         print json.dumps(res)
