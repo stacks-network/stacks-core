@@ -52,7 +52,7 @@ while IFS= read SCENARIO_FILE; do
       TEST_PID=$!
       while ps -p $TEST_PID > /dev/null; do
           etime=$(ps -p $TEST_PID -o etimes | tail -n 1 | awk '{ print $1 }')
-          if [ "etime" -ge 1200 ]; then
+          if [ $etime -ge 1200 ]; then
               echo -n " KILL for time "
               kill -s INT $TEST_PID
           fi
