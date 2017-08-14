@@ -1497,6 +1497,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     arg: name (str) 'The name to update.'
     opt: data (str) 'A path to a file with the zone file data.'
     opt: nonstandard (str) 'If true, then do not validate or parse the zone file.'
+    opt: ownerkey (str) 'A private key string to be used for the update.'
     """
 
     # NOTE: if force_data == True, then the zonefile will be the zonefile text itself, not a path.
@@ -1587,12 +1588,13 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
 
     # open the zonefile editor
-    _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
-    
-    if data_pubkey is None:
-        return {'error': 'No data public key set in the wallet.  Please use `blockstack setup_wallet` to fix this.'}
-
     if interactive and not nonstandard:
+        _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
+    
+        if data_pubkey is None:
+            return {'error': 'No data public key set in the wallet. ' +
+                    ' Please use `blockstack setup_wallet` to fix this.'}
+
         # configuration wizard!
         if user_zonefile_dict is None:
             user_zonefile_dict = make_empty_zonefile(fqu, data_pubkey)

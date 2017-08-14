@@ -1222,7 +1222,7 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
 
 # RPC method: backend_update
 def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, config_path=CONFIG_PATH, proxy=None,
-            prior_name_data = None ):
+            prior_name_data = None, owner_key = None ):
     """
     Send a new zonefile hash.  Queue the zonefile data for subsequent replication.
     zonefile_txt_b64 must be b64-encoded so we can send it over RPC sanely
@@ -1249,7 +1249,10 @@ def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, config_
     resp = None
 
     payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
-    owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    if owner_key is None:
+        owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    else:
+        owner_privkey_info = owner_key
 
     replication_error = None
 
