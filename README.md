@@ -1,7 +1,7 @@
 # Blockstack Core
 
 [![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
-[![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
+[![Slack](https://img.shields.io/badge/join-slack-e32072.svg?style=flat)](http://slack.blockstack.org/)
 
 Blockstack is a new decentralized internet where you own your data and your apps run locally without remote servers. 
 
