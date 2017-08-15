@@ -138,6 +138,8 @@ from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, put_dat
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
 
+import keylib
+
 import virtualchain
 from virtualchain.lib.ecdsalib import *
 
@@ -4386,9 +4388,10 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
     if hasattr(args, 'pubkey') and args.pubkey is not None:
         pubkey = str(args.pubkey)
         try:
-            pubkey = ECPublicKey(pubkey).to_hex()
-        except:
-            return {'error': 'Invalid public key'}
+            pubkey = keylib.ECPublicKey(pubkey).to_hex()
+        except Exception as e:
+            log.exception(e)
+            return {'error': 'Invalid public key : "{}"'.format(pubkey)}
 
     if pubkey is None:
         zonefile_data = None
