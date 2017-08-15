@@ -708,6 +708,7 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
         parser.set('blockstack-client', 'metadata', METADATA_DIRNAME)
         parser.set('blockstack-client', 'storage_drivers', BLOCKSTACK_DEFAULT_STORAGE_DRIVERS)
         parser.set('blockstack-client', 'storage_drivers_required_write', BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE)
+        parser.set('blockstack-client', 'storage_anonymous_write', 'True')
         parser.set('blockstack-client', 'api_endpoint_port', str(DEFAULT_API_PORT))
         parser.set('blockstack-client', 'api_endpoint_host', DEFAULT_API_HOST)
         parser.set('blockstack-client', 'api_endpoint_bind', DEFAULT_API_HOST)
@@ -759,6 +760,7 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
     bool_values = {
         'blockstack-client': [
             'anonymous_statistics',
+            'storage_anonymous_write',
         ]
     }
 
@@ -798,10 +800,16 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
         }
     }
 
+    added_fields_014_5 = {
+        'blockstack-client': {
+            'storage_anonymous_write': True
+        }
+    }
+
     # grow this list with future releases...
     renamed_fields = [renamed_fields_014_1]
     removed_fields = [dropped_fields_014_1]
-    added_fields = [added_fields_014_1]
+    added_fields = [added_fields_014_1, added_fields_014_5]
     changed_fields = [changed_fields_014_1]
 
     migrated = False
@@ -978,6 +986,14 @@ def setup_config(config_path=CONFIG_PATH, interactive=False):
 
 def get_version_parts(whole, func):
     return [func(_.strip()) for _ in whole[0:3]]
+
+
+def semver_parse(v):
+    """
+    Parse a semver string as a tuple of integers
+    Return (major, minor, patch)
+    """
+    return get_version_parts(v, int)
 
 
 def semver_match(v1, v2):
