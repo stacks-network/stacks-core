@@ -1461,7 +1461,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return (start, end)
 
 
-<<<<<<< HEAD
     def _load_device_pubkeys(self, qs, ses, app_name, blockchain_id):
         """
         Get device IDs and data pubkeys from the query string, or from the blockchain ID
