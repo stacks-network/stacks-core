@@ -577,17 +577,18 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if blockchain != 'bitcoin':
             return self._reply_json({'error': 'Invalid blockchain'}, status_code=401)
 
-        # make sure we have the right encoding
-        new_addr = virtualchain.address_reencode(str(address))
-        if new_addr != address:
-            log.debug("Re-encode {} to {}".format(new_addr, address))
-            address = new_addr
-
+        address = str(address)
         subdomain_names = subdomains.get_subdomains_owned_by_address(address)
         if json_is_error(subdomain_names):
             log.error("Failed to fetch subdomains owned by address")
             log.error(subdomain_names)
             subdomain_names = []
+
+        # make sure we have the right encoding
+        new_addr = virtualchain.address_reencode(address)
+        if new_addr != address:
+            log.debug("Re-encode {} to {}".format(new_addr, address))
+            address = new_addr
 
         res = proxy.get_names_owned_by_address(address)
         if json_is_error(res):
