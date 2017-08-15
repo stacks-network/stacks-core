@@ -3772,7 +3772,7 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     help: Directly set the hash associated with the name in the blockchain.
     arg: name (str) 'The name to update'
     arg: zonefile_hash (str) 'The RIPEMD160(SHA256(zonefile)) hash'
-    arg: ownerkey (str) 'The key to be used if not the wallet's ownerkey'
+    arg: ownerkey (str) 'The key to be used if not the wallets ownerkey'
     """
     password = get_default_password(password)
 
