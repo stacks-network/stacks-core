@@ -236,30 +236,10 @@ def sign_data_tombstone( tombstone_data, data_privkey ):
     """
     Make a data tombstone, and return the tombstone with
     an appended signature (base64)
+    Return "delete-${timestamp}:${data_id}:${signature_b64}"
     """
     sigb64 = sign_raw_data(tombstone_data, data_privkey)
     return '{}:{}'.format(tombstone_data, sigb64)
-
-
-def parse_data_tombstone( signed_tombstone ):
-    """
-    Parse a signed data tombstone
-    """
-    parts = signed_tombstone.rsplit(":", 1)
-    if len(parts) != 2:
-        return {'error': 'Missing signature'}
-
-    tombstone_data, sigb64 = parts[0], parts[1]
-    if not tombstone_data.startswith('delete-'):
-        return {'error': 'Missing `delete` crib'}
-
-    # strip `delete-${timestamp}:`
-    tombstone_payload_parts = tombstone_data.split(':', 1)
-    if len(tombstone_payload_parts) != 2:
-        return {'error': 'Invalid `delete` crib'}
-
-    tombstone_payload = tombstone_payload_parts[1]
-    return {'tombstone_payload': tombstone_payload, 'sigb64': sigb64}
 
 
 def verify_data_tombstone( signed_tombstone, data_pubkey ):
@@ -282,6 +262,22 @@ def make_data_tombstone( tombstone_data ):
     return 'delete-{}:{}'.format(int(time.time() * 1000), tombstone_data)
 
 
+def parse_data_tombstone( tombstone ):
+    """
+    Parse the payload of a tombstone
+    Return {'id': ..., 'timestamp': ...} on success
+    Return None on error
+    """
+    match = re.match(OP_TOMBSTONE_PATTERN, tombstone)
+    if match is None:
+        return None
+
+    ts = int(match.groups()[0])
+    data_id = match.groups()[1]
+
+    return {'timestamp': ts, 'id': data_id}
+    
+
 def parse_signed_data_tombstone( tombstone_data ):
     """
     extract the data ID and signature from a signed tombstone
@@ -289,34 +285,15 @@ def parse_signed_data_tombstone( tombstone_data ):
        `ts` will be the number of milliseconds since the epoch date
     Return None on error
     """
-    parts1 = tombstone_data.split(":", 1)
-    if len(parts1) != 2:
+    match = re.match(OP_SIGNED_TOMBSTONE_PATTERN, tombstone_data)
+    if match is None:
         return None
 
-    if not parts1[0].startswith('delete'):
-        return None
-    
-    if parts1[0].count('-') != 1:
-        return None
+    ts = int(match.groups()[0])
+    data_id = match.groups()[1]
+    sigb64 = match.groups()[2]
 
-    header_parts = parts1[0].split('-')
-    if len(header_parts) != 2:
-        return None
-
-    if header_parts[0] != 'delete':
-        return None
-
-    ts = None
-    try:
-        ts = int(header_parts[1])
-    except ValueError:
-        return None
-
-    parts2 = parts1[1].rsplit(":", 1)
-    if len(parts2) != 2:
-        return None 
-
-    return {'id': parts2[0], 'signature': parts2[1], 'timestamp': ts}
+    return {'id': data_id, 'sigb64': sigb64, 'timestamp': ts}
 
 
 def serialize_mutable_data(data_text_or_json, data_privkey=None, data_pubkey=None, data_signature=None, profile=False):
@@ -364,6 +341,66 @@ def serialize_mutable_data(data_text_or_json, data_privkey=None, data_pubkey=Non
         return res
 
 
+def decode_mutable_data_v2(mutable_data_json_txt):
+    """
+    Decode a string of mutable data.
+    Do not verify any signatures.
+
+    Return {'data_txt': raw data, 'sigb64': binary signature, 'pubkey_hex': hex public key} on success
+    Return None on error
+    """
+    
+    # format: bsk2.pubkey.sigb64.data_len:data,
+    parts = mutable_data_json_txt.split(".", 3)
+    if len(parts) != 4:
+        log.debug("Malformed data: {}".format(mutable_data_json_txt))
+        return None 
+    
+    if parts[0] != 'bsk2':
+        log.debug("Not v2 data")
+        return None
+
+    pubk_hex = str(parts[1])
+    sig_b64 = str(parts[2])
+    data_txt = str(parts[3])
+
+    # basic sanity checks
+    if not re.match('^[0-9a-fA-F]+$', pubk_hex):
+        log.debug("Not a v2 mutable datum: Invalid public key")
+        return None 
+
+    if not re.match(schemas.OP_BASE64_PATTERN_SECTION, sig_b64):
+        log.debug("Not a v2 mutable datum: Invalid signature data")
+        return None
+
+    try:
+        base64.b64decode(sig_b64)
+    except:
+        log.error("Incorrect base64-encoding")
+        return None
+
+    # data_txt must be a netstring (format: 'len(payload):payload,')
+    serialized_len = len(data_txt)
+    decoded_data_txt = parse_data_payload(data_txt)
+    if data_txt is None:
+        log.debug("Invalid data payload of {} bytes".format(serialized_len))
+        return None
+
+    return {'data_txt': decoded_data_txt, 'sigb64': sig_b64, 'pubkey_hex': pubk_hex}
+
+
+def decode_mutable_data(mutable_data_str):
+    """
+    Top-level entry for decoding (but not verifying) mutable data.
+    Returns {'data_txt': ..., 'sigb64': ..., 'pubkey_hex': ...} on success
+    Returns None on error
+    """
+    if mutable_data_str.startswith('bsk2.'):
+        return decode_mutable_data_v2(mutable_data_str)
+
+    return None
+    
+
 def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash=None, data_hash=None, raw=False):
     """
     Version 2 parser
@@ -381,42 +418,16 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
 
     if not raw:
         # format: bsk2.pubkey.sigb64.data_len:data,
-        parts = mutable_data_json_txt.split(".", 3)
-        if len(parts) != 4:
-            log.debug("Malformed data: {}".format(mutable_data_json_txt))
-            return None 
+        parts = decode_mutable_data_v2(mutable_data_json_txt)
+        if parts is None:
+            return None
+
+        data_txt = parts['data_txt']
+        sig_b64 = parts['sigb64']
+        pubk_hex = parts['pubkey_hex']
+
+        original_data_txt = serialize_data_payload(data_txt)
         
-        if parts[0] != 'bsk2':
-            log.debug("Not v2 data")
-            return None
-
-        pubk_hex = str(parts[1])
-        sig_b64 = str(parts[2])
-        data_txt = str(parts[3])
-
-        # basic sanity checks
-        if not re.match('^[0-9a-fA-F]+$', pubk_hex):
-            log.debug("Not a v2 mutable datum: Invalid public key")
-            return None 
-
-        if not re.match(schemas.OP_BASE64_PATTERN_SECTION, sig_b64):
-            log.debug("Not a v2 mutable datum: Invalid signature data")
-            return None
-
-        try:
-            sig_bin = base64.b64decode(sig_b64)
-        except:
-            log.error("Incorrect base64-encoding")
-            return None
-
-        # data_txt must be a netstring (format: 'len(payload):payload,')
-        serialized_len = len(data_txt)
-        original_data_txt = data_txt[:]
-        data_txt = parse_data_payload(data_txt)
-        if data_txt is None:
-            log.debug("Invalid data payload of {} bytes".format(serialized_len))
-            return None
-
     else:
         data_txt = mutable_data_json_txt
         original_data_txt = mutable_data_json_txt
@@ -1004,8 +1015,8 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
     @sign: if True, then a private key is required.  if False, then simply store the data without serializing it or including a public key and signature.
     @raw: If True, then the data will be put as-is without any ancilliary metadata.  Requires sign=False
 
-    Return True on success
-    Return False on error
+    Return {'status': True, 'urls': {$driver_name: $url}} on success
+    Return {'error': ...} on error
     """
 
     global storage_handlers
@@ -1050,6 +1061,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
 
     successes = 0
     required_successes = 0
+    driver_urls = {}
 
     for handler in storage_handlers:
         if handler.__name__ in skip:
@@ -1068,11 +1080,12 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
             log.debug("Skipping {}: it is optional".format(handler.__name__))
             continue
 
-        rc = False
+        store_url = None
         log.debug('Try "{}"'.format(handler.__name__))
 
         try:
-            rc = handler.put_mutable_handler(fq_data_id, serialized_data, fqu=fqu, profile=profile)
+            store_url = handler.put_mutable_handler(fq_data_id, serialized_data, fqu=fqu, profile=profile)
+            assert isinstance(store_url, (str,unicode))
         except Exception as e:
             log.exception(e)
             if handler.__name__ not in required:
@@ -1081,13 +1094,14 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
             log.error("Failed to replicate data with '{}'".format(handler.__name__))
             return None
 
-        if rc:
-            log.debug("Replicated {} bytes with {} (rc = {})".format(len(serialized_data), handler.__name__, rc))
+        if store_url:
+            log.debug("Replicated {} bytes with {} (store URL = {})".format(len(serialized_data), handler.__name__, store_url))
             successes += 1
 
             if handler.__name__ in required:
                 required_successes += 1
 
+            driver_urls[handler.__name__] = store_url
             continue
 
         if handler.__name__ not in required:
@@ -1099,7 +1113,10 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
         return False
 
     # failed everywhere or succeeded somewhere
-    return (successes > 0) and (required_successes >= len(set(required) - set(skip)))
+    if (successes > 0) and (required_successes >= len(set(required) - set(skip))):
+        return {'status': True, 'urls': driver_urls}
+    else:
+        return {'error': 'Failed to replicate sufficiently: required = {}, skip = {}, successes = {}'.format(len(set(required)), len(set(skip)), successes)}
 
 
 def delete_immutable_data(data_hash, txid, privkey=None, signed_data_tombstone=None):
