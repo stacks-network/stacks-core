@@ -1511,7 +1511,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
     proxy = get_default_proxy() if proxy is None else proxy
     password = get_default_password(password)
-    
+
     if hasattr(args, 'nonstandard') and not nonstandard:
         if args.nonstandard is not None and args.nonstandard.lower() in ['yes', '1', 'true']:
             nonstandard = True
@@ -1532,7 +1532,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     downloaded = False
     if getattr(args, 'data', None) is not None:
         zonefile_data_path_or_string = str(args.data)
- 
+
     if not local_rpc.is_api_server(config_dir=config_dir):
         # verify that we own the name before trying to edit its zonefile
         _, owner_address, _ = get_addresses_from_file(config_dir=config_dir)
@@ -1568,7 +1568,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         if not interactive:
             if zonefile_data is None or nonstandard:
                 log.warning('Using non-zonefile data')
-            
+
             else:
                 return {'error': 'Zone file not updated (invalid)'}
 
@@ -1590,7 +1590,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     # open the zonefile editor
     if interactive and not nonstandard:
         _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
-    
+
         if data_pubkey is None:
             return {'error': 'No data public key set in the wallet. ' +
                     ' Please use `blockstack setup_wallet` to fix this.'}
@@ -1618,7 +1618,11 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
     try:
         # NOTE: already did safety checks
-        resp = rpc.backend_update(fqu, user_data_txt, None, None )
+        if len(args.ownerkey) == 0:
+            owner_key = None
+        else:
+            owner_key = args.ownerkey
+        resp = rpc.backend_update(fqu, user_data_txt, None, None, owner_key = owner_key )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}

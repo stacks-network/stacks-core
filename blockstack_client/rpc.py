@@ -1039,9 +1039,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         res = None
         privkey_info = request.get('owner_key', None)
-        kwargs = {}
-        if privkey_info:
-            kwargs['owner_key'] = privkey_info
 
         if zonefile_str is not None:
             res = internal.cli_update(name, str(zonefile_str), "false", privkey_info, interactive=False,
