@@ -1479,7 +1479,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
         return {'error': resp['message']}
 
     result = resp
-   
+
     if local_rpc.is_api_server(config_dir):
         # log this
         total_estimated_cost = {'total_estimated_cost': opchecks['total_estimated_cost']}
@@ -1487,7 +1487,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
 
     return result
 
-    
+
 
 def cli_update(args, config_path=CONFIG_PATH, password=None,
                interactive=True, proxy=None, nonstandard=False,
@@ -1620,7 +1620,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
     try:
         # NOTE: already did safety checks
-        if len(args.ownerkey) == 0:
+        if args.ownerkey is None or len(args.ownerkey) == 0:
             owner_key = None
         else:
             owner_key = args.ownerkey
@@ -3747,7 +3747,7 @@ def cli_get_names_in_namespace(args, config_path=CONFIG_PATH):
     arg: namespace_id (str) 'The ID of the namespace to query'
     arg: page (int) 'The page of names to fetch (groups of 100)'
     """
-    
+
     offset = int(args.page) * 100
     count = 100
 
@@ -3772,6 +3772,7 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     help: Directly set the hash associated with the name in the blockchain.
     arg: name (str) 'The name to update'
     arg: zonefile_hash (str) 'The RIPEMD160(SHA256(zonefile)) hash'
+    arg: ownerkey (str) 'The key to be used if not the wallet's ownerkey'
     """
     password = get_default_password(password)
 
@@ -3795,7 +3796,11 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     assert rpc
 
     try:
-        resp = rpc.backend_update(fqu, None, None, zonefile_hash )
+        if args.ownerkey is None or len(args.ownerkey) == 0:
+            owner_key = None
+        else:
+            owner_key = args.ownerkey
+        resp = rpc.backend_update(fqu, None, None, zonefile_hash, owner_key = owner_key )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
