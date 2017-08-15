@@ -467,7 +467,10 @@ def inspect_wallet_data(data):
         migrated = True
 
     elif data['version'] != SERIES_VERSION:
-        if data['version'] == "0.14.2" and SERIES_VERSION in ("0.14.3"):
+        # 0.14.2 and higher are all the same
+        wallet_major, wallet_minor, wallet_patch = config.semver_parse(data['version'])
+        series_major, series_minor, series_patch = config.semver_parse(SERIES_VERSION)
+        if wallet_major == 0 and wallet_minor == 14 and wallet_patch >= 2 and series_major == 0 and series_minor == 14 and series_patch >= 2:
             pass # no migration needed
         else:
             log.debug("Wallet series has changed from {} to {}; triggerring migration".format(
