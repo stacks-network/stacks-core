@@ -45,7 +45,7 @@ while IFS= read SCENARIO_FILE; do
 
    if ! [ -f "$OUTPUTS/$SCENARIO_MODULE_BASE.log" ]; then 
    
-      echo -n "$SCENARIO_MODULE ... "
+      echo "$SCENARIO_MODULE ... "
 
       mkdir -p "$TESTDIR"
       "$RUN_SCENARIO" "$SCENARIO_MODULE" "$TESTDIR" > "$OUTPUTS/$SCENARIO_MODULE_BASE.log" 2>&1 &
@@ -66,9 +66,9 @@ while IFS= read SCENARIO_FILE; do
       OUTPUT_FILE="$OUTPUTS/$SCENARIO_MODULE_BASE.xml"
 
       echo '<?xml version="1.0" encoding="UTF-8"?><testsuite>' > "$OUTPUT_FILE"
-      echo "<testcase name=\"$SCENARIO_MODULE_BASE\" classname=\"$SCENARIO_MODULE_BASE\">" >> "$OUTPUT_FILE"
+      echo "<testcase name=\"$SCENARIO_MODULE_BASE\" classname=\"test\">" >> "$OUTPUT_FILE"
       if [ $RC -ne 0 ]; then
-	 echo '<failure message="Integration test failed."></failure>' >> "$OUTPUT_FILE"
+          echo '<failure message="Integration test failed."></failure>' >> "$OUTPUT_FILE"
       fi
       echo "</testcase></testsuite>" >> "$OUTPUT_FILE"
 
@@ -103,13 +103,17 @@ while IFS= read SCENARIO_FILE; do
             fi
          fi
       else
-
          echo -n " (WARN: no existing log) "
       fi 
 
+      bitcoin_pid=$(pidof bitcoind)
+      if [ "$bitcoin_pid" != "" ]; then
+          echo " killing still-living bitcoind "
+          kill -9 $bitcoin_pid
+      fi
+
       echo " SUCCESS"
       rm -rf "$TESTDIR"
-      killall bitcoind
    fi
 
 done <<EOF
