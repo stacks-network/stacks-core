@@ -28,7 +28,8 @@ from .constants import *
 import blockstack_profiles
 
 OP_CONSENSUS_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTH_CONSENSUS_HASH * 2)
-OP_BASE58CHECK_PATTERN = r'^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$'
+OP_BASE58CHECK_CHARS = r'[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]'
+OP_BASE58CHECK_PATTERN = r'^({})$'.format(OP_BASE58CHECK_CHARS)
 OP_ADDRESS_PATTERN = OP_BASE58CHECK_PATTERN
 OP_PRIVKEY_PATTERN = OP_BASE58CHECK_PATTERN
 OP_P2PKH_PATTERN = r'^76[aA]914[0-9a-fA-F]{40}88[aA][cC]$'
@@ -51,6 +52,7 @@ OP_NAMESPACE_PATTERN = r'^([a-z0-9\-_+]{{{},{}}})$'.format(1, LENGTH_MAX_NAMESPA
 OP_NAMESPACE_HASH_PATTERN = r'^([0-9a-fA-F]{16})$'
 OP_BASE64_PATTERN_SECTION = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
 OP_BASE64_PATTERN = r'^({})$'.format(OP_BASE64_PATTERN_SECTION)
+OP_URLENCODED_CHARS = r'[a-zA-Z0-9\-_.~%/]'
 OP_URLENCODED_NOSLASH_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'       # intentionally left out /
 OP_URLENCODED_NOSLASH_OR_EMPTY_PATTERN = r'^([a-zA-Z0-9\-_.~%]*)$'       # intentionally left out /, allow empty
 OP_URLENCODED_OR_EMPTY_PATTERN = r'^([a-zA-Z0-9\-_.~%/]*)$'
@@ -61,6 +63,8 @@ OP_USER_ID_PATTERN = r'^({}+)$'.format(OP_USER_ID_CLASS)
 OP_DATASTORE_ID_PATTERN = r'^({}+)$'.format(OP_DATASTORE_ID_CLASS)
 OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
 OP_URI_TARGET_PATTERN_NOSCHEME = r'^([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
+OP_TOMBSTONE_PATTERN = '^delete-([0-9]+):([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
+OP_SIGNED_TOMBSTONE_PATTERN = '^delete-([0-9]+):([a-zA-Z0-9\-_.~%#?&\\:/=]+):({})$'.format(OP_BASE64_PATTERN_SECTION)
 
 OP_ANY_TYPE_SCHEMA = [
     {
@@ -486,9 +490,180 @@ USER_ZONEFILE_SCHEMA = {
     ],
 }
 
+ROOT_DIRECTORY_LEAF = 1
+ROOT_DIRECTORY_PARENT = 2
+
+ROOT_DIRECTORY_ENTRY_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'proto_version': {
+            # version of this protocol
+            'type': 'integer',
+            'minimum': 1,
+        },
+        'urls': {
+            'type': 'array',
+            'values': {
+                'type': 'string',
+                'pattern': OP_URI_TARGET_PATTERN,
+            },
+        },
+        'data_hash': {
+            'type': 'string',
+            'pattern': OP_HEX_PATTERN,
+        },
+        'timestamp': {
+            'type': 'integer',
+            'minimum': 1,
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'proto_version',
+        'urls',
+        'data_hash'
+    ],
+}
+
+ROOT_DIRECTORY_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'proto_version': {
+            # version of the protocol
+            'type': 'integer',
+            'minimum': 2,
+        },
+        'type': {
+            # leaf, directory
+            'type': 'integer',
+            'minimum': ROOT_DIRECTORY_LEAF,
+            'maximum': ROOT_DIRECTORY_PARENT,
+        },
+        'owner': {
+            # hash of public key
+            'type': 'string',
+            'pattern': OP_ADDRESS_PATTERN
+        },
+        'readers': {
+            # who can read this inode?
+            'type': 'array',
+            'items': {
+                # hash of public key
+                'type': 'string',
+                'pattern': OP_ADDRESS_PATTERN
+            },
+        },
+        'timestamp': {
+            # millisecond timestamp
+            'type': 'integer',
+            'minimum': 1
+        },
+        'files': {
+            # name -> urls
+            'type': 'object',
+            'patternProperties': {
+                OP_URLENCODED_PATTERN: ROOT_DIRECTORY_ENTRY_SCHEMA
+            },
+        },
+        'tombstones': {
+            # name -> tombstone
+            'type': 'object',
+            'patternProperties': {
+                OP_URLENCODED_PATTERN: OP_TOMBSTONE_PATTERN,
+            },
+        },
+    },
+    'required': [
+        'type',
+        'owner',
+        'readers',
+        'timestamp',
+        'proto_version',
+    ],
+}
+
+FILE_LOOKUP_RESPONSE = {
+    'type': 'object',
+    'properties': {
+        'status': {
+            'type': 'boolean',
+        },
+        'file_info': ROOT_DIRECTORY_ENTRY_SCHEMA,
+        'device_root_page': ROOT_DIRECTORY_SCHEMA,
+    },
+    'required': [
+        'status',
+        'file_info'
+    ],
+}
+
+GET_DEVICE_ROOT_RESPONSE = {
+    'type': 'object',
+    'properties': {
+        'status': {
+            'type': 'boolean',
+        },
+        'device_root_page': ROOT_DIRECTORY_SCHEMA,
+    },
+    'required': [
+        'status',
+        'device_root_page'
+    ],
+}
+
+GET_ROOT_RESPONSE = {
+    'type': 'object',
+    'properties': {
+        'status': {
+            'type': 'boolean',
+        },
+        'root': {
+            'type': 'object',
+            'patternProperties': {
+                OP_URLENCODED_PATTERN: ROOT_DIRECTORY_ENTRY_SCHEMA
+            }
+        }
+    },
+    'required': [
+        'status',
+        'root'
+    ],
+}
+
+
+PUT_DATA_RESPONSE = {
+    'type': 'object',
+    'properties': {
+        'status': {
+            'type': 'boolean',
+        },
+        'urls': {
+            'anyOf': [
+                {
+                    'type': 'array',
+                    'items': {
+                        'type': 'string',
+                        'pattern': OP_URI_TARGET_PATTERN,
+                    },
+                },
+                {
+                    'type': 'nulltype',
+                },
+            ],
+        },
+    },
+    'required': [
+        'status', 
+        'urls'
+    ]
+}
+
+
+# DEPRECATED
 MUTABLE_DATUM_FILE_TYPE = 1
 MUTABLE_DATUM_DIR_TYPE = 2
 
+# DEPRECATED
 MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES = {
     'type': {
         # file, directory
@@ -535,6 +710,7 @@ MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES = {
     },
 }
 
+# DEPRECATED
 # header contains hash of payload
 MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
 MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES.update({
@@ -545,9 +721,11 @@ MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES.update({
     },
 })
 
+# DEPRECATED
 MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
 MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
 
+# DEPRECATED
 MUTABLE_DATUM_INODE_HEADER_SCHEMA = {
     'type': 'object',
     'properties': MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES,
@@ -555,6 +733,7 @@ MUTABLE_DATUM_INODE_HEADER_SCHEMA = {
     'required': list(set(MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES.keys()) - set(['reader_pubkeys']))  # headers only include reader pubkey hashes
 }
 
+# DEPRECATED
 MUTABLE_DATUM_DIRENT_SCHEMA = {
     'type': 'object',
     'properties': {
@@ -580,6 +759,7 @@ MUTABLE_DATUM_DIRENT_SCHEMA = {
     ],
 }
 
+# DEPRECATED
 # NOTE: *unserialized* idata
 MUTABLE_DATUM_DIR_IDATA_SCHEMA = {
     'type': 'object',
@@ -600,19 +780,23 @@ MUTABLE_DATUM_DIR_IDATA_SCHEMA = {
     'additionalProperties': False,
 }
 
+# DEPRECATED
 MUTABLE_DATUM_FILE_IDATA_SCHEMA = {
     'type': 'string',
     'pattern': OP_BASE64_PATTERN
 }
 
+# DEPRECATED
 MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.update({
     'idata': MUTABLE_DATUM_FILE_IDATA_SCHEMA
 })
 
+# DEPRECATED
 MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.update({
     'idata': MUTABLE_DATUM_DIR_IDATA_SCHEMA
 })
 
+# DEPRECATED
 MUTABLE_DATUM_INODE_SCHEMA = {
     'type': 'object',
     'properties': MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES,
@@ -620,7 +804,7 @@ MUTABLE_DATUM_INODE_SCHEMA = {
     'required': list(set(MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.keys()) - set(['reader_pubkeys']))    # public keys are loaded at runtime, not stored
 }
 
-
+# DEPRECATED
 MUTABLE_DATUM_FILE_SCHEMA = {
     'type': 'object',
     'properties': MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES,
@@ -628,6 +812,7 @@ MUTABLE_DATUM_FILE_SCHEMA = {
     'required': list(set(MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.keys()) - set(['reader_pubkeys']))    # public keys are loaded at runtime, not stored
 }
 
+# DEPRECATED
 MUTABLE_DATUM_DIR_SCHEMA = {
     'type': 'object',
     'properties': MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES,
@@ -934,18 +1119,14 @@ CREATE_DATASTORE_INFO_SCHEMA = {
         'datastore_blob': {
             'type': 'string',
         },
-        'root_blob_header': {
-            'type': 'string',
-        },
-        'root_blob_idata': {
+        'root_blob': {
             'type': 'string',
         },
     },
     'additionalProperties': False,
     'required': [
         'datastore_blob',
-        'root_blob_header',
-        'root_blob_idata',
+        'root_blob',
     ],
 }
 
@@ -1010,7 +1191,7 @@ DELETE_DATASTORE_REQUEST_SCHEMA = {
     ],
 }
 
-
+# DEPRECATED
 DATASTORE_LOOKUP_PATH_ENTRY_SCHEMA = {
     'type': 'object',
     'properties': {
@@ -1037,7 +1218,7 @@ DATASTORE_LOOKUP_PATH_ENTRY_SCHEMA = {
     'additionalProperties': False,
 }
 
-
+# DEPRECATED
 DATASTORE_LOOKUP_INODE_SCHEMA = {
     'type': 'object',
     'properties': {
@@ -1070,7 +1251,7 @@ DATASTORE_LOOKUP_INODE_SCHEMA = {
     'additionalProperties': False,
 }
 
-
+# DEPRECATED
 DATASTORE_LOOKUP_RESPONSE_SCHEMA = {
     'type': 'object',
     'properties': {
@@ -1092,7 +1273,7 @@ DATASTORE_LOOKUP_RESPONSE_SCHEMA = {
     ],
 }
 
-
+# DEPRECATED
 DATASTORE_LOOKUP_EXTENDED_RESPONSE_SCHEMA = {
     'type': 'object',
     'properties': {
