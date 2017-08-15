@@ -1071,11 +1071,12 @@ def token_file_put(name, new_token_file, signing_privkey, proxy=None, required_d
 
     log.debug('Save updated token file for "{}" to {}'.format(name, ','.join(required_storage_drivers)))
 
-    rc = storage.put_mutable_data(name, new_token_file, raw=True, required=required_storage_drivers, token_file=True, fqu=name)
-    if not rc:
+    storage_res = storage.put_mutable_data(name, new_token_file, raw=True, required=required_storage_drivers, token_file=True, fqu=name)
+    if 'error' in storage_res:
+        log.error("Failed to store updated token file: {}".format(storage_res['error']))
         return {'error': 'Failed to store token file for {}'.format(name)}
 
-    return {'status': True}
+    return storage_res
 
 
 def token_file_delete(blockchain_id, signing_private_key, proxy=None):
