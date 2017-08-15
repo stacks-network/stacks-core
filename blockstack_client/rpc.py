@@ -996,6 +996,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'minimum': 0,
                     'maximum': TX_MAX_FEE
                 },
+                'owner_key': PRIVKEY_INFO_SCHEMA
             },
             'additionalProperties': False,
         }
@@ -1038,11 +1039,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         res = None
-        if zonefile_str is not None:
-            res = internal.cli_update(name, str(zonefile_str), "false", interactive=False, nonstandard=True, force_data=True)
+        privkey_info = request.get('owner_key', None)
 
+        if zonefile_str is not None:
+            res = internal.cli_update(name, str(zonefile_str), "false", privkey_info, interactive=False,
+                                      nonstandard=True, force_data=True)
         else:
-            res = internal.cli_set_zonefile_hash(name, str(zonefile_hash))
+            res = internal.cli_set_zonefile_hash(name, str(zonefile_hash), privkey_info)
 
         if 'error' in res:
             log.error("Failed to update {}: {}".format(name, res['error']))
@@ -4157,13 +4160,15 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_update(self, fqu, zonefile_txt, profile, zonefile_hash):
+    def backend_update(self, fqu, zonefile_txt, profile, zonefile_hash, owner_key = None):
         """
         Queue an update
         """
         if is_api_server(self.config_dir):
             # directly invoke the registrar
-            return backend.registrar.update(fqu, zonefile_txt,  profile, zonefile_hash, None, config_path=self.config_path)
+            return backend.registrar.update(
+                fqu, zonefile_txt,  profile, zonefile_hash,
+                None, config_path = self.config_path, owner_key = owner_key)
 
         else:
             res = self.check_version()
@@ -4184,6 +4189,9 @@ class BlockstackAPIEndpointClient(object):
 
             if zonefile_hash is not None:
                 data['zonefile_hash'] = zonefile_hash
+
+            if owner_key is not None:
+                data['owner_key'] = owner_key
 
             headers = self.make_request_headers()
             req = requests.put( 'http://{}:{}/v1/names/{}/zonefile'.format(self.server, self.port, fqu), data=json.dumps(data), timeout=self.timeout, headers=headers)

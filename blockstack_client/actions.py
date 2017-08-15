@@ -1479,7 +1479,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
         return {'error': resp['message']}
 
     result = resp
-   
+
     if local_rpc.is_api_server(config_dir):
         # log this
         total_estimated_cost = {'total_estimated_cost': opchecks['total_estimated_cost']}
@@ -1487,7 +1487,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
 
     return result
 
-    
+
 
 def cli_update(args, config_path=CONFIG_PATH, password=None,
                interactive=True, proxy=None, nonstandard=False,
@@ -1499,6 +1499,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     arg: name (str) 'The name to update.'
     opt: data (str) 'A path to a file with the zone file data.'
     opt: nonstandard (str) 'If true, then do not validate or parse the zone file.'
+    opt: ownerkey (str) 'A private key string to be used for the update.'
     """
 
     # NOTE: if force_data == True, then the zonefile will be the zonefile text itself, not a path.
@@ -1512,7 +1513,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
     proxy = get_default_proxy() if proxy is None else proxy
     password = get_default_password(password)
-    
+
     if hasattr(args, 'nonstandard') and not nonstandard:
         if args.nonstandard is not None and args.nonstandard.lower() in ['yes', '1', 'true']:
             nonstandard = True
@@ -1533,7 +1534,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     downloaded = False
     if getattr(args, 'data', None) is not None:
         zonefile_data_path_or_string = str(args.data)
- 
+
     if not local_rpc.is_api_server(config_dir=config_dir):
         # verify that we own the name before trying to edit its zonefile
         _, owner_address, _ = get_addresses_from_file(config_dir=config_dir)
@@ -1569,7 +1570,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         if not interactive:
             if zonefile_data is None or nonstandard:
                 log.warning('Using non-zonefile data')
-            
+
             else:
                 return {'error': 'Zone file not updated (invalid)'}
 
@@ -1589,12 +1590,13 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
 
     # open the zonefile editor
-    _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
-    
-    if data_pubkey is None:
-        return {'error': 'No data public key set in the wallet.  Please use `blockstack setup_wallet` to fix this.'}
-
     if interactive and not nonstandard:
+        _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
+
+        if data_pubkey is None:
+            return {'error': 'No data public key set in the wallet. ' +
+                    ' Please use `blockstack setup_wallet` to fix this.'}
+
         # configuration wizard!
         if user_zonefile_dict is None:
             user_zonefile_dict = make_empty_zonefile(fqu, data_pubkey)
@@ -1618,7 +1620,11 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
     try:
         # NOTE: already did safety checks
-        resp = rpc.backend_update(fqu, user_data_txt, None, None )
+        if args.ownerkey is None or len(args.ownerkey) == 0:
+            owner_key = None
+        else:
+            owner_key = args.ownerkey
+        resp = rpc.backend_update(fqu, user_data_txt, None, None, owner_key = owner_key )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -3741,7 +3747,7 @@ def cli_get_names_in_namespace(args, config_path=CONFIG_PATH):
     arg: namespace_id (str) 'The ID of the namespace to query'
     arg: page (int) 'The page of names to fetch (groups of 100)'
     """
-    
+
     offset = int(args.page) * 100
     count = 100
 
@@ -3766,6 +3772,7 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     help: Directly set the hash associated with the name in the blockchain.
     arg: name (str) 'The name to update'
     arg: zonefile_hash (str) 'The RIPEMD160(SHA256(zonefile)) hash'
+    arg: ownerkey (str) 'The key to be used if not the wallets ownerkey'
     """
     password = get_default_password(password)
 
@@ -3789,7 +3796,11 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     assert rpc
 
     try:
-        resp = rpc.backend_update(fqu, None, None, zonefile_hash )
+        if args.ownerkey is None or len(args.ownerkey) == 0:
+            owner_key = None
+        else:
+            owner_key = args.ownerkey
+        resp = rpc.backend_update(fqu, None, None, zonefile_hash, owner_key = owner_key )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}

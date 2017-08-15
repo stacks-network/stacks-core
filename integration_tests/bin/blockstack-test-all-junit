@@ -48,8 +48,18 @@ while IFS= read SCENARIO_FILE; do
       echo -n "$SCENARIO_MODULE ... "
 
       mkdir -p "$TESTDIR"
-      "$RUN_SCENARIO" "$SCENARIO_MODULE" "$TESTDIR" > "$OUTPUTS/$SCENARIO_MODULE_BASE.log" 2>&1
+      "$RUN_SCENARIO" "$SCENARIO_MODULE" "$TESTDIR" > "$OUTPUTS/$SCENARIO_MODULE_BASE.log" 2>&1 &
+      TEST_PID=$!
+      while ps -p $TEST_PID > /dev/null; do
+          etime=$(ps -p $TEST_PID -o etimes | tail -n 1 | awk '{ print $1 }')
+          if [ $etime -ge 1200 ]; then
+              echo -n " KILL for time "
+              kill -s INT $TEST_PID
+          fi
+          sleep 10
+      done
 
+      grep -q "SUCCESS" "$OUTPUTS/$SCENARIO_MODULE_BASE.log"
       RC=$?
 
       # make the xunit file
