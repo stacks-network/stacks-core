@@ -2167,39 +2167,6 @@ def blockstack_get_profile( name, config_path=None ):
     return profile_result['profile']
 
 
-def blockstack_app_session( app_domain, methods, config_path=None ):
-    """
-    Make a session for the given application
-    Returns {'error': ...} on error
-    """
-    test_proxy = make_proxy(config_path=config_path)
-    blockstack_client.set_default_proxy( test_proxy )
-    config_path = test_proxy.config_path if config_path is None else config_path
-
-    api_pass = test_proxy.conf['api_password']
-    api_port = int(test_proxy.conf['api_endpoint_port'])
-
-    req = {
-        'app_domain': app_domain,
-        'methods': methods,
-    }
-    
-    privk = '0a324d66e9d23de40e5455c5d95507b4641cdbef08a473954586790cf78a80c701'
-
-    signer = jsontokens.TokenSigner()
-    token = signer.sign( req, privk )
-
-    url = 'http://localhost:{}/v1/auth?authRequest={}'.format(api_port, token)
-    resp = requests.get( url, headers={'Authorization': 'bearer {}'.format(api_pass)} )
-    if resp.status_code != 200:
-        log.error("GET {} status code {}".format(url, resp.status_code))
-        return {'error': 'Failed to get session'}
-
-    payload = resp.json()
-    ses = payload['token']
-    return {'ses': ses}
-
-
 def blockstack_REST_call( method, route, session, api_pass=None, app_fqu=None, appname=None, data=None, raw_data=None, config_path=None, **query_fields ):
     """
     Low-level call to an API route
