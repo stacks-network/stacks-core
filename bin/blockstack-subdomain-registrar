@@ -1,10 +1,9 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack
     ~~~~~
-    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
-    copyright: (c) 2016 by Blockstack.org
+    copyright: (c) 2017 by Blockstack.org
 
     This file is part of Blockstack
 
@@ -18,5 +17,10 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack.  If not, see <http://www.gnu.org/licenses/>.
 """
+
+from subdomain_registrar import subdomains_registrar
+
+if __name__ == "__main__":
+   subdomains_registrar.main_entry()

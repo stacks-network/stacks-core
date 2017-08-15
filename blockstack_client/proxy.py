@@ -1418,6 +1418,57 @@ def get_op_history_rows(history_id, proxy=None):
 
     return history_rows
 
+def get_zonefiles_by_block(from_block, to_block, proxy=None):
+    """
+    Get zonefile information for zonefiles announced in [@from_block, @to_block]
+    Returns { 'last_block' : server's last seen block,
+              'zonefile_info' : [ { 'zonefile_hash' : '...',
+                                    'txid' : '...',
+                                    'block_height' : '...' } ] }
+    """
+    zonefile_info_schema = {
+        'type' : 'array',
+        'items' : {
+            'type' : 'object',
+            'properties' : {
+                'name' : {'type' : 'string'},
+                'zonefile_hash' : { 'type' : 'string',
+                                    'pattern' : OP_ZONEFILE_HASH_PATTERN },
+                'txid' : {'type' : 'string',
+                          'pattern' : OP_TXID_PATTERN},
+                'block_height' : {'type' : 'integer'}
+            },
+            'required' : [ 'zonefile_hash', 'txid', 'block_height' ]
+        }
+    }
+    response_schema = {
+        'type' : 'object',
+        'properties' : {
+            'lastblock' : {'type' : 'integer'},
+            'zonefile_info' : zonefile_info_schema
+        },
+        'required' : ['lastblock', 'zonefile_info']
+    }
+
+    proxy = get_default_proxy() if proxy is None else proxy
+
+    offset = 0
+    output_zonefiles = []
+
+    last_server_block = 0
+    while offset == 0 or len(resp['zonefile_info']) > 0:
+        resp = proxy.get_zonefiles_by_block(from_block, to_block, offset, 100)
+        if 'error' in resp:
+            return resp
+        resp = json_validate(response_schema, resp)
+        if json_is_error(resp):
+            return resp
+        output_zonefiles += resp['zonefile_info']
+        offset += 100
+        last_server_block = max(resp['lastblock'], last_server_block)
+
+    return { 'last_block' : last_server_block,
+             'zonefile_info' : output_zonefiles }
 
 def get_nameops_affected_at(block_id, proxy=None):
     """

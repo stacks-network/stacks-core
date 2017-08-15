@@ -597,7 +597,8 @@ def get_immutable_by_name(name, data_id, proxy=None):
     return get_immutable(name, None, data_id=data_id, proxy=proxy)
 
 
-def list_update_history(name, current_block=None, config_path=CONFIG_PATH, proxy=None):
+def list_update_history(name, current_block=None, config_path=CONFIG_PATH, proxy=None,
+                        from_block=0, return_blockids=False, return_txids=False):
     """
     list_update_history
 
@@ -621,12 +622,14 @@ def list_update_history(name, current_block=None, config_path=CONFIG_PATH, proxy
             log.error('Invalid getinfo reply')
             return {'error': 'Failed to contact Blockstack server'}
 
-    name_history = get_name_blockchain_history( name, 0, current_block )
+    name_history = get_name_blockchain_history( name, from_block, current_block )
     if 'error' in name_history:
         log.error('Failed to get name history for {}: {}'.format(name, name_history['error']))
         return name_history
 
     all_update_hashes = []
+    corresponding_block_ids = []
+    corresponding_txids = []
     block_ids = name_history.keys()
     block_ids.sort()
     for block_id in block_ids:
@@ -641,11 +644,22 @@ def list_update_history(name, current_block=None, config_path=CONFIG_PATH, proxy
 
             # changed
             all_update_hashes.append(value_hash)
+            corresponding_block_ids.append(block_id)
+            if return_txids:
+                corresponding_txids.append(history_item.get('txid',None))
 
-    return all_update_hashes
+    rval = (all_update_hashes,)
+    if return_blockids:
+        rval += (corresponding_block_ids,)
+    if return_txids:
+        rval += (corresponding_txids,)
+    if len(rval) == 1:
+        return rval[0]
+    return rval
 
 
-def list_zonefile_history(name, current_block=None, proxy=None):
+def list_zonefile_history(name, current_block=None, proxy=None, return_hashes = False,
+                          from_block=None, return_blockids=False, return_txids=False):
     """
     list_zonefile_history
 
@@ -654,9 +668,23 @@ def list_zonefile_history(name, current_block=None, proxy=None):
     or a dict with only the key 'error' defined.  This method can successfully return
     some but not all zonefiles.
     """
-    zonefile_hashes = list_update_history(
-        name, current_block=current_block, proxy=proxy
-    )
+    kwargs = {}
+    if from_block:
+        kwargs['from_block'] = from_block
+    if return_blockids:
+        kwargs['return_blockids'] = return_blockids
+    if return_txids:
+        kwargs['return_txids'] = return_txids
+
+    res = list_update_history(
+            name, current_block=current_block, proxy=proxy, **kwargs)
+    if return_blockids or return_txids:
+        zonefile_hashes = res[0]
+        return_rest = res[1:]
+        do_return_more = True
+    else:
+        zonefile_hashes = res
+        do_return_more = False
 
     zonefiles = []
     for zh in zonefile_hashes:
@@ -669,7 +697,14 @@ def list_zonefile_history(name, current_block=None, proxy=None):
 
         zonefiles.append(zonefile)
 
-    return zonefiles
+    rval = (zonefiles, )
+    if return_hashes:
+        rval += (zonefile_hashes,)
+    if do_return_more:
+        rval += tuple(return_rest)
+    if len(rval) == 1:
+        return rval[0]
+    return rval
 
 
 def list_immutable_data_history(name, data_id, current_block=None, proxy=None):
@@ -797,7 +832,7 @@ def get_mutable(fq_data_id, device_ids=None, raw=False, data_pubkeys=None, data_
 
     # optimization: try local drivers before non-local drivers
     storage_drivers = prioritize_read_drivers(config_path, storage_drivers)
-     
+    
     # which storage drivers and/or URLs will we use?
     for driver in storage_drivers: 
 

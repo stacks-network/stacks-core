@@ -76,7 +76,7 @@ def user_zonefile_data_pubkey(user_zonefile, key_prefix='pubkey:data:'):
     data_pubkey = None
     # check that there is only one of these
     for txtrec in user_zonefile['txt']:
-        if not txtrec['txt'].startswith(key_prefix):
+        if isinstance(txtrec['txt'], list) or not txtrec['txt'].startswith(key_prefix):
             continue
 
         if data_pubkey is not None:

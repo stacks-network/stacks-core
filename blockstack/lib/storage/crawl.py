@@ -284,7 +284,7 @@ def store_zonefile_data_to_storage( zonefile_text, txid, required=None, skip=Non
             log.debug("Failed to cache zonefile %s" % zonefile_hash)
 
     # NOTE: this can fail if one of the required drivers needs a non-null txid
-    res = blockstack_client.storage.put_immutable_data( zonefile_text, txid, data_hash=zonefile_hash, required=required, skip=skip )
+    res = blockstack_client.storage.put_immutable_data( zonefile_text, txid, data_hash=zonefile_hash, required=required, skip=skip, required_exclusive=True )
     if res is None:
         log.error("Failed to store zonefile '%s' for '%s'" % (zonefile_hash, txid))
         return False
@@ -326,7 +326,7 @@ def store_mutable_data_to_storage( blockchain_id, data_id, data_txt, profile=Fal
         nocollide_data_id = '{}-{}'.format(blockchain_id, data_id)
 
     log.debug("Store {} to drivers '{}', skipping '{}'".format('profile' if profile else 'mutable datum', ','.join(required if required is not None else []), ','.join(skip if skip is not None else [])))
-    res = blockstack_client.storage.put_mutable_data(nocollide_data_id, data_txt, sign=False, required=required, skip=skip, blockchain_id=blockchain_id)
+    res = blockstack_client.storage.put_mutable_data(nocollide_data_id, data_txt, sign=False, raw=True, required=required, skip=skip, blockchain_id=blockchain_id)
     return res
 
 

@@ -81,6 +81,7 @@ from blockstack_client import (
     list_zonefile_history, lookup_snv, put_immutable, put_mutable, zonefile_data_replicate
 )
 
+from blockstack_client import subdomains
 from blockstack_client.profile import put_profile, delete_profile, get_profile, \
         profile_add_device_id, profile_remove_device_id, profile_list_accounts, profile_get_account, \
         profile_put_account, profile_delete_account
@@ -89,7 +90,7 @@ from rpc import local_api_connect, local_api_status
 import rpc as local_rpc
 import config
 
-from .config import configure_zonefile, configure, get_utxo_provider_client, get_tx_broadcaster
+from .config import configure_zonefile, configure, get_utxo_provider_client, get_tx_broadcaster, get_local_device_id
 from .constants import (
     CONFIG_PATH, CONFIG_DIR,
     FIRST_BLOCK_MAINNET, NAME_UPDATE,
@@ -140,6 +141,8 @@ from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN,
 from .token_file import token_file_profile_serialize, token_file_update_profile, token_file_get, token_file_put, token_file_delete, \
     lookup_name_privkey, lookup_signing_privkey, lookup_signing_pubkeys, token_file_get_key_order, lookup_delegated_device_pubkeys, \
     token_file_create, lookup_app_pubkeys, token_file_get_app_name, token_file_update_apps
+
+import keylib
 
 import virtualchain
 from virtualchain.lib.ecdsalib import *
@@ -431,7 +434,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
     if min_confs is None:
         min_confs = TX_MIN_CONFIRMATIONS
 
-    if tx_only:
+    if tx_only and isinstance(tx_only, (str,unicode)):
         if tx_only.lower() in ['1', 'yes', 'true']:
             tx_only = True
         else:
@@ -958,6 +961,14 @@ def cli_lookup(args, config_path=CONFIG_PATH):
 
     error = check_valid_name(fqu)
     if error:
+        res = subdomains.is_address_subdomain(fqu)
+        if res:
+            subdomain, domain = res[1]
+            try:
+                return subdomains.resolve_subdomain(subdomain, domain)
+            except subdomains.SubdomainNotFound as e:
+                log.exception(e)
+                return {'error' : "Failed to find name {}.{}".format(subdomain, domain)}
         return {'error': error}
 
     try:
@@ -1008,6 +1019,23 @@ def cli_whois(args, config_path=CONFIG_PATH):
 
     error = check_valid_name(fqu)
     if error:
+        res = subdomains.is_address_subdomain(fqu)
+        if res:
+            subdomain, domain = res[1]
+            try:
+                subdomain_obj = subdomains.get_subdomain_info(subdomain, domain)
+            except subdomains.SubdomainNotFound:
+                return {'error': 'Not found.'}
+
+            ret = {
+                'satus' : 'registered_subdomain',
+                'zonefile_txt' : subdomain_obj.zonefile_str,
+                'zonefile_hash' : storage.get_zonefile_data_hash(subdomain_obj.zonefile_str),
+                'address' : subdomain_obj.address,
+                'blockchain' : 'bitcoin',
+                'last_txid' : subdomain_obj.last_txid,
+            }
+            return ret
         return {'error': error}
 
     try:
@@ -1301,6 +1329,12 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     min_payment_confs = getattr(args, 'min_confs', TX_MIN_CONFIRMATIONS)
     unsafe_reg = getattr(args, 'unsafe_reg', 'False')
 
+    if min_payment_confs is None:
+        min_payment_confs = TX_MIN_CONFIRMATIONS
+
+    if unsafe_reg is None:
+        unsafe_reg = 'False'
+
     if unsafe_reg.lower() in ('true', 't', 'yes', '1'):
         unsafe_reg = True
     else:
@@ -1311,10 +1345,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     if error:
         return {'error': error}
 
-    if min_payment_confs is None:
-        min_payment_confs = TX_MIN_CONFIRMATIONS
-    else:
-        log.debug("Use UTXOs with a minimum of {} confirmations".format(min_payment_confs))
+    log.debug("Use UTXOs with a minimum of {} confirmations".format(min_payment_confs))
 
     if transfer_address:
         if not re.match(OP_BASE58CHECK_PATTERN, transfer_address):
@@ -1869,7 +1900,15 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
         proxy = get_default_proxy(config_path=config_path)
 
     fqu = str(args.name)
-    force = (force or (getattr(args, 'force', '').lower() in ['1', 'yes', 'force', 'true']))
+
+    if hasattr(args, 'force'):
+        force = args.force
+        if force is None:
+            force = ''
+    else:
+        force = ''
+
+    force = (force.lower() in ['1', 'yes', 'force', 'true'])
 
     error = check_valid_name(fqu)
     if error:
@@ -2945,13 +2984,23 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
 
     infinite_lifetime = 0xffffffff       # means "infinite" to blockstack-core
     
+    def _sane_default(argvec, value, default):
+        res = None
+        if hasattr(argvec, value):
+            res = getattr(argvec, value)
+        
+        if res is None:
+            res = default
+
+        return res
+
     # sane defaults
-    lifetime = int(getattr(args, 'lifetime', infinite_lifetime))
-    coeff = int(getattr(args, 'coeff', 4))
-    base = int(getattr(args, 'base', 4))
-    bucket_exponents_str = getattr(args, 'buckets', "15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0")
-    nonalpha_discount = int(getattr(args, 'nonalpha_discount', 2))
-    no_vowel_discount = int(getattr(args, 'no_vowel_discount', 5))
+    lifetime = int(_sane_default(args, 'lifetime', infinite_lifetime))
+    coeff = int(_sane_default(args, 'coeff', 4))
+    base = int(_sane_default(args, 'base', 4))
+    bucket_exponents_str = _sane_default(args, 'buckets', "15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0")
+    nonalpha_discount = int(_sane_default(args, 'nonalpha_discount', 2))
+    no_vowel_discount = int(_sane_default(args, 'no_vowel_discount', 5))
 
     def parse_bucket_exponents(exp_str):
 
@@ -3378,9 +3427,9 @@ def cli_get_mutable(args, config_path=CONFIG_PATH, proxy=None):
         device_ids = device_ids.split(',')
 
     else:
-        raise NotImplemented("Missing token file parsing logic")
+        device_ids = [get_local_device_id(os.path.dirname(config_path))]
 
-    result = get_mutable(str(args.data_id), device_ids['device_ids'], proxy=proxy, config_path=config_path, blockchain_id=str(args.name), data_pubkey=data_pubkey)
+    result = get_mutable(str(args.data_id), device_ids, proxy=proxy, config_path=config_path, blockchain_id=str(args.name), data_pubkey=data_pubkey)
     if 'error' in result:
         return result
 
@@ -4518,9 +4567,10 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
     if hasattr(args, 'pubkey') and args.pubkey is not None:
         pubkey = str(args.pubkey)
         try:
-            pubkey = ECPublicKey(pubkey).to_hex()
-        except:
-            return {'error': 'Invalid public key'}
+            pubkey = keylib.ECPublicKey(pubkey).to_hex()
+        except Exception as e:
+            log.exception(e)
+            return {'error': 'Invalid public key : "{}"'.format(pubkey)}
 
     if pubkey is None:
         zonefile_data = None
@@ -5215,7 +5265,7 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     """
 
     blockchain_id = getattr(args, 'blockchain_id', '')
-    if len(blockchain_id) == 0:
+    if blockchain_id is None or len(blockchain_id) == 0:
         blockchain_id = None
     else:
         blockchain_id = str(blockchain_id)
@@ -5232,7 +5282,6 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
     else:
         datastore_id = str(args.datastore_id)
 
-    path = str(args.path)
     path = str(args.path)
     force = False
     device_ids = None
@@ -5669,7 +5718,7 @@ def cli_collection_getitem( args, config_path=CONFIG_PATH, interactive=False, pa
 
     config_dir = os.path.dirname(config_path)
     blockchain_id = getattr(args, 'blockchain_id', '')
-    if len(blockchain_id) == 0:
+    if blockchain_id is None or len(blockchain_id) == 0:
         blockchain_id = None
     else:
         blockchain_id = str(blockchain_id)

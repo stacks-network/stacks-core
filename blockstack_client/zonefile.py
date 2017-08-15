@@ -152,13 +152,16 @@ def decode_name_zonefile(name, zonefile_txt, allow_legacy=False):
                 return None
 
         except Exception as e:
-            if BLOCKSTACK_DEBUG is not None:
+            if BLOCKSTACK_DEBUG:
                 log.exception(e)
+
             log.error('Failed to parse non-standard zonefile')
             return None
 
     except Exception as e:
-        log.exception(e)
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
         log.error('Failed to parse zonefile')
         return None
 

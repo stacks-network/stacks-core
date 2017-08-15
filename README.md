@@ -1,7 +1,7 @@
 # Blockstack Core
 
 [![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
-[![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
+[![Slack](https://img.shields.io/badge/join-slack-e32072.svg?style=flat)](http://slack.blockstack.org/)
 
 Blockstack is a new decentralized internet where you own your data and your apps run locally without remote servers. 
 
@@ -120,7 +120,7 @@ If you have high-level questions about Blockstack, try [searching our forum](htt
 ## API Docs
 
 A local core node will expose a RESTful API after starting the api with `blockstack api start`.
-Documentation for that lives [here](https://kantai.github.io/blockstack-core/), which is generated from blueprint markdown [here](docs/api-specs.md).
+Documentation for that lives [here](https://blockstack.github.io/blockstack-core/), which is generated from blueprint markdown [here](docs/api-specs.md).
 
 ## Contributing
 

@@ -931,7 +931,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
     return None
 
 
-def put_immutable_data(data_text, txid, data_hash=None, required=None, skip=None):
+def put_immutable_data(data_text, txid, data_hash=None, required=None, skip=None, required_exclusive=False):
     """
     Given a string of data (which can either be data or a zonefile), store it into our immutable data stores.
     Do so in a best-effort manner--this method only fails if *all* storage providers fail.
@@ -958,6 +958,8 @@ def put_immutable_data(data_text, txid, data_hash=None, required=None, skip=None
     log.debug(msg.format(data_hash, ','.join(required), ','.join(skip)))
 
     for handler in storage_handlers:
+        if required_exclusive and handler.__name__ not in required:
+            continue
         if handler.__name__ in skip:
             log.debug("Skipping {}".format(handler.__name__))
             continue

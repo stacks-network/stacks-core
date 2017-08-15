@@ -1,10 +1,10 @@
-uwsgi_cache_path /tmp/blockstack_uwsgi_cache levels=1:2 keys_zone=api:50m;
+uwsgi_cache_path /tmp/blockstack_uwsgi_cache levels=1:2 keys_zone=api:50m inactive=180m;
 
 server {
     listen 80 default_server;
     server_name localhost;
     return 301 https://core.blockstack.org$request_uri;
- 
+
     location / {
         include uwsgi_params;
         uwsgi_pass unix:/path/to/nginx/blockstack_api.sock;
@@ -20,19 +20,23 @@ server {
     ssl_certificate_key /path/to/cert/privkey.pem;
 
     location / {
+        if ($request_method = OPTIONS ) {
+            add_header Access-Control-Allow-Origin "*";
+            add_header Access-Control-Allow-Methods "GET, HEAD, POST, OPTIONS";
+            add_header Access-Control-Max-Age "21600";
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 200;
+        }
+
         include uwsgi_params;
         uwsgi_pass unix:/tmp/blockstack_api.sock;
-	
-#	expires 5m;
-	
-	uwsgi_cache api;
-	uwsgi_cache_key $uri$args;
 
-	add_header X-Cache-Status $upstream_cache_status;	
-	
-	uwsgi_cache_methods GET HEAD;
-	
-	uwsgi_cache_valid 200 12h;
-	uwsgi_cache_valid 404 12h;
+        expires 180m;
+
+        uwsgi_cache api; uwsgi_cache_key $uri$args;
+        add_header X-Cache-Status $upstream_cache_status;
+        uwsgi_cache_methods GET HEAD;
+        uwsgi_cache_valid 200 12h; uwsgi_cache_valid 404 12h;
     }
 }

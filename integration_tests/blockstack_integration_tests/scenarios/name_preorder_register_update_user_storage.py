@@ -140,7 +140,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    time.sleep(1)
+    time.sleep(2)
 
     put_result = testlib.blockstack_cli_put_mutable( "foo.test", "hello_world_2", json.dumps(datasets[1]), password="0123456789abcdef", \
                                                      storage_drivers=['blockstack_server'], storage_drivers_exclusive=True)
@@ -267,7 +267,7 @@ def check( state_engine ):
 
     for i in xrange(0, len(datasets)):
         print "get hello_world_%s" % (i+1)
-        dat = blockstack_client.get_mutable( "hello_world_%s" % (i+1), blockchain_id="foo.test" )
+        dat = testlib.blockstack_cli_get_mutable( 'foo.test', "hello_world_%s" % (i+1), public_key=wallets[4].pubkey_hex )
         if dat is None:
             print "No data '%s'" % ("hello_world_%s" % (i+1))
             return False
@@ -279,15 +279,14 @@ def check( state_engine ):
         if json.loads(dat['data']) != datasets[i]:
             print "Mismatch %s: %s %s != %s %s" % (i, dat['data'], type(dat['data']), datasets[i], type(datasets[i]))
             return False
-   
-    profile, zonefile = blockstack_client.get_profile('foo.test')
-    if profile is None:
-        print 'No profile'
+    
+    res = blockstack_client.get_profile('foo.test')
+    if 'error' in res:
+        print json.dumps(res, indent=4, sort_keys=True)
         return False
 
-    if 'error' in zonefile:
-        print json.dumps(zonefile, indent=4, sort_keys=True)
-        return False 
+    profile = res['profile']
+    zonefile = res['zonefile']
 
     # accounts should all be there 
     if not profile.has_key('account'):

@@ -526,7 +526,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         return self.success_response( {'count': num_history_rows} )
 
-
     def rpc_get_nameops_affected_at( self, block_id, offset, count, **con_info ):
         """
         Get the sequence of name and namespace records affected at the given block.
@@ -556,6 +555,11 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         prior_records = db.get_all_ops_at( block_id, offset=offset, count=count, include_history=False, restore_history=False )
         db.close()
         log.debug("%s name operations at block %s, offset %s, count %s" % (len(prior_records), block_id, offset, count))
+        for rec in prior_records:
+           if 'buckets' in rec and (isinstance(rec['buckets'], str) or
+                                    isinstance(rec['buckets'], unicode)):
+              rec['buckets'] = json.loads(rec['buckets'])
+
         return self.success_response( {'nameops': prior_records} )
 
 
@@ -810,7 +814,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         db.close()
 
         return self.success_response( {'namespaces': all_namespaces} )
-
 
     def rpc_get_num_names_in_namespace( self, namespace_id, **con_info ):
         """
@@ -1574,6 +1577,29 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return {'status': True, 'servers': servers}
 
 
+
+    def rpc_get_zonefiles_by_block( self, from_block, to_block, offset, count, **con_info ):
+        """
+        Get information about zonefiles announced in blocks [@from_block, @to_block]
+        @offset - offset into result set
+        @count - max records to return, must be <= 100
+
+        Returns {'status': True, 'lastblock' : blockNumber,
+                 'zonefile_info' : [ { 'block_height' : 470000,
+                                       'txid' : '0000000',
+                                       'zonefile_hash' : '0000000' } ] }
+        """
+        conf = get_blockstack_opts()
+        if not conf['atlas']:
+            return {'error': 'Not an atlas node'}
+
+        zonefile_info = atlasdb_get_zonefiles_by_block(
+           from_block, to_block, offset, count)
+        if 'error' in zonefile_info:
+           return zonefile_info
+
+        return self.success_response( {'zonefile_info': zonefile_info } )
+
     def rpc_get_atlas_peers( self, **con_info ):
         """
         Get the list of peer atlas nodes.
@@ -1677,6 +1703,11 @@ class BlockstackdRPCServer( threading.Thread, object ):
         Stop serving.  Also stops the thread.
         """
         if self.rpc_server is not None:
+            try:
+                self.rpc_server.socket.shutdown(socket.SHUT_RDWR)
+            except:
+                log.warning("Failed to shut down server socket")
+
             self.rpc_server.shutdown()
 
 
@@ -1857,7 +1888,9 @@ class BlockstackStoragePusher( threading.Thread ):
             return False
 
         entry = entries[0]
-        res = store_zonefile_data_to_storage( str(entry['zonefile']), entry['tx_hash'], required=self.zonefile_storage_drivers_write, skip=['blockstack_server'], cache=False, zonefile_dir=self.zonefile_dir, tx_required=False )
+        res = store_zonefile_data_to_storage( str(entry['zonefile']), entry['tx_hash'], required=self.zonefile_storage_drivers_write,
+                                              skip=['blockstack_server','blockstack_resolver','dht'], cache=False, zonefile_dir=self.zonefile_dir, tx_required=False )
+
         if not res:
             log.error("Failed to store zonefile {} ({} bytes)".format(entry['zonefile_hash'], len(entry['zonefile'])))
             return False
@@ -1917,7 +1950,7 @@ class BlockstackStoragePusher( threading.Thread ):
             queue_removeall( entries, path=self.queue_path )
             return False
         
-        success = store_mutable_data_to_storage( blockchain_id, fq_data_id, data_txt, profile=profile, required=storage_drivers, skip=['blockstack_server'])
+        success = store_mutable_data_to_storage( blockchain_id, fq_data_id, data_txt, profile=profile, required=storage_drivers, skip=['blockstack_server','blockstack_resolver'])
         if not success:
             log.error("Failed to store data for {} ({} bytes) (rc = {})".format(blockchain_id, len(data_txt), success))
             queue_removeall( entries, path=self.queue_path )

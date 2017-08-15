@@ -64,7 +64,11 @@ def fetch_profile_data_from_file():
         new_entry['key'] = entry['fqu']
         new_entry['value'] = entry['profile']
 
-        profile_data.save(new_entry)
+        try:
+            profile_data.save(new_entry)
+        except Exception as e:
+            print e
+            print "Exception on entry {}".format(new_entry)
 
         counter += 1
 
