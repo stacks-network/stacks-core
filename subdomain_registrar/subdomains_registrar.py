@@ -364,11 +364,26 @@ class SubdomainRegistrarRPCWorker(threading.Thread):
         self.server.serve_forever()
 
 class SubdomainRegistrarRPCHandler(BaseHTTPServer.BaseHTTPRequestHandler):
-    def send_message(self, code, message): 
+    def send_message(self, code, message):
         self.send_response(code)
-        self.send_header("Content-Type", "application/json") 
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(message + "\r\n")
+
+    def do_OPTIONS(self):
+        """
+        Give back CORS preflight check headers
+        """
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')    # CORS
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST')
+        self.send_header('Access-Control-Allow-Headers', 'content-type, authorization, range')
+        self.send_header('Access-Control-Expose-Headers', 'content-length')
+        self.send_header('Access-Control-Max-Age', 21600)
+        self.end_headers()
+        return
+
 
     def do_GET(self):
         path = self.path
@@ -422,7 +437,7 @@ class SubdomainLock(object):
                 pid = -1
         return pid != os.getpid()
     @staticmethod
-    def lockfile_write( fd ):        
+    def lockfile_write( fd ):
         buf = "%s\n" % os.getpid()
         nw = 0
         while nw < len(buf):
