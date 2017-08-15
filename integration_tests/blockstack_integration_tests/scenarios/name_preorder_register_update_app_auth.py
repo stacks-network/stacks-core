@@ -141,7 +141,7 @@ def scenario( wallets, **kw ):
     # sign in 
     pk = 'ce100586279d3b127b7dcc137fcc2f18b272bb2b43bdaea3584d0ea17087ec0201'
     pubk = keylib.ECPrivateKey(pk).public_key().to_hex()
-    res = testlib.blockstack_cli_app_signin("foo.test", pk, "ping.app", ["node_read"])
+    res = testlib.blockstack_cli_app_signin("foo.test", pk, "http://localhost:8888", ["node_read"])
     if 'error' in res:
         res['test'] = 'Failed to signin: {}'.format(res['error'])
         print json.dumps(res, indent=4, sort_keys=True)
@@ -164,7 +164,7 @@ def scenario( wallets, **kw ):
         return False
    
     # access index.html 
-    res = testlib.blockstack_REST_call("GET", "/v1/resources/foo.test/ping.app?name=index.html&pubkey={}".format(pubk), ses)
+    res = testlib.blockstack_REST_call("GET", "/v1/resources/foo.test/ping.app?name=index.html&pubkey={}".format(wallets[4].pubkey_hex), ses)
     if 'error' in res or res['http_status'] != 200:
         print 'failed to GET /v1/resources?name=/index.html'
         print json.dumps(res)
