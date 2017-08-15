@@ -149,16 +149,17 @@ def put_profile(name, new_profile, blockchain_id=None, user_data_privkey=None, u
             name, ','.join(required_storage_drivers), get_profile_timestamp(profile_payload), get_pubkey_hex(user_data_privkey))
         )
 
-    rc = storage.put_mutable_data(
+    storage_res = storage.put_mutable_data(
         name, profile_payload, data_privkey=user_data_privkey,
         required=required_storage_drivers,
         profile=True, blockchain_id=blockchain_id
     )
 
-    if rc:
-        ret['status'] = True
-    else:
+    if 'error' in storage_res:
         ret['error'] = 'Failed to update profile'
+
+    else:
+        ret['status'] = True
 
     return ret
 
