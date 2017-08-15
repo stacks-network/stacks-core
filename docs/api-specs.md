@@ -999,13 +999,13 @@ Transfers a name to a different owner.
                 },
               ],
             }
-                
+
 
 ## Set zone file [PUT /v1/names/{name}/zonefile]
 Sets the user's zonefile hash, and, if supplied, propagates the
 zonefile. If you supply the zonefile, the hash will be calculated from
 that. Ultimately, your requests should only supply one of `zonefile`,
-`zonefile_b64`, or `zonefile_hash`.  
+`zonefile_b64`, or `zonefile_hash`.
 
 The value for `zonefile_b64` is a base64-encoded string.
 New clients _should_ use the `zonefile_b64` field when specifying a zone file.
@@ -1036,6 +1036,55 @@ The `zonefile` field is preserved for legacy compatibility.
                                 'minimum': 0,
                                 'maximum': 500000
                             },
+                            'owner_key': {
+                                'anyOf': [
+                                    {
+                                        'anyOf': [
+                                            {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'properties': {
+                                            'address': {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            'private_keys': {
+                                                'items': {
+                                                    'anyOf': [
+                                                        {
+                                                            'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                            'type': 'string'
+                                                        },
+                                                        {
+                                                            'pattern': '^([0-9a-fA-F]+)$',
+                                                            'type': 'string'
+                                                        }
+                                                    ]
+                                                },
+                                                'type': 'array'
+                                            },
+                                            'redeem_script': {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        },
+                                        'required': [
+                                            'address',
+                                            'redeem_script',
+                                            'private_keys'
+                                        ],
+                                        'type': 'object'
+                                    }
+                                ]
+                            }
                         },
                         'additionalProperties': False,
                     }
@@ -1119,8 +1168,8 @@ Fetch a list of all names known to the node.
 + Response 200 (application/json)
   + Body
 
-               [ "aldenquimby.id", "aldeoryn.id", 
-                 "alderete.id", "aldert.id", 
+               [ "aldenquimby.id", "aldeoryn.id",
+                 "alderete.id", "aldert.id",
                  "aldi.id", "aldighieri.id", ... ]
 
   + Schema
