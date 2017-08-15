@@ -552,7 +552,7 @@ def get_immutable_data_url(user_zonefile, data_hash):
     return None
 
 
-def list_immutable_data(user_zonefile):
+def list_immutable_data_zonefile(user_zonefile):
     """
     Get the IDs and hashes of all immutable data
     Return [(data ID, hash)]
