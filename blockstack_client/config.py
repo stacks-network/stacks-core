@@ -842,10 +842,10 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
     }
 
     # grow this list with future releases...
-    renamed_fields = [renamed_fields_014_1, renamed_fields_014_subdomains]
-    removed_fields = [dropped_fields_014_1, dropped_fields_014_subdomains]
-    added_fields = [added_fields_014_1, add_fields_014_5, added_fields_014_subdomains]
-    changed_fields = [changed_fields_014_1, changed_fields_014_subdomains]
+    renamed_fields = [renamed_fields_014_1, {}, renamed_fields_014_subdomains]
+    removed_fields = [dropped_fields_014_1, {}, dropped_fields_014_subdomains]
+    added_fields = [added_fields_014_1, added_fields_014_5, added_fields_014_subdomains]
+    changed_fields = [changed_fields_014_1, {}, changed_fields_014_subdomains]
 
     migrated = False
 
@@ -1028,7 +1028,11 @@ def semver_parse(v):
     Parse a semver string as a tuple of integers
     Return (major, minor, patch)
     """
-    return get_version_parts(v, int)
+    parts = v.split('.')
+    if len(parts) < 3:
+        return None, None, None
+
+    return get_version_parts(parts, int)
 
 
 def semver_match(v1, v2):
