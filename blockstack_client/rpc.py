@@ -800,7 +800,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 return
 
             ret = {
-                'satus' : 'registered_subdomain',
+                'status' : 'registered_subdomain',
                 'zonefile_txt' : subdomain_obj.zonefile_str,
                 'zonefile_hash' : storage.get_zonefile_data_hash(subdomain_obj.zonefile_str),
                 'address' : subdomain_obj.address,

@@ -40,8 +40,9 @@ STORAGE_IMPL = None
 ANALYTICS_KEY = None
 
 
-def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=None, wallet_password=None,
-            storage_drivers=None, metadata_dir=None, spv_headers_path=None, set_global=False):
+def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=None,
+            wallet_password=None, storage_drivers=None, metadata_dir=None,
+            spv_headers_path=None, set_global=False, server_protocol = None):
     """
     Create a blockstack session:
     * validate the configuration
@@ -65,7 +66,7 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
         conf = get_config(config_path)
         if conf is None:
             log.error("Failed to read configuration file {}".format(config_path))
-            return None 
+            return None
 
         conf_version = conf.get('client_version', '')
         if not semver_match(conf_version, VERSION):
@@ -77,6 +78,8 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
             server_host = conf['server']
         if server_port is None:
             server_port = conf['port']
+        if server_protocol is None:
+            server_protocol = conf['protocol']
         if storage_drivers is None:
             storage_drivers = conf['storage_drivers']
         if metadata_dir is None:
@@ -91,8 +94,8 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
         sys.exit(1)
 
     # create proxy
-    log.debug('Connect to {}:{}'.format(server_host, server_port))
-    proxy = BlockstackRPCClient(server_host, server_port)
+    log.debug('Connect to {}://{}:{}'.format(server_protocol, server_host, server_port))
+    proxy = BlockstackRPCClient(server_host, server_port, protocol = server_protocol)
 
     # load all storage drivers
     loaded = []
