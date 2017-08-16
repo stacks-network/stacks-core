@@ -317,7 +317,7 @@ def in_queue( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
 def queue_append(queue_id, fqu, tx_hash, payment_address=None,
                  owner_address=None, transfer_address=None,
                  config_path=CONFIG_PATH, block_height=None,
-                 zonefile_data=None, profile=None, zonefile_hash=None,
+                 zonefile_data=None, key_file=None, zonefile_hash=None,
                  unsafe_reg = None, confirmations_needed = None,
                  owner_privkey=None,
                  min_payment_confs = None, path=DEFAULT_QUEUE_PATH):
@@ -355,7 +355,7 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
     if zonefile_data is not None:
         new_entry['zonefile_b64'] = base64.b64encode(zonefile_data)
 
-    new_entry['profile'] = profile
+    new_entry['key_file'] = key_file
     if zonefile_hash is None and zonefile_data is not None:
         zonefile_hash = get_zonefile_data_hash(zonefile_data)
 
