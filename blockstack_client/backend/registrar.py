@@ -48,7 +48,7 @@ from .queue import queue_add_error_msg
 
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
 
-from ..keys import get_data_privkey_info, is_singlesig_hex 
+from ..keys import get_data_privkey_info, is_singlesig_hex
 from ..proxy import is_name_registered, is_zonefile_hash_current, get_default_proxy, get_name_blockchain_record, get_atlas_peers, json_is_error
 from ..zonefile import zonefile_data_replicate
 from ..user import is_user_zonefile
@@ -201,7 +201,7 @@ class RegistrarWorker(threading.Thread):
                                           queue_path=queue_path )
                     return res
                 else:
-                    # already queued 
+                    # already queued
                     reg_result = queuedb_find( "register", name_data['fqu'], limit=1, path=queue_path )
                     if len(reg_result) == 1:
                         log.debug('Already queued for register: {}'.format(name_data['fqu']))
@@ -513,7 +513,7 @@ class RegistrarWorker(threading.Thread):
         Return {'status': True} on success
         Return {'error': ..., 'names': [...]} on failure.  'names' refers to the list of names that failed
         """
-        ret = {'status': True} 
+        ret = {'status': True}
         failed_names = []
 
         atlas_servers = cls.get_atlas_server_list( config_path )
@@ -533,12 +533,12 @@ class RegistrarWorker(threading.Thread):
                 queue_add_error_msg('update', update['fqu'], res['error'], path=queue_path)
                 ret = {'error': 'Failed to finish an update'}
                 failed_names.append( update['fqu'] )
-                
+
         if 'error' in ret:
             ret['names'] = failed_names
 
         return ret
-      
+
 
     @classmethod
     def replicate_update_data( cls, queue_path, wallet_data, storage_drivers, skip=[], config_path=CONFIG_PATH, proxy=None ):
@@ -587,7 +587,7 @@ class RegistrarWorker(threading.Thread):
         """
         if proxy is None:
             proxy = get_default_proxy(config_path=config_path)
-    
+
         failed = []
         ret = {'status': True}
         conf = get_config(config_path)
@@ -622,14 +622,14 @@ class RegistrarWorker(threading.Thread):
                     queue_removeall( [update], path=queue_path )
 
                 else:
-                    # will try again 
+                    # will try again
                     log.error("Failed to transfer {} to {}: {}".format(update['fqu'], update['transfer_address'], res.get('error')))
                     queue_add_error_msg('update', update['fqu'], res.get('error'), path=queue_path)
                     ret = {'error': 'Not all names transferred'}
                     failed.append(update['fqu'])
 
             else:
-                # nothing more to do 
+                # nothing more to do
                 log.debug("Done working on {}".format(update['fqu']))
                 log.debug("Final name output: {}".format(update))
                 queue_removeall( [update], path=queue_path )
@@ -640,7 +640,7 @@ class RegistrarWorker(threading.Thread):
         return ret
 
 
-    @classmethod 
+    @classmethod
     def get_atlas_server_list( cls, config_path ):
         """
         Get the list of atlas servers to which to replicate zonefiles
@@ -655,7 +655,7 @@ class RegistrarWorker(threading.Thread):
         try:
             atlas_peers_res = get_atlas_peers( server_hostport )
             assert 'error' not in atlas_peers_res
-           
+
             servers += atlas_peers_res['peers']
 
         except AssertionError as ae:
@@ -669,7 +669,7 @@ class RegistrarWorker(threading.Thread):
         except Exception as e:
             log.exception(e)
             return {'error': 'Failed to contact atlas peer'}
-            
+
         servers = list(set([str(hp) for hp in servers]))
 
         if 'node.blockstack.org:6264' not in servers and not BLOCKSTACK_TEST:
@@ -707,7 +707,7 @@ class RegistrarWorker(threading.Thread):
         """
         Is the given lockfile stale?
         """
-    
+
         with open(path, "r") as f:
             dat = f.read()
             try:
@@ -726,7 +726,7 @@ class RegistrarWorker(threading.Thread):
         Return True on success
         Return False on error
         """
-        
+
         buf = "%s\n" % os.getpid()
         nw = 0
         while nw < len(buf):
@@ -748,7 +748,7 @@ class RegistrarWorker(threading.Thread):
         return os.path.join( os.path.dirname(config_path), "registrar.lock" )
 
 
-    @classmethod 
+    @classmethod
     def is_lockfile_valid( cls, config_path ):
         """
         Does the lockfile exist and does it correspond
@@ -794,7 +794,7 @@ class RegistrarWorker(threading.Thread):
         try:
             fd, path = tempfile.mkstemp(prefix=".registrar.lock.", dir=os.path.dirname(self.config_path))
             os.link( path, self.lockfile_path )
-            
+
             try:
                 os.unlink(path)
             except:
@@ -830,12 +830,12 @@ class RegistrarWorker(threading.Thread):
             try:
                 wallet_data = get_wallet( config_path=self.config_path, proxy=proxy )
 
-                # wait until the owner address is set 
+                # wait until the owner address is set
                 while ('error' in wallet_data or wallet_data['owner_address'] is None) and self.running:
                     log.debug("Owner address not set... (%s)" % wallet_data.get("error", ""))
                     wallet_data = get_wallet( config_path=self.config_path, proxy=proxy )
                     time.sleep(1.0)
-                
+
                 # preemption point
                 if not self.running:
                     break
@@ -1099,7 +1099,7 @@ def get_wallet_data_privkey_info(config_path=None, proxy=None):
     """
     state, config_path, proxy = get_registrar_state(config_path=config_path, proxy=proxy)
     if state.data_privkey_info is None:
-        return None 
+        return None
 
     return state.data_privkey_info
 
@@ -1115,7 +1115,7 @@ def get_wallet(config_path=None, proxy=None):
 
     state, config_path, proxy = get_registrar_state(config_path=config_path, proxy=proxy)
     data = {}
-    
+
     data['payment_address'] = state.payment_address
     data['owner_address'] = state.owner_address
     data['data_pubkey'] = state.data_pubkey
@@ -1229,10 +1229,10 @@ def update( fqu, zonefile_txt, zonefile_hash, transfer_address, config_path=CONF
     data = {}
 
     assert zonefile_txt is not None or zonefile_hash is not None, "need zonefile or zonefile hash"
-    
+
     if zonefile_hash is None:
         zonefile_hash = get_zonefile_data_hash( zonefile_txt )
-        
+
     if state.payment_address is None or state.owner_address is None:
         data['success'] = False
         data['error'] = "Wallet is not unlocked."
@@ -1246,7 +1246,10 @@ def update( fqu, zonefile_txt, zonefile_hash, transfer_address, config_path=CONF
     resp = None
 
     payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
-    owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    if owner_key is None:
+        owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    else:
+        owner_privkey_info = owner_key
 
     replication_error = None
 

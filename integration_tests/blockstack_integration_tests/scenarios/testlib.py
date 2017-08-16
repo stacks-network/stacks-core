@@ -21,7 +21,7 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-# test lib to bind a test scenario to blockstack 
+# test lib to bind a test scenario to blockstack
 
 import os
 import sys
@@ -108,9 +108,10 @@ class TestAPIProxy(object):
         assert client_path is not None
 
         client_config = blockstack_client.get_config(client_path)
-        
+
         log.debug("Connect to Blockstack node at {}:{}".format(client_config['server'], client_config['port']))
-        self.client = blockstack_client.BlockstackRPCClient( client_config['server'], client_config['port'] )
+        self.client = blockstack_client.BlockstackRPCClient(
+            client_config['server'], client_config['port'], protocol = client_config['protocol'])
         self.config_path = client_path
         self.conf = {
             "start_block": blockstack.FIRST_BLOCK_MAINNET,
@@ -3449,12 +3450,12 @@ def make_client_device( index ):
     return {'status': True}
 
 
-def verify_in_queue( ses, name, queue_name, tx_hash, expected_length=1 ):
+def verify_in_queue( ses, name, queue_name, tx_hash, expected_length=1, api_pass=None ):
     """
     Verify that a name (optionally with the given tx hash) is in the given queue
     """
-    # verify that it's in the queue 
-    res = blockstack_REST_call('GET', '/v1/blockchains/bitcoin/pending', ses )
+    # verify that it's in the queue
+    res = blockstack_REST_call('GET', '/v1/blockchains/bitcoin/pending', ses, api_pass = api_pass )
     if 'error' in res:
         res['test'] = 'Failed to get queues'
         print json.dumps(res)
@@ -3463,7 +3464,7 @@ def verify_in_queue( ses, name, queue_name, tx_hash, expected_length=1 ):
 
     res = res['response']
 
-    # needs to be in the queue 
+    # needs to be in the queue
     if not res.has_key('queues'):
         res['test'] = 'Missing queues'
         print json.dumps(res)
@@ -3475,7 +3476,7 @@ def verify_in_queue( ses, name, queue_name, tx_hash, expected_length=1 ):
         print json.dumps(res)
         error = True
         return False
-    
+
     if len(res['queues'][queue_name]) != expected_length:
         res['test'] = 'invalid preorder queue'
         print json.dumps(res)
@@ -3502,8 +3503,8 @@ def verify_in_queue( ses, name, queue_name, tx_hash, expected_length=1 ):
         print json.dumps(res)
         return False
 
-    # verify that it's name resolves to the right queue state 
-    res = blockstack_REST_call("GET", "/v1/names/{}".format(name), ses)
+    # verify that it's name resolves to the right queue state
+    res = blockstack_REST_call("GET", "/v1/names/{}".format(name), ses, api_pass = api_pass)
     if 'error' in res:
         res['test'] = 'Failed to query name'
         print json.dumps(res)
@@ -3516,7 +3517,7 @@ def verify_in_queue( ses, name, queue_name, tx_hash, expected_length=1 ):
         error = True
         return False
 
-    # should be in the preorder queue at some point 
+    # should be in the preorder queue at some point
     if res['response']['operation'] != queue_name:
         return False
 

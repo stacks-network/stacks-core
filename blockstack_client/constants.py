@@ -45,7 +45,7 @@ BLOCKSTACK_DRY_RUN = os.environ.get('BLOCKSTACK_DRY_RUN', None)
 
 if BLOCKSTACK_DRY_RUN is not None:
     BLOCKSTACK_DRY_RUN = True
-    
+
 DEBUG = False
 if BLOCKSTACK_TEST is not None and BLOCKSTACK_TEST_NODEBUG is None:
     DEBUG = True
@@ -69,7 +69,7 @@ if os.environ.get("BLOCKSTACK_MIN_CONFIRMATIONS", None) is not None:
 VERSION = __version__
 SERIES_VERSION = "{}.{}.{}".format(__version_major__, __version_minor__, __version_patch__)
 
-DEFAULT_BLOCKSTACKD_PORT = 6264  # blockstack indexer port
+DEFAULT_BLOCKSTACKD_PORT = 6263  # blockstack indexer port
 DEFAULT_BLOCKSTACKD_SERVER = 'node.blockstack.org'
 
 DEFAULT_DEVICE_ID = '0'
@@ -406,7 +406,7 @@ def serialize_secrets():
 
 
 def parse_secrets(buf):
-    try:    
+    try:
         return json.loads(buf)
     except:
         return {}
@@ -424,7 +424,7 @@ def load_secrets(buf, is_file = False):
     else:
         sec = parse_secrets(buf)
     SECRETS.update(sec)
-   
+
 
 def write_secrets(buf):
     """
@@ -433,7 +433,7 @@ def write_secrets(buf):
     can read and write.
 
     Be careful how we do this---we don't want another
-    process running as the same user 
+    process running as the same user
     to be able to open the file in read mode.
 
     Returns the (integer) file descriptor number on success.

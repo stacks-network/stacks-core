@@ -375,6 +375,7 @@ def index_make_bucket(dvconf, bucket):
 
         index_page = {}
         index_page_data = serialize_index_page(index_page)
+        log.debug("Serialized index bucket {}".format(bucket))
 
         url = dvconf['put_chunk'](dvconf, index_page_data, bucket)
         assert url

@@ -1429,7 +1429,7 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
 
     fqu = str(fqu)
 
-    # wrap UTXO client so we remember UTXOs 
+    # wrap UTXO client so we remember UTXOs
     utxo_client = build_utxo_client(utxo_client)
 
     owner_address = virtualchain.get_privkey_address( owner_privkey_info )
@@ -1439,7 +1439,7 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
 
     if not dry_run and (safety_checks or tx_fee_per_byte is None):
         # find tx fee, and do sanity checks
-        res = check_update(fqu, owner_privkey_info, payment_privkey_info, 
+        res = check_update(fqu, owner_privkey_info, payment_privkey_info,
                            config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations,
                            force_it = force_update)
         if 'error' in res and safety_checks:

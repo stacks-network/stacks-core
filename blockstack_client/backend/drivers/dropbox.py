@@ -78,19 +78,23 @@ def dropbox_put_chunk( dvconf, chunk_buf, name ):
     Returns the URL to the data stored on success.
     Returns None on error
     """
+    log.debug("Putting on dropbox")
     driver_info = dvconf['driver_info']
     dropbox_token = driver_info['dropbox_token']
     if dropbox_token is None:
         log.warn("No dropbox token set")
         return None
 
+
     dbx = dropbox.Dropbox(dropbox_token)
+    log.debug("Connected dropbox")
+
     chunk_buf = str(chunk_buf)
 
     try:
         file_info = dbx.files_upload(chunk_buf, name, mode=dropbox.files.WriteMode('overwrite'))
 
-        # share it 
+        # share it
         link_info = dbx.sharing_create_shared_link(name, short_url=False)
         url = dropbox_url_reformat(link_info.url)
 

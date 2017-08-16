@@ -45,20 +45,30 @@ while IFS= read SCENARIO_FILE; do
 
    if ! [ -f "$OUTPUTS/$SCENARIO_MODULE_BASE.log" ]; then 
    
-      echo -n "$SCENARIO_MODULE ... "
+      echo "$SCENARIO_MODULE ... "
 
       mkdir -p "$TESTDIR"
-      "$RUN_SCENARIO" "$SCENARIO_MODULE" "$TESTDIR" > "$OUTPUTS/$SCENARIO_MODULE_BASE.log" 2>&1
+      "$RUN_SCENARIO" "$SCENARIO_MODULE" "$TESTDIR" > "$OUTPUTS/$SCENARIO_MODULE_BASE.log" 2>&1 &
+      TEST_PID=$!
+      while ps -p $TEST_PID > /dev/null; do
+          etime=$(ps -p $TEST_PID -o etimes | tail -n 1 | awk '{ print $1 }')
+          if [ $etime -ge 1200 ]; then
+              echo -n " KILL for time "
+              kill -s INT $TEST_PID
+          fi
+          sleep 10
+      done
 
+      grep -q "SUCCESS" "$OUTPUTS/$SCENARIO_MODULE_BASE.log"
       RC=$?
 
       # make the xunit file
       OUTPUT_FILE="$OUTPUTS/$SCENARIO_MODULE_BASE.xml"
 
       echo '<?xml version="1.0" encoding="UTF-8"?><testsuite>' > "$OUTPUT_FILE"
-      echo "<testcase name=\"$SCENARIO_MODULE_BASE\" classname=\"$SCENARIO_MODULE_BASE\">" >> "$OUTPUT_FILE"
+      echo "<testcase name=\"$SCENARIO_MODULE_BASE\" classname=\"test\">" >> "$OUTPUT_FILE"
       if [ $RC -ne 0 ]; then
-	 echo '<failure message="Integration test failed."></failure>' >> "$OUTPUT_FILE"
+          echo '<failure message="Integration test failed."></failure>' >> "$OUTPUT_FILE"
       fi
       echo "</testcase></testsuite>" >> "$OUTPUT_FILE"
 
@@ -93,13 +103,17 @@ while IFS= read SCENARIO_FILE; do
             fi
          fi
       else
-
          echo -n " (WARN: no existing log) "
       fi 
 
+      bitcoin_pid=$(pidof bitcoind)
+      if [ "$bitcoin_pid" != "" ]; then
+          echo " killing still-living bitcoind "
+          kill -9 $bitcoin_pid
+      fi
+
       echo " SUCCESS"
       rm -rf "$TESTDIR"
-      killall bitcoind
    fi
 
 done <<EOF
