@@ -130,17 +130,17 @@ from .utils import exit_with_error, satoshis_to_btc, ScatterGather
 from .app import app_publish, app_get_config, app_get_resource, \
         app_put_resource, app_delete_resource, app_domain_to_app_name
 
-from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, put_datastore, delete_datastore, \
+from .gaia import make_datastore_info, put_datastore, delete_datastore, \
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_stat, \
         datastore_get_id, datastore_get_privkey, \
-        make_mutable_data_info, data_blob_parse, data_blob_serialize, make_mutable_data_tombstones, sign_mutable_data_tombstones, \
+        make_mutable_data_info, data_blob_parse, data_blob_serialize, make_data_tombstones, sign_data_tombstones, \
         get_root_directory
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
 
-from .token_file import token_file_profile_serialize, token_file_update_profile, token_file_get, token_file_put, token_file_delete, \
-    lookup_name_privkey, lookup_signing_privkey, lookup_signing_pubkeys, token_file_get_key_order, lookup_delegated_device_pubkeys, \
-    token_file_create, lookup_app_pubkeys, token_file_get_app_name, token_file_update_apps
+from .key_file import key_file_profile_serialize, key_file_update_profile, key_file_get, key_file_put, key_file_delete, \
+    lookup_name_privkey, lookup_signing_privkey, lookup_signing_pubkeys, key_file_get_key_order, lookup_delegated_device_pubkeys, \
+    key_file_create, lookup_app_pubkeys, key_file_get_app_name, key_file_update_apps
 
 import keylib
 
@@ -951,7 +951,7 @@ def cli_ping(args, config_path=CONFIG_PATH):
 def cli_lookup(args, config_path=CONFIG_PATH):
     """
     command: lookup
-    help: Get the zone file and profile for a particular name
+    help: Get the zone file and key file for a particular name
     arg: name (str) 'The name to look up'
     """
     data = {}
@@ -980,21 +980,23 @@ def cli_lookup(args, config_path=CONFIG_PATH):
         return blockchain_record
 
     if 'value_hash' not in blockchain_record:
-        return {'error': '{} has no profile'.format(fqu)}
+        return {'error': '{} has no key file'.format(fqu)}
 
     if blockchain_record.get('revoked', False):
         msg = 'Name is revoked. Use get_name_blockchain_record for details.'
         return {'error': msg}
 
     try:
-        res = get_profile(
-            str(args.name), name_record=blockchain_record, include_raw_zonefile=True, use_legacy=True, use_legacy_zonefile=True
-        )
-
+        res = key_file_get(str(args.name), name_record=blockchain_record)
         if 'error' in res:
             return res
+        
+        if res.has_key('legacy_profile') and res['legacy_profile']:
+            data['profile'] = res['legacy_profile']
 
-        data['profile'] = res['profile']
+        else:
+            data['profile'] = res['profile']
+
         data['zonefile'] = res['raw_zonefile']
     except Exception as e:
         log.exception(e)
@@ -1292,9 +1294,35 @@ def analyze_zonefile_string(fqu, zonefile_data, force_data=False, check_current=
     return ret
 
 
+def make_initial_key_file(user_profile, owner_privkey_info, config_path=CONFIG_PATH):
+    """
+    Given a profile, set it up as an "initial" key file (given the owner private key bundle)
+    Return {'status': True, 'key_file': serialized key file} on success
+    Return {'error': ...} on error
+    """
+    this_device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
+    this_device_owner_key = None
+
+    if virtualchain.is_multisig(owner_privkey_info):
+        this_device_owner_key = owner_privkey_info['private_keys'][0]
+    else:
+        this_device_owner_key = owner_privkey_info
+
+    name_owner_privkeys = {
+        this_device_id: this_device_owner_privkey
+    }
+
+    res = key_file_create(fqu, name_owner_privkeys, this_device_id, profile=user_profile, config_path=config_path)
+    if 'error' in res:
+        return {'error': 'Failed to generate key file for {}: {}'.format(fqu, res['error'])}
+
+    user_key_file = res['key_file']
+    return {'status': True, 'key_file': user_key_file}
+
+
 def cli_register(args, config_path=CONFIG_PATH, force_data=False,
                  cost_satoshis=None, interactive=True, password=None, proxy=None,
-                 make_profile = None):
+                 make_key_file=False):
     """
     command: register
     help: Register a blockchain ID
@@ -1352,6 +1380,8 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
             return {'error': 'Not a valid address'}
 
     user_profile = None
+    user_key_file = None
+
     if user_zonefile:
         zonefile_info = analyze_zonefile_string(fqu, user_zonefile, force_data=force_data, proxy=proxy)
         if 'error' in zonefile_info:
@@ -1376,18 +1406,20 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
         user_zonefile_dict = make_empty_zonefile(fqu, data_pubkey)
         user_zonefile = blockstack_zones.make_zone_file(user_zonefile_dict)
 
-        if (make_profile and transfer_address):
+        if (make_key_file and transfer_address):
             log.error("Transfer address supplied to register, and was asked to make an empty profile. This is wrong.")
             return {'error' : 'Error in logic surrounding profile creation. Please report this as a bug.'}
+
         # only *assume* we need to make a profile if the user didn't supply
         #   a zonefile, and didn't supply a transfer_address
-        make_profile = not transfer_address
+        make_key_file = not transfer_address
 
-    if make_profile:
+    if make_key_file:
         # let's put an empty profile
         _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
         if not data_pubkey:
             return {'error': 'No data key in wallet.  Please add one with `setup_wallet`'}
+
         user_profile = make_empty_user_profile()
 
     # operation checks (API server only)
@@ -1420,6 +1452,18 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
 
         else:
             cost_satoshis = opchecks['name_price']
+
+        # create key file
+        if make_key_file:
+            if user_profile is None:
+                user_profile = make_empty_user_profile()
+
+            res = make_initial_key_file(user_profile, owner_privkey_info, config_path=config_path)
+            if 'error' in res:
+                return res
+
+            user_key_file = res['key_file']
+
     if transfer_address == '':
         transfer_address = None
 
@@ -1461,14 +1505,14 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
         except KeyboardInterrupt:
             print('\nExiting.')
             exit(0)
-
+    
     # forward along to RESTful server (or if we're the RESTful server, call the registrar method)
-    log.debug("Preorder {}, zonefile={}, profile={}, recipient={} min_confs={}".format(fqu, user_zonefile, user_profile, transfer_address, min_payment_confs))
+    log.debug("Preorder {}, zonefile={}, profile={}, key_file={}, recipient={} min_confs={}".format(fqu, user_zonefile, user_profile, user_key_file, transfer_address, min_payment_confs))
     rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     try:
-        resp = rpc.backend_preorder(fqu, cost_satoshis, user_zonefile, user_profile,
+        resp = rpc.backend_preorder(fqu, cost_satoshis, user_zonefile, user_key_file,
                                     transfer_address, min_payment_confs,
                                     unsafe_reg = unsafe_reg)
     except Exception as e:
@@ -1622,7 +1666,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
     try:
         # NOTE: already did safety checks
-        resp = rpc.backend_update(fqu, user_data_txt, None, None )
+        resp = rpc.backend_update(fqu, user_data_txt, None )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1875,7 +1919,7 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
     return resp
 
 
-def cli_migrate(args, config_path=CONFIG_PATH, password=None,
+def cli_migrate(args, config_path=CONFIG_PATH, password=None, wallet_keys=None,
                 proxy=None, interactive=True, force=False):
     """
     command: migrate
@@ -1995,7 +2039,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     assert rpc
 
     try:
-        resp = rpc.backend_update(fqu, zonefile_txt, user_profile, None)
+        resp = rpc.backend_update(fqu, zonefile_txt, None)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -3583,8 +3627,8 @@ def cli_delete_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None)
     else:
         device_ids = [get_local_device_id(os.path.dirname(config_path))]
 
-    data_tombstones = make_mutable_data_tombstones(device_ids, data_id) 
-    signed_data_tombstones = sign_mutable_data_tombstones(data_tombstones, privkey)
+    data_tombstones = make_data_tombstones(device_ids, data_id) 
+    signed_data_tombstones = sign_data_tombstones(data_tombstones, privkey)
 
     result = delete_mutable(data_id, signed_data_tombstones, proxy=proxy, config_path=config_path)
     return result
@@ -3800,7 +3844,7 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     assert rpc
 
     try:
-        resp = rpc.backend_update(fqu, None, None, zonefile_hash )
+        resp = rpc.backend_update(fqu, None, zonefile_hash )
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -3841,7 +3885,7 @@ def cli_unqueue(args, config_path=CONFIG_PATH):
     return {'status': True}
 
 
-def find_signing_privkey(name, args_signing_privkey, wallet_keys=None, config_path=CONFIG_PATH, password=None, proxy=None, parsed_token_file=None):
+def find_signing_privkey(name, args_signing_privkey, wallet_keys=None, config_path=CONFIG_PATH, password=None, proxy=None, parsed_key_file=None):
     """
     Find the signing private key to use--either the one given in args_signing_privkey,
     or the one from our wallet that corresponds to this device's signing public key.
@@ -3861,7 +3905,7 @@ def find_signing_privkey(name, args_signing_privkey, wallet_keys=None, config_pa
             if 'error' in wallet_keys:
                 return wallet_keys
 
-        res = lookup_signing_privkey(name, get_owner_privkey_info(wallet_keys), proxy=proxy, parsed_token_file=parsed_token_file)
+        res = lookup_signing_privkey(name, get_owner_privkey_info(wallet_keys), proxy=proxy, parsed_key_file=parsed_key_file)
         if 'error' in res:
             log.error("Failed to load signing key for {}: {}".format(name, res['error']))
             return {'error': 'Failed to look up signing key from wallet.  Try passing it explicitly as an argument.'}
@@ -3925,12 +3969,12 @@ def find_datastore_device_pubkeys(blockchain_id, args_device_ids, args_device_pu
     Find the list of (device ID, app-specific signing key) pairs for a given name.
     Use either the CSV string given in args (args_device_dis), or look it up from the token file.
 
-    Return {'status': True, 'token_file': ..., 'device_ids': [{'device_id': ..., 'public_key': ...}...[} on success
+    Return {'status': True, 'key_file': ..., 'device_ids': [{'device_id': ..., 'public_key': ...}...[} on success
     Return {'errro': ...} on error
     """
     pubkeys = None
     device_ids = None
-    parsed_token_file = None
+    parsed_key_file = None
 
     assert full_application_name or datastore_id, "Need either full application name or datastore ID"
 
@@ -3952,24 +3996,24 @@ def find_datastore_device_pubkeys(blockchain_id, args_device_ids, args_device_pu
         log.debug("Look up datastore public keys for '{}'".format(blockchain_id))
         
         if full_application_name is None:
-            res = token_file_get(blockchain_id, proxy=proxy)
+            res = key_file_get(blockchain_id, proxy=proxy)
             if 'error' in res:
                 return {'error': 'Failed to load token file for "{}"'.format(blockchain_id)}
 
-            parsed_token_file = res['token_file']
+            parsed_key_file = res['key_file']
 
-            res = token_file_get_app_name(parsed_token_file, datastore_id)
+            res = key_file_get_app_name(parsed_key_file, datastore_id)
             if 'error' in res:
                 return res
 
             full_application_name = res['full_application_name']
 
         # find from token file 
-        res = lookup_app_pubkeys(blockchain_id, full_application_name, proxy=proxy, parsed_token_file=parsed_token_file)
+        res = lookup_app_pubkeys(blockchain_id, full_application_name, proxy=proxy, parsed_key_file=parsed_key_file)
         if 'error' in res:
             return {'error': 'Failed to query application device list for {}: {}'.format(blockchain_id, res['error'])}
 
-        parsed_token_file = res['token_file']
+        parsed_key_file = res['key_file']
         device_ids = res['pubkeys'].keys()
         pubkeys = []
         for dev_id in device_ids:
@@ -3980,7 +4024,7 @@ def find_datastore_device_pubkeys(blockchain_id, args_device_ids, args_device_pu
 
             pubkeys.append(entry)
 
-    return {'status': True, 'device_ids': device_ids, 'pubkeys': pubkeys, 'token_file': parsed_token_file}
+    return {'status': True, 'device_ids': device_ids, 'pubkeys': pubkeys, 'key_file': parsed_key_file}
 
 
 def find_datastore_private_key(blockchain_id, full_application_name, arg_app_privkey, wallet_keys=None, config_path=CONFIG_PATH, password=None, proxy=None):
@@ -4534,7 +4578,7 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
     privkey = ECPrivateKey(privkey).to_hex()
     pubkey = get_pubkey_hex(privkey)
 
-    res = storage.serialize_mutable_data(data_json, privkey, pubkey, profile=True)
+    res = storage.serialize_mutable_data(data_json, privkey, pubkey, key_file=True)
     if res is None:
         return {'error': 'Failed to sign and serialize profile'}
 
@@ -5133,7 +5177,7 @@ def cli_get_datastore( args, config_path=CONFIG_PATH ):
     app_name = None
     datastore_id = None
     device_ids = None
-    parsed_token_file = None
+    parsed_key_file = None
 
     if getattr(args, 'blockchain_id', None):
         blockchain_id = str(args.blockchain_id)
