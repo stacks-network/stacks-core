@@ -36,7 +36,7 @@ import re
 import jsontokens
 import storage
 import urlparse
-import data
+import gaia
 import user as user_db
 from .proxy import *
 
@@ -85,7 +85,7 @@ def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_p
         session_lifetime = conf.get('default_session_lifetime', 1e80)
 
     app_public_key = get_pubkey_hex(app_private_key)
-    app_user_id = data.datastore_get_id(app_public_key)
+    app_user_id = gaia.datastore_get_id(app_public_key)
 
     api_endpoint_host = conf.get('api_endpoint_host', DEFAULT_API_HOST)
     api_endpoint_port = conf.get('api_endpoint_port', DEFAULT_API_PORT)
@@ -217,10 +217,10 @@ def app_publish( dev_blockchain_id, app_domain, app_method_list, app_index_uris,
     data_pubkey = get_pubkey_hex(data_privkey)
     config_data_id = storage.make_fq_data_id(app_domain, '.blockstack')
 
-    app_cfg_blob = data.make_mutable_data_info(config_data_id, app_cfg, is_fq_data_id=True)
-    app_cfg_str = data.data_blob_serialize(app_cfg_blob)
-    app_cfg_sig = data.data_blob_sign( app_cfg_str, data_privkey )
-    res = data.put_mutable(config_data_id, app_cfg_str, data_pubkey, app_cfg_sig, app_cfg_blob['version'], blockchain_id=dev_blockchain_id, config_path=config_path)
+    app_cfg_blob = gaia.make_mutable_data_info(config_data_id, app_cfg, is_fq_data_id=True)
+    app_cfg_str = gaia.data_blob_serialize(app_cfg_blob)
+    app_cfg_sig = gaia.data_blob_sign( app_cfg_str, data_privkey )
+    res = gaia.put_mutable(config_data_id, app_cfg_str, data_pubkey, app_cfg_sig, app_cfg_blob['version'], blockchain_id=dev_blockchain_id, config_path=config_path)
     if 'error' in res:
         log.error('Failed to replicate application configuration {}: {}'.format(config_data_id, res['error']))
         return {'error': 'Failed to replicate application config'}
@@ -238,10 +238,10 @@ def app_publish( dev_blockchain_id, app_domain, app_method_list, app_index_uris,
     
     # replicate app index file (at least one must succeed)
     # NOTE: the publisher is free to use alternative URIs that are not supported; they'll just be ignored.
-    app_index_blob = data.make_mutable_data_info(index_data_id, app_index_file, is_fq_data_id=True)
-    app_index_blob_str = data.data_blob_serialize(app_index_blob)
-    app_index_sig = data.data_blob_sign(app_index_blob_str, data_privkey)
-    res = data.put_mutable( index_data_id, app_index_blob_str, data_pubkey, app_index_sig, app_index_blob['version'], blockchain_id=dev_blockchain_id, config_path=config_path, storage_drivers=app_driver_hints )
+    app_index_blob = gaia.make_mutable_data_info(index_data_id, app_index_file, is_fq_data_id=True)
+    app_index_blob_str = gaia.data_blob_serialize(app_index_blob)
+    app_index_sig = gaia.data_blob_sign(app_index_blob_str, data_privkey)
+    res = gaia.put_mutable( index_data_id, app_index_blob_str, data_pubkey, app_index_sig, app_index_blob['version'], blockchain_id=dev_blockchain_id, config_path=config_path, storage_drivers=app_driver_hints )
     if 'error' in res:
         log.error("Failed to replicate application index file to {}: {}".format(",".join(urls), res['error']))
         return {'error': 'Failed to replicate index file'}
@@ -262,7 +262,7 @@ def app_get_config( blockchain_id, app_domain, data_pubkey=None, proxy=None, con
     proxy = get_default_proxy() if proxy is None else proxy
 
     # go get config
-    res = data.get_mutable( ".blockstack", [app_domain], data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, blockchain_id=blockchain_id )
+    res = gaia.get_mutable( ".blockstack", [app_domain], data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, blockchain_id=blockchain_id )
     if 'error' in res:
         log.error("Failed to get application config file {}: {}".format(config_data_id, res['error']))
         return res
@@ -301,7 +301,7 @@ def app_get_resource( blockchain_id, app_domain, res_name, app_config=None, data
         driver_hints = app_config['driver_hints']
         urls = storage.get_driver_urls( res_data_id, storage.get_storage_handlers() )
 
-    res = data.get_mutable( res_name, [app_domain], data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, urls=urls, blockchain_id=blockchain_id )
+    res = gaia.get_mutable( res_name, [app_domain], data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, urls=urls, blockchain_id=blockchain_id )
     if 'error' in res:
         log.error("Failed to get resource {}: {}".format(res_name, res['error']))
         return {'error': 'Failed to load resource'}
@@ -343,10 +343,10 @@ def app_put_resource( blockchain_id, app_domain, res_name, res_data, app_config=
         # use driver hints
         driver_hints = app_config['driver_hints']
 
-    res_blob = data.make_mutable_data_info(res_data_id, res_data, is_fq_data_id=True)
-    res_blob_str = data.data_blob_serialize(res_blob)
-    res_sig = data.data_blob_sign(res_blob_str, data_privkey)
-    res = data.put_mutable(res_data_id, res_blob_str, data_pubkey, res_sig, res_blob['version'], blockchain_id=blockchain_id, config_path=config_path, storage_drivers=driver_hints)
+    res_blob = gaia.make_mutable_data_info(res_data_id, res_data, is_fq_data_id=True)
+    res_blob_str = gaia.data_blob_serialize(res_blob)
+    res_sig = gaia.data_blob_sign(res_blob_str, data_privkey)
+    res = gaia.put_mutable(res_data_id, res_blob_str, data_pubkey, res_sig, res_blob['version'], blockchain_id=blockchain_id, config_path=config_path, storage_drivers=driver_hints)
     if 'error' in res:
         log.error("Failed to store resource {}: {}".format(res_data_id, res['error']))
         return {'error': 'Failed to store resource'}
@@ -385,7 +385,7 @@ def app_delete_resource( blockchain_id, app_domain, res_name, app_config=None, d
 
     tombstone = storage.make_data_tombstone(res_data_id)
     signed_tombstone = storage.sign_data_tombstone(res_data_id, data_privkey)
-    res = data.delete_mutable(res_data_id, [signed_tombstone], proxy=proxy, storage_drivers=driver_hints, blockchain_id=blockchain_id, is_fq_data_id=True, config_path=config_path)
+    res = gaia.delete_mutable(res_data_id, [signed_tombstone], proxy=proxy, storage_drivers=driver_hints, blockchain_id=blockchain_id, is_fq_data_id=True, config_path=config_path)
     if 'error' in res:
         log.error("Failed to delete resource {}: {}".format(res_data_id, res['error']))
         return {'error': 'Failed to delete resource'}
@@ -445,7 +445,7 @@ def app_unpublish( blockchain_id, app_domain, force=False, data_privkey=None, ap
     # delete the index
     index_tombstone = storage.make_data_tombstone(index_data_id)
     signed_index_tombstone = storage.sign_data_tombstone(index_data_id, data_privkey)
-    res = data.delete_mutable(index_data_id, [signed_index_tombstone], proxy=proxy, storage_drivers=storage_drivers, blockchain_id=blockchain_id, is_fq_data_id=True, config_path=config_path)
+    res = gaia.delete_mutable(index_data_id, [signed_index_tombstone], proxy=proxy, storage_drivers=storage_drivers, blockchain_id=blockchain_id, is_fq_data_id=True, config_path=config_path)
     if 'error' in res:
         log.warning("Failed to delete index file {}".format(index_data_id))
         ret['app_config'] = app_config
@@ -454,7 +454,7 @@ def app_unpublish( blockchain_id, app_domain, force=False, data_privkey=None, ap
     # delete the config 
     config_tombstone = storage.make_data_tombstone(config_data_id)
     signed_config_tombstone = storage.sign_data_tombstone(config_data_id, data_privkey)
-    res = data.delete_mutable(config_data_id, [signed_config_tombstone], proxy=proxy, blockchain_id=blockchain_id, is_fq_data_id=True, config_path=config_path)
+    res = gaia.delete_mutable(config_data_id, [signed_config_tombstone], proxy=proxy, blockchain_id=blockchain_id, is_fq_data_id=True, config_path=config_path)
     if 'error' in res:
         log.warning("Failed to delete config file {}".format(config_data_id))
         if not ret.has_key('app_config'):
