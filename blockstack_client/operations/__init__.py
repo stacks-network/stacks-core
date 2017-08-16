@@ -78,7 +78,7 @@ from .namespacereveal import snv_consensus_extras as namespace_reveal_consensus_
 from .namespaceready import snv_consensus_extras as namespace_ready_consensus_extras
 from .announce import snv_consensus_extras as announce_consensus_extras
 
-from ..config import *
+from config import *
 
 # NOTE: these all have the same signatures
 SNV_CONSENSUS_EXTRA_METHODS = {

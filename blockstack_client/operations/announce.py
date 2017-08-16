@@ -22,10 +22,18 @@
 """
 
 from utilitybelt import is_hex
+import os
+import sys
 
-from ..config import *
-from ..scripts import *
-from ..logger import get_logger
+# Hack around absolute paths
+current_dir = os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../")
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+from config import *
+from scripts import *
+from logger import get_logger
 
 import virtualchain
 log = get_logger("blockstack-client")
