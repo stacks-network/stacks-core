@@ -52,13 +52,13 @@ from logger import get_logger
 log = get_logger()
 
 
-def token_file_get_name_public_keys(token_file, name_addr):
+def key_file_get_name_public_keys(key_file, name_addr):
     """
-    Given the parsed (but not yet verified) token file and an address, get the public keys
-    from the token file if they match the address.
+    Given the parsed (but not yet verified) key file and an address, get the public keys
+    from the key file if they match the address.
 
     Return {'status': True, 'public_keys': [...]} on success
-    Return {'error': ...} if the public keys in the token file do not match the address
+    Return {'error': ...} if the public keys in the key file do not match the address
     """
 
     name_addr = virtualchain.address_reencode(str(name_addr))
@@ -66,7 +66,7 @@ def token_file_get_name_public_keys(token_file, name_addr):
 
     if virtualchain.is_multisig_address(name_addr):
 
-        public_keys = token_file['keys']['name']
+        public_keys = key_file['keys']['name']
         if name_addr != virtualchain.make_multisig_address(public_keys, len(public_keys)):
             return {'error': 'Multisig address {} does not match public keys {}'.format(name_addr, ','.join(public_keys))}
 
@@ -75,7 +75,7 @@ def token_file_get_name_public_keys(token_file, name_addr):
 
     elif virtualchain.is_singlesig_address(name_addr):
 
-        public_keys = token_file['keys']['name']
+        public_keys = key_file['keys']['name']
         for public_key in public_keys:
             if virtualchain.address_reencode(keylib.public_key_to_address(str(public_key))) == name_addr:
                 name_owner_pubkeys = [str(public_key)]
@@ -92,9 +92,9 @@ def token_file_get_name_public_keys(token_file, name_addr):
     return {'status': True, 'public_keys': name_owner_pubkeys}
 
 
-def token_file_make_datastore_index(apps):
+def key_file_make_datastore_index(apps):
     """
-    Given the .keys.apps section of the token file, generate an index
+    Given the .keys.apps section of the key file, generate an index
     that maps datastore IDs onto application names.
 
     The existence of a datastore ID does not imply that the datastore ever existed.
@@ -114,37 +114,37 @@ def token_file_make_datastore_index(apps):
     return {'status': True, 'index': index}
 
 
-def token_file_get_app_name(token_file, datastore_id):
+def key_file_get_app_name(key_file, datastore_id):
     """
-    Given a parsed token file and a datastore ID, find the application domain.
+    Given a parsed key file and a datastore ID, find the application domain.
     Return {'status': True, 'full_application_name': ...} on success
     Return {'error': ...} on failure
     """
-    if 'datastore_index' not in token_file:
-        raise ValueError("Token file does not have a datastore index")
+    if 'datastore_index' not in key_file:
+        raise ValueError("key file does not have a datastore index")
 
-    full_application_name = token_file['datastore_index'].get(datastore_id)
+    full_application_name = key_file['datastore_index'].get(datastore_id)
     if full_application_name is None:
         return {'error': 'No application name for "{}"'.format(datastore_id)}
 
     return {'status': True, 'full_application_name': full_application_name}
 
 
-def token_file_parse(token_txt, name_owner_pubkeys_or_addr, min_writes=None):
+def key_file_parse(key_txt, name_owner_pubkeys_or_addr, min_writes=None):
     """
-    Given a compact-format JWT encoding a token file, this device's name-owner private key, and the list of name-owner public keys,
-    go verify that the token file is well-formed and authentic.
-    Return {'status': True, 'token_file': the parsed, decoded token file} on success
+    Given a compact-format JWT encoding a key file, this device's name-owner private key, and the list of name-owner public keys,
+    go verify that the key file is well-formed and authentic.
+    Return {'status': True, 'key_file': the parsed, decoded key file} on success
     Return {'error': ...} on error
     """
-    unverified_token_file = None
+    unverified_key_file = None
     unverified_profile = None
     unverified_apps = None
 
     signing_public_keys = {}
     app_public_keys = {}
 
-    token_file = None
+    key_file = None
     profile_jwt_txt = None
     delegation_jwt_txt = None
     delegation_jwt = None
@@ -155,26 +155,26 @@ def token_file_parse(token_txt, name_owner_pubkeys_or_addr, min_writes=None):
 
     name_owner_pubkeys = []
 
-    # get the delegation file out of the token file
+    # get the delegation file out of the key file
     try:
-        unverified_token_file = jsontokens.decode_token(token_txt)['payload']
+        unverified_key_file = jsontokens.decode_token(key_txt)['payload']
     except jsontokens.utils.DecodeError:
-        return {'error': 'Invalid token file: not a JWT'}
+        return {'error': 'Invalid key file: not a JWT'}
 
     try:
-        jsonschema.validate(unverified_token_file, schemas.BLOCKSTACK_TOKEN_FILE_SCHEMA)
+        jsonschema.validate(unverified_key_file, schemas.BLOCKSTACK_KEY_FILE_SCHEMA)
     except ValidationError as ve:
         if BLOCKSTACK_TEST:
             log.exception(ve)
 
-        return {'error': 'Invalid token file: does not match token file schema'}
+        return {'error': 'Invalid key file: does not match key file schema'}
 
     except Exception as e:
         log.exception(e)
-        return {'error': 'Invalid token file: failed to parse'}
+        return {'error': 'Invalid key file: failed to parse'}
 
     try:
-        delegation_jwt_txt = unverified_token_file['keys']['delegation']
+        delegation_jwt_txt = unverified_key_file['keys']['delegation']
         try:
             delegation_jwt = json.loads(delegation_jwt_txt)
         except ValueError:
@@ -189,7 +189,7 @@ def token_file_parse(token_txt, name_owner_pubkeys_or_addr, min_writes=None):
     # if we're given an address (b58check-encoded hash of a public key or list of pbulic keys),
     # see if we can authenticate based on the keys given
     if isinstance(name_owner_pubkeys_or_addr, (str, unicode)):
-        res = token_file_get_name_public_keys(unverified_token_file, str(name_owner_pubkeys_or_addr))
+        res = key_file_get_name_public_keys(unverified_key_file, str(name_owner_pubkeys_or_addr))
         if 'error' in res:
             return res
 
@@ -242,33 +242,33 @@ def token_file_parse(token_txt, name_owner_pubkeys_or_addr, min_writes=None):
                 log.exception(e)
                 return {'error': 'Invalid public key "{}" for device "{}"'.format(key_type, device_id)}
 
-    # verify the token file, using any of the signing keys
+    # verify the key file, using any of the signing keys
     for (device_id, signing_public_key) in signing_public_keys.items():
         try:
-            token_file_verifier = jsontokens.TokenVerifier()
-            token_file_valid = token_file_verifier.verify(token_txt, signing_public_key)
-            assert token_file_valid
+            key_file_verifier = jsontokens.TokenVerifier()
+            key_file_valid = key_file_verifier.verify(key_txt, signing_public_key)
+            assert key_file_valid
 
             # success!
-            token_file = unverified_token_file
+            key_file = unverified_key_file
             break
 
         except AssertionError as ae:
             continue
 
-    if not token_file:
+    if not key_file:
         # unverifiable 
-        return {'error': 'Failed to verify token file with name owner public keys'}
+        return {'error': 'Failed to verify key file with name owner public keys'}
 
     # the device IDs in the delegation file must include all of the device IDs in the app key bundles
-    for device_id in token_file['keys']['apps'].keys():
+    for device_id in key_file['keys']['apps'].keys():
         if device_id not in delegation_file['devices'].keys():
             return {'error': 'Application key bundle contains a non-delegated device ID "{}"'.format(device_id)}
 
     # now go verify the profile, using any of the signing public keys
     for (device_id, signing_public_key) in signing_public_keys.items():
         try:
-            profile_jwt_txt = token_file['profile']
+            profile_jwt_txt = key_file['profile']
             profile = storage.parse_mutable_data(profile_jwt_txt, signing_public_key)
             assert profile
 
@@ -282,10 +282,10 @@ def token_file_parse(token_txt, name_owner_pubkeys_or_addr, min_writes=None):
 
     # verify app key bundles, using each device's respective public key
     for (device_id, signing_public_key) in signing_public_keys.items():
-        if not token_file['keys']['apps'].has_key(device_id):
+        if not key_file['keys']['apps'].has_key(device_id):
             continue
 
-        apps_jwt_txt = token_file['keys']['apps'][device_id]
+        apps_jwt_txt = key_file['keys']['apps'][device_id]
         try:
             apps_verifier = jsontokens.TokenVerifier()
             apps_is_valid = apps_verifier.verify(apps_jwt_txt, signing_public_key)
@@ -310,30 +310,30 @@ def token_file_parse(token_txt, name_owner_pubkeys_or_addr, min_writes=None):
 
     # verify fresh 
     if min_writes is not None:
-        if token_file['writes'] < min_writes:
-            return {'error': 'Stale token file with only {} writes'.format(token_file['writes'])}
+        if key_file['writes'] < min_writes:
+            return {'error': 'Stale key file with only {} writes'.format(key_file['writes'])}
     
     # map datastore_id to names
-    res = token_file_make_datastore_index(apps)
+    res = key_file_make_datastore_index(apps)
     if 'error' in res:
         return {'error': 'Failed to build datastore index: {}'.format(res['error'])}
     
     datastore_index = res['index']
 
     # success!
-    token_file_data = {
+    key_file_data = {
         'profile': profile,
         'keys': {
-            'name': token_file['keys']['name'],
+            'name': key_file['keys']['name'],
             'delegation': delegation_file,
             'apps': apps,
         },
-        'writes': token_file['writes'],
-        'timestamp': token_file['timestamp'],
+        'writes': key_file['writes'],
+        'timestamp': key_file['timestamp'],
         'jwts': {
             'profile': profile_jwt_txt,
             'keys': {
-                'name': token_file['keys']['name'],
+                'name': key_file['keys']['name'],
                 'delegation': delegation_jwt_txt,
                 'apps': apps_jwts_txt,
             },
@@ -341,10 +341,10 @@ def token_file_parse(token_txt, name_owner_pubkeys_or_addr, min_writes=None):
         'datastore_index': datastore_index
     }
 
-    return {'status': True, 'token_file': token_file_data}
+    return {'status': True, 'key_file': key_file_data}
     
 
-def token_file_make_delegation_entry(name_owner_privkey, device_id, key_index):
+def key_file_make_delegation_entry(name_owner_privkey, device_id, key_index):
     """
     Make a delegation file entry for a specific device.
     Returns {'status': True, 'delegation': delegation entry, 'private_keys': delegation private keys}
@@ -369,11 +369,11 @@ def token_file_make_delegation_entry(name_owner_privkey, device_id, key_index):
     return {'status': True, 'delegation': delg, 'private_keys': privkeys}
 
 
-def token_file_get_key_order(name_owner_privkeys, pubkeys):
+def key_file_get_key_order(name_owner_privkeys, pubkeys):
     """
     Given the device -> privkey owner mapping, and a list of public keys
     (e.g. from an on-chain multisig redeem script), calculate the key-signing order
-    (e.g. to be fed into token_file_create())
+    (e.g. to be fed into key_file_create())
 
     Return {'status': True, 'key_order': [...]} on success
     Return {'error': ...} on failure
@@ -398,15 +398,15 @@ def token_file_get_key_order(name_owner_privkeys, pubkeys):
     return {'status': True, 'key_order': key_order}
 
 
-def token_file_create(name, name_owner_privkeys, device_id, key_order=None, write_version=1, apps=None, profile=None, delegations=None, config_path=CONFIG_PATH):
+def key_file_create(name, name_owner_privkeys, device_id, key_order=None, write_version=1, apps=None, profile=None, delegations=None, config_path=CONFIG_PATH):
     """
-    Make a new token file from a profile.  Sign and serialize the delegations file,
+    Make a new key file from a profile.  Sign and serialize the delegations file,
     and sign and serialize each of the app bundles.
 
     @name_owner_privkeys is a dict of {'$device_id': '$private_key'}
     @apps is a dict of {'$device_id': {'$app_name': '$app_public_key'}}
 
-    Return {'status': True, 'token_file': compact-serialized JWT} on success, signed with this device's signing key.
+    Return {'status': True, 'key_file': compact-serialized JWT} on success, signed with this device's signing key.
     Return {'error': ...} on error
     """
     if apps is None:
@@ -428,7 +428,7 @@ def token_file_create(name, name_owner_privkeys, device_id, key_order=None, writ
         }
 
         for dev_id in name_owner_privkeys.keys():
-            delg = token_file_make_delegation_entry(name_owner_privkeys[dev_id], dev_id, 0)['delegation']
+            delg = key_file_make_delegation_entry(name_owner_privkeys[dev_id], dev_id, 0)['delegation']
             delegations['devices'][dev_id] = delg
 
     # sanity check: apps must be per-device app key bundles
@@ -465,7 +465,7 @@ def token_file_create(name, name_owner_privkeys, device_id, key_order=None, writ
     signing_public_keys = dict([(dev_id, ecdsalib.get_pubkey_hex(signing_keys[dev_id])) for dev_id in signing_keys.keys()])
 
     # make profile jwt
-    profile_jwt_txt = token_file_profile_serialize(profile, signing_keys[device_id])
+    profile_jwt_txt = key_file_profile_serialize(profile, signing_keys[device_id])
 
     # make delegation jwt (to be signed by each name owner key)
     signer = jsontokens.TokenSigner()
@@ -509,8 +509,8 @@ def token_file_create(name, name_owner_privkeys, device_id, key_order=None, writ
 
             name_owner_pubkeys.append( keylib.key_formatting.compress(ecdsalib.get_pubkey_hex(name_owner_privkeys[dev_id])) )
 
-    # make the token file
-    token_file = {
+    # make the key file
+    key_file = {
         'version': '3.0',
         'profile': profile_jwt_txt,
         'keys': {
@@ -522,27 +522,27 @@ def token_file_create(name, name_owner_privkeys, device_id, key_order=None, writ
         'timestamp': int(time.time()),
     }
 
-    return {'status': True, 'token_file': token_file_sign(token_file, signing_keys[device_id])}
+    return {'status': True, 'key_file': key_file_sign(key_file, signing_keys[device_id])}
 
 
-def token_file_sign(parsed_token_file, signing_private_key):
+def key_file_sign(parsed_key_file, signing_private_key):
     """
-    Given a parsed token file, sign it with the private key
+    Given a parsed key file, sign it with the private key
     and return the serialized JWT (in compact serialization)
 
-    Return {'status': True, 'token_file': token file text}
+    Return {'status': True, 'key_file': key file text}
     """
     signer = jsontokens.TokenSigner()
-    jwt = signer.sign(parsed_token_file, signing_private_key)
+    jwt = signer.sign(parsed_key_file, signing_private_key)
     return jwt
 
 
-def token_file_profile_serialize(data_text_or_json, data_privkey):
+def key_file_profile_serialize(data_text_or_json, data_privkey):
     """
     Serialize a profile to a string
     """
     # profiles must conform to a particular standard format
-    tokenized_data = blockstack_profiles.sign_token_records([data_text_or_json], data_privkey)
+    tokenized_data = blockstack_profiles.sign_key_records([data_text_or_json], data_privkey)
 
     del tokenized_data[0]['decodedToken']
 
@@ -550,56 +550,56 @@ def token_file_profile_serialize(data_text_or_json, data_privkey):
     return serialized_data
 
 
-def token_file_update_profile(parsed_token_file, new_profile, signing_private_key):
+def key_file_update_profile(parsed_key_file, new_profile, signing_private_key):
     """
-    Given a parsed token file, a new profile, and the signing key for this device,
-    generate a new (serialized) token file with the new profile.
+    Given a parsed key file, a new profile, and the signing key for this device,
+    generate a new (serialized) key file with the new profile.
 
-    Return {'status': True, 'token_file': serialized token file}
+    Return {'status': True, 'key_file': serialized key file}
     Return {'error': ...} on failure
     """
 
-    keys_jwts = parsed_token_file.get('jwts', {}).get('keys', None)
+    keys_jwts = parsed_key_file.get('jwts', {}).get('keys', None)
     if keys_jwts is None:
-        return {'error': 'Invalid parsed token file: missing jwts'}
+        return {'error': 'Invalid parsed key file: missing jwts'}
 
-    profile_jwt_txt = token_file_profile_serialize(new_profile, signing_private_key)
+    profile_jwt_txt = key_file_profile_serialize(new_profile, signing_private_key)
     tok = {
         'version': '3.0',
         'profile': profile_jwt_txt,
         'keys': keys_jwts,
-        'writes': parsed_token_file['writes'] + 1,
+        'writes': parsed_key_file['writes'] + 1,
         'timestamp': int(time.time()),
     }
 
-    return {'status': True, 'token_file': token_file_sign(tok, signing_private_key)}
+    return {'status': True, 'key_file': key_file_sign(tok, signing_private_key)}
 
 
-def token_file_update_apps(parsed_token_file, device_id, app_name, app_pubkey, signing_private_key):
+def key_file_update_apps(parsed_key_file, device_id, app_name, app_pubkey, signing_private_key):
     """
-    Given a parsed token file, a device ID, an application name, its public key, and the device's signing private key,
+    Given a parsed key file, a device ID, an application name, its public key, and the device's signing private key,
     insert a new entry for the application for this device
 
-    Return {'status': True, 'token_file': serialized token file} on success
+    Return {'status': True, 'key_file': serialized key file} on success
     Return {'error': ...} on failure
     """
 
-    key_jwts = parsed_token_file.get('jwts', {}).get('keys', None)
+    key_jwts = parsed_key_file.get('jwts', {}).get('keys', None)
     if key_jwts is None:
-        return {'error': 'Invalid parsed token file: missing jwts'}
+        return {'error': 'Invalid parsed key file: missing jwts'}
 
-    profile_jwt = parsed_token_file.get('jwts', {}).get('profile', None)
+    profile_jwt = parsed_key_file.get('jwts', {}).get('profile', None)
     if profile_jwt is None:
-        return {'error': 'Invalid parsed token file: missing profile JWT'}
+        return {'error': 'Invalid parsed key file: missing profile JWT'}
 
     delegation_jwt = key_jwts.get('delegation', None)
     if delegation_jwt is None:
-        return {'error': 'Invalid parsed token file: missing delegations JWT'}
+        return {'error': 'Invalid parsed key file: missing delegations JWT'}
 
-    if device_id not in parsed_token_file['keys']['delegation']['devices'].keys():
+    if device_id not in parsed_key_file['keys']['delegation']['devices'].keys():
         return {'error': 'Device "{}" not present in delegation file'.format(device_id)}
 
-    cur_apps = parsed_token_file['keys']['apps']
+    cur_apps = parsed_key_file['keys']['apps']
     if not cur_apps.has_key(device_id):
         cur_apps[device_id] = {'version': '1.0', 'apps': {}}
 
@@ -615,37 +615,37 @@ def token_file_update_apps(parsed_token_file, device_id, app_name, app_pubkey, s
         'version': '3.0',
         'profile': profile_jwt,
         'keys': {
-            'name': parsed_token_file['keys']['name'], 
+            'name': parsed_key_file['keys']['name'], 
             'delegation': delegation_jwt,
             'apps': apps_jwts,
         },
-        'writes': parsed_token_file['writes'] + 1,
+        'writes': parsed_key_file['writes'] + 1,
         'timestamp': int(time.time()),
     }
 
-    return {'status': True, 'token_file': token_file_sign(tok, signing_private_key)}
+    return {'status': True, 'key_file': key_file_sign(tok, signing_private_key)}
 
 
-def token_file_update_delegation(parsed_token_file, device_delegation, name_owner_privkeys, signing_private_key):
+def key_file_update_delegation(parsed_key_file, device_delegation, name_owner_privkeys, signing_private_key):
     """
-    Given a parsed token file, a device delegation object, and a list of name owner private keys,
-    insert a new entry for the token file's delegation records.
+    Given a parsed key file, a device delegation object, and a list of name owner private keys,
+    insert a new entry for the key file's delegation records.
 
-    Return {'status': True, 'token_file': serialized token file} on success
+    Return {'status': True, 'key_file': serialized key file} on success
     Return {'error': ...} on failure
     """
 
-    keys_jwts = parsed_token_file.get('jwts', {}).get('keys', None)
+    keys_jwts = parsed_key_file.get('jwts', {}).get('keys', None)
     if keys_jwts is None:
-        return {'error': 'Invalid parsed token file: missing jwts'}
+        return {'error': 'Invalid parsed key file: missing jwts'}
 
-    profile_jwt = parsed_token_file.get('jwts', {}).get('profile', None)
+    profile_jwt = parsed_key_file.get('jwts', {}).get('profile', None)
     if profile_jwt is None:
-        return {'error': 'Invalid parsed token file: missing profile JWT'}
+        return {'error': 'Invalid parsed key file: missing profile JWT'}
 
     apps_jwt = keys_jwts.get('apps', None)
     if apps_jwt is None:
-        return {'error': 'Invalid parsed token file: missing apps JWT'}
+        return {'error': 'Invalid parsed key file: missing apps JWT'}
 
     try:
         jsonschema.validate(device_delegation, schemas.KEY_DELEGATION_DEVICES_SCHEMA)
@@ -655,7 +655,7 @@ def token_file_update_delegation(parsed_token_file, device_delegation, name_owne
 
         return {'error': 'Invalid device delegation'}
 
-    new_delegation = copy.deepcopy(parsed_token_file['keys']['delegation'])
+    new_delegation = copy.deepcopy(parsed_key_file['keys']['delegation'])
     new_delegation['devices'].update(device_delegation)
 
     signer = jsontokens.TokenSigner()
@@ -666,26 +666,26 @@ def token_file_update_delegation(parsed_token_file, device_delegation, name_owne
         'version': '3.0',
         'profile': profile_jwt,
         'keys': {
-            'name': parsed_token_file['keys']['name'],
+            'name': parsed_key_file['keys']['name'],
             'delegation': new_delegation_jwt_txt,
             'apps': apps_jwt,
         },
-        'writes': parsed_token_file['writes'] + 1,
+        'writes': parsed_key_file['writes'] + 1,
         'timestamp': int(time.time()),
     }
 
-    return {'status': True, 'token_file': token_file_sign(tok, signing_private_key)}
+    return {'status': True, 'key_file': key_file_sign(tok, signing_private_key)}
 
 
-def token_file_get_delegated_device_pubkeys(parsed_token_file, device_id):
+def key_file_get_delegated_device_pubkeys(parsed_key_file, device_id):
     """
     Get the public keys for a delegated device.
     Returns {'status': true, 'version': ..., 'pubkeys': {'app': ..., 'sign': ..., 'enc': ...}} on success
     Returns {'error': ...} on error
     """
-    delegation = parsed_token_file.get('keys', {}).get('delegation', None)
+    delegation = parsed_key_file.get('keys', {}).get('delegation', None)
     if not delegation:
-        raise ValueError('Token file does not have a "delegation" entry')
+        raise ValueError('key file does not have a "delegation" entry')
 
     device_info = delegation['devices'].get(device_id, None)
     if device_info is None:
@@ -702,29 +702,29 @@ def token_file_get_delegated_device_pubkeys(parsed_token_file, device_id):
     return res
 
 
-def token_file_get_app_device_ids(parsed_token_file):
+def key_file_get_app_device_ids(parsed_key_file):
     """
     Get the list of app-specific device IDs
 
     Returns {'status': True, 'device_ids': [...]} on success
     Return {'error': ...} on error
     """
-    apps = parsed_token_file.get('keys', {}).get('apps', None)
+    apps = parsed_key_file.get('keys', {}).get('apps', None)
     if not apps:
-        raise ValueError('Token file does not have a "apps" entry')
+        raise ValueError('key file does not have a "apps" entry')
 
     return {'status': True, 'device_ids': apps.keys()}
 
 
-def token_file_get_app_device_pubkeys(parsed_token_file, device_id):
+def key_file_get_app_device_pubkeys(parsed_key_file, device_id):
     """
     Get the public keys for apps available from a particular device
     Returns {'status': True, 'version': ..., 'pubkeys': {...}} on success
     Returns {'error': ...} on error
     """
-    apps = parsed_token_file.get('keys', {}).get('apps', None)
+    apps = parsed_key_file.get('keys', {}).get('apps', None)
     if not apps:
-        raise ValueError('Token file does not have an "apps" entry')
+        raise ValueError('key file does not have an "apps" entry')
 
     apps_info = apps.get(device_id, None)
     if apps_info is None:
@@ -738,23 +738,23 @@ def token_file_get_app_device_pubkeys(parsed_token_file, device_id):
     return res
 
 
-def token_file_get_delegated_device_ids(parsed_token_file):
+def key_file_get_delegated_device_ids(parsed_key_file):
     """
     Get the list of delegated device IDs
 
     Returns {'status': True, 'device_ids': [...]} on success
     Return {'error': ...} on error
     """
-    delegation = parsed_token_file.get('keys', {}).get('delegation', None)
+    delegation = parsed_key_file.get('keys', {}).get('delegation', None)
     if not delegation:
-        raise ValueError('Token file does not have a "delegation" entry')
+        raise ValueError('key file does not have a "delegation" entry')
 
     return {'status': True, 'device_ids': delegation['devices'].keys()}
 
 
-def deduce_name_privkey(parsed_token_file, owner_privkey_info):
+def deduce_name_privkey(parsed_key_file, owner_privkey_info):
     """
-    Given owner private key info, and the token file and device ID,
+    Given owner private key info, and the key file and device ID,
     determine the name-owning private key to use for this device.
 
     Return {'status': True, 'name_privkey': privkey} on success
@@ -772,9 +772,9 @@ def deduce_name_privkey(parsed_token_file, owner_privkey_info):
     # map signing public keys back to the name private key that generated it
     signing_pubkey_candidates = dict([(ecdsalib.get_pubkey_hex(get_signing_privkey(pk)), pk) for pk in privkey_candidates])
 
-    all_device_ids = token_file_get_delegated_device_ids(parsed_token_file)
+    all_device_ids = key_file_get_delegated_device_ids(parsed_key_file)
     for device_id in all_device_ids['device_ids']:
-        pubkeys = token_file_get_delegated_device_pubkeys(parsed_token_file, device_id)
+        pubkeys = key_file_get_delegated_device_pubkeys(parsed_key_file, device_id)
         assert 'error' not in pubkeys, pubkeys['error']
         
         signing_pubkey = pubkeys['sign']
@@ -790,10 +790,10 @@ def deduce_name_privkey(parsed_token_file, owner_privkey_info):
             return {'status': True, 'name_privkey': signing_pubkey_candidates[uncompressed_form]}
 
     # absent
-    return {'error': 'Token file is missing name public keys'}
+    return {'error': 'key file is missing name public keys'}
 
 
-def lookup_name_privkey(name, owner_privkey_info, proxy=None, parsed_token_file=None):
+def lookup_name_privkey(name, owner_privkey_info, proxy=None, parsed_key_file=None):
     """
     Given a name and wallet keys, get the name private key
     Return {'status': True, 'name_privkey': ...} on success
@@ -801,27 +801,27 @@ def lookup_name_privkey(name, owner_privkey_info, proxy=None, parsed_token_file=
     """
     proxy = get_default_proxy() if proxy is None else proxy
 
-    if parsed_token_file is None:
-        res = token_file_get(name, proxy=proxy)
+    if parsed_key_file is None:
+        res = key_file_get(name, proxy=proxy)
         if 'error' in res:
-            log.error("Failed to get token file for {}: {}".format(name, res['error']))
-            return {'error': 'Failed to get token file for {}: {}'.format(name, res['error'])}
+            log.error("Failed to get key file for {}: {}".format(name, res['error']))
+            return {'error': 'Failed to get key file for {}: {}'.format(name, res['error'])}
 
-        parsed_token_file = res['token_file']
-        if parsed_token_file is None:
-            log.error("No token file for {}".format(name))
-            return {'error': 'No token file available for {}'.format(name)}
+        parsed_key_file = res['key_file']
+        if parsed_key_file is None:
+            log.error("No key file for {}".format(name))
+            return {'error': 'No key file available for {}'.format(name)}
 
-    return deduce_name_privkey(parsed_token_file, owner_privkey_info)
+    return deduce_name_privkey(parsed_key_file, owner_privkey_info)
 
 
-def lookup_signing_privkey(name, owner_privkey_info, proxy=None, parsed_token_file=None):
+def lookup_signing_privkey(name, owner_privkey_info, proxy=None, parsed_key_file=None):
     """
     Given a name and wallet keys, get the signing private key
     Return {"status': True, 'signing_privkey': ...} on success
     Return {'error': ...} on error
     """
-    res = lookup_name_privkey(name, owner_privkey_info, proxy=proxy, parsed_token_file=parsed_token_file)
+    res = lookup_name_privkey(name, owner_privkey_info, proxy=proxy, parsed_key_file=parsed_key_file)
     if 'error' in res:
         return res
 
@@ -836,71 +836,71 @@ def lookup_delegated_device_pubkeys(name, proxy=None):
     Return {'status': True, 'pubkeys': {'$device-id': {...}}} on success
     Return {'error': ...} on error
     """
-    res = token_file_get(name, proxy=proxy)
+    res = key_file_get(name, proxy=proxy)
     if 'error' in res:
-        log.error("Failed to get token file for {}".format(name))
-        return {'error': 'Failed to get token file for {}: {}'.format(name, res['error'])}
+        log.error("Failed to get key file for {}".format(name))
+        return {'error': 'Failed to get key file for {}: {}'.format(name, res['error'])}
 
-    parsed_token_file = res['token_file']
-    if parsed_token_file is None:
-        log.error("No token file for {}".format(name))
-        return {'error': 'No token file available for {}'.format(name)}
+    parsed_key_file = res['key_file']
+    if parsed_key_file is None:
+        log.error("No key file for {}".format(name))
+        return {'error': 'No key file available for {}'.format(name)}
 
-    all_device_ids = token_file_get_delegated_device_ids(parsed_token_file)
+    all_device_ids = key_file_get_delegated_device_ids(parsed_key_file)
     all_pubkeys = {}
     for dev_id in all_device_ids['device_ids']:
-        pubkey_info = token_file_get_delegated_device_pubkeys(parsed_token_file, dev_id)
+        pubkey_info = key_file_get_delegated_device_pubkeys(parsed_key_file, dev_id)
         assert 'error' not in pubkey_info, pubkey_info['error']
 
         all_pubkeys[dev_id] = pubkey_info
     
-    return {'status': True, 'pubkeys': all_pubkeys, 'token_file': parsed_token_file}
+    return {'status': True, 'pubkeys': all_pubkeys, 'key_file': parsed_key_file}
     
 
 def lookup_signing_pubkeys(name, proxy=None):
     """
     Given a blockchain ID (name), get its signing public keys.
-    Return {'status': True, 'token_file': ..., 'pubkeys': {'$device_id': ...}} on success
+    Return {'status': True, 'key_file': ..., 'pubkeys': {'$device_id': ...}} on success
     Return {'error': ...} on error
     """
     res = lookup_delegated_device_pubkeys(name, proxy=proxy)
     if 'error' in res:
         return res
     
-    token_file = res['token_file']
+    key_file = res['key_file']
     all_pubkeys = res['pubkeys']
     signing_keys = {}
     for dev_id in all_pubkeys.keys():
         signing_keys[dev_id] = all_pubkeys[dev_id].get('sign')
 
-    return {'status': True, 'pubkeys': signing_keys, 'token_file': token_file}
+    return {'status': True, 'pubkeys': signing_keys, 'key_file': key_file}
 
 
-def lookup_app_pubkeys(name, full_application_name, proxy=None, parsed_token_file=None):
+def lookup_app_pubkeys(name, full_application_name, proxy=None, parsed_key_file=None):
     """
     Given a blockchain ID (name), and the full application name (i.e. ending in .1 or .x),
     go and get all of the public keys for it in the app keys file
-    Return {'status': True, 'token_file': ..., 'pubkeys': {'$device_id': ...}} on success
+    Return {'status': True, 'key_file': ..., 'pubkeys': {'$device_id': ...}} on success
     Return {'error': ...} on error
     """
     assert name
     assert full_application_name
 
-    if parsed_token_file is None:
-        res = token_file_get(name, proxy=proxy)
+    if parsed_key_file is None:
+        res = key_file_get(name, proxy=proxy)
         if 'error' in res:
-            log.error("Failed to get token file for {}".format(name))
-            return {'error': 'Failed to get token file for {}: {}'.format(name, res['error'])}
+            log.error("Failed to get key file for {}".format(name))
+            return {'error': 'Failed to get key file for {}: {}'.format(name, res['error'])}
         
-        parsed_token_file = res['token_file']
-        if parsed_token_file is None:
-            log.error("No token file for {}".format(name))
-            return {'error': 'No token file available for {}'.format(name)}
+        parsed_key_file = res['key_file']
+        if parsed_key_file is None:
+            log.error("No key file for {}".format(name))
+            return {'error': 'No key file available for {}'.format(name)}
 
-    all_device_ids = token_file_get_app_device_ids(parsed_token_file)
+    all_device_ids = key_file_get_app_device_ids(parsed_key_file)
     app_pubkeys = {}
     for dev_id in all_device_ids['device_ids']:
-        dev_app_pubkey_info = token_file_get_app_device_pubkeys(parsed_token_file, dev_id)
+        dev_app_pubkey_info = key_file_get_app_device_pubkeys(parsed_key_file, dev_id)
         assert 'error' not in dev_app_pubkey_info, dev_app_pubkey_info['error']
 
         dev_app_pubkeys = dev_app_pubkey_info['app_pubkeys']
@@ -911,20 +911,20 @@ def lookup_app_pubkeys(name, full_application_name, proxy=None, parsed_token_fil
 
         app_pubkeys[dev_id] = dev_app_pubkeys[full_application_name]
 
-    return {'status': True, 'pubkeys': app_pubkeys, 'token_file': parsed_token_file}
+    return {'status': True, 'pubkeys': app_pubkeys, 'key_file': parsed_key_file}
 
 
-def token_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=None,
+def key_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=None,
                    proxy=None, user_zonefile=None, name_record=None,
                    use_zonefile_urls=True, decode=True):
     """
-    Given a name, look up an associated key token file.
+    Given a name, look up an associated key key file.
     Do so by first looking up the zonefile the name points to,
-    and then loading the token file from that zonefile's public key.
+    and then loading the key file from that zonefile's public key.
 
     Returns {
     'status': True,
-    'token_file': token_file (if present),
+    'key_file': key_file (if present),
     'profile': profile,
     'zonefile': zonefile
     'raw_zonefile': unparesed zone file,
@@ -933,7 +933,7 @@ def token_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=
     'name_record': name record (if needed)
     } on success.
 
-    'token_file' may be None, if this name still points to an off-zonefile profile
+    'key_file' may be None, if this name still points to an off-zonefile profile
     'legacy_profile' will be set if this name does not even have an off-zonefile profile (but instead a zone file that parses to a profile)
     
     Returns {'error': ...} on error
@@ -943,7 +943,7 @@ def token_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=
     
     ret = {
         'status': True,
-        'token_file': None,
+        'key_file': None,
         'profile': None,
         'legacy_profile': None,
         'raw_zonefile': None,
@@ -952,7 +952,7 @@ def token_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=
         'name_record': name_record,
     }
 
-    token_file = None
+    key_file = None
 
     if user_zonefile is None:
         user_zonefile = get_name_zonefile(name, proxy=proxy, name_record=name_record, storage_drivers=zonefile_storage_drivers, allow_legacy=True)
@@ -983,7 +983,7 @@ def token_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=
 
     # get user's data public key from their zone file, if it is set.
     # this is only needed for legacy lookups in off-zonefile profiles 
-    # (i.e. pre-token file)
+    # (i.e. pre-key file)
     data_address, owner_address = None, None
 
     try:
@@ -1013,45 +1013,45 @@ def token_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=
     if use_zonefile_urls and user_zonefile is not None:
         urls = user_db.user_zonefile_urls(user_zonefile)
 
-    # actually go and load the profile or token file (but do not decode it yet)
-    profile_or_token_file_txt = storage.get_mutable_data(name, None, urls=urls, drivers=profile_storage_drivers, decode=False, fqu=name)
-    if profile_or_token_file_txt is None:
-        log.error('no token file or profile for {}'.format(name))
-        return {'error': 'Failed to load profile or token file from zone file for {}'.format(name)}
+    # actually go and load the profile or key file (but do not decode it yet)
+    profile_or_key_file_txt = storage.get_mutable_data(name, None, urls=urls, drivers=profile_storage_drivers, decode=False, fqu=name)
+    if profile_or_key_file_txt is None:
+        log.error('no key file or profile for {}'.format(name))
+        return {'error': 'Failed to load profile or key file from zone file for {}'.format(name)}
 
-    # try to parse as a token file...
-    token_file = None
+    # try to parse as a key file...
+    key_file = None
     profile = None
-    token_file_data = token_file_parse(profile_or_token_file_txt, owner_address)
-    if 'error' in token_file_data: 
-        log.warning("Failed to parse token file: {}".format(token_file_data['error']))
+    key_file_data = key_file_parse(profile_or_key_file_txt, owner_address)
+    if 'error' in key_file_data: 
+        log.warning("Failed to parse key file: {}".format(key_file_data['error']))
 
         # try to parse as a legacy profile 
-        profile = storage.parse_mutable_data(profile_or_token_file_txt, user_data_pubkey, public_key_hash=owner_address)
+        profile = storage.parse_mutable_data(profile_or_key_file_txt, user_data_pubkey, public_key_hash=owner_address)
         if profile is None:
-            log.error("Failed to parse data as a token file or a profile")
-            return {'error': 'Failed to load profile or token file'}
+            log.error("Failed to parse data as a key file or a profile")
+            return {'error': 'Failed to load profile or key file'}
 
     else:
-        # got a token file!
-        token_file = token_file_data['token_file']
-        profile = token_file['profile']
+        # got a key file!
+        key_file = key_file_data['key_file']
+        profile = _file['profile']
 
-    ret['token_file'] = token_file
+    ret['key_file'] = key_file
     ret['profile'] = profile
     return ret
 
 
-def token_file_put(name, new_token_file, signing_privkey, proxy=None, required_drivers=None, config_path=CONFIG_PATH):
+def key_file_put(name, new_key_file, signing_privkey, proxy=None, required_drivers=None, config_path=CONFIG_PATH):
     """
-    Set the new token file data.  CLIENTS SHOULD NOT CALL THIS METHOD DIRECTLY.
-    Takes a serialized token file (as a string)
+    Set the new key file data.  CLIENTS SHOULD NOT CALL THIS METHOD DIRECTLY.
+    Takes a serialized key file (as a string)
 
     Return {'status: True} on success
     Return {'error': ...} on failure.
     """
-    if not isinstance(new_token_file, (str, unicode)):
-        raise ValueError("Invalid token file: string or unicode compact-form JWT required")
+    if not isinstance(new_key_file, (str, unicode)):
+        raise ValueError("Invalid key file: string or unicode compact-form JWT required")
 
     ret = {}
 
@@ -1069,19 +1069,19 @@ def token_file_put(name, new_token_file, signing_privkey, proxy=None, required_d
         else:
             required_storage_drivers = config.get('storage_drivers', '').split(',')
 
-    log.debug('Save updated token file for "{}" to {}'.format(name, ','.join(required_storage_drivers)))
+    log.debug('Save updated key file for "{}" to {}'.format(name, ','.join(required_storage_drivers)))
 
-    storage_res = storage.put_mutable_data(name, new_token_file, raw=True, required=required_storage_drivers, token_file=True, fqu=name)
+    storage_res = storage.put_mutable_data(name, new_key_file, raw=True, required=required_storage_drivers, key_file=True, fqu=name)
     if 'error' in storage_res:
-        log.error("Failed to store updated token file: {}".format(storage_res['error']))
-        return {'error': 'Failed to store token file for {}'.format(name)}
+        log.error("Failed to store updated key file: {}".format(storage_res['error']))
+        return {'error': 'Failed to store key file for {}'.format(name)}
 
     return storage_res
 
 
-def token_file_delete(blockchain_id, signing_private_key, proxy=None):
+def key_file_delete(blockchain_id, signing_private_key, proxy=None):
     """
-    Delete token file data.  CLIENTS SHOULD NOT CALL THIS DIRECTLY
+    Delete key file data.  CLIENTS SHOULD NOT CALL THIS DIRECTLY
     Return {'status: True} on success
     Return {'error': ...} on failure.
     """
@@ -1089,7 +1089,7 @@ def token_file_delete(blockchain_id, signing_private_key, proxy=None):
     proxy = get_default_proxy() if proxy is None else proxy
     rc = storage.delete_mutable_data(blockchain_id, signing_private_key)
     if not rc:
-        return {'error': 'Failed to delete token file'}
+        return {'error': 'Failed to delete key file'}
 
     return {'status': True}
 
@@ -1122,30 +1122,30 @@ if __name__ == "__main__":
         'version': '1.0',
         'name': name,
         'devices': {
-            'test_device_1': token_file_make_delegation_entry(name_owner_privkeys['test_device_1'], 'test_device_1', 0)['delegation'],
+            'test_device_1': key_file_make_delegation_entry(name_owner_privkeys['test_device_1'], 'test_device_1', 0)['delegation'],
         },
     }
 
-    # make token file
-    token_info = token_file_create("test.id", name_owner_privkeys, device_id, profile=profile, delegations=delegations, apps=apps)
-    assert 'error' not in token_info, token_info
+    # make key file
+    key_info = key_file_create("test.id", name_owner_privkeys, device_id, profile=profile, delegations=delegations, apps=apps)
+    assert 'error' not in key_info, key_info
 
-    token_file_txt = token_info['token_file']
-    token_file = token_file_parse(token_file_txt, name_owner_pubkeys.values())
-    assert 'error' not in token_file, token_file
+    key_file_txt = key_info['key_file']
+    key_file = key_file_parse(key_file_txt, name_owner_pubkeys.values())
+    assert 'error' not in key_file, key_file
 
-    token_file = token_file_parse(token_file_txt, name_owner_address)
-    assert 'error' not in token_file, token_file
+    key_file = key_file_parse(key_file_txt, name_owner_address)
+    assert 'error' not in key_file, key_file
 
-    token_file = token_file['token_file']
+    key_file = key_file['key_file']
 
-    print 'initial token file is \n{}'.format(json.dumps(token_file, indent=4, sort_keys=True))
+    print 'initial key file is \n{}'.format(json.dumps(key_file, indent=4, sort_keys=True))
 
-    assert token_file['profile'] == profile
-    assert token_file['keys']['delegation'] == delegations
-    assert token_file['keys']['apps'] == apps, 'token_file[keys][apps] = {}, apps = {}'.format(token_file['keys']['apps'], apps)
+    assert key_file['profile'] == profile
+    assert key_file['keys']['delegation'] == delegations
+    assert key_file['keys']['apps'] == apps, 'key_file[keys][apps] = {}, apps = {}'.format(key_file['keys']['apps'], apps)
 
-    # update the token file's profile
+    # update the key file's profile
     new_profile = {
         '@type': 'Person',
         'accounts': [],
@@ -1155,79 +1155,79 @@ if __name__ == "__main__":
     }
 
     print 'update profile'
-    res = token_file_update_profile(token_file, new_profile, get_signing_privkey(name_owner_privkeys['test_device_1']))
+    res = key_file_update_profile(key_file, new_profile, get_signing_privkey(name_owner_privkeys['test_device_1']))
     assert 'error' not in res
 
     # re-extract
-    token_file_txt = res['token_file']
-    token_file = token_file_parse(token_file_txt, name_owner_pubkeys.values())
-    assert 'error' not in token_file
+    key_file_txt = res['key_file']
+    key_file = key_file_parse(key_file_txt, name_owner_pubkeys.values())
+    assert 'error' not in key_file
 
-    token_file = token_file_parse(token_file_txt, name_owner_address)
-    assert 'error' not in token_file, token_file
+    key_file = key_file_parse(key_file_txt, name_owner_address)
+    assert 'error' not in key_file, key_file
 
-    token_file = token_file['token_file']
+    key_file = key_file['key_file']
     
-    print 'token file with new profile is \n{}'.format(json.dumps(token_file, indent=4, sort_keys=True))
+    print 'key file with new profile is \n{}'.format(json.dumps(key_file, indent=4, sort_keys=True))
 
-    assert token_file['profile'] == new_profile
-    assert token_file['keys']['delegation'] == delegations
-    assert token_file['keys']['apps'] == apps
+    assert key_file['profile'] == new_profile
+    assert key_file['keys']['delegation'] == delegations
+    assert key_file['keys']['apps'] == apps
 
-    # update the token file's delegations 
+    # update the key file's delegations 
     new_delegations = {
         'test_device_1': delegations['devices']['test_device_1'],
-        'test_device_2': token_file_make_delegation_entry(name_owner_privkeys['test_device_2'], 'test_device_2', 0)['delegation'],
+        'test_device_2': key_file_make_delegation_entry(name_owner_privkeys['test_device_2'], 'test_device_2', 0)['delegation'],
     }
 
     print 'update delegation'
-    res = token_file_update_delegation(token_file, new_delegations, name_owner_privkeys.values(), get_signing_privkey(name_owner_privkeys['test_device_1']))
+    res = key_file_update_delegation(key_file, new_delegations, name_owner_privkeys.values(), get_signing_privkey(name_owner_privkeys['test_device_1']))
     assert 'error' not in res, res['error']
 
     # re-extract
-    token_file_txt = res['token_file']
-    token_file = token_file_parse(token_file_txt, name_owner_pubkeys.values())
-    assert 'error' not in token_file, token_file['error']
+    key_file_txt = res['key_file']
+    key_file = key_file_parse(key_file_txt, name_owner_pubkeys.values())
+    assert 'error' not in key_file, key_file['error']
 
-    token_file = token_file_parse(token_file_txt, name_owner_address)
-    assert 'error' not in token_file, token_file
+    key_file = key_file_parse(key_file_txt, name_owner_address)
+    assert 'error' not in key_file, key_file
 
-    token_file = token_file['token_file']
+    key_file = key_file['key_file']
 
-    print 'token file with new profile and new delegation is \n{}'.format(json.dumps(token_file, indent=4, sort_keys=True))
+    print 'key file with new profile and new delegation is \n{}'.format(json.dumps(key_file, indent=4, sort_keys=True))
 
-    assert token_file['profile'] == new_profile
-    assert token_file['keys']['delegation'] == {'version': '1.0', 'name': name, 'devices': new_delegations}
-    assert token_file['keys']['apps'] == apps
+    assert key_file['profile'] == new_profile
+    assert key_file['keys']['delegation'] == {'version': '1.0', 'name': name, 'devices': new_delegations}
+    assert key_file['keys']['apps'] == apps
 
-    # update the token file's apps
+    # update the key file's apps
     helloblockstack_com_pubkey = keylib.ECPrivateKey().public_key().to_hex()
-    res = token_file_update_apps(token_file, 'test_device_1', "helloblockstack.com.1", helloblockstack_com_pubkey, get_signing_privkey(name_owner_privkeys['test_device_1']))
+    res = key_file_update_apps(key_file, 'test_device_1', "helloblockstack.com.1", helloblockstack_com_pubkey, get_signing_privkey(name_owner_privkeys['test_device_1']))
     assert 'error' not in res, res['error']
 
     # re-extract 
-    token_file_txt = res['token_file']
-    token_file = token_file_parse(token_file_txt, name_owner_pubkeys.values())
-    assert 'error' not in token_file
+    key_file_txt = res['key_file']
+    key_file = key_file_parse(key_file_txt, name_owner_pubkeys.values())
+    assert 'error' not in key_file
 
-    token_file = token_file_parse(token_file_txt, name_owner_address)
-    assert 'error' not in token_file, token_file
+    key_file = key_file_parse(key_file_txt, name_owner_address)
+    assert 'error' not in key_file, key_file
 
-    token_file = token_file['token_file']
+    key_file = key_file['key_file']
     
-    print 'token file with new profile and new delegation and new app is \n{}'.format(json.dumps(token_file, indent=4, sort_keys=True))
+    print 'key file with new profile and new delegation and new app is \n{}'.format(json.dumps(key_file, indent=4, sort_keys=True))
 
-    assert token_file['profile'] == new_profile
-    assert token_file['keys']['delegation'] == {'version': '1.0', 'name': name, 'devices': new_delegations}
-    assert token_file['keys']['apps'].has_key('test_device_1')
-    assert token_file['keys']['apps']['test_device_1']['apps'].has_key('helloblockstack.com.1')
-    assert token_file['keys']['apps']['test_device_1']['apps']['helloblockstack.com.1'] == helloblockstack_com_pubkey
+    assert key_file['profile'] == new_profile
+    assert key_file['keys']['delegation'] == {'version': '1.0', 'name': name, 'devices': new_delegations}
+    assert key_file['keys']['apps'].has_key('test_device_1')
+    assert key_file['keys']['apps']['test_device_1']['apps'].has_key('helloblockstack.com.1')
+    assert key_file['keys']['apps']['test_device_1']['apps']['helloblockstack.com.1'] == helloblockstack_com_pubkey
 
     
 
 
-    # def token_file_parse(token_txt, name_owner_pubkeys_or_addrs, min_writes=None):
-    # def token_file_create(profile, delegations, apps, name_owner_privkeys, device_id, write_version=1):
-    # def token_file_update_profile(parsed_token_file, new_profile, signing_private_key):
-    # def token_file_update_delegation(parsed_token_file, device_delegation, name_owner_privkeys):
-    # def token_file_update_apps(parsed_token_file, device_id, app_name, app_pubkey, signing_private_key):
+    # def key_file_parse(key_txt, name_owner_pubkeys_or_addrs, min_writes=None):
+    # def key_file_create(profile, delegations, apps, name_owner_privkeys, device_id, write_version=1):
+    # def key_file_update_profile(parsed_key_file, new_profile, signing_private_key):
+    # def key_file_update_delegation(parsed_key_file, device_delegation, name_owner_privkeys):
+    # def key_file_update_apps(parsed_key_file, device_id, app_name, app_pubkey, signing_private_key):
