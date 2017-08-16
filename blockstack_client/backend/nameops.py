@@ -2125,7 +2125,6 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
 
         @transfer_address: will ultimately receive the name
         @zonefile_data: serialized zonefile for the name
-        @profile: profile for the name
 
         Returns True/False and stores tx_hash in queue
     """
@@ -2173,7 +2172,7 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
                          owner_address=owner_address,
                          transfer_address=name_data.get('transfer_address'),
                          zonefile_data=name_data.get('zonefile'),
-                         profile=name_data.get('profile'),
+                         key_file=name_data.get('key_file'),
                          config_path=config_path,
                          path=queue_path, **additionals)
     else:
@@ -2184,18 +2183,29 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
 
     return resp
 
+
 def check_owner_privkey_info(owner_privkey_info, name_data):
+    """
+    Verify that a name data is consistent with the given owner private key.
+    If not, then extract the new name owner private key information from the wallet.
+
+    Return (owner address, owner private key info)
+    """
     owner_address = virtualchain.get_privkey_address(owner_privkey_info)
     if 'owner_address' in name_data and owner_address != name_data['owner_address']:
-       log.debug("Registrar owner address changed since beginning registration : from {} to {}".format(
-           name_data['owner_address'], owner_address))
-       owner_address = name_data['owner_address']
-       passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
-       owner_privkey_info = aes_decrypt(
-           str(name_data['owner_privkey']), hexlify( passwd ))
-       if not virtualchain.get_privkey_address(owner_privkey_info) == owner_address:
-           raise Exception("Attempting to correct registrar address to {}, but failed!".format(owner_address))
+
+        log.debug("Registrar owner address changed since beginning registration : from {} to {}".format(
+                  name_data['owner_address'], owner_address))
+
+        owner_address = name_data['owner_address']
+        passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
+        owner_privkey_info = aes_decrypt(str(name_data['owner_privkey']), hexlify( passwd ))
+
+        if not virtualchain.get_privkey_address(owner_privkey_info) == owner_address:
+            raise Exception("Attempting to correct registrar address to {}, but failed!".format(owner_address))
+
     return owner_address, owner_privkey_info
+
 
 def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
                    proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH, safety_checks=True):
@@ -2278,7 +2288,7 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
                          owner_address=owner_address,
                          transfer_address=name_data.get('transfer_address'),
                          zonefile_data=name_data.get('zonefile'),
-                         profile=name_data.get('profile'),
+                         key_file=name_data.get('key_file'),
                          config_path=config_path,
                          path=queue_path, **additionals)
 
@@ -2291,7 +2301,7 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
         return {'error': 'Failed to send registration: {}'.format(resp['error'])}
 
 
-def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privkey_info,
+def async_update(fqu, zonefile_data, owner_privkey_info, payment_privkey_info,
                  name_data={}, config_path=CONFIG_PATH,
                  zonefile_hash=None, proxy=None, queue_path=DEFAULT_QUEUE_PATH ):
     """
@@ -2299,7 +2309,6 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
 
         @fqu: fully qualified name e.g., muneeb.id
         @zonefile_data: new zonefile text, hash(zonefile) goes to blockchain.  If not given, it will be extracted from name_data
-        @profile: the name's profile.  If not given, it will be extracted from name_data
         @owner_privkey_info: privkey of owner address, to sign update
         @payment_privkey_info: the privkey which is paying for the cost
 
@@ -2313,11 +2322,6 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
         zonefile_data = name_data.get('zonefile')
     elif name_data.get('zonefile') is not None and zonefile_data != name_data.get('zonefile'):
         assert name_data['zonefile'] == zonefile_data, "Conflicting zone file data given"
-
-    if profile is None:
-        profile = name_data.get('profile')
-    elif name_data.get('profile') is not None and profile != name_data.get('profile'):
-        assert name_data['profile'] == profile, "Conflicting profile data given"
 
     assert zonefile_hash is not None or zonefile_data is not None, "No zone file or zone file hash given"
 
@@ -2380,7 +2384,6 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
         if not BLOCKSTACK_DRY_RUN:
             queue_append("update", fqu, resp['transaction_hash'],
                          zonefile_data=zonefile_data,
-                         profile=profile,
                          zonefile_hash=zonefile_hash,
                          owner_address=owner_address,
                          transfer_address=name_data.get('transfer_address'),
