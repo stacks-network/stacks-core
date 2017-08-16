@@ -296,7 +296,7 @@ def parse_signed_data_tombstone( tombstone_data ):
     return {'id': data_id, 'sigb64': sigb64, 'timestamp': ts}
 
 
-def serialize_mutable_data(data_text_or_json, data_privkey=None, data_pubkey=None, data_signature=None, profile=False):
+def serialize_mutable_data(data_text_or_json, data_privkey=None, data_pubkey=None, data_signature=None, key_file=False):
     """
     Generate a serialized mutable data record from the given information.
     Sign it with privatekey.
@@ -307,11 +307,11 @@ def serialize_mutable_data(data_text_or_json, data_privkey=None, data_pubkey=Non
     Return the serialized data (as a string) on success
     """
   
-    if profile:
+    if key_file:
         # private key required to generate signature
         assert data_privkey is not None
 
-        # profiles must conform to a particular standard format
+        # key file must conform to a particular standard format
         tokenized_data = blockstack_profiles.sign_token_records(
             [data_text_or_json], data_privkey
         )
@@ -567,7 +567,7 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, 
 
     # try sha256 hash 
     if data_hash is not None:
-        log.error("Verifying profiles by hash it not supported")
+        log.error("Verifying key files by hash it not supported")
 
     return None
 
@@ -720,7 +720,7 @@ def get_immutable_data(data_hash, data_url=None, hash_func=get_data_hash, fqu=No
                 urlh.close()
             except Exception as e:
                 log.exception(e)
-                msg = 'Failed to load profile from "{}"'
+                msg = 'Failed to load key file from "{}"'
                 log.error(msg.format(data_url))
                 continue
         else:
@@ -1005,7 +1005,7 @@ def put_immutable_data(data_text, txid, data_hash=None, required=None, skip=None
     return None if successes == 0 and required_successes == len(set(required) - set(skip)) else data_hash
 
 
-def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_privkey=None, data_pubkey=None, data_signature=None, profile=False, blockchain_id=None, required=None, skip=None, required_exclusive=False):
+def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_privkey=None, data_pubkey=None, data_signature=None, key_file=False, blockchain_id=None, required=None, skip=None, required_exclusive=False):
     """
     Given the unserialized data, store it into our mutable data stores.
     Do so in a best-effort way.  This method fails if all storage providers fail,
@@ -1024,9 +1024,9 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
     global storage_handlers
     assert len(storage_handlers) > 0, "No storage handlers initialized"
 
-    # sanity check: only take structured data if this is a profile 
+    # sanity check: only take structured data if this is a key file
     if not isinstance(data_text_or_json, (str, unicode)):
-        assert profile, "Structured data is only supported when profile=True"
+        assert key_file, "Structured data is only supported when key_file=True"
 
     required = [] if required is None else required
     skip = [] if skip is None else skip
@@ -1054,7 +1054,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
 
     serialized_data = None
     if sign or not raw:
-        serialized_data = serialize_mutable_data(data_text_or_json, data_privkey=data_privkey, data_pubkey=data_pubkey, data_signature=data_signature, profile=profile)
+        serialized_data = serialize_mutable_data(data_text_or_json, data_privkey=data_privkey, data_pubkey=data_pubkey, data_signature=data_signature, key_file=key_file)
     else:
         serialized_data = data_text_or_json
     
@@ -1086,7 +1086,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
         log.debug('Try "{}"'.format(handler.__name__))
 
         try:
-            store_url = handler.put_mutable_handler(fq_data_id, serialized_data, fqu=fqu, profile=profile)
+            store_url = handler.put_mutable_handler(fq_data_id, serialized_data, fqu=fqu, key_file=key_file)
             assert isinstance(store_url, (str,unicode))
         except Exception as e:
             log.exception(e)
@@ -1156,7 +1156,7 @@ def delete_immutable_data(data_hash, txid, privkey=None, signed_data_tombstone=N
     return True
 
 
-def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None, required=None, required_exclusive=False, skip=None, blockchain_id=None, profile=False):
+def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None, required=None, required_exclusive=False, skip=None, blockchain_id=None, key_file=False):
     """
     Given the data ID and private key of a user,
     go and delete the associated mutable data.
@@ -1204,7 +1204,7 @@ def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None,
 
         rc = False
         try:
-            rc = handler.delete_mutable_handler(fq_data_id, signed_data_tombstone, fqu=fqu, profile=profile)
+            rc = handler.delete_mutable_handler(fq_data_id, signed_data_tombstone, fqu=fqu, key_file=key_file)
         except Exception as e:
             log.exception(e)
             rc = False
