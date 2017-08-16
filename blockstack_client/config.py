@@ -833,14 +833,20 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
     dropped_fields_014_4_3 = {}
     changed_fields_014_4_3 = {
         'blockstack-client': {
-            'port' : str(BLOCKSTACKD_PORT)
+            'port' : (str(6264), str(BLOCKSTACKD_PORT))
         }
     }
+
+    # should only default to https if we also are pointed at node.blockstack.org
+    if ret['blockstack-client']['server'] == 'node.blockstack.org':
+        protocol_default = 'https'
+    else:
+        protocol_default = 'http'
     added_fields_014_4_3 = {
         'blockstack-client': {
-            'protocol' : "https"
+            'protocol' : protocol_default
         }
-    }
+   }
 
     # grow this list with future releases...
     renamed_fields = [renamed_fields_014_1, renamed_fields_014_4, renamed_fields_014_4_3]
@@ -902,10 +908,16 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
                 ret[sec] = {}
 
             for changed_field_name in changed_field_set[sec]:
-
-                if ret[sec][changed_field_name] != changed_field_set[sec][changed_field_name]:
-                    log.debug("Change {}.{} to {}".format(sec, changed_field_name, changed_field_set[sec][changed_field_name]))
-                    ret[sec][changed_field_name] = changed_field_set[sec][changed_field_name]
+                changed_field_value = changed_field_set[sec][changed_field_name]
+                if isinstance(changed_field_value, tuple):
+                    prior_default, new_default = changed_field_value
+                    if ret[sec][changed_field_name] == prior_default:
+                        log.debug("Change {}.{} to {}".format(sec, changed_field_name, new_default))
+                        ret[sec][changed_field_name] = new_default
+                        migrated = True
+                elif ret[sec][changed_field_name] != changed_field_value:
+                    log.debug("Change {}.{} to {}".format(sec, changed_field_name, changed_field_value))
+                    ret[sec][changed_field_name] = changed_field_value
 
                     migrated = True
 

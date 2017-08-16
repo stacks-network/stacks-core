@@ -21,7 +21,7 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-# test lib to bind a test scenario to blockstack 
+# test lib to bind a test scenario to blockstack
 
 import os
 import sys
@@ -108,9 +108,10 @@ class TestAPIProxy(object):
         assert client_path is not None
 
         client_config = blockstack_client.get_config(client_path)
-        
+
         log.debug("Connect to Blockstack node at {}:{}".format(client_config['server'], client_config['port']))
-        self.client = blockstack_client.BlockstackRPCClient( client_config['server'], client_config['port'] )
+        self.client = blockstack_client.BlockstackRPCClient(
+            client_config['server'], client_config['port'], protocol = client_config['protocol'])
         self.config_path = client_path
         self.conf = {
             "start_block": blockstack.FIRST_BLOCK_MAINNET,

@@ -2094,11 +2094,7 @@ def get_zonefiles(hostport, zonefile_hashes, timeout=30, my_hostport=None, proxy
     }
 
     schema = json_response_schema( zonefiles_schema )
-
-    if proxy is None:
-        host, port = url_to_host_port(hostport)
-        assert host is not None and port is not None
-        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport)
+    proxy = get_default_proxy() if proxy is None else proxy
 
     zonefiles = None
     try:
@@ -2113,10 +2109,10 @@ def get_zonefiles(hostport, zonefile_hashes, timeout=30, my_hostport=None, proxy
             zf_data = base64.b64decode( zf_data_b64 )
             assert storage.verify_zonefile( zf_data, zf_hash ), "Zonefile data mismatch"
 
-            # valid 
+            # valid
             decoded_zonefiles[ zf_hash ] = zf_data
 
-        # return this 
+        # return this
         zf_payload['zonefiles'] = decoded_zonefiles
         zonefiles = zf_payload
 
@@ -2167,11 +2163,7 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
     }
 
     schema = json_response_schema( saved_schema )
-
-    if proxy is None:
-        host, port = url_to_host_port(hostport)
-        assert host is not None and port is not None
-        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport)
+    proxy = get_default_proxy() if proxy is None else proxy
 
     push_info = None
     try:
