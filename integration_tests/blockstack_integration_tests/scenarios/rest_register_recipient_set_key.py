@@ -19,7 +19,7 @@
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-""" 
+"""
 import os
 import testlib
 import pybitcoin
@@ -79,33 +79,33 @@ def scenario( wallets, **kw ):
 
     testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
-    
+
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
-    
-    # migrate profiles 
+
+    # migrate profiles
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
         res['test'] = 'Failed to initialize foo.test profile'
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
-        return 
+        return
 
     # tell serialization-checker that value_hash can be ignored here
     print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
     sys.stdout.flush()
-    
+
     testlib.next_block( **kw )
 
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
 
-    # make a session 
+    # make a session
     datastore_pk = keylib.ECPrivateKey(wallets[-1].privkey).to_hex()
     res = testlib.blockstack_cli_app_signin("foo.test", datastore_pk, 'register.app', ['names', 'register', 'prices', 'zonefiles', 'blockchain', 'node_read', 'wallet_write'])
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
-        return 
+        return
 
     ses = res['token']
 
@@ -145,7 +145,7 @@ def scenario( wallets, **kw ):
         print res
         return False
 
-  
+
     # make zonefile for recipient
     driver_urls = blockstack_client.storage.make_mutable_data_urls('bar.test', use_only=['dht', 'disk'])
     zonefile = blockstack_client.zonefile.make_empty_zonefile('bar.test', wallets[4].pubkey_hex, urls=driver_urls)
@@ -153,7 +153,7 @@ def scenario( wallets, **kw ):
 
     # leaving the call format of this one the same to make sure that our registrar correctly
     #   detects that the requested TRANSFER is superfluous
-    # register the name bar.test 
+    # register the name bar.test
     res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test', 'zonefile': zonefile_txt, 'owner_address': new_addr })
     if 'error' in res:
         res['test'] = 'Failed to register user'
@@ -176,11 +176,11 @@ def scenario( wallets, **kw ):
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
-    # wait for register to go through 
+    # wait for register to go through
     print 'Wait for register to be submitted'
     time.sleep(10)
 
-    # wait for the register to get confirmed 
+    # wait for the register to get confirmed
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
@@ -194,7 +194,7 @@ def scenario( wallets, **kw ):
     print 'Wait for update to be submitted'
     time.sleep(10)
 
-    # wait for update to get confirmed 
+    # wait for update to get confirmed
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
@@ -204,11 +204,11 @@ def scenario( wallets, **kw ):
 
     for i in xrange(0, 6):
         testlib.next_block( **kw )
-  
+
     print 'Wait for transfer to be submitted'
     time.sleep(10)
 
-    # wait for transfer to get confirmed 
+    # wait for transfer to get confirmed
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
@@ -219,7 +219,7 @@ def scenario( wallets, **kw ):
 
     for i in xrange(0, 6):
         testlib.next_block( **kw )
-  
+
     print 'Wait for transfer to be confirmed'
     time.sleep(10)
 
@@ -231,7 +231,7 @@ def scenario( wallets, **kw ):
 
     zonefile_hash = res['response']['zonefile_hash']
 
-    # should still be registered 
+    # should still be registered
     if res['response']['status'] != 'registered':
         print "register not complete"
         print json.dumps(res)

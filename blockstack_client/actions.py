@@ -2348,7 +2348,7 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
         log.error("Only single private keys are supported for data at this time")
         return {'error': 'Invalid data private key'}
 
-    data = make_wallet(password, config_path=config_path,
+    data = make_wallet(password,
             payment_privkey_info=payment_privkey_info,
             owner_privkey_info=owner_privkey_info,
             data_privkey_info=data_privkey_info )
