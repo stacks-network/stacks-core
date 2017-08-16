@@ -21,11 +21,19 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
+import os
 import sys
 import requests
 import json
 import traceback
-from ...logger import get_logger
+
+# Hack around absolute paths
+current_dir = os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../../")
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+from logger import get_logger
 
 log = get_logger("insight-api")
 
