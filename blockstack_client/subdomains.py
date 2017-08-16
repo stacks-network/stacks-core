@@ -30,7 +30,7 @@ import virtualchain
 from multiprocessing import Pool
 
 from itertools import izip
-from blockstack_client import data, storage, config, proxy, schemas, constants
+from blockstack_client import gaia, storage, config, proxy, schemas, constants
 from blockstack_client import zonefile as bs_zonefile
 from blockstack_client import user as user_db
 from blockstack_client.backend import safety
@@ -410,7 +410,7 @@ def issue_zonefile(domain_fqa, user_data_txt):
     rpc = local_api_connect()
     assert rpc
     try:
-        resp = rpc.backend_update(domain_fqa, user_data_txt, None, None)
+        resp = rpc.backend_update(domain_fqa, user_data_txt, None)
     except Exception as e:
         log.exception(e)
         return {'error': 'Exception submitting zonefile for update'}
@@ -448,7 +448,7 @@ def add_subdomains(subdomains, domain_fqa):
 
 def get_subdomain_info(subdomain, domain_fqa, use_cache = True):
     if not use_cache:
-        zonefiles = data.list_zonefile_history(domain_fqa)
+        zonefiles = gaia.list_zonefile_history(domain_fqa)
         subdomain_db = _build_subdomain_db([domain_fqa for z in zonefiles], zonefiles)
     else:
         subdomain_db = SubdomainDB()
