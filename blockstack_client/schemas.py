@@ -29,7 +29,7 @@ import blockstack_profiles
 
 OP_CONSENSUS_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTH_CONSENSUS_HASH * 2)
 OP_BASE58CHECK_CHARS = r'[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]'
-OP_BASE58CHECK_PATTERN = r'^({})$'.format(OP_BASE58CHECK_CHARS)
+OP_BASE58CHECK_PATTERN = r'^({}+)$'.format(OP_BASE58CHECK_CHARS)
 OP_ADDRESS_PATTERN = OP_BASE58CHECK_PATTERN
 OP_PRIVKEY_PATTERN = OP_BASE58CHECK_PATTERN
 OP_P2PKH_PATTERN = r'^76[aA]914[0-9a-fA-F]{40}88[aA][cC]$'
@@ -1722,8 +1722,8 @@ APP_KEY_BUNDLE_SCHEMA = {
 }
 
 
-# Blockstack token file 
-BLOCKSTACK_TOKEN_FILE_SCHEMA = {
+# Blockstack key file 
+BLOCKSTACK_KEY_FILE_SCHEMA = {
     'type': 'object',
     'properties': {
         'version': {
