@@ -450,6 +450,7 @@ def inspect_wallet_data(data):
                     legacy_014 = True
                 except ValidationError, ve4:
                     if BLOCKSTACK_TEST:
+                        log.exception(ve)
                         log.exception(ve2)
                         log.exception(ve3)
                         log.exception(ve4)
