@@ -31,8 +31,8 @@ from keychain import PrivateKeychain
 import jsonschema
 from jsonschema.exceptions import ValidationError
 
-from .logger import get_logger
-from .constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
+from logger import get_logger
+from constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
 
 import virtualchain
 from virtualchain.lib.ecdsalib import *

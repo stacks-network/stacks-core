@@ -37,8 +37,7 @@ import requests
 from ConfigParser import SafeConfigParser
 
 import virtualchain
-from .constants import *
-
+from constants import *
 
 class NetworkLogFormatter( logging.Formatter ):
     """

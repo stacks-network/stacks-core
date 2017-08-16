@@ -24,7 +24,7 @@ from __future__ import print_function
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from .constants import *
+from constants import *
 import blockstack_profiles
 
 OP_CONSENSUS_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTH_CONSENSUS_HASH * 2)

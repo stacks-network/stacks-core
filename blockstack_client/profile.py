@@ -32,18 +32,18 @@ import virtualchain
 from virtualchain.lib.ecdsalib import *
 import keylib
 
-from .proxy import *
+from proxy import *
 from blockstack_client import storage
 from blockstack_client import user as user_db
 
-from .logger import get_logger
-from .constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
+from logger import get_logger
+from constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 
-from .zonefile import get_name_zonefile
-from .keys import get_data_privkey_info
-from .schemas import *
-from .config import get_config
-from .constants import BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE
+from zonefile import get_name_zonefile
+from keys import get_data_privkey_info
+from schemas import *
+from config import get_config
+from constants import BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE
 
 log = get_logger()
 

@@ -35,7 +35,7 @@ import time
 import blockstack_zones
 import blockstack_profiles
 
-from .logger import get_logger
+from logger import get_logger
 from constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, BLOCKSTACK_STORAGE_CLASSES
 from config import get_config
 from scripts import hex_hash160

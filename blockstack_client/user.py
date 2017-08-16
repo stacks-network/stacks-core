@@ -32,12 +32,12 @@ import urlparse
 import virtualchain
 from virtualchain.lib.ecdsalib import *
 
-from .schemas import *
-from .constants import BLOCKSTACK_TEST, CONFIG_PATH, BLOCKSTACK_DEBUG
+from schemas import *
+from constants import BLOCKSTACK_TEST, CONFIG_PATH, BLOCKSTACK_DEBUG
 
 import scripts
 
-from .logger import get_logger
+from logger import get_logger
 
 log = get_logger()
 

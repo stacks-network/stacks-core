@@ -33,11 +33,11 @@ from virtualchain.lib.hashing import *
 
 from virtualchain import tx_extend, tx_sign_input
 
-from .b40 import *
-from .constants import MAGIC_BYTES, NAME_OPCODES, LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID, TX_MIN_CONFIRMATIONS
-from .keys import *
-from .utxo import get_unspents 
-from .logger import get_logger
+from b40 import *
+from constants import MAGIC_BYTES, NAME_OPCODES, LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID, TX_MIN_CONFIRMATIONS
+from keys import *
+from utxo import get_unspents 
+from logger import get_logger
 
 log = get_logger('blockstack-client')
 

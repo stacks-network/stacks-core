@@ -69,9 +69,9 @@ import subdomains
 DEFAULT_UI_PORT = 8888
 DEVELOPMENT_UI_PORT = 3000
 
-from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE, set_secret, get_secret
-from .method_parser import parse_methods
-from .wallet import make_wallet
+from constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE, set_secret, get_secret
+from method_parser import parse_methods
+from wallet import make_wallet
 import app
 import gaia
 import zonefile

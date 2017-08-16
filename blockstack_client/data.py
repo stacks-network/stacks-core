@@ -21,13 +21,13 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from gaia import *
 
 if __name__ == "__main__":
     # unit tests!
     import blockstack_client
     import subprocess
     import requests
+    from gaia import *
 
     blockstack_client.session()
 
@@ -50,7 +50,7 @@ if __name__ == "__main__":
         args.device_ids = device_ids
         args.public_keys = public_keys
 
-        res = blockstack_client.cli_app_signin( args, config_path=config_path )
+        res = blockstack_client.actions.cli_app_signin( args, config_path=config_path )
         if 'error' in res:
             raise Exception("Error: {}".format(res['error']))
         else:

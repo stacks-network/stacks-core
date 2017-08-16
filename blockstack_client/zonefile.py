@@ -28,13 +28,13 @@ import base64
 import socket
 from keylib import ECPrivateKey
 
-from .proxy import *
+from proxy import *
 import storage
 import user as user_db
 
-from .config import get_config
-from .logger import get_logger
-from .constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
+from config import get_config
+from logger import get_logger
+from constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 
 log = get_logger()
 
