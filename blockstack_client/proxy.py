@@ -133,7 +133,9 @@ class BlockstackRPCClient(object):
                  timeout=DEFAULT_TIMEOUT, debug_timeline=False, protocol=None, **kw):
 
         if protocol is None:
-            raise Exception("RPC constructor must be passed a protocol")
+            log.warn("RPC constructor called without a protocol, defaulting " +
+                     "to HTTP, this could be an issue if connection is on :6263")
+            protocol = 'http'
         self.url = '{}://{}:{}'.format(protocol, server, port)
         self.srv = TimeoutServerProxy(self.url, protocol, timeout=timeout, allow_none=True)
         self.server = server
@@ -1971,7 +1973,7 @@ def get_zonefile_inventory(hostport, bit_offset, bit_count, timeout=30, my_hostp
     if proxy is None:
         host, port = url_to_host_port(hostport)
         assert host is not None and port is not None
-        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport)
+        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport, protocol = 'http')
 
     zf_inv = None
     try:
@@ -2027,11 +2029,10 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
 
     schema = json_response_schema( peers_schema )
 
-
     if proxy is None:
         host, port = url_to_host_port(hostport)
         assert host is not None and port is not None
-        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport)
+        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport, protocol = 'http')
 
     peers = None
     try:

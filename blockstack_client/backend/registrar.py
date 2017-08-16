@@ -521,7 +521,7 @@ class RegistrarWorker(threading.Thread):
 
         atlas_servers = cls.get_atlas_server_list( config_path )
         if 'error' in atlas_servers:
-            log.warn('Failed to get server list: {}'.format(servers['error']))
+            log.warn('Failed to get server list: {}'.format(atlas_servers['error']))
             return {'error': 'Failed to get Atlas server list'}
 
         for update in updates:
@@ -656,7 +656,7 @@ class RegistrarWorker(threading.Thread):
 
         atlas_peers_res = {}
         try:
-            atlas_peers_res = get_atlas_peers( server_hostport )
+            atlas_peers_res = get_atlas_peers( server_hostport, proxy = get_default_proxy() )
             assert 'error' not in atlas_peers_res
 
             servers += atlas_peers_res['peers']
