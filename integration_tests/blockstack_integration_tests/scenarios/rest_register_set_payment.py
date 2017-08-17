@@ -31,6 +31,7 @@ import blockstack_zones
 import sys
 import keylib
 import time
+import virtualchain
 
 from keylib import ECPrivateKey, ECPublicKey
 
@@ -109,34 +110,40 @@ def scenario( wallets, **kw ):
 
     ses = res['token']
 
-    # for funsies, get the price of .test
-    res = testlib.blockstack_REST_call('GET', '/v1/prices/namespaces/test', ses)
-    if 'error' in res or res['http_status'] != 200:
-        res['test'] = 'Failed to get price of .test'
-        print json.dumps(res)
-        return False
-
-    test_price = res['response']['satoshis']
-    print '\n\n.test costed {} satoshis\n\n'.format(test_price)
-
-    # get the price for bar.test
-    res = testlib.blockstack_REST_call('GET', '/v1/prices/names/bar.test', ses)
-    if 'error' in res or res['http_status'] != 200:
-        res['test'] = 'Failed to get price of bar.test'
-        print json.dumps(res)
-        return False
-
-    bar_price = res['response']['total_estimated_cost']['satoshis']
-    print "\n\nbar.test will cost {} satoshis\n\n".format(bar_price)
-
     # let's set the key to skip the transfer.
 
     config_dir = os.path.dirname(config_path)
-     
     conf = blockstack_client.get_config(config_path)
     assert conf
 
     api_pass = conf['api_password']
+
+    new_payment_key = {
+        'private_key' : wallets[1].privkey,
+        'persist_change' : True
+    }
+
+    res = testlib.blockstack_REST_call('PUT', '/v1/wallet/keys/payment', None, api_pass=api_pass,
+                                       data=new_payment_key)
+    if res['http_status'] != 200 or 'error' in res:
+        print 'failed to set payment key'
+        print res
+        return False
+
+
+    testlib.stop_api()
+    testlib.start_api('0123456789abcdef')
+
+    res = testlib.blockstack_REST_call('GET', '/v1/wallet/payment_address', None, api_pass = api_pass)
+    if res['http_status'] != 200 or 'error' in res:
+        res['test'] = 'Failed to get payment address'
+        print res
+        return False
+    if res['response']['address'] != wallets[1].addr:
+        res['test'] = 'Got wrong payer address, expected {}, got {}'.format(
+            wallets[1].addr, res['response']['address'])
+        print res
+        return False
 
     res = testlib.blockstack_REST_call('PUT', '/v1/wallet/keys/owner', None, api_pass=api_pass,
                                        data=new_key)
@@ -265,155 +272,42 @@ def scenario( wallets, **kw ):
         print json.dumps(res)
         return False
 
-
-    ### Now, we'll do it again, but this time, we're going to CHANGE THE KEY in the middle of registrations.
-    ### to test the different paths, I'll start 3 registrations:
-    # 1 has submitted preorder
-    # 1 has submitted register
-    # 1 has submitted update
-    ### And then I'll issue a change-key
-
-
-    # make zonefile for recipients
-    zonefiles = []
-    for i in [1,2,3]:
-        name = "tricky{}.test".format(i)
-        driver_urls = blockstack_client.storage.make_mutable_data_urls(name, use_only=['dht', 'disk'])
-        zonefile = blockstack_client.zonefile.make_empty_zonefile(name, wallets[4].pubkey_hex, urls=driver_urls)
-        zonefiles.append(blockstack_zones.make_zone_file( zonefile, origin=name, ttl=3600 ))
-
-    # leaving the call format of this one the same to make sure that our registrar correctly
-    #   detects that the requested TRANSFER is superfluous
-    res = testlib.blockstack_REST_call(
-        'POST', '/v1/names', ses, data={'name':'tricky1.test', 'zonefile':zonefiles[0], 'owner_address':new_addr})
-    if 'error' in res:
-        res['test'] = 'Failed to register tricky1.test'
-        print json.dumps(res)
-        error = True
-        return False
-
-    tx_hash = res['response']['transaction_hash']
-    # wait for preorder to get confirmed...
-    for i in xrange(0, 6):
-        testlib.next_block( **kw )
-
-    res = testlib.blockstack_REST_call(
-        'POST', '/v1/names', ses, data={'name':'tricky2.test', 'zonefile':zonefiles[1], 'owner_address':new_addr})
-    if 'error' in res:
-        res['test'] = 'Failed to register tricky2.test'
-        print json.dumps(res)
-        error = True
-        return False
-
-    # wait for the preorder to get confirmed
-    for i in xrange(0, 6):
-        testlib.next_block( **kw )
-
-    # wait for register to go through
-    print 'Wait for register to be submitted'
-    time.sleep(10)
-
-    # wait for the register to get confirmed
-    for i in xrange(0, 6):
-        testlib.next_block( **kw )
-
-    res = testlib.blockstack_REST_call(
-        'POST', '/v1/names', ses, data={'name':'tricky3.test', 'zonefile':zonefiles[2], 'owner_address':new_addr})
-    if 'error' in res:
-        res['test'] = 'Failed to register tricky3.test'
-        print json.dumps(res)
-        error = True
-        return False
-
-    for i in xrange(0, 6):
-        testlib.next_block( **kw )
-
-    print 'Wait for update to be submitted'
-    time.sleep(10)
-
-    for i in xrange(0, 1):
-        testlib.next_block( **kw )
-
-
-
-    res = testlib.verify_in_queue(ses, 'tricky1.test', 'update', None)
-    res = testlib.verify_in_queue(ses, 'tricky2.test', 'register', None)
-    res = testlib.verify_in_queue(ses, 'tricky3.test', 'preorder', None)
-
-    # let's go crazy.
-    res = testlib.blockstack_REST_call('PUT', '/v1/wallet/keys/owner', None, api_pass=api_pass,
-                                       data=insanity_key)
-    if res['http_status'] != 200 or 'error' in res:
-        print 'failed to set owner key'
-        print res
-        return False
-
-
-    # wait for preorder to get confirmed
-    for i in xrange(0, 6):
-        testlib.next_block( **kw )
-    # wake up registrar, submit register
-    time.sleep(10)
-    for i in xrange(0, 12):
-        testlib.next_block( **kw )
-    # wake up registrar, submit update
-    time.sleep(10)
-    for i in xrange(0, 12):
-        testlib.next_block( **kw )
-    # wake up registrar, propogate zonefile
-    time.sleep(10)
-
 def check( state_engine ):
 
     global wallet_keys, error, index_file_data, resource_data
-    
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
     assert config_path
 
-    if error:
-        print "Key operation failed."
-        return False
 
-    # not revealed, but ready 
-    ns = state_engine.get_namespace_reveal( "test" )
-    if ns is not None:
-        print "namespace not ready"
-        return False 
+    names  = ['bar.test']
+    owners = [ new_addr ]
+    payers = [ wallets[1].addr ]
 
-    ns = state_engine.get_namespace( "test" )
-    if ns is None:
-        print "no namespace"
-        return False 
-
-    if ns['namespace_id'] != 'test':
-        print "wrong namespace"
-        return False 
-
-    names = ['foo.test', 'bar.test', 'tricky1.test', 'tricky2.test', 'tricky3.test']
-    owners = [ wallets[3].addr , new_addr, new_addr, new_addr, new_addr ]
     test_proxy = testlib.TestAPIProxy()
 
     for i in xrange(0, len(names)):
         name = names[i]
         wallet_payer = 5
         wallet_owner = 3 + i
-        wallet_data_pubkey = 4
-
+    for name, wallet_payer, wallet_owner in zip(names, payers, owners):
         # not preordered
-        preorder = state_engine.get_name_preorder( name, pybitcoin.make_pay_to_address_script(wallets[wallet_payer].addr), wallets[wallet_owner].addr )
+        preorder = state_engine.get_name_preorder(
+            name,
+            pybitcoin.make_pay_to_address_script(wallet_payer),
+            wallet_owner)
         if preorder is not None:
             print "still have preorder"
             return False
-    
-        # registered 
+
+        # registered
         name_rec = state_engine.get_name( name )
         if name_rec is None:
             print "name does not exist"
-            return False 
+            return False
 
-        # owned 
+        # owned
         if name_rec['address'] != owners[i]:
             print "name {} has wrong owner".format(name)
-            return False 
+            return False
 
     return True

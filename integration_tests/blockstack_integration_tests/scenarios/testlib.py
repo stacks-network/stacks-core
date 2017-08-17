@@ -461,8 +461,9 @@ def blockstack_client_initialize_wallet( password, payment_privkey, owner_privke
     if payment_privkey is None or owner_privkey is None or data_privkey is None:
         test_legacy = True
 
-    encrypted_wallet = blockstack_client.wallet.make_wallet( password, payment_privkey_info=payment_privkey,
-                                                   owner_privkey_info=owner_privkey, data_privkey_info=data_privkey, test_legacy=test_legacy )
+    encrypted_wallet = blockstack_client.wallet.make_wallet(
+        password, payment_privkey_info=payment_privkey, owner_privkey_info=owner_privkey,
+        data_privkey_info=data_privkey, test_legacy=test_legacy)
 
     if 'error' in encrypted_wallet:
         log.error("Failed to make wallet: %s" % encrypted_wallet['error'])
