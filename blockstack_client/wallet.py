@@ -180,7 +180,7 @@ def save_modified_wallet(decrypted_wallet, password, config_path = CONFIG_PATH):
     jsonschema.validate(encrypted_wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
 
     try:
-        backup_wallet(wallet_path)
+        backup_wallet(wallet_path, "prior")
     except:
         return {'error' :
                 'Could not persist new wallet, failed to backup previous wallet at {}'.format(wallet_path)}
@@ -830,7 +830,7 @@ def load_wallet(password=None, config_path=CONFIG_PATH, wallet_path=None, intera
     return res
 
 
-def backup_wallet(wallet_path):
+def backup_wallet(wallet_path, tag = "legacy"):
     """
     Given the path to an on-disk wallet, back it up.
     Return the new path, or None if there is no such wallet.
@@ -838,10 +838,10 @@ def backup_wallet(wallet_path):
     if not os.path.exists(wallet_path):
         return None
 
-    legacy_path = wallet_path + ".legacy.{}".format(int(time.time()))
+    legacy_path = wallet_path + ".{}.{}".format(tag, int(time.time()))
     while os.path.exists(legacy_path):
         time.sleep(1.0)
-        legacy_path = wallet_path + ".legacy.{}".format(int(time.time()))
+        legacy_path = wallet_path + ".{}.{}".format(tag, int(time.time()))
 
     log.warning('Back up old wallet from {} to {}'.format(wallet_path, legacy_path))
     shutil.move(wallet_path, legacy_path)
