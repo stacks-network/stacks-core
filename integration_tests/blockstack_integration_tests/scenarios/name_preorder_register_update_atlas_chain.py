@@ -77,7 +77,7 @@ def scenario( wallets, **kw ):
             return False
 
     testlib.next_block( **kw )
-    
+
     for i in xrange(0, 10):
         res = testlib.blockstack_name_register( "foo_{}.test".format(i), wallets[2].privkey, wallets[3].addr )
         if 'error' in res:
@@ -85,13 +85,13 @@ def scenario( wallets, **kw ):
             return False
 
     testlib.next_block( **kw )
-    
+
     # start up an Atlas test network with 9 nodes: the main one doing the test, and 8 subordinate ones that treat it as a seed peer
     # organize nodes into a linear chain: node n is neighbor to n-1 and n+1, with the seed at one end.
     # nodes cannot talk to anyone else.
     atlas_nodes = [17000, 17001, 17002, 17003, 17004, 17005, 17006, 17007]
     atlas_topology = {}
-    
+
     atlas_topology[17000] = [16264, 17001]
     atlas_topology[17007] = [17006]
 
@@ -102,15 +102,15 @@ def scenario( wallets, **kw ):
         if src_hostport is None:
             return 0.0
 
-        src_host, src_port = blockstack_client.config.url_to_host_port( src_hostport )
-        dest_host, dest_port = blockstack_client.config.url_to_host_port( dest_hostport )
+        src_host, src_port = blockstack_client.utils.url_to_host_port( src_hostport )
+        dest_host, dest_port = blockstack_client.utils.url_to_host_port( dest_hostport )
 
         if (src_port == 16264 and dest_port == 17000) or (src_port == 17000 and dest_port == 16264):
             # seed end of the chain
             return 0.0
-        
+
         if abs(src_port - dest_port) <= 1:
-            # chain link 
+            # chain link
             return 0.0
 
         # drop otherwise
@@ -121,8 +121,8 @@ def scenario( wallets, **kw ):
 
     print "Waiting 25 seconds for the altas peers to catch up"
     time.sleep(25.0)
- 
-    # make 10 empty zonefiles and propagate them 
+
+    # make 10 empty zonefiles and propagate them
     for i in xrange(0, 10):
         data_pubkey = virtualchain.BitcoinPrivateKey(wallet_keys['data_privkey']).public_key().to_hex()
         empty_zonefile = blockstack_client.zonefile.make_empty_zonefile( "foo_{}.test".format(i), data_pubkey, urls=["file:///tmp/foo_{}.test".format(i)] )
@@ -136,7 +136,7 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
 
-        # propagate 
+        # propagate
         res = testlib.blockstack_cli_sync_zonefile('foo_{}.test'.format(i), zonefile_string=empty_zonefile_str)
         if 'error' in res:
             print json.dumps(res)
@@ -154,8 +154,8 @@ def scenario( wallets, **kw ):
 
         else:
             time.sleep(1.0)
-    
-    # shut down 
+
+    # shut down
     atlas_network.atlas_network_stop( network_des )
     if not synchronized:
         print "Not synchronized"
@@ -171,20 +171,20 @@ def check( state_engine ):
         print "not synchronized"
         return False
 
-    # not revealed, but ready 
+    # not revealed, but ready
     ns = state_engine.get_namespace_reveal( "test" )
     if ns is not None:
         print "namespace not ready"
-        return False 
+        return False
 
     ns = state_engine.get_namespace( "test" )
     if ns is None:
         print "no namespace"
-        return False 
+        return False
 
     if ns['namespace_id'] != 'test':
         print "wrong namespace"
-        return False 
+        return False
 
     for i in xrange(0, 10):
         name = 'foo_{}.test'.format(i)
@@ -193,21 +193,21 @@ def check( state_engine ):
         if preorder is not None:
             print "still have preorder"
             return False
-        
-        # registered 
+
+        # registered
         name_rec = state_engine.get_name( name )
         if name_rec is None:
             print "name does not exist"
-            return False 
+            return False
 
-        # owned 
+        # owned
         if name_rec['address'] != wallets[3].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[3].addr):
             print "name has wrong owner"
-            return False 
+            return False
 
-        # updated 
+        # updated
         if name_rec['value_hash'] is None:
             print "wrong value hash: %s" % name_rec['value_hash']
-            return False 
+            return False
 
     return True
