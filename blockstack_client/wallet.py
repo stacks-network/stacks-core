@@ -161,7 +161,7 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
 
     return wallet
 
-def save_modified_wallet(decrypted_wallet, password, config_dir = CONFIG_DIR):
+def save_modified_wallet(decrypted_wallet, password, config_path = CONFIG_PATH):
     """
     Encrypt and save a given @decrypted_wallet using @password at the
     wallet path specified by the @config_dir (or default)
@@ -169,6 +169,7 @@ def save_modified_wallet(decrypted_wallet, password, config_dir = CONFIG_DIR):
     Return {'status' : True} on success
     Return {'error' : ...} on failure
     """
+    config_dir = os.path.dirname(config_path)
 
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
@@ -184,7 +185,7 @@ def save_modified_wallet(decrypted_wallet, password, config_dir = CONFIG_DIR):
         return {'error' :
                 'Could not persist new wallet, failed to backup previous wallet at {}'.format(wallet_path)}
 
-    write_wallet(encrypted_wallet, path=wallet_path)
+    return write_wallet(encrypted_wallet, path=wallet_path)
 
 def make_wallet(password, payment_privkey_info=None, owner_privkey_info=None, data_privkey_info=None, test_legacy=False, encrypt=True):
     """
