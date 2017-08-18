@@ -36,13 +36,26 @@ import time
 import shutil
 import requests
 import keylib
+import json
 
 from binascii import hexlify
 from ConfigParser import SafeConfigParser
 
 import virtualchain
-from .utxo import *
-from .constants import *
+from .utxo import (
+    SUPPORTED_UTXO_PROVIDERS, default_utxo_provider_opts,
+    SUPPORTED_UTXO_PARAMS, SUPPORTED_UTXO_PROMPT_MESSAGES,
+    connect_utxo_provider
+)
+from .constants import (
+    NAME_REGISTRATION, OPCODE_NAMES, CONFIG_DIR, CONFIG_PATH,
+    TX_MIN_CONFIRMATIONS, BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT,
+    METADATA_DIRNAME, BLOCKSTACK_DEFAULT_STORAGE_DRIVERS,
+    BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE, DEFAULT_API_PORT,
+    DEFAULT_API_HOST, DEFAULT_QUEUE_PATH, DEFAULT_POLL_INTERVAL,
+    DEFAULT_BLOCKCHAIN_READER, DEFAULT_BLOCKCHAIN_WRITER,
+    VERSION
+)
 from .logger import get_logger
 
 log = get_logger('blockstack-client')

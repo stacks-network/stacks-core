@@ -23,7 +23,12 @@
 
 import virtualchain
 
-from .operations import *
+from .operations import (
+    tx_preorder, tx_register, tx_update, tx_transfer, tx_revoke,
+    tx_namespace_preorder, tx_namespace_reveal, tx_namespace_ready,
+    tx_name_import, tx_announce
+)
+
 from .constants import CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DRY_RUN
 from .config import get_tx_broadcaster
 from .logger import get_logger
