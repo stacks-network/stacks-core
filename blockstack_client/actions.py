@@ -1619,11 +1619,12 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     assert rpc
 
     try:
+        args_ownerkey = getattr(args, 'ownerkey', None)
         # NOTE: already did safety checks
-        if args.ownerkey is None or len(args.ownerkey) == 0:
+        if args_ownerkey is None or len(args_ownerkey) == 0:
             owner_key = None
         else:
-            owner_key = args.ownerkey
+            owner_key = args_ownerkey
         resp = rpc.backend_update(fqu, user_data_txt, None, None, owner_key = owner_key )
     except Exception as e:
         log.exception(e)
@@ -3796,10 +3797,12 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     assert rpc
 
     try:
-        if args.ownerkey is None or len(args.ownerkey) == 0:
+        args_ownerkey = getattr(args, 'ownerkey', None)
+        # NOTE: already did safety checks
+        if args_ownerkey is None or len(args_ownerkey) == 0:
             owner_key = None
         else:
-            owner_key = args.ownerkey
+            owner_key = args_ownerkey
         resp = rpc.backend_update(fqu, None, None, zonefile_hash, owner_key = owner_key )
     except Exception as e:
         log.exception(e)

@@ -2283,25 +2283,32 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if privkey_info is None or 'error' in privkey_info:
             return self._reply_json({'error': 'Failed to validate private key'}, status_code=401)
 
-        new_wallet = backend.registrar.get_wallet(config_path=self.server.config_path)
-        if 'error' in new_wallet:
-            return self._reply_json({'error': new_wallet['error']}, status_code=500)
+        old_wallet = backend.registrar.get_wallet(config_path=self.server.config_path)
+        if 'error' in old_wallet:
+            return self._reply_json({'error': old_wallet['error']}, status_code=500)
 
-        payment_privkey_info = new_wallet['payment_privkey']
-        owner_privkey_info = new_wallet['owner_privkey']
-        data_privkey_info = new_wallet['data_privkey']
+        payment_privkey_info = old_wallet['payment_privkey']
+        owner_privkey_info = old_wallet['owner_privkey']
+        data_privkey_info = old_wallet['data_privkey']
 
         if key_id == 'owner':
+            changed = owner_privkey_info
             owner_privkey_info = privkey_info
 
         elif key_id == 'payment':
+            changed = payment_privkey_info
             payment_privkey_info = privkey_info
 
         elif key_id == 'data':
+            changed = data_privkey_info
             data_privkey_info = privkey_info
 
         else:
             return self._reply_json({'error': 'Failed to set private key info'}, status_code=401)
+
+        if virtualchain.get_privkey_address(changed) == virtualchain.get_privkey_address(privkey_info):
+            return self._reply_json({'status': True,
+                                     'message' : 'Supplied key was identical to previous; no change written'})
 
         # convert...
         new_wallet = make_wallet(None, payment_privkey_info=payment_privkey_info, owner_privkey_info=owner_privkey_info,
