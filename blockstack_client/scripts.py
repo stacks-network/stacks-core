@@ -83,6 +83,7 @@ def is_namespace_valid(namespace_id):
 def is_name_valid(fqn):
     """
     Is a fully-qualified name acceptable?
+    NOTE: if this disagrees with blockstack.is_name_valid, then blockstack.is_name_valid is considered correct
     Return True if so
     Return False if not
     """
