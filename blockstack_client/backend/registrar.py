@@ -486,7 +486,7 @@ class RegistrarWorker(threading.Thread):
                 log.debug("Already replicated key file for {}".format(name_data['fqu']))
                 return {'status': True}
 
-            storage_res = put_mutable_data(name_data['fqu'], key_file_payload, raw=True, required=storage_drivers, key_file=True, fqu=name_data['fqu'])
+            storage_res = put_mutable_data(name_data['fqu'], key_file_payload, raw=True, required=storage_drivers, key_file=True, blockchain_id=name_data['fqu'])
             if 'error' in storage_res:
                 log.info("Failed to replicate key file for %s: %s" % (name_data['fqu'], storage_res['error']))
                 return {'error': 'Failed to store key file'}
