@@ -33,6 +33,7 @@ from defusedxml import xmlrpc
 import httplib
 import base64
 import jsonschema
+import urlparse
 from jsonschema.exceptions import ValidationError
 from utils import url_to_host_port
 
@@ -134,6 +135,7 @@ class BlockstackRPCClient(object):
 
         if protocol is None:
             raise Exception("RPC constructor must be passed a protocol")
+
         self.url = '{}://{}:{}'.format(protocol, server, port)
         self.srv = TimeoutServerProxy(self.url, protocol, timeout=timeout, allow_none=True)
         self.server = server
@@ -1997,7 +1999,12 @@ def get_zonefile_inventory(hostport, bit_offset, bit_count, timeout=30, my_hostp
     if proxy is None:
         host, port = url_to_host_port(hostport)
         assert host is not None and port is not None
-        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport)
+
+        proto = urlparse.urlparse(hostport).scheme
+        if len(proto) == 0:
+            proto = 'http'
+
+        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport, protocol=proto)
 
     zf_inv = None
     try:
@@ -2057,7 +2064,12 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
     if proxy is None:
         host, port = url_to_host_port(hostport)
         assert host is not None and port is not None
-        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport)
+
+        proto = urlparse.urlparse(hostport).scheme
+        if len(proto) == 0:
+            proto = 'http'
+
+        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport, protocol=proto)
 
     peers = None
     try:
