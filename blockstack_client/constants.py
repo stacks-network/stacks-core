@@ -73,6 +73,7 @@ DEFAULT_BLOCKSTACKD_PORT = 6263  # blockstack indexer port
 DEFAULT_BLOCKSTACKD_SERVER = 'node.blockstack.org'
 
 DEFAULT_DEVICE_ID = '0'
+UNASSIGNED_DEVICE_ID_PREFIX = 'unassigned-'
 
 DEFAULT_API_HOST = 'localhost'
 DEFAULT_API_PORT = 6270  # API endpoint port
