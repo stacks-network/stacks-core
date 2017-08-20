@@ -66,7 +66,13 @@ def app_domain_to_app_name(app_domain):
 
     urlinfo = urlparse.urlparse(app_domain)
     assert urlinfo.netloc, app_domain
-    return '{}.1'.format(urlinfo.netloc)
+
+    if ':' in urlinfo.netloc:
+        p = urlinfo.netloc.split(':', 1)
+        return '{}.1:{}'.format(p[0], p[1])
+
+    else:
+        return '{}.1'.format(urlinfo.netloc)
 
 
 def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_public_keys, requester_device_id, master_data_privkey, session_lifetime=None, config_path=CONFIG_PATH ):
