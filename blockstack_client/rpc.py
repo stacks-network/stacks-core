@@ -535,7 +535,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     break
 
             if requester_public_key is None:
-                return self._reply_json({'error': 'Invalid authRequest token: requesting device does not have a public key listed'}, status_code=401)
+                return self._reply_json({'error': 'Invalid authRequest token: requesting device "{}" does not have a public key listed'.format(requester_device_id)}, status_code=401)
 
             # must match the app private key
             if keylib.key_formatting.decompress(requester_public_key) != keylib.key_formatting.decompress(app_public_key):
@@ -1284,9 +1284,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         datastore_id = ''
         app_name = ''
 
-        if not path_info['qs_values'].has_key('blockchain_id'):
-            return self._reply_json({'error': 'Missing blockchain_id query argument'}, status_code=401)
-
         blockchain_id = path_info['qs_values'].get('blockchain_id', '')
         device_ids = path_info['qs_values'].get('device_ids', '')
         
@@ -1297,10 +1294,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         datastore_id = res['datastore_id']
         app_name = res['app_name']
 
-        if not scripts.is_name_valid(blockchain_id):
+        if blockchain_id is None or not scripts.is_name_valid(blockchain_id):
             # need device IDs and datastore_id if blockchain_id isn't given
-            if not device_ids:
-                return self._reply_json({'error': 'Device IDs are required if the blockchain ID is not a real name'}, status_code=401)
+            if not datastore_id or not device_ids:
+                return self._reply_json({'error': 'Datastore ID and device IDs are required if the blockchain ID is not given'}, status_code=401)
 
         internal = self.server.get_internal_proxy()
         res = internal.cli_get_datastore(blockchain_id, app_name, datastore_id, device_ids, config_path=self.server.config_path)
@@ -1394,17 +1391,49 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 log.exception(ve)
 
             return self._reply_json({'error': 'Invalid tombstone info', 'errno': errno.EINVAL}, status_code=401)
+ 
+        datastore_pubkey = None
+        authentic = False
 
-        # authenticate, and require qs-given device IDs to be covered by the tombstones
-        datastore_pubkey = app.app_get_datastore_pubkey( ses )
-        datastore_id = ses['app_user_id']
-        res = gaia.verify_mutable_data_tombstones( tombstone_info['datastore_tombstones'], datastore_pubkey, device_ids=device_ids )
-        if not res:
-            return self._reply_json({'error': 'Invalid datastore tombstone', 'errno': errno.EINVAL}, status_code=401)
+        # authenticate, and require qs-given device IDs to be covered by the tombstones.
+        # at least one of the session's keys must succeed
+        for dpk in ses['app_public_keys']:
+            datastore_pubkey = dpk['public_key']
+            res = gaia.verify_data_tombstones( tombstone_info['datastore_tombstones'], datastore_pubkey, device_ids=device_ids )
+            if not res:
+                continue
 
-        res = gaia.verify_mutable_data_tombstones( tombstone_info['root_tombstones'], datastore_pubkey, device_ids=device_ids )
-        if not res:
-            return self._reply_json({'error': 'Invalid root tombstone', 'errno': errno.EINVAL}, status_code=401)
+            res = gaia.verify_data_tombstones( tombstone_info['root_tombstones'], datastore_pubkey, device_ids=device_ids )
+            if not res:
+                continue
+            
+            authentic = True
+            break
+        
+        if not authentic:
+            log.error("Unable to authenticate tombstones")
+            return self._reply_json({'error': 'Failed to authenticate datastore tombstones', 'errno': errno.EINVAL})
+
+        # extract datastore ID from tombstones 
+        if len(tombstone_info['datastore_tombstones']) == 0:
+            return self._reply_json({'error': 'Empty tombstone data', 'errno': errno.EINVAL})
+
+        datastore_tombstone = tombstone_info['datastore_tombstones'][0]
+        ts_data = storage.parse_signed_data_tombstone(datastore_tombstone)
+        if ts_data is None:
+            return self._reply_json({'error': 'Invalid tombstone "{}"'.format(datastore_tombstone), 'errno': errno.EINVAL})
+
+        fq_data_id = ts_data['id']
+        ts_device_id, ts_data_id = storage.parse_fq_data_id(fq_data_id)
+        if ts_data_id is None:
+            return self._reply_json({'error': 'Invalid fully-qualified data ID in tombstone "{}"'.format(datastore_tombstone), 'errno': errno.EINVAL})
+
+        # format: "$datastore_id.datastore"
+        p = ts_data_id.split(".", 1)
+        if len(p) != 2 or p[1] != 'datastore':
+            return self._reply_json({'error': 'Invalid datastore data ID in tombstone "{}"'.format(datastore_tombstone), 'errno': errno.EINVAL})
+
+        datastore_id = p[0]
 
         # delete
         res = gaia.delete_datastore_info( datastore_id, tombstone_info['datastore_tombstones'], tombstone_info['root_tombstones'], ses['app_public_keys'], config_path=self.server.config_path )
@@ -1483,8 +1512,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if qs_device_ids is None and qs_device_pubkeys is None:
             # not given; check session
-            if ses is None and blockchain_id is not None and app_name is not None:
-                key_file_res = lookup_app_pubkeys(blockchain_id, app_name)
+            if (blockchain_id is not None and len(blockchain_id) > 0) and (app_name is not None and len(app_name) > 0):
+                key_file_res = key_file.lookup_app_pubkeys(blockchain_id, app_name)
                 if 'error' in key_file_res:
                     return {'error': 'Failed to load key delegation information for "{}"'.format(blockchain_id), 'status_code': 503}
 
@@ -1553,12 +1582,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         this_device_id = qs.get('this_device_id', None)
 
         path = qs.get('path', None)
-        if path is None:
-            return self._reply_json({'error': 'No path given', 'errno': errno.EINVAL}, status_code=401)
 
         # make sure we have device IDs and public keys 
         res = self._load_device_pubkeys(qs, ses, app_name, blockchain_id)
         if 'error' in res:
+            log.error("Failed to load device keys: {}".format(res['error']))
             return self._reply_json({'error': res['error']}, status_code=res['status_code'])
         
         device_ids = [dpk['device_id'] for dpk in res['data_pubkeys']]
@@ -1576,6 +1604,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if item_type == 'files':
             # getfile
+            if path is None:
+                return self._reply_json({'error': 'No path given', 'errno': errno.EINVAL}, status_code=401)
+
             log.debug("Will run cli_datastore_getfile()")
             res = internal.cli_datastore_getfile(blockchain_id, app_name, path, datastore_id, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
@@ -1594,11 +1625,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         elif item_type == 'headers':
             # file header
-            if path is not None:
-                log.debug("Will run cli_datastore_stat()")
-                res = internal.cli_datastore_stat(blockchain_id, app_name, path, datastore_id, force, device_ids, app_public_keys, config_path=self.server.config_path)
-            else:
-                return self._reply_json({'error': 'Missing path'}, status_code=401)
+            if path is None:
+                return self._reply_json({'error': 'No path given', 'errno': errno.EINVAL}, status_code=401)
+
+            log.debug("Will run cli_datastore_stat()")
+            res = internal.cli_datastore_stat(blockchain_id, app_name, path, datastore_id, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
         if json_is_error(res):
             err = {'error': 'Failed to read {}: {}'.format(item_type, res['error']), 'errno': res.get('errno', errno.EPERM)}
@@ -1650,7 +1681,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 403 on invalid userID
         Reply 503 on failure to upload data to storage providers
         """
-        return self._create_or_update_store_item( ses, path_info, store_id, item_type, create=True )
+        return self._create_or_update_store_item( ses, path_info, store_id, item_type )
 
 
     def PUT_store_item(self, ses, path_info, store_id, item_type ):
@@ -1663,7 +1694,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 403 on invalid userID
         Reply 503 on failre to upload data to storage providers
         """
-        return self._create_or_update_store_item( ses, path_info, store_id, item_type, create=False )
+        return self._create_or_update_store_item( ses, path_info, store_id, item_type )
 
 
     def _patch_from_signed_file_info( self, ses, path_info, operation, file_name, file_info, synchronous=False ):
@@ -1726,37 +1757,51 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Invalid request'}, status_code=401)
         
         # app domain must be a valid fully-qualified app domain (i.e. ends in .1 or .x)
-        app_domain = ses['app_domain']
+        app_domain = app.app_domain_to_app_name(ses['app_domain'])
         if not app.is_valid_app_name(app_domain):
-            return self._reply_json({'error': 'Invalid application domain name'}, status_code=401)
+            return self._reply_json({'error': 'Invalid application domain name "{}"'.format(app_domain)}, status_code=401)
 
         # optionally takes a public key 
         qs = path_info['qs_values']
-        data_pubkey = qs.get('data_pubkey', None)
+        this_device_id = ses['device_id']
+
+        data_pubkey = None
+        for dpk in ses['app_public_keys']:
+            if this_device_id == dpk['device_id']:
+                data_pubkey = dpk['public_key']
+
+        if data_pubkey is None:
+            return self._reply_json({'error': 'Invalid session: missing public key for device ID {}'.foramt(this_device_id)}, status_code=401)
 
         # verify datastore signature
+        # do so by finding the datastore public key
         datastore_str = str(file_info['datastore_str'])
         datastore_sig = str(file_info['datastore_sig'])
-        res = gaia.datastore_verify_and_parse(datastore_str, datastore_sig, datastore_pubkey)
-        if 'error' in res:
-            return self._reply_json(res, status_code=401)
+        
+        datastore_pubkey = None
+
+        for dpk in ses['app_public_keys']:
+            res = gaia.datastore_verify_and_parse(datastore_str, datastore_sig, dpk['public_key'])
+            if 'error' in res:
+                continue
+
+            datastore_pubkey = dpk['public_key']
+            break
+
+        if datastore_pubkey is None:
+            return self._reply_json({'error': 'Session does not contain a public key that matches the signature on the datastore'}, status_code=401)
 
         datastore = res['datastore']
-
-        if keylib.key_formatting.decompress(datastore['pubkey']) != keylib.key_formatting.decompress(datastore_pubkey):
-            # wrong datastore
-            log.error("{} != {}".format(datastore['pubkey'], datastore_pubkey))
-            return self._reply_json({'error': 'Invalid datastore in request: wrong pubkey'}, status_code=401)
 
         if operation == 'putfile':
             # NOTE: this can work even if blockchain_id is not given (i.e. the user hasn't claimed a name yet)
             # in which case, data_pubkey is *required*
             if ses['blockchain_id'] is None or len(ses['blockchain_id']) == 0:
-                if data_pubkey is not None:
+                if data_pubkey is None:
                     return self._reply_json({'error': 'No blockchain ID given, and no data_pubkey given'}, status_code=401)
 
             # client may require blockchain ID, in which case, data_pubkey will be ignored 
-            conf = blockstack_config.get_config(path=config_path)
+            conf = blockstack_config.get_config(path=self.server.config_path)
             if not conf['storage_anonymous_write']:
                 if ses['blockchain_id'] is None or len(ses['blockchain_id']) == 0:
                     return self._reply_json({'error': 'This node does not support anonymous writes'}, status_code=403)
@@ -1788,19 +1833,19 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             except:
                 log.error("putfile: File payloads must be base64-encoded")
                 return self._reply_json({'error': 'putfile: file payloads must be base64-encoded'}, status_code=401)
-
+        
             res = gaia.datastore_put_file_data( app_domain, datastore, file_name, file_header, payload, signature, ses['device_id'],
                                                 config_path=self.server.config_path, blockchain_id=ses['blockchain_id'], data_pubkey=data_pubkey )
-
+            
         elif operation == 'deletefile':
             # NOTE: this can work even if blockchain_id is not given (i.e. the user hasn't claimed a name yet)
             # in which case, data_pubkey is *required*
             if ses['blockchain_id'] is None or len(ses['blockchain_id']) == 0:
-                if data_pubkey is not None:
+                if data_pubkey is None:
                     return self._reply_json({'error': 'No blockchain ID given, and no data_pubkey given'}, status_code=401)
 
             # client may require blockchain ID, in which case, data_pubkey will be ignored 
-            conf = blockstack_config.get_config(path=config_path)
+            conf = blockstack_config.get_config(path=self.server.config_path)
             if not conf['storage_anonymous_write']:
                 if ses['blockchain_id'] is None or len(ses['blockchain_id']) == 0:
                     return self._reply_json({'error': 'This node does not support anonymous writes'}, status_code=403)
@@ -1813,24 +1858,23 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if len(tombstones) < 1:
                 return self._reply_json({'error': 'Invalid request: expected > 1 tombstone (got {})'.format(len(tombstones))}, status_code=401)
 
-                
             # takes device IDs and public keys 
-            res = self._load_device_pubkeys(qs, ses, app_name, blockchain_id)
+            res = self._load_device_pubkeys(qs, ses, app_domain, ses['blockchain_id'])
             if 'error' in res:
                 return self._reply_json({'error': res['error']}, status_code=res['status_code'])
             
             data_pubkeys = res['data_pubkeys']
-            res = gaia.datastore_delete_file_data( app_domain, datastore, tombstones, blockchain_id=ses['blockchain_id'], data_pubkeys=data_pubkeys, config_path=self.server.config_path)
+            res = gaia.datastore_delete_file_data( datastore, tombstones, blockchain_id=ses['blockchain_id'], full_app_name=app_domain, data_pubkeys=data_pubkeys, config_path=self.server.config_path)
 
         elif operation == 'device_roots':
             # NOTE: this can work even if blockchain_id is not given (i.e. the user hasn't claimed a name yet)
             # in which case, data_pubkey is *required*
             if ses['blockchain_id'] is None or len(ses['blockchain_id']) == 0:
-                if data_pubkey is not None:
+                if data_pubkey is None:
                     return self._reply_json({'error': 'No blockchain ID given, and no data_pubkey given'}, status_code=401)
 
             # client may require blockchain ID, in which case, data_pubkey will be ignored 
-            conf = blockstack_config.get_config(path=config_path)
+            conf = blockstack_config.get_config(path=self.server.config_path)
             if not conf['storage_anonymous_write']:
                 if ses['blockchain_id'] is None or len(ses['blockchain_id']) == 0:
                     return self._reply_json({'error': 'This node does not support anonymous writes'}, status_code=403)
@@ -1848,8 +1892,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             device_root_blob = payloads[0]
             device_root_sig = signatures[0]
             
-            res = gaia.datastore_put_root_data( app_domain, datastore, device_root_blob, device_root_sig, ses['device_id'],
-                                                config_path=self.server.config_path, data_pubkey=data_pubkey, blockchain_id=ses['blockchain_id'], synchronous=synchronous )
+            res = gaia.datastore_put_device_root_data( datastore, device_root_blob, device_root_sig, ses['device_id'], full_app_name=app_domain,
+                                                       config_path=self.server.config_path, data_pubkey=data_pubkey, blockchain_id=ses['blockchain_id'], synchronous=synchronous )
 
         else:
             # indicates a bug
@@ -1877,12 +1921,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         Allows arbitrary sized PUTs/POSTs
         """
+        
+        # one of ses's public keys must match the datastore 
+        valid_session = False
+        for dpk in ses['app_public_keys']:
+            if datastore_id in [gaia.datastore_get_id(keylib.key_formatting.decompress(str(dpk['public_key']))), gaia.datastore_get_id(keylib.key_formatting.compress(str(dpk['public_key'])))]:
+                valid_session = True
+                break
 
-        if datastore_id != ses['app_user_id']:
-            return self._reply_json({'error': 'Invalid datastore ID'}, status_code=403)
+        if not valid_session:
+            log.error("Invalid session: no public key matches the datastore ID")
+            return self._reply_json({'error': 'Invalid session: no public key matches this datastore ID'}, status_code=403)
 
         if item_type not in ['files', 'device_roots']:
-            log.debug("Invalid request: unrecognized item type")
+            log.error("Invalid request: unrecognized item type")
             self._reply_json({'error': 'Invalid request'}, status_code=401)
             return
 
@@ -1901,10 +1953,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     log.debug("No path given")
                     return self._reply_json({'error': 'Invalid request: missing path'}, status_code=401)
 
-                return self._patch_from_signed_file_infos( ses, path_info, 'putfile', path, request )
+                return self._patch_from_signed_file_info( ses, path_info, 'putfile', path, request )
 
             elif item_type == 'device_roots':
-                return self._patch_from_signed_file_infos( ses, path_info, 'device_roots', None, request, synchronous=synchronous )
+                return self._patch_from_signed_file_info( ses, path_info, 'device_roots', None, request, synchronous=synchronous )
 
             else:
                 return self._reply_json({'error': 'Unrecognized item type "{}"'.format(item_type)}, status_code=401)
@@ -1924,13 +1976,23 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the file does not exist
         Reply 503 on failure to contact remote storage providers
         """
-        if datastore_id != ses['app_user_id']:
-            return self._reply_json({'error': 'Invalid user', 'errno': errno.EACCES}, status_code=403)
+
+        # one of ses's public keys must match the datastore 
+        valid_session = False
+        for dpk in ses['app_public_keys']:
+            if datastore_id in [gaia.datastore_get_id(keylib.key_formatting.decompress(str(dpk['public_key']))), gaia.datastore_get_id(keylib.key_formatting.compress(str(dpk['public_key'])))]:
+                valid_session = True
+                break
+
+        if not valid_session:
+            log.error("Invalid session: no public key matches the datastore ID")
+            return self._reply_json({'error': 'Invalid session: no public key matches this datastore ID'}, status_code=403)
 
         if item_type not in ['files']:
             return self._reply_json({'error': 'Invalid request', 'errno': errno.EINVAL}, status_code=401)
 
         qs = path_info['qs_values']
+        path = qs.get('path', None)
         
         synchronous = False
         if qs.get('sync') and qs.get('sync') != '0':
@@ -1940,7 +2002,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if request and 'error' not in request:
             # sent externally-signed data
             if item_type == 'files':
-                return self._patch_from_signed_file_infos( ses, path_info, 'deletefile', path, request )
+                return self._patch_from_signed_file_info( ses, path_info, 'deletefile', path, request )
             else:
                 return self._reply_json({'error': 'Unrecognized operation "{}"'.format(item_type)}, status_code=500)
 
@@ -1967,7 +2029,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 return self._reply_json({'error': 'Unauthorized blockchain ID'}, status_code=403)
         
         if not app.is_valid_app_name(app_domain):
-            return self._reply_json({'error': 'Invalid application domain name'}, status_code=401)
+            return self._reply_json({'error': 'Invalid application domain name "{}"'.format(app_domain)}, status_code=401)
 
         qs = path_info['qs_values']
         pubkey = None
@@ -2988,10 +3050,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Top-level dispatch method
         """
 
-        URLENCODING_CLASS = r'[a-zA-Z0-9\-_.~%]+'
-        NAME_CLASS = r'[a-z0-9\-_.+]{{{},{}}}'.format(3, LENGTH_MAX_NAME)
-        NAMESPACE_CLASS = r'[a-z0-9\-_+]{{{},{}}}'.format(1, LENGTH_MAX_NAMESPACE_ID)
-        BASE58CHECK_CLASS = r'[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+'
+        URLENCODING_CLASS = r'{}+'.format(OP_URLENCODED_NOSLASH_CLASS)
+        NAME_CLASS = OP_NAME_CLASS
+        NAMESPACE_CLASS = OP_NAMESPACE_CLASS
+        BASE58CHECK_CLASS = r'{}+'.format(OP_BASE58CHECK_CLASS)
 
         routes = {
             r'^/v1/ping$': {
@@ -3846,6 +3908,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         else:
             # got a session.
             # check origin.
+            # NOTE: this is a *fully-qualified* app domain, so we should remove the '.1' or '.x' 
             app_domain = session['app_domain']
             try:
                 session_verified = self.verify_origin([app_domain])
@@ -4143,20 +4206,53 @@ class BlockstackAPIEndpointClient(object):
         return headers
 
 
-    def get_response(self, req):
+    def get_response(self, req, schema=None):
         """
         Get the response
         """
+        error_schema = {
+            'type': 'object',
+            'properties': {
+                'error': {
+                    'type': 'string',
+                },
+            },
+            'required': ['error'],
+        }
+
         try:
             resp = req.json()
-        except:
+            if schema:
+                try:
+                    jsonschema.validate(resp, schema)
+                except ValidationError as ve:
+                    try:
+                        jsonschema.validate(resp, error_schema)
+                    except ValidationError as ve2:
+                        if BLOCKSTACK_TEST:
+                            log.exception(ve)
+                            log.exception(ve2)
+
+                        resp = {'error': 'Invalid JSON response; did not match schema'}
+
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            if BLOCKSTACK_TEST:
+                print("==== unparseable text ====")
+                print(req.text)
+                print("==========================")
+
             resp = {'error': 'No JSON response', 'http_status': req.status_code}
 
         if req.status_code == 403:
             resp['error'] = ('Authentication to API service failed. Are you ' +
                              'using the correct API password or do you need to pass the ' +
                              'correct one with --api_password ?')
-            del resp['http_status']
+            
+            if 'http_status' in resp:
+                del resp['http_status']
 
         return resp
 
@@ -4455,8 +4551,14 @@ class BlockstackAPIEndpointClient(object):
                 'datastore_sigs': datastore_sigs,
                 'root_tombstones': root_tombstones,
             }
-            req = requests.post( 'http://{}:{}/v1/stores'.format(self.server, self.port), timeout=self.timeout, data=json.dumps(request), headers=headers)
-            return self.get_response(req)
+
+            url = 'http://{}:{}/v1/stores'.format(self.server, self.port)
+            log.debug("create datastore: {}".format(url))
+
+            req = requests.post( url, timeout=self.timeout, data=json.dumps(request), headers=headers)
+
+            resp_schema = {'type': 'object', 'properties': {'status': {'type': 'boolean'}}, 'requierd': ['status']}
+            return self.get_response(req, schema=resp_schema)
 
 
     def backend_datastore_get( self, blockchain_id, full_app_name, datastore_id=None, device_ids=None ):
@@ -4502,8 +4604,11 @@ class BlockstackAPIEndpointClient(object):
 
                 url += 'blockchain_id={}'.format(urllib.quote(blockchain_id))
 
+            log.debug("get datastore: {}".format(url))
             req = requests.get( url, timeout=self.timeout, headers=headers)
-            return self.get_response(req)
+
+            resp_schema = {'type': 'object', 'properties': {'datastore': DATASTORE_SCHEMA}, 'required': ['datastore']}
+            return self.get_response(req, schema=resp_schema)
 
 
     def backend_datastore_delete(self, datastore_id, datastore_tombstones, root_tombstones, data_pubkeys):
@@ -4528,19 +4633,34 @@ class BlockstackAPIEndpointClient(object):
                 'datastore_tombstones': datastore_tombstones,
                 'root_tombstones': root_tombstones,
             }
-            req = requests.delete( 'http://{}:{}/v1/stores'.format(self.server, self.port), data=json.dumps(request), timeout=self.timeout, headers=headers)
-            return self.get_response(req)
+           
+            url = 'http://{}:{}/v1/stores'.format(self.server, self.port) 
+            log.debug("delete datastore: {}".format(url))
+
+            req = requests.delete( url, data=json.dumps(request), timeout=self.timeout, headers=headers)
+
+            resp_schema = {'type': 'object', 'properties': {'status': {'type': 'boolean'}}, 'requierd': ['status']}
+            return self.get_response(req, schema=resp_schema)
 
 
-    def backend_datastore_get_device_root(self, blockchain_id, datastore, device_id, data_pubkey, force=False):
+    def backend_datastore_get_device_root(self, blockchain_id, datastore, device_id, data_pubkeys, force=False):
         """
         Get the device-specific root directory listing.
         Return {'status': True, 'device_root_page': {...}} on success
         Return {'error': ..., 'errno': ...} on failure
         """
         if is_api_server(self.config_dir):
-            # directly do the query 
-            return gaia.get_device_root_directory(blockchain_id, datastore['root_uuid'], datastore['drivers'], device_id, device_pubkey, force=force, config_path=self.config_path, blockchain_id=blockchain_id)
+            # directly do the query
+            data_pubkey = None
+            for dpk in data_pubkeys:
+                if device_id == dpk['device_id']:
+                    data_pubkey = dpk['public_key']
+
+            if data_pubkey is None:
+                return {'error': 'No data public key for {}'.format(device_id), 'errno': errno.EINVAL}
+
+            datastore_id = gaia.datastore_get_id(datastore['pubkey'])
+            return gaia.get_device_root_directory(datastore_id, datastore['root_uuid'], datastore['drivers'], device_id, data_pubkey, force=force, config_path=self.config_path, blockchain_id=blockchain_id)
 
         else:
             # client
@@ -4551,24 +4671,21 @@ class BlockstackAPIEndpointClient(object):
             # ask the API server 
             headers = self.make_request_headers(need_session=False)
             datastore_id = gaia.datastore_get_id(datastore['pubkey'])
-            url = 'http://{}:{}/v1/stores/{}/device_roots?force={}&this_device_id={}&data_pubkey={}'.format(self.server, self.port, datastore_id, '1' if force else '0', device_id, data_pubkey)
+            
+            device_ids = [dpk['device_id'] for dpk in data_pubkeys]
+            device_pubkeys = [dpk['public_key'] for dpk in data_pubkeys]
+            device_ids_str = urllib.quote( ','.join(device_ids))
+            device_pubkeys_str = urllib.quote( ','.join(device_pubkeys))
+
+            url = 'http://{}:{}/v1/stores/{}/device_roots?force={}&this_device_id={}&device_ids={}&device_pubkeys={}'.format(self.server, self.port, datastore_id, '1' if force else '0', device_id, device_ids_str, device_pubkeys_str)
             
             if blockchain_id:
                 url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
 
             log.debug("get_device_root: {}".format(url))
+
             req = requests.get(url, timeout=self.timeout, headers=headers)
-            res = self.get_response(req)
-
-            if not json_is_error(res):
-                try:
-                    jsonschema.validate(res, GET_DEVICE_ROOT_RESPONSE)
-                except ValidationError as ve:
-                    if BLOCKSTACK_DEBUG:
-                        log.exception(ve)
-
-                    return {'error': 'Server did not reply with a proper root directory response', 'errno': errno.EIO}
-
+            res = self.get_response(req, schema=GET_DEVICE_ROOT_RESPONSE)
             return res
 
     
@@ -4596,12 +4713,14 @@ class BlockstackAPIEndpointClient(object):
             # ask the API server 
             headers = self.make_request_headers(need_session=False)
             datastore_id = gaia.datastore_get_id(datastore['pubkey'])
-            url = 'http://{}:{}/v1/stores/{}/listing?force={}'.format(datastore_id, force)
+            url = 'http://{}:{}/v1/stores/{}/listing?force={}'.format(self.server, self.port, datastore_id, force)
             
             if blockchain_id:
                 url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
             
             if data_pubkeys is not None:
+                device_ids = [dpk['device_id'] for dpk in data_pubkeys]
+                device_pubkeys = [dpk['public_key'] for dpk in data_pubkeys]
                 device_ids_str = urllib.quote( ','.join(device_ids))
                 device_pubkeys_str = urllib.quote( ','.join(device_pubkeys))
 
@@ -4609,17 +4728,7 @@ class BlockstackAPIEndpointClient(object):
 
             log.debug("get root: {}".format(url))
             req = requests.get(url, timeout=self.timeout, headers=headers)
-            res = self.get_response(req)
-
-            if not json_is_error(res):
-                try:
-                    jsonschema.validate(res, GET_ROOT_RESPONSE)
-                except ValidationError as ve:
-                    if BLOCKSTACK_DEBUG:
-                        log.exception(ve)
-
-                    return {'error': 'Server did not reply with a proper get-root response', 'errno': errno.EIO}
-
+            res = self.get_response(req, schema=GET_ROOT_RESPONSE)
             return res
 
 
@@ -4662,18 +4771,9 @@ class BlockstackAPIEndpointClient(object):
             url += '&this_device_id={}'.format(urllib.quote(device_id))
 
             log.debug("lookup: {}".format(url))
+
             req = requests.get( url, timeout=self.timeout, headers=headers)
-            res = self.get_response(req)
-
-            if not json_is_error(res):
-                try:
-                    jsonschema.validate(res, FILE_LOOKUP_RESPONSE)
-                except ValidationError as ve:
-                    if BLOCKSTACK_DEBUG:
-                        log.exception(ve)
-
-                    return {'error': 'Server did not reply with a proper lookup response', 'errno': errno.EIO}
-
+            res = self.get_response(req, schema=FILE_LOOKUP_RESPONSE)
             return res
 
 
@@ -4705,7 +4805,7 @@ class BlockstackAPIEndpointClient(object):
             if blockchain_id:
                 url += '&blockchain_id={}'.format(blockchain_id)
 
-            if device_pubkeys is not None and len(device_pubkeys) > 0:
+            if data_pubkeys is not None and len(data_pubkeys) > 0:
                 device_ids = [urllib.quote(dk['device_id']) for dk in data_pubkeys]
                 device_pubkeys = [dk['public_key'] for dk in data_pubkeys]
 
@@ -4718,18 +4818,26 @@ class BlockstackAPIEndpointClient(object):
             req = requests.get(url, timeout=self.timeout, headers=headers)
             res = None
 
-            if req.http_status != 200:
-                res = self.get_response(req)        
+            if req.status_code != 200:
+                res = self.get_response(req)
                 log.error("Failed to get {}: {}".format(url, res['error']))
                 return res
                 
             else:
-                res = {'status': True, 'data': req.text()}
+                # possibly an error
+                try:
+                    resp = req.json()
+                    if json_is_error(resp):
+                        return resp
+                except:
+                    pass
+
+                res = {'status': True, 'data': req.text}
 
             return res
 
 
-    def backend_datastore_putfile(self, datastore_str, datastore_sig, file_name, file_header_blob, payload, signature, device_id, data_pubkey, blockchain_id=None, full_app_name=None):
+    def backend_datastore_putfile(self, datastore_str, datastore_sig, file_name, file_header_blob, payload, signature, device_id, blockchain_id=None, full_app_name=None):
         """
         Put file data.
         Return {'status': True, 'urls': [...]} on success
@@ -4757,9 +4865,6 @@ class BlockstackAPIEndpointClient(object):
             if blockchain_id is not None:
                 url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
 
-            if data_pubkey is not None:
-                url += '&data_pubkey={}'.format(urllib.quote(data_pubkey))
-
             # request structure
             request_struct = {
                 'headers': [file_header_blob],
@@ -4769,26 +4874,16 @@ class BlockstackAPIEndpointClient(object):
                 'datastore_str': datastore_str,
                 'datastore_sig': datastore_sig,
             }
-            req = requests.post( 'http://{}:{}/v1/stores/{}/files?path={}'.format(self.server, self.port, datastore_id, urllib.quote(file_name)), data=json.dumps(request_struct), timeout=self.timeout, headers=headers)
+            
+            url = 'http://{}:{}/v1/stores/{}/files?path={}'.format(self.server, self.port, datastore_id, urllib.quote(file_name))
+            log.debug("putfile: {}".format(url))
 
-            res = self.get_response(req)
-
-            if json_is_error(res):
-                return res
-
-            try:
-                jsonschema.validate(res, PUT_DATA_SCHEMA)
-            except ValidationError as ve:
-                if BLOCKSTACK_DEBUG:
-                    log.exception(ve)
-                    
-                log.error("Server did not reply valid data")
-                return {'error': 'Server did not reply valid data', 'errno': errno.EIO}
-
+            req = requests.post( url, data=json.dumps(request_struct), timeout=self.timeout, headers=headers)
+            res = self.get_response(req, schema=PUT_DATA_RESPONSE)
             return res
 
 
-    def backend_datastore_put_device_root(self, datastore_str, datastore_sig, device_root_page_blob, signature, device_id, data_pubkey, blockchain_id=None, full_app_name=None, synchronous=False):
+    def backend_datastore_put_device_root(self, datastore_str, datastore_sig, device_root_page_blob, signature, device_id, data_pubkey=None, blockchain_id=None, full_app_name=None, synchronous=False):
         """
         Put a new device-specific root
         Return {'status': True, 'urls': ...} on success
@@ -4810,16 +4905,13 @@ class BlockstackAPIEndpointClient(object):
 
             headers = self.make_request_headers(need_session=True)
             datastore_id = gaia.datastore_get_id(json.loads(datastore_str)['pubkey'])
-            url = 'http://{}:{}/v1/stores/{}/device_roots?synchronous={}'.format(
+            url = 'http://{}:{}/v1/stores/{}/device_roots?sync={}'.format(
                     self.server, self.port, datastore_id, '1' if synchronous else '0'
             )
             
             if blockchain_id is not None:
                 url += '&blockchain_id=' + urllib.quote(blockchain_id)
 
-            if data_pubkey is not None:
-                url += '&data_pubkey=' + urllib.quote(data_pubkey)
-            
             # request structure 
             request_struct = {
                 'headers': [], 
@@ -4830,23 +4922,11 @@ class BlockstackAPIEndpointClient(object):
                 'datastore_sig': datastore_sig
             }
             req = requests.post( url, data=json.dumps(request_struct), timeout=self.timeout, headers=headers)
-            res = self.get_response(res)
-
-            if json_is_error(res):
-                return res
-
-            try:
-                jsonschema.validate(res, PUT_DATA_SCHEMA)
-            except ValidationError as ve:
-                if BLOCKSTACK_DEBUG:
-                    log.exception(ve)
-
-                return {'error': 'Did not get valid data from server', 'errno': errno.EIO}
-
+            res = self.get_response(req, schema=PUT_DATA_RESPONSE)
             return res
 
 
-    def backend_datastore_deletefile(self, datastore_str, datastore_sig, signed_tombstones, data_pubkeys, blockchain_id=None, full_app_name=None):
+    def backend_datastore_deletefile(self, datastore_str, datastore_sig, signed_tombstones, data_pubkeys, synchronous=False, blockchain_id=None, full_app_name=None):
         """
         Delete file data
         Return {'status': True} on success
@@ -4866,22 +4946,19 @@ class BlockstackAPIEndpointClient(object):
 
             datastore_id = gaia.datastore_get_id(json.loads(datastore_str)['pubkey'])
             headers = self.make_request_headers(need_session=True)
-            url = 'http://{}:{}/v1/stores/{}/files'
+            url = 'http://{}:{}/v1/stores/{}/files?sync={}'.format(self.server, self.port, datastore_id, '1' if synchronous else '0')
             
-            qs_sep = '?'
             if blockchain_id:
-                url += qs_sep + 'blockchain_id=' + urllib.quote(blockchain_id)
-                qs_sep = '&'
+                url += '&blockchain_id=' + urllib.quote(blockchain_id)
 
-            if device_pubkeys is not None and len(device_pubkeys) > 0:
+            if data_pubkeys is not None and len(data_pubkeys) > 0:
                 device_ids = [urllib.quote(dk['device_id']) for dk in data_pubkeys]
                 device_pubkeys = [dk['public_key'] for dk in data_pubkeys]
 
                 device_ids_str = urllib.quote( ','.join(device_ids))
                 device_pubkeys_str = urllib.quote( ','.join(device_pubkeys))
 
-                url += qs_sep + 'device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
-                qs_sep = '&'
+                url += '&device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
     
             request_struct = {
                 'headers': [],
@@ -4891,8 +4968,12 @@ class BlockstackAPIEndpointClient(object):
                 'datastore_str': datastore_str,
                 'datastore_sig': datastore_sig,
             }
-            req = requests.delete(url, data=json.dumps(request), timeout=self.timeout, headers=headers)
-            res = self.get_response(req)
+
+            log.debug("deletefile: {}".format(url))
+            req = requests.delete(url, data=json.dumps(request_struct), timeout=self.timeout, headers=headers)
+
+            resp_schema = {'type': 'object', 'properties': {'status': {'type': 'boolean'}}, 'requierd': ['status']}
+            res = self.get_response(req, schema=resp_schema)
             return res
 
 
@@ -5384,6 +5465,14 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     if state is None:
         log.error("Failed to initialize registrar: {}".format(res['error']))
         return {'error': 'Failed to initialize registrar: {}'.format(res['error'])}
+
+    log.debug("Initializing Gaia storage...")
+    res = gaia.gaia_start(config_path=config_path)
+    if 'error' in res:
+        log.error("Failed to initialize Gaia: {}".format(res['error']))
+        
+        backend.registrar.registrar_shutdown(config_path)
+        return {'error': 'Failed to initialize Gaia: {}'.format(res['error'])}
 
     log.debug("Setup finished")
 
