@@ -292,8 +292,8 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
             urls = user_db.user_zonefile_urls(user_zonefile)
 
         user_profile = storage.get_mutable_data(
-            name, user_data_pubkey, blockchain_id=name,
-            data_address=data_address, owner_address=owner_address,
+            name, [user_data_pubkey], blockchain_id=name,
+            data_addresses=[data_address, owner_address],
             urls=urls, drivers=profile_storage_drivers, decode=decode_profile,
         )
 
