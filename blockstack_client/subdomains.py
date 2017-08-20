@@ -485,8 +485,8 @@ def subdomain_record_to_profile(my_rec):
 
     try:
         user_profile = storage.get_mutable_data(
-            None, user_data_pubkey, blockchain_id=None,
-            data_address=owner_addr, owner_address=None,
+            None, [user_data_pubkey], blockchain_id=None,
+            data_addresses=[owner_addr],
             urls=urls, drivers=None, decode=True,
         )
     except:
