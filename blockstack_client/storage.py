@@ -268,7 +268,7 @@ def parse_data_tombstone( tombstone ):
     Return {'id': ..., 'timestamp': ...} on success
     Return None on error
     """
-    match = re.match(OP_TOMBSTONE_PATTERN, tombstone)
+    match = re.match(schemas.OP_TOMBSTONE_PATTERN, tombstone)
     if match is None:
         return None
 
@@ -285,7 +285,7 @@ def parse_signed_data_tombstone( tombstone_data ):
        `ts` will be the number of milliseconds since the epoch date
     Return None on error
     """
-    match = re.match(OP_SIGNED_TOMBSTONE_PATTERN, tombstone_data)
+    match = re.match(schemas.OP_SIGNED_TOMBSTONE_PATTERN, tombstone_data)
     if match is None:
         return None
 
@@ -675,13 +675,13 @@ def configure_storage_driver(driver_name, index=False, force_index=False, config
     return {'error': 'No such driver'}
 
 
-def get_immutable_data(data_hash, data_url=None, hash_func=get_data_hash, fqu=None,
+def get_immutable_data(data_hash, data_url=None, hash_func=get_data_hash, blockchain_id=None,
                        data_id=None, zonefile=False, drivers=None):
     """
     Given the hash of the data, go through the list of
     immutable data handlers and look it up.
 
-    Optionally pass the fully-qualified name (@fqu), human-readable data ID (data_id),
+    Optionally pass the fully-qualified name (@blockchain_id), human-readable data ID (data_id),
     and whether or not this is a zonefile request (zonefile) as hints to the driver.
 
     Return the data (as a dict) on success.
@@ -732,9 +732,7 @@ def get_immutable_data(data_hash, data_url=None, hash_func=get_data_hash, fqu=No
 
             log.debug('Try {} ({})'.format(handler.__name__, data_hash))
             try:
-                data = handler.get_immutable_handler(
-                    data_hash, data_id=data_id, zonefile=zonefile, fqu=fqu
-                )
+                data = handler.get_immutable_handler(data_hash, data_id=data_id, zonefile=zonefile, fqu=blockchain_id)
             except Exception as e:
                 log.exception(e)
                 msg = 'Method failed: {}.get_immutable_handler({})'
@@ -797,23 +795,18 @@ def get_driver_urls( fq_data_id, storage_drivers ):
     return ret
 
 
-def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data_hash=None,
-                     owner_address=None, blockchain_id=None, drivers=None, decode=True, bsk_version=None):
+def get_mutable_data(fq_data_id, data_pubkeys, urls=None, data_addresses=None, data_hash=None,
+                     blockchain_id=None, drivers=None, decode=True, bsk_version=None):
     """
     Low-level call to get mutable data, given a fully-qualified data name.
     
-    if decode is False, then data_pubkey, data_address, and owner_address are not needed and raw bytes will be returned.
+    if decode is False, then data_pubkeys, data_addresses are not needed and raw bytes will be returned.
 
     Return a mutable data dict on success (or raw bytes if decode=False)
     Return None on error
     """
 
     global storage_handlers
-
-    # fully-qualified username hint
-    fqu = None
-    if blockchain_id is not None:
-        fqu = blockchain_id
 
     handlers_to_use = []
     if drivers is None:
@@ -827,15 +820,16 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
 
     # ripemd160(sha256(pubkey))
     data_pubkey_hashes = []
-    for a in filter(lambda x: x is not None, [data_address, owner_address]):
-        try:
-            h = keylib.b58check.b58check_decode(str(a)).encode('hex')
-            data_pubkey_hashes.append(h)
-        except:
-            log.debug("Invalid address '{}'".format(a))
-            continue
+    if data_addresses is not None:
+        for a in filter(lambda x: x is not None, data_addresses):
+            try:
+                h = keylib.b58check.b58check_decode(str(a)).encode('hex')
+                data_pubkey_hashes.append(h)
+            except:
+                log.debug("Invalid address '{}'".format(a))
+                continue
 
-    log.debug('get_mutable_data {} fqu={} bsk_version={}'.format(fq_data_id, fqu, bsk_version))
+    log.debug('get_mutable_data {} blockchain_id={} bsk_version={}'.format(fq_data_id, blockchain_id, bsk_version))
     for storage_handler in handlers_to_use:
         if not getattr(storage_handler, 'get_mutable_handler', None):
             continue
@@ -881,7 +875,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
 
             log.debug('Try {} ({})'.format(storage_handler.__name__, url))
             try:
-                data_txt = storage_handler.get_mutable_handler(url, fqu=fqu, data_pubkey=data_pubkey, data_pubkey_hashes=data_pubkey_hashes)
+                data_txt = storage_handler.get_mutable_handler(url, fqu=blockchain_id, data_pubkeys=data_pubkeys, data_pubkey_hashes=data_pubkey_hashes)
             except UnhandledURLException as uue:
                 # handler doesn't handle this URL
                 msg = 'Storage handler {} does not handle URLs like {}'
@@ -900,15 +894,20 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
             # parse it, if desired
             if decode:
                 data = None
-                if data_pubkey is not None or data_address is not None or data_hash is not None:
-                    data = parse_mutable_data(
-                        data_txt, data_pubkey, public_key_hash=data_address, data_hash=data_hash, bsk_version=bsk_version
-                    )
+                if data_pubkeys is not None:
+                    for data_pubkey in data_pubkeys:
+                        data = parse_mutable_data(data_txt, data_pubkey, bsk_version=bsk_version)
+                        if data is not None:
+                            break
 
-                if data is None and owner_address is not None:
-                    data = parse_mutable_data(
-                        data_txt, None, public_key_hash=owner_address, bsk_version=bsk_version
-                    )
+                if data is None and data_addresses is not None:
+                    for data_address in data_addresses:
+                        data = parse_mutable_data(data_txt, None, public_key_hash=data_address, bsk_version=bsk_version)
+                        if data is not None:
+                            break
+
+                if data is None and data_hash is not None:
+                    data = parse_mutable_data(data_txt, None, data_hash=data_hash, bsk_version=bsk_version)
 
                 if data is None:
                     msg = 'Unparseable data from "{}"'
@@ -1035,11 +1034,6 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
 
     log.debug('put_mutable_data({}), required={}, skip={} required_exclusive={}'.format(fq_data_id, ','.join(required), ','.join(skip), required_exclusive))
 
-    # fully-qualified username hint
-    fqu = None
-    if blockchain_id is not None:
-        fqu = blockchain_id
-
     # sanity check: only support single-sig private keys
     if data_privkey is not None:
         if not is_singlesig_hex(data_privkey):
@@ -1086,7 +1080,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
         log.debug('Try "{}"'.format(handler.__name__))
 
         try:
-            store_url = handler.put_mutable_handler(fq_data_id, serialized_data, fqu=fqu, key_file=key_file)
+            store_url = handler.put_mutable_handler(fq_data_id, serialized_data, fqu=blockchain_id, key_file=key_file)
             assert isinstance(store_url, (str,unicode))
         except Exception as e:
             log.exception(e)
@@ -1171,11 +1165,6 @@ def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None,
     required = [] if required is None else required
     skip = [] if skip is None else skip
 
-    # fully-qualified username hint
-    fqu = None
-    if blockchain_id is not None:
-        fqu = blockchain_id
-
     # sanity check
     if privatekey is not None and not is_singlesig_hex(privatekey):
         log.error('Only single-signature data private keys are supported')
@@ -1204,7 +1193,7 @@ def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None,
 
         rc = False
         try:
-            rc = handler.delete_mutable_handler(fq_data_id, signed_data_tombstone, fqu=fqu, key_file=key_file)
+            rc = handler.delete_mutable_handler(fq_data_id, signed_data_tombstone, fqu=blockchain_id, key_file=key_file)
         except Exception as e:
             log.exception(e)
             rc = False
