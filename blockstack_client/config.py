@@ -249,6 +249,12 @@ def get_local_device_id(config_dir=CONFIG_DIR):
     return get_or_set_uuid(config_dir=config_dir)
 
 
+def make_unassigned_device_id(idx):
+    """
+    Make an unassigned device ID
+    """
+    return '{}{}'.format(UNASSIGNED_DEVICE_ID_PREFIX, idx)
+
 
 def configure(config_file=CONFIG_PATH, force=False, interactive=True, set_migrate=False):
     """
