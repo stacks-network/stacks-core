@@ -104,11 +104,13 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
         if storage_impl is None:
             log.error('Failed to load storage driver "{}"'.format(storage_driver))
             sys.exit(1)
+
         loaded.append(storage_driver)
         rc = register_storage(storage_impl, conf)
         if not rc:
             log.error('Failed to initialize storage driver "{}" ({})'.format(storage_driver, rc))
             sys.exit(1)
+
     log.debug('Loaded storage drivers {}'.format(loaded))
     # initialize SPV
     SPVClient.init(spv_headers_path)
