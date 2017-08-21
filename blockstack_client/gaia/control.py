@@ -68,10 +68,10 @@ class WriteLogThread(threading.Thread):
     def __init__(self):
         super(WriteLogThread, self).__init__()
 
-    def run():
-        write_log_thread()
+    def run(self):
+        write_log_replicate_thread()
 
-    def signal_stop():
+    def signal_stop(self):
         write_log_notify()
 
 
@@ -96,10 +96,9 @@ def gaia_start(config_path=CONFIG_PATH):
 
         return {'error': 'Failed to initialize write log'}
 
-    write_log_thread = threading.Thread()
-    WRITE_LOG_THREAD = write_log_thread
-    WRITE_LOG_THREAD.start()
     GAIA_RUNNING = True
+    WRITE_LOG_THREAD = WriteLogThread()
+    WRITE_LOG_THREAD.start()
 
     return {'status': True}
     
