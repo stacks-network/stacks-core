@@ -1019,7 +1019,7 @@ Revokes the name from blockstack.
                 },
               ],
             }
-                
+
 
 ## Transfer name [PUT /v1/names/{name}/owner]
 Transfers a name to a different owner.
@@ -1030,6 +1030,75 @@ Transfers a name to a different owner.
   + Body
 
              { "owner" : "mjZicz7GSJBZuGeCMEgpzr8U9w6d41DfXm" }
+
++ Request (application/json)
+  + Schema
+
+
+                      {
+                        'type': 'object',
+                        'properties': {
+                            'owner': {
+                                'type': 'string',
+                                'pattern': OP_BASE58CHECK_PATTERN,
+                            },
+                            'tx_fee': {
+                                'type': 'integer',
+                                'minimum': 0,
+                                'maximum': 500000
+                            },
+                            'owner_key': {
+                                'anyOf': [
+                                    {
+                                        'anyOf': [
+                                            {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'properties': {
+                                            'address': {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            'private_keys': {
+                                                'items': {
+                                                    'anyOf': [
+                                                        {
+                                                            'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                            'type': 'string'
+                                                        },
+                                                        {
+                                                            'pattern': '^([0-9a-fA-F]+)$',
+                                                            'type': 'string'
+                                                        }
+                                                    ]
+                                                },
+                                                'type': 'array'
+                                            },
+                                            'redeem_script': {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        },
+                                        'required': [
+                                            'owner'
+                                        ],
+                                        'type': 'object'
+                                    }
+                                ]
+                            }
+                        },
+                        'additionalProperties': False,
+                    }
+
+
 + Response 202 (application/json)
   + Body
 
