@@ -43,7 +43,7 @@ import blockstack_zones
 import virtualchain
 
 from .queue import get_queue_state, in_queue, cleanup_preorder_queue, queue_removeall
-from .queue import queue_find_accepted
+from .queue import queue_find_accepted, queuedb_find
 from .queue import queue_add_error_msg
 
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
@@ -53,7 +53,7 @@ from ..proxy import is_name_registered, is_zonefile_hash_current, get_default_pr
 from ..zonefile import zonefile_data_replicate
 from ..user import is_user_zonefile
 from ..storage import put_mutable_data, get_zonefile_data_hash
-from ..data import set_profile_timestamp
+from ..profile import set_profile_timestamp
 
 from ..constants import CONFIG_PATH, DEFAULT_QUEUE_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, TX_MIN_CONFIRMATIONS
 from ..constants import PREORDER_CONFIRMATIONS

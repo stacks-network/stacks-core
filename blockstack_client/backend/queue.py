@@ -28,7 +28,8 @@ import base64
 import time
 import random
 
-from ..constants import DEFAULT_QUEUE_PATH, PREORDER_MAX_CONFIRMATIONS, CONFIG_PATH
+from ..constants import (
+    DEFAULT_QUEUE_PATH, PREORDER_MAX_CONFIRMATIONS, CONFIG_PATH, MAX_TX_CONFIRMATIONS)
 from .blockchain import get_block_height, get_tx_confirmations, is_tx_accepted
 
 QUEUE_SQL = """
@@ -46,7 +47,6 @@ CREATE TABLE entry_errs( fqu STRING NOT NULL,
                          PRIMARY KEY(fqu,queue_id,errormsg));
 """
 
-from ..config import MAX_TX_CONFIRMATIONS
 from ..logger import get_logger
 
 log = get_logger()
@@ -132,9 +132,10 @@ def queuedb_query_execute( cur, query, values ):
         except sqlite3.OperationalError as oe:
             if oe.message == "database is locked":
                 timeout = timeout * 2 + timeout * random.random()
-                log.error("Query timed out due to lock; retrying in %s: %s" % (timeout, namedb_format_query( query, values )))
+                log.error("Query timed out due to lock; retrying in %s: (%s, %s)" %
+                          (timeout, query, values))
                 time.sleep(timeout)
-            
+
             else:
                 log.exception(oe)
                 log.error("FATAL: failed to execute query (%s, %s)" % (query, values))

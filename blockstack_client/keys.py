@@ -35,7 +35,8 @@ from .logger import get_logger
 from .constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
 
 import virtualchain
-from virtualchain.lib.ecdsalib import *
+from virtualchain.lib.ecdsalib import (
+    set_privkey_compressed, get_pubkey_hex, ecdsa_private_key)
 
 # for compatibility
 log = get_logger()

@@ -26,6 +26,8 @@ import requests
 BLOCKCHAIN_API_BASE_URL = "https://blockchain.info"
 
 from .blockchain_client import BlockchainClient
+from binascii import hexlify
+import virtualchain
 
 class BlockchainInfoClient(BlockchainClient):
     def __init__(self, api_key=None, timeout=30, min_confirmations=None):
@@ -35,7 +37,7 @@ class BlockchainInfoClient(BlockchainClient):
             self.auth = (api_key, '')
         else:
             self.auth = None
-        
+
         self.min_confirmations = min_confirmations
 
 def reverse_hash(hash, hex_format=True):

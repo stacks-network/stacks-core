@@ -44,14 +44,11 @@ xmlrpc.monkey_patch()
 import logging
 logging.disable(logging.CRITICAL)
 
-import requests
-requests.packages.urllib3.disable_warnings()
-
 from .backend.crypto.utils import aes_decrypt, aes_encrypt
 from .backend.blockchain import get_balance
 from .utils import print_result
 
-from .keys import *
+from .keys import HDWallet, is_singlesig_hex, decrypt_private_key_info
 
 import config
 from .constants import (
@@ -61,10 +58,17 @@ from .constants import (
 )
 
 from .proxy import get_names_owned_by_address, get_default_proxy
-from .schemas import *
+from .schemas import (
+    ENCRYPTED_WALLET_SCHEMA_CURRENT,
+    ENCRYPTED_WALLET_SCHEMA_CURRENT_NODATAKEY,
+    WALLET_SCHEMA_CURRENT, WALLET_SCHEMA_CURRENT_NODATAKEY,
+    ENCRYPTED_WALLET_SCHEMA_LEGACY,
+    ENCRYPTED_WALLET_SCHEMA_LEGACY_013,
+    ENCRYPTED_WALLET_SCHEMA_LEGACY_014
+)
 
 import virtualchain
-from virtualchain.lib.ecdsalib import *
+from virtualchain.lib.ecdsalib import ecdsa_private_key, get_pubkey_hex
 import keylib
 
 from .logger import get_logger
@@ -78,7 +82,7 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
     Return the encrypted dict on success
     Return {'error': ...} on error
     """
-    
+
     if test_legacy:
         assert BLOCKSTACK_TEST, 'test_legacy only works in test mode'
 

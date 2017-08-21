@@ -22,7 +22,7 @@
 """
 
 import json
-import os
+import os, sys
 import time
 import jsontokens
 import blockstack_profiles
@@ -39,23 +39,41 @@ import jsontokens
 import collections
 import threading
 import functools
+import copy
+import jsonschema
+from jsonschema import ValidationError
 
-from keylib import *
+import keylib
+from keylib import ECPrivateKey
 
 import virtualchain
-from virtualchain.lib.ecdsalib import *
+from virtualchain.lib.ecdsalib import sign_raw_data, get_pubkey_hex
 
-from .keys import *
-from .profile import *
-from .proxy import *
+from .keys import (get_payment_privkey_info, get_owner_privkey_info, HDWallet)
+
+from .profile import get_data_privkey_info
+
+from .proxy import (
+    getinfo, get_name_blockchain_history, get_default_proxy, json_is_error)
 from .storage import hash_zonefile
 from .zonefile import get_name_zonefile, load_name_zonefile, store_name_zonefile
 from .utils import ScatterGather
 
 from .logger import get_logger
 from .config import get_config, get_local_device_id
-from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DATASTORE_SIGNING_KEY_INDEX, BLOCKSTACK_STORAGE_PROTO_VERSION, DEFAULT_DEVICE_ID
-from .schemas import *
+from .constants import (
+    BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DATASTORE_SIGNING_KEY_INDEX,
+    BLOCKSTACK_STORAGE_PROTO_VERSION, DEFAULT_DEVICE_ID,
+    CONFIG_PATH
+)
+
+from .schemas import (
+    DATA_BLOB_SCHEMA,
+    DATASTORE_SCHEMA,
+    MUTABLE_DATUM_DIR_SCHEMA,
+    MUTABLE_DATUM_INODE_HEADER_SCHEMA,
+    MUTABLE_DATUM_DIR_TYPE,
+    MUTABLE_DATUM_FILE_TYPE)
 
 log = get_logger()
 
@@ -4380,7 +4398,7 @@ if __name__ == "__main__":
         auth_request = {
             'app_domain': 'datastore.unit.tests',
             'methods': ['store_read', 'store_write', 'store_admin'],
-            'app_public_key': key_formatting.decompress( ECPrivateKey(private_key).public_key().to_hex() ),
+            'app_public_key': keylib.key_formatting.decompress( ECPrivateKey(private_key).public_key().to_hex() ),
         }
 
         # authentication: bearer {password}

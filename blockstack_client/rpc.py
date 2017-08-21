@@ -47,11 +47,28 @@ import platform
 import shutil
 import urlparse
 from jsonschema import ValidationError
-from schemas import *
 import client as bsk_client
+from schemas import (
+    APP_SESSION_REQUEST_SCHEMA,
+    APP_SESSION_REQUEST_SCHEMA_OLD,
+    OP_NAME_PATTERN,
+    OP_BASE58CHECK_PATTERN,
+    OP_ADDRESS_PATTERN,
+    OP_ZONEFILE_HASH_PATTERN,
+    PRIVKEY_INFO_SCHEMA,
+    CREATE_DATASTORE_REQUEST_SCHEMA,
+    DELETE_DATASTORE_REQUEST_SCHEMA,
+    OP_BASE64_PATTERN,
+    WALLET_SCHEMA_CURRENT,
+    OP_HEX_PATTERN,
+    LENGTH_MAX_NAME,
+    LENGTH_MAX_NAMESPACE_ID,
+    DATASTORE_LOOKUP_EXTENDED_RESPONSE_SCHEMA,
+    MUTABLE_DATUM_FILE_TYPE,
+    DATASTORE_LOOKUP_RESPONSE_SCHEMA)
 
 import keylib
-from keylib import *
+from keylib import ECPrivateKey
 
 import signal
 import json
@@ -68,7 +85,12 @@ import subdomains
 DEFAULT_UI_PORT = 8888
 DEVELOPMENT_UI_PORT = 3000
 
-from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE, set_secret, get_secret
+from .constants import (
+    CONFIG_FILENAME, serialize_secrets, WALLET_FILENAME,
+    BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH,
+    WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION,
+    DEFAULT_SESSION_LIFETIME, FIRST_BLOCK_MAINNET,
+    TX_MAX_FEE, set_secret, get_secret, DEFAULT_TIMEOUT)
 from .method_parser import parse_methods
 from .wallet import make_wallet
 import app
@@ -81,7 +103,7 @@ import storage
 from utils import daemonize, streq_constant
 
 import virtualchain
-from virtualchain.lib.ecdsalib import *
+from virtualchain.lib.ecdsalib import get_pubkey_hex, verify_raw_data
 
 import blockstack_profiles
 
@@ -1680,7 +1702,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         datastore_str = str(inode_info['datastore_str'])
         datastore_sig = str(inode_info['datastore_sig'])
         datastore_pubkey = app.app_get_datastore_pubkey( ses )
-        res = keys.verify_raw_data(datastore_str, datastore_pubkey, datastore_sig)
+        res = verify_raw_data(datastore_str, datastore_pubkey, datastore_sig)
         if not res:
             return self._reply_json({'error': 'Invalid request: invalid datastore signature'}, status_code=401)
 
@@ -2878,8 +2900,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._send_headers(status_code=200, content_type='text/plain')
 
         elif command == 'clearcache':
-            # clear the cache 
-            data.cache_evict_all()
+            # clear the cache
+            # aaron note: there's no implementation of a cache eviction.
             return self._send_headers(status_code=200, content_type='text/plain')
 
         else:
@@ -4007,7 +4029,7 @@ class BlockstackAPIEndpointClient(object):
     Usable both by external clients and by the API server itself.
     """
     def __init__(self, server, port, api_pass=None, session=None, config_path=CONFIG_PATH,
-                 timeout=blockstack_constants.DEFAULT_TIMEOUT, debug_timeline=False, **kw):
+                 timeout=DEFAULT_TIMEOUT, debug_timeline=False, **kw):
 
         self.timeout = timeout
         self.server = server
@@ -4833,7 +4855,7 @@ def local_api_action(command, password=None, api_pass=None, config_dir=blockstac
         else:
             return {'error': 'Failed to stop API endpoint'}
 
-    config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
+    config_path = os.path.join(config_dir, CONFIG_FILENAME)
 
     conf = blockstack_config.get_config(config_path)
     if conf is None:
@@ -4857,7 +4879,7 @@ def local_api_action(command, password=None, api_pass=None, config_dir=blockstac
         env = {}
         env.update( os.environ )
 
-        api_stdin_buf = blockstack_constants.serialize_secrets()
+        api_stdin_buf = serialize_secrets()
 
         p = subprocess.Popen(argv, cwd=config_dir, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, env=env)
         out, err = p.communicate(input=api_stdin_buf)
@@ -5091,8 +5113,8 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     from blockstack_client.wallet import load_wallet
     from blockstack_client.client import session
 
-    config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
-    wallet_path = os.path.join(config_dir, blockstack_constants.WALLET_FILENAME)
+    config_path = os.path.join(config_dir, CONFIG_FILENAME)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
     conf = blockstack_client.get_config(config_path)
     assert conf

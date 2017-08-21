@@ -37,7 +37,12 @@ import requests
 from ConfigParser import SafeConfigParser
 
 import virtualchain
-from .constants import *
+from .constants import (
+    DEBUG,
+    LOG_NETWORK_PORT,
+    get_secret,
+    CONFIG_PATH,
+    BLOCKSTACK_TEST)
 
 
 class NetworkLogFormatter( logging.Formatter ):

@@ -44,7 +44,8 @@ import storage
 import scripts
 
 from .constants import (
-    MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST, DEFAULT_TIMEOUT
+    MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST, DEFAULT_TIMEOUT,
+    BLOCKSTACK_DEBUG
 )
 
 from .logger import get_logger
@@ -54,7 +55,20 @@ from .operations import (
     nameop_restore_snv_consensus_fields
 )
 
-from .schemas import *
+from .schemas import (
+    OP_NAMESPACE_PATTERN,
+    OP_CONSENSUS_HASH_PATTERN,
+    OP_CONSENSUS_HASH_PATTERN,
+    NAMEOP_SCHEMA_PROPERTIES,
+    NAMEOP_SCHEMA_REQUIRED,
+    OP_TXID_PATTERN,
+    OP_CODE_PATTERN,
+    OP_ZONEFILE_HASH_PATTERN,
+    OP_TXID_PATTERN,
+    OP_HISTORY_SCHEMA,
+    NAMESPACE_SCHEMA_PROPERTIES,
+    NAMESPACE_SCHEMA_REQUIRED
+)
 
 log = get_logger('blockstack-client')
 

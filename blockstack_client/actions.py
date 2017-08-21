@@ -86,15 +86,16 @@ from blockstack_client.profile import put_profile, delete_profile, get_profile, 
         profile_add_device_id, profile_remove_device_id, profile_list_accounts, profile_get_account, \
         profile_put_account, profile_delete_account
 
-from rpc import local_api_connect, local_api_status 
+from rpc import local_api_connect, local_api_status
 import rpc as local_rpc
 import config
 
 from .config import configure_zonefile, configure, get_utxo_provider_client, get_tx_broadcaster, get_local_device_id
 from .constants import (
-    CONFIG_PATH, CONFIG_DIR,
+    CONFIG_PATH, CONFIG_DIR, WALLET_FILENAME,
     FIRST_BLOCK_MAINNET, NAME_UPDATE,
-    BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME
+    BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME,
+    get_secret, set_secret, BLOCKSTACK_TEST, VERSION
 )
 
 from .storage import get_driver_urls, get_storage_handlers, sign_data_payload, \
@@ -105,21 +106,50 @@ from .backend.blockchain import (
     get_tx_confirmations, get_tx_fee, get_tx_fee_per_byte, get_block_height
 )
 
-from .backend.registrar import get_wallet as registrar_get_wallet 
+from .backend.registrar import get_wallet as registrar_get_wallet
 
 from .backend.nameops import (
     do_namespace_preorder, do_namespace_reveal, do_namespace_ready,
     do_name_import
 )
 
-from .backend.safety import *
+from .backend.safety import (
+    check_valid_name, check_valid_namespace, check_operations,
+    interpret_operation_fees, get_operation_fees
+)
 from .backend.queue import queuedb_remove, queuedb_find, queue_append
 from .backend.queue import extract_entry as queue_extract_entry
 
-from .wallet import *
-from .keys import *
-from .proxy import *
-from .client import analytics_event 
+from .wallet import (
+    get_total_balance,
+    get_all_names_owned,
+    get_owner_addresses_and_names,
+    get_wallet,
+    get_names_owned,
+    get_wallet_path,
+    get_addresses_from_file,
+    getpass,
+    backup_wallet,
+    is_wallet_unlocked,
+    prompt_wallet_password,
+    encrypt_wallet,
+    write_wallet,
+    wallet_setup,
+    make_wallet_password,
+    make_wallet,
+    decrypt_wallet,
+    load_wallet,
+    wallet_exists,
+    unlock_wallet
+)
+
+from .keys import privkey_to_string
+from .proxy import (
+    is_zonefile_current, get_default_proxy, json_is_error,
+    get_name_blockchain_history, get_all_namespaces, getinfo,
+    storage, is_zonefile_data_current
+)
+from .client import analytics_event
 from .scripts import UTXOException, is_name_valid, is_valid_hash, is_namespace_valid
 from .user import make_empty_user_profile, user_zonefile_data_pubkey
 
@@ -128,7 +158,7 @@ from .zonefile import make_empty_zonefile, url_to_uri_record, decode_name_zonefi
 
 from .utils import exit_with_error, satoshis_to_btc, ScatterGather
 from .app import app_publish, app_get_config, app_get_resource, \
-        app_put_resource, app_delete_resource 
+        app_put_resource, app_delete_resource
 
 from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, put_datastore, delete_datastore, \
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir, datastore_stat, \
@@ -136,12 +166,17 @@ from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, put_dat
         datastore_getinode, datastore_get_privkey, \
         make_mutable_data_info, data_blob_parse, data_blob_serialize, make_mutable_data_tombstones, sign_mutable_data_tombstones
 
-from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
+from .schemas import (
+    OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN,
+    OP_BASE58CHECK_PATTERN, MUTABLE_DATUM_FILE_TYPE)
 
 import keylib
 
 import virtualchain
-from virtualchain.lib.ecdsalib import *
+from virtualchain.lib.ecdsalib import (
+    ecdsa_private_key, set_privkey_compressed,
+    ECPrivateKey, get_pubkey_hex
+)
 
 log = config.get_logger()
 
@@ -457,8 +492,9 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
 
     if message:
         message = str(message)
-        if len(message) > virtualchain.bitcoin_blockchain.MAX_DATA_LEN:
-            return {'error': 'Message must be {} bytes or less (got {})'.format(virtualchain.bitcoin_blockchain.MAX_DATA_LEN, len(message))}
+        if len(message) > virtualchain.lib.blockchain.bitcoin_blockchain.MAX_DATA_LEN:
+            return {'error': 'Message must be {} bytes or less (got {})'.format(
+                virtualchain.lib.blockchain.bitcoin_blockchain.MAX_DATA_LEN, len(message))}
 
     res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
@@ -2718,7 +2754,7 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
         'The address {} will be used to reveal the namespace.'.format(reveal_addr),
         'MAKE SURE YOU KEEP THE PRIVATE KEYS FOR BOTH ADDRESSES\n',
         "\n",
-        "Before you preorder this namespace, there are some things you should know.\n".format(nsid),
+        "Before you preorder this namespace {}, there are some things you should know.\n".format(nsid),
         "\n",
         "* Once you preorder the namespace, you will need to reveal it within 144 blocks (about 24 hours).\n",
         "  If you do not do so, then the namespace fee is LOST FOREVER and someone else can preorder it.\n",
@@ -4625,7 +4661,7 @@ def cli_list_devices( args, config_path=CONFIG_PATH, proxy=None ):
     arg: appname (str) 'The name of the application'
     """
     
-    raise NotImplemented("Missing token file parsing logic")
+    raise NotImplementedError("Missing token file parsing logic")
 
 
 def cli_add_device( args, config_path=CONFIG_PATH, proxy=None ):
@@ -4636,7 +4672,7 @@ def cli_add_device( args, config_path=CONFIG_PATH, proxy=None ):
     opt: device_id (str) 'The ID of the device to add, if not this one'
     """
 
-    raise NotImplemented("Missing token file parsing logic")
+    raise NotImplementedError("Missing token file parsing logic")
     
 
 def cli_remove_device( args, config_path=CONFIG_PATH, proxy=None ):
@@ -4647,7 +4683,7 @@ def cli_remove_device( args, config_path=CONFIG_PATH, proxy=None ):
     arg: device_id (str) 'The ID of the device to remove'
     """
     
-    raise NotImplemented("Missing token file parsing logic")
+    raise NotImplementedError("Missing token file parsing logic")
 
 
 def _remove_datastore(rpc, datastore, datastore_privkey, data_pubkeys, rmtree=True, force=False, config_path=CONFIG_PATH ):
@@ -4943,7 +4979,7 @@ def cli_get_datastore( args, config_path=CONFIG_PATH ):
         device_ids = device_ids.split(',')
 
     else:
-        raise NotImplemented("Missing token file parsing logic")
+        raise NotImplementedError("Missing token file parsing logic")
 
     return get_datastore_by_type('datastore', blockchain_id, datastore_id, device_ids, config_path=config_path )
 
@@ -5142,13 +5178,13 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False ):
         device_ids = device_ids.split(',')
 
     else:
-        raise NotImplemented("Missing token file parsing logic")
+        raise NotImplementedError("Missing token file parsing logic")
 
     device_pubkeys = None
     if hasattr(args, 'device_pubkeys'):
         device_pubkeys = str(args.device_pubkeys).split(',')
     else:
-        raise NotImplemented("No support for token files")
+        raise NotImplementedError("No support for token files")
 
     assert len(device_ids) == len(device_pubkeys)
     data_pubkeys = [{
@@ -5204,13 +5240,13 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False ):
         device_ids = device_ids.split(',')
 
     else:
-        raise NotImplemented("Missing token file parsing logic")
+        raise NotImplementedError("Missing token file parsing logic")
 
     device_pubkeys = None
     if hasattr(args, 'device_pubkeys'):
         device_pubkeys = str(args.device_pubkeys).split(',')
     else:
-        raise NotImplemented("No support for token files")
+        raise NotImplementedError("No support for token files")
 
     assert len(device_ids) == len(device_pubkeys)
     data_pubkeys = [{
@@ -5267,14 +5303,14 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False ):
 
     else:
         # TODO
-        raise NotImplemented("Missing token file parsing logic")
+        raise NotImplementedError("Missing token file parsing logic")
 
     device_pubkeys = None
     if hasattr(args, 'device_pubkeys'):
         device_pubkeys = str(args.device_pubkeys).split(',')
     else:
         # TODO
-        raise NotImplemented("No support for token files")
+        raise NotImplementedError("No support for token files")
 
     assert len(device_ids) == len(device_pubkeys)
     data_pubkeys = [{
@@ -5339,14 +5375,14 @@ def cli_datastore_getinode(args, config_path=CONFIG_PATH, interactive=False):
 
     else:
         # TODO
-        raise NotImplemented("Missing token file parsing logic")
+        raise NotImplementedError("Missing token file parsing logic")
 
     device_pubkeys = None
     if hasattr(args, 'device_pubkeys'):
         device_pubkeys = str(args.device_pubkeys).split(',')
     else:
         # TODO
-        raise NotImplemented("No support for token files")
+        raise NotImplementedError("No support for token files")
 
     assert len(device_ids) == len(device_pubkeys)
     data_pubkeys = [{
@@ -5424,7 +5460,7 @@ def cli_datastore_get_privkey(args, config_path=CONFIG_PATH, interactive=False )
     arg: master_privkey (str) 'The master data private key'
     arg: app_domain (str) 'The name of the application'
     """
-    raise NotImplemented("Token file support not yet implemented")
+    raise NotImplementedError("Token file support not yet implemented")
 
     app_domain = str(args.app_domain)
     master_privkey = str(args.master_privkey)
@@ -5451,7 +5487,7 @@ def cli_get_collection( args, config_path=CONFIG_PATH, proxy=None, password=None
     arg: collection_domain (str) 'The name of the collection'
     opt: device_ids (str) 'The list of device IDs that can write'
     """
-    raise NotImplemented("Collections not implemented")
+    raise NotImplementedError("Collections not implemented")
 
     blockchain_id = str(args.blockchain_id)
     collection_domain = str(args.collection_domain)
@@ -5471,7 +5507,7 @@ def cli_create_collection( args, config_path=CONFIG_PATH, proxy=None, password=N
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
-    raise NotImplemented("Collections not implemented")
+    raise NotImplementedError("Collections not implemented")
 
     blockchain_id = str(args.blockchain_id)
     password = get_default_password(password)
@@ -5483,11 +5519,11 @@ def cli_create_collection( args, config_path=CONFIG_PATH, proxy=None, password=N
         device_ids = device_ids.split(',')
 
     else:
-        raise NotImplemented("Missing token file parsing logic")
+        raise NotImplementedError("Missing token file parsing logic")
 
     # TODO: privkey
     # privkey = 
-    raise NotImplemented("Collections are not implemented yet")
+    raise NotImplementedError("Collections are not implemented yet")
 
     # get the list of device IDs to use 
     device_ids = getattr(args, 'device_ids', None)
@@ -5495,7 +5531,7 @@ def cli_create_collection( args, config_path=CONFIG_PATH, proxy=None, password=N
         device_ids = device_ids.split(',')
 
     else:
-        raise NotImplemented("Missing token file parsing logic")
+        raise NotImplementedError("Missing token file parsing logic")
 
     return create_datastore_by_type('collection', blockchain_id, privkey, device_ids, proxy=proxy, config_path=config_path, password=password, master_data_privkey=master_data_privkey)
 
@@ -5512,7 +5548,7 @@ def cli_delete_collection( args, config_path=CONFIG_PATH, proxy=None, password=N
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    raise NotImplemented("Collections not implemented")
+    raise NotImplementedError("Collections not implemented")
 
     password = get_default_password(password)
 
@@ -5525,17 +5561,17 @@ def cli_delete_collection( args, config_path=CONFIG_PATH, proxy=None, password=N
         device_ids = device_ids.split(',')
 
     else:
-        raise NotImplemented("Missing token file parsing logic")
+        raise NotImplementedError("Missing token file parsing logic")
 
     # TODO: privkey
     # privkey = 
-    raise NotImplemented("Collections are not implemented")
+    raise NotImplementedError("Collections are not implemented")
 
     device_ids = None
     if hasattr(args, 'device_ids'):
         device_ids = str(args.device_ids).split(',')
     else:
-        raise NotImplemented("No support for token files")
+        raise NotImplementedError("No support for token files")
 
     return delete_datastore_by_type('collection', blockchain_id, privkey, device_ids, force=True, config_path=config_path, proxy=proxy, password=password)
 
@@ -5552,7 +5588,7 @@ def cli_collection_listitems(args, config_path=CONFIG_PATH, password=None, inter
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    raise NotImplemented("Collections not implemented")
+    raise NotImplementedError("Collections not implemented")
 
     password = get_default_password(password)
     blockchain_id = str(args.blockchain_id)
@@ -5563,7 +5599,7 @@ def cli_collection_listitems(args, config_path=CONFIG_PATH, password=None, inter
         device_ids = device_ids.split(',')
 
     else:
-        raise NotImplemented("Missing token file parsing logic")
+        raise NotImplementedError("Missing token file parsing logic")
 
     collection_domain = str(args.collection_domain)
     path = str(args.path)
@@ -5594,7 +5630,7 @@ def cli_collection_statitem(args, config_path=CONFIG_PATH, interactive=False, pr
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    raise NotImplemented("Collections not implemented")
+    raise NotImplementedError("Collections not implemented")
 
     password = get_default_password(password)
 
@@ -5604,7 +5640,7 @@ def cli_collection_statitem(args, config_path=CONFIG_PATH, interactive=False, pr
         device_ids = device_ids.split(',')
 
     else:
-        raise NotImplemented("Missing token file parsing logic")
+        raise NotImplementedError("Missing token file parsing logic")
 
     blockchain_id = str(args.blockchain_id)
     collection_domain = str(args.collection_domain)
@@ -5627,7 +5663,7 @@ def cli_collection_putitem(args, config_path=CONFIG_PATH, interactive=False, pro
     if proxy is None:
         proxy = get_default_proxy(config_path)
     
-    raise NotImplemented("Collections not implemented")
+    raise NotImplementedError("Collections not implemented")
 
     password = get_default_password(password)
 
@@ -5643,7 +5679,7 @@ def cli_collection_putitem(args, config_path=CONFIG_PATH, interactive=False, pro
         device_ids = device_ids.split(',')
 
     else:
-        raise NotImplemented("Missing token file parsing logic")
+        raise NotImplementedError("Missing token file parsing logic")
 
 
     return datastore_file_put('collection', blockchain_id, collection_privkey, '/{}'.format(item_id), data, device_ids=device_ids, 
@@ -5662,7 +5698,7 @@ def cli_collection_getitem( args, config_path=CONFIG_PATH, interactive=False, pa
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    raise NotImplemented("Collections not implemented")
+    raise NotImplementedError("Collections not implemented")
 
     password = get_default_password(password)
 
