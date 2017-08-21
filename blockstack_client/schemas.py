@@ -28,6 +28,7 @@ from constants import *
 import blockstack_profiles
 
 OP_URLENCODED_NOSLASH_CLASS = r'[a-zA-Z0-9\-_.~%]'
+OP_URLENCODED_NOSLASH_COLON_CLASS = r'[a-zA-Z0-9\-_.~%:]'
 OP_URLENCODED_CLASS = r'[a-zA-Z0-9\-_.~%/]'
 OP_NAME_CLASS = r'[a-z0-9\-_.+]{{{},{}}}'.format(3, LENGTH_MAX_NAME)
 OP_NAMESPACE_CLASS = r'[a-z0-9\-_+]{{{},{}}}'.format(1, LENGTH_MAX_NAMESPACE_ID)
@@ -601,7 +602,6 @@ FILE_LOOKUP_RESPONSE = {
             'type': 'boolean',
         },
         'file_info': ROOT_DIRECTORY_ENTRY_SCHEMA,
-        'device_root_page': ROOT_DIRECTORY_SCHEMA,
     },
     'required': [
         'status',
@@ -1744,26 +1744,48 @@ BLOCKSTACK_KEY_FILE_SCHEMA = {
             'type': 'string',
             'pattern': '^3\.0$',
         },
-        'profile': blockstack_profiles.person.PERSON_SCHEMA,
+        'profile': {
+            'type': 'string'
+        },
         'keys': {
-            'delegation': KEY_DELEGATION_SCHEMA,
-            'apps': {
-                'type': 'object',
-                'patternProperties': {
-                    '^.+$': APP_KEY_BUNDLE_SCHEMA
+            'type': 'object',
+            'properties': {
+                'name': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'string',
+                        'pattern': OP_PUBKEY_PATTERN,
+                    },
+                },
+                'delegation': {
+                    'type': 'string',
+                },
+                'apps': {
+                    'type': 'object',
+                    'patternProperties': {
+                        '^.+$': {
+                            'type': 'string',
+                        },
+                    },
                 },
             },
             'required': [
+                'name',
                 'delegation',
                 'apps',
             ],
             'additionalProperties': False,
+        },
+        'timestamp': {
+            'type': 'integer',
+            'minimum': 0,
         },
     },
     'required': [
         'version',
         'profile',
         'keys',
+        'timestamp'
     ],
     'additionalProperties': False,
 }
