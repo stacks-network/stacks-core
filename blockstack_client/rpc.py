@@ -301,7 +301,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return ret
 
 
-    def verify_origin(self, allowed):
+    def verify_origin(self, origin_header, allowed):
         """
         Verify that the Origin: header is present and listed
         in our list of allowed origins
@@ -317,13 +317,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 assert parsed.netloc, "Invalid origin {}".format(a)
             allowed_origins[parsed.netloc] = parsed
 
-        origin_header = self.headers.get('origin', None)
-        if origin_header is not None:
-            origin_info = urlparse.urlparse(origin_header)
-            if origin_info.netloc in allowed_origins.keys():
-                allowed_origin = allowed_origins[origin_info.netloc]
-                if origin_info.scheme == allowed_origin.scheme and origin_info.netloc == allowed_origin.netloc:
-                    return True
+        origin_info = urlparse.urlparse(origin_header)
+        if origin_info.netloc in allowed_origins.keys():
+            allowed_origin = allowed_origins[origin_info.netloc]
+            if origin_info.scheme == allowed_origin.scheme and origin_info.netloc == allowed_origin.netloc:
+                return True
 
         return False
 
@@ -538,7 +536,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 return self._reply_json({'error': 'Invalid authRequest token: requesting device "{}" does not have a public key listed'.format(requester_device_id)}, status_code=401)
 
             # must match the app private key
-            if keylib.key_formatting.decompress(requester_public_key) != keylib.key_formatting.decompress(app_public_key):
+            if keylib.key_formatting.compress(requester_public_key) != keylib.key_formatting.compress(app_public_key):
                 log.error("Device public key mismatch: {} != {}".format(requester_public_key, app_public_key))
                 return self._reply_json({'error': 'Invalid authRequest token: app private key does not match the device\'s listed public key'}, status_code=401)
 
@@ -1564,8 +1562,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
 
         if item_type not in ['files', 'listing', 'device_roots', 'headers']:
-            self._reply_json({'error': 'Invalid request', 'errno': errno.EINVAL}, status_code=401)
-            return
+            return self._reply_json({'error': 'Invalid request', 'errno': errno.EINVAL}, status_code=401)
 
         qs = path_info['qs_values']
         blockchain_id = qs.get('blockchain_id', '')
@@ -1601,6 +1598,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         internal = self.server.get_internal_proxy()
         res = None
+        status_code = 200
 
         if item_type == 'files':
             # getfile
@@ -1628,12 +1626,21 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if path is None:
                 return self._reply_json({'error': 'No path given', 'errno': errno.EINVAL}, status_code=401)
 
+            if this_device_id is None:
+                return self._reply_json({'error': 'missing "this_device_id" query argument'}, status_code=401)
+
             log.debug("Will run cli_datastore_stat()")
-            res = internal.cli_datastore_stat(blockchain_id, app_name, path, datastore_id, force, device_ids, app_public_keys, config_path=self.server.config_path)
+            res = internal.cli_datastore_stat(blockchain_id, app_name, path, datastore_id, force, device_ids, app_public_keys, this_device_id, config_path=self.server.config_path)
 
         if json_is_error(res):
-            err = {'error': 'Failed to read {}: {}'.format(item_type, res['error']), 'errno': res.get('errno', errno.EPERM)}
-            return self._reply_json(err)
+            # propagate an error code, if possible
+            if res['errno'] in self.http_errors:
+                status_code = self.http_errors[res['errno']]
+
+            else:
+                status_code = 502
+
+            return self._reply_json(res, status_code)
 
         if item_type == 'files':
             # return raw bytes
@@ -3050,7 +3057,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Top-level dispatch method
         """
 
-        URLENCODING_CLASS = r'{}+'.format(OP_URLENCODED_NOSLASH_CLASS)
+        URLENCODING_CLASS = r'{}+'.format(OP_URLENCODED_NOSLASH_COLON_CLASS)
         NAME_CLASS = OP_NAME_CLASS
         NAMESPACE_CLASS = OP_NAMESPACE_CLASS
         BASE58CHECK_CLASS = r'{}+'.format(OP_BASE58CHECK_CLASS)
@@ -3899,19 +3906,29 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if not session:
             # password authentication
             # don't even try to authenticate with the password unless the Origin is set appropriately 
-            if self.verify_origin(LOCALHOST):
-                # can authenticate
-                have_password = self.verify_password()
-            else:
-                log.warning("Origin is absent or not local")
+            origin_header = self.headers.get('origin', None)
+            if origin_header is not None:
+                if self.verify_origin(origin_header, LOCALHOST):
+                    # can authenticate
+                    have_password = self.verify_password()
+                else:
+                    log.warning("Origin is absent or not local")
         
         else:
             # got a session.
             # check origin.
             # NOTE: this is a *fully-qualified* app domain, so we should remove the '.1' or '.x' 
             app_domain = session['app_domain']
+            session_verified = False
             try:
-                session_verified = self.verify_origin([app_domain])
+                origin_header = self.headers.get('origin', None)
+                if origin_header is not None:
+                    scheme = urlparse.urlparse(origin_header).scheme
+                    origin_header = '{}://{}'.format(scheme, app.app_domain_to_app_name(origin_header))
+
+                    # convert origin to .1 or .x, since app domains have it
+                    session_verified = self.verify_origin(origin_header, [app_domain])
+
             except AssertionError as e:
                 session = None
                 err = {'error' : e.message}
@@ -3919,7 +3936,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
             if not session_verified:
                 # invalid session
-                log.warning("Invalid session: app domain '{}' does not match Origin '{}'".format(app_domain, self.headers.get('origin', '')))
+                log.warning("Invalid session: app domain '{}' does not match Origin '{}'".format(app_domain, origin_header))
                 session = None
 
         authorized = False
@@ -4219,7 +4236,8 @@ class BlockstackAPIEndpointClient(object):
             },
             'required': ['error'],
         }
-
+        
+        resp = None
         try:
             resp = req.json()
             if schema:
@@ -4579,14 +4597,19 @@ class BlockstackAPIEndpointClient(object):
                 return res
 
             # ask the API server
-            headers = self.make_request_headers(need_session=True)
+            headers = self.make_request_headers(need_session=False)
             store_id = None
-            if full_app_name:
-                store_id = full_app_name
-            else:
+            if datastore_id:
                 store_id = datastore_id
+            else:
+                store_id = full_app_name
 
-            url = 'http://{}:{}/v1/stores/{}'.format(self.server, self.port, store_id)
+                # sanitize
+                scheme = urlparse.urlparse(store_id).scheme
+                if scheme:
+                    store_id = store_id[len(scheme) + len('://'):]
+
+            url = 'http://{}:{}/v1/stores/{}'.format(self.server, self.port, urllib.quote(store_id))
 
             if device_ids:
                 if '?' not in url:
@@ -4736,7 +4759,7 @@ class BlockstackAPIEndpointClient(object):
         """
         Look up a file's metadata, and optionally the device-specific root directory page it came from
 
-        Return {'status': True, 'file_info': {...}, 'device_root_page': {...}} on success
+        Return {'status': True, 'file_info': {...}} on success
 
         Return {'error': ..., 'errno': ...} on failure.
         """
@@ -4753,8 +4776,8 @@ class BlockstackAPIEndpointClient(object):
             # ask the API server
             headers = self.make_request_headers(need_session=False)
             datastore_id = gaia.datastore_get_id(datastore['pubkey'])
-            url = 'http://{}:{}/v1/stores/{}/headers?path={}&force={}'.format(
-                    self.server, self.port, datastore_id, urllib.quote(path), '1' if force else '0'
+            url = 'http://{}:{}/v1/stores/{}/headers?path={}&force={}&this_device_id={}'.format(
+                    self.server, self.port, datastore_id, urllib.quote(path), '1' if force else '0', device_id
             )
             if blockchain_id:
                 url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
@@ -4767,8 +4790,6 @@ class BlockstackAPIEndpointClient(object):
                 device_pubkeys_str = urllib.quote( ','.join(device_pubkeys))
 
                 url += '&device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
-
-            url += '&this_device_id={}'.format(urllib.quote(device_id))
 
             log.debug("lookup: {}".format(url))
 
@@ -4824,15 +4845,8 @@ class BlockstackAPIEndpointClient(object):
                 return res
                 
             else:
-                # possibly an error
-                try:
-                    resp = req.json()
-                    if json_is_error(resp):
-                        return resp
-                except:
-                    pass
-
-                res = {'status': True, 'data': req.text}
+                data = req.content
+                res = {'status': True, 'data': req.content}
 
             return res
 
@@ -5034,8 +5048,11 @@ def local_api_server_stop(srv):
     log.debug("Server shutdown")
     srv.socket.close()
 
-    # stop the registrar too
+    # stop the registrar
     backend.registrar.registrar_shutdown(srv.config_path)
+
+    # stop gaia 
+    gaia.gaia_stop()
 
 
 def local_api_connect(api_pass=None, api_session=None, config_path=blockstack_constants.CONFIG_PATH, api_host=None, api_port=None):
