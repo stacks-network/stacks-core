@@ -28,7 +28,8 @@ import base64
 import socket
 from keylib import ECPrivateKey
 
-from .proxy import *
+from .proxy import (
+    get_default_proxy, get_zonefiles, get_name_blockchain_record, put_zonefiles)
 import storage
 import user as user_db
 

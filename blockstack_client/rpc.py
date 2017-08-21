@@ -72,6 +72,7 @@ from .constants import (
     CONFIG_FILENAME, serialize_secrets, WALLET_FILENAME,
     BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH,
     WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION,
+    DEFAULT_SESSION_LIFETIME, FIRST_BLOCK_MAINNET,
     TX_MAX_FEE, set_secret, get_secret, DEFAULT_TIMEOUT)
 from .method_parser import parse_methods
 from .wallet import make_wallet

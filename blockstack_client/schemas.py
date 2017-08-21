@@ -25,7 +25,7 @@ from __future__ import print_function
 """
 
 from .constants import (
-    LENGTH_CONSENSUS_HASH
+    LENGTH_CONSENSUS_HASH,
     NAME_OPCODES,
     NAME_TRANSFER,
     TRANSFER_KEEP_DATA,

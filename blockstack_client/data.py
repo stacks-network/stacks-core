@@ -22,7 +22,7 @@
 """
 
 import json
-import os
+import os, sys
 import time
 import jsontokens
 import blockstack_profiles
@@ -40,7 +40,7 @@ import collections
 import threading
 import functools
 
-from keylib import *
+import keylib
 
 import virtualchain
 from virtualchain.lib.ecdsalib import *
@@ -4380,7 +4380,7 @@ if __name__ == "__main__":
         auth_request = {
             'app_domain': 'datastore.unit.tests',
             'methods': ['store_read', 'store_write', 'store_admin'],
-            'app_public_key': key_formatting.decompress( ECPrivateKey(private_key).public_key().to_hex() ),
+            'app_public_key': keylib.key_formatting.decompress( ECPrivateKey(private_key).public_key().to_hex() ),
         }
 
         # authentication: bearer {password}

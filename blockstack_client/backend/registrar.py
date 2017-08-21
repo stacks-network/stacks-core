@@ -43,7 +43,7 @@ import blockstack_zones
 import virtualchain
 
 from .queue import get_queue_state, in_queue, cleanup_preorder_queue, queue_removeall
-from .queue import queue_find_accepted
+from .queue import queue_find_accepted, queuedb_find
 from .queue import queue_add_error_msg
 
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke

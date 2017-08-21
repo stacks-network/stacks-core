@@ -44,7 +44,8 @@ import storage
 import scripts
 
 from .constants import (
-    MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST, DEFAULT_TIMEOUT
+    MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST, DEFAULT_TIMEOUT,
+    BLOCKSTACK_DEBUG
 )
 
 from .logger import get_logger

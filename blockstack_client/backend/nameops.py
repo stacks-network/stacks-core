@@ -24,6 +24,7 @@ import os
 import sys
 import json
 import time
+import random
 import keylib
 
 # Hack around absolute paths
@@ -36,9 +37,11 @@ from .blockchain import get_tx_confirmations
 from .blockchain import get_utxos, get_tx_fee_per_byte
 from .blockchain import get_block_height
 
-from ..config import PREORDER_CONFIRMATIONS, DEFAULT_QUEUE_PATH, CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster, RPC_MAX_ZONEFILE_LEN
-from ..config import APPROX_TX_IN_P2PKH_LEN, APPROX_TX_OUT_P2PKH_LEN, APPROX_TX_OVERHEAD_LEN, APPROX_TX_IN_P2SH_LEN, APPROX_TX_OUT_P2SH_LEN
-from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS, BLOCKSTACK_DRY_RUN
+from ..config import DEFAULT_QUEUE_PATH, CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster
+from ..constants import (
+    BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS, BLOCKSTACK_DRY_RUN,
+    PREORDER_CONFIRMATIONS, RPC_MAX_ZONEFILE_LEN, APPROX_TX_IN_P2SH_LEN, APPROX_TX_OUT_P2SH_LEN,
+    APPROX_TX_IN_P2PKH_LEN, APPROX_TX_OUT_P2PKH_LEN, APPROX_TX_OVERHEAD_LEN)
 
 from ..proxy import get_default_proxy
 from ..proxy import getinfo as blockstack_getinfo
@@ -762,7 +765,7 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_privkey_info, tx_f
             unsigned_tx = revoke_tx( name, owner_address, utxo_client, subsidize=True, safety=False )
             assert unsigned_tx
 
-            pad_len = estimate_input_length(owner_privkey_info) + estiamte_input_length(payment_privkey_info)
+            pad_len = estimate_input_length(owner_privkey_info) + estimate_input_length(payment_privkey_info)
             signed_subsidized_tx = unsigned_tx + '00' * pad_len
 
     except ValueError, ve:
@@ -899,7 +902,7 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_privkey_info
             assert signed_tx
 
         except AssertionError as ae:
-            log.warning("Insufficient funds in {} for NAMESPACE_PREORDER; estimating instead".format(payment_addr))
+            log.warning("Insufficient funds in {} for NAMESPACE_PREORDER; estimating instead".format(payment_address))
             unsigned_tx = namespace_preorder_tx( namespace_id, fake_reveal_address, cost, fake_consensus_hash, payment_address, utxo_client, safety=False )
             assert unsigned_tx
             
@@ -1215,7 +1218,7 @@ def do_blockchain_tx( unsigned_tx, privkey_info=None, config_path=CONFIG_PATH, t
 
     try:
         if dry_run:
-            if payment_privkey_info is not None:
+            if privkey_info is not None:
                 resp = sign_tx( unsigned_tx, privkey_info )
             else:
                 resp = unsigned_tx
