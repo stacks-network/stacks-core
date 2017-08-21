@@ -162,6 +162,12 @@ if __name__ == "__main__":
             if res['data'] != file_data:
                 print 'datastore_getfile {}: {}'.format(file_name, res)
                 sys.exit(1)
+            
+            # stat 
+            res = datastore_stat(rpc, None, datastore, file_name, data_pubkeys, dev_id)
+            if 'error' in res:
+                print 'datastore_stat {}: {}'.format(file_name, res)
+                sys.exit(1)
 
             # should fail
             res = delete_datastore(rpc, datastore, data_pkey, data_pubkeys)
@@ -193,12 +199,24 @@ if __name__ == "__main__":
             res = datastore_getfile(rpc, None, datastore, file_name, data_pubkeys)
             if 'error' in res:
                 if not res.has_key('errno') or res['errno'] != errno.ENOENT:
-                    print 'getfile failed: {}'.format(res)
+                    print 'getfile failed wrong: {}'.format(res)
                     sys.exit(1)
         
             else:
                 print 'accidentally succeeded to getfile: {}'.format(res)
                 sys.exit(1)
+ 
+            # stat 
+            res = datastore_stat(rpc, None, datastore, file_name, data_pubkeys, dev_id)
+            if 'error' in res:
+                if not res.has_key('errno') or res['errno'] != errno.ENOENT:
+                    print 'datastore_stat failed wrong on {}: {}'.format(file_name, res)
+                    sys.exit(1)
+
+            else:
+                print 'accidentally succeeded to stat {}'.format(file_name)
+                sys.exit(1)
+
 
     # clear datastore 
     res = delete_datastore(rpc, datastore, datastore_pk, data_pubkeys)
