@@ -68,7 +68,11 @@ import subdomains
 DEFAULT_UI_PORT = 8888
 DEVELOPMENT_UI_PORT = 3000
 
-from .constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE, set_secret, get_secret
+from .constants import (
+    CONFIG_FILENAME, serialize_secrets, WALLET_FILENAME,
+    BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH,
+    WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION,
+    TX_MAX_FEE, set_secret, get_secret, DEFAULT_TIMEOUT)
 from .method_parser import parse_methods
 from .wallet import make_wallet
 import app
@@ -2878,8 +2882,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._send_headers(status_code=200, content_type='text/plain')
 
         elif command == 'clearcache':
-            # clear the cache 
-            data.cache_evict_all()
+            # clear the cache
+            # aaron note: there's no implementation of a cache eviction.
             return self._send_headers(status_code=200, content_type='text/plain')
 
         else:
@@ -4007,7 +4011,7 @@ class BlockstackAPIEndpointClient(object):
     Usable both by external clients and by the API server itself.
     """
     def __init__(self, server, port, api_pass=None, session=None, config_path=CONFIG_PATH,
-                 timeout=blockstack_constants.DEFAULT_TIMEOUT, debug_timeline=False, **kw):
+                 timeout=DEFAULT_TIMEOUT, debug_timeline=False, **kw):
 
         self.timeout = timeout
         self.server = server
@@ -4833,7 +4837,7 @@ def local_api_action(command, password=None, api_pass=None, config_dir=blockstac
         else:
             return {'error': 'Failed to stop API endpoint'}
 
-    config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
+    config_path = os.path.join(config_dir, CONFIG_FILENAME)
 
     conf = blockstack_config.get_config(config_path)
     if conf is None:
@@ -4857,7 +4861,7 @@ def local_api_action(command, password=None, api_pass=None, config_dir=blockstac
         env = {}
         env.update( os.environ )
 
-        api_stdin_buf = blockstack_constants.serialize_secrets()
+        api_stdin_buf = serialize_secrets()
 
         p = subprocess.Popen(argv, cwd=config_dir, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, env=env)
         out, err = p.communicate(input=api_stdin_buf)
@@ -5091,8 +5095,8 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     from blockstack_client.wallet import load_wallet
     from blockstack_client.client import session
 
-    config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
-    wallet_path = os.path.join(config_dir, blockstack_constants.WALLET_FILENAME)
+    config_path = os.path.join(config_dir, CONFIG_FILENAME)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
     conf = blockstack_client.get_config(config_path)
     assert conf
