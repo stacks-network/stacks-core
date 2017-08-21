@@ -53,7 +53,7 @@ import virtualchain
 from virtualchain.lib.ecdsalib import *
 
 from logger import get_logger
-from proxy import get_default_proxy
+from proxy import get_default_proxy, json_is_error
 from config import get_config, get_local_device_id
 from constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DEFAULT_DEVICE_ID, CONFIG_PATH
 from schemas import *
@@ -157,8 +157,7 @@ def datastore_getfile(api_client, blockchain_id, datastore, file_name, data_pubk
     """
     Get a file identified by a path.
 
-    Return {'status': True, 'data': data} on success, if not extended
-    Return {'status': True, 'inode_info': inode and data, 'path_info': path info}
+    Return {'status': True, 'data': data} on success
     Return {'error': ..., 'errno': ...} on error
     """
 
@@ -168,7 +167,7 @@ def datastore_getfile(api_client, blockchain_id, datastore, file_name, data_pubk
     log.debug("getfile {}/{}".format(datastore_id, file_name))
     
     file_info = api_client.backend_datastore_getfile(blockchain_id, datastore, file_name, data_pubkeys, timestamp=timestamp, force=force)
-    if 'error' in file_info:
+    if json_is_error(file_info):
         log.error("Failed to get data for {}".format(file_name))
         return file_info
     
@@ -515,24 +514,22 @@ def datastore_deletefile(api_client, datastore, file_name, data_privkey_hex, dat
     return {'status': True, 'urls': root_urls}
 
 
-def datastore_stat(api_client, blockchain_id, datastore, data_path, data_pubkeys, this_device_id, force=False, config_path=CONFIG_PATH):
+def datastore_stat(api_client, blockchain_id, datastore, file_name, data_pubkeys, this_device_id, force=False, config_path=CONFIG_PATH):
     """
     Stat a file or directory.  Get just the inode metadata.
 
-    Return {'status': True, 'file_info': inode info} on success
+    Return {'status': True, 'file_info': file header info} on success
     Return {'error': ..., 'errno': ...} on error
     """
 
-    path_info = _parse_data_path( data_path )
-    data_path = path_info['data_path']
     datastore_id = datastore_get_id(datastore['pubkey'])
     drivers = datastore['drivers']
     
-    log.debug("stat {}/{}".format(datastore_id, data_path))
+    log.debug("stat {}/{}".format(datastore_id, file_name))
 
-    file_info = api_client.backend_datastore_lookup(blockchain_id, datastore, 'files', data_path, data_pubkeys, this_device_id, force=force, idata=False )
+    file_info = api_client.backend_datastore_lookup(blockchain_id, datastore, file_name, this_device_id, data_pubkeys=data_pubkeys, force=force )
     if 'error' in file_info:
-        log.error("Failed to resolve {}".format(data_path))
+        log.error("Failed to resolve {}".format(file_name))
         return file_info
     
     return file_info
