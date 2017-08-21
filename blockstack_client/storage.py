@@ -802,7 +802,7 @@ def get_mutable_data(fq_data_id, data_pubkeys, urls=None, data_addresses=None, d
     
     if decode is False, then data_pubkeys, data_addresses are not needed and raw bytes will be returned.
 
-    Return a mutable data dict on success (or raw bytes if decode=False)
+    Return the data on success
     Return None on error
     """
 
