@@ -455,7 +455,7 @@ def blockstack_client_initialize_wallet( password, payment_privkey, owner_privke
     conf = blockstack_client.get_config(config_path)
     assert conf
 
-    wallet_path = os.path.join( os.path.dirname(config_path), blockstack_client.config.WALLET_FILENAME )
+    wallet_path = os.path.join( os.path.dirname(config_path), blockstack_client.constants.WALLET_FILENAME )
 
     test_legacy = False
     if payment_privkey is None or owner_privkey is None or data_privkey is None:
