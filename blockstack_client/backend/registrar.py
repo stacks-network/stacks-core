@@ -1304,7 +1304,8 @@ def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, config_
 
 
 # RPC method: backend_transfer
-def transfer(fqu, transfer_address, prior_name_data = None, config_path=CONFIG_PATH, proxy=None ):
+def transfer(fqu, transfer_address, prior_name_data = None, config_path=CONFIG_PATH, proxy=None,
+             owner_key = None):
     """
     Send transfer transaction.
     Keeps the zonefile data.
@@ -1327,7 +1328,10 @@ def transfer(fqu, transfer_address, prior_name_data = None, config_path=CONFIG_P
         return data
 
     payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
-    owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    if owner_key is None:
+        owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    else:
+        owner_privkey_info = owner_key
 
     kwargs = {}
     if prior_name_data:

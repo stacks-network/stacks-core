@@ -944,6 +944,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'minimum': 0,
                     'maximum': TX_MAX_FEE
                 },
+                'owner_key': PRIVKEY_INFO_SCHEMA
             },
             'required': [
                 'owner'
@@ -972,7 +973,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Re-encode {} to {}".format(new_addr, recipient_address))
             recipient_address = new_addr
 
-        res = internal.cli_transfer(name, recipient_address, interactive=False)
+        privkey_info = request.get('owner_key', None)
+        res = internal.cli_transfer(name, recipient_address, privkey_info, interactive=False)
         if 'error' in res:
             log.error("Failed to transfer {}: {}".format(name, res['error']))
             self._reply_json({"error": 'Transfer failed.\n{}'.format(res['error'])}, status_code=500)
@@ -4265,13 +4267,14 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_transfer(self, fqu, recipient_addr):
+    def backend_transfer(self, fqu, recipient_addr, owner_key = None):
         """
         Queue a transfer
         """
         if is_api_server(self.config_dir):
             # directly invoke the transfer
-            return backend.registrar.transfer(fqu, recipient_addr, config_path=self.config_path)
+            return backend.registrar.transfer(
+                fqu, recipient_addr, config_path=self.config_path, owner_key = owner_key)
 
         else:
             res = self.check_version()
@@ -4283,8 +4286,12 @@ class BlockstackAPIEndpointClient(object):
                 'owner': recipient_addr
             }
 
+            if owner_key is not None:
+                data['owner_key'] = owner_key
+
             headers = self.make_request_headers()
-            req = requests.put( 'http://{}:{}/v1/names/{}/owner'.format(self.server, self.port, fqu), data=json.dumps(data), timeout=self.timeout, headers=headers)
+            req = requests.put('http://{}:{}/v1/names/{}/owner'.format(self.server, self.port, fqu),
+                               data=json.dumps(data), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 

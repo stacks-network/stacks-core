@@ -1685,6 +1685,7 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     help: Transfer a blockchain ID to a new owner
     arg: name (str) 'The name to transfer'
     arg: address (str) 'The address (base58check-encoded pubkey hash) to receive the name'
+    opt: ownerkey (str) 'A private key string to be used for the update.'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1717,7 +1718,13 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     assert rpc
 
     try:
-        resp = rpc.backend_transfer(fqu, transfer_address)
+        args_ownerkey = getattr(args, 'ownerkey', None)
+        if args_ownerkey is None or len(args_ownerkey) == 0:
+            owner_key = None
+        else:
+            owner_key = args_ownerkey
+
+        resp = rpc.backend_transfer(fqu, transfer_address, owner_key = owner_key)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
