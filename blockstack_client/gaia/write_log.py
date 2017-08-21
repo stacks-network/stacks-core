@@ -38,6 +38,7 @@ import threading
 import functools
 import traceback
 import sqlite3
+import random
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -66,15 +67,14 @@ log = get_logger('gaia-write_log')
 WRITE_LOG_LOCK = threading.Lock()
 WRITE_LOG_PAGE_SIZE = 100
 
-WRITE_LOG_THREAD_CONDITION = threading.Condition()
-
+WRITE_LOG_THREAD_SEMAPHORE = threading.Semaphore()
 
 def write_log_notify():
     """
     Wake up the write log thread
     """
-    global WRITE_LOG_THREAD_CONDITION
-    WRITE_LOG_THREAD_CONDITION.notify()
+    global WRITE_LOG_THREAD_SEMAPHORE
+    WRITE_LOG_THREAD_SEMAPHORE.release()
 
 
 def write_log_path(config_path=CONFIG_PATH):
@@ -169,7 +169,8 @@ def write_log_init(config_path=CONFIG_PATH):
                                        signed_device_root_page STRING NOT NULL,
                                        drivers STRING NOT NULL,
                                        blockchain_id STRING,
-                                       PRIMARY KEY(datastore_id,device_id));"""
+                                       timestamp INT NOT NULL,
+                                       PRIMARY KEY(datastore_id,root_uuid,device_id,timestamp));"""
 
     path = write_log_path(config_path=config_path)
     con = sqlite3.connect(path, isolation_level=None)
@@ -198,8 +199,8 @@ def write_log_enqueue(datastore_id, device_id, root_uuid, signed_device_root_pag
     con = write_log_open(path)
     cur = con.cursor()
 
-    query = "INSERT OR REPLACE INTO write_log (datastore_id,device_id,root_uuid,signed_device_root_page,drivers,blockchain_id) VALUES (?,?,?,?,?,?);"
-    args = (datastore_id,device_id,root_uuid,signed_device_root_page,json.dumps(drivers),blockchain_id)
+    query = "INSERT INTO write_log (datastore_id,device_id,root_uuid,signed_device_root_page,drivers,blockchain_id,timestamp) VALUES (?,?,?,?,?,?,?);"
+    args = (datastore_id,device_id,root_uuid,signed_device_root_page,json.dumps(drivers),blockchain_id,int(time.time() * 10**6))
 
     write_log_query_execute(cur, query, args)
     con.commit()
@@ -211,8 +212,8 @@ def write_log_enqueue(datastore_id, device_id, root_uuid, signed_device_root_pag
 
 def write_log_peek(config_path=CONFIG_PATH, offset=0):
     """
-    Get a queued root row
-    Return {'status': True, 'root_uuid': ..., 'signed_device_root_page': ..., 'drivers': ..., 'blockchain_id'} on success
+    Get any queued datastore root
+    Return {'status': True, 'root_uuid': ..., 'signed_device_root_page': ..., 'drivers': ..., 'blockchain_id': ..., 'timestamp': ...} on success
     Return {'error': ...} on failure
     """
     path = write_log_path(config_path=config_path)
@@ -221,35 +222,37 @@ def write_log_peek(config_path=CONFIG_PATH, offset=0):
 
     con = write_log_open(path)
     cur = con.cursor()
+    
+    # select the latest row from all groupings of rows by (datastore_id, root_uuid, device ID)
+    query = 'SELECT * FROM (SELECT * FROM write_log GROUP BY datastore_id,root_uuid,device_id ORDER BY timestamp DESC LIMIT 1);'
+    args = ()
 
-    query = 'SELECT * FROM write_log LIMIT 1 OFFSET ?;'
-    args = (offset,)
-
-    rows = write_log_query_execute(query, args)
+    rows = write_log_query_execute(cur, query, args)
 
     rr = []
     for row in rows:
         rr.append(dict(row))
 
     con.close()
-
-    assert len(rr) <= 1, 'Multiple rows for {}:{}'.format(datastore_id, device_id)
+    
     if len(rr) == 0:
         return {'error': 'No such row'}
 
-    else:
-        return {'status': True,
-                'datastore_id': rr[0]['datastore_id'],
-                'device_id': rr[0]['device_id'],
-                'root_uuid': rr[0]['root_uuid'],
-                'signed_device_root_page': rr[0]['signed_device_root_page'],
-                'drivers': json.loads(rr[0]['drivers']),
-                'blockchain_id': rr[0]['blockchain_id']}
+    random_row = rr[random.randint(0,len(rr)-1)]
+
+    return {'status': True,
+            'datastore_id': random_row['datastore_id'],
+            'device_id': random_row['device_id'],
+            'root_uuid': random_row['root_uuid'],
+            'signed_device_root_page': random_row['signed_device_root_page'],
+            'drivers': json.loads(random_row['drivers']),
+            'blockchain_id': random_row['blockchain_id'],
+            'timestamp': random_row['timestamp']}
 
 
-def write_log_dequeue(datastore_id, device_id, config_path=CONFIG_PATH):
+def write_log_dequeue(datastore_id, root_uuid, device_id, timestamp, config_path=CONFIG_PATH):
     """
-    Remove all instances of a write log entry
+    Remove all instances of a write log entry for a device/datastore pair
     Return {'status': True} on success
     Return {'error': ...} on failure
     """
@@ -260,10 +263,10 @@ def write_log_dequeue(datastore_id, device_id, config_path=CONFIG_PATH):
     con = write_log_open(path)
     cur = con.cursor()
 
-    query = 'DELETE FROM write_log WHERE datastore_id = ? and root_uuid = ?;'
-    args = (datastore_id,device_id)
+    query = 'DELETE FROM write_log WHERE datastore_id = ? AND root_uuid = ? AND device_id = ? AND timestamp <= ?;'
+    args = (datastore_id,root_uuid,device_id,timestamp)
 
-    write_log_query_execute(query, args)
+    write_log_query_execute(cur, query, args)
 
     con.close()
     return {'status': True}
@@ -275,7 +278,7 @@ def write_log_size(config_path=CONFIG_PATH):
     Return {'status': True, 'count': ...} on success
     Return {'error': ...} on failure
     """
-    path = write_log_path(config_path=cnofig_path)
+    path = write_log_path(config_path=config_path)
     if not os.path.exists(path):
         return {'error': 'No such write log at {}'.format(path)}
 
@@ -285,10 +288,15 @@ def write_log_size(config_path=CONFIG_PATH):
     query = 'SELECT COUNT(*) FROM write_log;'
     args = ()
     
-    rows = write_log_query_execute(query, args)
+    rows = write_log_query_execute(cur, query, args)
+    
+    count = None
+    for row in rows:
+        count = int(row['COUNT(*)'])
+        break
 
     con.close()
-    count = int(rows[0]['COUNT(*)'])
+
     return {'status': True, 'count': count}
 
 
@@ -337,39 +345,22 @@ def write_log_replicate_thread(config_path=CONFIG_PATH):
     """
     from control import is_gaia_running
 
-    global WRITE_LOG_THREAD_CONDITION
+    global WRITE_LOG_THREAD_SEMAPHORE
 
     while is_gaia_running():
-
-        WRITE_LOG_THREAD_CONDITION.acquire()
-
-        sz_info = write_log_size(config_path=config_path)
-        if 'error' in sz_info or sz_info['count'] == 0:
-            WRITE_LOG_THREAD_CONDITION.wait()
         
-        if not is_gaia_running():
-            break
+        # wait for new data
+        log.debug("Waiting for new device root pages to replicate...")
+        WRITE_LOG_THREAD_SEMAPHORE.acquire()
 
-        sz_info = write_log_size(config_path=config_path)
-        if 'error' in sz_info:
-            WRITE_LOG_THREAD_CONDITION.release()
-            continue
-
-        count = sz_info['count']
-        offset = random.randint(0, count-1)
-
-        next_entry = write_log_peek(config_path=config_path, offset=offset)
+        next_entry = write_log_peek(config_path=config_path)
         if 'error' in next_entry:
-            WRITE_LOG_THREAD_CONDITION.release()
             continue
-        
-        WRITE_LOG_THREAD_CONDITION.release()
-
+    
         # replicate this entry 
         res = write_log_page_replicate(next_entry['signed_device_root_page'], next_entry['drivers'], next_entry['blockchain_id'], config_path=config_path)
         if 'error' in res:
             continue
 
         # success!
-        write_log_dequeue(next_entry['datastore_id'], next_entry['device_id'], config_path=config_path)
-        
+        write_log_dequeue(next_entry['datastore_id'], next_entry['root_uuid'], next_entry['device_id'], next_entry['timestamp'], config_path=config_path)
