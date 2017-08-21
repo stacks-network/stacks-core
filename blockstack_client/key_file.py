@@ -23,7 +23,7 @@
 
 # This module contains the code needed to generate and authenticate key-delegation JWTs.
 # This is NOT the Blockstack Token code.
-
+import os
 import schemas
 import storage
 import user as user_db
@@ -49,6 +49,8 @@ from jsonschema import ValidationError
 import keylib
 
 from logger import get_logger
+from config import get_local_device_id, make_unassigned_device_id
+
 log = get_logger()
 
 
@@ -103,7 +105,7 @@ def key_file_make_datastore_index(apps):
 
     Return {'status': True, 'index': {'$datastore_id': '$app_name'}} on success
     """
-    from data import datastore_get_id
+    from gaia import datastore_get_id
     index = {}
     for dev_id in apps.keys():
         dev_apps = apps[dev_id]['apps']
@@ -269,7 +271,7 @@ def key_file_parse(key_txt, name_owner_pubkeys_or_addr, min_writes=None):
     for (device_id, signing_public_key) in signing_public_keys.items():
         try:
             profile_jwt_txt = key_file['profile']
-            profile = storage.parse_mutable_data(profile_jwt_txt, signing_public_key)
+            profile = blockstack_profiles.get_profile_from_tokens([{'token': profile_jwt_txt}], signing_public_key)
             assert profile
 
             # success
@@ -310,8 +312,8 @@ def key_file_parse(key_txt, name_owner_pubkeys_or_addr, min_writes=None):
 
     # verify fresh 
     if min_writes is not None:
-        if key_file['writes'] < min_writes:
-            return {'error': 'Stale key file with only {} writes'.format(key_file['writes'])}
+        if key_file['timestamp'] < int(time.time()):
+            return {'error': 'Stale key file with timestamp {}'.format(key_file['timestamp'])}
     
     # map datastore_id to names
     res = key_file_make_datastore_index(apps)
@@ -328,15 +330,16 @@ def key_file_parse(key_txt, name_owner_pubkeys_or_addr, min_writes=None):
             'delegation': delegation_file,
             'apps': apps,
         },
-        'writes': key_file['writes'],
         'timestamp': key_file['timestamp'],
         'jwts': {
+            'version': key_file['version'],
             'profile': profile_jwt_txt,
             'keys': {
                 'name': key_file['keys']['name'],
                 'delegation': delegation_jwt_txt,
                 'apps': apps_jwts_txt,
             },
+            'timestamp': key_file['timestamp'],
         },
         'datastore_index': datastore_index
     }
@@ -398,7 +401,7 @@ def key_file_get_key_order(name_owner_privkeys, pubkeys):
     return {'status': True, 'key_order': key_order}
 
 
-def key_file_create(name, name_owner_privkeys, device_id, key_order=None, write_version=1, apps=None, profile=None, delegations=None, config_path=CONFIG_PATH):
+def key_file_create(name, name_owner_privkeys, device_id, key_order=None, apps=None, profile=None, delegations=None, config_path=CONFIG_PATH):
     """
     Make a new key file from a profile.  Sign and serialize the delegations file,
     and sign and serialize each of the app bundles.
@@ -518,7 +521,6 @@ def key_file_create(name, name_owner_privkeys, device_id, key_order=None, write_
             'delegation': delegation_jwt_txt,
             'apps': apps_jwt_txt,
         },
-        'writes': write_version,
         'timestamp': int(time.time()),
     }
 
@@ -542,12 +544,9 @@ def key_file_profile_serialize(data_text_or_json, data_privkey):
     Serialize a profile to a string
     """
     # profiles must conform to a particular standard format
-    tokenized_data = blockstack_profiles.sign_key_records([data_text_or_json], data_privkey)
-
-    del tokenized_data[0]['decodedToken']
-
-    serialized_data = json.dumps(tokenized_data, sort_keys=True)
-    return serialized_data
+    tokenized_data = blockstack_profiles.sign_token_records([data_text_or_json], data_privkey)
+    token = tokenized_data[0]['token']
+    return token
 
 
 def key_file_update_profile(parsed_key_file, new_profile, signing_private_key):
@@ -568,8 +567,7 @@ def key_file_update_profile(parsed_key_file, new_profile, signing_private_key):
         'version': '3.0',
         'profile': profile_jwt_txt,
         'keys': keys_jwts,
-        'writes': parsed_key_file['writes'] + 1,
-        'timestamp': int(time.time()),
+        'timestamp': max(int(time.time()), parsed_key_file['timestamp'] + 1),
     }
 
     return {'status': True, 'key_file': key_file_sign(tok, signing_private_key)}
@@ -619,8 +617,7 @@ def key_file_update_apps(parsed_key_file, device_id, app_name, app_pubkey, signi
             'delegation': delegation_jwt,
             'apps': apps_jwts,
         },
-        'writes': parsed_key_file['writes'] + 1,
-        'timestamp': int(time.time()),
+        'timestamp': max(int(time.time()), parsed_key_file['timestamp'] + 1)
     }
 
     return {'status': True, 'key_file': key_file_sign(tok, signing_private_key)}
@@ -670,8 +667,7 @@ def key_file_update_delegation(parsed_key_file, device_delegation, name_owner_pr
             'delegation': new_delegation_jwt_txt,
             'apps': apps_jwt,
         },
-        'writes': parsed_key_file['writes'] + 1,
-        'timestamp': int(time.time()),
+        'timestamp': max(int(time.time()), parsed_key_file['timestamp'] + 1),
     }
 
     return {'status': True, 'key_file': key_file_sign(tok, signing_private_key)}
@@ -830,21 +826,22 @@ def lookup_signing_privkey(name, owner_privkey_info, proxy=None, parsed_key_file
     return {'status': True, 'signing_privkey': signing_privkey}
 
 
-def lookup_delegated_device_pubkeys(name, proxy=None):
+def lookup_delegated_device_pubkeys(name, proxy=None, parsed_key_file=None):
     """
     Given a blockchain ID (name), get all of its delegated devices' public keys
     Return {'status': True, 'pubkeys': {'$device-id': {...}}} on success
     Return {'error': ...} on error
     """
-    res = key_file_get(name, proxy=proxy)
-    if 'error' in res:
-        log.error("Failed to get key file for {}".format(name))
-        return {'error': 'Failed to get key file for {}: {}'.format(name, res['error'])}
-
-    parsed_key_file = res['key_file']
     if parsed_key_file is None:
-        log.error("No key file for {}".format(name))
-        return {'error': 'No key file available for {}'.format(name)}
+        res = key_file_get(name, proxy=proxy)
+        if 'error' in res:
+            log.error("Failed to get key file for {}".format(name))
+            return {'error': 'Failed to get key file for {}: {}'.format(name, res['error'])}
+
+        parsed_key_file = res['key_file']
+        if parsed_key_file is None:
+            log.error("No key file for {}".format(name))
+            return {'error': 'No key file available for {}'.format(name)}
 
     all_device_ids = key_file_get_delegated_device_ids(parsed_key_file)
     all_pubkeys = {}
@@ -912,6 +909,43 @@ def lookup_app_pubkeys(name, full_application_name, proxy=None, parsed_key_file=
         app_pubkeys[dev_id] = dev_app_pubkeys[full_application_name]
 
     return {'status': True, 'pubkeys': app_pubkeys, 'key_file': parsed_key_file}
+
+
+def make_initial_key_file(name, user_profile, owner_privkey_info, config_path=CONFIG_PATH):
+    """
+    Given a profile, set it up as an "initial" key file (given the owner private key bundle)
+    Return {'status': True, 'key_file': serialized key file} on success
+    Return {'error': ...} on error
+    """
+    this_device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
+    name_owner_privkeys = {}
+    pubkey_order = []
+
+    if virtualchain.is_multisig(owner_privkey_info):
+        # create default device IDs, with this device receiving the first public key.
+        all_device_ids = [this_device_id] + [make_unassigned_device_id(i) for i in range(1, len(owner_privkey_info['private_keys']))]
+        name_owner_privkeys = dict(zip(all_device_ids, owner_privkey_info['private_keys']))
+
+        m, pubkeys = virtualchain.parse_multisig_redeemscript(owner_privkey_info['redeem_script'])
+        res = key_file_get_key_order(name_owner_privkeys, pubkeys)
+        if 'error' in res:
+            return res
+        
+        pubkey_order = res['key_order']
+
+    else:
+        name_owner_privkeys = {
+            this_device_id: owner_privkey_info
+        }
+
+        pubkey_order = [this_device_id]
+
+    res = key_file_create(name, name_owner_privkeys, this_device_id, key_order=pubkey_order, profile=user_profile, config_path=config_path)
+    if 'error' in res:
+        return {'error': 'Failed to generate key file for {}: {}'.format(name, res['error'])}
+
+    user_key_file = res['key_file']
+    return {'status': True, 'key_file': user_key_file}
 
 
 def key_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=None,
@@ -1042,10 +1076,11 @@ def key_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=No
     return ret
 
 
-def key_file_put(name, new_key_file, signing_privkey, proxy=None, required_drivers=None, config_path=CONFIG_PATH):
+def key_file_put(name, new_key_file, proxy=None, required_drivers=None, config_path=CONFIG_PATH):
     """
     Set the new key file data.  CLIENTS SHOULD NOT CALL THIS METHOD DIRECTLY.
-    Takes a serialized key file (as a string)
+    Takes a serialized key file (as a string).
+    Takes the 
 
     Return {'status: True} on success
     Return {'error': ...} on failure.
@@ -1071,7 +1106,7 @@ def key_file_put(name, new_key_file, signing_privkey, proxy=None, required_drive
 
     log.debug('Save updated key file for "{}" to {}'.format(name, ','.join(required_storage_drivers)))
 
-    storage_res = storage.put_mutable_data(name, new_key_file, raw=True, required=required_storage_drivers, key_file=True, blockchain_id=name)
+    storage_res = storage.put_mutable_data(name, new_key_file, sign=False, raw=True, required=required_storage_drivers, key_file=True, blockchain_id=name)
     if 'error' in storage_res:
         log.error("Failed to store updated key file: {}".format(storage_res['error']))
         return {'error': 'Failed to store key file for {}'.format(name)}
@@ -1227,7 +1262,7 @@ if __name__ == "__main__":
 
 
     # def key_file_parse(key_txt, name_owner_pubkeys_or_addrs, min_writes=None):
-    # def key_file_create(profile, delegations, apps, name_owner_privkeys, device_id, write_version=1):
+    # def key_file_create(profile, delegations, apps, name_owner_privkeys, device_id):
     # def key_file_update_profile(parsed_key_file, new_profile, signing_private_key):
     # def key_file_update_delegation(parsed_key_file, device_delegation, name_owner_privkeys):
     # def key_file_update_apps(parsed_key_file, device_id, app_name, app_pubkey, signing_private_key):
