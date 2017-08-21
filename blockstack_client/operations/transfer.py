@@ -23,6 +23,11 @@
 
 from binascii import hexlify
 
+from ..constants import (
+    DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
+    TRANSFER_KEEP_DATA, TRANSFER_REMOVE_DATA,
+    LENGTH_CONSENSUS_HASH, NAME_TRANSFER, NAME_PREORDER)
+
 from ..b40 import is_b40
 from ..config import *
 from ..scripts import *

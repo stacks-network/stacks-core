@@ -23,6 +23,10 @@
 
 from utilitybelt import is_hex
 
+from ..constants import (
+    DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
+    LENGTH_VALUE_HASH,
+    LENGTH_CONSENSUS_HASH)
 from ..b40 import is_b40
 from ..config import *
 from ..scripts import *

@@ -25,7 +25,10 @@
 from ..b40 import is_b40
 from ..config import *
 from ..scripts import *
-from ..constants import TX_MIN_CONFIRMATIONS
+from ..constants import (
+    DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
+    TX_MIN_CONFIRMATIONS, NAME_SCHEME, BLOCKSTACK_BURN_ADDRESS,
+    LENGTH_CONSENSUS_HASH)
 from ..logger import get_logger
 
 import virtualchain

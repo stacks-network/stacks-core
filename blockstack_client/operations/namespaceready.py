@@ -23,6 +23,8 @@
 
 from binascii import hexlify
 
+from ..constants import (
+    DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE)
 from ..b40 import is_b40
 from ..config import *
 from ..scripts import *

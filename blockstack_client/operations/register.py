@@ -23,6 +23,9 @@
 
 from binascii import hexlify
 
+from ..constants import (
+    DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
+    BLOCKSTACK_BURN_ADDRESS)
 from ..config import *
 from ..scripts import *
 from ..logger import get_logger

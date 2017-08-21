@@ -26,6 +26,8 @@ from binascii import hexlify
 from ..config import *
 from ..scripts import *
 from ..logger import get_logger
+from ..constants import (
+    DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE)
 
 import virtualchain
 log = get_logger("blockstack-client")

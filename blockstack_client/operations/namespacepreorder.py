@@ -27,6 +27,10 @@ from ..b40 import is_b40
 from ..config import *
 from ..scripts import *
 from ..logger import get_logger
+from ..constants import (
+    DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
+    BLOCKSTACK_BURN_ADDRESS,
+    LENGTH_CONSENSUS_HASH)
 
 import virtualchain
 log = get_logger("blockstack-client")
