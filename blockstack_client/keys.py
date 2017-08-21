@@ -37,6 +37,12 @@ from constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
 import virtualchain
 from virtualchain.lib.ecdsalib import *
 
+NAMES_PRIVKEY_NODE = 888
+NAMES_PRIVKEY_VERSION_NODE = 0
+APP_PRIVKEY_NODE = 0
+SIGNING_PRIVKEY_NODE = 1
+ENCRYPTION_PRIVKEY_NODE = 2
+
 # for compatibility
 log = get_logger()
 
