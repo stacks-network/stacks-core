@@ -49,6 +49,7 @@ from .queue import queue_add_error_msg
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
 
 from ..keys import get_data_privkey_info, is_singlesig_hex
+from ..key_file import key_file_put
 from ..proxy import is_name_registered, is_zonefile_hash_current, get_default_proxy, get_name_blockchain_record, get_atlas_peers, json_is_error
 from ..zonefile import zonefile_data_replicate
 from ..user import is_user_zonefile
@@ -485,8 +486,8 @@ class RegistrarWorker(threading.Thread):
                 # already replicated
                 log.debug("Already replicated key file for {}".format(name_data['fqu']))
                 return {'status': True}
-
-            storage_res = put_mutable_data(name_data['fqu'], key_file_payload, raw=True, required=storage_drivers, key_file=True, blockchain_id=name_data['fqu'])
+            
+            storage_res = key_file_put(name_data['fqu'], key_file_payload, required_drivers=storage_drivers, config_path=config_path)
             if 'error' in storage_res:
                 log.info("Failed to replicate key file for %s: %s" % (name_data['fqu'], storage_res['error']))
                 return {'error': 'Failed to store key file'}
