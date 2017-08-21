@@ -26,8 +26,16 @@ from utilitybelt import is_hex
 from ..constants import (
     DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
     BLOCKSTACK_BURN_ADDRESS)
-from ..config import *
-from ..scripts import *
+
+from ..scripts import (
+    hash256_trunc128,
+    blockstack_script_to_hex,
+    add_magic_bytes,
+    is_name_valid,
+    tx_get_unspents,
+    hash256_trunc128
+)
+
 from ..logger import get_logger
 
 import virtualchain

@@ -23,13 +23,21 @@
 
 
 from ..b40 import is_b40
-from ..config import *
-from ..scripts import *
 from ..constants import (
     DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
     TX_MIN_CONFIRMATIONS, NAME_SCHEME, BLOCKSTACK_BURN_ADDRESS,
-    LENGTH_CONSENSUS_HASH)
+    LENGTH_CONSENSUS_HASH, LENGTH_MAX_NAME)
 from ..logger import get_logger
+
+from ..scripts import (
+    hash_name,
+    hash256_trunc128,
+    blockstack_script_to_hex,
+    add_magic_bytes,
+    is_name_valid,
+    tx_get_unspents,
+    hash256_trunc128
+)
 
 import virtualchain
 log = get_logger("blockstack-client")

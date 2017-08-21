@@ -147,7 +147,7 @@ from .keys import privkey_to_string
 from .proxy import (
     is_zonefile_current, get_default_proxy, json_is_error,
     get_name_blockchain_history, get_all_namespaces, getinfo,
-    storage, is_zonefile_data_current, MUTABLE_DATUM_FILE_TYPE
+    storage, is_zonefile_data_current
 )
 from .client import analytics_event
 from .scripts import UTXOException, is_name_valid, is_valid_hash, is_namespace_valid
@@ -166,7 +166,9 @@ from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, put_dat
         datastore_getinode, datastore_get_privkey, \
         make_mutable_data_info, data_blob_parse, data_blob_serialize, make_mutable_data_tombstones, sign_mutable_data_tombstones
 
-from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN, OP_BASE58CHECK_PATTERN
+from .schemas import (
+    OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN,
+    OP_BASE58CHECK_PATTERN, MUTABLE_DATUM_FILE_TYPE)
 
 import keylib
 

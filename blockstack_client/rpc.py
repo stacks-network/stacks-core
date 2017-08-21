@@ -47,11 +47,28 @@ import platform
 import shutil
 import urlparse
 from jsonschema import ValidationError
-from schemas import *
 import client as bsk_client
+from schemas import (
+    APP_SESSION_REQUEST_SCHEMA,
+    APP_SESSION_REQUEST_SCHEMA_OLD,
+    OP_NAME_PATTERN,
+    OP_BASE58CHECK_PATTERN,
+    OP_ADDRESS_PATTERN,
+    OP_ZONEFILE_HASH_PATTERN,
+    PRIVKEY_INFO_SCHEMA,
+    CREATE_DATASTORE_REQUEST_SCHEMA,
+    DELETE_DATASTORE_REQUEST_SCHEMA,
+    OP_BASE64_PATTERN,
+    WALLET_SCHEMA_CURRENT,
+    OP_HEX_PATTERN,
+    LENGTH_MAX_NAME,
+    LENGTH_MAX_NAMESPACE_ID,
+    DATASTORE_LOOKUP_EXTENDED_RESPONSE_SCHEMA,
+    MUTABLE_DATUM_FILE_TYPE,
+    DATASTORE_LOOKUP_RESPONSE_SCHEMA)
 
 import keylib
-from keylib import *
+from keylib import ECPrivateKey
 
 import signal
 import json
@@ -86,7 +103,7 @@ import storage
 from utils import daemonize, streq_constant
 
 import virtualchain
-from virtualchain.lib.ecdsalib import *
+from virtualchain.lib.ecdsalib import get_pubkey_hex, verify_raw_data
 
 import blockstack_profiles
 
@@ -1685,7 +1702,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         datastore_str = str(inode_info['datastore_str'])
         datastore_sig = str(inode_info['datastore_sig'])
         datastore_pubkey = app.app_get_datastore_pubkey( ses )
-        res = keys.verify_raw_data(datastore_str, datastore_pubkey, datastore_sig)
+        res = verify_raw_data(datastore_str, datastore_pubkey, datastore_sig)
         if not res:
             return self._reply_json({'error': 'Invalid request: invalid datastore signature'}, status_code=401)
 

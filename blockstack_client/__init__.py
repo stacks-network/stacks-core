@@ -39,7 +39,7 @@ from proxy import getinfo, ping, get_name_cost, get_namespace_cost, get_all_name
         get_names_owned_by_address, get_consensus_at, get_consensus_range, get_nameops_at, \
         get_nameops_hash_at, get_name_blockchain_record, get_namespace_blockchain_record, \
         get_name_blockchain_history
-        
+
 from keys import make_wallet_keys, get_owner_privkey_info, get_data_privkey_info, get_payment_privkey_info
 
 from cli import get_cli_methods
@@ -75,7 +75,7 @@ from scripts import UTXOException, is_name_valid
 
 from utils import daemonize
 
-from backend.queue import in_queue, queue_append, queue_findone, queue_findall, queue_removeall 
+from backend.queue import in_queue, queue_append, queue_findone, queue_findall, queue_removeall
 
 # legacy compatibility
 from virtualchain import SPVClient

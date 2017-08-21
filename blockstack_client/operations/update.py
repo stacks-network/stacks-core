@@ -28,8 +28,16 @@ from ..constants import (
     LENGTH_VALUE_HASH,
     LENGTH_CONSENSUS_HASH)
 from ..b40 import is_b40
-from ..config import *
-from ..scripts import *
+from ..scripts import (
+    hash_name,
+    hash256_trunc128,
+    blockstack_script_to_hex,
+    add_magic_bytes,
+    is_name_valid,
+    tx_get_unspents,
+    hash256_trunc128
+)
+
 from ..logger import get_logger
 
 import virtualchain

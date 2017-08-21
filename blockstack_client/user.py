@@ -30,9 +30,8 @@ import copy
 import urlparse
 
 import virtualchain
-from virtualchain.lib.ecdsalib import *
 
-from .schemas import *
+from .schemas import USER_ZONEFILE_SCHEMA, OP_URI_TARGET_PATTERN
 from .constants import BLOCKSTACK_TEST, CONFIG_PATH, BLOCKSTACK_DEBUG
 
 import scripts

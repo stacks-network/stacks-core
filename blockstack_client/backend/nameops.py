@@ -57,7 +57,10 @@ from ..storage import get_blockchain_compat_hash, put_announcement, get_zonefile
 from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration, fees_preorder, \
         fees_namespace_preorder, fees_namespace_reveal, fees_namespace_ready, fees_name_import, fees_announce
 
-from .safety import *
+from .safety import (
+    check_preorder, check_register, check_update, check_transfer, check_renewal,
+    check_revoke, check_name_import, check_namespace_preorder, check_namespace_reveal, check_namespace_ready)
+
 from ..logger import get_logger
 from ..utxo import get_unspents
 

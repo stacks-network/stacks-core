@@ -26,9 +26,9 @@ import time
 
 from .backend.blockchain import get_bitcoind_client
 
-from keys import *
-from proxy import *
-from profile import *
+from proxy import (
+    get_default_proxy, get_nameops_hash_at, get_consensus_hashes, get_nameops_at,
+    get_block_from_consensus, get_consensus_at)
 
 import virtualchain
 from virtualchain import SPVClient
