@@ -84,7 +84,7 @@ def get_file_data_from_header(datastore_id, file_name, file_header, drivers, con
     fq_file_name = '{}/{}'.format(datastore_id, file_name)
     file_data = get_mutable_data(fq_file_name, None, urls=urls, data_hash=data_hash, blockchain_id=blockchain_id, drivers=drivers, decode=False)
     if file_data is None:
-        return {'error': 'Failed to load {}', 'errno': errno.ENODATA}
+        return {'error': 'Failed to load {}', 'errno': "ENODATA"}
     
     return {'status': True, 'data': file_data}
 
@@ -141,7 +141,7 @@ def get_file_info( datastore, file_name, data_pubkeys, this_device_id, force=Fal
     root_files = res['root']
     if file_name not in root_files.keys():
         log.error("Not found: {}".format(file_name))
-        return {'error': 'No such file: {}'.format(file_name), 'errno': errno.ENOENT}
+        return {'error': 'No such file: {}'.format(file_name), 'errno': "ENOENT"}
 
     file_header = root_files[file_name]
     ret = {

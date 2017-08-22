@@ -173,7 +173,7 @@ def store_mutable_data_version(conf, device_id, fq_data_id, ver, config_path=CON
                 log.debug("Make metadata directory {}".format(ver_dir))
                 os.makedirs(ver_dir)
             except OSError, oe:
-                if oe.errno != errno.EEXIST:
+                if oe.errno != "EEXIST":
                     raise
                 else:
                     pass
@@ -281,7 +281,7 @@ def put_mutable_data_version( data_id, new_version, device_ids, config_path=CONF
         fq_data_id = make_fq_data_id(device_id, data_id)
         rc = store_mutable_data_version(conf, device_id, fq_data_id, new_version, config_path=config_path)
         if not rc:
-            return {'error': 'Failed to advance mutable data version {} to {}'.format(data_id, new_version), 'errno': errno.EIO}
+            return {'error': 'Failed to advance mutable data version {} to {}'.format(data_id, new_version), 'errno': "EIO"}
 
     return {'status': True, 'version': new_version}
 

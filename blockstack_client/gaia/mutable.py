@@ -328,7 +328,7 @@ def put_raw_data( fq_data_id, data_bytes, drivers, config_path=CONFIG_PATH, bloc
         res = put_mutable(fq_data_id, data_bytes, data_pubkey, data_signature, raw=True, blockchain_id=blockchain_id, storage_drivers=[driver], storage_drivers_exclusive=True, config_path=config_path)
         if 'error' in res:
             log.error("Failed to put data to {}: {}".format(driver, res['error']))
-            return {'error': 'Failed to replicate data to {}'.format(driver), 'errno': errno.EREMOTEIO}
+            return {'error': 'Failed to replicate data to {}'.format(driver), 'errno': "EREMOTEIO"}
 
         url = res['urls'][driver]        
         return {'status': True, 'url': url}
@@ -353,7 +353,7 @@ def put_raw_data( fq_data_id, data_bytes, drivers, config_path=CONFIG_PATH, bloc
             urls.append(res['url'])
 
     if len(errors) > 0:
-        return {'error': 'Some drivers failed to replicate data: {}'.format(','.join(errors)), 'errno': errno.EREMOTEIO}
+        return {'error': 'Some drivers failed to replicate data: {}'.format(','.join(errors)), 'errno': "EREMOTEIO"}
 
     return {'status': True, 'urls': urls}
 
@@ -397,7 +397,7 @@ def delete_raw_data( signed_tombstones, drivers, config_path=CONFIG_PATH, blockc
             errors.append(driver)
 
     if len(errors) > 0:
-        return {'error': 'Some drivers failed to delete data: {}'.format(','.join(errors)), 'errno': errno.EREMOTEIO}
+        return {'error': 'Some drivers failed to delete data: {}'.format(','.join(errors)), 'errno': "EREMOTEIO"}
 
     return {'status': True}
 

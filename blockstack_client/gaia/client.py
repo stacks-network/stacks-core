@@ -194,7 +194,7 @@ def datastore_make_file_entry(data_hash, data_urls):
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
 
-        return {'error': 'Invalid file data', 'errno': errno.EINVAL}
+        return {'error': 'Invalid file data', 'errno': "EINVAL"}
 
     return file_entry
 
@@ -223,7 +223,7 @@ def _find_device_root( api_client, datastore, file_name, data_pubkeys, this_devi
             data_pubkey = dpk['public_key']
 
     if data_pubkey is None:
-        return {'error': 'No data public keys found for {}'.format(this_device_id), 'errno': errno.EINVAL}
+        return {'error': 'No data public keys found for {}'.format(this_device_id), 'errno': "EINVAL"}
     
     # do we expect this device root to exist?  we might not, if this is the first time we're trying to modify the device root.
     expect_device_root = False
@@ -234,7 +234,7 @@ def _find_device_root( api_client, datastore, file_name, data_pubkeys, this_devi
 
     res = get_device_root_version(datastore_id, root_uuid, [this_device_id], config_path=config_path)
     if 'error' in res:
-        return {'error': 'Failed to check device root version for {}'.format(datastore_id), 'errno': errno.EIO}
+        return {'error': 'Failed to check device root version for {}'.format(datastore_id), 'errno': "EIO"}
 
     if res['version'] > 0:
         # previously seen or written
@@ -247,7 +247,7 @@ def _find_device_root( api_client, datastore, file_name, data_pubkeys, this_devi
     if 'error' in res:
         if expect_device_root:
             log.error("Failed to get device {} root page for {}.{}: {}".format(this_device_id, datastore_id, root_uuid, res['error']))
-            return {'error': res['error'], 'errno': errno.EREMOTEIO}
+            return {'error': res['error'], 'errno': "EREMOTEIO"}
         
         else:
             log.warning("Failed to get device {} root page for {}.{}: {}".format(this_device_id, datastore_id, root_uuid, res['error']))
@@ -353,7 +353,7 @@ def datastore_putfile(api_client, datastore, file_name, file_data_bin, data_priv
             data_pubkey = dpk['public_key']
 
     if data_pubkey is None:
-        return {'error': 'Device {} has no public key', 'errno': errno.EINVAL}
+        return {'error': 'Device {} has no public key', 'errno': "EINVAL"}
 
     # get device root
     res = _find_device_root(api_client, datastore, file_name, data_pubkeys, this_device_id, timestamp=timestamp, force=force, config_path=config_path, proxy=proxy, blockchain_id=blockchain_id)
@@ -390,7 +390,7 @@ def datastore_putfile(api_client, datastore, file_name, file_data_bin, data_priv
 
     if 'error' in res:
         log.error("Failed to store {} to {}".format(file_name, datastore_id))
-        return {'error': res['error'], 'errno': res.get('errno', errno.EREMOTEIO)}
+        return {'error': res['error'], 'errno': res.get('errno', "EREMOTEIO")}
 
     file_urls = res['urls']
 
@@ -420,7 +420,7 @@ def datastore_putfile(api_client, datastore, file_name, file_data_bin, data_priv
     # store root version
     res = put_device_root_version(datastore_id, datastore['root_uuid'], new_device_root_version, [this_device_id], config_path=config_path)
     if 'error' in res:
-        return {'error': 'Failed to store new root version for {}'.format(datastore_id), 'errno': errno.EIO}
+        return {'error': 'Failed to store new root version for {}'.format(datastore_id), 'errno': "EIO"}
 
     return {'status': True, 'urls': file_urls, 'root_urls': root_urls}
 
@@ -459,7 +459,7 @@ def datastore_deletefile(api_client, datastore, file_name, data_privkey_hex, dat
             data_pubkey = dpk['public_key']
 
     if data_pubkey is None:
-        return {'error': 'Device {} has no public key', 'errno': errno.EINVAL}
+        return {'error': 'Device {} has no public key', 'errno': "EINVAL"}
 
     this_device_file_tombstone = make_data_tombstones([this_device_id], '{}/{}'.format(datastore_id, file_name))[0]
     file_tombstones = make_data_tombstones(datastore['device_ids'], '{}/{}'.format(datastore_id, file_name))
@@ -474,7 +474,7 @@ def datastore_deletefile(api_client, datastore, file_name, data_privkey_hex, dat
 
     # sanity check: is this file present?
     if file_name not in device_root['files'].keys():
-        return {'error': 'No such file "{}"'.format(file_name), 'errno': errno.ENOENT}
+        return {'error': 'No such file "{}"'.format(file_name), 'errno': "ENOENT"}
 
     # serialize datastore
     datastore_info = datastore_serialize_and_sign(datastore, data_privkey_hex)
@@ -509,7 +509,7 @@ def datastore_deletefile(api_client, datastore, file_name, data_privkey_hex, dat
     # store root version
     res = put_device_root_version(datastore_id, datastore['root_uuid'], new_device_root_version, [this_device_id], config_path=config_path)
     if 'error' in res:
-        return {'error': 'Failed to store new root version for {}'.format(datastore_id), 'errno': errno.EIO}
+        return {'error': 'Failed to store new root version for {}'.format(datastore_id), 'errno': "EIO"}
 
     return {'status': True, 'urls': root_urls}
 

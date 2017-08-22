@@ -157,9 +157,9 @@ def get_device_root_directory( datastore_id, root_inode_uuid, drivers, device_id
         res = get_mutable(fq_data_id, device_ids=[device_id], blockchain_id=blockchain_id, timestamp=timestamp, force=force, data_pubkeys=[device_pubkey], storage_drivers=[driver], proxy=proxy, config_path=config_path)
         if 'error' in res:
             log.error("Failed to get device root data {} (stale={}): {}".format(root_inode_uuid, res.get('stale', False), res['error']))
-            errcode = errno.EREMOTEIO
+            errcode = "EREMOTEIO"
             if res.get('stale'):
-                errcode = errno.ESTALE
+                errcode = "ESTALE"
 
             continue
 
@@ -171,7 +171,7 @@ def get_device_root_directory( datastore_id, root_inode_uuid, drivers, device_id
                 log.error("Invalid root data from {}: not JSON".format(fq_data_id))
 
                 if errcode == 0:
-                    errcode = errno.EIO
+                    errcode = "EIO"
 
                 continue
 
@@ -184,7 +184,7 @@ def get_device_root_directory( datastore_id, root_inode_uuid, drivers, device_id
                 log.error("Invalid root data from {}: not a root directory".format(fq_data_id))
                 
                 if errcode == 0:
-                    errcode = errno.EIO
+                    errcode = "EIO"
 
                 continue
 
@@ -217,7 +217,7 @@ def get_root_directory(datastore_id, root_uuid, drivers, data_pubkeys, timestamp
         # get from token file
         res = lookup_app_pubkeys(blockchain_id, full_app_name, proxy=proxy)
         if 'error' in res:
-            res['errno'] = errno.EINVAL
+            res['errno'] = "EINVAL"
             return res
         
         data_pubkeys = [{'device_id': dev_id, 'public_key': res['pubkeys'][dev_id]} for dev_id in data_pubkeys.keys()]
@@ -260,7 +260,7 @@ def get_root_directory(datastore_id, root_uuid, drivers, data_pubkeys, timestamp
     # merge root directories
     merged = _merge_root_directories(roots.values())
     if 'error' in merged:
-        return {'error': 'Failed to recombine device root directories: {}'.format(merged['error']), 'errno': errno.EIO}
+        return {'error': 'Failed to recombine device root directories: {}'.format(merged['error']), 'errno': "EIO"}
 
     return {'status': True, 'root': merged['files'], 'device_root_pages': roots}
 

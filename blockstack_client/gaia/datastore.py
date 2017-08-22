@@ -123,7 +123,7 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
         if parsed_key_file is None:
             res = key_file_get(blockchain_id, proxy=proxy)
             if 'error' in res:
-                res['errno'] = errno.EINVAL
+                res['errno'] = "EINVAL"
                 return res
 
             parsed_key_file = res['key_file']
@@ -132,7 +132,7 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
         # select the *oldest* record
         res = lookup_app_pubkeys(blockchain_id, full_app_name, proxy=proxy, parsed_key_file=parsed_key_file)
         if 'error' in res:
-            res['errno'] = errno.EINVAL
+            res['errno'] = "EINVAL"
             return res
 
         pubkeys = res['pubkeys']
@@ -196,7 +196,7 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
                 
                 else:
                     log.error("Failed to load public datastore information: {}".format(datastore_info['error']))
-                    return {'error': 'Failed to load public datastore record', 'errno': errno.ENOENT}
+                    return {'error': 'Failed to load public datastore record', 'errno': "ENOENT"}
 
             datastore_str = datastore_info['data']
             datastore_timestamp = datastore_info['timestamp']
@@ -209,7 +209,7 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
                     log.exception(ve)
         
                 log.error("Invalid datastore record")
-                return {'error': 'Invalid public datastore record', 'errno': errno.EIO}
+                return {'error': 'Invalid public datastore record', 'errno': "EIO"}
         
         datastore_records[data_id] = datastore
         datastore_timestamps[data_id] = datastore_timestamp
@@ -221,7 +221,7 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
 
     if len(datastore_records) == 0:
         # no datastore record found 
-        return {'error': 'No datastore records found', 'errno': errno.ENOENT}
+        return {'error': 'No datastore records found', 'errno': "ENOENT"}
 
     # select the *oldest* record, since it was the first one written
     oldest_datastore = None
@@ -413,7 +413,7 @@ def put_datastore_info( datastore_info, datastore_sigs, root_tombstones, config_
 
     if 'error' in res:
         log.error("Failed to store root directory info for {}".format(datastore_id))
-        return {'error': res['error'], 'errno': errno.EREMOTEIO}
+        return {'error': res['error'], 'errno': "EREMOTEIO"}
 
     root_urls = res['urls']
 
@@ -428,7 +428,7 @@ def put_datastore_info( datastore_info, datastore_sigs, root_tombstones, config_
         if 'error' in cleanup_res:
             return {'error': 'Failed to clean up from partial datastore creation.  "urls" contains URLs to leaked root directory copies.', 'urls': root_urls}
         else:
-            return {'error': res['error'], 'errno': errno.EREMOTEIO}
+            return {'error': res['error'], 'errno': "EREMOTEIO"}
 
     # success
     return res
@@ -453,7 +453,7 @@ def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, 
     datastore_info = get_datastore_info(blockchain_id=blockchain_id, datastore_id=datastore_id, device_ids=device_ids, config_path=config_path, proxy=proxy, no_cache=True)
     if 'error' in datastore_info:
         log.error("Failed to look up datastore information for {}: {}".format(datastore_id, datastore_info['error']))
-        return {'error': 'Failed to look up datastore', 'errno': errno.ENOENT}
+        return {'error': 'Failed to look up datastore', 'errno': "ENOENT"}
     
     datastore = datastore_info['datastore']
     root_uuid = datastore['root_uuid']
@@ -464,23 +464,23 @@ def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, 
     if 'error' in res:
         if not force:
             log.error("Failed to get root directory")
-            return {'error': 'Failed to check if datastore is empty', 'errno': errno.EREMOTEIO}
+            return {'error': 'Failed to check if datastore is empty', 'errno': "EREMOTEIO"}
         else:
             log.warn("Failed to get root directory, but forced to remove it anyway")
     
     if not force and len(res['root']) != 0:
         log.error("Datastore {} not empty (has {} files)".format(datastore_id, len(res['root'])))
-        return {'error': 'Datastore not empty', 'errno': errno.ENOTEMPTY}
+        return {'error': 'Datastore not empty', 'errno': "ENOTEMPTY"}
 
     res = delete_mutable(datastore_tombstones, storage_drivers=drivers, storage_drivers_exclusive=True, proxy=proxy, config_path=config_path )
     if 'error' in res:
         log.error("Failed to delete datastore {}".format(datastore_id))
-        return {'error': 'Failed to delete datastore', 'errno': errno.EREMOTEIO}
+        return {'error': 'Failed to delete datastore', 'errno': "EREMOTEIO"}
     
     res = delete_mutable(root_tombstones, storage_drivers=drivers, storage_drivers_exclusive=True, proxy=proxy, config_path=config_path)
     if 'error' in res:
         log.error("Failed to delete root of {}".format(datastore_id))
-        return {'error': 'Failed to delete root directory', 'errno': errno.EREMOTEIO}
+        return {'error': 'Failed to delete root directory', 'errno': "EREMOTEIO"}
 
     return {'status': True}
 
@@ -500,7 +500,7 @@ def verify_file_data(full_app_name, datastore, file_name, file_header_blob, payl
         # look up from key file
         res = lookup_app_pubkeys(blockchain_id, full_app_name, proxy=proxy)
         if 'error' in res:
-            res['errno'] = errno.EINVAL
+            res['errno'] = "EINVAL"
             return res
          
         data_pubkey = res['pubkeys'].get(device_id, None)
@@ -515,11 +515,11 @@ def verify_file_data(full_app_name, datastore, file_name, file_header_blob, payl
             log.exception(e)
 
         log.error("Invalid public key or signature ({}, {})".format(data_pubkey, signature))
-        return {'error': 'failed to verify file data: invalid public key or signature', 'errno': errno.EINVAL}
+        return {'error': 'failed to verify file data: invalid public key or signature', 'errno': "EINVAL"}
 
     if not res:
         log.error("Failed to verify {} ({}) with {}".format(header_blob, signature, datas_pubkey))
-        return {'error': 'failed to verify file data: bad signature', 'errno': errno.EINVAL}
+        return {'error': 'failed to verify file data: bad signature', 'errno': "EINVAL"}
 
     # check payload hash 
     payload_hash = hash_data_payload(payload)
@@ -533,7 +533,7 @@ def verify_file_data(full_app_name, datastore, file_name, file_header_blob, payl
             log.exception(ve)
 
         log.error("Invalid data blob")
-        return {'error': 'invalid file header container (schema mismatch)', 'errno': errno.EINVAL}
+        return {'error': 'invalid file header container (schema mismatch)', 'errno': "EINVAL"}
 
     # must be a valid header
     header_struct = data_blob_parse(header_mutable_data_struct['data'])
@@ -544,12 +544,12 @@ def verify_file_data(full_app_name, datastore, file_name, file_header_blob, payl
             log.exception(ve)
 
         log.error("Invalid header struct")
-        return {'error': 'invalid file header structure (schema mismatch)', 'errno': errno.EINVAL}
+        return {'error': 'invalid file header structure (schema mismatch)', 'errno': "EINVAL"}
 
     # payload must match header
     if payload_hash != header_struct['data_hash']:
         log.error("Payload hash mismatch: {} != {}".format(payload_hash, header_struct['data_hash']))
-        return {'error': "Payload {} does not match file header {}".format(payload_hash, header_struct['data_hash']), 'errno': errno.EINVAL}
+        return {'error': "Payload {} does not match file header {}".format(payload_hash, header_struct['data_hash']), 'errno': "EINVAL"}
 
     return {'status': True}
 
@@ -569,7 +569,7 @@ def verify_root_data(datastore, root_data_blob, signature, device_id, blockchain
         # look up from key file
         res = lookup_app_pubkeys(blockchain_id, full_app_name, proxy=proxy)
         if 'error' in res:
-            res['errno'] = errno.EINVAL
+            res['errno'] = "EINVAL"
             return res
          
         data_pubkey = res['pubkeys'].get(device_id, None)
@@ -584,11 +584,11 @@ def verify_root_data(datastore, root_data_blob, signature, device_id, blockchain
             log.exception(e)
 
         log.error("failed to verify root directory page: invalid public key or signature ({}, {})".format(data_pubkey, signature))
-        return {'error': 'Invalid public key or signature', 'errno': errno.EINVAL}
+        return {'error': 'Invalid public key or signature', 'errno': "EINVAL"}
 
     if not res:
         log.error("Failed to verify {} ({}) with {}".format(header_blob, signature, datas_pubkey))
-        return {'error': 'failed to verify root directory page: bad signature', 'errno': errno.EINVAL}
+        return {'error': 'failed to verify root directory page: bad signature', 'errno': "EINVAL"}
 
     # must be a valid blob 
     device_root_blob = data_blob_parse(root_data_blob)
@@ -599,7 +599,7 @@ def verify_root_data(datastore, root_data_blob, signature, device_id, blockchain
             log.exception(ve)
 
         log.error("Invalid data blob")
-        return {'error': 'invalid file header container (schema mismatch)', 'errno': errno.EINVAL}
+        return {'error': 'invalid file header container (schema mismatch)', 'errno': "EINVAL"}
 
     # must be a valid root directory
     device_root = data_blob_parse(device_root_blob['data'])
@@ -610,18 +610,18 @@ def verify_root_data(datastore, root_data_blob, signature, device_id, blockchain
             log.exception(ve)
 
         log.error("Invalid root directory page struct")
-        return {'error': 'invalid root directory page structure (schema mismatch)', 'errno': errno.EINVAL}
+        return {'error': 'invalid root directory page structure (schema mismatch)', 'errno': "EINVAL"}
     
     # root must not be stale 
     datastore_id = datastore_get_id(datastore['pubkey'])
     res = get_device_root_version(datastore_id, datastore['root_uuid'], datastore['device_ids'], config_path=config_path)
     if 'error' in res:
         log.error("Failed to check root device version for {}".format(datastore_id))
-        return {'error': 'Failed to check root device version for {}'.format(datastore_id), 'errno': errno.EIO}
+        return {'error': 'Failed to check root device version for {}'.format(datastore_id), 'errno': "EIO"}
 
     if res['version'] > device_root['timestamp']:
         log.error("Stale data for root {}: expected version >= {}, got {}".format(datastore_id, device_root['timestamp'], res['version']))
-        return {'error': 'Device root is stale.  Last version seen: {}'.format(res['version']), 'errno': errno.ESTALE}
+        return {'error': 'Device root is stale.  Last version seen: {}'.format(res['version']), 'errno': "ESTALE"}
 
     return {'status': True, 'pubkey': data_pubkey}
 
@@ -644,7 +644,7 @@ def datastore_get_file_data(datastore, file_name, data_pubkeys, full_app_name=No
         # get from key file
         res = lookup_app_pubkeys(blockchain_id, full_app_name, proxy=proxy)
         if 'error' in res:
-            res['errno'] = errno.EINVAL
+            res['errno'] = "EINVAL"
             return res
         
         data_pubkeys = [{'device_id': dev_id, 'public_key': res['pubkeys'][dev_id]} for dev_id in data_pubkeys.keys()]
@@ -667,12 +667,12 @@ def datastore_get_device_root(full_app_name, datastore, device_id, data_pubkey=N
         # get from key file
         res = lookup_app_pubkeys(blockchain_id, full_app_name, proxy=proxy)
         if 'error' in res:
-            res['errno'] = errno.EINVAL
+            res['errno'] = "EINVAL"
             return res
 
         data_pubkey = res['pubkeys'].get(device_id, None)
         if not data_pubkey:
-            return {'error': 'Unknown device ID', 'errno': errno.EINVAL}
+            return {'error': 'Unknown device ID', 'errno': "EINVAL"}
 
     datastore_id = datastore_get_id(datastore['pubkey'])
     return get_device_root_directory(datastore_id, datastore['root_uuid'], datastore['drivers'], device_id, data_pubkey, timestamp=timestamp, force=force, config_path=config_path, blockchain_id=blockchain_id)
@@ -694,12 +694,12 @@ def datastore_put_file_data(full_app_name, datastore, file_name, file_header_blo
         # get from key file
         res = lookup_app_pubkeys(blockchain_id, full_app_name, proxy=proxy)
         if 'error' in res:
-            res['errno'] = errno.EINVAL
+            res['errno'] = "EINVAL"
             return res
 
         data_pubkey = res['pubkeys'].get(device_id, None)
         if not data_pubkey:
-            return {'error': 'Unknown device ID', 'errno': errno.EINVAL}
+            return {'error': 'Unknown device ID', 'errno': "EINVAL"}
 
     # must be well-formed, consistent, and authentic
     res = verify_file_data(full_app_name, datastore, file_name, file_header_blob, payload, signature, device_id, blockchain_id=blockchain_id, data_pubkey=data_pubkey, config_path=config_path)
@@ -747,7 +747,7 @@ def datastore_put_device_root_data(datastore, device_root_page_blob, signature, 
         res = write_log_page_replicate(signed_device_root_page_blob, datastore['drivers'], blockchain_id, config_path=config_path, proxy=proxy)
         if 'error' in res:
             log.error("Failed to replicate signed root page for {}.{}".format(datastore_id, datastore['root_uuid']))
-            return {'error': res['error'], 'errno': errno.EREMOTEIO}
+            return {'error': res['error'], 'errno': "EREMOTEIO"}
 
         root_urls = res['urls']
 
@@ -756,7 +756,7 @@ def datastore_put_device_root_data(datastore, device_root_page_blob, signature, 
         res = write_log_enqueue(datastore_id, device_id, datastore['root_uuid'], signed_device_root_page_blob, datastore['drivers'], blockchain_id=blockchain_id, config_path=config_path)
         if 'error' in res:
             log.error("Failed to enqueue {}.{} for replication (on put_device_root)".format(datastore_id, datastore['root_uuid']))
-            return {'error': res['error'], 'errno': errno.EIO}
+            return {'error': res['error'], 'errno': "EIO"}
 
     return {'status': True, 'urls': root_urls}
 
@@ -776,7 +776,7 @@ def datastore_delete_file_data(datastore, signed_tombstones, blockchain_id=None,
         # get from key file
         res = lookup_app_pubkeys(blockchain_id, full_app_name, proxy=proxy)
         if 'error' in res:
-            res['errno'] = errno.EINVAL
+            res['errno'] = "EINVAL"
             return res
         
         data_pubkeys = [{'device_id': dev_id, 'public_key': res['pubkeys'][dev_id]} for dev_id in data_pubkeys.keys()]
@@ -790,12 +790,12 @@ def datastore_delete_file_data(datastore, signed_tombstones, blockchain_id=None,
                 break
                 
         if not authentic:
-            return {'error': 'Invalid tombstone', 'errno': errno.EINVAL}
+            return {'error': 'Invalid tombstone', 'errno': "EINVAL"}
 
     # delete it
     res = delete_raw_data(signed_tombstones, datastore['drivers'], config_path=config_path, blockchain_id=blockchain_id, proxy=proxy)
     if 'error' in res:
-        res['errno'] = errno.EREMOTEIO
+        res['errno'] = "EREMOTEIO"
         return res
 
     return {'status': True}
@@ -828,11 +828,11 @@ def datastore_file_data_verify( datastore_pubkey, headers, payloads, signatures,
                 log.exception(e)
 
             log.error("Invalid public key or signature ({}, {})".format(datastore_pubkey, signature))
-            return {'error': 'Invalid public key or signature', 'errno': errno.EINVAL}
+            return {'error': 'Invalid public key or signature', 'errno': "EINVAL"}
 
         if not res:
             log.debug("Failed to verify {} ({}) with {}".format(header_blob, signature, datastore_pubkey))
-            return {'error': 'Failed to verify signature', 'errno': errno.EINVAL}
+            return {'error': 'Failed to verify signature', 'errno': "EINVAL"}
 
         # check hash 
         payload_hash = hash_data_payload(payload)
@@ -840,12 +840,12 @@ def datastore_file_data_verify( datastore_pubkey, headers, payloads, signatures,
         header_struct = data_blob_parse(header_mutable_data_struct['data'])
         if payload_hash != header_struct['data_hash']:
             log.debug("Payload hash mismatch: {} != {}".format(payload_hash, header_struct['data_hash']))
-            return {'error': "Payload {} does not match file header {}".format(payload_hash, header_struct['data_hash']), 'errno': errno.EINVAL}
+            return {'error': "Payload {} does not match file header {}".format(payload_hash, header_struct['data_hash']), 'errno': "EINVAL"}
 
     if len(tombstones) > 0:
         res = verify_mutable_data_tombstones( tombstones, datastore_pubkey, device_ids=device_ids )
         if not res:
-            return {'error': 'Failed to verify data tombstones', 'errno': errno.EINVAL}
+            return {'error': 'Failed to verify data tombstones', 'errno': "EINVAL"}
 
     return {'status': True}
 
