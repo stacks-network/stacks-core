@@ -92,7 +92,7 @@ def update_profiles():
     actually_updated_names = set()
     print "Updating {} entries...".format(len(names_updated))
     for ix, name in enumerate(names_updated):
-        print_status_bar(ix, len(names_updated))
+        print_status_bar(ix+1, len(names_updated))
         profile_entry = {}
         profile_entry['fqu'] = name
 
