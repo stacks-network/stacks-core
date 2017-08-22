@@ -793,7 +793,7 @@ def deduce_name_privkey(parsed_key_file, owner_privkey_info):
     return {'error': 'key file is missing name public keys'}
 
 
-def lookup_name_privkey(name, owner_privkey_info, config_path=CONFIG_PATH, proxy=None, parsed_key_file=None):
+def lookup_name_privkey(name, owner_privkey_info, cache=None, cache_max_age=600, config_path=CONFIG_PATH, proxy=None, parsed_key_file=None):
     """
     Given a name and wallet keys, get the name private key
     Return {'status': True, 'name_privkey': ...} on success
@@ -802,7 +802,7 @@ def lookup_name_privkey(name, owner_privkey_info, config_path=CONFIG_PATH, proxy
     proxy = get_default_proxy() if proxy is None else proxy
 
     if parsed_key_file is None:
-        res = key_file_get(name, proxy=proxy, config_path=config_path)
+        res = key_file_get(name, cache=cache, cache_max_age=cache_max_age, proxy=proxy, config_path=config_path)
         if 'error' in res:
             log.error("Failed to get key file for {}: {}".format(name, res['error']))
             return {'error': 'Failed to get key file for {}: {}'.format(name, res['error'])}
@@ -815,13 +815,13 @@ def lookup_name_privkey(name, owner_privkey_info, config_path=CONFIG_PATH, proxy
     return deduce_name_privkey(parsed_key_file, owner_privkey_info)
 
 
-def lookup_signing_privkey(name, owner_privkey_info, proxy=None, parsed_key_file=None):
+def lookup_signing_privkey(name, owner_privkey_info, cache=None, cache_max_age=600, proxy=None, parsed_key_file=None):
     """
     Given a name and wallet keys, get the signing private key
     Return {"status': True, 'signing_privkey': ...} on success
     Return {'error': ...} on error
     """
-    res = lookup_name_privkey(name, owner_privkey_info, proxy=proxy, parsed_key_file=parsed_key_file)
+    res = lookup_name_privkey(name, owner_privkey_info, cache=cache, cache_max_age=cache_max_age, proxy=proxy, parsed_key_file=parsed_key_file)
     if 'error' in res:
         return res
 
@@ -830,14 +830,14 @@ def lookup_signing_privkey(name, owner_privkey_info, proxy=None, parsed_key_file
     return {'status': True, 'signing_privkey': signing_privkey}
 
 
-def lookup_delegated_device_pubkeys(name, proxy=None, config_path=CONFIG_PATH, parsed_key_file=None):
+def lookup_delegated_device_pubkeys(name, cache=None, cache_max_age=600, proxy=None, config_path=CONFIG_PATH, parsed_key_file=None):
     """
     Given a blockchain ID (name), get all of its delegated devices' public keys
     Return {'status': True, 'pubkeys': {'$device-id': {...}}} on success
     Return {'error': ...} on error
     """
     if parsed_key_file is None:
-        res = key_file_get(name, proxy=proxy, config_path=config_path)
+        res = key_file_get(name, cache=cache, cache_max_age=cache_max_age, proxy=proxy, config_path=config_path)
         if 'error' in res:
             log.error("Failed to get key file for {}".format(name))
             return {'error': 'Failed to get key file for {}: {}'.format(name, res['error'])}
@@ -858,13 +858,13 @@ def lookup_delegated_device_pubkeys(name, proxy=None, config_path=CONFIG_PATH, p
     return {'status': True, 'pubkeys': all_pubkeys, 'key_file': parsed_key_file}
     
 
-def lookup_signing_pubkeys(name, proxy=None):
+def lookup_signing_pubkeys(name, cache=None, cache_max_age=600, proxy=None):
     """
     Given a blockchain ID (name), get its signing public keys.
     Return {'status': True, 'key_file': ..., 'pubkeys': {'$device_id': ...}} on success
     Return {'error': ...} on error
     """
-    res = lookup_delegated_device_pubkeys(name, proxy=proxy)
+    res = lookup_delegated_device_pubkeys(name, cache=cache, cache_max_age=cache_max_age, proxy=proxy)
     if 'error' in res:
         return res
     
@@ -877,7 +877,7 @@ def lookup_signing_pubkeys(name, proxy=None):
     return {'status': True, 'pubkeys': signing_keys, 'key_file': key_file}
 
 
-def lookup_app_pubkeys(name, full_application_name, proxy=None, config_path=CONFIG_PATH, parsed_key_file=None):
+def lookup_app_pubkeys(name, full_application_name, cache=None, cache_max_age=600, proxy=None, config_path=CONFIG_PATH, parsed_key_file=None):
     """
     Given a blockchain ID (name), and the full application name (i.e. ending in .1 or .x),
     go and get all of the public keys for it in the app keys file
@@ -888,7 +888,7 @@ def lookup_app_pubkeys(name, full_application_name, proxy=None, config_path=CONF
     assert full_application_name
 
     if parsed_key_file is None:
-        res = key_file_get(name, proxy=proxy, config_path=config_path)
+        res = key_file_get(name, cache=cache, cache_max_age=cache_max_age, proxy=proxy, config_path=config_path)
         if 'error' in res:
             log.error("Failed to get key file for {}".format(name))
             return {'error': 'Failed to get key file for {}: {}'.format(name, res['error'])}
@@ -1076,7 +1076,7 @@ def key_file_put_versions(name, key_file_jwt, config_path=CONFIG_PATH):
     return {'status': True}
 
 
-def key_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=None,
+def key_file_get(name, cache=None, cache_max_age=600, zonefile_storage_drivers=None, profile_storage_drivers=None,
                  proxy=None, user_zonefile=None, name_record=None, min_timestamp=None,
                  use_zonefile_urls=True, decode=True, config_path=CONFIG_PATH):
     """
@@ -1113,6 +1113,12 @@ def key_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=No
         'zonefile': user_zonefile,
         'name_record': name_record,
     }
+
+    if cache:
+        # do we have a cached response?
+        res = cache.get_key_file(name, cache_max_age)
+        if res is not None:
+            return res
 
     key_file = None
 
@@ -1222,10 +1228,15 @@ def key_file_get(name, zonefile_storage_drivers=None, profile_storage_drivers=No
 
     ret['key_file'] = key_file
     ret['profile'] = profile
+
+    if cache:
+        # store response 
+        cache.put_key_file(name, ret, cache_max_age)
+
     return ret
 
 
-def key_file_put(name, new_key_file, proxy=None, required_drivers=None, config_path=CONFIG_PATH):
+def key_file_put(name, new_key_file, cache=None, proxy=None, required_drivers=None, config_path=CONFIG_PATH):
     """
     Set the new key file data.  CLIENTS SHOULD NOT CALL THIS METHOD DIRECTLY.
     Takes a serialized key file (as a string).
@@ -1254,22 +1265,26 @@ def key_file_put(name, new_key_file, proxy=None, required_drivers=None, config_p
             required_storage_drivers = config.get('storage_drivers', '').split(',')
 
     log.debug('Save updated key file for "{}" to {}'.format(name, ','.join(required_storage_drivers)))
-
+    
     storage_res = storage.put_mutable_data(name, new_key_file, sign=False, raw=True, required=required_storage_drivers, key_file=True, blockchain_id=name)
     if 'error' in storage_res:
         log.error("Failed to store updated key file: {}".format(storage_res['error']))
         return {'error': 'Failed to store key file for {}'.format(name)}
+
+    # cache evict
+    if cache:
+        cache.evict_key_file(name)
 
     # store new version
     res = key_file_put_versions(name, new_key_file, config_path=config_path)
     if 'error' in res:
         log.error("Failed to store data version vector for key file for {}".format(name))
         return {'error': 'Failed to store data version vector for key file for {}: {}'.format(name, res['error'])}
-
+    
     return storage_res
 
 
-def key_file_delete(blockchain_id, signing_private_key, proxy=None):
+def key_file_delete(blockchain_id, signing_private_key, cache=None, proxy=None):
     """
     Delete key file data.  CLIENTS SHOULD NOT CALL THIS DIRECTLY
     Return {'status: True} on success
@@ -1277,9 +1292,14 @@ def key_file_delete(blockchain_id, signing_private_key, proxy=None):
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
+
     rc = storage.delete_mutable_data(blockchain_id, signing_private_key)
     if not rc:
         return {'error': 'Failed to delete key file'}
+    
+    # clear cache
+    if cache:
+        cache.evict_key_file(name)
 
     return {'status': True}
 
