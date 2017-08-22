@@ -61,6 +61,8 @@ from storage import sign_data_payload, make_data_tombstone, make_fq_data_id, sig
         put_immutable_data, parse_signed_data_tombstone, classify_storage_drivers, decode_mutable_data
 
 from mutable import *
+from directory import put_device_root_data
+from cache import GLOBAL_CACHE
 
 log = get_logger('gaia-write_log')
 
@@ -300,7 +302,7 @@ def write_log_size(config_path=CONFIG_PATH):
     return {'status': True, 'count': count}
 
 
-def write_log_page_replicate(signed_device_root_page, drivers, blockchain_id, config_path=CONFIG_PATH, proxy=None):
+def write_log_page_replicate(datastore_id, device_id, root_uuid, signed_device_root_page, drivers, blockchain_id, config_path=CONFIG_PATH, proxy=None):
     """
     Replicate a signed write log page to the given list of drivers.
     This is a server-side method.
@@ -330,12 +332,15 @@ def write_log_page_replicate(signed_device_root_page, drivers, blockchain_id, co
     fq_data_id = device_root_blob['fq_data_id']
     
     log.debug("Store signed root page {}".format(fq_data_id))
-    res = put_mutable(fq_data_id, signed_device_root_page, None, None, raw=True, blockchain_id=blockchain_id, config_path=config_path, storage_drivers=drivers, storage_drivers_exclusive=True)
+    res = put_raw_data(fq_data_id, signed_device_root_page, drivers, config_path=config_path, blockchain_id=blockchain_id) 
     if 'error' in res:
         log.error("Failed to replicate page {} of the write log: {}".format(page_id, res['error']))
         return {'error': res['error']}
+    
+    urls = res['urls']
 
-    urls = res['urls'].values()
+    GLOBAL_CACHE.evict_device_root_directory(datastore_id, device_id, root_uuid)
+
     return {'status': True, 'urls': urls}
 
 
@@ -358,7 +363,7 @@ def write_log_replicate_thread(config_path=CONFIG_PATH):
             continue
     
         # replicate this entry 
-        res = write_log_page_replicate(next_entry['signed_device_root_page'], next_entry['drivers'], next_entry['blockchain_id'], config_path=config_path)
+        res = write_log_page_replicate(next_entry['datastore_id'], next_entry['device_id'], next_entry['root_uuid'], next_entry['signed_device_root_page'], next_entry['drivers'], next_entry['blockchain_id'], config_path=config_path)
         if 'error' in res:
             continue
 
