@@ -1700,11 +1700,16 @@ KEY_DELEGATION_SCHEMA = {
                 },
             },
         },
+        'timestamp': {
+            'type': 'integer',
+            'minimum': 0,
+        },
     },
     'required': [
         'version',
         'name',
         'devices',
+        'timestamp'
     ],
     'additionalProperties': False,
 }
@@ -1727,10 +1732,15 @@ APP_KEY_BUNDLE_SCHEMA = {
                 },
             },
         },
+        'timestamp': {
+            'type': 'integer',
+            'minimum': 0,
+        },
     },
     'required': [
         'version',
-        'apps'
+        'apps',
+        'timestamp'
     ],
     'additionalProperties': False,
 }
