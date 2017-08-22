@@ -61,25 +61,24 @@ log = get_logger('gaia-cache')
 
 class DataCache(object):
     """
-    Write-coherent inode and datastore data cache
+    Write-coherent datastore data cache
     """
-    def __init__(self, max_headers=1024, max_dirs=1024, max_datastores=1024):
-        self.header_cache = {}
-        self.header_deadlines = {}
-        self.max_headers = max_headers
-
+    def __init__(self, max_dirs=1024, max_datastores=1024, max_key_files=1024):
         self.dir_cache = {}
         self.dir_deadlines = {}
-        self.dir_children = {}
         self.max_dirs = max_dirs
 
         self.datastore_cache = {}
         self.datastore_deadlines = {}
         self.max_datastores = max_datastores
 
-        self.header_lock = threading.Lock()
+        self.key_file_cache = {}
+        self.key_file_deadlines = {}
+        self.max_key_files = max_key_files
+
         self.dir_lock = threading.Lock()
         self.datastore_lock = threading.Lock()
+        self.key_file_lock = threading.Lock()
 
 
     def _put_data(self, lock, cache_obj, deadline_tbl, max_obj, key, value, ttl):
@@ -91,7 +90,7 @@ class DataCache(object):
         if lock:
             lock.acquire()
 
-        cache_obj[key] = {'value': value, 'deadline': deadline}
+        cache_obj[key] = {'value': value, 'deadline': deadline, 'timestamp': time.time()}
 
         if not deadline_tbl.has_key(deadline):
             deadline_tbl[deadline] = []
@@ -119,7 +118,7 @@ class DataCache(object):
             lock.release()
 
 
-    def _get_data(self, lock, cache_obj, deadline_tbl, key):
+    def _get_data(self, lock, cache_obj, deadline_tbl, key, max_age):
         """
         Get data from either the header cache or dir cache or datastore cache
         Returns the cached object, plus the expiry time
@@ -130,26 +129,28 @@ class DataCache(object):
                 return None, None
 
             res = cache_obj[key]['value']
+            res_insert_time = cache_obj[key]['timestamp']
             res_deadline = cache_obj[key]['deadline']
 
-            if time.time() < res_deadline:
+            if time.time() >= res_deadline:
+                # expired
+                to_evict = []
+                for deadline in sorted(deadline_tbl.keys()):
+                    if time.time() <= deadline:
+                        break
+                    
+                    to_evict.append(deadline)
+
+                for deadline in to_evict:
+                    evicted_keys = deadline_tbl[deadline]
+                    del deadline_tbl[deadline]
+
+                    for key in evicted_keys:
+                        del cache_obj[key]
+
+            if time.time() < res_deadline and res_insert_time + max_age >= time.time():
                 # fresh 
                 return res, res_deadline
-
-            # expired
-            to_evict = []
-            for deadline in sorted(deadline_tbl.keys()):
-                if time.time() <= deadline:
-                    break
-                
-                to_evict.append(deadline)
-
-            for deadline in to_evict:
-                evicted_keys = deadline_tbl[deadline]
-                del deadline_tbl[deadline]
-
-                for key in evicted_keys:
-                    del cache_obj[key]
 
             return None, None
 
@@ -180,76 +181,51 @@ class DataCache(object):
             return
 
 
-    def put_inode_header(self, datastore_id, inode_header, ttl):
+    def put_device_root_directory(self, datastore_id, device_id, root_uuid, root_directory, ttl):
         """
-        Save an inode header
+        Save a device root directory
         """
-        log.debug("Cache inode header {}".format(inode_header['uuid']))
-        return self._put_data(self.header_lock, self.header_cache, self.header_deadlines, self.max_headers, '{}:{}'.format(datastore_id, inode_header['uuid']), inode_header, ttl)
-
-
-    def put_inode_directory(self, datastore_id, inode_directory, ttl):
-        """
-        Save an inode directory
-        """
-        log.debug("Cache directory {} (version {})".format(inode_directory['uuid'], inode_directory['version']))
-
-        with self.dir_lock:
-            # stash directory
-            self._put_data(None, self.dir_cache, self.dir_deadlines, self.max_dirs, '{}:{}'.format(datastore_id, inode_directory['uuid']), inode_directory, ttl)
-
-            # also, map children UUID back to the parent directory so we can properly evict the parent directory
-            # when we add/remove/update a file.
-            for child_name in inode_directory['idata']['children'].keys():
-                child_idata = inode_directory['idata']['children'][child_name]
-                child_uuid = child_idata['uuid']
-                self.dir_children[child_uuid] = inode_directory['uuid']
+        log.debug("Cache directory {}:{}.{} for up to {} seconds".format(device_id, datastore_id, root_uuid, ttl))
+        return self._put_data(self.dir_lock, self.dir_cache, self.dir_deadlines, self.max_dirs, '{}:{}.{}'.format(device_id, datastore_id, root_uuid), root_directory, ttl)
 
 
     def put_datastore_record(self, datastore_id, datastore_rec, ttl):
         """
         Save a datastore record
         """
-        log.debug("Cache datastore {}".format(datastore_id))
+        log.debug("Cache datastore {} for up to {} seconds".format(datastore_id, ttl))
         return self._put_data(self.datastore_lock, self.datastore_cache, self.datastore_deadlines, self.max_datastores, datastore_id, datastore_rec, ttl)
 
-
-    def get_inode_header(self, datastore_id, inode_uuid):
+    
+    def put_key_file(self, blockchain_id, parsed_key_file, ttl):
         """
-        Get a cached inode header
-        Return None if stale or absent
+        Save a parsed key file
         """
-        res, deadline = self._get_data(self.header_lock, self.header_cache, self.header_deadlines, '{}:{}'.format(datastore_id, inode_uuid))
-        if res:
-            log.debug("Cache HIT header {}, expires at {} (now={})".format(inode_uuid, deadline, time.time()))
-
-        else:
-            log.debug("Cache MISS {}".format(inode_uuid))
-
-        return res
+        log.debug("Cache key file for {} for up to {} seconds".format(blockchain_id, ttl))
+        return self._put_data(self.key_file_lock, self.key_file_cache, self.key_file_deadlines, self.max_key_files, blockchain_id, parsed_key_file, ttl)
 
 
-    def get_inode_directory(self, datastore_id, inode_uuid):
+    def get_device_root_directory(self, datastore_id, device_id, root_uuid, max_age):
         """
         Get a cached directory header
         Return None if stale or absent
         """
-        res, deadline = self._get_data(self.dir_lock, self.dir_cache, self.dir_deadlines, '{}:{}'.format(datastore_id, inode_uuid))
+        res, deadline = self._get_data(self.dir_lock, self.dir_cache, self.dir_deadlines, '{}:{}.{}'.format(device_id, datastore_id, root_uuid), max_age)
         if res:
-            log.debug("Cache HIT directory {}, version {}, expires at {} (now={})".format(inode_uuid, res['version'], deadline, time.time()))
+            log.debug("Cache HIT directory {}:{}.{}, expires at {} (now={})".format(device_id, datastore_id, root_uuid, deadline, time.time()))
 
         else:
-            log.debug("Cache MISS {}".format(inode_uuid))
+            log.debug("Cache MISS {}".format(root_uuid))
 
         return res
 
 
-    def get_datastore_record(self, datastore_id):
+    def get_datastore_record(self, datastore_id, max_age):
         """
         Get a cached datastore record
         Return None if stale or absent
         """
-        res, deadline = self._get_data(self.datastore_lock, self.datastore_cache, self.datastore_deadlines, datastore_id)
+        res, deadline = self._get_data(self.datastore_lock, self.datastore_cache, self.datastore_deadlines, datastore_id, max_age)
         if res:
             log.debug("Cache HIT datastore {}, expires at {} (now={})".format(datastore_id, deadline, time.time()))
         
@@ -259,67 +235,60 @@ class DataCache(object):
         return res
 
 
-    def evict_inode_header(self, datastore_id, inode_uuid):
+    def get_key_file(self, blockchain_id, max_age):
         """
-        Evict a given inode header
+        Get a cached key file
+        Return None if stale or absent
         """
-        return self._evict_data(self.header_lock, self.header_cache, self.header_deadlines, '{}:{}'.format(datastore_id, inode_uuid))
+        res, deadline = self._get_data(self.key_file_lock, self.key_file_cache, self.key_file_deadlines, blockchain_id, max_age)
+        if res:
+            log.debug("Cache HIT key file for {}, expires at {} (now={})".format(blockchain_id, deadline, time.time()))
+
+        else:
+            log.debug("Cache MISS {}".format(blockchain_id))
+
+        return res
 
 
-    def evict_inode_directory(self, datastore_id, inode_uuid):
+    def evict_device_root_directory(self, datastore_id, device_id, root_uuid):
         """
         Evict a given directory
         """
-        return self._evict_data(self.dir_lock, self.dir_cache, self.dir_deadlines, '{}:{}'.format(datastore_id, inode_uuid))
+        log.debug("Evict device root directory {}:{}.{}".format(device_id, datastore_id, root_uuid))
+        return self._evict_data(self.dir_lock, self.dir_cache, self.dir_deadlines, '{}:{}.{}'.format(device_id, datastore_id, root_uuid))
 
 
     def evict_datastore_record(self, datastore_id):
         """
         Evict a datastore record
         """
+        log.debug("Evict datastore record {}".format(datastore_id))
         return self._evict_data(self.datastore_lock, self.datastore_cache, self.datastore_deadlines, datastore_id)
 
 
-    def evict_inode(self, datastore_id, inode_uuid):
+    def evict_key_file(self, blockchain_id):
         """
-        Evict all inode state
+        Evict a key file
         """
-        parent_uuid = None
-        with self.dir_lock:
-            parent_uuid = self.dir_children.get(inode_uuid, None)
-
-        self.evict_inode_header(datastore_id, inode_uuid)
-        self.evict_inode_directory(datastore_id, inode_uuid)
-        
-        if parent_uuid:
-            log.debug("Evict {}, parent of {}".format(parent_uuid, inode_uuid))
-            self.evict_inode_header(datastore_id, parent_uuid)
-            self.evict_inode_directory(datastore_id, parent_uuid)
-
-            to_remove = []
-            for (cuuid, duuid) in self.dir_children.items():
-                if duuid == inode_uuid:
-                    to_remove.append(cuuid)
-
-            for cuuid in to_remove:
-                del self.dir_children[cuuid]
+        log.debug("Evict key file for {}".format(blockchain_id))
+        return self._evict_data(self.key_file_lock, self.key_file_cache, self.key_file_deadlines, blockchain_id)
 
     
     def evict_all(self):
         """
         Clear the entire cache
         """
-        with self.header_lock:
-            self.header_cache = {}
-            self.header_deadlines = {}
-
         with self.dir_lock:
             self.dir_cache = {}
             self.dir_deadlines = {}
 
         with self.datastore_lock:
             self.datastore_cache = {}
-            self.datastore_deadliens = {}
+            self.datastore_deadlines = {}
+
+        with self.key_file_lock:
+            self.key_file_cache = {}
+            self.key_file_deadlines = {}
 
 
 GLOBAL_CACHE = DataCache()
