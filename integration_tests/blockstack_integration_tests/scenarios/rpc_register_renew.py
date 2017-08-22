@@ -19,7 +19,7 @@
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-""" 
+"""
 
 import testlib
 import pybitcoin
@@ -29,7 +29,7 @@ import sys
 import blockstack_client
 import blockstack as blockstack_server
 import virtualchain
-from blockstack_client.config import DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE
+from blockstack_client.constants import DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -72,23 +72,23 @@ def scenario( wallets, **kw ):
     time.sleep(10)
 
 
-    # wait for the register to get confirmed 
+    # wait for the register to get confirmed
     for i in xrange(0, 12):
         # warn the serialization checker that this changes behavior from 0.13
         print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
         sys.stdout.flush()
-        
+
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
     time.sleep(10)
 
-    # wait for initial update to get confirmed 
+    # wait for initial update to get confirmed
     for i in xrange(0, 12):
         # warn the serialization checker that this changes behavior from 0.13
         print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
         sys.stdout.flush()
-        
+
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
@@ -100,7 +100,7 @@ def scenario( wallets, **kw ):
     if 'error' in res:
         print >> sys.stderr, json.dumps(res, indent=4, sort_keys=True)
         return False
-    
+
     old_expire_block = res['expire_block']
 
     # send an update, changing the zonefile
@@ -110,32 +110,32 @@ def scenario( wallets, **kw ):
     zonefile_json = json.dumps(zonefile)
 
     resp = testlib.blockstack_cli_update( "foo.test", zonefile_json, "0123456789abcdef" )
-    
+
     if 'error' in resp:
         print >> sys.stderr, "update error: %s" % resp['error']
         return False
 
     zonefile_hash = resp['zonefile_hash']
-    
-    # wait for it to go through 
+
+    # wait for it to go through
     for i in xrange(0, 12):
         # warn the serialization checker that this changes behavior from 0.13
         print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
         sys.stdout.flush()
-        
+
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowedge the update"
     time.sleep(10)
-    # wait for it to go through 
+    # wait for it to go through
     for i in xrange(0, 12):
         # warn the serialization checker that this changes behavior from 0.13
         print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
         sys.stdout.flush()
-        
+
         testlib.next_block( **kw )
 
-    # renew it 
+    # renew it
     resp = testlib.blockstack_cli_renew( "foo.test", "0123456789abcdef" )
     if 'error' in resp:
         print >> sys.stderr, "Renewal request failed:\n%s" % json.dumps(resp, indent=4, sort_keys=True)
@@ -144,12 +144,12 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge the renewal"
     time.sleep(10)
 
-    # wait for it to go through 
+    # wait for it to go through
     for i in xrange(0, 6):
         # warn the serialization checker that this changes behavior from 0.13
         print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
         sys.stdout.flush()
-        
+
         testlib.next_block( **kw )
 
     # verify that it's in the queue
@@ -157,7 +157,7 @@ def scenario( wallets, **kw ):
     if 'error' in queue_state:
         print json.dumps(queue_state)
         return False
-    
+
     if not queue_state.has_key('queues'):
         print 'no queues'
         print json.dumps(queue_state)
@@ -178,12 +178,12 @@ def scenario( wallets, **kw ):
         print json.dumps(queue_state)
         return False
 
-    # wait for it to go through 
+    # wait for it to go through
     for i in xrange(0, 6):
         # warn the serialization checker that this changes behavior from 0.13
         print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
         sys.stdout.flush()
-        
+
         testlib.next_block( **kw )
 
 
@@ -212,34 +212,34 @@ def check( state_engine ):
 
     global zonefile_hash, new_expire_block
 
-    # not revealed, but ready 
+    # not revealed, but ready
     ns = state_engine.get_namespace_reveal( "test" )
     if ns is not None:
         print "namespace reveal exists"
-        return False 
+        return False
 
     ns = state_engine.get_namespace( "test" )
     if ns is None:
         print "no namespace"
-        return False 
+        return False
 
     if ns['namespace_id'] != 'test':
         print "wrong namespace"
-        return False 
-    
-    # registered 
+        return False
+
+    # registered
     name_rec = state_engine.get_name( "foo.test" )
     if name_rec is None:
         print "name does not exist"
-        return False 
+        return False
 
     # owned by
     owner_address = wallets[3].addr
     if name_rec['address'] != owner_address or name_rec['sender'] != virtualchain.make_payment_script(owner_address):
         print "sender is wrong"
-        return False 
+        return False
 
-    # value hash 
+    # value hash
     if name_rec['value_hash'] != zonefile_hash:
         print "wrong zonefile hash: %s != %s" % (name_rec['value_hash'], zonefile_hash)
         return False
@@ -255,7 +255,7 @@ def check( state_engine ):
         print "wrong zonefile: %s != %s" % (blockstack_client.hash_zonefile(zonefile), zonefile_hash)
         return False
 
-    # all queues are drained 
+    # all queues are drained
     queue_info = testlib.blockstack_client_queue_state()
     if len(queue_info) > 0:
         print "Still in queue:\n%s" % json.dumps(queue_info, indent=4, sort_keys=True)
@@ -267,8 +267,8 @@ def check( state_engine ):
     register_dust_fees = 4 * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     renewal_dust_fees = 3 * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
 
-    total_fee = name_fee * 2 + preorder_dust_fees + register_dust_fees + renewal_dust_fees 
+    total_fee = name_fee * 2 + preorder_dust_fees + register_dust_fees + renewal_dust_fees
     payment_address = wallets[2].addr
-    
+
     # TODO: check
     return True
