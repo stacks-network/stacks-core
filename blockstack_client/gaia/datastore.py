@@ -100,8 +100,6 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
     Returns {'error': ..., 'errno':...} on failure
     """
     
-    global GLOBAL_CACHE
-
     assert (blockchain_id and full_app_name) or (datastore_id), "Need either datastore_id or both blockchain_id and full_app_name"
     
     if proxy is None:
@@ -111,6 +109,8 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
         conf = get_config(config_path)
         assert conf
         cache_ttl = int(conf.get('cache_ttl', 3600))    # 1 hour
+        
+    cache_hit = False
 
     # find out which keys and addresses to use
     datastore_addresses = []
@@ -121,7 +121,7 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
 
         # multi-reader single-writer storage 
         if parsed_key_file is None:
-            res = key_file_get(blockchain_id, proxy=proxy)
+            res = key_file_get(blockchain_id, cache=GLOBAL_CACHE, proxy=proxy)
             if 'error' in res:
                 res['errno'] = "EINVAL"
                 return res
@@ -130,7 +130,7 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
 
         # datastore record may have been written by one of any of the devices.
         # select the *oldest* record
-        res = lookup_app_pubkeys(blockchain_id, full_app_name, proxy=proxy, parsed_key_file=parsed_key_file)
+        res = lookup_app_pubkeys(blockchain_id, full_app_name, cache=GLOBAL_CACHE, proxy=proxy, parsed_key_file=parsed_key_file)
         if 'error' in res:
             res['errno'] = "EINVAL"
             return res
@@ -170,15 +170,18 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
     log.debug("Search {} possible datastore record candidate(s)".format(len(data_ids)))
 
     for (data_id, device_id, data_address) in zip(data_ids, device_ids, datastore_addresses):
+        # data_id is "${datastore_id}.datastore"
         datastore_id = data_id[0:-len('.datastore')]
         datastore = None
         datastore_timestamp = None
+        cache_hit = False
 
         if not no_cache:
-            res = GLOBAL_CACHE.get_datastore_record(datastore_id)
+            res = GLOBAL_CACHE.get_datastore_record(datastore_id, cache_ttl)
             if res:
                 datastore = res['datastore']
                 datastore_timestamp = res['timestamp']
+                cache_hit = True
 
         if not datastore:
             # cache miss
@@ -215,7 +218,7 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
         datastore_timestamps[data_id] = datastore_timestamp
 
         # cache, even if we don't use it
-        if not no_cache:
+        if not no_cache and not cache_hit:
             cache_rec = {'datastore': datastore, 'timestamp': datastore_timestamp}
             GLOBAL_CACHE.put_datastore_record(datastore_id, cache_rec, cache_ttl)
 
@@ -471,7 +474,7 @@ def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, 
     if not force and len(res['root']) != 0:
         log.error("Datastore {} not empty (has {} files)".format(datastore_id, len(res['root'])))
         return {'error': 'Datastore not empty', 'errno': "ENOTEMPTY"}
-
+    
     res = delete_mutable(datastore_tombstones, storage_drivers=drivers, storage_drivers_exclusive=True, proxy=proxy, config_path=config_path )
     if 'error' in res:
         log.error("Failed to delete datastore {}".format(datastore_id))
@@ -481,6 +484,8 @@ def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, 
     if 'error' in res:
         log.error("Failed to delete root of {}".format(datastore_id))
         return {'error': 'Failed to delete root directory', 'errno': "EREMOTEIO"}
+
+    GLOBAL_CACHE.evict_datastore_record(datastore_id)
 
     return {'status': True}
 
@@ -498,7 +503,7 @@ def verify_file_data(full_app_name, datastore, file_name, file_header_blob, payl
     assert data_pubkey or (blockchain_id and full_app_name), 'Need either blockchain_id and full_app_name, or data_pubkey'
     if data_pubkey is None:
         # look up from key file
-        res = lookup_app_pubkeys(blockchain_id, full_app_name, proxy=proxy)
+        res = lookup_app_pubkeys(blockchain_id, full_app_name, cache=GLOBAL_CACHE, proxy=proxy)
         if 'error' in res:
             res['errno'] = "EINVAL"
             return res
@@ -567,7 +572,7 @@ def verify_root_data(datastore, root_data_blob, signature, device_id, blockchain
     assert data_pubkey or (full_app_name and blockchain_id), 'Need either blockchain_id and full_app_name, or data_pubkey'
     if data_pubkey is None:
         # look up from key file
-        res = lookup_app_pubkeys(blockchain_id, full_app_name, proxy=proxy)
+        res = lookup_app_pubkeys(blockchain_id, full_app_name, cache=GLOBAL_CACHE, proxy=proxy)
         if 'error' in res:
             res['errno'] = "EINVAL"
             return res
@@ -642,7 +647,7 @@ def datastore_get_file_data(datastore, file_name, data_pubkeys, full_app_name=No
         assert full_app_name, 'Need full_app_name if data_pubkeys is None'
 
         # get from key file
-        res = lookup_app_pubkeys(blockchain_id, full_app_name, proxy=proxy)
+        res = lookup_app_pubkeys(blockchain_id, full_app_name, cache=GLOBAL_CACHE, proxy=proxy)
         if 'error' in res:
             res['errno'] = "EINVAL"
             return res
@@ -665,7 +670,7 @@ def datastore_get_device_root(full_app_name, datastore, device_id, data_pubkey=N
 
     if data_pubkey is None:
         # get from key file
-        res = lookup_app_pubkeys(blockchain_id, full_app_name, proxy=proxy)
+        res = lookup_app_pubkeys(blockchain_id, full_app_name, cache=GLOBAL_CACHE, proxy=proxy)
         if 'error' in res:
             res['errno'] = "EINVAL"
             return res
@@ -692,7 +697,7 @@ def datastore_put_file_data(full_app_name, datastore, file_name, file_header_blo
         assert blockchain_id and full_app_name, 'Need both full_app_name and blockchain_id if data_pubkey is not given'
 
         # get from key file
-        res = lookup_app_pubkeys(blockchain_id, full_app_name, proxy=proxy)
+        res = lookup_app_pubkeys(blockchain_id, full_app_name, cache=GLOBAL_CACHE, proxy=proxy)
         if 'error' in res:
             res['errno'] = "EINVAL"
             return res
@@ -744,7 +749,7 @@ def datastore_put_device_root_data(datastore, device_root_page_blob, signature, 
     # otherwise, replicate right now.
     if synchronous:
         # replicate
-        res = write_log_page_replicate(signed_device_root_page_blob, datastore['drivers'], blockchain_id, config_path=config_path, proxy=proxy)
+        res = write_log_page_replicate(datastore_id, device_id, datastore['root_uuid'], signed_device_root_page_blob, datastore['drivers'], blockchain_id, config_path=config_path, proxy=proxy)
         if 'error' in res:
             log.error("Failed to replicate signed root page for {}.{}".format(datastore_id, datastore['root_uuid']))
             return {'error': res['error'], 'errno': "EREMOTEIO"}
@@ -774,7 +779,7 @@ def datastore_delete_file_data(datastore, signed_tombstones, blockchain_id=None,
 
     if data_pubkeys is None:
         # get from key file
-        res = lookup_app_pubkeys(blockchain_id, full_app_name, proxy=proxy)
+        res = lookup_app_pubkeys(blockchain_id, full_app_name, cache=GLOBAL_CACHE, proxy=proxy)
         if 'error' in res:
             res['errno'] = "EINVAL"
             return res
