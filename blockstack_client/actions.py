@@ -132,7 +132,7 @@ from .gaia import make_datastore_info, put_datastore, delete_datastore, \
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_stat, \
         datastore_get_id, datastore_get_privkey, \
         make_mutable_data_info, data_blob_parse, data_blob_serialize, make_data_tombstones, sign_data_tombstones, \
-        get_root_directory, get_device_root_directory
+        get_root_directory, get_device_root_directory, GLOBAL_CACHE
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_BASE58CHECK_PATTERN
 
@@ -985,7 +985,7 @@ def cli_lookup(args, config_path=CONFIG_PATH):
         return {'error': msg}
 
     try:
-        res = key_file_get(str(args.name), name_record=blockchain_record)
+        res = key_file_get(str(args.name), cache=GLOBAL_CACHE, name_record=blockchain_record)
         if 'error' in res:
             return res
         
@@ -3892,7 +3892,7 @@ def find_signing_privkey(name, args_signing_privkey, wallet_keys=None, config_pa
             if 'error' in wallet_keys:
                 return wallet_keys
 
-        res = lookup_signing_privkey(name, get_owner_privkey_info(wallet_keys), proxy=proxy, parsed_key_file=parsed_key_file)
+        res = lookup_signing_privkey(name, get_owner_privkey_info(wallet_keys), cache=GLOBAL_CACHE, proxy=proxy, parsed_key_file=parsed_key_file)
         if 'error' in res:
             log.error("Failed to load signing key for {}: {}".format(name, res['error']))
             return {'error': 'Failed to look up signing key from wallet.  Try passing it explicitly as an argument.'}
@@ -3928,7 +3928,7 @@ def find_signing_pubkeys_and_address(name, args_signing_pubkey, proxy=None):
         return {'status': True, 'pubkeys': pubkeys, 'address': None}
 
     else:
-        res = lookup_signing_pubkeys(name, proxy=proxy)
+        res = lookup_signing_pubkeys(name, cache=GLOBAL_CACHE, proxy=proxy)
         if 'error' in res:
             log.error("Failed to look up signing keys for {}: {}".format(name, res['error']))
             return {'error': 'Failed to look up public keys for {}'.format(name)}
@@ -3937,7 +3937,7 @@ def find_signing_pubkeys_and_address(name, args_signing_pubkey, proxy=None):
         pubkeys = res['pubkeys'].values()
 
         # also grab the zone file public key, if present 
-        res = lookup_name_zonefile_pubkey(name, proxy=proxy)
+        res = lookup_name_zonefile_pubkey(name, cache=GLOBAL_CACHE, proxy=proxy)
         if 'error' in res:
             log.error("Failed to look up zone file public key for {}: {}".format(name, res['error']))
             return {'error': 'Failed to look up zone file public key for {}'.format(name)}
@@ -3983,7 +3983,7 @@ def find_datastore_device_pubkeys(blockchain_id, args_device_ids, args_device_pu
         log.debug("Look up datastore public keys for '{}'".format(blockchain_id))
         
         if full_application_name is None:
-            res = key_file_get(blockchain_id, proxy=proxy)
+            res = key_file_get(blockchain_id, cache=GLOBAL_CACHE, proxy=proxy)
             if 'error' in res:
                 return {'error': 'Failed to load token file for "{}"'.format(blockchain_id)}
 
@@ -3996,7 +3996,7 @@ def find_datastore_device_pubkeys(blockchain_id, args_device_ids, args_device_pu
             full_application_name = res['full_application_name']
 
         # find from token file 
-        res = lookup_app_pubkeys(blockchain_id, full_application_name, proxy=proxy, parsed_key_file=parsed_key_file)
+        res = lookup_app_pubkeys(blockchain_id, full_application_name, cache=GLOBAL_CACHE, proxy=proxy, parsed_key_file=parsed_key_file)
         if 'error' in res:
             return {'error': 'Failed to query application device list for {}: {}'.format(blockchain_id, res['error'])}
 
@@ -4536,7 +4536,7 @@ def cli_app_signin(args, config_path=CONFIG_PATH, interactive=True, password=Non
 
     else:
         # find key file for this blockchain ID, if given 
-        res = key_file_get(blockchain_id)
+        res = key_file_get(blockchain_id, cache=GLOBAL_CACHE)
         if 'error' in res:
             log.error("Failed to get key file for {}".format(blockchain_id))
             return {'error': 'Failed to look up key file for {}: {}'.format(blockchain_id, res['error'])}
@@ -4546,7 +4546,7 @@ def cli_app_signin(args, config_path=CONFIG_PATH, interactive=True, password=Non
         name_address = name_record['address']
 
         # is this device registered in the key file?
-        res = lookup_delegated_device_pubkeys(blockchain_id, parsed_key_file=parsed_key_file)
+        res = lookup_delegated_device_pubkeys(blockchain_id, cache=GLOBAL_CACHE, parsed_key_file=parsed_key_file)
         if 'error' in res:
             log.error("Failed to find device IDs in key file for {}".format(blockchain_id))
             return {'error': 'Failed to look up device IDs for {}: {}'.format(blockchain_id, res['error'])}
@@ -4605,7 +4605,7 @@ def cli_app_signin(args, config_path=CONFIG_PATH, interactive=True, password=Non
 
             # store new key file
             # TODO: do via API call?
-            res = key_file_put(blockchain_id, key_file_str, config_path=config_path)
+            res = key_file_put(blockchain_id, key_file_str, cache=GLOBAL_CACHE, config_path=config_path)
             if 'error' in res:
                 msg = 'Failed to store new key file to allow signins to {} from {} on device {}'.format(app_domain, blockchain_id, this_device_id)
                 log.error(msg)
@@ -5127,6 +5127,7 @@ def datastore_file_put(datastore_type, app_name, datastore_privkey, path, data, 
         return datastore_info
 
     datastore = datastore_info['datastore']
+    datastore_id = datastore_get_id(datastore['pubkey'])
 
     log.debug("putfile {} to {}".format(path, datastore_id))
 
@@ -5271,7 +5272,7 @@ def cli_get_datastore( args, config_path=CONFIG_PATH ):
         if not is_name_valid(blockchain_id): 
             return {'error': 'Device IDs are required when the blockchain ID is not known'}
 
-        res = lookup_delegated_device_pubkeys(blockchain_id, proxy=proxy)
+        res = lookup_delegated_device_pubkeys(blockchain_id, cache=GLOBAL_CACHE, proxy=proxy)
         if 'error' in res:
             return res
 
