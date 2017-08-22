@@ -70,7 +70,11 @@ def update_profiles():
         last_block_processed = json.load(fin)
 
     info_resp = proxy.getinfo()
-    new_block_height = info_resp['last_block_processed']
+    try:
+        new_block_height = info_resp['last_block_processed']
+    except:
+        print info_resp
+        raise
 
     if last_block_processed - 1 > new_block_height:
         return {'status' : True, 'message' : 'No new blocks since last indexing'}
@@ -111,6 +115,8 @@ def update_profiles():
 
     with open(SEARCH_PROFILE_DATA_FILE, 'w') as fout:
         json.dump(all_profiles, fout)
+    with open(SEARCH_LAST_INDEX_DATA_FILE, 'w') as fout:
+        json.dump(new_block_height, fout)
 
     return {'status' : True, 'message' : 'Indexed {} profiles'.format(len(names_updated))}
 
