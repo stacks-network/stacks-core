@@ -185,7 +185,10 @@ class SubdomainDB(object):
             get_cmd = "SELECT fully_qualified_subdomain FROM {}"
         get_cmd = get_cmd.format(self.subdomain_table)
         cursor = self.conn.cursor()
-        cursor.execute(get_cmd)
+        if above_seq:
+            cursor.execute(get_cmd, (above_seq,))
+        else:
+            cursor.execute(get_cmd)
         try:
             return [ x[0] for x in cursor.fetchall() ]
         except:
@@ -335,7 +338,7 @@ class SubdomainDB(object):
             last_seq = cursor.fetchone()[0]
         except:
             return 0
-        return int(last_index)
+        return int(last_seq)
 
     def _drop_tables(self):
         drop_cmd = "DROP TABLE IF EXISTS {};"
