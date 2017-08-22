@@ -50,6 +50,7 @@ from .nameops import async_preorder, async_register, async_update, async_transfe
 
 from ..keys import get_data_privkey_info, is_singlesig_hex
 from ..key_file import key_file_put
+from ..gaia import GLOBAL_CACHE
 from ..proxy import is_name_registered, is_zonefile_hash_current, get_default_proxy, get_name_blockchain_record, get_atlas_peers, json_is_error
 from ..zonefile import zonefile_data_replicate
 from ..user import is_user_zonefile
@@ -487,7 +488,7 @@ class RegistrarWorker(threading.Thread):
                 log.debug("Already replicated key file for {}".format(name_data['fqu']))
                 return {'status': True}
             
-            storage_res = key_file_put(name_data['fqu'], key_file_payload, required_drivers=storage_drivers, config_path=config_path)
+            storage_res = key_file_put(name_data['fqu'], key_file_payload, cache=GLOBAL_CACHE, required_drivers=storage_drivers, config_path=config_path)
             if 'error' in storage_res:
                 log.info("Failed to replicate key file for %s: %s" % (name_data['fqu'], storage_res['error']))
                 return {'error': 'Failed to store key file'}
