@@ -134,7 +134,7 @@ def _merge_root_directories( roots ):
     return {'status': True, 'files': merged_files}
 
 
-def get_device_root_directory( datastore_id, root_inode_uuid, drivers, device_id, device_pubkey, timestamp=0, force=False, config_path=CONFIG_PATH, proxy=None, blockchain_id=None):
+def get_device_root_directory( datastore_id, root_inode_uuid, drivers, device_id, device_pubkey, timestamp=0, cache_max_lifetime=10, force=False, config_path=CONFIG_PATH, proxy=None, blockchain_id=None):
     """
     Get the root directory for a specific device in a datastore.
     This is a server-side method
@@ -142,6 +142,11 @@ def get_device_root_directory( datastore_id, root_inode_uuid, drivers, device_id
     Return {'status': True, 'device_root_page': {...}} on success
     Return {'error': ..., 'errno': ...} on error
     """
+    
+    # cached?
+    res = GLOBAL_CACHE.get_device_root_directory(datastore_id, device_id, root_inode_uuid, cache_max_lifetime)
+    if res:
+        return {'status': True, 'device_root_page': res}
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
@@ -187,7 +192,10 @@ def get_device_root_directory( datastore_id, root_inode_uuid, drivers, device_id
                     errcode = "EIO"
 
                 continue
-
+            
+            # cache!
+            GLOBAL_CACHE.put_device_root_directory(datastore_id, device_id, root_inode_uuid, root_page, cache_max_lifetime)
+            
             return {'status': True, 'device_root_page': root_page}
         
     return {'error': 'No data fetched from {}'.format(device_id), 'errno': errcode}
@@ -215,7 +223,7 @@ def get_root_directory(datastore_id, root_uuid, drivers, data_pubkeys, timestamp
 
     if data_pubkeys is None:
         # get from token file
-        res = lookup_app_pubkeys(blockchain_id, full_app_name, proxy=proxy)
+        res = lookup_app_pubkeys(blockchain_id, full_app_name, cache=GLOBAL_CACHE, proxy=proxy)
         if 'error' in res:
             res['errno'] = "EINVAL"
             return res
@@ -277,5 +285,8 @@ def put_device_root_data(datastore_id, device_id, root_uuid, directory_blob, dir
 
     fq_data_id = make_fq_data_id(device_id, '{}.{}'.format(datastore_id, root_uuid))
     serialized_root = serialize_mutable_data(directory_blob, data_pubkey=directory_pubkey, data_signature=directory_signature)    
-    res = put_raw_data(fq_data_id, serialized_root, drivers, config_path=config_path, blockchain_id=blockchain_id, data_pubkey=directory_pubkey, data_signature=directory_signature)
+    res = put_raw_data(fq_data_id, serialized_root, drivers, config_path=config_path, blockchain_id=blockchain_id, data_pubkey=directory_pubkey, data_signature=directory_signature) 
+
+    # uncache
+    GLOBAL_CACHE.evict_device_root_directory(datastore_id, device_id, root_uuid)
     return res
