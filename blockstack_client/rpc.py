@@ -1511,7 +1511,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if qs_device_ids is None and qs_device_pubkeys is None:
             # not given; check session
             if (blockchain_id is not None and len(blockchain_id) > 0) and (app_name is not None and len(app_name) > 0):
-                key_file_res = key_file.lookup_app_pubkeys(blockchain_id, app_name)
+                key_file_res = key_file.lookup_app_pubkeys(blockchain_id, app_name, cache=gaia.GLOBAL_CACHE)
                 if 'error' in key_file_res:
                     return {'error': 'Failed to load key delegation information for "{}"'.format(blockchain_id), 'status_code': 503}
 
