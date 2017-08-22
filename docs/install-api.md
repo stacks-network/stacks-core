@@ -12,7 +12,7 @@ $ sudo apt-get install -y python-pip memcached rng-tools python-dev libmemcached
 $ sudo service memcached start
 $ sudo pip install virtualenv
 $ virtualenv api && source api/bin/activate
-$ git clone https://github.com/blockstack/blockstack-core.git --branch api
+$ git clone https://github.com/blockstack/blockstack-core.git
 $ cd blockstack-core/
 $ pip install .
 $ pip install -r api/requirements.txt
