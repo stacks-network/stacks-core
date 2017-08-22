@@ -30,7 +30,7 @@ import virtualchain
 from multiprocessing import Pool
 
 from itertools import izip
-from blockstack_client import data, storage, config, proxy, schemas, constants
+from blockstack_client import storage, config, proxy, schemas, constants
 from blockstack_client import zonefile as bs_zonefile
 from blockstack_client import user as user_db
 from blockstack_client.backend import safety
@@ -178,6 +178,19 @@ class SubdomainDB(object):
 
         return Subdomain(domain_name, subdomain_name, str(encoded_pubkey), int(n), str(zonefile_str), sig, txid)
 
+    def get_all_subdomains(self, above_seq = None):
+        if above_seq:
+            get_cmd = "SELECT fully_qualified_subdomain FROM {} WHERE sequence >= ?"
+        else:
+            get_cmd = "SELECT fully_qualified_subdomain FROM {}"
+        get_cmd = get_cmd.format(self.subdomain_table)
+        cursor = self.conn.cursor()
+        cursor.execute(get_cmd)
+        try:
+            return [ x[0] for x in cursor.fetchall() ]
+        except:
+            return []
+
     def get_subdomains_owned_by_address(self, owner):
         get_cmd = "SELECT fully_qualified_subdomain FROM {} WHERE owner = ?".format(
             self.subdomain_table)
@@ -308,18 +321,34 @@ class SubdomainDB(object):
             return 0
         return int(last_block)
 
+    def get_last_index(self):
+        """
+        Returns the last sequence number for the subdomain DB.
+        WARNING: this is specific to *this* instance, and *this* DB,
+        if you use this, it should *only* be as an optimization.
+        """
+        get_cmd = """SELECT sequence FROM {} ORDER BY sequence DESC LIMIT 1""".format(
+            self.subdomain_table)
+        cursor = self.conn.cursor()
+        cursor.execute(get_cmd)
+        try:
+            last_seq = cursor.fetchone()[0]
+        except:
+            return 0
+        return int(last_index)
+
     def _drop_tables(self):
         drop_cmd = "DROP TABLE IF EXISTS {};"
         cursor = self.conn.cursor()
         cursor.execute(drop_cmd.format(self.subdomain_table))
-        cursor.execute(drop_cmd.format(self.status_table)) 
+        cursor.execute(drop_cmd.format(self.status_table))
 
     def _create_tables(self):
         create_cmd = """CREATE TABLE IF NOT EXISTS {} (
         fully_qualified_subdomain TEXT PRIMARY KEY,
         sequence INTEGER,
         owner TEXT,
-        zonefile TEXT, 
+        zonefile TEXT,
         signature TEXT,
         last_txid TEXT);
         """.format(self.subdomain_table)
@@ -448,6 +477,7 @@ def add_subdomains(subdomains, domain_fqa):
 
 def get_subdomain_info(subdomain, domain_fqa, use_cache = True):
     if not use_cache:
+        from blockstack_client import data
         zonefiles = data.list_zonefile_history(domain_fqa)
         subdomain_db = _build_subdomain_db([domain_fqa for z in zonefiles], zonefiles)
     else:

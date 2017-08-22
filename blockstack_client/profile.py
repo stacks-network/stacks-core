@@ -33,7 +33,7 @@ from virtualchain.lib.ecdsalib import *
 import keylib
 
 from .proxy import *
-from blockstack_client import storage
+from blockstack_client import storage, subdomains
 from blockstack_client import user as user_db
 
 from .logger import get_logger
@@ -220,6 +220,15 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
+
+    res = subdomains.is_address_subdomain(name)
+    if res:
+        subdomain, domain = res[1]
+        try:
+            return subdomains.resolve_subdomain(subdomain, domain)
+        except subdomains.SubdomainNotFound as e:
+            log.exception(e)
+            return {'error' : "Failed to find name {}.{}".format(subdomain, domain)}
 
     raw_zonefile = None
     if user_zonefile is None:
