@@ -183,11 +183,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
     '''
 
     http_errors = {
-        errno.ENOENT: 404,
-        errno.EINVAL: 401,
-        errno.EPERM: 400,
-        errno.EACCES: 403,
-        errno.EEXIST: 409,
+        "ENOENT": 404,
+        "EINVAL": 401,
+        "EPERM": 400,
+        "EACCES": 403,
+        "EEXIST": 409,
     }
 
     def _send_headers(self, status_code=200, content_type='application/json', more_headers={}):
@@ -1107,11 +1107,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         resp = internal.cli_get_public_key(name)
         if json_is_error(resp):
             if resp.has_key('errno'):
-                if resp['errno'] == errno.EINVAL:
+                if resp['errno'] == "EINVAL":
                     # no public key in zone file
                     return self._reply_json({'error': resp['error']}, status_code=404)
 
-                elif resp['errno'] == errno.ENODATA:
+                elif resp['errno'] == "ENODATA":
                     # failed to load
                     return self._reply_json({'error': resp['error']}, status_code=503)
 
@@ -1368,7 +1368,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if request and 'error' not in request:
             return self._store_signed_datastore(ses, path_info, request)
         else:
-            return self._reply_json({'error': 'Missing signed datastore info', 'errno': errno.EINVAL}, status_code=401)
+            return self._reply_json({'error': 'Missing signed datastore info', 'errno': "EINVAL"}, status_code=401)
 
 
     def PUT_store( self, ses, path_info, app_user_id ):
@@ -1388,7 +1388,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if BLOCKSTACK_DEBUG:
                 log.exception(ve)
 
-            return self._reply_json({'error': 'Invalid tombstone info', 'errno': errno.EINVAL}, status_code=401)
+            return self._reply_json({'error': 'Invalid tombstone info', 'errno': "EINVAL"}, status_code=401)
  
         datastore_pubkey = None
         authentic = False
@@ -1410,26 +1410,26 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         
         if not authentic:
             log.error("Unable to authenticate tombstones")
-            return self._reply_json({'error': 'Failed to authenticate datastore tombstones', 'errno': errno.EINVAL})
+            return self._reply_json({'error': 'Failed to authenticate datastore tombstones', 'errno': "EINVAL"})
 
         # extract datastore ID from tombstones 
         if len(tombstone_info['datastore_tombstones']) == 0:
-            return self._reply_json({'error': 'Empty tombstone data', 'errno': errno.EINVAL})
+            return self._reply_json({'error': 'Empty tombstone data', 'errno': "EINVAL"})
 
         datastore_tombstone = tombstone_info['datastore_tombstones'][0]
         ts_data = storage.parse_signed_data_tombstone(datastore_tombstone)
         if ts_data is None:
-            return self._reply_json({'error': 'Invalid tombstone "{}"'.format(datastore_tombstone), 'errno': errno.EINVAL})
+            return self._reply_json({'error': 'Invalid tombstone "{}"'.format(datastore_tombstone), 'errno': "EINVAL"})
 
         fq_data_id = ts_data['id']
         ts_device_id, ts_data_id = storage.parse_fq_data_id(fq_data_id)
         if ts_data_id is None:
-            return self._reply_json({'error': 'Invalid fully-qualified data ID in tombstone "{}"'.format(datastore_tombstone), 'errno': errno.EINVAL})
+            return self._reply_json({'error': 'Invalid fully-qualified data ID in tombstone "{}"'.format(datastore_tombstone), 'errno': "EINVAL"})
 
         # format: "$datastore_id.datastore"
         p = ts_data_id.split(".", 1)
         if len(p) != 2 or p[1] != 'datastore':
-            return self._reply_json({'error': 'Invalid datastore data ID in tombstone "{}"'.format(datastore_tombstone), 'errno': errno.EINVAL})
+            return self._reply_json({'error': 'Invalid datastore data ID in tombstone "{}"'.format(datastore_tombstone), 'errno': "EINVAL"})
 
         datastore_id = p[0]
 
@@ -1465,7 +1465,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._delete_signed_datastore( ses, path_info, request, device_ids )
 
         else:
-            return self._reply_json({'error': 'Missing signed datastore info', 'errno': errno.EINVAL}, status_code=401)
+            return self._reply_json({'error': 'Missing signed datastore info', 'errno': "EINVAL"}, status_code=401)
 
 
     def _get_request_range(self):
@@ -1562,7 +1562,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
 
         if item_type not in ['files', 'listing', 'device_roots', 'headers']:
-            return self._reply_json({'error': 'Invalid request', 'errno': errno.EINVAL}, status_code=401)
+            return self._reply_json({'error': 'Invalid request', 'errno': "EINVAL"}, status_code=401)
 
         qs = path_info['qs_values']
         blockchain_id = qs.get('blockchain_id', '')
@@ -1603,7 +1603,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if item_type == 'files':
             # getfile
             if path is None:
-                return self._reply_json({'error': 'No path given', 'errno': errno.EINVAL}, status_code=401)
+                return self._reply_json({'error': 'No path given', 'errno': "EINVAL"}, status_code=401)
 
             log.debug("Will run cli_datastore_getfile()")
             res = internal.cli_datastore_getfile(blockchain_id, app_name, path, datastore_id, force, device_ids, app_public_keys, config_path=self.server.config_path)
@@ -1624,7 +1624,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         elif item_type == 'headers':
             # file header
             if path is None:
-                return self._reply_json({'error': 'No path given', 'errno': errno.EINVAL}, status_code=401)
+                return self._reply_json({'error': 'No path given', 'errno': "EINVAL"}, status_code=401)
 
             if this_device_id is None:
                 return self._reply_json({'error': 'missing "this_device_id" query argument'}, status_code=401)
@@ -1996,7 +1996,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Invalid session: no public key matches this datastore ID'}, status_code=403)
 
         if item_type not in ['files']:
-            return self._reply_json({'error': 'Invalid request', 'errno': errno.EINVAL}, status_code=401)
+            return self._reply_json({'error': 'Invalid request', 'errno': "EINVAL"}, status_code=401)
 
         qs = path_info['qs_values']
         path = qs.get('path', None)
@@ -2409,7 +2409,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Failed to transfer balance: {}".format(res['error']))
             error_msg = {'error': 'Failed to transfer balance: {}'.format(res['error'])}
 
-            if res.has_key('errno') and res['errno'] == errno.EIO:
+            if res.has_key('errno') and res['errno'] == "EIO":
                 # network-level error: failed to broadcast
                 return self._reply_json(error_msg, status_code=503)
 
@@ -4680,7 +4680,7 @@ class BlockstackAPIEndpointClient(object):
                     data_pubkey = dpk['public_key']
 
             if data_pubkey is None:
-                return {'error': 'No data public key for {}'.format(device_id), 'errno': errno.EINVAL}
+                return {'error': 'No data public key for {}'.format(device_id), 'errno': "EINVAL"}
 
             datastore_id = gaia.datastore_get_id(datastore['pubkey'])
             return gaia.get_device_root_directory(datastore_id, datastore['root_uuid'], datastore['drivers'], device_id, data_pubkey, force=force, config_path=self.config_path, blockchain_id=blockchain_id)

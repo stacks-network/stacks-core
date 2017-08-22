@@ -175,7 +175,7 @@ if __name__ == "__main__":
                 print 'deleted datastore: {}'.format(res)
                 sys.exit(1)
 
-            if res['errno'] != errno.ENOTEMPTY:
+            if res['errno'] != "ENOTEMPTY":
                 print 'wrong errno on ENOTEMPTY delete datastore: {}'.format(res)
                 sys.exit(1)
 
@@ -198,7 +198,7 @@ if __name__ == "__main__":
             # sanity check
             res = datastore_getfile(rpc, None, datastore, file_name, data_pubkeys)
             if 'error' in res:
-                if not res.has_key('errno') or res['errno'] != errno.ENOENT:
+                if not res.has_key('errno') or res['errno'] != "ENOENT":
                     print 'getfile failed wrong: {}'.format(res)
                     sys.exit(1)
         
@@ -209,7 +209,7 @@ if __name__ == "__main__":
             # stat 
             res = datastore_stat(rpc, None, datastore, file_name, data_pubkeys, dev_id)
             if 'error' in res:
-                if not res.has_key('errno') or res['errno'] != errno.ENOENT:
+                if not res.has_key('errno') or res['errno'] != "ENOENT":
                     print 'datastore_stat failed wrong on {}: {}'.format(file_name, res)
                     sys.exit(1)
 
