@@ -206,7 +206,7 @@ def scenario( wallets, **kw ):
             print 'accidentally succeeded to stat {}: {}'.format(dpath, res)
             return False
 
-        if res['errno'] != errno.ENOENT:
+        if res['errno'] != "ENOENT":
             print 'wrong errno: {}'.format(res)
             return False
  
@@ -218,7 +218,7 @@ def scenario( wallets, **kw ):
             print 'accidentally succeeded to get {}: {}'.format(dpath, res)
             return False
 
-        if res['errno'] != errno.ENOENT:
+        if res['errno'] != "ENOENT":
             print 'wrong errno: {}'.format(res)
             return False
 
