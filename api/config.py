@@ -64,6 +64,7 @@ NEW_NAMES_FILE = os.path.join(CURRENT_DIR, NEW_NAMES_FILENAME)
 SEARCH_API_ENDPOINT_ENABLED = True
 SEARCH_BLOCKCHAIN_DATA_FILE = "/var/blockstack-search/blockchain_data.json"
 SEARCH_PROFILE_DATA_FILE = "/var/blockstack-search/profile_data.json"
+SEARCH_LAST_INDEX_DATA_FILE = "/var/blockstack-search/last_indexed.json"
 SEARCH_BULK_INSERT_LIMIT = 1000
 SEARCH_DEFAULT_LIMIT = 50
 SEARCH_LUCENE_ENABLED = False

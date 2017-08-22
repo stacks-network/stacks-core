@@ -23,16 +23,17 @@ This file is part of Blockstack.
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import sys
+import sys, os
 import json
 
-from api.config import SEARCH_BLOCKCHAIN_DATA_FILE as BLOCKCHAIN_DATA_FILE, \
-    SEARCH_PROFILE_DATA_FILE as PROFILE_DATA_FILE
+from api.config import (
+    SEARCH_BLOCKCHAIN_DATA_FILE, SEARCH_PROFILE_DATA_FILE,
+    SEARCH_LAST_INDEX_DATA_FILE)
 
 from .utils import validUsername
 from .utils import get_json, config_log
 
-from blockstack_client.proxy import get_all_names
+from blockstack_client  import proxy
 from blockstack_client.profile import get_profile
 from api.utils import profile_log
 import logging
@@ -45,13 +46,15 @@ def fetch_namespace():
         Data is saved in data/ directory
     """
 
-    resp = get_all_names()
+    info_resp = proxy.getinfo()
+    last_block_processed = info_resp['last_block_processed']
 
-    fout = open(BLOCKCHAIN_DATA_FILE, 'w')
-    fout.write(json.dumps(resp))
-    fout.close()
+    resp = proxy.get_all_names()
 
-    return
+    with open(SEARCH_BLOCKCHAIN_DATA_FILE, 'w') as fout:
+        fout.write(json.dumps(resp))
+    with open(SEARCH_LAST_INDEX_DATA_FILE, 'w') as fout:
+        fout.write(json.dumps(last_block_processed))
 
 def print_status_bar(filled, total):
     pct = float(filled) / total
@@ -59,6 +62,57 @@ def print_status_bar(filled, total):
     out = "\r[%s>%s] %.1f%%" % ( ("=" * bar), " " * (59 - bar), pct * 100)
     sys.stdout.write(out)
     sys.stdout.flush()
+
+def update_profiles():
+    if not os.path.exists(SEARCH_LAST_INDEX_DATA_FILE):
+        return {'error' : 'No last index, you need to rebuild the whole index.'}
+    with open(SEARCH_LAST_INDEX_DATA_FILE, 'r') as fin:
+        last_block_processed = json.load(fin)
+
+    info_resp = proxy.getinfo()
+    new_block_height = info_resp['last_block_processed']
+
+    if last_block_processed - 1 > new_block_height:
+        return {'status' : True, 'message' : 'No new blocks since last indexing'}
+
+    # aaron: note, sometimes it may take a little while for
+    #  new zonefiles to have propagated to the network, so
+    #  we over-fetch a little bit
+    zonefiles_resp = proxy.get_zonefiles_by_block(
+        last_block_processed - 1, new_block_height)
+    zonefiles_updated = zonefiles_resp['zonefile_info']
+    names_updated = set(
+        [ zf_info['name'] for zf_info in zonefiles_updated
+          if 'name' in zf_info ])
+    updated_profiles = {}
+    actually_updated_names = set()
+    print "Updating {} entries...".format(len(names_updated))
+    for ix, name in enumerate(names_updated):
+        print_status_bar(ix, len(names_updated))
+        profile_entry = {}
+        profile_entry['fqu'] = name
+
+        try:
+            profile_entry['profile'] = get_profile(name, use_legacy = True)['profile']
+            updated_profiles[name] = (profile_entry)
+            actually_updated_names.add(name)
+        except KeyboardInterrupt as e:
+            raise e
+        except:
+            import traceback as tb; tb.print_exc()
+
+    names_updated = actually_updated_names
+    with open(SEARCH_PROFILE_DATA_FILE, 'r') as fin:
+        all_profiles = json.load(fin)
+    to_remove = []
+    for ix, profile in enumerate(all_profiles):
+        if profile['fqu'] in names_updated:
+            all_profiles[ix] = updated_profiles[profile['fqu']]
+
+    with open(SEARCH_PROFILE_DATA_FILE, 'w') as fout:
+        json.dump(all_profiles, fout)
+
+    return {'status' : True, 'message' : 'Indexed {} profiles'.format(len(names_updated))}
 
 def fetch_profiles(max_to_fetch = None, just_test_set = False):
     """
@@ -69,14 +123,11 @@ def fetch_profiles(max_to_fetch = None, just_test_set = False):
         * profile: json profile data
     """
 
-    fin = open(BLOCKCHAIN_DATA_FILE, 'r')
-    file = fin.read()
-    fin.close()
-
-    all_names = json.loads(file)
+    with open(SEARCH_BLOCKCHAIN_DATA_FILE, 'r') as fin:
+        all_names = json.load(file)
 
     all_profiles = []
-    
+
     if max_to_fetch == None:
         max_to_fetch = len(all_names)
 
@@ -101,12 +152,8 @@ def fetch_profiles(max_to_fetch = None, just_test_set = False):
         except:
             pass
 
-    fout = open(PROFILE_DATA_FILE, 'w')
-    fout.write(json.dumps(all_profiles))
-    fout.close()
-
-    return
-
+    with open(SEARCH_PROFILE_DATA_FILE, 'w') as fout:
+        json.dump(all_profiles, fout)
 
 if __name__ == "__main__":
 
@@ -129,6 +176,8 @@ if __name__ == "__main__":
             else:
                 args['max_to_fetch'] = int(sys.argv[2])
         fetch_profiles(**args)
-
+    elif(option == '--update_profiles'):
+        print json.dumps(update_profiles(),
+                         indent = 2)
     else:
         print "Usage error"
