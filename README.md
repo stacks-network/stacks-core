@@ -135,6 +135,28 @@ $ git clone https://github.com/blockstack/blockstack-core.git
 $ blockstack-core/images/scripts/debian-release-candidate.sh
 ```
 
+## Running in Docker
+
+To run the Blockstack API in a docker container requires a couple of steps. Run the following commands from the root of the repo:
+
+```bash
+# Build image
+$ docker build -t myrepo/blockstack:latest .
+
+# Setup wallet and client config using the ./data/blockstack-api directory for your client.
+$ docker run -it -v $(pwd)/data/blockstack-api:/root/.blockstack myrepo/blockstack:latest blockstack setup -y --password PASSWORD
+
+# Start API on top of newly created wallet and configuration // run in terminal window
+$ docker run -it -v $(pwd)/data/blockstack-api:/root/.blockstack -p 6264:6264 myrepo/blockstack:latest blockstack api start-foreground --password PASSWORD --debug
+
+# Start API on top of newly created wallet and configuration // run detached
+$ docker run d -v $(pwd)/data/blockstack-api:/root/.blockstack -p 6264:6264 myrepo/blockstack:latest blockstack api start-foreground --password PASSWORD --debug
+
+# Start detatched API on top of default wallet and configuration
+$ docker run -d -v $HOME/.blockstack:/root/.blockstack -p 6264:6264 myrepo/blockstack:latest blockstack api start-foreground --password PASSWORD --debug
+```
+
+
 ## Community
 
 We have an active community of developers and the best place to interact with the community is:
