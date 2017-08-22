@@ -202,13 +202,13 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
     and then loading the profile from that zonefile's public key.
 
     Notes on backwards compatibility (activated if use_legacy=True and use_legacy_zonefile=True):
-    
+
     * (use_legacy=True) If the user's zonefile is really a legacy profile from Onename, then
     the profile returned will be the converted legacy profile.  The returned zonefile will still
     be a legacy profile, however.
     The caller can check this and perform the conversion automatically.
 
-    * (use_legacy_zonefile=True) If the name points to a current zonefile that does not have a 
+    * (use_legacy_zonefile=True) If the name points to a current zonefile that does not have a
     data public key, then the owner address of the name will be used to verify
     the profile's authenticity.
 
@@ -221,7 +221,7 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
 
     proxy = get_default_proxy() if proxy is None else proxy
 
-    res = subdomains.is_address_subdomain(name)
+    res = subdomains.is_address_subdomain(str(name))
     if res:
         subdomain, domain = res[1]
         try:

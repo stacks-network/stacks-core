@@ -376,7 +376,8 @@ def parse_zonefile_subdomains(domain, zonefile_json):
 
 def is_address_subdomain(fqa):
     """
-    Tests whether fqa is a subdomain. 
+    Tests whether fqa is a subdomain.
+    @fqa must be a string
     If it isn't, returns False.
     If it is, returns True and a tuple (subdomain_name, domain)
     """

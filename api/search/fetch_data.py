@@ -112,9 +112,9 @@ def update_profiles():
         print_status_bar(ix+1, len(names_to_insert))
         profile_entry = {}
         profile_entry['fqu'] = name
-
         try:
-            profile_entry['profile'] = get_profile(name, use_legacy = True)['profile']
+            profile_resp = get_profile(name, use_legacy = True)
+            profile_entry['profile'] = profile_resp['profile']
             updated_profiles[name] = (profile_entry)
             actually_updated_names.add(name)
         except KeyboardInterrupt as e:
