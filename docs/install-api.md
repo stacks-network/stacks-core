@@ -11,6 +11,7 @@ Then, setup the API:
 $ sudo apt-get install -y python-pip memcached rng-tools python-dev libmemcached-dev zlib1g-dev libgmp-dev libffi-dev libssl-dev 
 $ sudo service memcached start
 $ sudo pip install virtualenv
+$ sudo npm -g install aglio
 $ virtualenv api && source api/bin/activate
 $ git clone https://github.com/blockstack/blockstack-core.git
 $ cd blockstack-core/
@@ -19,6 +20,7 @@ $ pip install -r api/requirements.txt
 $ blockstack setup_wallet
 $ blockstack api start
 $ deactivate
+$ ./build_docs.sh public_api
 ```
 
 ### Search Subsystem
