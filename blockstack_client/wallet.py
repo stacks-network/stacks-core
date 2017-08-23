@@ -753,23 +753,20 @@ def initialize_wallet(password='', wallet_path=None, interactive=True, config_di
         result['wallet'] = wallet
         result['wallet_password'] = password
 
-        if not interactive:
-            return result
-
         if interactive:
-            print('Wallet created. Make sure to backup the following:')
-            output = {
-                'wallet_password': password,
-                'wallet': wallet
-            }
-            print_result(output)
+            print('Wallet created.')
+            input_prompt = 'Would you like us to print out your password and encrypted private key for backup purposes? (y/n): '
+            user_input = raw_input(input_prompt)
+            user_input = user_input.lower()
+            if user_input == 'y':
+                output = {
+                    'wallet_password': password,
+                    'wallet': wallet
+                }
+                print_result(output)
 
-        input_prompt = 'Have you backed up the above information? (y/n): '
-        user_input = raw_input(input_prompt)
-        user_input = user_input.lower()
-
-        if user_input != 'y':
-            return {'error': 'Please back up your private key first'}
+        print('Wallet is encrypted using your password and stored ' +
+              ' at "{}", please make sure you create a backup.'.format(wallet_path))
 
     except KeyboardInterrupt:
         return {'error': 'Interrupted'}
