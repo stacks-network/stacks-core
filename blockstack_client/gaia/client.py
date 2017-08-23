@@ -80,7 +80,7 @@ def put_datastore(api_client, datastore_info, datastore_privkey, config_path=CON
     Given datastore information from make_datastore_info(), sign and put it.
     This is a client-side method
 
-    Return {'status': True} on success
+    Return {'status': True, 'root_urls': ..., 'datastore_urls': ...} on success
     Return {'error': ..., 'errno': ...} on failure
     """
     sigs = sign_datastore_info(datastore_info, datastore_privkey, config_path=config_path)
@@ -94,7 +94,7 @@ def put_datastore(api_client, datastore_info, datastore_privkey, config_path=CON
     if 'error' in res:
         return res
 
-    return {'status': True}
+    return {'status': True, 'root_urls': res['root_urls'], 'datastore_urls': res['datastore_urls']}
 
 
 def delete_datastore(api_client, datastore, datastore_privkey, data_pubkeys, config_path=CONFIG_PATH):
@@ -253,7 +253,7 @@ def _find_device_root( api_client, datastore, file_name, data_pubkeys, this_devi
             log.warning("Failed to get device {} root page for {}.{}: {}".format(this_device_id, datastore_id, root_uuid, res['error']))
             log.warning("Creating device root for {}".format(this_device_id))
             
-            device_root = make_empty_device_root_directory(datastore_id, [], int(time.time() * 1000))
+            device_root = make_empty_device_root_directory(datastore_id, [])
             created = True
     else:
         device_root = res['device_root_page']
@@ -261,7 +261,18 @@ def _find_device_root( api_client, datastore, file_name, data_pubkeys, this_devi
     return {'status': True, 'device_root': device_root, 'created': created}
 
 
-def _putfile_device_root_insert(datastore, device_root, file_name, file_entry, device_id, blockchain_id=None, config_path=CONFIG_PATH):
+def device_root_serialize(device_id, datastore_id, root_uuid, device_root, blockchain_id=None, config_path=CONFIG_PATH):
+    """
+    Serialize a device root
+    Return {'status': True, 'device_root_page_blob': ...}
+    """
+    device_root_data_id = make_fq_data_id(device_id, '{}.{}'.format(datastore_id, root_uuid))
+    device_root_data = data_blob_serialize(device_root)
+    device_root_blob = make_mutable_data_info(device_root_data_id, device_root_data, blockchain_id=blockchain_id, config_path=config_path, is_fq_data_id=True)
+    return {'status': True, 'device_root_page_blob': device_root_blob}
+
+
+def device_root_insert(datastore, device_root, file_name, file_entry, device_id, blockchain_id=None, config_path=CONFIG_PATH):
     """
     Create the messages needed to store a file and update the device's root directory.
 
@@ -281,14 +292,12 @@ def _putfile_device_root_insert(datastore, device_root, file_name, file_entry, d
 
     # insert
     device_root['files'][file_name] = file_entry
-    device_root_data_id = make_fq_data_id(device_id, '{}.{}'.format(datastore_id, root_uuid))
-    device_root_data = data_blob_serialize(device_root)
-    device_root_blob = make_mutable_data_info(device_root_data_id, device_root_data, blockchain_id=blockchain_id, config_path=config_path, is_fq_data_id=True)
 
-    return {'status': True, 'device_root_page_blob': device_root_blob, 'timestamp': device_root['timestamp']}
+    res = device_root_serialize(device_id, datastore_id, root_uuid, device_root, blockchain_id=blockchain_id, config_path=config_path)
+    return {'status': True, 'device_root_page_blob': res['device_root_page_blob'], 'timestamp': device_root['timestamp']}
 
 
-def _deletefile_device_root_remove(datastore, device_root, file_name, this_device_file_tombstone, this_device_id, config_path=CONFIG_PATH, blockchain_id=None):
+def device_root_remove(datastore, device_root, file_name, this_device_file_tombstone, this_device_id, config_path=CONFIG_PATH, blockchain_id=None):
     """
     Create the messages needed to remove a file and update the device's root directory.
 
@@ -310,11 +319,53 @@ def _deletefile_device_root_remove(datastore, device_root, file_name, this_devic
     device_root['tombstones'][file_name] = this_device_file_tombstone
 
     # serialize
-    device_root_data_id = make_fq_data_id(this_device_id, '{}.{}'.format(datastore_id, root_uuid))
-    device_root_data = data_blob_serialize(device_root)
-    device_root_blob = make_mutable_data_info(device_root_data_id, device_root_data, blockchain_id=blockchain_id, config_path=config_path, is_fq_data_id=True)
+    res = device_root_serialize(this_device_id, datastore_id, root_uuid, device_root, blockchain_id=blockchain_id, config_path=config_path)
+    return {'status': True, 'device_root_page_blob': res['device_root_page_blob'], 'timestamp': device_root['timestamp']}
 
-    return {'status': True, 'device_root_page_blob': device_root_blob, 'timestamp': device_root['timestamp']}
+
+def datastore_put_device_root(api_client, datastore, this_device_id, device_root, data_privkey_hex, blockchain_id=None, full_app_name=None, synchronous=False):
+    """
+    Save a given device root
+    Return {'status': True, 'root_urls': [...]} on success
+    Return {'error': ...} on failure
+
+    Note that 'root_urls' will be [] if synchronous is False
+    """
+    datastore_id = datastore_get_id(datastore['pubkey'])
+    root_uuid = datastore['root_uuid']
+
+    # make new signed device root
+    res = device_root_serialize(this_device_id, datastore_id, root_uuid, device_root, blockchain_id=blockchain_id, config_path=config_path)
+    new_device_root = res['device_root_page_blob']
+    new_device_root_version = device_root['timestamp']
+
+    device_root_page_blob = data_blob_serialize(new_device_root)
+    device_root_page_blob_sig = sign_data_payload(device_root_page_blob, data_privkey_hex)
+    
+    # serialize datastore
+    datastore_info = datastore_serialize_and_sign(datastore, data_privkey_hex)
+    datastore_str = datastore_info['str']
+    datastore_sig = datastore_info['sig']
+
+    # put it, possibly synchronously
+    data_pubkey = get_pubkey_hex(data_privkey)
+    res = api_client.backend_datastore_put_device_root(datastore_str, datastore_sig, device_root_page_blob, device_root_page_blob_sig, this_device_id,
+                                                       data_pubkey=data_pubkey, blockchain_id=blockchain_id, full_app_name=full_app_name, synchronous=synchronous)
+
+    if 'error' in res:
+        log.error("Failed to replicate new device root for {} on putfile {}".format(datastore_id, file_name))
+        return res
+   
+    root_urls = []
+    if not synchronous:
+        root_urls = res['urls']
+
+    # store root version
+    res = put_device_root_version(datastore_id, datastore['root_uuid'], new_device_root_version, [this_device_id], config_path=config_path)
+    if 'error' in res:
+        return {'error': 'Failed to store new root version for {}'.format(datastore_id), 'errno': "EIO"}
+
+    return {'status': True, 'root_urls': root_urls}
 
 
 def datastore_putfile(api_client, datastore, file_name, file_data_bin, data_privkey_hex, data_pubkeys,
@@ -354,6 +405,9 @@ def datastore_putfile(api_client, datastore, file_name, file_data_bin, data_priv
 
     if data_pubkey is None:
         return {'error': 'Device {} has no public key', 'errno': "EINVAL"}
+    
+    if get_pubkey_hex(data_privkey_hex) not in [keylib.key_formatting.compress(data_pubkey), keylib.key_formatting.decompress(data_pubkey)]:
+        return {'error': 'Data private key does not match device public key {}'.format(data_pubkey)}
 
     # get device root
     res = _find_device_root(api_client, datastore, file_name, data_pubkeys, this_device_id, timestamp=timestamp, force=force, config_path=config_path, proxy=proxy, blockchain_id=blockchain_id)
@@ -400,7 +454,7 @@ def datastore_putfile(api_client, datastore, file_name, file_data_bin, data_priv
         return file_entry
 
     # make new signed device root
-    res = _putfile_device_root_insert(datastore, device_root, file_name, file_entry, this_device_id, blockchain_id=blockchain_id)
+    res = device_root_insert(datastore, device_root, file_name, file_entry, this_device_id, blockchain_id=blockchain_id)
     new_device_root = res['device_root_page_blob']
     new_device_root_version = res['timestamp']
 
@@ -488,7 +542,7 @@ def datastore_deletefile(api_client, datastore, file_name, data_privkey_hex, dat
         return res
 
     # patch root with tombstones
-    res = _deletefile_device_root_remove(datastore, device_root, file_name, this_device_file_tombstone, this_device_id, config_path=config_path, blockchain_id=blockchain_id)
+    res = device_root_remove(datastore, device_root, file_name, this_device_file_tombstone, this_device_id, config_path=config_path, blockchain_id=blockchain_id)
 
     # sign and serialize new root 
     new_device_root = res['device_root_page_blob']
