@@ -40,7 +40,7 @@ Ping the blockstack node to see if it's alive.
   
             {
              "status": "alive", 
-             "version": "0.14.2"
+             "version": "###version###"
             }
   + Schema
 
