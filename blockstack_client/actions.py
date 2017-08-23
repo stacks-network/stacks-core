@@ -173,7 +173,7 @@ from .key_file import key_file_profile_serialize, key_file_update_profile, key_f
     lookup_app_listing, key_file_add_app
 
 from .schemas import (
-    OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN,
+    OP_URLENCODED_PATTERN, OP_NAME_PATTERN,
     OP_BASE58CHECK_PATTERN, MUTABLE_DATUM_FILE_TYPE)
 
 import keylib
