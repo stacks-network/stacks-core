@@ -39,23 +39,17 @@ import functools
 import traceback
 import sqlite3
 
-# Hack around absolute paths
-current_dir = os.path.abspath(os.path.dirname(__file__))
-parent_dir = os.path.abspath(current_dir + "/../")
-if not parent_dir in sys.path:
-    sys.path.insert(0, parent_dir)
-
 from keylib import *
 
 import virtualchain
 from virtualchain.lib.ecdsalib import *
 
-from logger import get_logger
-from proxy import get_default_proxy
-from config import get_config, get_local_device_id
-from constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DEFAULT_DEVICE_ID, CONFIG_PATH
-from schemas import *
-from storage import parse_signed_data_tombstone, decode_mutable_data
+from ..logger import get_logger
+from ..proxy import get_default_proxy
+from ..config import get_config, get_local_device_id
+from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DEFAULT_DEVICE_ID, CONFIG_PATH
+from ..schemas import *
+from ..storage import parse_signed_data_tombstone, decode_mutable_data
 
 log = get_logger('gaia-cache')
 

@@ -41,22 +41,16 @@ import sqlite3
 import jsonschema
 from jsonschema import ValidationError
 
-# Hack around absolute paths
-current_dir = os.path.abspath(os.path.dirname(__file__))
-parent_dir = os.path.abspath(current_dir + "/../")
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-
 from keylib import *
 
 import virtualchain
 from virtualchain.lib.ecdsalib import *
 
-from config import get_config, get_local_device_id
-from logger import get_logger
-from constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DEFAULT_DEVICE_ID, CONFIG_PATH
-from schemas import *
-from storage import sign_data_payload, make_data_tombstone, make_fq_data_id, sign_data_tombstone, parse_signed_data_tombstone, verify_data_tombstone, parse_fq_data_id
+from ..config import get_config, get_local_device_id
+from ..logger import get_logger
+from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DEFAULT_DEVICE_ID, CONFIG_PATH
+from ..schemas import *
+from ..storage import sign_data_payload, make_data_tombstone, make_fq_data_id, sign_data_tombstone, parse_signed_data_tombstone, verify_data_tombstone, parse_fq_data_id
 
 log = get_logger('gaia-blob')
 
