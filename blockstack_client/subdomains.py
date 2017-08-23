@@ -381,11 +381,13 @@ def is_address_subdomain(fqa):
     If it isn't, returns False.
     If it is, returns True and a tuple (subdomain_name, domain)
     """
-    if re.match(schemas.OP_NAME_PATTERN, fqa) == None:
+    if re.match(schemas.OP_SUBDOMAIN_NAME_PATTERN, fqa) == None:
         return False
     pieces = fqa.split(".")
     if len(pieces) == 3:
         subd_name = pieces[0]
+        if len(subd_name) < 1:
+            return False
         domain  = fqa[len(subd_name) + 1:]
         error = safety.check_valid_name(domain)
         if error:
@@ -414,7 +416,7 @@ def _build_subdomain_db(domain_fqas, zonefiles, subdomain_db = None, txids = Non
             assert "zonefile" not in zf
             zf_json = zf
         else:
-            assert isinstance(zf, (str, unicode)) 
+            assert isinstance(zf, (str, unicode))
             zf_json = bs_zonefile.decode_name_zonefile(domain_fqa, zf)
             assert "zonefile" not in zf_json
 
@@ -550,7 +552,7 @@ def get_subdomains_owned_by_address(address):
 #                  redeem script portion and sigs, verify with OPCHECKMULTISIG
 #                  verify redeem script matches owner address.
 #       single-sig: parse b64 signature blob as a scriptSig, parse out the
-#                   pubkey and sig, verify like OPCHECKSIG. 
+#                   pubkey and sig, verify like OPCHECKSIG.
 #                   verify pubkey matches owner address.
 ##
 

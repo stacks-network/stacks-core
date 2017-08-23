@@ -59,6 +59,7 @@ OP_ZONEFILE_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTH_VALUE_HASH * 2
 OP_NAME_PATTERN = r'^([a-z0-9\-_.+]{{{},{}}})$'.format(3, LENGTH_MAX_NAME)
 OP_NAMESPACE_PATTERN = r'^([a-z0-9\-_+]{{{},{}}})$'.format(1, LENGTH_MAX_NAMESPACE_ID)
 OP_NAMESPACE_HASH_PATTERN = r'^([0-9a-fA-F]{16})$'
+OP_SUBDOMAIN_NAME_PATTERN = r'^([a-z0-9\-_.+]{{{},{}}})$'.format(5, LENGTH_MAX_NAME * 2)
 OP_BASE64_PATTERN_SECTION = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
 OP_BASE64_PATTERN = r'^({})$'.format(OP_BASE64_PATTERN_SECTION)
 OP_URLENCODED_NOSLASH_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'       # intentionally left out /
