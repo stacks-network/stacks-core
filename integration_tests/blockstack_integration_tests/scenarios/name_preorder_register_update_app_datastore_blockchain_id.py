@@ -112,7 +112,10 @@ def scenario( wallets, **kw ):
     blockstack_client.set_secret("BLOCKSTACK_API_SESSION", res['token'])
     
     ses = res['token']
-    
+
+    print 'session:'
+    print ses
+
     app_name = 'localhost.1:8888'
 
     # use random data for file 
@@ -240,7 +243,7 @@ def scenario( wallets, **kw ):
     print 'delete datastore'
     res = testlib.blockstack_cli_delete_datastore( datastore_pk, ses )
     if 'error' in res:
-        print 'failed to delete foo-app.com datastore'
+        print 'failed to delete datastore'
         print json.dumps(res)
         return False
 
