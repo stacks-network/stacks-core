@@ -40,7 +40,8 @@ def exit_with_error(error_message, help_message=None):
 
     if help_message is not None:
         result['help'] = help_message
-    print_result(result, friendly_newlines=True, file=sys.stderr)
+    friendly_newlines = sys.stderr.isatty()
+    print_result(result, friendly_newlines=friendly_newlines, file=sys.stderr)
     sys.exit(0)
 
 
