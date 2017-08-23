@@ -35,7 +35,7 @@ from api.config import (
 from .utils import validUsername
 from .utils import get_json, config_log
 
-from blockstack_client  import proxy
+from blockstack_client import proxy, subdomains
 from blockstack_client.profile import get_profile
 from api.utils import profile_log
 import logging
@@ -49,8 +49,13 @@ def fetch_namespace():
     """
     resp = proxy.get_all_names()
 
+    subdomaindb = subdomains.SubdomainDB()
+    subdomain_names = subdomaindb.get_all_subdomains()
+
+    all_names = list(resp) + list(subdomain_names)
+
     with open(SEARCH_BLOCKCHAIN_DATA_FILE, 'w') as fout:
-        fout.write(json.dumps(resp))
+        fout.write(json.dumps(all_names))
 
 def print_status_bar(filled, total):
     pct = float(filled) / total
@@ -67,6 +72,7 @@ def update_profiles():
 
     last_block_processed = search_indexer_info['last_block_height']
     last_full_index = search_indexer_info['last_full_index']
+    last_subdomain_seq = search_indexer_info['last_subdomain_seq']
 
     info_resp = proxy.getinfo()
     try:
@@ -75,8 +81,18 @@ def update_profiles():
         print info_resp
         raise
 
+
+    with open(SEARCH_BLOCKCHAIN_DATA_FILE, 'r') as fin:
+        existing_names = set(json.load(fin))
+
     if last_block_processed - 1 > new_block_height:
         return {'status' : True, 'message' : 'No new blocks since last indexing'}
+
+    subdomaindb = subdomains.SubdomainDB()
+    subdomain_names = [ name for name in
+                        subdomaindb.get_all_subdomains(above_seq = last_subdomain_seq)
+                        if name not in existing_names ]
+    last_subdomain_seq = subdomaindb.get_last_index()
 
     # aaron: note, sometimes it may take a little while for
     #  new zonefiles to have propagated to the network, so
@@ -84,19 +100,21 @@ def update_profiles():
     zonefiles_resp = proxy.get_zonefiles_by_block(
         last_block_processed - 1, new_block_height)
     zonefiles_updated = zonefiles_resp['zonefile_info']
-    names_updated = set(
-        [ zf_info['name'] for zf_info in zonefiles_updated
-          if 'name' in zf_info ])
+    names_updated = [ zf_info['name'] for zf_info in zonefiles_updated
+                      if 'name' in zf_info ]
+    names_updated += subdomain_names
+    names_to_insert = set([ name for name in names_updated if name not in existing_names ])
+
     updated_profiles = {}
     actually_updated_names = set()
     print "Updating {} entries...".format(len(names_updated))
-    for ix, name in enumerate(names_updated):
-        print_status_bar(ix+1, len(names_updated))
+    for ix, name in enumerate(names_to_insert):
+        print_status_bar(ix+1, len(names_to_insert))
         profile_entry = {}
         profile_entry['fqu'] = name
-
         try:
-            profile_entry['profile'] = get_profile(name, use_legacy = True)['profile']
+            profile_resp = get_profile(name, use_legacy = True)
+            profile_entry['profile'] = profile_resp['profile']
             updated_profiles[name] = (profile_entry)
             actually_updated_names.add(name)
         except KeyboardInterrupt as e:
@@ -105,13 +123,17 @@ def update_profiles():
             import traceback as tb; tb.print_exc()
 
     names_updated = actually_updated_names
+
+    if len(names_updated) == 0:
+        return {'status' : True, 'message' : 'No new profiles'}
+
     with open(SEARCH_PROFILE_DATA_FILE, 'r') as fin:
         all_profiles = json.load(fin)
-    to_remove = []
-    for ix, profile in enumerate(all_profiles):
-        if profile['fqu'] in names_updated:
-            all_profiles[ix] = updated_profiles[profile['fqu']]
+    existing_names = list(existing_names)
 
+    for name_to_add in names_updated:
+        all_profiles.append(updated_profiles[name_to_add])
+        existing_names.append(name_to_add)
 
     if not obtain_lockfile():
         return {'error' : 'Could not obtain lockfile, abandoning my update.'}
@@ -120,10 +142,13 @@ def update_profiles():
     if search_indexer_info['last_full_index'] != last_full_index:
         return {'error' : 'Full re-index written during our update. Abandoning'}
 
+    with open(SEARCH_BLOCKCHAIN_DATA_FILE, 'w') as fout:
+        json.dump(existing_names, fout)
     with open(SEARCH_PROFILE_DATA_FILE, 'w') as fout:
         json.dump(all_profiles, fout)
     with open(SEARCH_LAST_INDEX_DATA_FILE, 'w') as fout:
         search_indexer_info['last_block_height'] = new_block_height
+        search_indexer_info['last_subdomain_seq'] = last_subdomain_seq
         json.dump(search_indexer_info, fout)
 
     return {'status' : True, 'message' : 'Indexed {} profiles'.format(len(names_updated))}
@@ -138,7 +163,7 @@ def fetch_profiles(max_to_fetch = None, just_test_set = False):
     """
 
     with open(SEARCH_BLOCKCHAIN_DATA_FILE, 'r') as fin:
-        all_names = json.load(file)
+        all_names = json.load(fin)
 
     info_resp = proxy.getinfo()
     last_block_processed = info_resp['last_block_processed']
@@ -177,12 +202,16 @@ def fetch_profiles(max_to_fetch = None, just_test_set = False):
             print "ERROR! Could not obtain lockfile"
             return
 
+    subdomaindb = subdomains.SubdomainDB()
+    last_subdomain_seq = subdomaindb.get_last_index()
+
     with open(SEARCH_PROFILE_DATA_FILE, 'w') as fout:
         json.dump(all_profiles, fout)
     with open(SEARCH_LAST_INDEX_DATA_FILE, 'w') as fout:
         search_index_data = {
             'last_block_height' : last_block_processed,
-            'last_full_index' : datetime.now().isoformat()
+            'last_full_index' : datetime.now().isoformat(),
+            'last_subdomain_seq' : last_subdomain_seq
         }
         json.dump(search_index_data, fout)
 
