@@ -643,6 +643,27 @@ GET_ROOT_RESPONSE = {
 }
 
 
+PUT_DATASTORE_RESPONSE = {
+    'type': 'object',
+    'properties': {
+        'status': {
+            'type': 'boolean'
+        },
+        'datastore_urls': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': OP_URI_TARGET_PATTERN
+            },
+        },
+    },
+    'required': [
+        'status',
+        'datastore_urls',
+    ],
+}
+
+
 PUT_DATA_RESPONSE = {
     'type': 'object',
     'properties': {
@@ -1727,8 +1748,27 @@ APP_KEY_BUNDLE_SCHEMA = {
             'type': 'object',
             'patternProperties': {
                 OP_NAME_OR_SUBDOMAIN_PATTERN: {
-                    'type': 'string',
-                    'pattern': OP_PUBKEY_PATTERN,
+                    'type': 'object',
+                    'items': {
+                        'public_key': {
+                            'type': 'string',
+                            'pattern': OP_PUBKEY_PATTERN,
+                        },
+                        'fq_datastore_id': {
+                            'type': 'string',
+                        },
+                        'datastore_urls': {
+                            'type': 'array',
+                            'items': {
+                                'type': 'string',
+                                'pattern': OP_URI_TARGET_PATTERN,
+                            },
+                        },
+                    },
+                    'required': [
+                        'public_key',
+                        'datastore_urls',
+                    ],
                 },
             },
         },
@@ -1746,7 +1786,7 @@ APP_KEY_BUNDLE_SCHEMA = {
 }
 
 
-# Blockstack key file 
+# Blockstack key file
 BLOCKSTACK_KEY_FILE_SCHEMA = {
     'type': 'object',
     'properties': {
