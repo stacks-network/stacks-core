@@ -10,6 +10,7 @@ build () {
 setup () {
   if [ $# -eq 0 ]; then
     echo "Need to input new wallet password when running setup: ./bsdocker setup mypass"
+    exit 1
   fi
   docker run -it -v $HOME/.blockstack:/root/.blockstack blockstack:latest blockstack setup -y --password $1
 }
