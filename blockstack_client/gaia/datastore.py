@@ -59,7 +59,7 @@ from schemas import *
 from storage import sign_data_payload, make_data_tombstone, make_fq_data_id, sign_data_tombstone, parse_data_tombstone, verify_data_tombstone, parse_fq_data_id, \
         hash_data_payload, sign_data_payload, serialize_mutable_data, get_storage_handlers, verify_data_payload, decode_mutable_data
 
-from key_file import key_file_get, lookup_app_pubkeys
+from key_file import key_file_get, lookup_app_pubkeys, lookup_app_listing
 
 from blob import *
 from cache import *
@@ -100,8 +100,8 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
     Returns {'error': ..., 'errno':...} on failure
     """
     
-    assert (blockchain_id and full_app_name) or (datastore_id), "Need either datastore_id or both blockchain_id and full_app_name"
-    
+    assert (blockchain_id and full_app_name) or (datastore_id and device_ids and len(device_ids) == 1), "Need either both datastore_id and device IDs, or both blockchain_id and full_app_name"
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
@@ -116,6 +116,10 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
     datastore_addresses = []
     data_ids = []
 
+    # use URLs when possible
+    fq_datastore_id = None
+    datastore_urls = []
+
     # prefer token-file path over direct datastore query
     if blockchain_id and full_app_name:
 
@@ -127,116 +131,101 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
                 return res
 
             parsed_key_file = res['key_file']
-
+        
         # datastore record may have been written by one of any of the devices.
-        # select the *oldest* record
-        res = lookup_app_pubkeys(blockchain_id, full_app_name, cache=GLOBAL_CACHE, proxy=proxy, parsed_key_file=parsed_key_file)
+        # find the one that wrote the URLs
+        res = lookup_app_listing(blockchain_id, full_app_name, cache=GLOBAL_CACHE, proxy=proxy, parsed_key_file=parsed_key_file)
         if 'error' in res:
             res['errno'] = "EINVAL"
             return res
-
-        pubkeys = res['pubkeys']
-        if device_ids is None:
-            device_ids = pubkeys.keys()
         
+        app_info = res['app_info']
+        if device_ids is None:
+            device_ids = app_info.keys()
+        
+        # at most one device can have created this datastore
+        multiple_datastores = {}
+        creating_device_id = None
+        for dev_id in app_info.keys():
+            if len(app_info[dev_id][full_app_name]['datastore_urls']) > 0:
+                if len(datastore_urls) > 0:
+                    # multiple devices claim to have created this datastore 
+                    log.warning("Device {} also created a datastore for {}".format(full_app_name))
+                    multiple_datastores[dev_id] = app_info[dev_id][full_app_name]['datastore_urls']
+                    continue
+
+                datastore_urls = app_info[dev_id][full_app_name]['datastore_urls']
+                fq_datastore_id = app_info[dev_id][full_app_name]['fq_datastore_id']
+                creating_device_id = dev_id
+        
+        if multiple_datastores:
+            msg = 'Corrupt key file for {}: the following devices have created datastores for {}: {}'.format(blockchain_id, full_app_name, multiple_datastores.keys() + [creating_device_id])
+            log.error(msg)
+            return {'error': msg}
+
+        # find the devices that support this datastore
         found_device_ids = []
 
         for dev_id in device_ids:
-            if not pubkeys.has_key(dev_id):
+            if not app_info.has_key(dev_id):
                 log.warning("No public key for device '{}'".format(dev_id))
                 continue
             
-            if pubkeys[dev_id] is None:
+            if app_info[dev_id] is None:
                 log.warning("Skipping device '{}', since it has 'None' public key")
                 continue
 
             found_device_ids.append(dev_id)
-            datastore_addresses.append(datastore_get_id(pubkeys[dev_id]))
+            datastore_addresses.append(datastore_get_id(app_info[dev_id][full_app_name]['public_key']))
 
         device_ids = found_device_ids
-        data_ids = ['{}.datastore'.format(da) for da in datastore_addresses]
 
     else:
         # single-reader single-writer storage.  do not rely on blockchain ID
         datastore_addresses = [datastore_id]
-        data_ids = ['{}.datastore'.format(datastore_id)]
+        fq_datastore_id = make_fq_data_id(device_ids[0], '{}.datastore'.format(datastore_id))
 
-        if device_ids is None:
-            device_ids = []
+    device_id, datastore_id = parse_fq_data_id(fq_datastore_id)
+    if not no_cache:
+        if datastore_id is None:
+            return {'error': 'Invalid fully-qualified datastore ID "{}"'.format(fq_datastore_id), 'errno': 'EINVAL'}
+
+        res = GLOBAL_CACHE.get_datastore_record(datastore_id, cache_ttl)
+        if res:
+            datastore = res['datastore']
+            return {'status': True, 'datastore': datastore}
     
-    datastore_records = {}
-    datastore_timestamps = {}
+    # cache miss
+    datastore_info = get_mutable(fq_datastore_id, device_ids=device_ids, blockchain_id=blockchain_id, data_addresses=datastore_addresses, urls=datastore_urls, proxy=proxy, config_path=config_path)
+    if 'error' in datastore_info:
+        if 'notfound' in datastore_info or 'stale' in datastore_info:
+            # absent. Store a negative
+            log.debug("Not found: {}".format(fq_datastore_id))
+            if not no_cache:
+                log.debug("Absent or stale datastore record {}".format(fq_datastore_id))
+                GLOBAL_CACHE.put_datastore_record(datastore_id, None, cache_ttl)
+
+        return {'error': 'Failed to load public datastore record', 'errno': "ENOENT"}
+  
+    datastore_str = datastore_info['data']
+
+    # parse and validate
+    try:
+        datastore = data_blob_parse(datastore_str)
+        jsonschema.validate(datastore, DATASTORE_SCHEMA) 
+    except (AssertionError, ValidationError) as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        log.error("Invalid datastore record")
+        return {'error': 'Invalid public datastore record', 'errno': "EIO"}
+
+    if not no_cache:
+        cache_rec = {'datastore': datastore}
+        GLOBAL_CACHE.put_datastore_record(datastore_id, cache_rec, cache_ttl)
+
+    return {'status': True, 'datastore': datastore}
     
-    log.debug("Search {} possible datastore record candidate(s)".format(len(data_ids)))
-
-    for (data_id, device_id, data_address) in zip(data_ids, device_ids, datastore_addresses):
-        # data_id is "${datastore_id}.datastore"
-        datastore_id = data_id[0:-len('.datastore')]
-        datastore = None
-        datastore_timestamp = None
-        cache_hit = False
-
-        if not no_cache:
-            res = GLOBAL_CACHE.get_datastore_record(datastore_id, cache_ttl)
-            if res:
-                datastore = res['datastore']
-                datastore_timestamp = res['timestamp']
-                cache_hit = True
-
-        if not datastore:
-            # cache miss
-            fq_data_id = make_fq_data_id(device_id, data_id)
-            datastore_info = get_mutable(fq_data_id, device_ids=device_ids, blockchain_id=blockchain_id, data_addresses=datastore_addresses, proxy=proxy, config_path=config_path)
-            if 'error' in datastore_info:
-                if 'notfound' in datastore_info or 'stale' in datastore_info:
-                    # absent. Store a negative
-                    log.debug("Not found: {}".format(fq_data_id))
-                    if not no_cache:
-                        log.debug("Absent or stale datastore record {}".format(data_id))
-                        GLOBAL_CACHE.put_datastore_record(datastore_id, None, cache_ttl)
-
-                    continue
-                
-                else:
-                    log.error("Failed to load public datastore information: {}".format(datastore_info['error']))
-                    return {'error': 'Failed to load public datastore record', 'errno': "ENOENT"}
-
-            datastore_str = datastore_info['data']
-            datastore_timestamp = datastore_info['timestamp']
-
-            try:
-                datastore = data_blob_parse(datastore_str)
-                jsonschema.validate(datastore, DATASTORE_SCHEMA) 
-            except (AssertionError, ValidationError) as ve:
-                if BLOCKSTACK_DEBUG:
-                    log.exception(ve)
-        
-                log.error("Invalid datastore record")
-                return {'error': 'Invalid public datastore record', 'errno': "EIO"}
-        
-        datastore_records[data_id] = datastore
-        datastore_timestamps[data_id] = datastore_timestamp
-
-        # cache, even if we don't use it
-        if not no_cache and not cache_hit:
-            cache_rec = {'datastore': datastore, 'timestamp': datastore_timestamp}
-            GLOBAL_CACHE.put_datastore_record(datastore_id, cache_rec, cache_ttl)
-
-    if len(datastore_records) == 0:
-        # no datastore record found 
-        return {'error': 'No datastore records found', 'errno': "ENOENT"}
-
-    # select the *oldest* record, since it was the first one written
-    oldest_datastore = None
-    oldest_timestamp = None
-    for data_id in datastore_records.keys():
-        timestamp = datastore_timestamps[data_id]
-        if oldest_timestamp is None or timestamp < oldest_timestamp:
-            oldest_datastore = datastore_records[data_id]
-            oldest_timestamp = timestamp
-
-    return {'status': True, 'datastore': oldest_datastore}
-
 
 def _init_datastore_info( datastore_type, datastore_pubkey, driver_names, device_ids, reader_pubkeys=[], config_path=CONFIG_PATH ):
     """
@@ -423,6 +412,7 @@ def put_datastore_info( datastore_info, datastore_sigs, root_tombstones, config_
     # store datastore
     res = put_mutable(datastore_fqid, datastore_info['datastore_blob'], datastore['pubkey'], datastore_sigs['datastore_sig'],
                       blockchain_id=blockchain_id, storage_drivers=datastore['drivers'], storage_drivers_exclusive=True, config_path=config_path)
+
     if 'error' in res:
         log.error("Failed to store datastore record for {}".format(datastore_id))
 
@@ -433,8 +423,10 @@ def put_datastore_info( datastore_info, datastore_sigs, root_tombstones, config_
         else:
             return {'error': res['error'], 'errno': "EREMOTEIO"}
 
+    datastore_urls = res['urls'].values()
+
     # success
-    return res
+    return {'status': True, 'root_urls': root_urls, 'datastore_urls': datastore_urls}
 
 
 def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, data_pubkeys, blockchain_id=None, force=False, proxy=None, config_path=CONFIG_PATH ):
