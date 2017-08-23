@@ -1,6 +1,6 @@
 name: blockstack
 version: master
-summary:  A server that handles the core functionality of Blockstack
+summary: A server that handles the core functionality of Blockstack
 description: |
   Blockstack is a new decentralized web, where users own their data and apps
   run on user devices without the need for hosting.
@@ -14,16 +14,17 @@ grade: devel
 confinement: strict
 
 apps:
-  server:
-    command: blockstack-server
+  core:
+    command: blockstack-core
     plugs: [network, network-bind]
+    aliases: [blockstack-core]
   blockstack:
     command: blockstack
     plugs: [network]
 
 parts:
   core:
+    source: ../
     plugin: python
     python-version: python2
-    source: ../../
-    build-packages: [libffi-dev, libssl-dev]
+    build-packages: [libffi-dev, libssl-dev, rng-tools, libgmp3-dev]
