@@ -4271,7 +4271,7 @@ class BlockstackAPIEndpointClient(object):
     Usable both by external clients and by the API server itself.
     """
     def __init__(self, server, port, scheme='http', api_pass=None, session=None, config_path=CONFIG_PATH,
-                 timeout=blockstack_constants.DEFAULT_TIMEOUT, debug_timeline=False, **kw):
+                 timeout=DEFAULT_TIMEOUT, debug_timeline=False, **kw):
 
         self.timeout = timeout
         self.server = server
