@@ -1224,22 +1224,34 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def GET_user_profile( self, ses, path_info, user_id ):
+    def GET_name_profile( self, ses, path_info, name ):
         """
-        Get a user profile.
-        Only works on the session user's profile
+        Get a profile from a name.
         Reply the profile on success
         Return 404 on failure to load
         """
-
         internal = self.server.get_internal_proxy()
-        resp = internal.cli_lookup( user_id )
+        resp = internal.cli_lookup(name)
         if json_is_error(resp):
             self._reply_json({'error': resp['error']}, status_code=404)
             return
 
-        self._reply_json(resp['profile'])
-        return
+        return self._reply_json(resp['profile'])
+
+
+    def _store_name_profile(self, ses, path_info, name):
+        """
+        Receive and store a name profile.
+        """
+        pass
+
+
+    def POST_name_profile(self, ses, path_info, name):
+        return self._store_name_profile(ses, path_info, name)
+
+
+    def PUT_name_profile(self, ses, path_info, name):
+        return self._store_name_profile(ses, path_info, name)
 
 
     def _parse_datastore_id(self, datastore_id_or_app_name):
@@ -1346,7 +1358,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if 'error' in res:
             return self._reply_json({'error': 'Failed to store datastore info'}, status_code=503)
 
-        return self._reply_json({'status': True})
+        return self._reply_json(res)
 
 
     def POST_store( self, ses, path_info ):
@@ -3326,6 +3338,36 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
+            r'^/v1/names/({})/profile$'.format(NAME_CLASS): {
+                'routes': {
+                    'GET': self.GET_name_profile,
+                    'POST': self.POST_name_profile,
+                    'PUT': self.PUT_name_profile,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'profile',
+                        'desc': 'read name profile',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
+                    },
+                    'POST': {
+                        'name': 'profile',
+                        'desc': 'update name profile',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
+                    },
+                    'PUT': {
+                        'name': 'profile',
+                        'desc': 'set name profile',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False,
+                    },
+                },
+            },
             r'^/v1/namespaces$': {
                 'routes': {
                     'GET': self.GET_namespaces,
@@ -3651,20 +3693,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'auth_session': False,
                         'auth_pass': False,
                         'need_data_key': False,
-                    },
-                },
-            },
-            r'^/v1/users/({})$'.format(URLENCODING_CLASS): {
-                'routes': {
-                    'GET': self.GET_user_profile,
-                },
-                'whitelist': {
-                    'GET': {
-                        'name': 'user_read',
-                        'desc': 'read user profile',
-                        'auth_session': True,
-                        'auth_pass': True,
-                        'need_data_key': True,
                     },
                 },
             },
@@ -4574,9 +4602,9 @@ class BlockstackAPIEndpointClient(object):
             log.debug("create datastore: {}".format(url))
 
             req = requests.post( url, timeout=self.timeout, data=json.dumps(request), headers=headers)
-
-            resp_schema = {'type': 'object', 'properties': {'status': {'type': 'boolean'}}, 'requierd': ['status']}
-            return self.get_response(req, schema=resp_schema)
+            
+            # expect root_urls and datastore_urls
+            return self.get_response(req, schema=PUT_DATASTORE_RESPONSE)
 
 
     def backend_datastore_get( self, blockchain_id, full_app_name, datastore_id=None, device_ids=None ):
