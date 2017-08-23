@@ -134,7 +134,7 @@ def key_file_get_app_name(key_file, datastore_id):
     return {'status': True, 'full_application_name': full_application_name}
 
 
-def key_file_parse(key_txt, name_owner_pubkeys_or_addr):
+def key_file_parse(profile_txt, name_owner_pubkeys_or_addr):
     """
     Given a compact-format JWT encoding a key file, this device's name-owner private key, and the list of name-owner public keys,
     go verify that the key file is well-formed and authentic.
@@ -149,7 +149,7 @@ def key_file_parse(key_txt, name_owner_pubkeys_or_addr):
     app_public_keys = {}
 
     key_file = None
-    profile_jwt_txt = None
+    # profile_jwt_txt = None
     delegation_jwt_txt = None
     delegation_jwt = None
     delegation_file = None
@@ -158,6 +158,48 @@ def key_file_parse(key_txt, name_owner_pubkeys_or_addr):
     apps_jwts_txt = {}
 
     name_owner_pubkeys = []
+
+    # get the key file out of the profile
+    try:
+        # possibly JSON profile tokens
+        try:
+            unverified_profile = json.loads(profile_txt)
+            assert isinstance(unverified_profile, (dict, list))
+
+            if isinstance(unverified_profile, list):
+                unverified_profile = unverified_profile[0]
+                assert isinstance(unverified_profile, dict)
+
+            unverified_profile = unverified_profile['claim']
+        except Exception as e1:
+            try:
+                # possibly a JWT
+                unverified_profile = jsontokens.decode_token(profile_txt)['payload']['claim']
+            except Exception as e2:
+                if BLOCKSTACK_DEBUG:
+                    log.error("Tried parsing profile as JSON:")
+                    log.exception(e1)
+                    log.error("Tried parsing profile as a JWT:")
+                    log.exception(e2)
+
+                return {'error': 'Invalid profile: Profile text is not JSON or a JWT'}
+
+    except jsontokens.utils.DecodeError:
+        return {'error': 'Invalid profile: not a JWT'}
+
+    # confirm that it's a profile 
+    try:
+        jsonschema.validate(unverified_profile, blockstack_profiles.person.PERSON_SCHEMA)
+    except ValidationError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(Ve)
+
+        return {'error': 'Invalid profile: does not conform to a Person schema'}
+
+    if not unverified_profile.has_key('keyfile'):
+        return {'error': 'No key file in profile'}
+    
+    key_txt = unverified_profile['keyfile']
 
     # get the delegation file out of the key file
     try:
@@ -246,29 +288,47 @@ def key_file_parse(key_txt, name_owner_pubkeys_or_addr):
                 log.exception(e)
                 return {'error': 'Invalid public key "{}" for device "{}"'.format(key_type, device_id)}
 
-    # verify the key file, using any of the signing keys
+    # verify the keyfile and profile, using any of the signing keys
     for (device_id, signing_public_key) in signing_public_keys.items():
+        try:
+            profile_verifier = jsontokens.TokenVerifier()
+            profile_valid = key_file_verifier.verify(profile_txt, signing_public_key)
+            assert profile_valid
+
+            # success!
+            profile = unverified_profile
+
+        except AssertionError as ae:
+            pass
+
         try:
             key_file_verifier = jsontokens.TokenVerifier()
             key_file_valid = key_file_verifier.verify(key_txt, signing_public_key)
-            assert key_file_valid
+            assert key_file_Valid
 
             # success!
             key_file = unverified_key_file
-            break
 
         except AssertionError as ae:
-            continue
+            pass
+
+        if key_file and profile:
+            break
 
     if not key_file:
         # unverifiable 
         return {'error': 'Failed to verify key file with name owner public keys'}
+
+    if not profile:
+        # unverifiable 
+        return {'error': 'Failed to verify profile with name owner public keys'}
 
     # the device IDs in the delegation file must include all of the device IDs in the app key bundles
     for device_id in key_file['keys']['apps'].keys():
         if device_id not in delegation_file['devices'].keys():
             return {'error': 'Application key bundle contains a non-delegated device ID "{}"'.format(device_id)}
 
+    '''
     # now go verify the profile, using any of the signing public keys
     for (device_id, signing_public_key) in signing_public_keys.items():
         try:
@@ -283,6 +343,7 @@ def key_file_parse(key_txt, name_owner_pubkeys_or_addr):
 
     if profile is None:
         return {'error': 'Failed to verify profile using signing keys in delegation file'}
+    '''
 
     # verify app key bundles, using each device's respective public key
     for (device_id, signing_public_key) in signing_public_keys.items():
@@ -330,7 +391,7 @@ def key_file_parse(key_txt, name_owner_pubkeys_or_addr):
         'timestamp': key_file['timestamp'],
         'jwts': {
             'version': key_file['version'],
-            'profile': profile_jwt_txt,
+            # 'profile': profile_jwt_txt,
             'keys': {
                 'name': key_file['keys']['name'],
                 'delegation': delegation_jwt_txt,
@@ -400,7 +461,7 @@ def key_file_get_key_order(name_owner_privkeys, pubkeys):
 
 def key_file_create(name, name_owner_privkeys, device_id, key_order=None, apps=None, profile=None, delegations=None, config_path=CONFIG_PATH):
     """
-    Make a new key file from a profile.  Sign and serialize the delegations file,
+    Make a new key file, possibly from an existing profile.  Sign and serialize the delegations file,
     and sign and serialize each of the app bundles.
 
     @name_owner_privkeys is a dict of {'$device_id': '$private_key'}
@@ -468,9 +529,6 @@ def key_file_create(name, name_owner_privkeys, device_id, key_order=None, apps=N
     signing_keys = dict([(dev_id, get_signing_privkey(name_owner_privkeys[dev_id])) for dev_id in name_owner_privkeys.keys()])
     signing_public_keys = dict([(dev_id, ecdsalib.get_pubkey_hex(signing_keys[dev_id])) for dev_id in signing_keys.keys()])
 
-    # make profile jwt
-    profile_jwt_txt = key_file_profile_serialize(profile, signing_keys[device_id])
-
     # make delegation jwt (to be signed by each name owner key)
     signer = jsontokens.TokenSigner()
 
@@ -516,7 +574,6 @@ def key_file_create(name, name_owner_privkeys, device_id, key_order=None, apps=N
     # make the key file
     key_file = {
         'version': '3.0',
-        'profile': profile_jwt_txt,
         'keys': {
             'name': name_owner_pubkeys,
             'delegation': delegation_jwt_txt,
@@ -524,8 +581,18 @@ def key_file_create(name, name_owner_privkeys, device_id, key_order=None, apps=N
         },
         'timestamp': int(time.time()),
     }
+    
+    # sign it 
+    key_file_txt = key_file_sign(key_file, signing_keys[device_id])
 
-    return {'status': True, 'key_file': key_file_sign(key_file, signing_keys[device_id])}
+    # make the profile 
+    profile['keyfile'] = key_file_txt
+    
+    # make profile jwt
+    profile_jwt_txt = key_file_profile_serialize(profile, signing_keys[device_id])
+
+    # return {'status': True, 'key_file': key_file_sign(key_file, signing_keys[device_id])}
+    return {'status': True, 'key_file': profile_jwt_txt}
 
 
 def key_file_sign(parsed_key_file, signing_private_key):
@@ -1478,7 +1545,7 @@ if __name__ == "__main__":
 
     # update the key file's apps
     helloblockstack_com_pubkey = keylib.ECPrivateKey().public_key().to_hex()
-    res = key_file_update_apps(key_file, 'test_device_1', "helloblockstack.com.1", helloblockstack_com_pubkey, get_signing_privkey(name_owner_privkeys['test_device_1']))
+    res = key_file_update_apps(key_file, 'test_device_1', "helloblockstack.com.1", helloblockstack_com_pubkey, 'test:test.datastore', ['file:///test'], get_signing_privkey(name_owner_privkeys['test_device_1']))
     assert 'error' not in res, res['error']
 
     # re-extract 
