@@ -132,13 +132,15 @@ from .gaia import make_datastore_info, put_datastore, delete_datastore, \
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_stat, \
         datastore_get_id, datastore_get_privkey, \
         make_mutable_data_info, data_blob_parse, data_blob_serialize, make_data_tombstones, sign_data_tombstones, \
-        get_root_directory, get_device_root_directory, GLOBAL_CACHE
+        get_root_directory, get_device_root_directory, GLOBAL_CACHE, \
+        make_empty_device_root_directory
 
 from .schemas import OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_BASE58CHECK_PATTERN
 
 from .key_file import key_file_profile_serialize, key_file_update_profile, key_file_get, key_file_put, key_file_delete, \
     lookup_name_privkey, lookup_signing_privkey, lookup_signing_pubkeys, key_file_get_key_order, lookup_delegated_device_pubkeys, \
-    key_file_create, lookup_app_pubkeys, key_file_get_app_name, key_file_update_apps, make_initial_key_file, deduce_name_privkey
+    key_file_create, lookup_app_pubkeys, key_file_get_app_name, key_file_update_apps, make_initial_key_file, deduce_name_privkey, \
+    lookup_app_listing, key_file_add_app
 
 import keylib
 
@@ -2572,22 +2574,12 @@ def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
 
     if password:
         set_secret("BLOCKSTACK_CLIENT_WALLET_PASSWORD", password)
-
-    api_pass = getattr(args, 'api_pass', None)
-    if api_pass is None:
-        # environment?
-        api_pass = get_secret('BLOCKSTACK_API_PASSWORD')
-        
-        if api_pass is None:
-            # config file?
-            conf = config.get_config(config_path)
-            assert conf
-
-            api_pass = conf.get('api_password', None)
-            set_secret("BLOCKSTACK_API_PASSWORD", api_pass)
-
-    if api_pass is None:
+    
+    res = find_api_password(config_path=config_path)
+    if 'error' in res:
         return {'error': 'Need --api-password on the CLI, or `api_password=` set in your config file ({})'.format(config_path)}
+    
+    api_pass = res['api_pass']
 
     # sanity check: wallet must exist 
     if str(args.command) == 'start' and not wallet_exists(config_path=config_path):
@@ -4458,6 +4450,138 @@ def cli_app_delete_resource( args, config_path=CONFIG_PATH, interactive=False, p
     return res
 
 
+def find_api_password( config_path=CONFIG_PATH ):
+    """
+    Get the API password to use
+    Return {'status': True, 'api_pass': ...} on success
+    Return {'error': ...} on error
+    """
+    # get API password 
+    api_pass = get_secret("BLOCKSTACK_API_PASSWORD")
+    if api_pass is None:
+        conf = config.get_config(config_path)
+        if conf:
+            api_pass = conf.get('api_password', None)
+
+    if api_pass is None:
+        if interactive:
+            try:
+                api_pass = getpass.getpass("API password: ")
+            except KeyboardInterrupt:
+                return {'error': 'Keyboard interrupt'}
+
+        else:
+            return {'error': 'No API password set'}
+            
+    return {'status': True, 'api_pass': api_pass}
+
+
+def device_app_setup(blockchain_id, app_domain, this_device_id, app_privkey, config_path=CONFIG_PATH, api_pass=None):
+    """
+    Link a device to an application.
+    * If the user hasn't signed into this application anywhere yet, then do nothing and return success (i.e. a call to create_datastore() will take care of this)
+    * If the user has signed into this application before, but from a different device, then put a store an empty device root and put the root URL into the key file
+    * If the user has signed into this application with this device, then simply proceed to return success.
+
+    Return {'status': True, 'device_ids': [...], 'public_keys': [...]} on success
+    Return {'error': ...} on error
+    """
+
+    # find key file for this blockchain ID, if given 
+    res = key_file_get(blockchain_id, cache=GLOBAL_CACHE)
+    if 'error' in res:
+        log.error("Failed to get key file for {}".format(blockchain_id))
+        return {'error': 'Failed to look up key file for {}: {}'.format(blockchain_id, res['error'])}
+
+    parsed_key_file = res['key_file']
+
+    # is this device registered in the key file?
+    res = lookup_delegated_device_pubkeys(blockchain_id, cache=GLOBAL_CACHE, parsed_key_file=parsed_key_file)
+    if 'error' in res:
+        log.error("Failed to find device IDs in key file for {}".format(blockchain_id))
+        return {'error': 'Failed to look up device IDs for {}: {}'.format(blockchain_id, res['error'])}
+
+    device_pubkeys = res['pubkeys']
+
+    if this_device_id not in device_pubkeys.keys():
+        msg = "This device ({}) is not registered in the key file for {}.  Please add it with `blockstack add_device {} {}`".format(this_device_id, blockchain_id, blockchain_id, this_device_id)
+        print(msg, file=sys.stderr)
+
+        return {'error': msg}
+
+    # have we logged into this app with this blockchain ID and this device before?
+    res = lookup_app_listing(blockchain_id, app_domain, parsed_key_file=parsed_key_file)
+    if 'error' in res:
+        log.error("Failed to find app public keys from {} for {}".format(blockchain_id, app_domain))
+        return {'error': 'Failed to find app public keys from {} for {}: {}'.format(blockchain_id, app_domain, res['error'])}
+
+    app_info = res['app_info']
+
+    device_ids = app_info.keys()
+    public_keys = [res[dev_id]['public_key'] for dev_id in device_ids]
+
+    if this_device_id not in app_info.keys():
+        # have never signed into this app with this blockchain ID on this device.
+        # have we signed in from another device?
+        datastore_id = None
+
+        multiple_datastores = {}
+        datastore_device_id = None
+
+        root_urls = []
+
+        for dev_id in app_info.keys():
+            if app_info[dev_id]['datastore_id']:
+                if datastore_id is None:
+                    datastore_id = app_info[dev_id]['datastore_id']
+                    datastore_device_id = dev_id
+                elif app_info[dev_id]['datastore_id'] != datastore_id:
+                    log.warning("Multiple datastore IDs detected: {}".format(app_info[dev_id]['datastore_id']))
+                    multiple_datastores[dev_id] = app_info[dev_id]['datastore_id']
+
+        if multiple_datastores:
+            # key file data got corrupted
+            # we have multiple devices each claiming different datastores for the same app
+            return {'error': 'Invalid key file: the following devices claim to have datastores for {}: {}'.format(app_domain, ','.join(multiple_datastores.keys() + [datastore_device_id]))}
+
+        if datastore_id is None:
+            # first-ever sign in.
+            # datastore record doesn't exist yet
+            log.debug("First-ever sign-in to {}".format(app_domain))
+            datastore_id = datastore_get_id(get_pubkey_hex(app_privkey))
+        
+        else:
+            # some other device has signed in.
+            # link the datastore ID to this device's key file.
+
+            # get signing private key 
+            res = find_signing_privkey(parsed_key_file, wallet_keys['owner_privkey'])
+            if 'error' in res:
+                return res
+
+            signing_privkey = res['signing_privkey']
+            
+            # update the app bundle in the key file to point to this device root
+            res = key_file_add_app(blockchain_id, datastore_id, parsed_key_file, this_device_id, app_domain, app_privkey, signing_privkey, cache=GLOBAL_CACHE, config_path=config_path)
+            if 'error' in res:
+                msg = "Failed to add {} to key file for {}: {}".format(app_domain, blockchain_id, res['error'])
+                log.error(msg)
+                return {'error': msg}
+            
+            # now other devices and users can discover this data
+            log.debug("Now device {} can access {} as {}!".format(this_device_id, app_domain, blockchain_id))
+
+        device_ids.append(this_device_id)
+        public_keys.append(get_pubkey_hex(app_privkey))
+
+    else: 
+        # get from token file
+        device_ids = app_info.keys()
+        public_keys = [app_info[dev_id]['public_key'] for dev_id in device_ids]
+
+    return {'status': True, 'public_keys': public_keys, 'device_ids': device_ids}
+
+
 def cli_app_signin(args, config_path=CONFIG_PATH, interactive=True, password=None):
     """
     command: app_signin advanced
@@ -4503,21 +4627,11 @@ def cli_app_signin(args, config_path=CONFIG_PATH, interactive=True, password=Non
             return {'error': 'Invalid public key: {}'.format(pubk)}
     
     # get API password 
-    api_pass = get_secret("BLOCKSTACK_API_PASSWORD")
-    if api_pass is None:
-        conf = config.get_config(config_path)
-        if conf:
-            api_pass = conf.get('api_password', None)
+    res = find_api_password(config_path=config_path)
+    if 'error' in res:
+        return res
 
-    if api_pass is None:
-        if interactive:
-            try:
-                api_pass = getpass.getpass("API password: ")
-            except KeyboardInterrupt:
-                return {'error': 'Keyboard interrupt'}
-
-        else:
-            return {'error': 'No API password set'}
+    api_pass = res['api_pass']
             
     # TODO: validate API methods
     # TODO: fetch api methods from app domain, if need be
@@ -4535,92 +4649,12 @@ def cli_app_signin(args, config_path=CONFIG_PATH, interactive=True, password=Non
             return {'error': 'If no blockchain ID is given, then device_ids and public_keys are required'}
 
     else:
-        # find key file for this blockchain ID, if given 
-        res = key_file_get(blockchain_id, cache=GLOBAL_CACHE)
+        res = device_app_setup(blockchain_id, app_domain, this_device_id, app_privkey, config_path=config_path, api_pass=api_pass)
         if 'error' in res:
-            log.error("Failed to get key file for {}".format(blockchain_id))
-            return {'error': 'Failed to look up key file for {}: {}'.format(blockchain_id, res['error'])}
-
-        parsed_key_file = res['key_file']
-        name_record = res['name_record']
-        name_address = name_record['address']
-
-        # is this device registered in the key file?
-        res = lookup_delegated_device_pubkeys(blockchain_id, cache=GLOBAL_CACHE, parsed_key_file=parsed_key_file)
-        if 'error' in res:
-            log.error("Failed to find device IDs in key file for {}".format(blockchain_id))
-            return {'error': 'Failed to look up device IDs for {}: {}'.format(blockchain_id, res['error'])}
-
-        device_pubkeys = res['pubkeys']
-        if this_device_id not in device_pubkeys:
-            msg = "This device ({}) is not registered in the key file for {}.  Please add it with `blockstack add_device {} {}`".format(this_device_id, blockchain_id, blockchain_id, this_device_id)
-            print(msg)
-
-            return {'error': msg}
+            return res
         
-        # have we logged into this app with this blockchain ID and this device before?
-        res = lookup_app_pubkeys(blockchain_id, app_domain, parsed_key_file=parsed_key_file)
-        if 'error' in res:
-            log.error("Failed to find app public keys from {} for {}".format(blockchain_id, app_domain))
-            return {'error': 'Failed to find app public keys from {} for {}: {}'.format(blockchain_id, app_domain, res['error'])}
-
-        app_pubkeys = res['pubkeys']
-        if this_device_id not in app_pubkeys.keys():
-            
-            log.debug("Device {} signing into {} as {} for the first time".format(this_device_id, app_domain, blockchain_id))
-
-            # signing in for the first time
-            wallet_keys = get_wallet_keys( config_path, password )
-            if 'error' in wallet_keys:
-                return wallet_keys
-
-            # find the device-specific private key 
-            res = deduce_name_privkey(parsed_key_file, wallet_keys['owner_privkey'])
-            if 'error' in res:
-                msg = "Failed to deduce name owner private key for this device: {}".format(res['error'])
-                log.error(msg)
-                return {'error': msg}
-            
-            name_privkey = res['name_privkey']
-            signing_privkey = get_signing_privkey(name_privkey)
-
-            log.debug("Allowing device {} to access {} (public key is {})".format(this_device_id, app_domain, get_pubkey_hex(app_privkey)))
-            
-            # sanitize
-            app_domain_scheme = urlparse.urlparse(app_domain).scheme
-            app_domain_noscheme = app_domain
-            if app_domain_scheme:
-                app_domain_noscheme = app_domain[len(app_domain_scheme) + len('://'):]
-
-            # add this app's public key 
-            res = key_file_update_apps(parsed_key_file, this_device_id, app_domain_noscheme, get_pubkey_hex(app_privkey), signing_privkey)
-            if 'error' in res:
-                msg = 'Failed to add key file entry for {} for logging in with {} with device {}'.format(app_domain, blockchain_id, this_device_id)
-                log.error(msg)
-                return {'error': msg}
-
-            key_file_str = res['key_file']
-           
-            log.debug("Storing updated key file for {}".format(blockchain_id))
-
-            # store new key file
-            # TODO: do via API call?
-            res = key_file_put(blockchain_id, key_file_str, cache=GLOBAL_CACHE, config_path=config_path)
-            if 'error' in res:
-                msg = 'Failed to store new key file to allow signins to {} from {} on device {}'.format(app_domain, blockchain_id, this_device_id)
-                log.error(msg)
-                return {'error': msg}
-            
-            # now other devices and users can discover this data
-            log.debug("Now device {} can access {} as {}!".format(this_device_id, app_domain, blockchain_id))
-
-            device_ids.append(this_device_id)
-            public_keys.append(get_pubkey_hex(app_privkey))
-        
-        elif len(device_ids) == 0 and len(public_keys) == 0:
-            # get from token file
-            device_ids = app_pubkeys.keys()
-            public_keys = [app_pubkeys[dev_id] for dev_id in device_ids]
+        device_ids = res['device_ids']
+        public_keys = res['public_keys']
     
     rpc = local_api_connect(config_path=config_path, api_pass=api_pass)
     sesinfo = rpc.backend_signin(blockchain_id, app_privkey, app_domain, api_methods, device_ids, public_keys, this_device_id) 
@@ -4971,10 +5005,28 @@ def _remove_datastore(rpc, datastore, datastore_privkey, data_pubkeys, force=Fal
     return delete_datastore(rpc, datastore, datastore_privkey, data_pubkeys, config_path=config_path)
 
 
+def find_signing_privkey( parsed_key_file, owner_privkey_info ):
+    """
+    Get the signing private key from this owner key
+    Return {'status': True, 'signing_privkey': ...} on success
+    Return {'error': ...} on failure
+    """
+    # find the device-specific private key 
+    res = deduce_name_privkey(parsed_key_file, owner_privkey_info)
+    if 'error' in res:
+        msg = "Failed to deduce name owner private key for this device: {}".format(res['error'])
+        log.error(msg)
+        return {'error': msg}
+    
+    name_privkey = res['name_privkey']
+    signing_privkey = get_signing_privkey(name_privkey)
+    return {'status': True, 'signing_privkey': signing_privkey}
+
+
 def create_datastore_by_type( datastore_type, datastore_privkey, session, drivers=None, config_path=CONFIG_PATH ):
     """
     Create a datastore or a collection for the given user with the given name.
-    Return {'status': True} on success
+    Return {'status': True, 'root_urls': ..., 'datastore_urls': ...} on success
     Return {'error': ...} on error
     """
 
@@ -4993,12 +5045,6 @@ def create_datastore_by_type( datastore_type, datastore_privkey, session, driver
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    res = rpc.backend_datastore_get(blockchain_id, app_domain, datastore_id=datastore_id, device_ids=device_ids)
-    if 'error' not in res:
-        # already exists
-        log.error("Datastore exists")
-        return {'error': 'Datastore exists', 'errno': "EEXIST"}
-
     datastore_info = make_datastore_info( datastore_type, datastore_pubkey, device_ids, driver_names=drivers, config_path=config_path)
     if 'error' in datastore_info:
         return datastore_info
@@ -5007,8 +5053,9 @@ def create_datastore_by_type( datastore_type, datastore_privkey, session, driver
     res = put_datastore(rpc, datastore_info, datastore_privkey, config_path=config_path)
     if 'error' in res:
         return res
-
-    return {'status': True}
+    
+    # update key file
+    return {'status': True, 'root_urls': res['root_urls'], 'datastore_urls': res['datastore_urls']}
 
 
 def get_datastore_by_type( datastore_type, blockchain_id, app_name, datastore_id, device_ids, config_path=CONFIG_PATH ):
@@ -5275,28 +5322,98 @@ def cli_get_datastore( args, config_path=CONFIG_PATH ):
         res = lookup_delegated_device_pubkeys(blockchain_id, cache=GLOBAL_CACHE, proxy=proxy)
         if 'error' in res:
             return res
+    
+    if not device_ids:
+        device_ids = [get_local_device_id(config_dir=os.path.dirname(config_path))]
 
     return get_datastore_by_type('datastore', blockchain_id, app_name, datastore_id, device_ids, config_path=config_path )
 
 
-def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None ):
+def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None, password=None ):
     """
     command: create_datastore advanced 
     help: Make a new datastore
     arg: privkey (str) 'The ECDSA private key of the datastore'
     arg: session (str) 'The API session token'
     opt: drivers (str) 'A CSV of drivers to use.'
+    opt: this_device_id (str) 'If given, this is the ID of this device'
     """
 
     if proxy is None:
         proxy = get_default_proxy()
     
+    password = get_default_password(password)
+
+    this_device_id = None
+    if getattr(args, 'this_device_id', None):
+        this_device_id = str(args.this_device_id)
+    else:
+        this_device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
+
     privkey = str(args.privkey)
+    session_str = str(args.session)
+    session = jsontokens.decode_token(session_str)['payload']
+
+    blockchain_id = session['blockchain_id']
+    app_domain = session['app_domain']
+
     drivers = getattr(args, 'drivers', None)
     if drivers:
         drivers = drivers.split(',')
+    
+    wallet_keys = None
+    parsed_key_file = None
 
-    return create_datastore_by_type('datastore', privkey, str(args.session), drivers=drivers, config_path=config_path )
+    if blockchain_id:
+        # verify that there's no datastore record in the key file yet 
+        wallet_keys = get_wallet_keys( config_path, password )
+        if 'error' in wallet_keys:
+            return wallet_keys
+
+        # find key file for this blockchain ID, if given 
+        res = key_file_get(blockchain_id, cache=GLOBAL_CACHE, proxy=proxy)
+        if 'error' in res:
+            log.error("Failed to get key file for {}".format(blockchain_id))
+            return {'error': 'Failed to look up key file for {}: {}'.format(blockchain_id, res['error'])}
+
+        parsed_key_file = res['key_file']
+        res = lookup_app_listing(blockchain_id, app_domain, proxy=proxy, parsed_key_file=parsed_key_file)
+        if 'error' in res:
+            log.error("Failed to look up app listing for {} in {}'s key file: {}".format(app_domain, blockchain_id, res['error']))
+            return {'error': 'Failed to parse key file for {} to look for app-specific keys for {}'.format(blockchain_id, app_domain)}
+
+        app_info = res['app_info']
+        if len(app_info.keys()) > 0:
+            # this datastore already exists
+            return {'error': 'Datastore already exists: created by device {}'.format(app_info.keys()[0])}
+
+    # create the datastore
+    res = create_datastore_by_type('datastore', privkey, str(args.session), drivers=drivers, config_path=config_path )
+    if 'error' in res:
+        return res
+    
+    root_urls = res['root_urls']
+    datastore_urls = res['datastore_urls']
+
+    if blockchain_id:
+        # add this datastore record to the key file
+        datastore_id = datastore_get_id(get_pubkey_hex(privkey))
+        
+        # get signing private key 
+        res = find_signing_privkey(parsed_key_file, wallet_keys['owner_privkey'])
+        if 'error' in res:
+            return res
+
+        signing_privkey = res['signing_privkey']
+        
+        # insert URLs
+        res = key_file_add_app(blockchain_id, datastore_id, parsed_key_file, this_device_id, app_domain, privkey, signing_privkey, datastore_urls=datastore_urls, cache=GLOBAL_CACHE, config_path=config_path)
+        if 'error' in res:
+            msg = "Failed to add application to key file for {}: {}".format(blockchain_id, res['error'])
+            log.error(msg)
+            return {'error': msg}
+
+    return {'status': True, 'root_urls': root_urls, 'datastore_urls': datastore_urls}
 
 
 def cli_delete_datastore( args, config_path=CONFIG_PATH ):
