@@ -814,9 +814,10 @@ def get_mutable_data(fq_data_id, data_pubkeys, urls=None, data_addresses=None, d
     else:
         # whitelist of drivers to try
         for d in drivers:
-            handlers_to_use.extend(
-                h for h in storage_handlers if h.__name__ == d
-            )
+            for h in storage_handlers:
+                if h.__name__ == d:
+                    handlers_to_use.append(h)
+
 
     # ripemd160(sha256(pubkey))
     data_pubkey_hashes = []
@@ -829,14 +830,16 @@ def get_mutable_data(fq_data_id, data_pubkeys, urls=None, data_addresses=None, d
                 log.debug("Invalid address '{}'".format(a))
                 continue
 
-    log.debug('get_mutable_data {} blockchain_id={} bsk_version={}'.format(fq_data_id, blockchain_id, bsk_version))
+    log.debug('get_mutable_data {} blockchain_id={} bsk_version={} drivers={}'.format(fq_data_id, blockchain_id, bsk_version, ','.join([d.__name__ for d in handlers_to_use])))
+
     for storage_handler in handlers_to_use:
         if not getattr(storage_handler, 'get_mutable_handler', None):
+            log.debug("Skip driver {}, since it cannot get mutable data".format(storage_driver.__name__))
             continue
 
         # which URLs to attempt?
         try_urls = []
-        if urls is None:
+        if urls is None or len(urls) == 0:
             # make one on-the-fly
             if not getattr(storage_handler, 'make_mutable_url', None):
                 msg = 'Storage handler {} does not support `{}`'
