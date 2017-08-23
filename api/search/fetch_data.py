@@ -124,6 +124,9 @@ def update_profiles():
 
     names_updated = actually_updated_names
 
+    if len(names_updated) == 0:
+        return {'status' : True, 'message' : 'No new profiles'}
+
     with open(SEARCH_PROFILE_DATA_FILE, 'r') as fin:
         all_profiles = json.load(fin)
     existing_names = list(existing_names)
@@ -160,7 +163,7 @@ def fetch_profiles(max_to_fetch = None, just_test_set = False):
     """
 
     with open(SEARCH_BLOCKCHAIN_DATA_FILE, 'r') as fin:
-        all_names = json.load(file)
+        all_names = json.load(fin)
 
     info_resp = proxy.getinfo()
     last_block_processed = info_resp['last_block_processed']
