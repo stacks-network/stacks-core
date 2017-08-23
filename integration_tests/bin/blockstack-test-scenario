@@ -711,7 +711,8 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         "bitcoind": bitcoind,
         "bitcoin_opts": bitcoin_opts,
         "spv_headers_path": spv_headers_path,
-        "blockstack_opts": blockstack_opts
+        "blockstack_opts": blockstack_opts,
+        'interactive': interactive,
     }
 
     # sync initial utxos 
