@@ -350,7 +350,7 @@ def cli_setup(args, config_path=CONFIG_PATH, password=None):
     interactive = get_default_interactive(True)
 
     ret = {}
-    
+
     log.debug("Set up config file")
 
     # are we configured?
@@ -362,7 +362,7 @@ def cli_setup(args, config_path=CONFIG_PATH, password=None):
         pass
 
     wallet_args = WalletSetupArgs()
-    
+
     # is our wallet ready?
     res = cli_setup_wallet(wallet_args, interactive=interactive, config_path=config_path, password=password)
     if 'error' in res:

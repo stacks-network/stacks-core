@@ -40,7 +40,7 @@ def exit_with_error(error_message, help_message=None):
 
     if help_message is not None:
         result['help'] = help_message
-    print_result(result, file=sys.stderr)
+    print_result(result, friendly_newlines=True, file=sys.stderr)
     sys.exit(0)
 
 
@@ -84,8 +84,13 @@ def pretty_print(data):
     print pretty_dump(data)
 
 
-def print_result(json_str, file=sys.stdout):
+def print_result(json_str, friendly_newlines = False, file=sys.stdout):
     data = pretty_dump(json_str)
+
+    if friendly_newlines:
+        # note: this makes the produced output INVALID json.
+        #       which is why it only does this on error exits.
+        data = data.replace("\\n", "\n")
 
     if data != "{}":
         print >> file, data
