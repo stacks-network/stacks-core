@@ -69,7 +69,7 @@ from blob import *
 from policy import *
 
 def get_mutable(fq_data_id, device_ids=None, raw=False, data_pubkeys=None, data_addresses=None, data_hash=None, storage_drivers=None,
-                            proxy=None, timestamp=0, force=False, urls=None, is_fq_data_id=False,
+                            proxy=None, timestamp=0, force=False, urls=None,
                             config_path=CONFIG_PATH, blockchain_id=None):
     """
     get_mutable 
@@ -100,8 +100,8 @@ def get_mutable(fq_data_id, device_ids=None, raw=False, data_pubkeys=None, data_
     if force:
         timestamp = 0
 
-    log.debug("get_mutable({}, blockchain_id={}, pubkeys={}, addrs={}, hash={}, storage_drivers={})".format(
-        fq_data_id, blockchain_id, data_pubkeys, data_addresses, data_hash, ','.join(storage_drivers)
+    log.debug("get_mutable({}, blockchain_id={}, pubkeys={}, addrs={}, hash={}, storage_drivers={}, urls={})".format(
+        fq_data_id, blockchain_id, data_pubkeys, data_addresses, data_hash, ','.join(storage_drivers), urls if urls else []
     ))
     
     mutable_data = None
@@ -149,7 +149,7 @@ def get_mutable(fq_data_id, device_ids=None, raw=False, data_pubkeys=None, data_
             continue
 
         if data['fq_data_id'] != fq_data_id:
-            log.warn("Got back an unexpected fq_data_id")
+            log.warn("Got back an unexpected fq_data_id '{}'".format(data['fq_data_id']))
             continue
 
         # check consistency
