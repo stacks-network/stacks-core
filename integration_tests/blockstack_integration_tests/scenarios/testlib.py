@@ -3586,3 +3586,16 @@ def nodejs_run_test( testdir, test_name="core-test" ):
     return True
 
 
+def interactive_breakpoint(**kw):
+    """
+    Start an interactive breakpoint.
+    Wait for the user to hit 'enter'
+    """
+    if kw['interactive']:
+        while True:
+            i = raw_input('interactive breakpoint (type "go" to continue): ')
+            if i == 'go':
+                break
+
+
+
