@@ -38,7 +38,6 @@ from ..scripts import (
 from ..constants import (
     DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
     BLOCKSTACK_VERSION, LENGTH_MAX_NAMESPACE_ID)
->>>>>>> develop
 
 import virtualchain
 log = get_logger("blockstack-log")
