@@ -13,33 +13,107 @@ For more info on Blockstack see: http://github.com/blockstack/blockstack
 
 ## Table of Contents
 
-- [Quick Start](#quick-start)
+- [Installing Blockstack](#installing-blockstack)
 - [Development Status](#development-status)
 - [Blockstack Docs](#blockstack-docs)
 - [API Docs](#api-docs)
 - [Contributing](#contributing)
 - [Community](#community)
 
-## Quick Start
+## Installing Blockstack
 
-### Installing from apt
+There are two major supported methods for installing `blockstack`: our `apt` repo or a `pip install`.
 
-The fastest way to get started with Blockstack is with `apt`.
 
-First, you'll need to add our repositories to apt.
+### `pip` Installation 
 
+You should use `pip2` if you have it instead of `pip`. Blockstack is built against Python `2.7`.
+
+For Mac:
+
+```bash
+# Install blockstack
+$ pip2 install blockstack --upgrade
 ```
+
+For Debian & Ubuntu:
+
+```bash
+# Install dependancies
+$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools libgmp3-dev
+$ sudo pip2 install pyparsing
+
+# Install blockstack
+$ sudo pip2 install blockstack --upgrade
+```
+
+For SUSE and openSUSE:
+
+```bash
+# Install dependancies
+$ sudo zypper update && zypper install rng-tools gcc python-devel python2-pip libffi-devel libopenssl-devel
+
+# Install blockstack
+$ sudo pip install blockstack --upgrade 
+```
+
+To install the `blockstack-browser`, [follow the instructions](https://github.com/blockstack/blockstack-browser) over on the repository.
+
+### `apt` Installation
+
+```bash
+# Add our apt repository
 $ wget -qO - https://raw.githubusercontent.com/blockstack/packaging/master/repo-key.pub | sudo apt-key add -
 $ echo "echo 'deb http://packages.blockstack.com/repositories/ubuntu/ xenial main' > /etc/apt/sources.list.d/blockstack.list" | sudo -E bash -
-$ sudo apt update
-$ sudo apt install blockstack
+
+# Install blockstack
+$ sudo apt update && sudo apt install blockstack
 ```
 
-To install browser, you'll need `nodejs >= 6`, which for Ubuntu, means you'll need to install from (nodejs.org)[https://nodejs.org/en/download/package-manager/#debian-and-ubuntu-based-linux-distributions]:
+To install the `blockstack-browser`, [follow the instructions](https://github.com/blockstack/blockstack-browser) over on the repository.
+
+### Setting up your install
+
+If this is your first time installing blockstack first run `blockstack setup` and follow the prompts. Use the defaults for all of the options.
+
+> NOTE: This process generates a wallet. *BE SURE TO SAVE THE WALLET PASSWORD YOU TYPE IN*.
+
+Next you need to start the [`blockstack api`](https://blockstack.github.io/blockstack-core/) server:
+
 ```
-$ curl -sL https://deb.nodesource.com/setup_8.x | sudo -E bash -
-$ sudo apt install blockstack-browser
+$ blockstack api start
 ```
+
+Now, you can test your installation by trying:
+
+```
+$ blockstack info 
+```
+
+which should display the last block processed and the latest consensus hash.
+
+### Running a `blockstack-core` instance
+
+After installation, you can (optionally) do a fast-sync that quickly syncs a local `blockstack-core` node with the Atlas network:
+
+```bash
+# Download the Atlas snapshot
+$ blockstack-core --debug fast_sync http://fast-sync.blockstack.org/snapshot.bsk
+```
+
+And start Blockstack Core to index the blockchain:
+
+```bash
+# To start the server
+$ blockstack-core --debug start
+
+# Read the server logs
+$ tail -f ~/.blockstack-server/blockstack-server.log
+```
+
+Next, visit the [basic usage docs](https://blockstack.org/docs) and [extended usage docs](https://blockstack.org/docs) to learn how to register names of your own, as well as transfer them and associate data with them.
+
+If you encounter any technical issues in installing or using Blockstack, please [search the open issues](https://github.com/blockstack/blockstack-core/issues) and start a new one if your issue is not covered. 
 
 #### Support for Integration Tests and Regtest Environment
 
@@ -51,45 +125,6 @@ $ sudo add-apt-repository ppa:bitcoin/bitcoin
 $ sudo apt update
 $ sudo apt install sqlite3 bitcoind
 ```
-
-### Installing from pip
-
-You should use `pip2` if you have it instead of `pip`, since Blockstack requires Python 2.
-
-For Debian & Ubuntu:
-```
-$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools libgmp3-dev
-$ sudo pip2 install pyparsing
-$ sudo pip2 install blockstack --upgrade
-```
-For SUSE and openSUSE
-```
-$ sudo zypper update && zypper install rng-tools python-devel libffi-devel
-$ sudo pip install blockstack --upgrade 
-```
-
-### Testing your install
-
-You can test your installation by trying:
-```
-$ blockstack info 
-```
-which should display the last block processed and the latest consensus hash.
-
-After installation, you can (optionally) do a fast-sync that quickly syncs your node with the network:
-```bash
-$ blockstack-core --debug fast_sync http://fast-sync.blockstack.org/snapshot.bsk
-```
-
-And start Blockstack Core to index the blockchain:
-```bash
-$ blockstack-core --debug start
-$ tail -f ~/.blockstack-server/blockstack-server.log
-```
-
-Next, visit the [basic usage docs](https://blockstack.org/docs) and [extended usage docs](https://blockstack.org/docs) to learn how to register names of your own, as well as transfer them and associate data with them.
-
-If you encounter any technical issues in installing or using Blockstack, please [search the open issues](https://github.com/blockstack/blockstack-core/issues) and start a new one if your issue is not covered. 
 
 ## Development Status
 
@@ -133,6 +168,37 @@ You can install the latest release candidate by:
 ```bash
 $ git clone https://github.com/blockstack/blockstack-core.git
 $ blockstack-core/images/scripts/debian-release-candidate.sh
+```
+
+## Running in Docker
+
+To run the Blockstack API in a docker container requires a couple of steps. Run the following commands from the root of the repo:
+
+```bash
+# Build image
+$ docker build -t myrepo/blockstack:latest .
+
+# Setup wallet and client config using the ./data/blockstack-api directory for your client.
+$ docker run -it -v $(pwd)/data/blockstack-api:/root/.blockstack myrepo/blockstack:latest blockstack setup -y --password PASSWORD
+
+# Update [blockstack-client]api_endpoint_bind = 0.0.0.0
+$ nano $(pwd)/data/client.ini
+
+### MAC
+
+# Start API on top of newly created wallet and configuration // run in terminal window
+$ docker run -it -v $(pwd)/data/blockstack-api:/root/.blockstack -p 6270:6270 myrepo/blockstack:latest blockstack api start-foreground --password PASSWORD --debug
+
+# Start API on top of newly created wallet and configuration // run detached
+$ docker run -d -v $(pwd)/data/blockstack-api:/root/.blockstack -p 6270:6270 myrepo/blockstack:latest blockstack api start-foreground --password PASSWORD --debug
+
+### LINUX
+
+# Start API on top of newly created wallet and configuration // run in terminal window
+$ docker run -it -v $(pwd)/data/blockstack-api:/root/.blockstack -v /tmp/:/tmp/ -p 6270:6270 myrepo/blockstack:latest blockstack api start-foreground --password PASSWORD --debug
+
+# Start API on top of newly created wallet and configuration // run detached
+$ docker run -d -v $(pwd)/data/blockstack-api:/root/.blockstack -v /tmp/:/tmp/ -p 6270:6270 myrepo/blockstack:latest blockstack api start-foreground --password PASSWORD --debug
 ```
 
 ## Community

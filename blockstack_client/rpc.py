@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
@@ -47,11 +47,28 @@ import platform
 import shutil
 import urlparse
 from jsonschema import ValidationError
-from schemas import *
 import client as bsk_client
+from schemas import (
+    APP_SESSION_REQUEST_SCHEMA,
+    APP_SESSION_REQUEST_SCHEMA_OLD,
+    OP_NAME_PATTERN,
+    OP_BASE58CHECK_PATTERN,
+    OP_ADDRESS_PATTERN,
+    OP_ZONEFILE_HASH_PATTERN,
+    PRIVKEY_INFO_SCHEMA,
+    CREATE_DATASTORE_REQUEST_SCHEMA,
+    DELETE_DATASTORE_REQUEST_SCHEMA,
+    OP_BASE64_PATTERN,
+    WALLET_SCHEMA_CURRENT,
+    OP_HEX_PATTERN,
+    LENGTH_MAX_NAME,
+    LENGTH_MAX_NAMESPACE_ID,
+    DATASTORE_LOOKUP_EXTENDED_RESPONSE_SCHEMA,
+    MUTABLE_DATUM_FILE_TYPE,
+    DATASTORE_LOOKUP_RESPONSE_SCHEMA)
 
 import keylib
-from keylib import *
+from keylib import ECPrivateKey
 
 import signal
 import json
@@ -69,9 +86,15 @@ import subdomains
 DEFAULT_UI_PORT = 8888
 DEVELOPMENT_UI_PORT = 3000
 
-from constants import BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH, WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION, TX_MAX_FEE, set_secret, get_secret
-from method_parser import parse_methods
-from wallet import make_wallet
+from .constants import (
+    CONFIG_FILENAME, serialize_secrets, WALLET_FILENAME,
+    BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, RPC_MAX_ZONEFILE_LEN, CONFIG_PATH,
+    WALLET_FILENAME, TX_MIN_CONFIRMATIONS, DEFAULT_API_PORT, SERIES_VERSION,
+    DEFAULT_SESSION_LIFETIME, FIRST_BLOCK_MAINNET,
+    TX_MAX_FEE, set_secret, get_secret, DEFAULT_TIMEOUT)
+from .method_parser import parse_methods
+from .wallet import make_wallet
+
 import app
 import gaia
 import zonefile
@@ -82,7 +105,7 @@ import key_file
 from utils import daemonize, streq_constant
 
 import virtualchain
-from virtualchain.lib.ecdsalib import *
+from virtualchain.lib.ecdsalib import get_pubkey_hex, verify_raw_data
 
 import blockstack_profiles
 
@@ -921,6 +944,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'minimum': 0,
                     'maximum': TX_MAX_FEE
                 },
+                'owner_key': PRIVKEY_INFO_SCHEMA
             },
             'required': [
                 'owner'
@@ -949,7 +973,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Re-encode {} to {}".format(new_addr, recipient_address))
             recipient_address = new_addr
 
-        res = internal.cli_transfer(name, recipient_address, interactive=False)
+        privkey_info = request.get('owner_key', None)
+        res = internal.cli_transfer(name, recipient_address, privkey_info, interactive=False)
         if 'error' in res:
             log.error("Failed to transfer {}: {}".format(name, res['error']))
             self._reply_json({"error": 'Transfer failed.\n{}'.format(res['error'])}, status_code=500)
@@ -1187,12 +1212,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         else:
             # make sure it's valid
+            if str(zonefile_hash) not in resp['zonefiles']:
+                log.debug('Failed to find zonefile hash {}, possess {}'.format(
+                    str(zonefile_hash), resp['zonefiles'].keys()))
+                return self._reply_json({'error': 'No such zonefile'}, status_code=404)
             zonefile_txt = resp['zonefiles'][str(zonefile_hash)]
             res = zonefile.decode_name_zonefile(name, zonefile_txt, allow_legacy=True)
             if res is None:
                 log.error("Failed to parse zone file for {}".format(name))
                 self._reply_json({'error': 'Non-standard zone file for {}'.format(name)}, status_code=204)
-                return 
+                return
 
             self._reply_json({'zonefile': zonefile_txt})
 
@@ -1798,7 +1827,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         datastore_sig = str(file_info['datastore_sig'])
         
         datastore_pubkey = None
-
         for dpk in ses['app_public_keys']:
             res = gaia.datastore_verify_and_parse(datastore_str, datastore_sig, dpk['public_key'])
             if 'error' in res:
@@ -2460,46 +2488,87 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Return 401 on invalid key
         Return 500 on error
         """
+
+        SET_WALLET_KEY_SCHEMA = {
+            'anyOf': [
+                PRIVKEY_INFO_SCHEMA,
+                {
+                    'type': 'object',
+                    'properties': {
+                        'private_key' : PRIVKEY_INFO_SCHEMA,
+                        'persist_change' : {'type' : 'boolean'}
+                    },
+                    'required' : [
+                        'private_key'
+                    ]
+                }
+            ]
+        }
+
         if key_id not in ['owner', 'payment', 'data']:
             return self._reply_json({'error': 'Invalid key ID'}, status_code=401)
 
-        privkey_info = self._read_json(schema=PRIVKEY_INFO_SCHEMA)
+        request_data = self._read_json(schema=SET_WALLET_KEY_SCHEMA)
+
+        if isinstance(request_data, dict):
+            privkey_info = request_data['private_key']
+            persist = request_data.get('persist_change', False)
+        else:
+            privkey_info = request_data
+            persist = False
+
         if privkey_info is None or 'error' in privkey_info:
             return self._reply_json({'error': 'Failed to validate private key'}, status_code=401)
 
-        wallet = backend.registrar.get_wallet(config_path=self.server.config_path)
-        if 'error' in wallet:
-            return self._reply_json({'error': wallet['error']}, status_code=500)
-        
-        payment_privkey_info = wallet['payment_privkey']
-        owner_privkey_info = wallet['owner_privkey']
-        data_privkey_info = wallet['data_privkey']
+        old_wallet = backend.registrar.get_wallet(config_path=self.server.config_path)
+        if 'error' in old_wallet:
+            return self._reply_json({'error': old_wallet['error']}, status_code=500)
+
+        payment_privkey_info = old_wallet['payment_privkey']
+        owner_privkey_info = old_wallet['owner_privkey']
+        data_privkey_info = old_wallet['data_privkey']
 
         if key_id == 'owner':
+            changed = owner_privkey_info
             owner_privkey_info = privkey_info
 
         elif key_id == 'payment':
+            changed = payment_privkey_info
             payment_privkey_info = privkey_info
 
         elif key_id == 'data':
+            changed = data_privkey_info
             data_privkey_info = privkey_info
 
         else:
             return self._reply_json({'error': 'Failed to set private key info'}, status_code=401)
 
+        if virtualchain.get_privkey_address(changed) == virtualchain.get_privkey_address(privkey_info):
+            return self._reply_json({'status': True,
+                                     'message' : 'Supplied key was identical to previous; no change written'})
+
         # convert...
-        wallet = make_wallet(None, config_path=self.server.config_path, payment_privkey_info=payment_privkey_info, owner_privkey_info=owner_privkey_info, data_privkey_info=data_privkey_info, encrypt=False)
-        if 'error' in wallet:
+        new_wallet = make_wallet(None, payment_privkey_info=payment_privkey_info, owner_privkey_info=owner_privkey_info,
+                                 data_privkey_info=data_privkey_info, encrypt=False)
+        if persist:
+            password = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
+            if not password:
+                return self._reply_json(
+                    {'error' : 'Failed to load encryption password for wallet, refusing to persist key change.'}, 500)
+            status = wallet.save_modified_wallet(new_wallet, password, config_path = self.server.config_path)
+            if 'error' in status:
+                return self._reply_json(status, 500)
+        if 'error' in new_wallet:
             return self._reply_json({'error': 'Failed to reinstantiate wallet'}, status_code=500)
 
-        res = backend.registrar.set_wallet( (wallet['payment_addresses'][0], wallet['payment_privkey']),
-                                            (wallet['owner_addresses'][0], wallet['owner_privkey']),
-                                            (wallet['data_pubkeys'][0], wallet['data_privkey']), config_path=self.server.config_path )
+        res = backend.registrar.set_wallet( (new_wallet['payment_addresses'][0], new_wallet['payment_privkey']),
+                                            (new_wallet['owner_addresses'][0], new_wallet['owner_privkey']),
+                                            (new_wallet['data_pubkeys'][0], new_wallet['data_privkey']), config_path=self.server.config_path )
 
         if 'error' in res:
             return self._reply_json({'error': 'Failed to set wallet: {}'.format(res['error'])}, status_code=500)
 
-        self.server.wallet_keys = wallet
+        self.server.wallet_keys = new_wallet
         return self._reply_json({'status': True})
 
 
@@ -4468,13 +4537,14 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_transfer(self, fqu, recipient_addr):
+    def backend_transfer(self, fqu, recipient_addr, owner_key = None):
         """
         Queue a transfer
         """
         if is_api_server(self.config_dir):
             # directly invoke the transfer
-            return backend.registrar.transfer(fqu, recipient_addr, config_path=self.config_path)
+            return backend.registrar.transfer(
+                fqu, recipient_addr, config_path=self.config_path, owner_key = owner_key)
 
         else:
             res = self.check_version()
@@ -4486,8 +4556,12 @@ class BlockstackAPIEndpointClient(object):
                 'owner': recipient_addr
             }
 
+            if owner_key is not None:
+                data['owner_key'] = owner_key
+
             headers = self.make_request_headers()
-            req = requests.put( 'http://{}:{}/v1/names/{}/owner'.format(self.server, self.port, fqu), data=json.dumps(data), timeout=self.timeout, headers=headers)
+            req = requests.put('http://{}:{}/v1/names/{}/owner'.format(self.server, self.port, fqu),
+                               data=json.dumps(data), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
@@ -5153,7 +5227,7 @@ def local_api_action(command, password=None, api_pass=None, config_dir=blockstac
         else:
             return {'error': 'Failed to stop API endpoint'}
 
-    config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
+    config_path = os.path.join(config_dir, CONFIG_FILENAME)
 
     conf = blockstack_config.get_config(config_path)
     if conf is None:
@@ -5177,7 +5251,7 @@ def local_api_action(command, password=None, api_pass=None, config_dir=blockstac
         env = {}
         env.update( os.environ )
 
-        api_stdin_buf = blockstack_constants.serialize_secrets()
+        api_stdin_buf = serialize_secrets()
 
         p = subprocess.Popen(argv, cwd=config_dir, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, env=env)
         out, err = p.communicate(input=api_stdin_buf)
@@ -5411,8 +5485,8 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     from blockstack_client.wallet import load_wallet
     from blockstack_client.client import session
 
-    config_path = os.path.join(config_dir, blockstack_constants.CONFIG_FILENAME)
-    wallet_path = os.path.join(config_dir, blockstack_constants.WALLET_FILENAME)
+    config_path = os.path.join(config_dir, CONFIG_FILENAME)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
     conf = blockstack_client.get_config(config_path)
     assert conf

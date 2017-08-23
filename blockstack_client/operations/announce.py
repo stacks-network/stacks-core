@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -22,33 +22,36 @@
 """
 
 from utilitybelt import is_hex
-import os
-import sys
 
-# Hack around absolute paths
-current_dir = os.path.abspath(os.path.dirname(__file__))
-parent_dir = os.path.abspath(current_dir + "/../")
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
+from ..constants import (
+    DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
+    BLOCKSTACK_BURN_ADDRESS)
 
-from config import *
-from scripts import *
-from logger import get_logger
+from ..scripts import (
+    hash256_trunc128,
+    blockstack_script_to_hex,
+    add_magic_bytes,
+    is_name_valid,
+    tx_get_unspents,
+    hash256_trunc128
+)
+
+from ..logger import get_logger
 
 import virtualchain
 log = get_logger("blockstack-client")
 
 def build(message_hash):
     """
-     
+
     Record format:
-    
+
     0    2  3                             23
     |----|--|-----------------------------|
     magic op   message hash (160-bit)
-    
+
     """
-   
+
     if len(message_hash) != 40:
         raise Exception("Invalid hash: not 20 bytes")
 
@@ -58,8 +61,8 @@ def build(message_hash):
     readable_script = "ANNOUNCE 0x%s" % (message_hash)
     hex_script = blockstack_script_to_hex(readable_script)
     packaged_script = add_magic_bytes(hex_script)
-    
-    return packaged_script 
+
+    return packaged_script
 
 
 def make_outputs( data, inputs, change_address, tx_fee, pay_fee=True ):

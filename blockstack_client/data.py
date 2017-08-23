@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -20,7 +20,6 @@
     You should have received a copy of the GNU General Public License
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
-
 
 if __name__ == "__main__":
     # unit tests!

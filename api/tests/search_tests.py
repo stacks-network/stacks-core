@@ -50,7 +50,7 @@ class SearchTestCase(unittest.TestCase):
             self.assertIsNotNone(entry['username'])
             if entry['username'] not in self.test_users:
                 continue
-            self.assertIsNotNone(entry['profile'], 
+            self.assertIsNotNone(entry['profile'],
                                  msg="Error in fetching profile of entry: {}".format(entry))
 
     def test_find_user(self):
@@ -60,3 +60,10 @@ class SearchTestCase(unittest.TestCase):
             self.assertIn(u, data['results'][0]['username'])
             self.assertIn("profile", data['results'][0].keys())
 
+    def test_find_subdomain(self):
+        for u in ["Thomas Hobbes"]:
+            data = self.do_search(u)
+            self.assertTrue(len(data['results']) > 0)
+
+if __name__ == "__main__":
+    unittest.main()

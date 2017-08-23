@@ -363,6 +363,7 @@ def load_scenario( scenario_name ):
     try:
         scenario = importlib.import_module( scenario_name )
     except ImportError, ie:
+        log.exception(ie)
         raise Exception("Failed to import '%s'." % scenario_name )
 
     # validate 

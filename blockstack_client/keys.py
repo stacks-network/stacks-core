@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -35,7 +35,8 @@ from logger import get_logger
 from constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
 
 import virtualchain
-from virtualchain.lib.ecdsalib import *
+from virtualchain.lib.ecdsalib import (
+    set_privkey_compressed, get_pubkey_hex, ecdsa_private_key)
 
 NAMES_PRIVKEY_NODE = 888
 NAMES_PRIVKEY_VERSION_NODE = 0

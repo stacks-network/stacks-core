@@ -4,7 +4,9 @@ set -e
 COMMAND=$1
 
 if [ "$1" = "public_api" ]; then
-    aglio -i docs/api-specs.md --theme-template docs/aglio_templates/public.jade -o /tmp/index.html
+    aglio -i docs/api-specs.md --theme-template docs/aglio_templates/public.jade -o api/templates/index.html
+    version=$(python2 -c 'from blockstack.version import __version_major__, __version_minor__, __version_patch__; print("%s.%s.%s" % (__version_major__, __version_minor__, __version_patch__))')
+    sed -i "s/###version###/$version/g" docs/api-specs.md
 elif [ "$1" = "core_api" ]; then
     aglio -i docs/api-specs.md --theme-template docs/aglio_templates/core.jade -o /tmp/index.html
 elif [ "$1" = "deploy_gh" ]; then

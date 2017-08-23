@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -20,24 +20,20 @@
     You should have received a copy of the GNU General Public License
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
-import json
+import json, re
 from binascii import hexlify, unhexlify
-from decimal import *
 
 import virtualchain
 
 from binascii import hexlify, unhexlify
 
-from virtualchain.lib.ecdsalib import *
-from virtualchain.lib.hashing import *
-
+from virtualchain.lib.hashing import is_hex, hex_hash160, bin_sha256
 from virtualchain import tx_extend, tx_sign_input
 
-from b40 import *
-from constants import MAGIC_BYTES, NAME_OPCODES, LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID, TX_MIN_CONFIRMATIONS
-from keys import *
-from utxo import get_unspents 
-from logger import get_logger
+from .b40 import is_b40, b40_to_bin
+from .constants import MAGIC_BYTES, NAME_OPCODES, LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID, TX_MIN_CONFIRMATIONS
+from .utxo import get_unspents
+from .logger import get_logger
 
 log = get_logger('blockstack-client')
 
@@ -61,7 +57,7 @@ def common_checks(n):
 
     if len(n) > LENGTH_MAX_NAME:
        # too long
-       return False 
+       return False
 
     if not is_b40(n):
         return False
@@ -117,6 +113,12 @@ def is_valid_hash(value):
 
     return len(strvalue) == 64
 
+def is_valid_int(value):
+    try:
+        int(value)
+        return True
+    except ValueError:
+        return False
 
 def blockstack_script_to_hex(script):
     """ Parse the readable version of a script, return the hex version.
@@ -177,9 +179,9 @@ def tx_get_address_and_utxos(private_key_info, utxo_client, address=None):
     """
 
     if private_key_info is None:
-        # just go with the address 
+        # just go with the address
         unspents = get_unspents(address, utxo_client)
-        return addr, unspents 
+        return address, unspents
 
     addr = virtualchain.get_privkey_address(private_key_info)
     payer_utxos = get_unspents(addr, utxo_client)

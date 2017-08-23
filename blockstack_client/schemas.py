@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
@@ -24,7 +24,17 @@ from __future__ import print_function
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from constants import *
+from .constants import (
+    LENGTH_CONSENSUS_HASH,
+    NAME_OPCODES,
+    NAME_TRANSFER,
+    TRANSFER_KEEP_DATA,
+    TRANSFER_REMOVE_DATA,
+    NAME_REGISTRATION,
+    LENGTH_VALUE_HASH,
+    LENGTH_MAX_NAME,
+    LENGTH_MAX_NAMESPACE_ID)
+
 import blockstack_profiles
 
 OP_URLENCODED_NOSLASH_CLASS = r'[a-zA-Z0-9\-_.~%]'
@@ -58,6 +68,7 @@ OP_NAME_OR_SUBDOMAIN_FRAGMENT = r'({})|({})'.format(OP_NAME_PATTERN, OP_SUBDOMAI
 OP_NAME_OR_SUBDOMAIN_PATTERN = r'^{}$'.format(OP_NAME_OR_SUBDOMAIN_FRAGMENT)
 OP_NAMESPACE_PATTERN = r'^({})$'.format(OP_NAMESPACE_CLASS)
 OP_NAMESPACE_HASH_PATTERN = r'^([0-9a-fA-F]{16})$'
+OP_SUBDOMAIN_NAME_PATTERN = r'^([a-z0-9\-_.+]{{{},{}}})$'.format(5, LENGTH_MAX_NAME * 2)
 OP_BASE64_PATTERN_SECTION = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
 OP_BASE64_PATTERN = r'^({})$'.format(OP_BASE64_PATTERN_SECTION)
 OP_URLENCODED_NOSLASH_PATTERN = r'^({}+)$'.format(OP_URLENCODED_NOSLASH_CLASS)       # intentionally left out /

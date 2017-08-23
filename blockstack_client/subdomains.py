@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -30,7 +30,7 @@ import virtualchain
 from multiprocessing import Pool
 
 from itertools import izip
-from blockstack_client import gaia, storage, config, proxy, schemas, constants
+from blockstack_client import storage, config, proxy, schemas, constants
 from blockstack_client import zonefile as bs_zonefile
 from blockstack_client import user as user_db
 from blockstack_client.backend import safety
@@ -178,6 +178,22 @@ class SubdomainDB(object):
 
         return Subdomain(domain_name, subdomain_name, str(encoded_pubkey), int(n), str(zonefile_str), sig, txid)
 
+    def get_all_subdomains(self, above_seq = None):
+        if above_seq:
+            get_cmd = "SELECT fully_qualified_subdomain FROM {} WHERE sequence >= ?"
+        else:
+            get_cmd = "SELECT fully_qualified_subdomain FROM {}"
+        get_cmd = get_cmd.format(self.subdomain_table)
+        cursor = self.conn.cursor()
+        if above_seq:
+            cursor.execute(get_cmd, (above_seq,))
+        else:
+            cursor.execute(get_cmd)
+        try:
+            return [ x[0] for x in cursor.fetchall() ]
+        except:
+            return []
+
     def get_subdomains_owned_by_address(self, owner):
         get_cmd = "SELECT fully_qualified_subdomain FROM {} WHERE owner = ?".format(
             self.subdomain_table)
@@ -308,18 +324,34 @@ class SubdomainDB(object):
             return 0
         return int(last_block)
 
+    def get_last_index(self):
+        """
+        Returns the last sequence number for the subdomain DB.
+        WARNING: this is specific to *this* instance, and *this* DB,
+        if you use this, it should *only* be as an optimization.
+        """
+        get_cmd = """SELECT sequence FROM {} ORDER BY sequence DESC LIMIT 1""".format(
+            self.subdomain_table)
+        cursor = self.conn.cursor()
+        cursor.execute(get_cmd)
+        try:
+            last_seq = cursor.fetchone()[0]
+        except:
+            return 0
+        return int(last_seq)
+
     def _drop_tables(self):
         drop_cmd = "DROP TABLE IF EXISTS {};"
         cursor = self.conn.cursor()
         cursor.execute(drop_cmd.format(self.subdomain_table))
-        cursor.execute(drop_cmd.format(self.status_table)) 
+        cursor.execute(drop_cmd.format(self.status_table))
 
     def _create_tables(self):
         create_cmd = """CREATE TABLE IF NOT EXISTS {} (
         fully_qualified_subdomain TEXT PRIMARY KEY,
         sequence INTEGER,
         owner TEXT,
-        zonefile TEXT, 
+        zonefile TEXT,
         signature TEXT,
         last_txid TEXT);
         """.format(self.subdomain_table)
@@ -344,15 +376,18 @@ def parse_zonefile_subdomains(domain, zonefile_json):
 
 def is_address_subdomain(fqa):
     """
-    Tests whether fqa is a subdomain. 
+    Tests whether fqa is a subdomain.
+    @fqa must be a string
     If it isn't, returns False.
     If it is, returns True and a tuple (subdomain_name, domain)
     """
-    if re.match(schemas.OP_NAME_PATTERN, fqa) == None:
+    if re.match(schemas.OP_SUBDOMAIN_NAME_PATTERN, fqa) == None:
         return False
     pieces = fqa.split(".")
     if len(pieces) == 3:
         subd_name = pieces[0]
+        if len(subd_name) < 1:
+            return False
         domain  = fqa[len(subd_name) + 1:]
         error = safety.check_valid_name(domain)
         if error:
@@ -381,7 +416,7 @@ def _build_subdomain_db(domain_fqas, zonefiles, subdomain_db = None, txids = Non
             assert "zonefile" not in zf
             zf_json = zf
         else:
-            assert isinstance(zf, (str, unicode)) 
+            assert isinstance(zf, (str, unicode))
             zf_json = bs_zonefile.decode_name_zonefile(domain_fqa, zf)
             assert "zonefile" not in zf_json
 
@@ -448,6 +483,7 @@ def add_subdomains(subdomains, domain_fqa):
 
 def get_subdomain_info(subdomain, domain_fqa, use_cache = True):
     if not use_cache:
+        from blockstack_client import gaia
         zonefiles = gaia.list_zonefile_history(domain_fqa)
         subdomain_db = _build_subdomain_db([domain_fqa for z in zonefiles], zonefiles)
     else:
@@ -516,7 +552,7 @@ def get_subdomains_owned_by_address(address):
 #                  redeem script portion and sigs, verify with OPCHECKMULTISIG
 #                  verify redeem script matches owner address.
 #       single-sig: parse b64 signature blob as a scriptSig, parse out the
-#                   pubkey and sig, verify like OPCHECKSIG. 
+#                   pubkey and sig, verify like OPCHECKSIG.
 #                   verify pubkey matches owner address.
 ##
 

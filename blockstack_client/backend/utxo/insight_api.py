@@ -62,15 +62,15 @@ class InsightClient(object):
         except Exception as e:
             traceback.print_exc()
             raise ValueError("Invalid UTXO response")
-        
+
 
     def broadcast_transaction(self, rawtx):
         url = self.url + '/insight-api/tx/send'
         req = None
-        
+
         data = json.dumps({'rawtx': rawtx})
         headers = {'content-type': 'application/json', 'accept': 'application/json'}
-        
+
         req = None
         resp = None
 
@@ -132,12 +132,12 @@ if __name__ == '__main__':
     arg = sys.argv[2]
 
     if op == 'get_unspents':
-        res = get_unspents(arg)
+        res = _get_unspents(arg)
         print json.dumps(res, indent=4, sort_keys=True)
         sys.exit(0)
 
     elif op == 'broadcast_transaction':
-        res = broadcast_transaction(arg)
+        res = _broadcast_transaction(arg)
         print json.dumps(res, indent=4, sort_keys=True)
         sys.exit(0)
 

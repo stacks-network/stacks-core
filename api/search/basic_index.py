@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Search
@@ -48,10 +48,8 @@ def fetch_profile_data_from_file():
     """ takes profile data from file and saves in the profile_data DB
     """
 
-    profile_data_file = open(SEARCH_PROFILE_DATA_FILE, 'r')
-
-    profiles = profile_data_file.read()
-    profiles = json.loads(profiles)
+    with open(SEARCH_PROFILE_DATA_FILE, 'r') as fin:
+        profiles = json.load(fin)
 
     counter = 0
 
@@ -59,7 +57,6 @@ def fetch_profile_data_from_file():
     log.debug("Fetching profile data from file")
 
     for entry in profiles:
-
         new_entry = {}
         new_entry['key'] = entry['fqu']
         new_entry['value'] = entry['profile']
@@ -67,15 +64,13 @@ def fetch_profile_data_from_file():
         try:
             profile_data.save(new_entry)
         except Exception as e:
-            print e
-            print "Exception on entry {}".format(new_entry)
+            log.exception(e)
+            log.error("Exception on entry {}".format(new_entry))
 
         counter += 1
 
         if counter % 1000 == 0:
             log.debug("Processed entries: %s" % counter)
-
-    profile_data_file.close()
 
     profile_data.ensure_index('key')
 
@@ -160,7 +155,6 @@ def create_search_index():
     log.debug("Creating search index")
 
     for user in namespace.find():
-
         # the profile/info to be inserted
         search_profile = {}
 
@@ -179,19 +173,17 @@ def create_search_index():
 
 
         hasBazaarId=False
-        # search for openbazaar id in the profile        
+        # search for openbazaar id in the profile
         if 'account' in profile:
             for accounts in profile['account']:
                 if  accounts['service'] == 'openbazaar':
                    hasBazaarId = True
                    search_profile['openbazaar']=accounts['identifier']
-                  # pretty_print(search_profile['openbazaar'])  
 
         if (hasBazaarId == False):
             search_profile['openbazaar'] = None
-        
-        if 'name' in profile:
 
+        if 'name' in profile:
             try:
                 name = profile['name']
             except:
@@ -201,7 +193,6 @@ def create_search_index():
                 name = name['formatted'].lower()
             except:
                 name = name.lower()
-
             people_names.append(name)
             search_profile['name'] = name
 
@@ -209,7 +200,6 @@ def create_search_index():
             search_profile['name'] = None
 
         if 'twitter' in profile:
-        
             twitter_handle = profile['twitter']
 
             try:
@@ -232,9 +222,7 @@ def create_search_index():
         search_profile['profile'] = profile
         search_profiles.save(search_profile)
 
-        
 
-           
     # dedup names
     people_names = list(set(people_names))
     people_names = {'name': people_names}
@@ -246,9 +234,6 @@ def create_search_index():
     usernames = {'username': usernames}
 
     # save final dedup results to mongodb (using it as a cache)
-
-    
-    
     people_cache.save(people_names)
     twitter_cache.save(twitter_handles)
     username_cache.save(usernames)
@@ -257,7 +242,6 @@ def create_search_index():
 
     log.debug('Created name/twitter/username search index')
 
-        
 if __name__ == "__main__":
 
     if(len(sys.argv) < 2):

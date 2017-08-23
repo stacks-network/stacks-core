@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -37,13 +37,16 @@ import blockstack_profiles
 
 from logger import get_logger
 from constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, BLOCKSTACK_STORAGE_CLASSES
-from config import get_config
+from config import get_config, CONFIG_PATH
 from scripts import hex_hash160
 import schemas
-from keys import *
+from keys import is_singlesig_hex
 
 import virtualchain
-from virtualchain.lib.ecdsalib import *
+from virtualchain.lib.ecdsalib import (
+    sign_raw_data,
+    verify_raw_data,
+    get_pubkey_hex)
 
 log = get_logger()
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
@@ -36,7 +36,7 @@ as a command-line option.
 """
 
 import argparse
-import sys
+import sys, os
 import requests
 import traceback
 requests.packages.urllib3.disable_warnings()
@@ -45,12 +45,12 @@ import logging
 logging.disable(logging.CRITICAL)
 
 from blockstack_client import config
-from blockstack_client.client import session, analytics_user_register 
+from blockstack_client.client import session, analytics_user_register
 from blockstack_client.constants import WALLET_FILENAME, set_secret, serialize_secrets, write_secrets, load_secrets, CONFIG_PATH
 from blockstack_client.config import CONFIG_PATH, VERSION, client_uuid_path, get_or_set_uuid
 from blockstack_client.method_parser import parse_methods, build_method_subparsers
 
-from wallet import *
+from .wallet import inspect_wallet
 from utils import exit_with_error, print_result
 
 log = config.get_logger()
@@ -546,7 +546,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             print('')
             print('Interactive prompt engaged.  Press Ctrl+C to quit')
             print('Help for "{}": {}'.format(method_info['command'], method_info['help']))
-            print('Arguments: {} {}'.format(method_info['command'], arg_usage, opt_usage))
+            print('Arguments: {} {} {}'.format(method_info['command'], arg_usage, opt_usage))
             print('')
 
             required_args = prompt_args(method_info['args'], prompt_func)

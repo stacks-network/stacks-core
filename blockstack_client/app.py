@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
@@ -23,14 +23,13 @@ from __future__ import print_function
     You should have received a copy of the GNU General Public License
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
+import json
 import jsonschema
 from jsonschema.exceptions import ValidationError
 import time
 
-from keylib import *
-
 import virtualchain
-from virtualchain.lib.ecdsalib import *
+from virtualchain.lib.ecdsalib import get_pubkey_hex
 
 import re
 import jsontokens
@@ -38,12 +37,14 @@ import storage
 import urlparse
 import gaia
 import user as user_db
-from .proxy import *
+from .proxy import get_default_proxy
 
-from config import get_config
+from config import get_config, get_logger
 from .constants import CONFIG_PATH, BLOCKSTACK_TEST, LENGTH_MAX_NAME, DEFAULT_API_PORT, DEFAULT_API_HOST
-from .schemas import *
+from .schemas import APP_CONFIG_SCHEMA, APP_SESSION_SCHEMA
 from .storage import classify_storage_drivers
+
+log = get_logger()
 
 def is_valid_app_name(app_name):
     """
@@ -73,7 +74,6 @@ def app_domain_to_app_name(app_domain):
 
     else:
         return '{}.1'.format(urlinfo.netloc)
-
 
 def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_public_keys, requester_device_id, master_data_privkey, session_lifetime=None, config_path=CONFIG_PATH ):
     """
@@ -270,7 +270,7 @@ def app_get_config( blockchain_id, app_domain, data_pubkey=None, proxy=None, con
     # go get config
     res = gaia.get_mutable( ".blockstack", [app_domain], data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, blockchain_id=blockchain_id )
     if 'error' in res:
-        log.error("Failed to get application config file {}: {}".format(config_data_id, res['error']))
+        log.error("Failed to get application config file: {}".format(res['error']))
         return res
 
     app_cfg = None
@@ -281,7 +281,7 @@ def app_get_config( blockchain_id, app_domain, data_pubkey=None, proxy=None, con
         if BLOCKSTACK_TEST:
             log.exception(ve)
 
-        log.error("Invalid application config file {}".format(config_data_id))
+        log.error("Invalid application config file {}".format(app_cfg))
         return {'error': 'Invalid application config'}
 
     return {'status': True, 'config': app_cfg}

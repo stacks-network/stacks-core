@@ -7,10 +7,9 @@ dependencies:
     - ../virtualenvs/venv-system/bin/pip install git+https://github.com/kantai/py-scrypt.git:
         environment:
           PYSCRYPT_NO_LINK_FLAGS: "1"
-          LDFLAGS: /usr/local/opt/openssl/lib/libcrypto.a /usr/local/opt/openssl/lib/libssl.a 
+          LDFLAGS: /usr/local/opt/openssl/lib/libcrypto.a /usr/local/opt/openssl/lib/libssl.a
           CPPFLAGS: -I/usr/local/opt/openssl/include
-    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/kantai/zone-file-py.git@txt-record-multi-string
-    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/blockstack/virtualchain@rc-0.14.3
+    - ../virtualenvs/venv-system/bin/pip install virtualchain
     - ../virtualenvs/venv-system/bin/pip install git+https://github.com/blockstack/jsontokens-py@develop
 compile:
   post:
@@ -26,7 +25,7 @@ test:
     - blockstack api stop -y
 deployment:
   tarball_venv:
-    branch: [rc-0.14.2, master, osx-single-file-build, rc-0.14.3]
+    branch: [master, osx-single-file-build, develop]
     commands:
       - cp -r ../virtualenvs/venv-system ./venv-copy
       - virtualenv --relocatable ../virtualenvs/venv-system

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Search
@@ -99,4 +99,8 @@ def validUsername(username):
     if a.match(username):
         return True
     else:
+        parts = username.split(".")
+        if len(parts) == 2:
+            if a.match(parts[0]) and a.match(parts[1]):
+                return True
         return False

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -24,19 +24,21 @@
 import keylib
 from binascii import hexlify
 
-import os
-import sys
+from ..b40 import is_b40
+from ..logger import get_logger
+from ..scripts import (
+    hash256_trunc128,
+    blockstack_script_to_hex,
+    add_magic_bytes,
+    is_namespace_valid,
+    tx_get_unspents,
+    hash256_trunc128
+)
 
-# Hack around absolute paths
-current_dir = os.path.abspath(os.path.dirname(__file__))
-parent_dir = os.path.abspath(current_dir + "/../")
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-
-from b40 import is_b40
-from config import *
-from scripts import *
-from logger import get_logger
+from ..constants import (
+    DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
+    BLOCKSTACK_VERSION, LENGTH_MAX_NAMESPACE_ID)
+>>>>>>> develop
 
 import virtualchain
 log = get_logger("blockstack-log")

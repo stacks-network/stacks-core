@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack
@@ -89,10 +89,10 @@ def scenario( wallets, **kw ):
     # tell serialization-checker that value_hash can be ignored here
     print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
     sys.stdout.flush()
-    
+
     testlib.next_block( **kw )
-    
-    # sign in and make a token 
+
+    # sign in and make a token
     datastore_pk = keylib.ECPrivateKey(wallets[-1].privkey).to_hex()
     res = testlib.blockstack_cli_app_signin("foo.test", datastore_pk, 'http://localhost.1:8888', ['store_read', 'store_write', 'store_admin'])
     if 'error' in res:
@@ -106,11 +106,11 @@ def scenario( wallets, **kw ):
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
-        return 
+        return
 
-    # export to environment 
+    # export to environment
     blockstack_client.set_secret("BLOCKSTACK_API_SESSION", res['token'])
-    
+
     ses = res['token']
 
     print 'session:'
@@ -118,7 +118,7 @@ def scenario( wallets, **kw ):
 
     app_name = 'localhost.1:8888'
 
-    # use random data for file 
+    # use random data for file
     file_data = None
     with open('/dev/urandom', 'r') as f:
         file_data = f.read(16384)
@@ -212,7 +212,7 @@ def scenario( wallets, **kw ):
         if res['errno'] != "ENOENT":
             print 'wrong errno: {}'.format(res)
             return False
- 
+
     # get files (should all fail)
     for dpath in ['file1', 'file2', 'file3', 'file4', 'file5']:
         print 'getfile {} (expect failure)'.format(dpath)
@@ -239,7 +239,7 @@ def scenario( wallets, **kw ):
             print res
             return False
 
-    # delete datastore 
+    # delete datastore
     print 'delete datastore'
     res = testlib.blockstack_cli_delete_datastore( datastore_pk, ses )
     if 'error' in res:
@@ -247,7 +247,7 @@ def scenario( wallets, **kw ):
         print json.dumps(res)
         return False
 
-    # no more data in disk driver 
+    # no more data in disk driver
     names = os.listdir("/tmp/blockstack-disk/mutable")
     if names != ['foo.test']:
         print 'improper cleanup'
@@ -264,20 +264,20 @@ def check( state_engine ):
         print "Key operation failed."
         return False
 
-    # not revealed, but ready 
+    # not revealed, but ready
     ns = state_engine.get_namespace_reveal( "test" )
     if ns is not None:
         print "namespace not ready"
-        return False 
+        return False
 
     ns = state_engine.get_namespace( "test" )
     if ns is None:
         print "no namespace"
-        return False 
+        return False
 
     if ns['namespace_id'] != 'test':
         print "wrong namespace"
-        return False 
+        return False
 
     names = ['foo.test']
     wallet_keys_list = [wallet_keys]
@@ -295,17 +295,17 @@ def check( state_engine ):
         if preorder is not None:
             print "still have preorder"
             return False
-    
-        # registered 
+
+        # registered
         name_rec = state_engine.get_name( name )
         if name_rec is None:
             print "name does not exist"
-            return False 
+            return False
 
-        # owned 
+        # owned
         if name_rec['address'] != wallets[wallet_owner].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[wallet_owner].addr):
             print "name has wrong owner"
-            return False 
+            return False
 
         # try to authenticate
 

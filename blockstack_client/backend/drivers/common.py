@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -34,6 +34,8 @@ import posixpath
 import urllib
 import threading
 import time
+import tempfile
+
 from functools import wraps
 
 if os.environ.get("BLOCKSTACK_DEBUG", None) is not None:

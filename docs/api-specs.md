@@ -40,7 +40,7 @@ Ping the blockstack node to see if it's alive.
   
             {
              "status": "alive", 
-             "version": "0.14.2"
+             "version": "###version###"
             }
   + Schema
 
@@ -485,13 +485,19 @@ Returns core node's payment address.
 ## Set a specific wallet key [PUT /v1/wallet/keys/{keyname}]
 This call instructs the blockstack core node to use a particular key
 instead of the core node's configured wallet key. The setting of this
-key is *temporary*. It is not written to `~/.blockstack/wallet.json`,
-and on a subsequent restart, the key will return to the original key.
-However, the core registrar *tracks* the owner key used for each `PREORDER`,
-and stores that private key encrypted (with `scrypt` and the core wallet
-password) in the queue. When the registrar detects that the key being used
-for a particular name has changed, it will recover by submitting further
+key is *temporary* by default, meaning that it is not written to
+`~/.blockstack/wallet.json`, and on a subsequent restart, the key will
+return to the original key.  However, the core registrar *tracks* the
+owner key used for each `PREORDER`, and stores that private key
+encrypted (with `scrypt` and the core wallet password) in the
+queue. When the registrar detects that the key being used for a
+particular name has changed, it will recover by submitting further
 transactions with the stored key.
+
+However, for blockstack core >= 0.14.5, the `persist_change` keyword
+will instruct the core node to write the changed key to
+`~/.blockstack/wallet.json`. In this mode, the node will backup the
+previous wallet to `~/.blockstack/wallet.json.prior.<timestamp>`
 
 + Requires root authorization
 + Parameters
@@ -504,52 +510,112 @@ transactions with the stored key.
 
 + Request (application/json)
   + Schema
-  
+
+              {
+                "type" : "object",
+                "properties" : {
+                  "private_key" : {
+                     "anyOf": [
+                         {
+                             "anyOf": [
+                                 {
+                                     "pattern": "^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$",
+                                     "type": "string"
+                                 },
+                                 {
+                                     "pattern": "^([0-9a-fA-F]+)$",
+                                     "type": "string"
+                                 }
+                             ]
+                         },
+                         {
+                             "properties": {
+                                 "address": {
+                                     "pattern": "^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$",
+                                     "type": "string"
+                                 },
+                                 "private_keys": {
+                                     "items": {
+                                         "anyOf": [
+                                             {
+                                                 "pattern": "^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$", 
+                                                 "type": "string"
+                                             },
+                                             {
+                                                 "pattern": "^([0-9a-fA-F]+)$",
+                                                 "type": "string"
+                                             }
+                                         ]
+                                     },
+                                     "type": "array"
+                                 },
+                                 "redeem_script": {
+                                     "pattern": "^([0-9a-fA-F]+)$",
+                                     "type": "string"
+                                 }
+                             },
+                             "required": [
+                                 "address",
+                                 "redeem_script",
+                                 "private_keys"
+                             ],
+                             "type": "object"
+                         }
+                     ]
+                    },
+                  "persist_change" : {"type" : "boolean"}
+              },
+              "required" : [ "private_key" ]
+             }
+
++ Request (application/json)
+  + Schema
+
               {
                 "anyOf": [
                     {
                         "anyOf": [
                             {
-                                "pattern": "^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$", 
+                                "pattern": "^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$",
                                 "type": "string"
-                            }, 
+                            },
                             {
-                                "pattern": "^([0-9a-fA-F]+)$", 
+                                "pattern": "^([0-9a-fA-F]+)$",
                                 "type": "string"
                             }
                         ]
-                    }, 
+                    },
                     {
                         "properties": {
                             "address": {
-                                "pattern": "^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$", 
+                                "pattern": "^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$",
                                 "type": "string"
-                            }, 
+                            },
                             "private_keys": {
                                 "items": {
                                     "anyOf": [
                                         {
                                             "pattern": "^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$", 
                                             "type": "string"
-                                        }, 
+                                        },
                                         {
-                                            "pattern": "^([0-9a-fA-F]+)$", 
+                                            "pattern": "^([0-9a-fA-F]+)$",
                                             "type": "string"
                                         }
                                     ]
-                                }, 
+                                },
                                 "type": "array"
-                            }, 
+                            },
                             "redeem_script": {
-                                "pattern": "^([0-9a-fA-F]+)$", 
+                                "pattern": "^([0-9a-fA-F]+)$",
                                 "type": "string"
                             }
-                        }, 
+                        },
                         "required": [
-                            "address", 
-                            "redeem_script", 
+                            "address",
+                            "redeem_script",
                             "private_keys"
-                        ], 
+                        ],
                         "type": "object"
                     }
                 ]
@@ -953,7 +1019,7 @@ Revokes the name from blockstack.
                 },
               ],
             }
-                
+
 
 ## Transfer name [PUT /v1/names/{name}/owner]
 Transfers a name to a different owner.
@@ -964,6 +1030,75 @@ Transfers a name to a different owner.
   + Body
 
              { "owner" : "mjZicz7GSJBZuGeCMEgpzr8U9w6d41DfXm" }
+
++ Request (application/json)
+  + Schema
+
+
+                      {
+                        'type': 'object',
+                        'properties': {
+                            'owner': {
+                                'type': 'string',
+                                'pattern': OP_BASE58CHECK_PATTERN,
+                            },
+                            'tx_fee': {
+                                'type': 'integer',
+                                'minimum': 0,
+                                'maximum': 500000
+                            },
+                            'owner_key': {
+                                'anyOf': [
+                                    {
+                                        'anyOf': [
+                                            {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'properties': {
+                                            'address': {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            'private_keys': {
+                                                'items': {
+                                                    'anyOf': [
+                                                        {
+                                                            'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                            'type': 'string'
+                                                        },
+                                                        {
+                                                            'pattern': '^([0-9a-fA-F]+)$',
+                                                            'type': 'string'
+                                                        }
+                                                    ]
+                                                },
+                                                'type': 'array'
+                                            },
+                                            'redeem_script': {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        },
+                                        'required': [
+                                            'owner'
+                                        ],
+                                        'type': 'object'
+                                    }
+                                ]
+                            }
+                        },
+                        'additionalProperties': False,
+                    }
+
+
 + Response 202 (application/json)
   + Body
 

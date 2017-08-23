@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -43,7 +43,7 @@ import blockstack_zones
 import virtualchain
 
 from .queue import get_queue_state, in_queue, cleanup_preorder_queue, queue_removeall
-from .queue import queue_find_accepted
+from .queue import queue_find_accepted, queuedb_find
 from .queue import queue_add_error_msg
 
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
@@ -520,7 +520,7 @@ class RegistrarWorker(threading.Thread):
 
         atlas_servers = cls.get_atlas_server_list( config_path )
         if 'error' in atlas_servers:
-            log.warn('Failed to get server list: {}'.format(servers['error']))
+            log.warn('Failed to get server list: {}'.format(atlas_servers['error']))
             return {'error': 'Failed to get Atlas server list'}
 
         for update in updates:
@@ -655,7 +655,7 @@ class RegistrarWorker(threading.Thread):
 
         atlas_peers_res = {}
         try:
-            atlas_peers_res = get_atlas_peers( server_hostport )
+            atlas_peers_res = get_atlas_peers( server_hostport, proxy = get_default_proxy() )
             assert 'error' not in atlas_peers_res
 
             servers += atlas_peers_res['peers']
@@ -1303,7 +1303,8 @@ def update( fqu, zonefile_txt, zonefile_hash, transfer_address, config_path=CONF
 
 
 # RPC method: backend_transfer
-def transfer(fqu, transfer_address, prior_name_data = None, config_path=CONFIG_PATH, proxy=None ):
+def transfer(fqu, transfer_address, prior_name_data = None, config_path=CONFIG_PATH, proxy=None,
+             owner_key = None):
     """
     Send transfer transaction.
     Keeps the zonefile data.
@@ -1326,7 +1327,10 @@ def transfer(fqu, transfer_address, prior_name_data = None, config_path=CONFIG_P
         return data
 
     payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
-    owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    if owner_key is None:
+        owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    else:
+        owner_privkey_info = owner_key
 
     kwargs = {}
     if prior_name_data:

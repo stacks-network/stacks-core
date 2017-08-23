@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
@@ -44,8 +44,9 @@ xmlrpc.monkey_patch()
 import storage
 import scripts
 
-from constants import (
-    MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST, DEFAULT_TIMEOUT
+from .constants import (
+    MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST, DEFAULT_TIMEOUT,
+    BLOCKSTACK_DEBUG
 )
 
 from logger import get_logger
@@ -55,7 +56,20 @@ from operations import (
     nameop_restore_snv_consensus_fields
 )
 
-from schemas import *
+from .schemas import (
+    OP_NAMESPACE_PATTERN,
+    OP_CONSENSUS_HASH_PATTERN,
+    OP_CONSENSUS_HASH_PATTERN,
+    NAMEOP_SCHEMA_PROPERTIES,
+    NAMEOP_SCHEMA_REQUIRED,
+    OP_TXID_PATTERN,
+    OP_CODE_PATTERN,
+    OP_ZONEFILE_HASH_PATTERN,
+    OP_TXID_PATTERN,
+    OP_HISTORY_SCHEMA,
+    NAMESPACE_SCHEMA_PROPERTIES,
+    NAMESPACE_SCHEMA_REQUIRED
+)
 
 log = get_logger('blockstack-client')
 
@@ -134,7 +148,9 @@ class BlockstackRPCClient(object):
                  timeout=DEFAULT_TIMEOUT, debug_timeline=False, protocol=None, **kw):
 
         if protocol is None:
-            raise Exception("RPC constructor must be passed a protocol")
+            log.warn("RPC constructor called without a protocol, defaulting " +
+                     "to HTTP, this could be an issue if connection is on :6263")
+            protocol = 'http'
 
         self.url = '{}://{}:{}'.format(protocol, server, port)
         self.srv = TimeoutServerProxy(self.url, protocol, timeout=timeout, allow_none=True)
@@ -2059,7 +2075,6 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
     }
 
     schema = json_response_schema( peers_schema )
-
 
     if proxy is None:
         host, port = url_to_host_port(hostport)

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -25,7 +25,7 @@ import sys
 import os
 import importlib
 
-from proxy import *
+from proxy import BlockstackRPCClient, set_default_proxy, get_default_proxy
 from virtualchain import SPVClient
 import storage
 

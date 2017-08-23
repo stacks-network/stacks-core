@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -205,7 +205,7 @@ def put_immutable_handler( key, data, txid, **kw ):
 
    if not os.path.exists(pathdir):
        try:
-           os.makedirs(path_dir, 0700)
+           os.makedirs(pathdir, 0700)
        except Exception, e:
            if DEBUG:
                log.exception(e)
@@ -241,7 +241,7 @@ def put_mutable_handler( data_id, data_bin, **kw ):
 
    if not os.path.exists(pathdir):
        try:
-           os.makedirs(path_dir, 0700)
+           os.makedirs(pathdir, 0700)
        except Exception, e:
            if DEBUG:
                log.exception(e)
@@ -321,8 +321,8 @@ if __name__ == "__main__":
    current_dir =  os.path.abspath(os.path.join( os.path.dirname(__file__), "..") )
    sys.path.insert(0, current_dir)
    
-   from storage import serialize_mutable_data, parse_mutable_data
-   from user import make_mutable_data_info
+   from blockstack_client.storage import serialize_mutable_data, parse_mutable_data
+   from blockstack_client.user import make_mutable_data_info
 
    pk = keylib.ECPrivateKey()
    data_privkey = pk.to_hex()
