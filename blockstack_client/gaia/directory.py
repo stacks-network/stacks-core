@@ -69,10 +69,13 @@ from metadata import *
 from mutable import *
 
 
-def make_empty_device_root_directory(datastore_id, reader_pubkeys, timestamp):
+def make_empty_device_root_directory(datastore_id, reader_pubkeys, timestamp=None):
     """
     Make an empty device root directory
     """
+    if timestamp is None:
+        timestamp = int(time.time() * 1000)
+
     dev_root_dir = {
         'proto_version': 2,
         'type': ROOT_DIRECTORY_LEAF,
@@ -222,7 +225,7 @@ def get_root_directory(datastore_id, root_uuid, drivers, data_pubkeys, timestamp
     assert conf
 
     if data_pubkeys is None:
-        # get from token file
+        # get from key file (and use root URLs)
         res = lookup_app_pubkeys(blockchain_id, full_app_name, cache=GLOBAL_CACHE, proxy=proxy)
         if 'error' in res:
             res['errno'] = "EINVAL"
@@ -279,7 +282,7 @@ def put_device_root_data(datastore_id, device_id, root_uuid, directory_blob, dir
 
     This is a server-side method.
 
-    Return {'status': True, 'urls': [...]} on success
+    Return {'status': True, 'urls': ...]} on success
     Return {'error': ...,} on failure
     """
 
