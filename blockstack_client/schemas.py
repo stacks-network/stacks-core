@@ -1787,6 +1787,58 @@ APP_KEY_BUNDLE_SCHEMA = {
 
 
 # Blockstack key file
+# resides as "keyfile" within a profile
+BLOCKSTACK_KEY_FILE_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'version': {
+            'type': 'string',
+            'pattern': '^3\.0$',
+        },
+        'keys': {
+            'type': 'object',
+            'properties': {
+                'name': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'string',
+                        'pattern': OP_PUBKEY_PATTERN,
+                    },
+                },
+                'delegation': {
+                    'type': 'string',
+                },
+                'apps': {
+                    'type': 'object',
+                    'patternProperties': {
+                        '^.+$': {
+                            'type': 'string',
+                        },
+                    },
+                },
+            },
+            'required': [
+                'name',
+                'delegation',
+                'apps',
+            ],
+            'additionalProperties': False,
+        },
+        'timestamp': {
+            'type': 'integer',
+            'minimum': 0,
+        },
+    },
+    'required': [
+        'version',
+        'keys',
+        'timestamp'
+    ],
+    'additionalProperties': False,
+}
+
+'''
+# Blockstack key file
 BLOCKSTACK_KEY_FILE_SCHEMA = {
     'type': 'object',
     'properties': {
@@ -1839,4 +1891,4 @@ BLOCKSTACK_KEY_FILE_SCHEMA = {
     ],
     'additionalProperties': False,
 }
-
+'''
