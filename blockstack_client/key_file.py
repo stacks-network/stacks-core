@@ -38,7 +38,7 @@ import virtualchain
 from virtualchain.lib import ecdsalib
 import blockstack_profiles
 
-from keys import HDWallet, get_app_root_privkey, get_signing_privkey, get_encryption_privkey
+from keys import HDWallet, get_app_root_privkey, get_signing_privkey, get_encryption_privkey, get_pubkey_hex
 
 import copy
 import time
@@ -46,6 +46,7 @@ import json
 import jsontokens
 import jsonschema 
 from jsonschema import ValidationError
+import urlparse
 
 import keylib
 
@@ -111,7 +112,7 @@ def key_file_make_datastore_index(apps):
     for dev_id in apps.keys():
         dev_apps = apps[dev_id]['apps']
         for app_name in dev_apps.keys():
-            datastore_id = datastore_get_id(dev_apps[app_name])
+            datastore_id = datastore_get_id(dev_apps[app_name]['public_key'])
             index[datastore_id] = app_name 
         
     return {'status': True, 'index': index}
@@ -295,11 +296,11 @@ def key_file_parse(key_txt, name_owner_pubkeys_or_addr):
             assert apps_is_valid
 
             # valid! but well-formed?
-            app_token = jsontokens.decode_token(apps_jwt_txt)['payload']
-            jsonschema.validate(app_token, schemas.APP_KEY_BUNDLE_SCHEMA)
+            app_payload = jsontokens.decode_token(apps_jwt_txt)['payload']
+            jsonschema.validate(app_payload, schemas.APP_KEY_BUNDLE_SCHEMA)
 
             # valid and well-formed!
-            apps[device_id] = app_token
+            apps[device_id] = app_payload
             apps_jwts_txt[device_id] = apps_jwt_txt
 
         except AssertionError as ae:
@@ -575,7 +576,7 @@ def key_file_update_profile(parsed_key_file, new_profile, signing_private_key):
     return {'status': True, 'key_file': key_file_sign(tok, signing_private_key)}
 
 
-def key_file_update_apps(parsed_key_file, device_id, app_name, app_pubkey, signing_private_key):
+def key_file_update_apps(parsed_key_file, device_id, app_name, app_pubkey, fq_datastore_id, datastore_urls, signing_private_key):
     """
     Given a parsed key file, a device ID, an application name, its public key, and the device's signing private key,
     insert a new entry for the application for this device
@@ -603,7 +604,12 @@ def key_file_update_apps(parsed_key_file, device_id, app_name, app_pubkey, signi
     if not cur_apps.has_key(device_id):
         cur_apps[device_id] = {'version': '1.0', 'apps': {}}
 
-    cur_apps[device_id]['apps'][app_name] = app_pubkey
+    cur_apps[device_id]['apps'][app_name] = {
+        'public_key': app_pubkey,
+        'fq_datastore_id': fq_datastore_id,
+        'datastore_urls': datastore_urls,
+    }
+
     cur_apps[device_id]['timestamp'] = int(time.time())
     
     apps_signer = jsontokens.TokenSigner()
@@ -716,10 +722,10 @@ def key_file_get_app_device_ids(parsed_key_file):
     return {'status': True, 'device_ids': apps.keys()}
 
 
-def key_file_get_app_device_pubkeys(parsed_key_file, device_id):
+def key_file_get_app_device_info(parsed_key_file, device_id):
     """
-    Get the public keys for apps available from a particular device
-    Returns {'status': True, 'version': ..., 'pubkeys': {...}} on success
+    Get the public keys and other information for apps available from a particular device
+    Returns {'status': True, 'version': ..., 'app_info': {...}} on success
     Returns {'error': ...} on error
     """
     apps = parsed_key_file.get('keys', {}).get('apps', None)
@@ -733,7 +739,7 @@ def key_file_get_app_device_pubkeys(parsed_key_file, device_id):
     res = {
         'status': True,
         'version': apps_info['version'],
-        'app_pubkeys': apps_info['apps'],
+        'app_info': apps_info['apps'],
     }
     return res
 
@@ -877,11 +883,11 @@ def lookup_signing_pubkeys(name, cache=None, cache_max_age=600, proxy=None):
     return {'status': True, 'pubkeys': signing_keys, 'key_file': key_file}
 
 
-def lookup_app_pubkeys(name, full_application_name, cache=None, cache_max_age=600, proxy=None, config_path=CONFIG_PATH, parsed_key_file=None):
+def lookup_app_listing(name, full_application_name, cache=None, cache_max_age=600, proxy=None, config_path=CONFIG_PATH, parsed_key_file=None):
     """
     Given a blockchain ID (name), and the full application name (i.e. ending in .1 or .x),
     go and get all of the public keys for it in the app keys file
-    Return {'status': True, 'key_file': ..., 'pubkeys': {'$device_id': ...}} on success
+    Return {'status': True, 'key_file': ..., 'app_info': {'$device_id': ...}} on success
     Return {'error': ...} on error
     """
     assert name
@@ -899,20 +905,34 @@ def lookup_app_pubkeys(name, full_application_name, cache=None, cache_max_age=60
             return {'error': 'No key file available for {}'.format(name)}
 
     all_device_ids = key_file_get_app_device_ids(parsed_key_file)
-    app_pubkeys = {}
+    app_info = {}
     for dev_id in all_device_ids['device_ids']:
-        dev_app_pubkey_info = key_file_get_app_device_pubkeys(parsed_key_file, dev_id)
+        dev_app_pubkey_info = key_file_get_app_device_info(parsed_key_file, dev_id)
         assert 'error' not in dev_app_pubkey_info, dev_app_pubkey_info['error']
 
-        dev_app_pubkeys = dev_app_pubkey_info['app_pubkeys']
-        if full_application_name not in dev_app_pubkeys.keys():
+        dev_app_info = dev_app_pubkey_info['app_info']
+        if full_application_name not in dev_app_info.keys():
             # this device may not access this app
             log.debug("Device '{}' does not have access to application '{}'".format(dev_id, full_application_name))
             continue
 
-        app_pubkeys[dev_id] = dev_app_pubkeys[full_application_name]
+        app_info[dev_id] = dev_app_info
 
-    return {'status': True, 'pubkeys': app_pubkeys, 'key_file': parsed_key_file}
+    return {'status': True, 'app_info': app_info, 'key_file': parsed_key_file}
+
+
+def lookup_app_pubkeys(name, full_application_name, cache=None, cache_max_age=600, proxy=None, config_path=CONFIG_PATH, parsed_key_file=None):
+    """
+    Given a blockchain ID (name), and the full application name (i.e. ending in .1 or .x),
+    go and get all of the public keys for it in the app keys file
+    Return {'status': True, 'key_file': ..., 'pubkeys': {'$device_id': ...}} on success
+    Return {'error': ...} on error
+    """
+    res = lookup_app_listing(name, full_application_name, cache=cache, cache_max_age=cache_max_age, proxy=proxy, config_path=config_path, parsed_key_file=parsed_key_file)
+    if 'error' in res:
+        return res
+
+    return {'status': True, 'key_file': res['key_file'], 'pubkeys': dict([(dev_id, res['app_info'][dev_id][full_application_name]['public_key']) for dev_id in res['app_info'].keys()])}
 
 
 def make_initial_key_file(name, user_profile, owner_privkey_info, config_path=CONFIG_PATH):
@@ -950,6 +970,45 @@ def make_initial_key_file(name, user_profile, owner_privkey_info, config_path=CO
 
     user_key_file = res['key_file']
     return {'status': True, 'key_file': user_key_file}
+
+
+def key_file_add_app( blockchain_id, datastore_id, parsed_key_file, this_device_id, app_domain, app_privkey, signing_privkey,
+                      cache=None, datastore_urls=[], config_path=CONFIG_PATH ):
+    """
+    Add application information to a key file, and save the key file.
+    Return {'status': True} on success
+    Return {'error': ...} on failure
+    """
+    fq_datastore_id = storage.make_fq_data_id(this_device_id, '{}.datastore'.format(datastore_id))
+
+    log.debug("Allowing device {} to access {} (public key is {})".format(this_device_id, app_domain, get_pubkey_hex(app_privkey)))
+    
+    # sanitize
+    app_domain_scheme = urlparse.urlparse(app_domain).scheme
+    app_domain_noscheme = app_domain
+    if app_domain_scheme:
+        app_domain_noscheme = app_domain[len(app_domain_scheme) + len('://'):]
+
+    # add this app's public key (but we don't have URLs for its datastore yet) 
+    res = key_file_update_apps(parsed_key_file, this_device_id, app_domain_noscheme, get_pubkey_hex(app_privkey), fq_datastore_id, datastore_urls, signing_privkey)
+    if 'error' in res:
+        msg = 'Failed to add key file entry for {} for logging in with {} with device {}'.format(app_domain, blockchain_id, this_device_id)
+        log.error(msg)
+        return {'error': msg}
+
+    key_file_str = res['key_file']
+   
+    log.debug("Storing updated key file for {}".format(blockchain_id))
+
+    # store new key file
+    # TODO: do via API call?
+    res = key_file_put(blockchain_id, key_file_str, cache=cache, config_path=config_path)
+    if 'error' in res:
+        msg = 'Failed to store new key file to allow signins to {} from {} on device {}'.format(app_domain, blockchain_id, this_device_id)
+        log.error(msg)
+        return {'error': msg}
+
+    return {'status': True}
 
 
 def key_file_get_versions(name, device_ids, config_path=CONFIG_PATH):
@@ -1022,8 +1081,15 @@ def key_file_check_versions(key_file, versions=None, min_timestamp=None):
     
     for device_id in key_file['keys']['apps']:
         ts = key_file['keys']['apps'][device_id]['timestamp']
-        if ts < versions['apps'][device_id]:
-            return {'error': 'Key file app bundle is stale for device {} ({} < {})'.format(device_id, ts, versions['apps'][device_id])}
+
+        ver = None
+        if versions['apps'] == min_timestamp:
+            ver = min_timestamp
+        else:
+            ver = versions['apps'][device_id]
+
+        if ts < ver:
+            return {'error': 'Key file app bundle is stale for device {} ({} < {})'.format(device_id, ts, ver)}
 
     if key_file['keys']['delegation']['timestamp'] < versions['delegation']:
         return {'error': 'Key file delegation file is stale ({} < {})'.format(key_file['keys']['delegation']['timestamp'], versions['delegation'])}
