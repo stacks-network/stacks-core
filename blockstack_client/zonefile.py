@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -28,7 +28,8 @@ import base64
 import socket
 from keylib import ECPrivateKey
 
-from .proxy import *
+from .proxy import (
+    get_default_proxy, get_zonefiles, get_name_blockchain_record, put_zonefiles)
 import storage
 import user as user_db
 
@@ -253,7 +254,7 @@ def load_data_pubkey_for_new_zonefile(wallet_keys={}, config_path=CONFIG_PATH):
     data_privkey = wallet_keys.get('data_privkey', None)
     if data_privkey is not None:
         # force compressed
-        data_pubkey = ECPrivateKey(data_privkey, compressesd=True).public_key().to_hex()
+        data_pubkey = ECPrivateKey(data_privkey, compressed=True).public_key().to_hex()
         return data_pubkey
 
     data_pubkey = wallet_keys.get('data_pubkey', None)
@@ -473,7 +474,7 @@ def zonefile_data_replicate(fqu, zonefile_data, tx_hash, server_list, config_pat
     )
 
     if not rc:
-        log.info('Failed to replicate zonefile for {} to {}'.format(fqu))
+        log.info('Failed to replicate zonefile for {}'.format(fqu))
         return {'error': 'Failed to store user zonefile'}
 
     # replicate to blockstack servers

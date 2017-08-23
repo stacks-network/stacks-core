@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
@@ -44,7 +44,8 @@ import storage
 import scripts
 
 from .constants import (
-    MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST, DEFAULT_TIMEOUT
+    MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST, DEFAULT_TIMEOUT,
+    BLOCKSTACK_DEBUG
 )
 
 from .logger import get_logger
@@ -54,7 +55,20 @@ from .operations import (
     nameop_restore_snv_consensus_fields
 )
 
-from .schemas import *
+from .schemas import (
+    OP_NAMESPACE_PATTERN,
+    OP_CONSENSUS_HASH_PATTERN,
+    OP_CONSENSUS_HASH_PATTERN,
+    NAMEOP_SCHEMA_PROPERTIES,
+    NAMEOP_SCHEMA_REQUIRED,
+    OP_TXID_PATTERN,
+    OP_CODE_PATTERN,
+    OP_ZONEFILE_HASH_PATTERN,
+    OP_TXID_PATTERN,
+    OP_HISTORY_SCHEMA,
+    NAMESPACE_SCHEMA_PROPERTIES,
+    NAMESPACE_SCHEMA_REQUIRED
+)
 
 log = get_logger('blockstack-client')
 
@@ -68,6 +82,10 @@ class TimeoutHTTPConnection(httplib.HTTPConnection):
     def connect(self):
         httplib.HTTPConnection.connect(self)
         self.sock.settimeout(self.timeout)
+class TimeoutHTTPSConnection(httplib.HTTPSConnection):
+    def connect(self):
+        httplib.HTTPSConnection.connect(self)
+        self.sock.settimeout(self.timeout)
 
 
 class TimeoutHTTP(httplib.HTTP):
@@ -79,24 +97,40 @@ class TimeoutHTTP(httplib.HTTP):
     def getresponse(self, **kw):
         return self._conn.getresponse(**kw)
 
+class TimeoutHTTPS(httplib.HTTP):
+    _connection_class = TimeoutHTTPSConnection
+
+    def set_timeout(self, timeout):
+        self._conn.timeout = timeout
+
+    def getresponse(self, **kw):
+        return self._conn.getresponse(**kw)
+
 
 class TimeoutTransport(Transport):
-    def __init__(self, *l, **kw):
+    def __init__(self, protocol, *l, **kw):
         self.timeout = kw.pop('timeout', 10)
+        self.protocol = protocol
+        if protocol not in ['http', 'https']:
+            raise Exception("Protocol {} not supported".format(protocol))
         Transport.__init__(self, *l, **kw)
 
     def make_connection(self, host):
-        conn = TimeoutHTTP(host)
+        if self.protocol == 'http':
+            conn = TimeoutHTTP(host)
+        elif self.protocol == 'https':
+            conn = TimeoutHTTPS(host)
         conn.set_timeout(self.timeout)
 
         return conn
 
 
 class TimeoutServerProxy(ServerProxy):
-    def __init__(self, uri, *l, **kw):
+    def __init__(self, uri, protocol, *l, **kw):
         timeout = kw.pop('timeout', 10)
         use_datetime = kw.get('use_datetime', 0)
-        kw['transport'] = TimeoutTransport(timeout=timeout, use_datetime=use_datetime)
+        kw['transport'] = TimeoutTransport(
+            protocol, timeout=timeout, use_datetime=use_datetime)
         ServerProxy.__init__(self, uri, *l, **kw)
 
 
@@ -110,10 +144,14 @@ class BlockstackRPCClient(object):
     """
 
     def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN,
-                 timeout=DEFAULT_TIMEOUT, debug_timeline=False, **kw):
+                 timeout=DEFAULT_TIMEOUT, debug_timeline=False, protocol=None, **kw):
 
-        self.url = 'http://{}:{}'.format(server, port)
-        self.srv = TimeoutServerProxy(self.url, timeout=timeout, allow_none=True)
+        if protocol is None:
+            log.warn("RPC constructor called without a protocol, defaulting " +
+                     "to HTTP, this could be an issue if connection is on :6263")
+            protocol = 'http'
+        self.url = '{}://{}:{}'.format(protocol, server, port)
+        self.srv = TimeoutServerProxy(self.url, protocol, timeout=timeout, allow_none=True)
         self.server = server
         self.port = port
         self.debug_timeline = debug_timeline
@@ -179,10 +217,12 @@ def get_default_proxy(config_path=CONFIG_PATH):
     assert conf is not None, 'Failed to get config from "{}"'.format(config_path)
 
     blockstack_server, blockstack_port = conf['server'], conf['port']
+    protocol = conf['protocol']
 
-    log.debug('Default proxy to {}:{}'.format(blockstack_server, blockstack_port))
+    log.debug('Default proxy to {}://{}:{}'.format(protocol, blockstack_server, blockstack_port))
 
-    proxy = client.session(conf=conf, server_host=blockstack_server, server_port=blockstack_port)
+    proxy = client.session(conf=conf, server_host=blockstack_server, server_port=blockstack_port,
+                           server_protocol=protocol)
 
     return proxy
 
@@ -313,7 +353,7 @@ def json_response_schema( expected_object_schema ):
         ],
     }
 
-    # fold in the given object schema 
+    # fold in the given object schema
     schema['properties'].update( expected_object_schema['properties'] )
     schema['required'] = list(set( schema['required'] + expected_object_schema['required'] ))
 
@@ -388,7 +428,7 @@ def getinfo(proxy=None):
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
             log.exception(ee)
-        
+
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
@@ -432,7 +472,7 @@ def ping(proxy=None):
             log.exception(e)
 
         resp = json_traceback(resp.get('error'))
-    
+
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
             log.exception(ee)
@@ -1947,7 +1987,7 @@ def get_zonefile_inventory(hostport, bit_offset, bit_count, timeout=30, my_hostp
     if proxy is None:
         host, port = url_to_host_port(hostport)
         assert host is not None and port is not None
-        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport)
+        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport, protocol = 'http')
 
     zf_inv = None
     try:
@@ -2003,11 +2043,10 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
 
     schema = json_response_schema( peers_schema )
 
-
     if proxy is None:
         host, port = url_to_host_port(hostport)
         assert host is not None and port is not None
-        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport)
+        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport, protocol = 'http')
 
     peers = None
     try:
@@ -2070,11 +2109,7 @@ def get_zonefiles(hostport, zonefile_hashes, timeout=30, my_hostport=None, proxy
     }
 
     schema = json_response_schema( zonefiles_schema )
-
-    if proxy is None:
-        host, port = url_to_host_port(hostport)
-        assert host is not None and port is not None
-        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport)
+    proxy = get_default_proxy() if proxy is None else proxy
 
     zonefiles = None
     try:
@@ -2089,10 +2124,10 @@ def get_zonefiles(hostport, zonefile_hashes, timeout=30, my_hostport=None, proxy
             zf_data = base64.b64decode( zf_data_b64 )
             assert storage.verify_zonefile( zf_data, zf_hash ), "Zonefile data mismatch"
 
-            # valid 
+            # valid
             decoded_zonefiles[ zf_hash ] = zf_data
 
-        # return this 
+        # return this
         zf_payload['zonefiles'] = decoded_zonefiles
         zonefiles = zf_payload
 
@@ -2143,11 +2178,7 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
     }
 
     schema = json_response_schema( saved_schema )
-
-    if proxy is None:
-        host, port = url_to_host_port(hostport)
-        assert host is not None and port is not None
-        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport)
+    proxy = get_default_proxy() if proxy is None else proxy
 
     push_info = None
     try:

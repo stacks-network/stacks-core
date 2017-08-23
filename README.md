@@ -64,7 +64,7 @@ $ sudo pip2 install blockstack --upgrade
 ```
 For SUSE and openSUSE
 ```
-$ sudo zypper update && zypper install rng-tools python-devel libffi-devel
+$ sudo zypper update && zypper install rng-tools gcc python-devel python2-pip libffi-devel libopenssl-devel
 $ sudo pip install blockstack --upgrade 
 ```
 

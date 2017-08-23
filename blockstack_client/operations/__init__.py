@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -78,6 +78,7 @@ from .namespacereveal import snv_consensus_extras as namespace_reveal_consensus_
 from .namespaceready import snv_consensus_extras as namespace_ready_consensus_extras
 from .announce import snv_consensus_extras as announce_consensus_extras
 
+from ..constants import (NAME_IMPORT, NAME_PREORDER, OPFIELDS)
 from ..config import *
 
 # NOTE: these all have the same signatures

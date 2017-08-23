@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
@@ -24,7 +24,17 @@ from __future__ import print_function
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from .constants import *
+from .constants import (
+    LENGTH_CONSENSUS_HASH,
+    NAME_OPCODES,
+    NAME_TRANSFER,
+    TRANSFER_KEEP_DATA,
+    TRANSFER_REMOVE_DATA,
+    NAME_REGISTRATION,
+    LENGTH_VALUE_HASH,
+    LENGTH_MAX_NAME,
+    LENGTH_MAX_NAMESPACE_ID)
+
 import blockstack_profiles
 
 OP_CONSENSUS_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTH_CONSENSUS_HASH * 2)
