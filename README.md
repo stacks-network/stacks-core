@@ -201,6 +201,19 @@ $ docker run -it -v $(pwd)/data/blockstack-api:/root/.blockstack -v /tmp/:/tmp/ 
 $ docker run -d -v $(pwd)/data/blockstack-api:/root/.blockstack -v /tmp/:/tmp/ -p 6270:6270 myrepo/blockstack:latest blockstack api start-foreground --password PASSWORD --debug
 ```
 
+### Running Browser in Docker
+
+The Docker container is capable of running a browser+cors proxy for end-users.
+Setting this up requires setting the corsproxy to bind to `0.0.0.0` and starting all the processes.
+
+```bash
+# Start API with browser ports forwarded // run detached
+$ docker run -d -it -e CORSPROXY_HOST=0.0.0.0 -v /tmp/blockstack_docker/blockstack-api:/root/.blockstack -v /tmp/blockstack_docker/tmp/:/tmp/ -p 8888:8888 -p 1337:1337 --name blockstack-browser blockstack-with-browser blockstack api start-foreground --debug --password PASSWORD
+# Exec browser and corsproxy
+$ docker exec -dt blockstack-browser blockstack-cors-proxy
+$ docker exec -dt blockstack-browser blockstack-browser
+```
+
 ## Community
 
 We have an active community of developers and the best place to interact with the community is:
