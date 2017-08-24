@@ -13,6 +13,8 @@ setup () {
     exit 1
   fi
   docker run -it -v $HOME/.blockstack:/root/.blockstack blockstack:latest blockstack setup -y --password $1
+  docker run -it -v $HOME/.blockstack:/root/.blockstack blockstack:latest sed -i 's/api_endpoint_bind = localhost/api_endpoint_bind = 0.0.0.0/' /root/.blockstack/client.ini
+  docker run -it -v $HOME/.blockstack:/root/.blockstack blockstack:latest sed -i 's/api_endpoint_host = localhost/api_endpoint_host = 0.0.0.0/' /root/.blockstack/client.ini
 }
 
 start () {
