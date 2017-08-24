@@ -27,7 +27,17 @@ if __name__ == "__main__":
     import blockstack_client.actions
     import subprocess
     import requests
-    from gaia import *
+    import keylib
+    import virtualchain
+    import os
+    import sys
+
+    from virtualchain.lib.ecdsalib import get_pubkey_hex
+    from constants import CONFIG_PATH
+    from config import get_config
+
+    from gaia.datastore import *
+    from gaia.client import *
 
     blockstack_client.session()
 
