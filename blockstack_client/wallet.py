@@ -48,7 +48,7 @@ from .backend.crypto.utils import aes_decrypt, aes_encrypt
 from .backend.blockchain import get_balance
 from .utils import print_result
 
-from .keys import HDWallet, is_singlesig_hex, decrypt_private_key_info
+from .keys import HDWallet, is_singlesig_hex, decrypt_private_key_info, get_compressed_and_decompressed_private_key_info
 
 import config
 from .constants import (
@@ -89,9 +89,31 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
     # must be conformant to the current schema
     if not test_legacy:
         jsonschema.validate(decrypted_wallet, WALLET_SCHEMA_CURRENT)
+    
+    # decide which keys to use---compressed or decompressed
+    owner_key_info = get_compressed_and_decompressed_private_key_info(decrypted_wallet['owner_privkey'])
+    payment_key_info = get_compressed_and_decompressed_private_key_info(decrypted_wallet['payment_privkey'])
 
-    owner_address = virtualchain.get_privkey_address(decrypted_wallet['owner_privkey'])
-    payment_address = virtualchain.get_privkey_address(decrypted_wallet['payment_privkey'])
+    owner_address = decrypted_wallet['owner_addresses'][0]
+    payment_address = decrypted_wallet['payment_addresses'][0]
+
+    owner_privkey_info = None
+    payment_privkey_info = None
+
+    if owner_address == owner_key_info['compressed_addr']:
+        owner_privkey_info = owner_key_info['compressed_private_key_info']
+    elif owner_address == owner_key_info['decompressed_addr']:
+        owner_privkey_info = owner_key_info['decompressed_private_key_info']
+    else:
+        return {'error': 'Invalid owner private key: does not match address {}'.format(owner_address)}
+
+    if payment_address == payment_key_info['compressed_addr']:
+        payment_privkey_info = payment_key_info['compressed_private_key_info']
+    elif payment_address == payment_key_info['decompressed_addr']:
+        payment_privkey_info = payment_key_info['decompressed_private_key_info']
+    else:
+        return {'error': 'Invalid payment private key: does not match address {}'.format(payment_address)}
+
     data_pubkey = None
     data_privkey_info = None
 
@@ -104,6 +126,7 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
 
         if data_privkey_info:
             if not is_singlesig_hex(data_privkey_info):
+                # encode as hex
                 data_privkey_info = ecdsa_private_key(data_privkey_info).to_hex()
 
             if not virtualchain.is_singlesig(data_privkey_info):
@@ -111,7 +134,18 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
                 return {'error': 'Invalid data private key'}
         
         data_pubkey = ecdsa_private_key(data_privkey_info).public_key().to_hex()
+        if decrypted_wallet['data_pubkey'] not in [keylib.key_formatting.compress(data_pubkey), keylib.key_formatting.decompress(data_pubkey)]:
+            return {'error': 'Invalid data private key: does not match public key {}'.format(decrypted_wallet['data_pubkey'])}
 
+        if decrypted_wallet['data_pubkey'] == keylib.key_formatting.compress(data_pubkey):
+            data_pubkey = keylib.key_formatting.compress(data_pubkey)
+            if len(data_privkey_info) == 64:
+                data_privkey_info += '01'
+
+        else:
+            data_pubkey = keylib.key_formatting.decompress(data_pubkey)
+            if len(data_privkey_info) == 66:
+                data_privkey_info = data_privkey_info[:-2]
             
     wallet = {
         'owner_addresses': [owner_address],
@@ -125,8 +159,8 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
         wallet['data_pubkeys'] = [data_pubkey]
     
     wallet_enc = {
-        'owner_privkey': decrypted_wallet['owner_privkey'],
-        'payment_privkey': decrypted_wallet['payment_privkey'],
+        'owner_privkey': owner_privkey_info,
+        'payment_privkey': payment_privkey_info,
     }
 
     if data_privkey_info:
@@ -165,6 +199,7 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
 
     return wallet
 
+
 def save_modified_wallet(decrypted_wallet, password, config_path = CONFIG_PATH):
     """
     Encrypt and save a given @decrypted_wallet using @password at the
@@ -190,6 +225,7 @@ def save_modified_wallet(decrypted_wallet, password, config_path = CONFIG_PATH):
                 'Could not persist new wallet, failed to backup previous wallet at {}'.format(wallet_path)}
 
     return write_wallet(encrypted_wallet, path=wallet_path)
+
 
 def make_wallet(password, payment_privkey_info=None, owner_privkey_info=None, data_privkey_info=None, test_legacy=False, encrypt=True):
     """
@@ -361,6 +397,13 @@ def decrypt_wallet_legacy(data, key_defaults, password):
 
     # NOTE: 'owner' must come before 'data', since we may use it to generate the data key
     keynames = ['payment', 'owner', 'data']
+    existing_addresses = {}
+    for keyname in ['payment', 'owner']:
+        if data.has_key('{}_addresses'.format(keyname)):
+            existing_addresses[keyname] = data['{}_addresses'.format(keyname)][0]
+        else:
+            log.warning("No address stored for '{}'")
+            
     for keyname in keynames:
 
         # get the key's private key info and address
@@ -369,6 +412,8 @@ def decrypt_wallet_legacy(data, key_defaults, password):
         encrypted_keyname = 'encrypted_{}_privkey'.format(keyname)
 
         if encrypted_keyname in data:
+            assert existing_addresses.has_key(keyname), "Wallet has a key for '{}' but not an address".format(keyname)
+
             # This key was explicitly defined in the wallet.
             # It is not guaranteed to be a child key of the
             # master private key.
@@ -379,8 +424,17 @@ def decrypt_wallet_legacy(data, key_defaults, password):
                 log.debug('Failed to decrypt {}: {}'.format(encrypted_keyname, field['error']))
                 return ret
 
-            new_wallet[keyname_privkey] = field['private_key_info']
-            new_wallet[keyname_addresses] = [field['address']]
+            # compressed or decompressed?
+            if existing_addresses[keyname_address] == field['decompressed_address']:
+                new_wallet[keyname_privkey] = field['decompressed_private_key_info']
+                new_wallet[keyname_addresses] = field['decompressed_address']
+
+            elif existing_addresses[keyname_address] == field['compressed_address']:
+                new_wallet[keyname_privkey] = field['compressed_private_key_info']
+                new_wallet[keyname_addresses] = field['compressed_address']
+            
+            else:
+                raise ValueError("Address {} does not correspond to a public or private key".format(existing_addresses[keyname_address]))
 
         else:
 
@@ -483,6 +537,9 @@ def inspect_wallet_data(data):
                         log.exception(ve2)
                         log.exception(ve3)
                         log.exception(ve4)
+                    
+                    elif BLOCKSTACK_DEBUG:
+                        log.exception(ve)
 
                     log.error('Invalid wallet data')
                     return {'error': 'Invalid wallet data'}
@@ -539,7 +596,7 @@ def inspect_wallet(wallet_path=None, config_path=CONFIG_PATH):
     try:
         wallet_data = json.loads(wallet_str)
     except ValueError:
-        return {'error': 'Invalid wallet dta'}
+        return {'error': 'Invalid wallet data'}
 
     return inspect_wallet_data(wallet_data)
 
