@@ -91,7 +91,7 @@ def key_file_get_name_public_keys(key_file, name_addr):
 
     else:
         # invalid 
-        return {'error': 'Invalid address {}'.format(name_owner_pubkeys_or_addr)}
+        return {'error': 'Invalid address {}'.format(name_addr)}
 
     return {'status': True, 'public_keys': name_owner_pubkeys}
 
@@ -149,7 +149,6 @@ def key_file_parse(profile_txt, name_owner_pubkeys_or_addr):
     app_public_keys = {}
 
     key_file = None
-    # profile_jwt_txt = None
     delegation_jwt_txt = None
     delegation_jwt = None
     delegation_file = None
@@ -163,6 +162,7 @@ def key_file_parse(profile_txt, name_owner_pubkeys_or_addr):
     try:
         # possibly JSON profile tokens
         try:
+            log.debug("Try parsing profile as JSON")
             unverified_profile = json.loads(profile_txt)
             assert isinstance(unverified_profile, (dict, list))
 
@@ -174,6 +174,7 @@ def key_file_parse(profile_txt, name_owner_pubkeys_or_addr):
         except Exception as e1:
             try:
                 # possibly a JWT
+                log.debug("Try parsing profile as JWT")
                 unverified_profile = jsontokens.decode_token(profile_txt)['payload']['claim']
             except Exception as e2:
                 if BLOCKSTACK_DEBUG:
@@ -181,6 +182,7 @@ def key_file_parse(profile_txt, name_owner_pubkeys_or_addr):
                     log.exception(e1)
                     log.error("Tried parsing profile as a JWT:")
                     log.exception(e2)
+                    log.debug("Invalid profile: {}".format(profile_txt))
 
                 return {'error': 'Invalid profile: Profile text is not JSON or a JWT'}
 
@@ -192,11 +194,15 @@ def key_file_parse(profile_txt, name_owner_pubkeys_or_addr):
         jsonschema.validate(unverified_profile, blockstack_profiles.person.PERSON_SCHEMA)
     except ValidationError as ve:
         if BLOCKSTACK_DEBUG:
-            log.exception(Ve)
+            log.exception(ve)
+            log.error(json.dumps(unverified_profile, indent=4, sort_keys=True))
 
         return {'error': 'Invalid profile: does not conform to a Person schema'}
 
     if not unverified_profile.has_key('keyfile'):
+        if BLOCKSTACK_TEST:
+            log.debug(json.dumps(unverified_profile, indent=4, sort_keys=True))
+
         return {'error': 'No key file in profile'}
     
     key_txt = unverified_profile['keyfile']
@@ -292,7 +298,7 @@ def key_file_parse(profile_txt, name_owner_pubkeys_or_addr):
     for (device_id, signing_public_key) in signing_public_keys.items():
         try:
             profile_verifier = jsontokens.TokenVerifier()
-            profile_valid = key_file_verifier.verify(profile_txt, signing_public_key)
+            profile_valid = profile_verifier.verify(profile_txt, signing_public_key)
             assert profile_valid
 
             # success!
@@ -304,7 +310,7 @@ def key_file_parse(profile_txt, name_owner_pubkeys_or_addr):
         try:
             key_file_verifier = jsontokens.TokenVerifier()
             key_file_valid = key_file_verifier.verify(key_txt, signing_public_key)
-            assert key_file_Valid
+            assert key_file_valid
 
             # success!
             key_file = unverified_key_file
@@ -327,23 +333,6 @@ def key_file_parse(profile_txt, name_owner_pubkeys_or_addr):
     for device_id in key_file['keys']['apps'].keys():
         if device_id not in delegation_file['devices'].keys():
             return {'error': 'Application key bundle contains a non-delegated device ID "{}"'.format(device_id)}
-
-    '''
-    # now go verify the profile, using any of the signing public keys
-    for (device_id, signing_public_key) in signing_public_keys.items():
-        try:
-            profile_jwt_txt = key_file['profile']
-            profile = blockstack_profiles.get_profile_from_tokens([{'token': profile_jwt_txt}], signing_public_key)
-            assert profile
-
-            # success
-            break
-        except AssertionError as ae:
-            continue
-
-    if profile is None:
-        return {'error': 'Failed to verify profile using signing keys in delegation file'}
-    '''
 
     # verify app key bundles, using each device's respective public key
     for (device_id, signing_public_key) in signing_public_keys.items():
@@ -391,12 +380,12 @@ def key_file_parse(profile_txt, name_owner_pubkeys_or_addr):
         'timestamp': key_file['timestamp'],
         'jwts': {
             'version': key_file['version'],
-            # 'profile': profile_jwt_txt,
             'keys': {
                 'name': key_file['keys']['name'],
                 'delegation': delegation_jwt_txt,
                 'apps': apps_jwts_txt,
             },
+            'keyfile': key_txt,
             'timestamp': key_file['timestamp'],
         },
         'datastore_index': datastore_index
@@ -591,7 +580,6 @@ def key_file_create(name, name_owner_privkeys, device_id, key_order=None, apps=N
     # make profile jwt
     profile_jwt_txt = key_file_profile_serialize(profile, signing_keys[device_id])
 
-    # return {'status': True, 'key_file': key_file_sign(key_file, signing_keys[device_id])}
     return {'status': True, 'key_file': profile_jwt_txt}
 
 
@@ -628,19 +616,17 @@ def key_file_update_profile(parsed_key_file, new_profile, signing_private_key):
 
     keys_jwts = parsed_key_file.get('jwts', {}).get('keys', None)
     if keys_jwts is None:
-        return {'error': 'Invalid parsed key file: missing jwts'}
+        return {'error': 'Invalid parsed key file: missing jwts or keys'}
     
+    key_txt = parsed_key_file.get('jwts', {}).get('keyfile', None)
+    if key_txt is None:
+        return {'error': 'Invalid parsed key file: missing jwts or keyfile'}
+
     new_profile['timestamp'] = int(time.time())
+    new_profile['keyfile'] = key_txt
 
     profile_jwt_txt = key_file_profile_serialize(new_profile, signing_private_key)
-    tok = {
-        'version': '3.0',
-        'profile': profile_jwt_txt,
-        'keys': keys_jwts,
-        'timestamp': max(int(time.time()), parsed_key_file['timestamp'] + 1),
-    }
-
-    return {'status': True, 'key_file': key_file_sign(tok, signing_private_key)}
+    return {'status': True, 'key_file': profile_jwt_txt}
 
 
 def key_file_update_apps(parsed_key_file, device_id, app_name, app_pubkey, fq_datastore_id, datastore_urls, signing_private_key):
@@ -656,9 +642,9 @@ def key_file_update_apps(parsed_key_file, device_id, app_name, app_pubkey, fq_da
     if key_jwts is None:
         return {'error': 'Invalid parsed key file: missing jwts'}
 
-    profile_jwt = parsed_key_file.get('jwts', {}).get('profile', None)
-    if profile_jwt is None:
-        return {'error': 'Invalid parsed key file: missing profile JWT'}
+    profile = parsed_key_file.get('profile', None)
+    if profile is None:
+        return {'error': 'Invalid parsed key file: missing profile'}
 
     delegation_jwt = key_jwts.get('delegation', None)
     if delegation_jwt is None:
@@ -685,9 +671,8 @@ def key_file_update_apps(parsed_key_file, device_id, app_name, app_pubkey, fq_da
     apps_jwts = key_jwts['apps']
     apps_jwts[device_id] = apps_jwt
 
-    tok = {
+    keyfile = {
         'version': '3.0',
-        'profile': profile_jwt,
         'keys': {
             'name': parsed_key_file['keys']['name'], 
             'delegation': delegation_jwt,
@@ -696,7 +681,13 @@ def key_file_update_apps(parsed_key_file, device_id, app_name, app_pubkey, fq_da
         'timestamp': max(int(time.time()), parsed_key_file['timestamp'] + 1)
     }
 
-    return {'status': True, 'key_file': key_file_sign(tok, signing_private_key)}
+    keyfile_txt = key_file_sign(keyfile, signing_private_key)
+
+    profile['timestamp'] = int(time.time())
+    profile['keyfile'] = keyfile_txt
+
+    profile_jwt_txt = key_file_profile_serialize(profile, signing_private_key)
+    return {'status': True, 'key_file': profile_jwt_txt}
 
 
 def key_file_update_delegation(parsed_key_file, device_delegation, name_owner_privkeys, signing_private_key):
@@ -711,17 +702,17 @@ def key_file_update_delegation(parsed_key_file, device_delegation, name_owner_pr
     keys_jwts = parsed_key_file.get('jwts', {}).get('keys', None)
     if keys_jwts is None:
         return {'error': 'Invalid parsed key file: missing jwts'}
-
-    profile_jwt = parsed_key_file.get('jwts', {}).get('profile', None)
-    if profile_jwt is None:
-        return {'error': 'Invalid parsed key file: missing profile JWT'}
+    
+    profile = parsed_key_file.get('profile', None)
+    if profile is None:
+        return {'error': 'Invalid parsed key file: missing profile'}
 
     apps_jwt = keys_jwts.get('apps', None)
     if apps_jwt is None:
         return {'error': 'Invalid parsed key file: missing apps JWT'}
 
     try:
-        jsonschema.validate(device_delegation, schemas.KEY_DELEGATION_DEVICES_SCHEMA)
+        jsonschema.validate(device_delegation, schemas.KEY_DELEGATION_SCHEMA['properties']['devices'])
     except ValidationError as ve:
         if BLOCKSTACK_TEST:
             log.exception(ve)
@@ -735,10 +726,9 @@ def key_file_update_delegation(parsed_key_file, device_delegation, name_owner_pr
     signer = jsontokens.TokenSigner()
     new_delegation_jwt = signer.sign(new_delegation, name_owner_privkeys)
     new_delegation_jwt_txt = json.dumps(new_delegation_jwt)
-
-    tok = {
+    
+    keyfile = {
         'version': '3.0',
-        'profile': profile_jwt,
         'keys': {
             'name': parsed_key_file['keys']['name'],
             'delegation': new_delegation_jwt_txt,
@@ -747,7 +737,13 @@ def key_file_update_delegation(parsed_key_file, device_delegation, name_owner_pr
         'timestamp': max(int(time.time()), parsed_key_file['timestamp'] + 1),
     }
 
-    return {'status': True, 'key_file': key_file_sign(tok, signing_private_key)}
+    keyfile_txt = key_file_sign(keyfile, signing_private_key)
+
+    profile['timestamp'] = int(time.time())
+    profile['keyfile'] = keyfile_txt
+
+    profile_jwt_txt = key_file_profile_serialize(profile, signing_private_key)
+    return {'status': True, 'key_file': profile_jwt_txt}
 
 
 def key_file_get_delegated_device_pubkeys(parsed_key_file, device_id):
@@ -1458,7 +1454,8 @@ if __name__ == "__main__":
     apps = {
         'test_device_1': {
             'version': '1.0',
-            'apps': {}
+            'apps': {},
+            'timestamp': 1,
         },
     }
     delegations = {
@@ -1467,6 +1464,7 @@ if __name__ == "__main__":
         'devices': {
             'test_device_1': key_file_make_delegation_entry(name_owner_privkeys['test_device_1'], 'test_device_1', 0)['delegation'],
         },
+        'timestamp': 2,
     }
 
     # make key file
@@ -1492,9 +1490,7 @@ if __name__ == "__main__":
     new_profile = {
         '@type': 'Person',
         'accounts': [],
-        'name': {
-            'formatted': 'Hello World',
-        },
+        'name': '{}.updated'.format(name)
     }
 
     print 'update profile'
@@ -1504,7 +1500,7 @@ if __name__ == "__main__":
     # re-extract
     key_file_txt = res['key_file']
     key_file = key_file_parse(key_file_txt, name_owner_pubkeys.values())
-    assert 'error' not in key_file
+    assert 'error' not in key_file, key_file
 
     key_file = key_file_parse(key_file_txt, name_owner_address)
     assert 'error' not in key_file, key_file
@@ -1512,8 +1508,10 @@ if __name__ == "__main__":
     key_file = key_file['key_file']
     
     print 'key file with new profile is \n{}'.format(json.dumps(key_file, indent=4, sort_keys=True))
+    
+    for k in ['@type', 'accounts', 'name']:
+        assert key_file['profile'][k] == new_profile[k], new_profile
 
-    assert key_file['profile'] == new_profile
     assert key_file['keys']['delegation'] == delegations
     assert key_file['keys']['apps'] == apps
 
@@ -1539,8 +1537,13 @@ if __name__ == "__main__":
 
     print 'key file with new profile and new delegation is \n{}'.format(json.dumps(key_file, indent=4, sort_keys=True))
 
-    assert key_file['profile'] == new_profile
-    assert key_file['keys']['delegation'] == {'version': '1.0', 'name': name, 'devices': new_delegations}
+    for k in ['@type', 'accounts', 'name']:
+        assert key_file['profile'][k] == new_profile[k], new_profile
+
+    expected_delegation = {'version': '1.0', 'name': name, 'devices': new_delegations}
+    for k in ['version', 'name', 'devices']:
+        assert key_file['keys']['delegation'][k] == expected_delegation[k]
+
     assert key_file['keys']['apps'] == apps
 
     # update the key file's apps
@@ -1560,11 +1563,18 @@ if __name__ == "__main__":
     
     print 'key file with new profile and new delegation and new app is \n{}'.format(json.dumps(key_file, indent=4, sort_keys=True))
 
-    assert key_file['profile'] == new_profile
-    assert key_file['keys']['delegation'] == {'version': '1.0', 'name': name, 'devices': new_delegations}
+    for k in ['@type', 'accounts', 'name']:
+        assert key_file['profile'][k] == new_profile[k], new_profile
+
+    expected_delegation = {'version': '1.0', 'name': name, 'devices': new_delegations}
+    for k in ['version', 'name', 'devices']:
+        assert key_file['keys']['delegation'][k] == expected_delegation[k]
+
     assert key_file['keys']['apps'].has_key('test_device_1')
     assert key_file['keys']['apps']['test_device_1']['apps'].has_key('helloblockstack.com.1')
-    assert key_file['keys']['apps']['test_device_1']['apps']['helloblockstack.com.1'] == helloblockstack_com_pubkey
+    assert key_file['keys']['apps']['test_device_1']['apps']['helloblockstack.com.1']['public_key'] == helloblockstack_com_pubkey
+    assert key_file['keys']['apps']['test_device_1']['apps']['helloblockstack.com.1']['datastore_urls'] == ['file:///test']
+    assert key_file['keys']['apps']['test_device_1']['apps']['helloblockstack.com.1']['fq_datastore_id'] == 'test:test.datastore'
 
     
 
