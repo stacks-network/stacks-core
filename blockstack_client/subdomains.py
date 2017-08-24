@@ -484,7 +484,7 @@ def add_subdomains(subdomains, domain_fqa):
 def get_subdomain_info(subdomain, domain_fqa, use_cache = True):
     if not use_cache:
         from blockstack_client import gaia
-        zonefiles = gaia.list_zonefile_history(domain_fqa)
+        zonefiles = gaia.immutable.list_zonefile_history(domain_fqa)
         subdomain_db = _build_subdomain_db([domain_fqa for z in zonefiles], zonefiles)
     else:
         subdomain_db = SubdomainDB()
