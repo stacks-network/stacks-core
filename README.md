@@ -208,7 +208,7 @@ Setting this up requires setting the corsproxy to bind to `0.0.0.0` and starting
 
 ```bash
 # Start API with browser ports forwarded // run detached
-$ docker run -d -it -e CORSPROXY_HOST=0.0.0.0 -v /tmp/blockstack_docker/blockstack-api:/root/.blockstack -v /tmp/blockstack_docker/tmp/:/tmp/ -p 8888:8888 -p 1337:1337 --name blockstack-browser blockstack-with-browser blockstack api start-foreground --debug --password PASSWORD
+$ docker run -d -it -e CORSPROXY_HOST=0.0.0.0 -v /tmp/blockstack_docker/blockstack-api:/root/.blockstack -v /tmp/blockstack_docker/tmp/:/tmp/ -p 8888:8888 -p 1337:1337 -p 6270:6270 --name blockstack-browser blockstack-with-browser blockstack api start-foreground --debug --password PASSWORD
 # Exec browser and corsproxy
 $ docker exec -dt blockstack-browser blockstack-cors-proxy
 $ docker exec -dt blockstack-browser blockstack-browser
