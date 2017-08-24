@@ -41,24 +41,26 @@ import sqlite3
 import jsonschema
 from jsonschema import ValidationError
 
-from keylib import *
-
+import keylib
 import virtualchain
-from virtualchain.lib.ecdsalib import *
+from virtualchain.lib.ecdsalib import get_pubkey_hex
 
 from ..logger import get_logger
 from ..proxy import get_default_proxy, json_is_error
 from ..config import get_config, get_local_device_id
 from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DEFAULT_DEVICE_ID, CONFIG_PATH
-from ..schemas import *
-from ..storage import sign_data_payload, make_data_tombstone, make_fq_data_id, sign_data_tombstone, parse_data_tombstone, verify_data_tombstone, parse_fq_data_id, hash_data_payload, sign_data_payload, serialize_mutable_data
+from ..schemas import ROOT_DIRECTORY_ENTRY_SCHEMA
+from ..storage import sign_data_payload, make_data_tombstone, make_fq_data_id, sign_data_tombstone, parse_data_tombstone, verify_data_tombstone, parse_fq_data_id, hash_data_payload, sign_data_payload, serialize_mutable_data, \
+        sign_raw_data, verify_raw_data
+
+from .blob import datastore_get_id, make_data_tombstones, sign_data_tombstones, verify_data_tombstones, \
+        data_blob_parse, data_blob_serialize, make_data_tombstones, sign_data_tombstones, verify_data_tombstones, \
+        make_mutable_data_info
+from .directory import make_empty_device_root_directory
+from .datastore import sign_datastore_info
+from .metadata import get_device_root_version, put_device_root_version
 
 log = get_logger('gaia-client')
-
-from blob import *
-from directory import *
-from datastore import *
-from metadata import *
 
 def get_datastore(api_client, datastore_id=None, blockchain_id=None, full_app_name=None, device_ids=None):
     """
@@ -317,7 +319,7 @@ def device_root_remove(datastore, device_root, file_name, this_device_file_tombs
     return {'status': True, 'device_root_page_blob': res['device_root_page_blob'], 'timestamp': device_root['timestamp']}
 
 
-def datastore_put_device_root(api_client, datastore, this_device_id, device_root, data_privkey_hex, blockchain_id=None, full_app_name=None, synchronous=False):
+def datastore_put_device_root(api_client, datastore, this_device_id, device_root, data_privkey_hex, blockchain_id=None, full_app_name=None, synchronous=False, config_path=CONFIG_PATH):
     """
     Save a given device root
     Return {'status': True, 'root_urls': [...]} on success
@@ -342,12 +344,12 @@ def datastore_put_device_root(api_client, datastore, this_device_id, device_root
     datastore_sig = datastore_info['sig']
 
     # put it, possibly synchronously
-    data_pubkey = get_pubkey_hex(data_privkey)
+    data_pubkey = get_pubkey_hex(data_privkey_hex)
     res = api_client.backend_datastore_put_device_root(datastore_str, datastore_sig, device_root_page_blob, device_root_page_blob_sig, this_device_id,
                                                        data_pubkey=data_pubkey, blockchain_id=blockchain_id, full_app_name=full_app_name, synchronous=synchronous)
 
     if 'error' in res:
-        log.error("Failed to replicate new device root for {} on putfile {}".format(datastore_id, file_name))
+        log.error("Failed to replicate new device root for {}".format(datastore_id))
         return res
    
     root_urls = []

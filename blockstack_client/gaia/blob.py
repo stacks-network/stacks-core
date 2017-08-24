@@ -41,15 +41,11 @@ import sqlite3
 import jsonschema
 from jsonschema import ValidationError
 
-from keylib import *
-
-import virtualchain
-from virtualchain.lib.ecdsalib import *
+import keylib
 
 from ..config import get_config, get_local_device_id
 from ..logger import get_logger
 from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DEFAULT_DEVICE_ID, CONFIG_PATH
-from ..schemas import *
 from ..storage import sign_data_payload, make_data_tombstone, make_fq_data_id, sign_data_tombstone, parse_signed_data_tombstone, verify_data_tombstone, parse_fq_data_id
 
 log = get_logger('gaia-blob')

@@ -40,23 +40,18 @@ import traceback
 import sqlite3
 import random
 
-from keylib import *
-
-import virtualchain
-from virtualchain.lib.ecdsalib import *
-
 from ..logger import get_logger
 from ..proxy import get_default_proxy
 from ..config import get_config, get_local_device_id
 from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DEFAULT_DEVICE_ID, CONFIG_PATH
-from ..schemas import *
 from ..storage import sign_data_payload, make_data_tombstone, make_fq_data_id, sign_data_tombstone, parse_data_tombstone, verify_data_tombstone, parse_fq_data_id, \
         hash_data_payload, sign_data_payload, serialize_mutable_data, get_storage_handlers, verify_data_payload, get_mutable_data, get_immutable_data, get_data_hash, \
         put_immutable_data, parse_signed_data_tombstone, classify_storage_drivers, decode_mutable_data
 
-from mutable import *
+from blob import data_blob_parse
 from directory import put_device_root_data
 from cache import GLOBAL_CACHE
+from mutable import put_raw_data
 
 log = get_logger('gaia-write_log')
 
@@ -328,7 +323,7 @@ def write_log_page_replicate(datastore_id, device_id, root_uuid, signed_device_r
     log.debug("Store signed root page {}".format(fq_data_id))
     res = put_raw_data(fq_data_id, signed_device_root_page, drivers, config_path=config_path, blockchain_id=blockchain_id) 
     if 'error' in res:
-        log.error("Failed to replicate page {} of the write log: {}".format(page_id, res['error']))
+        log.error("Failed to replicate page {} of the write log: {}".format(fq_data_id, res['error']))
         return {'error': res['error']}
     
     urls = res['urls']

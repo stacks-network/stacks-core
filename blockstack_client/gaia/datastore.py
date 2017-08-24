@@ -40,45 +40,27 @@ import sqlite3
 import jsonschema
 from jsonschema import ValidationError
 
-from keylib import *
-
-import virtualchain
-from virtualchain.lib.ecdsalib import *
+from virtualchain.lib.ecdsalib import get_pubkey_hex
 
 from ..logger import get_logger
 from ..proxy import get_default_proxy
 from ..config import get_config, get_local_device_id
 from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, CONFIG_PATH
-from ..schemas import *
 from ..storage import sign_data_payload, make_data_tombstone, make_fq_data_id, sign_data_tombstone, parse_data_tombstone, verify_data_tombstone, parse_fq_data_id, \
         hash_data_payload, sign_data_payload, serialize_mutable_data, get_storage_handlers, verify_data_payload, decode_mutable_data
-
+from ..schemas import DATASTORE_SCHEMA, DATA_BLOB_SCHEMA, ROOT_DIRECTORY_ENTRY_SCHEMA, ROOT_DIRECTORY_SCHEMA
 from ..key_file import key_file_get, lookup_app_pubkeys, lookup_app_listing
+from ..keys import HDWallet
 
-from blob import *
-from cache import *
-from metadata import *
-from file import *
-from directory import *
-from mutable import *
-from policy import *
-from write_log import *
+from .blob import datastore_get_id, data_blob_parse, data_blob_serialize, make_mutable_data_info, make_data_tombstones, sign_data_tombstones, verify_data_tombstones
+from .directory import put_device_root_data, get_root_directory, get_device_root_directory, make_empty_device_root_directory
+from .cache import GLOBAL_CACHE
+from .file import get_file_data, put_file_data
+from .mutable import get_mutable, put_mutable, delete_mutable, delete_raw_data
+from .metadata import get_device_root_version
+from .write_log import write_log_page_replicate, write_log_enqueue
 
 log = get_logger('gaia-datastore')
-
-
-def datastore_get_privkey( master_data_privkey, app_domain, config_path=CONFIG_PATH ):
-    """
-    Make the public/private key for an application account,
-    given the app domain and the master private key
-
-    Its master_data_privkey[sha256(app_domain)]/0', where sha256(app_domain) is the chaincode
-    """
-    chaincode = hashlib.sha256(str(app_domain)).digest()
-    hdwallet = HDWallet( hex_privkey=master_data_privkey, chaincode=chaincode )
-    app_private_key = hdwallet.get_child_privkey( index=DATASTORE_SIGNING_KEY_INDEX )
-
-    return app_private_key
 
 
 def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, full_app_name=None, config_path=CONFIG_PATH, proxy=None, no_cache=False, cache_ttl=None, parsed_key_file=None):
@@ -144,7 +126,7 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
             if len(app_info[dev_id][full_app_name]['datastore_urls']) > 0:
                 if len(datastore_urls) > 0:
                     # multiple devices claim to have created this datastore 
-                    log.warning("Device {} also created a datastore for {}".format(full_app_name))
+                    log.warning("Device {} also created a datastore for {}".format(dev_id, full_app_name))
                     multiple_datastores[dev_id] = app_info[dev_id][full_app_name]['datastore_urls']
                     continue
 
@@ -509,7 +491,7 @@ def verify_file_data(full_app_name, datastore, file_name, file_header_blob, payl
         return {'error': 'failed to verify file data: invalid public key or signature', 'errno': "EINVAL"}
 
     if not res:
-        log.error("Failed to verify {} ({}) with {}".format(header_blob, signature, datas_pubkey))
+        log.error("Failed to verify {} ({}) with {}".format(file_header_blob, signature, data_pubkey))
         return {'error': 'failed to verify file data: bad signature', 'errno': "EINVAL"}
 
     # check payload hash 
@@ -578,7 +560,7 @@ def verify_root_data(datastore, root_data_blob, signature, device_id, blockchain
         return {'error': 'Invalid public key or signature', 'errno': "EINVAL"}
 
     if not res:
-        log.error("Failed to verify {} ({}) with {}".format(header_blob, signature, datas_pubkey))
+        log.error("Failed to verify {} ({}) with {}".format(root_data_blob, signature, data_pubkey))
         return {'error': 'failed to verify root directory page: bad signature', 'errno': "EINVAL"}
 
     # must be a valid blob 
@@ -669,7 +651,7 @@ def datastore_get_device_root(full_app_name, datastore, device_id, data_pubkey=N
     return get_device_root_directory(datastore_id, datastore['root_uuid'], datastore['drivers'], device_id, data_pubkey, timestamp=timestamp, force=force, config_path=config_path, blockchain_id=blockchain_id)
 
 
-def datastore_put_file_data(full_app_name, datastore, file_name, file_header_blob, payload, signature, device_id, blockchain_id=None, data_pubkey=None, config_path=CONFIG_PATH):
+def datastore_put_file_data(full_app_name, datastore, file_name, file_header_blob, payload, signature, device_id, blockchain_id=None, data_pubkey=None, config_path=CONFIG_PATH, proxy=None):
     """
     Store file data.  Entry point from the API server.
 
@@ -834,7 +816,7 @@ def datastore_file_data_verify( datastore_pubkey, headers, payloads, signatures,
             return {'error': "Payload {} does not match file header {}".format(payload_hash, header_struct['data_hash']), 'errno': "EINVAL"}
 
     if len(tombstones) > 0:
-        res = verify_mutable_data_tombstones( tombstones, datastore_pubkey, device_ids=device_ids )
+        res = verify_data_tombstones( tombstones, datastore_pubkey, device_ids=device_ids )
         if not res:
             return {'error': 'Failed to verify data tombstones', 'errno': "EINVAL"}
 

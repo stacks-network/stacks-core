@@ -33,15 +33,83 @@ import mutable
 import policy
 import write_log
 
-from blob import *
-from client import *
-from control import *
-from datastore import *
-from directory import *
-from file import *
-from immutable import *
-from metadata import *
-from mutable import *
-from policy import *
-from write_log import *
+from blob import (
+    datastore_get_id,
+    data_blob_serialize,
+    data_blob_parse,
+    data_blob_sign,
+    make_mutable_data_info,
+    make_data_tombstones,
+    sign_data_tombstones,
+    verify_data_tombstones,
+)
+
+from cache import (
+    GLOBAL_CACHE,
+    cache_evict_all
+)
+
+from client import (
+    get_datastore,
+    put_datastore,
+    delete_datastore,
+    datastore_getfile,
+    datastore_putfile,
+    datastore_deletefile,
+    datastore_stat,
+    datastore_serialize_and_sign,
+    datastore_verify_and_parse,
+)
+
+from control import (
+    gaia_start,
+    gaia_stop,
+)
+
+from datastore import (
+    get_datastore_info,
+    put_datastore_info,
+    delete_datastore_info,
+    sign_datastore_info,
+    verify_datastore_info,
+    datastore_put_device_root_data,
+    datastore_put_file_data,
+    datastore_get_file_data,
+    datastore_delete_file_data,
+    make_datastore_info,
+)
+
+from directory import (
+    get_root_directory,
+    get_device_root_directory,
+    make_empty_device_root_directory,
+    put_device_root_data,
+)
+
+from file import (
+    get_file_info
+)
+
+from metadata import (
+    get_mutable_data_version,
+    put_mutable_data_version,
+)
+
+from immutable import (
+    get_immutable,
+    get_immutable_by_name,
+    put_immutable,
+    delete_immutable,
+    list_update_history,
+    list_zonefile_history,
+    list_immutable_data_history
+)
+
+from mutable import (
+    get_mutable,
+    put_mutable,
+    delete_mutable,
+)
+
+
 

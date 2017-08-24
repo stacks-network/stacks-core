@@ -39,23 +39,19 @@ import functools
 import traceback
 import sqlite3
 
-from keylib import *
-
-import virtualchain
-from virtualchain.lib.ecdsalib import *
-
 from ..logger import get_logger
 from ..proxy import get_default_proxy
 from ..config import get_config, get_local_device_id
 from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DEFAULT_DEVICE_ID, CONFIG_PATH
-from ..schemas import *
 from ..storage import sign_data_payload, make_data_tombstone, make_fq_data_id, sign_data_tombstone, parse_data_tombstone, verify_data_tombstone, parse_fq_data_id, \
         hash_data_payload, sign_data_payload, serialize_mutable_data, get_storage_handlers, verify_data_payload, get_mutable_data
 
-log = get_logger('gaia-file')
+from .blob import datastore_get_id
+from .directory import get_root_directory
+from .mutable import put_raw_data
+from .policy import prioritize_read_drivers
 
-from mutable import *
-from directory import *
+log = get_logger('gaia-file')
 
 def get_file_data_from_header(datastore_id, file_name, file_header, drivers, config_path=CONFIG_PATH, blockchain_id=None):
     """

@@ -39,11 +39,6 @@ import functools
 import traceback
 import sqlite3
 
-from keylib import *
-
-import virtualchain
-from virtualchain.lib.ecdsalib import *
-
 from ..logger import get_logger
 from ..proxy import get_default_proxy
 from ..config import get_config, get_local_device_id

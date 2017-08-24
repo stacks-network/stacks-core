@@ -41,11 +41,6 @@ import sqlite3
 import jsonschema
 from jsonschema import ValidationError
 
-from keylib import *
-
-import virtualchain
-from virtualchain.lib.ecdsalib import *
-
 from ..logger import get_logger
 from ..proxy import get_default_proxy
 from ..config import get_config, get_local_device_id
@@ -57,10 +52,11 @@ from ..storage import sign_data_payload, make_data_tombstone, make_fq_data_id, s
 
 from ..utils import ScatterGather
 
+from blob import data_blob_parse
+from policy import get_read_storage_drivers, prioritize_read_drivers, get_required_write_storage_drivers
+
 log = get_logger('gaia-mutable')
 
-from blob import *
-from policy import *
 
 def get_mutable(fq_data_id, device_ids=None, raw=False, data_pubkeys=None, data_addresses=None, data_hash=None, storage_drivers=None,
                             proxy=None, timestamp=0, force=False, urls=None,
@@ -371,7 +367,7 @@ def delete_raw_data( signed_tombstones, drivers, config_path=CONFIG_PATH, blockc
         """
         res = delete_mutable(signed_tombstones, proxy=proxy, storage_drivers=[driver], storage_drivers_exclusive=True, blockchain_id=blockchain_id, config_path=config_path)
         if 'error' in res:
-            return {'error': 'Failed to delete {} from {}'.format(signed_tombstone, driver)}
+            return {'error': 'Failed to delete {} from {}'.format(signed_tombstones, driver)}
 
         return {'status': True}
 

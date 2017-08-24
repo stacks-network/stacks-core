@@ -39,22 +39,22 @@ import functools
 import traceback
 import sqlite3
 
-from keylib import *
-
-import virtualchain
-from virtualchain.lib.ecdsalib import *
+import blockstack_zones
+import blockstack_profiles
 
 from ..logger import get_logger
-from ..proxy import get_default_proxy
+from ..keys import get_payment_privkey_info, get_owner_privkey_info, get_data_privkey_info
+from ..proxy import get_default_proxy, getinfo, get_name_blockchain_history, json_is_error
 from ..config import get_config, get_local_device_id
 from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DEFAULT_DEVICE_ID, CONFIG_PATH
-from ..schemas import *
 from ..storage import sign_data_payload, make_data_tombstone, make_fq_data_id, sign_data_tombstone, parse_data_tombstone, verify_data_tombstone, parse_fq_data_id, \
         hash_data_payload, sign_data_payload, serialize_mutable_data, get_storage_handlers, verify_data_payload, get_mutable_data, get_immutable_data, get_data_hash, \
-        put_immutable_data, hash_zonefile
+        put_immutable_data, hash_zonefile, delete_immutable_data
 
 from ..user import is_user_zonefile, get_immutable_data_hashes, has_immutable_data, get_immutable_data_url, user_zonefile_set_data_pubkey, list_immutable_data_zonefile, \
         has_immutable_data_id, remove_immutable_data_zonefile, put_immutable_data_zonefile, has_immutable_data
+
+from ..zonefile import get_name_zonefile, load_name_zonefile, store_name_zonefile
 
 log = get_logger('gaia-immutable')
 
@@ -106,7 +106,7 @@ def get_immutable(name, data_hash, data_id=None, config_path=CONFIG_PATH, proxy=
                 return {'error': 'Data ID/hash mismatch: {} not in {} (possibly due to invalid zonefile)'.format(data_hash, hs)}
             else:
                 msg = 'Multiple matches for "{}": {}'
-                return {'error': msg.format(data_id, ','.join(h))}
+                return {'error': msg.format(data_id, ','.join(hs))}
 
         h = hs[0]
         if data_hash is not None:
@@ -298,7 +298,7 @@ def put_immutable(blockchain_id, data_id, data_text, data_url=None, txid=None, p
     Return {'error': ...} on error
     """
 
-    from backend.nameops import async_update
+    from ..backend.nameops import async_update
 
     proxy = get_default_proxy(config_path) if proxy is None else proxy
 
@@ -392,7 +392,7 @@ def delete_immutable(blockchain_id, data_key, data_id=None, proxy=None, txid=Non
     Return a dict with {'error': ...} on failure
     """
 
-    from backend.nameops import async_update
+    from ..backend.nameops import async_update
 
     proxy = get_default_proxy(config_path) if proxy is None else proxy
 
@@ -526,7 +526,7 @@ def set_data_pubkey(blockchain_id, data_pubkey, proxy=None, wallet_keys=None, tx
     Return {'error': ...} on error
     """
 
-    from backend.nameops import async_update
+    from ..backend.nameops import async_update
 
     legacy = False
     proxy = get_default_proxy(config_path) if proxy is None else proxy

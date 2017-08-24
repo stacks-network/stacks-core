@@ -42,25 +42,26 @@ import sqlite3
 import jsonschema
 from jsonschema import ValidationError
 
-from keylib import *
-
 import virtualchain
-from virtualchain.lib.ecdsalib import *
+import keylib
 
 from ..logger import get_logger
 from ..proxy import get_default_proxy
 from ..config import get_config, get_local_device_id
 from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DEFAULT_DEVICE_ID, CONFIG_PATH
-from ..schemas import *
+from ..key_file import lookup_app_pubkeys
+from ..schemas import ROOT_DIRECTORY_ENTRY_SCHEMA, ROOT_DIRECTORY_LEAF, OP_DATASTORE_ID_CLASS, OP_URLENCODED_CLASS, ROOT_DIRECTORY_SCHEMA
 from ..storage import sign_data_payload, make_data_tombstone, make_fq_data_id, sign_data_tombstone, parse_data_tombstone, verify_data_tombstone, parse_fq_data_id, \
-        hash_data_payload, sign_data_payload, serialize_mutable_data, get_storage_handlers, verify_data_payload
+        hash_data_payload, sign_data_payload, serialize_mutable_data, get_storage_handlers, verify_data_payload, sign_raw_data, verify_raw_data
+from ..utils import ScatterGather
+
+from .cache import GLOBAL_CACHE
+from .blob import data_blob_parse, data_blob_serialize
+from .mutable import get_mutable, put_raw_data
+from .metadata import get_device_root_version
+from .policy import prioritize_read_drivers
 
 log = get_logger('gaia-directory')
-
-from blob import *
-from cache import *
-from metadata import *
-from mutable import *
 
 
 def make_empty_device_root_directory(datastore_id, reader_pubkeys, timestamp=None):
