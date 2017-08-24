@@ -341,8 +341,8 @@ def get_compressed_and_decompressed_private_key_info(privkey_info):
         decompressed_multisig = virtualchain.make_multisig_info(m, decompressed_privkeys, compressed=True)
         compressed_multisig = virtualchain.make_multisig_info(m, compressed_privkeys, compressed=False)
 
-        decompressed_addr = decompressed_multisig['address']
-        compressed_addr = compressed_multisig['address']
+        decompressed_addr = virtualchain.address_reencode(decompressed_multisig['address'])
+        compressed_addr = virtualchain.address_reencode(compressed_multisig['address'])
         
         return {'decompressed_private_key_info': decompressed_multisig,
                 'compressed_private_key_info': compressed_multisig,
@@ -365,8 +365,8 @@ def get_compressed_and_decompressed_private_key_info(privkey_info):
         compressed_pubk = ecdsa_private_key(compressed_pk).public_key().to_hex()
         decompressed_pubk = ecdsa_private_key(decompressed_pk).public_key().to_hex()
 
-        compressed_addr = keylib.public_key_to_address(compressed_pubk)
-        decompressed_addr = keylib.public_key_to_address(decompressed_pubk)
+        compressed_addr = virtualchain.address_reencode(keylib.public_key_to_address(compressed_pubk))
+        decompressed_addr = virtualchain.address_reencode(keylib.public_key_to_address(decompressed_pubk))
 
         return {'decompressed_private_key_info': decompressed_pk,
                 'compressed_private_key_info': compressed_pk,

@@ -94,22 +94,22 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
     owner_key_info = get_compressed_and_decompressed_private_key_info(decrypted_wallet['owner_privkey'])
     payment_key_info = get_compressed_and_decompressed_private_key_info(decrypted_wallet['payment_privkey'])
 
-    owner_address = decrypted_wallet['owner_addresses'][0]
-    payment_address = decrypted_wallet['payment_addresses'][0]
+    owner_address = virtualchain.address_reencode(decrypted_wallet['owner_addresses'][0])
+    payment_address = virtualchain.address_reencode(decrypted_wallet['payment_addresses'][0])
 
     owner_privkey_info = None
     payment_privkey_info = None
 
-    if owner_address == owner_key_info['compressed_addr']:
+    if owner_address == virtualchain.address_reencode(owner_key_info['compressed_addr']):
         owner_privkey_info = owner_key_info['compressed_private_key_info']
-    elif owner_address == owner_key_info['decompressed_addr']:
+    elif owner_address == virtualchain.address_reencode(owner_key_info['decompressed_addr']):
         owner_privkey_info = owner_key_info['decompressed_private_key_info']
     else:
         return {'error': 'Invalid owner private key: does not match address {}'.format(owner_address)}
 
-    if payment_address == payment_key_info['compressed_addr']:
+    if payment_address == virtualchain.address_reencode(payment_key_info['compressed_addr']):
         payment_privkey_info = payment_key_info['compressed_private_key_info']
-    elif payment_address == payment_key_info['decompressed_addr']:
+    elif payment_address == virtualchain.address_reencode(payment_key_info['decompressed_addr']):
         payment_privkey_info = payment_key_info['decompressed_private_key_info']
     else:
         return {'error': 'Invalid payment private key: does not match address {}'.format(payment_address)}
