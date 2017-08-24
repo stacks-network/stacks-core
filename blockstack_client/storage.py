@@ -837,7 +837,7 @@ def get_mutable_data(fq_data_id, data_pubkeys, urls=None, data_addresses=None, d
 
     for storage_handler in handlers_to_use:
         if not getattr(storage_handler, 'get_mutable_handler', None):
-            log.debug("Skip driver {}, since it cannot get mutable data".format(storage_driver.__name__))
+            log.debug("Skip driver {}, since it cannot get mutable data".format(storage_handler.__name__))
             continue
 
         # which URLs to attempt?
