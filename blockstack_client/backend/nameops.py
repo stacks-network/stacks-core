@@ -1038,7 +1038,7 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_privkey_info, tx_fee_p
             assert unsigned_tx
 
             # fake payer input
-            pad_len = estimate_input_length(payment_address)
+            pad_len = estimate_input_length(reveal_addr)
             signed_tx = unsigned_tx + "00" * pad_len
 
     except ValueError, ve:
