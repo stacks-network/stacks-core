@@ -141,7 +141,7 @@ from .wallet import (
     unlock_wallet
 )
 
-from .keys import privkey_to_string
+from .keys import privkey_to_string, get_owner_privkey_info, get_app_root_privkey, get_app_privkey, get_signing_privkey
 from .proxy import (
     is_zonefile_current, get_default_proxy, json_is_error,
     get_name_blockchain_history, get_all_namespaces, getinfo,
@@ -158,9 +158,12 @@ from .utils import exit_with_error, satoshis_to_btc, ScatterGather
 from .app import app_publish, app_get_config, app_get_resource, \
         app_put_resource, app_delete_resource, app_domain_to_app_name, is_valid_app_name
 
+from .snv import snv_lookup
+
 from .gaia import make_datastore_info, put_datastore, delete_datastore, \
         datastore_getfile, datastore_putfile, datastore_deletefile, datastore_stat, \
-        datastore_get_id, datastore_get_privkey, \
+        datastore_get_id, get_mutable, put_mutable, delete_mutable, get_immutable, get_immutable_by_name, put_immutable, delete_immutable, \
+        list_update_history, list_zonefile_history, list_immutable_data_history, \
         make_mutable_data_info, data_blob_parse, data_blob_serialize, make_data_tombstones, sign_data_tombstones, \
         get_root_directory, get_device_root_directory, GLOBAL_CACHE, \
         make_empty_device_root_directory
@@ -2621,7 +2624,7 @@ def cli_api(args, password=None, interactive=True, config_path=CONFIG_PATH):
     if password:
         set_secret("BLOCKSTACK_CLIENT_WALLET_PASSWORD", password)
     
-    res = find_api_password(config_path=config_path)
+    res = find_api_password(config_path=config_path, interactive=interactive)
     if 'error' in res:
         return {'error': 'Need --api-password on the CLI, or `api_password=` set in your config file ({})'.format(config_path)}
     
@@ -3423,7 +3426,7 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None, st
     proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
     sig = sign_data_payload(mutable_data_payload, privkey)
 
-    result = put_mutable(mutable_data_info['fq_data_id'], mutable_data_payload, pubkey, sig, mutable_data_info['version'], \
+    result = put_mutable(mutable_data_info['fq_data_id'], mutable_data_payload, pubkey, sig, \
                          blockchain_id=fqu, config_path=config_path, proxy=proxy, storage_drivers=storage_drivers, storage_drivers_exclusive=storage_drivers_exclusive) 
 
     if 'error' in result:
@@ -3491,7 +3494,7 @@ def cli_get_mutable(args, config_path=CONFIG_PATH, proxy=None):
     else:
         device_ids = [get_local_device_id(os.path.dirname(config_path))]
 
-    result = get_mutable(str(args.data_id), device_ids, proxy=proxy, config_path=config_path, blockchain_id=str(args.name), data_pubkey=data_pubkey)
+    result = get_mutable(str(args.data_id), device_ids, proxy=proxy, config_path=config_path, blockchain_id=str(args.name), data_pubkeys=[data_pubkey])
     if 'error' in result:
         return result
 
@@ -3648,7 +3651,7 @@ def cli_delete_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None)
     data_tombstones = make_data_tombstones(device_ids, data_id) 
     signed_data_tombstones = sign_data_tombstones(data_tombstones, privkey)
 
-    result = delete_mutable(data_id, signed_data_tombstones, proxy=proxy, config_path=config_path)
+    result = delete_mutable(signed_data_tombstones, proxy=proxy, config_path=config_path)
     return result
 
 
@@ -3707,7 +3710,7 @@ def cli_lookup_snv(args, config_path=CONFIG_PATH):
     arg: block_id (int) 'The block height at which to query the name'
     arg: trust_anchor (str) 'The trusted consensus hash, transaction ID, or serial number from a higher block height than `block_id`'
     """
-    result = lookup_snv(
+    result = snv_lookup(
         str(args.name),
         int(args.block_id),
         str(args.trust_anchor)
@@ -3912,85 +3915,6 @@ def cli_unqueue(args, config_path=CONFIG_PATH):
     return {'status': True}
 
 
-def find_signing_privkey(name, args_signing_privkey, wallet_keys=None, config_path=CONFIG_PATH, password=None, proxy=None, parsed_key_file=None):
-    """
-    Find the signing private key to use--either the one given in args_signing_privkey,
-    or the one from our wallet that corresponds to this device's signing public key.
-
-    Returns {'status': True, 'signing_privkey': privkey} on success
-    Returns {'error': ...} on error
-    """
-    if args_signing_privkey:
-        try:
-            signing_privkey = ECPrivateKey(str(args_privkey)).to_hex()
-        except:
-            return {'error': 'Failed to parse private key'}
-  
-    else:
-        if wallet_keys is None:
-            wallet_keys = get_wallet_keys(config_path, password)
-            if 'error' in wallet_keys:
-                return wallet_keys
-
-        res = lookup_signing_privkey(name, get_owner_privkey_info(wallet_keys), cache=GLOBAL_CACHE, proxy=proxy, parsed_key_file=parsed_key_file)
-        if 'error' in res:
-            log.error("Failed to load signing key for {}: {}".format(name, res['error']))
-            return {'error': 'Failed to look up signing key from wallet.  Try passing it explicitly as an argument.'}
-
-        signing_privkey = res['signing_privkey']
-        return {'status': True, 'signing_privkey': signing_privkey}
-
-
-def find_signing_pubkeys_and_address(name, args_signing_pubkey, proxy=None):
-    """
-    Find the set of public keys and possibly address to use for a given name.
-    Use either the one given in the args (args_signing_pubkey), or look it up from the token file, zone file, and name record.
-
-    Return {
-    'status': True,
-    'pubkeys': [public keys, including zone file pubkey],
-    'device_pubkeys': {'$device_id': '$device_signing_pubkey'},
-    'address': owner address} on success
-    Return {'error': ...} on failure
-    """
-
-    pubkeys = []
-
-    if args_signing_pubkey:
-        pubkey = str(args_signing_pubkey)
-        try:
-            pubkey = ECPublicKey(pubkey).to_hex()
-        except:
-            return {'error': 'Invalid public key'}
-    
-        pubkeys = [pubkey]
-
-        return {'status': True, 'pubkeys': pubkeys, 'address': None}
-
-    else:
-        res = lookup_signing_pubkeys(name, cache=GLOBAL_CACHE, proxy=proxy)
-        if 'error' in res:
-            log.error("Failed to look up signing keys for {}: {}".format(name, res['error']))
-            return {'error': 'Failed to look up public keys for {}'.format(name)}
-
-        device_pubkeys = res['pubkeys']
-        pubkeys = res['pubkeys'].values()
-
-        # also grab the zone file public key, if present 
-        res = lookup_name_zonefile_pubkey(name, cache=GLOBAL_CACHE, proxy=proxy)
-        if 'error' in res:
-            log.error("Failed to look up zone file public key for {}: {}".format(name, res['error']))
-            return {'error': 'Failed to look up zone file public key for {}'.format(name)}
-
-        zonefile_pubkey = res['pubkey']
-        if zonefile_pubkey:
-            pubkeys.append(zonefile_pubkey)
-
-        owner_address = res['name_record']['address']
-
-        return {'status': True, 'pubkeys': pubkeys, 'device_pubkeys': device_pubkeys, 'address': owner_address}
-
-
 def find_datastore_device_pubkeys(blockchain_id, args_device_ids, args_device_pubkeys, full_application_name=None, datastore_id=None, proxy=None):
     """
     Find the list of (device ID, app-specific signing key) pairs for a given name.
@@ -4072,7 +3996,7 @@ def find_datastore_private_key(blockchain_id, full_application_name, arg_app_pri
 
         # derive keys
         app_root_privkey = get_app_root_privkey(get_owner_privkey_info(wallet_keys))
-        app_privkey = get_app_privkey(app_root_privkey, app_domain)
+        app_privkey = get_app_privkey(app_root_privkey, full_application_name)
    
     else:
         app_privkey = str(arg_app_privkey)
@@ -4498,7 +4422,7 @@ def cli_app_delete_resource( args, config_path=CONFIG_PATH, interactive=False, p
     return res
 
 
-def find_api_password( config_path=CONFIG_PATH ):
+def find_api_password( config_path=CONFIG_PATH, interactive=False ):
     """
     Get the API password to use
     Return {'status': True, 'api_pass': ...} on success
@@ -4524,7 +4448,7 @@ def find_api_password( config_path=CONFIG_PATH ):
     return {'status': True, 'api_pass': api_pass}
 
 
-def device_app_setup(blockchain_id, app_domain, this_device_id, app_privkey, config_path=CONFIG_PATH, api_pass=None):
+def device_app_setup(blockchain_id, app_domain, this_device_id, app_privkey, owner_privkey, config_path=CONFIG_PATH, api_pass=None):
     """
     Link a device to an application.
     * If the user hasn't signed into this application anywhere yet, then do nothing and return success (i.e. a call to create_datastore() will take care of this)
@@ -4603,7 +4527,7 @@ def device_app_setup(blockchain_id, app_domain, this_device_id, app_privkey, con
             # link the datastore ID to this device's key file.
 
             # get signing private key 
-            res = find_signing_privkey(parsed_key_file, wallet_keys['owner_privkey'])
+            res = find_signing_privkey(parsed_key_file, owner_privkey)
             if 'error' in res:
                 return res
 
@@ -4675,7 +4599,7 @@ def cli_app_signin(args, config_path=CONFIG_PATH, interactive=True, password=Non
             return {'error': 'Invalid public key: {}'.format(pubk)}
     
     # get API password 
-    res = find_api_password(config_path=config_path)
+    res = find_api_password(config_path=config_path, interactive=interactive)
     if 'error' in res:
         return res
 
@@ -4697,7 +4621,11 @@ def cli_app_signin(args, config_path=CONFIG_PATH, interactive=True, password=Non
             return {'error': 'If no blockchain ID is given, then device_ids and public_keys are required'}
 
     else:
-        res = device_app_setup(blockchain_id, app_domain, this_device_id, app_privkey, config_path=config_path, api_pass=api_pass)
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
+
+        res = device_app_setup(blockchain_id, app_domain, this_device_id, app_privkey, wallet_keys['owner_privkey'], config_path=config_path, api_pass=api_pass)
         if 'error' in res:
             return res
         
@@ -5336,7 +5264,7 @@ def cli_get_device_keys( args, config_path=CONFIG_PATH ):
     # find the "data public key"
     
 
-def cli_get_datastore( args, config_path=CONFIG_PATH ):
+def cli_get_datastore( args, config_path=CONFIG_PATH, proxy=None ):
     """
     command: get_datastore advanced
     help: Get a datastore record
@@ -5350,6 +5278,9 @@ def cli_get_datastore( args, config_path=CONFIG_PATH ):
     datastore_id = None
     device_ids = None
     parsed_key_file = None
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
 
     if getattr(args, 'blockchain_id', None):
         blockchain_id = str(args.blockchain_id)
@@ -5528,7 +5459,7 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False, pro
 
     res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), full_application_name=app_name, datastore_id=datastore_id, proxy=proxy)
     if 'error' in res:
-        return {'error': 'Failed to query device list for {}: {}'.format(name, res['error'])}
+        return {'error': 'Failed to query device list for {}: {}'.format(blockchain_id, res['error'])}
    
     data_pubkeys = res['pubkeys']
 
@@ -5590,7 +5521,7 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False, proxy=N
 
     res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), full_application_name=app_name, datastore_id=datastore_id, proxy=proxy)
     if 'error' in res:
-        return {'error': 'Failed to query device list for {}: {}'.format(name, res['error'])}
+        return {'error': 'Failed to query device list for {}: {}'.format(blockchain_id, res['error'])}
    
     data_pubkeys = res['pubkeys']
 
@@ -5711,7 +5642,7 @@ def cli_datastore_listfiles(args, config_path=CONFIG_PATH, interactive=False, pr
 
     res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), full_application_name=app_name, datastore_id=datastore_id, proxy=proxy)
     if 'error' in res:
-        return {'error': 'Failed to query device list for {}: {}'.format(name, res['error'])}
+        return {'error': 'Failed to query device list for {}: {}'.format(blockchain_id, res['error'])}
    
     data_pubkeys = res['pubkeys']
 
@@ -5762,28 +5693,12 @@ def cli_datastore_device_listfiles(args, config_path=CONFIG_PATH, interactive=Fa
 
     res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), full_application_name=app_name, datastore_id=datastore_id, proxy=proxy)
     if 'error' in res:
-        return {'error': 'Failed to query device list for {}: {}'.format(name, res['error'])}
+        return {'error': 'Failed to query device list for {}: {}'.format(blockchain_id, res['error'])}
    
     data_pubkeys = res['pubkeys']
 
     res = datastore_files_list_device("datastore", blockchain_id, device_id, app_name, data_pubkeys, datastore_id=datastore_id, force=force, config_path=config_path)
     return res
-
-
-def cli_datastore_get_privkey(args, config_path=CONFIG_PATH, interactive=False ):
-    """
-    command: datastore_get_privkey advanced
-    help: Get the private key for a datastore, given the master private key.
-    arg: master_privkey (str) 'The master data private key'
-    arg: app_domain (str) 'The name of the application'
-    """
-    raise NotImplementedError("Token file support not yet implemented")
-
-    app_domain = str(args.app_domain)
-    master_privkey = str(args.master_privkey)
-
-    datastore_privkey = datastore_get_privkey(master_privkey, app_domain, config_path=config_path)
-    return {'status': True, 'datastore_privkey': datastore_privkey}
 
 
 def cli_datastore_get_id(args, config_path=CONFIG_PATH, interactive=False ):
@@ -5794,242 +5709,6 @@ def cli_datastore_get_id(args, config_path=CONFIG_PATH, interactive=False ):
     """
     datastore_id = datastore_get_id(get_pubkey_hex(str(args.datastore_privkey)))
     return {'status': True, 'datastore_id': datastore_id}
-
-
-def cli_get_collection( args, config_path=CONFIG_PATH, proxy=None, password=None ):
-    """
-    command: get_collection advanced
-    help: Get a collection record
-    arg: blockchain_id (str) 'The ID of the owner'
-    arg: collection_domain (str) 'The name of the collection'
-    opt: device_ids (str) 'The list of device IDs that can write'
-    """
-    raise NotImplementedError("Collections not implemented")
-
-    blockchain_id = str(args.blockchain_id)
-    collection_domain = str(args.collection_domain)
-    device_ids = args.device_ids.split(',')
-    return get_datastore_by_type('collection', blockchain_id, collection_domain, device_ids, config_path=config_path )
-
-
-def cli_create_collection( args, config_path=CONFIG_PATH, proxy=None, password=None, master_data_privkey=None ):
-    """
-    command: create_collection advanced 
-    help: Make a new collection for a given user.
-    arg: blockchain_id (str) 'The blockchain ID that will own this collection'
-    arg: collection_domain (str) 'The domain of this collection.'
-    opt: device_ids (str) 'A CSV of your device IDs.'
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-    
-    raise NotImplementedError("Collections not implemented")
-
-    blockchain_id = str(args.blockchain_id)
-    password = get_default_password(password)
-    collection_domain = str(args.collection_domain)
-
-    # get the list of device IDs to use 
-    device_ids = getattr(args, 'device_ids', None)
-    if device_ids:
-        device_ids = device_ids.split(',')
-
-    else:
-        raise NotImplementedError("Missing token file parsing logic")
-
-    # TODO: privkey
-    # privkey = 
-    raise NotImplementedError("Collections are not implemented yet")
-
-    # get the list of device IDs to use 
-    device_ids = getattr(args, 'device_ids', None)
-    if device_ids:
-        device_ids = device_ids.split(',')
-
-    else:
-        raise NotImplementedError("Missing token file parsing logic")
-
-    return create_datastore_by_type('collection', blockchain_id, privkey, device_ids, proxy=proxy, config_path=config_path, password=password, master_data_privkey=master_data_privkey)
-
-
-def cli_delete_collection( args, config_path=CONFIG_PATH, proxy=None, password=None, master_data_privkey=None ):
-    """
-    command: delete_collection advanced 
-    help: Delete a collection owned by a given user, and all of the data it contains.
-    arg: blockchain_id (str) 'The owner of this collection'
-    arg: collection_domain (str) 'The domain of this collection'
-    opt: device_ids (str) 'A CSV of your devices'
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    raise NotImplementedError("Collections not implemented")
-
-    password = get_default_password(password)
-
-    blockchain_id = str(args.blockchain_id)
-    collection_domain = str(args.collection_domain)
-    
-    # get the list of device IDs to use 
-    device_ids = getattr(args, 'device_ids', None)
-    if device_ids:
-        device_ids = device_ids.split(',')
-
-    else:
-        raise NotImplementedError("Missing token file parsing logic")
-
-    # TODO: privkey
-    # privkey = 
-    raise NotImplementedError("Collections are not implemented")
-
-    device_ids = None
-    if hasattr(args, 'device_ids'):
-        device_ids = str(args.device_ids).split(',')
-    else:
-        raise NotImplementedError("No support for token files")
-
-    return delete_datastore_by_type('collection', blockchain_id, privkey, device_ids, force=True, config_path=config_path, proxy=proxy, password=password)
-
-
-def cli_collection_listitems(args, config_path=CONFIG_PATH, password=None, interactive=False, proxy=None ):
-    """
-    command: collection_items advanced
-    help: List the contents of a collection
-    arg: blockchain_id (str) 'The ID of the collection owner'
-    arg: collection_domain (str) 'The domain of this collection'
-    arg: path (str) 'The path to the directory to list'
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    raise NotImplementedError("Collections not implemented")
-
-    password = get_default_password(password)
-    blockchain_id = str(args.blockchain_id)
-
-    # get the list of device IDs to use 
-    device_ids = getattr(args, 'device_ids', None)
-    if device_ids:
-        device_ids = device_ids.split(',')
-
-    else:
-        raise NotImplementedError("Missing token file parsing logic")
-
-    collection_domain = str(args.collection_domain)
-    path = str(args.path)
-
-    res = datastore_dir_list('collection', blockchain_id, collection_domain, '/', device_ids, config_path=config_path, proxy=proxy)
-    if 'error' in res:
-        return res
-
-    # if somehow we get a directory in here, exclude it
-    dir_info = res['dir']
-    filtered_dir_info = {}
-    for name in dir_info.keys():
-        if dir_info[name]['type'] == MUTABLE_DATUM_FILE_TYPE:
-            filtered_dir_info[name] = dir_info[name]
-
-    return {'status': True, 'dir': filtered_dir_info}
-
-
-def cli_collection_statitem(args, config_path=CONFIG_PATH, interactive=False, proxy=None):
-    """
-    command: collection_statitem advanced
-    help: Stat an item in a collection
-    arg: blockchain_id (str) 'The ID of the collection owner'
-    arg: collection_domain (str) 'The name of this collection'
-    arg: item_id (str) 'The name of the item to stat'
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    raise NotImplementedError("Collections not implemented")
-
-    password = get_default_password(password)
-
-    # get the list of device IDs to use 
-    device_ids = getattr(args, 'device_ids', None)
-    if device_ids:
-        device_ids = device_ids.split(',')
-
-    else:
-        raise NotImplementedError("Missing token file parsing logic")
-
-    blockchain_id = str(args.blockchain_id)
-    collection_domain = str(args.collection_domain)
-    item_id = str(args.item_id)
-
-    return datastore_path_stat('collection', blockchain_id, collection_domain, '/{}'.format(item_id), device_ids, proxy=proxy, config_path=config_path)
-
-
-def cli_collection_putitem(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None, force_data=False, master_data_privkey=None ):
-    """
-    command: collection_putitem advanced 
-    help: Put an item into a collection.  Overwrites are forbidden.
-    arg: blockchain_id (str) 'The owner of the collection'
-    arg: collection_privkey (str) 'The collection private key'
-    arg: item_id (str) 'The item name'
-    arg: data (str) 'The data to store, or a path to a file with the data'
-    opt: device_ids (str) 'A CSV of your device IDs'
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-    
-    raise NotImplementedError("Collections not implemented")
-
-    password = get_default_password(password)
-
-    blockchain_id = str(args.blockchain_id)
-    collection_domain = str(args.collection_domain)
-    item_id = str(args.item_id)
-    data = args.data
-    collection_privkey = str(args.collection_privkey)
-
-    # get the list of device IDs to use 
-    device_ids = getattr(args, 'device_ids', None)
-    if device_ids:
-        device_ids = device_ids.split(',')
-
-    else:
-        raise NotImplementedError("Missing token file parsing logic")
-
-
-    return datastore_file_put('collection', blockchain_id, collection_privkey, '/{}'.format(item_id), data, device_ids=device_ids, 
-                              create=True, force_data=force_data, proxy=proxy, config_path=config_path, master_data_privkey=master_data_privkey, password=password)
-
-
-def cli_collection_getitem( args, config_path=CONFIG_PATH, interactive=False, password=None, proxy=None ):
-    """
-    command: collection_getitem advanced
-    help: Get an item from a collection.
-    arg: blockchain_id (str) 'The ID of the datastore owner'
-    arg: collection_domain (str) 'The domain of this collection'
-    arg: item_id (str) 'The item to fetch'
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    raise NotImplementedError("Collections not implemented")
-
-    password = get_default_password(password)
-
-    config_dir = os.path.dirname(config_path)
-    blockchain_id = getattr(args, 'blockchain_id', '')
-    if blockchain_id is None or len(blockchain_id) == 0:
-        blockchain_id = None
-    else:
-        blockchain_id = str(blockchain_id)
-    
-    collection_domain = str(args.collection_domain)
-    item_id = str(args.item_id)
-
-    return datastore_file_get('collection', blockchain_id, collection_domain, '/{}'.format(item_id), password=password, config_path=config_path, proxy=proxy)
 
 
 def cli_start_server( args, config_path=CONFIG_PATH, interactive=False ):
