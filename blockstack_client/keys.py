@@ -73,7 +73,6 @@ class HDWallet(object):
         self.hex_privkey = hex_privkey
         self.priv_keychain = None
         self.master_address = None
-        self.child_addresses = None
 
         self.keychain_key = str(self.hex_privkey) + ":" + str(chaincode.encode('hex'))
 
@@ -155,9 +154,6 @@ class HDWallet(object):
         Returns:
         child address for given @index
         """
-
-        if self.child_addresses is not None:
-            return self.child_addresses[index]
 
         # force decompressed...
         hex_privkey = self.get_child_privkey(index)
@@ -333,7 +329,7 @@ def decrypt_private_key_info(privkey_info, password):
 
     Decrypt a particular private key info bundle.
     It can be either a single-signature private key, or a multisig key bundle.
-    Return {'address': ..., 'private_key_info': ...} on success.
+    Return {'address': ..., 'private_key_info': ..., 'compressed_addr': ..., 'decompressed_addr': ....} on success.
     Return {'error': ...} on error.
     """
 
@@ -346,7 +342,20 @@ def decrypt_private_key_info(privkey_info, password):
             return {'error': 'Failed to decrypt multisig wallet: {}'.format(ret['error'])}
 
         address = virtualchain.get_privkey_address(ret)
-        return {'address': address, 'private_key_info': ret}
+
+        # get both compressed and uncompressed addresses 
+        privkeys = ret['private_keys']
+        privkeys_hex = [keylib.ECPrivateKey(pk).to_hex() for pk in privkeys]
+
+        decompressed_privkeys = map(lambda pk: pk if len(pk) == 64 else pk[:-2], privkeys_hex)
+        compressed_privkeys = map(lambda pk: pk if len(pk) == 66 and pk[:-2] == '01' else pk, privkeys_hex)
+        
+        m, _ = virtualchain.parse_multisig_redeemscript(ret['redeem_script'])
+
+        decompressed_addr = virtualchain.make_multisig_info(m, decompressed_privkeys)['address']
+        compressed_addr = virtualchain.make_multisig_info(m, compressed_privkeys)['address']
+
+        return {'address': address, 'private_key_info': ret, 'compressed_addr': compressed_addr, 'decompressed_addr': decompressed_addr}
 
     if is_encrypted_singlesig(privkey_info):
         try:
@@ -359,8 +368,15 @@ def decrypt_private_key_info(privkey_info, password):
 
             return {'error': 'Invalid password'}
 
+        # get both compressed and uncompressed addresses
+        epk = keylib.ECPrivateKey(pk)
+        epubk = epk.public_key().to_hex()
+
+        compressed_addr = keylib.key_formatting.compress(epubk)
+        decompressed_addr = keylib.key_formatting.decompress(epubk)
+
         address = virtualchain.get_privkey_address(pk)
-        return {'address': address, 'private_key_info': pk}
+        return {'address': address, 'private_key_info': pk, 'compressed_addr': compressed_addr, 'decompressed_addr': decompressed_addr}
 
     return {'error': 'Invalid encrypted private key info'}
 
@@ -556,6 +572,7 @@ def get_privkey_info_params(privkey_info, config_path=CONFIG_PATH):
 
     return None, None
 
+
 def find_name_index(name_address, master_privkey_hex, max_tries=25, start=0):
     """
     Given a name's device-specific address and device-specific master key,
@@ -568,7 +585,7 @@ def find_name_index(name_address, master_privkey_hex, max_tries=25, start=0):
     hdwallet = HDWallet(master_privkey_hex)
     for i in xrange(start, max_tries):
         child_privkey = hdwallet.get_child_privkey(index=i)
-        child_pubkey = ecdsalib.get_pubkey_hex(child_privkey)
+        child_pubkey = get_pubkey_hex(child_privkey)
 
         child_addresses = [
             keylib.public_key_to_address(keylib.key_formatting.compress(child_pubkey)),
@@ -594,7 +611,7 @@ def get_name_privkey(master_privkey_hex, name_index):
     names_version_privkey = hdwallet.get_child_privkey(index=NAMES_PRIVKEY_VERSION_NODE, compressed=False)
 
     hdwallet = HDWallet(names_version_privkey)
-    name_privkey = hdwallet.get_child_privkey(index=name_index, compressesd=False)
+    name_privkey = hdwallet.get_child_privkey(index=name_index, compressed=False)
 
     return name_privkey
 
