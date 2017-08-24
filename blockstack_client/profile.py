@@ -155,7 +155,7 @@ def put_profile(name, new_profile, blockchain_id=None, user_data_privkey=None, u
     storage_res = storage.put_mutable_data(
         name, profile_payload, data_privkey=user_data_privkey,
         required=required_storage_drivers,
-        profile=True, blockchain_id=blockchain_id
+        key_file=True, blockchain_id=blockchain_id
     )
 
     if 'error' in storage_res:
