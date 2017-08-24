@@ -50,7 +50,7 @@ from .nameops import async_preorder, async_register, async_update, async_transfe
 
 from ..keys import get_data_privkey_info, is_singlesig_hex
 from ..key_file import key_file_put
-from ..gaia import GLOBAL_CACHE
+from ..gaia.cache import GLOBAL_CACHE
 from ..proxy import is_name_registered, is_zonefile_hash_current, get_default_proxy, get_name_blockchain_record, get_atlas_peers, json_is_error
 from ..zonefile import zonefile_data_replicate
 from ..user import is_user_zonefile
@@ -242,11 +242,10 @@ class RegistrarWorker(threading.Thread):
                 return {'status': True, 'transaction_hash': up_result[0]['tx_hash'], 'zonefile_hash': up_result[0].get('zonefile_hash', None)}
 
             else:
-                raise Exception("Queue inconsistency: name '%s' is and is not pending update" % up_result['fqu'])
+                raise Exception("Queue inconsistency: name '%s' is and is not pending update" % up_result[0]['fqu'])
 
         log.debug("update({}, zonefile={}, keyfile={}, transfer_address={})".format(name_data['fqu'], name_data.get('zonefile'), name_data.get('key_file'), name_data.get('transfer_address'))) 
-        res = update( name_data['fqu'], name_data.get('zonefile'), name_data.get('key_file'),
-                      name_data.get('zonefile_hash'), name_data.get('transfer_address'),
+        res = update( name_data['fqu'], name_data.get('zonefile'), name_data.get('zonefile_hash'), name_data.get('transfer_address'),
                       config_path=config_path, proxy=proxy, prior_name_data = name_data )
 
         assert 'success' in res
@@ -1221,7 +1220,7 @@ def preorder(fqu, cost_satoshis, zonefile_data, key_file_data, transfer_address,
 
 # RPC method: backend_update
 def update( fqu, zonefile_txt, zonefile_hash, transfer_address, config_path=CONFIG_PATH, proxy=None,
-            prior_name_data = None ):
+            prior_name_data = None, owner_key = None ):
     """
     Send a new zonefile hash.  Queue the zonefile data for subsequent replication.
     zonefile_txt_b64 must be b64-encoded so we can send it over RPC sanely
