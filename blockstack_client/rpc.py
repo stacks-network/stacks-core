@@ -65,7 +65,18 @@ from schemas import (
     LENGTH_MAX_NAMESPACE_ID,
     DATASTORE_LOOKUP_EXTENDED_RESPONSE_SCHEMA,
     MUTABLE_DATUM_FILE_TYPE,
-    DATASTORE_LOOKUP_RESPONSE_SCHEMA)
+    DATASTORE_LOOKUP_RESPONSE_SCHEMA,
+    OP_URLENCODED_NOSLASH_COLON_CLASS,
+    OP_NAME_CLASS,
+    OP_NAMESPACE_CLASS,
+    OP_BASE58CHECK_CLASS,
+    PUT_DATASTORE_RESPONSE,
+    DATASTORE_SCHEMA,
+    GET_DEVICE_ROOT_RESPONSE,
+    GET_ROOT_RESPONSE,
+    FILE_LOOKUP_RESPONSE,
+    PUT_DATA_RESPONSE
+)
 
 import keylib
 from keylib import ECPrivateKey
@@ -1558,7 +1569,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
                 app_pubkeys = key_file_res['pubkeys']
                 device_ids = app_pubkeys.keys()
-                app_public_keys = [apk[device_id] for device_id in device_ids]
+                app_public_keys = [app_pubkeys[device_id] for device_id in device_ids]
 
             elif ses is not None:
                 # load from session
@@ -1819,7 +1830,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 data_pubkey = dpk['public_key']
 
         if data_pubkey is None:
-            return self._reply_json({'error': 'Invalid session: missing public key for device ID {}'.foramt(this_device_id)}, status_code=401)
+            return self._reply_json({'error': 'Invalid session: missing public key for device ID {}'.format(this_device_id)}, status_code=401)
 
         # verify datastore signature
         # do so by finding the datastore public key
@@ -4501,13 +4512,13 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_update(self, fqu, zonefile_txt, zonefile_hash):
+    def backend_update(self, fqu, zonefile_txt, zonefile_hash, owner_key=None):
         """
         Queue an update
         """
         if is_api_server(self.config_dir):
             # directly invoke the registrar
-            return backend.registrar.update(fqu, zonefile_txt, None, zonefile_hash, None, config_path=self.config_path)
+            return backend.registrar.update(fqu, zonefile_txt, zonefile_hash, None, config_path=self.config_path, owner_key=owner_key)
 
         else:
             res = self.check_version()
@@ -4655,30 +4666,27 @@ class BlockstackAPIEndpointClient(object):
         Return {'status': True} on success
         Return {'error': ..., 'errno': ...} on error
         """
-        if is_api_server(self.config_dir):
-            # directly do this
-            return gaia.put_datastore_info(datastore_info, datastore_sigs, root_tombstones, config_path=self.config_path)
+        assert not is_api_server(self.config_dir)
 
-        else:
-            res = self.check_version()
-            if 'error' in res:
-                return res
+        res = self.check_version()
+        if 'error' in res:
+            return res
 
-            # ask the API server
-            headers = self.make_request_headers(need_session=True)
-            request = {
-                'datastore_info': datastore_info,
-                'datastore_sigs': datastore_sigs,
-                'root_tombstones': root_tombstones,
-            }
+        # ask the API server
+        headers = self.make_request_headers(need_session=True)
+        request = {
+            'datastore_info': datastore_info,
+            'datastore_sigs': datastore_sigs,
+            'root_tombstones': root_tombstones,
+        }
 
-            url = 'http://{}:{}/v1/stores'.format(self.server, self.port)
-            log.debug("create datastore: {}".format(url))
+        url = 'http://{}:{}/v1/stores'.format(self.server, self.port)
+        log.debug("create datastore: {}".format(url))
 
-            req = requests.post( url, timeout=self.timeout, data=json.dumps(request), headers=headers)
-            
-            # expect root_urls and datastore_urls
-            return self.get_response(req, schema=PUT_DATASTORE_RESPONSE)
+        req = requests.post( url, timeout=self.timeout, data=json.dumps(request), headers=headers)
+        
+        # expect root_urls and datastore_urls
+        return self.get_response(req, schema=PUT_DATASTORE_RESPONSE)
 
 
     def backend_datastore_get( self, blockchain_id, full_app_name, datastore_id=None, device_ids=None ):
@@ -4742,30 +4750,26 @@ class BlockstackAPIEndpointClient(object):
         Return {'status': True} on success
         Return {'error': ..., 'errno': ...} on error
         """
-        if is_api_server(self.config_dir):
-            # directly do this
-            # do not do `rm -rf`, since we're the server
-            return gaia.delete_datastore_info(datastore_id, datastore_tombstones, root_tombstones, data_pubkeys, force=False, config_path=self.config_path )
+        assert not is_api_server(self.config_dir)
 
-        else:
-            res = self.check_version()
-            if 'error' in res:
-                return res
+        res = self.check_version()
+        if 'error' in res:
+            return res
 
-            # ask the API server
-            headers = self.make_request_headers(need_session=True)
-            request = {
-                'datastore_tombstones': datastore_tombstones,
-                'root_tombstones': root_tombstones,
-            }
-           
-            url = 'http://{}:{}/v1/stores'.format(self.server, self.port) 
-            log.debug("delete datastore: {}".format(url))
+        # ask the API server
+        headers = self.make_request_headers(need_session=True)
+        request = {
+            'datastore_tombstones': datastore_tombstones,
+            'root_tombstones': root_tombstones,
+        }
+       
+        url = 'http://{}:{}/v1/stores'.format(self.server, self.port) 
+        log.debug("delete datastore: {}".format(url))
 
-            req = requests.delete( url, data=json.dumps(request), timeout=self.timeout, headers=headers)
+        req = requests.delete( url, data=json.dumps(request), timeout=self.timeout, headers=headers)
 
-            resp_schema = {'type': 'object', 'properties': {'status': {'type': 'boolean'}}, 'requierd': ['status']}
-            return self.get_response(req, schema=resp_schema)
+        resp_schema = {'type': 'object', 'properties': {'status': {'type': 'boolean'}}, 'requierd': ['status']}
+        return self.get_response(req, schema=resp_schema)
 
 
     def backend_datastore_get_device_root(self, blockchain_id, datastore, device_id, data_pubkeys, force=False):
@@ -4959,44 +4963,38 @@ class BlockstackAPIEndpointClient(object):
         Return {'status': True, 'urls': [...]} on success
         Return {'error': ..., 'errno': ...} on failure
         """
-        if is_api_server(self.config_dir):
-            # a call to ourselves
-            # put the file directly
-            datastore = json.loads(datastore_str)
-            return gaia.datastore_put_file_data(full_app_name, datastore, file_name, file_header_blob, payload, signature, device_id, blockchain_id=blockchain_id, config_path=self.config_path)
+        assert not is_api_server(self.config_dir)
 
-        else:
-            # client
-            # store via API endpoint 
-            res = self.check_version()
-            if 'error' in res:
-                return res
-
-            headers = self.make_request_headers(need_session=True)
-            datastore_id = gaia.datastore_get_id(json.loads(datastore_str)['pubkey'])
-            url = 'http://{}:{}/v1/stores/{}/files?path={}'.format(
-                    self.server, self.port, datastore_id, urllib.quote(file_name)
-            )
-            
-            if blockchain_id is not None:
-                url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
-
-            # request structure
-            request_struct = {
-                'headers': [file_header_blob],
-                'payloads': [base64.b64encode(payload)],
-                'signatures': [signature],
-                'tombstones': [],
-                'datastore_str': datastore_str,
-                'datastore_sig': datastore_sig,
-            }
-            
-            url = 'http://{}:{}/v1/stores/{}/files?path={}'.format(self.server, self.port, datastore_id, urllib.quote(file_name))
-            log.debug("putfile: {}".format(url))
-
-            req = requests.post( url, data=json.dumps(request_struct), timeout=self.timeout, headers=headers)
-            res = self.get_response(req, schema=PUT_DATA_RESPONSE)
+        # store via API endpoint 
+        res = self.check_version()
+        if 'error' in res:
             return res
+
+        headers = self.make_request_headers(need_session=True)
+        datastore_id = gaia.datastore_get_id(json.loads(datastore_str)['pubkey'])
+        url = 'http://{}:{}/v1/stores/{}/files?path={}'.format(
+                self.server, self.port, datastore_id, urllib.quote(file_name)
+        )
+        
+        if blockchain_id is not None:
+            url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
+
+        # request structure
+        request_struct = {
+            'headers': [file_header_blob],
+            'payloads': [base64.b64encode(payload)],
+            'signatures': [signature],
+            'tombstones': [],
+            'datastore_str': datastore_str,
+            'datastore_sig': datastore_sig,
+        }
+        
+        url = 'http://{}:{}/v1/stores/{}/files?path={}'.format(self.server, self.port, datastore_id, urllib.quote(file_name))
+        log.debug("putfile: {}".format(url))
+
+        req = requests.post( url, data=json.dumps(request_struct), timeout=self.timeout, headers=headers)
+        res = self.get_response(req, schema=PUT_DATA_RESPONSE)
+        return res
 
 
     def backend_datastore_put_device_root(self, datastore_str, datastore_sig, device_root_page_blob, signature, device_id, data_pubkey=None, blockchain_id=None, full_app_name=None, synchronous=False):
@@ -5005,41 +5003,35 @@ class BlockstackAPIEndpointClient(object):
         Return {'status': True, 'urls': ...} on success
         Return {'error': ...} on failure
         """
-        if is_api_server(self.config_dir):
-            # a call to ourselves
-            # put the file directory 
-            datastore = json.loads(datastore_str)
-            return gaia.datastore_put_device_root_data(datastore, device_root_page_blob, signature, device_id, full_app_name=full_app_name,
-                                                       blockchain_id=blockchain_id, data_pubkey=data_pubkey, config_path=self.config_path, synchronous=synchronous)
+        assert not is_api_server(self.config_dir)
 
-        else:
-            # client
-            # store via API endpoint 
-            res = self.check_version()
-            if 'error' in res:
-                return res
-
-            headers = self.make_request_headers(need_session=True)
-            datastore_id = gaia.datastore_get_id(json.loads(datastore_str)['pubkey'])
-            url = 'http://{}:{}/v1/stores/{}/device_roots?sync={}'.format(
-                    self.server, self.port, datastore_id, '1' if synchronous else '0'
-            )
-            
-            if blockchain_id is not None:
-                url += '&blockchain_id=' + urllib.quote(blockchain_id)
-
-            # request structure 
-            request_struct = {
-                'headers': [], 
-                'payloads': [device_root_page_blob],
-                'signatures': [signature],
-                'tombstones': [],
-                'datastore_str': datastore_str,
-                'datastore_sig': datastore_sig
-            }
-            req = requests.post( url, data=json.dumps(request_struct), timeout=self.timeout, headers=headers)
-            res = self.get_response(req, schema=PUT_DATA_RESPONSE)
+        # client
+        # store via API endpoint 
+        res = self.check_version()
+        if 'error' in res:
             return res
+
+        headers = self.make_request_headers(need_session=True)
+        datastore_id = gaia.datastore_get_id(json.loads(datastore_str)['pubkey'])
+        url = 'http://{}:{}/v1/stores/{}/device_roots?sync={}'.format(
+                self.server, self.port, datastore_id, '1' if synchronous else '0'
+        )
+        
+        if blockchain_id is not None:
+            url += '&blockchain_id=' + urllib.quote(blockchain_id)
+
+        # request structure 
+        request_struct = {
+            'headers': [], 
+            'payloads': [device_root_page_blob],
+            'signatures': [signature],
+            'tombstones': [],
+            'datastore_str': datastore_str,
+            'datastore_sig': datastore_sig
+        }
+        req = requests.post( url, data=json.dumps(request_struct), timeout=self.timeout, headers=headers)
+        res = self.get_response(req, schema=PUT_DATA_RESPONSE)
+        return res
 
 
     def backend_datastore_deletefile(self, datastore_str, datastore_sig, signed_tombstones, data_pubkeys, synchronous=False, blockchain_id=None, full_app_name=None):
@@ -5048,49 +5040,43 @@ class BlockstackAPIEndpointClient(object):
         Return {'status': True} on success
         Return {"error': ...} on error
         """
-        if is_api_server(self.config_dir):
-            # a call to ourselves
-            # delete the file directly 
-            datastore = json.loads(datastore_str)
-            return gaia.datastore_delete_file_data(full_app_name, datastore, signed_tombstones, blockchain_id=blockchain_id, data_pubkeys=data_pubkeys, config_path=self.config_path)
+        assert not is_api_server(self.config_dir)
 
-        else:
-            # client call
-            res = self.check_version()
-            if 'error' in res:
-                return res
-
-            datastore_id = gaia.datastore_get_id(json.loads(datastore_str)['pubkey'])
-            headers = self.make_request_headers(need_session=True)
-            url = 'http://{}:{}/v1/stores/{}/files?sync={}'.format(self.server, self.port, datastore_id, '1' if synchronous else '0')
-            
-            if blockchain_id:
-                url += '&blockchain_id=' + urllib.quote(blockchain_id)
-
-            if data_pubkeys is not None and len(data_pubkeys) > 0:
-                device_ids = [urllib.quote(dk['device_id']) for dk in data_pubkeys]
-                device_pubkeys = [dk['public_key'] for dk in data_pubkeys]
-
-                device_ids_str = urllib.quote( ','.join(device_ids))
-                device_pubkeys_str = urllib.quote( ','.join(device_pubkeys))
-
-                url += '&device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
-    
-            request_struct = {
-                'headers': [],
-                'payloads': [],
-                'signatures': [],
-                'tombstones': signed_tombstones,
-                'datastore_str': datastore_str,
-                'datastore_sig': datastore_sig,
-            }
-
-            log.debug("deletefile: {}".format(url))
-            req = requests.delete(url, data=json.dumps(request_struct), timeout=self.timeout, headers=headers)
-
-            resp_schema = {'type': 'object', 'properties': {'status': {'type': 'boolean'}}, 'requierd': ['status']}
-            res = self.get_response(req, schema=resp_schema)
+        res = self.check_version()
+        if 'error' in res:
             return res
+
+        datastore_id = gaia.datastore_get_id(json.loads(datastore_str)['pubkey'])
+        headers = self.make_request_headers(need_session=True)
+        url = 'http://{}:{}/v1/stores/{}/files?sync={}'.format(self.server, self.port, datastore_id, '1' if synchronous else '0')
+        
+        if blockchain_id:
+            url += '&blockchain_id=' + urllib.quote(blockchain_id)
+
+        if data_pubkeys is not None and len(data_pubkeys) > 0:
+            device_ids = [urllib.quote(dk['device_id']) for dk in data_pubkeys]
+            device_pubkeys = [dk['public_key'] for dk in data_pubkeys]
+
+            device_ids_str = urllib.quote( ','.join(device_ids))
+            device_pubkeys_str = urllib.quote( ','.join(device_pubkeys))
+
+            url += '&device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
+
+        request_struct = {
+            'headers': [],
+            'payloads': [],
+            'signatures': [],
+            'tombstones': signed_tombstones,
+            'datastore_str': datastore_str,
+            'datastore_sig': datastore_sig,
+        }
+
+        log.debug("deletefile: {}".format(url))
+        req = requests.delete(url, data=json.dumps(request_struct), timeout=self.timeout, headers=headers)
+
+        resp_schema = {'type': 'object', 'properties': {'status': {'type': 'boolean'}}, 'requierd': ['status']}
+        res = self.get_response(req, schema=resp_schema)
+        return res
 
 
 def make_local_api_server(api_pass, portnum, wallet_keys, api_bind=None, config_path=blockstack_constants.CONFIG_PATH, plugins=None):
