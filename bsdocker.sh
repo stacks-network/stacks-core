@@ -4,17 +4,17 @@
 
 build () {
   echo "Building blockstack docker image. This might take a minute..."
-  docker build -t blockstack:latest .
-  
+  docker build -t quay.io/blockstack/blockstack-core:latest .
 }
+
 setup () {
   if [ $# -eq 0 ]; then
     echo "Need to input new wallet password when running setup: ./bsdocker setup mypass"
     exit 1
   fi
-  docker run -it -v $HOME/.blockstack:/root/.blockstack blockstack:latest blockstack setup -y --password $1
-  docker run -it -v $HOME/.blockstack:/root/.blockstack blockstack:latest sed -i 's/api_endpoint_bind = localhost/api_endpoint_bind = 0.0.0.0/' /root/.blockstack/client.ini
-  docker run -it -v $HOME/.blockstack:/root/.blockstack blockstack:latest sed -i 's/api_endpoint_host = localhost/api_endpoint_host = 0.0.0.0/' /root/.blockstack/client.ini
+  docker run -it -v $HOME/.blockstack:/root/.blockstack quay.io/blockstack/blockstack-core:latest blockstack setup -y --password $1
+  docker run -it -v $HOME/.blockstack:/root/.blockstack quay.io/blockstack/blockstack-core:latest sed -i 's/api_endpoint_bind = localhost/api_endpoint_bind = 0.0.0.0/' /root/.blockstack/client.ini
+  docker run -it -v $HOME/.blockstack:/root/.blockstack quay.io/blockstack/blockstack-core:latest sed -i 's/api_endpoint_host = localhost/api_endpoint_host = 0.0.0.0/' /root/.blockstack/client.ini
 }
 
 start () {
@@ -38,9 +38,9 @@ start () {
     # If there is no existing blockstack-api container, run one
     # Linux needs to mount /tmp:/tmp
     if [[ $(uname) == 'Linux' ]]; then
-      docker run -d --name blockstack-api -v $HOME/.blockstack:/root/.blockstack -v /tmp/:/tmp/ -p 6270:6270 blockstack:latest blockstack api start-foreground --password $1 --debug
+      docker run -d --name blockstack-api -v $HOME/.blockstack:/root/.blockstack -v /tmp/:/tmp/ -p 6270:6270 quay.io/blockstack/blockstack-core:latest blockstack api start-foreground --password $1 --api_password $1 --debug
     elif [[ $(uname) == 'Darwin' ]]; then
-      docker run -d --name blockstack-api -v $HOME/.blockstack:/root/.blockstack -p 6270:6270 blockstack:latest blockstack api start-foreground --password $1 --debug
+      docker run -d --name blockstack-api -v $HOME/.blockstack:/root/.blockstack -p 6270:6270 blockstack:latest blockstack api start-foreground --password $1 --api_password $1 --debug
     fi
   fi
 
@@ -59,6 +59,11 @@ enter () {
 logs () {
   echo "streaming logs for blockstack-api container"
   docker logs blockstack-api -f
+}
+
+push () {
+  echo "pushing build container up to quay.io..."
+  docker push quay.io/blockstack/blockstack-core:latest
 }
 
 commands () {
@@ -91,6 +96,9 @@ case $1 in
     ;;
   start)
     start $2
+    ;;
+  push)
+    push
     ;;
   *)
     commands
