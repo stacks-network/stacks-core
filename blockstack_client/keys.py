@@ -323,13 +323,67 @@ def decrypt_multisig_info(enc_multisig_info, password):
     return multisig_info
 
 
+def get_compressed_and_decompressed_private_key_info(privkey_info):
+    """
+    Get the compressed and decompressed versions of private keys and addresses
+    Return {'compressed_addr': ..., 'compressed_private_key_info': ..., 'decompressed_addr': ..., 'decompressed_private_key_info': ...} on success
+    """
+    if virtualchain.is_multisig(privkey_info):
+
+        # get both compressed and decompressed addresses 
+        privkeys = privkey_info['private_keys']
+        m, _ = virtualchain.parse_multisig_redeemscript(privkey_info['redeem_script'])
+        privkeys_hex = [ecdsa_private_key(pk).to_hex() for pk in privkeys]
+
+        decompressed_privkeys = map(lambda pk: pk if len(pk) == 64 else pk[:-2], privkeys_hex)
+        compressed_privkeys = map(lambda pk: pk if len(pk) == 66 and pk[:-2] == '01' else pk, privkeys_hex)
+        
+        decompressed_multisig = virtualchain.make_multisig_info(m, decompressed_privkeys, compressed=True)
+        compressed_multisig = virtualchain.make_multisig_info(m, compressed_privkeys, compressed=False)
+
+        decompressed_addr = decompressed_multisig['address']
+        compressed_addr = compressed_multisig['address']
+        
+        return {'decompressed_private_key_info': decompressed_multisig,
+                'compressed_private_key_info': compressed_multisig,
+                'compressed_addr': compressed_addr, 'decompressed_addr': decompressed_addr}
+
+    elif virtualchain.is_singlesig(privkey_info):
+        
+        pk = privkey_info
+
+        # get both compressed and decompressed addresses
+        compressed_pk = None
+        decompressed_pk = None
+        if len(pk) == 66 and pk.endswith('01'):
+            compressed_pk = pk
+            decompressed_pk = pk[:-2]
+        else:
+            compressed_pk = pk
+            decompressed_pk = pk + '01'
+
+        compressed_pubk = ecdsa_private_key(compressed_pk).public_key().to_hex()
+        decompressed_pubk = ecdsa_private_key(decompressed_pk).public_key().to_hex()
+
+        compressed_addr = keylib.public_key_to_address(compressed_pubk)
+        decompressed_addr = keylib.public_key_to_address(decompressed_pubk)
+
+        return {'decompressed_private_key_info': decompressed_pk,
+                'compressed_private_key_info': compressed_pk,
+                'compressed_addr': compressed_addr, 'decompressed_addr': decompressed_addr}
+
+    else:
+        raise ValueError("Invalid key bundle")
+
+
 def decrypt_private_key_info(privkey_info, password):
     """
     LEGACY COMPATIBILITY CODE
 
     Decrypt a particular private key info bundle.
     It can be either a single-signature private key, or a multisig key bundle.
-    Return {'address': ..., 'private_key_info': ..., 'compressed_addr': ..., 'decompressed_addr': ....} on success.
+    Return {'address': ..., 'private_key_info': ..., 'compressed_addr': ..., 'decompressed_addr': ...., 
+            'compressed_private_key_info': ..., 'decompressed_private_key_info': ...} on success.
     Return {'error': ...} on error.
     """
 
@@ -342,20 +396,12 @@ def decrypt_private_key_info(privkey_info, password):
             return {'error': 'Failed to decrypt multisig wallet: {}'.format(ret['error'])}
 
         address = virtualchain.get_privkey_address(ret)
-
-        # get both compressed and uncompressed addresses 
-        privkeys = ret['private_keys']
-        privkeys_hex = [keylib.ECPrivateKey(pk).to_hex() for pk in privkeys]
-
-        decompressed_privkeys = map(lambda pk: pk if len(pk) == 64 else pk[:-2], privkeys_hex)
-        compressed_privkeys = map(lambda pk: pk if len(pk) == 66 and pk[:-2] == '01' else pk, privkeys_hex)
+        key_info = get_compressed_and_decompressed_private_key_info(ret)
         
-        m, _ = virtualchain.parse_multisig_redeemscript(ret['redeem_script'])
+        res = {'address': address, 'private_key_info': ret}
+        res.update(key_info)
 
-        decompressed_addr = virtualchain.make_multisig_info(m, decompressed_privkeys)['address']
-        compressed_addr = virtualchain.make_multisig_info(m, compressed_privkeys)['address']
-
-        return {'address': address, 'private_key_info': ret, 'compressed_addr': compressed_addr, 'decompressed_addr': decompressed_addr}
+        return res
 
     if is_encrypted_singlesig(privkey_info):
         try:
@@ -368,15 +414,13 @@ def decrypt_private_key_info(privkey_info, password):
 
             return {'error': 'Invalid password'}
 
-        # get both compressed and uncompressed addresses
-        epk = keylib.ECPrivateKey(pk)
-        epubk = epk.public_key().to_hex()
-
-        compressed_addr = keylib.key_formatting.compress(epubk)
-        decompressed_addr = keylib.key_formatting.decompress(epubk)
-
         address = virtualchain.get_privkey_address(pk)
-        return {'address': address, 'private_key_info': pk, 'compressed_addr': compressed_addr, 'decompressed_addr': decompressed_addr}
+        key_info = get_compressed_and_decompressed_private_key_info(ret)
+        
+        res = {'address': address, 'private_key_info': pk}
+        res.update(key_info)
+
+        return res
 
     return {'error': 'Invalid encrypted private key info'}
 
