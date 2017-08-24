@@ -1460,6 +1460,7 @@ def get_op_history_rows(history_id, proxy=None):
 
     return history_rows
 
+
 def get_zonefiles_by_block(from_block, to_block, proxy=None):
     """
     Get zonefile information for zonefiles announced in [@from_block, @to_block]
@@ -1498,19 +1499,26 @@ def get_zonefiles_by_block(from_block, to_block, proxy=None):
     output_zonefiles = []
 
     last_server_block = 0
-    while offset == 0 or len(resp['zonefile_info']) > 0:
+    have_more = True
+
+    while offset == 0 or have_more:
         resp = proxy.get_zonefiles_by_block(from_block, to_block, offset, 100)
         if 'error' in resp:
             return resp
+
         resp = json_validate(response_schema, resp)
         if json_is_error(resp):
             return resp
+
         output_zonefiles += resp['zonefile_info']
         offset += 100
         last_server_block = max(resp['lastblock'], last_server_block)
 
+        have_more = (len(resp['zonefile_info']) > 0)
+
     return { 'last_block' : last_server_block,
              'zonefile_info' : output_zonefiles }
+
 
 def get_nameops_affected_at(block_id, proxy=None):
     """
