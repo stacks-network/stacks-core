@@ -134,29 +134,14 @@ def key_file_get_app_name(key_file, datastore_id):
     return {'status': True, 'full_application_name': full_application_name}
 
 
-def key_file_parse(profile_txt, name_owner_pubkeys_or_addr):
+def _key_file_parse_profile(profile_txt):
     """
-    Given a compact-format JWT encoding a key file, this device's name-owner private key, and the list of name-owner public keys,
-    go verify that the key file is well-formed and authentic.
-    Return {'status': True, 'key_file': the parsed, decoded key file} on success
+    Parse profile text into a profile
+    Return {'status': True, 'profile': ...} on success
     Return {'error': ...} on error
     """
-    unverified_key_file = None
+
     unverified_profile = None
-    unverified_apps = None
-
-    signing_public_keys = {}
-    app_public_keys = {}
-
-    key_file = None
-    delegation_jwt_txt = None
-    delegation_jwt = None
-    delegation_file = None
-    profile = None
-    apps = {}
-    apps_jwts_txt = {}
-
-    name_owner_pubkeys = []
 
     # get the key file out of the profile
     try:
@@ -188,6 +173,39 @@ def key_file_parse(profile_txt, name_owner_pubkeys_or_addr):
 
     except jsontokens.utils.DecodeError:
         return {'error': 'Invalid profile: not a JWT'}
+
+    return {'status': True, 'profile': unverified_profile}
+
+
+def key_file_parse(profile_txt, name_owner_pubkeys_or_addr):
+    """
+    Given a compact-format JWT encoding a key file, this device's name-owner private key, and the list of name-owner public keys,
+    go verify that the key file is well-formed and authentic.
+    Return {'status': True, 'key_file': the parsed, decoded key file} on success
+    Return {'error': ...} on error
+    """
+    unverified_key_file = None
+    unverified_profile = None
+    unverified_apps = None
+
+    signing_public_keys = {}
+    app_public_keys = {}
+
+    key_file = None
+    delegation_jwt_txt = None
+    delegation_jwt = None
+    delegation_file = None
+    profile = None
+    apps = {}
+    apps_jwts_txt = {}
+
+    name_owner_pubkeys = []
+
+    res = _key_file_parse_profile(profile_txt)
+    if 'error' in res:
+        return res
+
+    unverified_profile = res['profile']
 
     # confirm that it's a profile 
     try:
@@ -1171,10 +1189,16 @@ def key_file_put_versions(name, key_file_jwt, config_path=CONFIG_PATH):
     """
     from gaia import put_mutable_data_version
     
+    res = _key_file_parse_profile(key_file_jwt)
+    if 'error' in res:
+        return res
+
+    profile_bundle = res['profile']
+    key_file_jwt = profile_bundle['keyfile']
     key_file = jsontokens.decode_token(key_file_jwt)['payload']
 
     # store key file version 
-    res = put_mutable_data_version(name, key_file['timestamp'], [DEFAULT_DEVICE_ID], config_path=config_path)
+    res = put_mutable_data_version('{}.{}'.format(name, 'keyfile'), key_file['timestamp'], [DEFAULT_DEVICE_ID], config_path=config_path)
     if 'error' in res:
         log.error("Failed to store data version for key file for {}".format(name))
         return {'error': 'Failed to store data version for key file for {}: {}'.format(name, res['error'])}
@@ -1196,7 +1220,6 @@ def key_file_put_versions(name, key_file_jwt, config_path=CONFIG_PATH):
         return {'error': 'Failed to store data version for delegation bundle for key file for {}: {}'.format(name, res['error'])}
 
     # store profile version 
-    profile_bundle = jsontokens.decode_token(key_file['profile'])['payload']['claim']
     res = put_mutable_data_version('{}.{}'.format(name, 'profile'), profile_bundle['timestamp'], [DEFAULT_DEVICE_ID], config_path=config_path)
     if 'error' in res:
         log.error("Failed to store data version for profile bundle for key file for {}".format(name))
@@ -1365,7 +1388,7 @@ def key_file_get(name, cache=None, cache_max_age=600, zonefile_storage_drivers=N
     return ret
 
 
-def key_file_put(name, new_key_file, cache=None, proxy=None, required_drivers=None, config_path=CONFIG_PATH):
+def key_file_put(name, new_profile_txt, cache=None, proxy=None, required_drivers=None, config_path=CONFIG_PATH):
     """
     Set the new key file data.  CLIENTS SHOULD NOT CALL THIS METHOD DIRECTLY.
     Takes a serialized key file (as a string).
@@ -1374,7 +1397,7 @@ def key_file_put(name, new_key_file, cache=None, proxy=None, required_drivers=No
     Return {'status: True} on success
     Return {'error': ...} on failure.
     """
-    if not isinstance(new_key_file, (str, unicode)):
+    if not isinstance(new_profile_txt, (str, unicode)):
         raise ValueError("Invalid key file: string or unicode compact-form JWT required")
 
     ret = {}
@@ -1395,7 +1418,7 @@ def key_file_put(name, new_key_file, cache=None, proxy=None, required_drivers=No
 
     log.debug('Save updated key file for "{}" to {}'.format(name, ','.join(required_storage_drivers)))
     
-    storage_res = storage.put_mutable_data(name, new_key_file, sign=False, raw=True, required=required_storage_drivers, key_file=True, blockchain_id=name)
+    storage_res = storage.put_mutable_data(name, new_profile_txt, sign=False, raw=True, required=required_storage_drivers, key_file=True, blockchain_id=name)
     if 'error' in storage_res:
         log.error("Failed to store updated key file: {}".format(storage_res['error']))
         return {'error': 'Failed to store key file for {}'.format(name)}
@@ -1405,7 +1428,7 @@ def key_file_put(name, new_key_file, cache=None, proxy=None, required_drivers=No
         cache.evict_key_file(name)
 
     # store new version
-    res = key_file_put_versions(name, new_key_file, config_path=config_path)
+    res = key_file_put_versions(name, new_profile_txt, config_path=config_path)
     if 'error' in res:
         log.error("Failed to store data version vector for key file for {}".format(name))
         return {'error': 'Failed to store data version vector for key file for {}: {}'.format(name, res['error'])}
