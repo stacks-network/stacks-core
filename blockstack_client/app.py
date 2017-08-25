@@ -124,7 +124,7 @@ def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_p
     return {'session': session, 'session_token': session_token}
 
 
-def app_verify_session( app_session_token, data_pubkey_hex, config_path=CONFIG_PATH ):
+def app_verify_session( app_session_token, data_pubkey_hex, config_path=CONFIG_PATH, prev_sessions={} ):
     """
     Verify and decode a JWT app session token.
     The session is valid if the signature matches and the token is not expired.
@@ -168,6 +168,24 @@ def app_verify_session( app_session_token, data_pubkey_hex, config_path=CONFIG_P
     if session['expires'] < time.time():
         log.debug("Token is expired")
         return None
+    
+    # make sure we never see a stale session if we're testing
+    if BLOCKSTACK_TEST:
+        log.debug("In test mode; verifying that sessions are not stale")
+        if prev_sessions.has_key(session['app_user_id']):
+            
+            prev_session_txt = prev_sessions(session['app_user_id'])
+            prev_session = jsontokens.decode_token(prev_session_txt)['payload']
+
+            if prev_session['timestamp'] > session['timestamp']:
+                log.error("Received stale session")
+                log.error("Previous session:")
+                log.error(prev_session_txt)
+                log.error("Current session:")
+                log.error(app_session_token)
+                return None
+
+            prev_sessions[session['app_user_id']] = app_session_token
 
     return session
 
