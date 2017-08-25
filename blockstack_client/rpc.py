@@ -1282,7 +1282,36 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
     def _store_name_profile(self, ses, path_info, name):
         """
         Receive and store a name profile.
+        Takes {'profile_data': signed profile JWT (string)}
+        Returns 200 on success
+        Returns 404 if the name doesn't exist
+        Returns 503 on failure to store
         """
+        profile_data_schema = {
+            'type': 'object',
+            'properties': {
+                'profile_data': {
+                    'type': 'string'
+                },
+            },
+            'required': [
+                'profile_data'
+            ],
+        }
+        
+        request = self._read_json()
+        if request is None:
+            return self._reply_json({'error': 'Failed to read JSON response'}, status_code=401)
+
+        try:
+            jsonschema.validate(request, profile_data_schema)
+        except ValidationError as ve:
+            if BLOCKSTACK_DEBUG:
+                log.exception(ve)
+
+            log.error("Failed to validate profile request")
+            return self._reply_json({'error': 'Failed to parse profile JSON request'}, status_code=401)
+
         pass
 
 
