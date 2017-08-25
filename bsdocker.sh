@@ -49,7 +49,6 @@ start () {
     fi
     
     # If there is no existing $corecontainer container, run one
-    # Linux needs to mount /tmp:/tmp
     if [[ $(uname) == 'Linux' ]]; then
       docker run -d --name $corecontainer -v $homedir:$containerdir -p 6270:6270 $coreimage blockstack api start-foreground --password $1 --api_password $1
     elif [[ $(uname) == 'Darwin' ]]; then
@@ -63,19 +62,18 @@ start () {
 }
 
 browser () {
-  # Check for the blockstack-api container is running or stopped. 
+  # Check if the blockstack-browser-* containers are running or stopped. 
   if [ "$(docker ps -q -f name=$browsercontainer)" ]; then
-    echo "container is already running"
+    echo "containers are already running"
     exit 1
   elif [ ! "$(docker ps -q -f name=$browsercontainer)" ]; then
     if [ "$(docker ps -aq -f status=exited -f name=$browsercontainer)" ]; then
-      # cleanup old container if its still around
+      # cleanup old containers if they are still around
       echo "removing old container..."
-      docker rm $browsercontainer
+      docker rm $(docker ps -a -f name=$browsercontainer -q)
     fi
     
-    # If there is no existing blockstack-api container, run one
-    # Linux needs to mount /tmp:/tmp
+    # If there are no existing blockstack-browser-* containers, run them
     if [[ $(uname) == 'Linux' ]]; then
       docker run -d --name $browsercontainer-static -p 8888:8888 $browserimage blockstack-browser
       docker run -d --name $browsercontainer-cors -p 1337:1337 $browserimage blockstack-cors-proxy
