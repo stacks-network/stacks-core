@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
 from __future__ import print_function
 
@@ -44,14 +44,11 @@ xmlrpc.monkey_patch()
 import logging
 logging.disable(logging.CRITICAL)
 
-import requests
-requests.packages.urllib3.disable_warnings()
-
 from .backend.crypto.utils import aes_decrypt, aes_encrypt
 from .backend.blockchain import get_balance
 from .utils import print_result
 
-from .keys import *
+from .keys import HDWallet, is_singlesig_hex, decrypt_private_key_info
 
 import config
 from .constants import (
@@ -61,10 +58,17 @@ from .constants import (
 )
 
 from .proxy import get_names_owned_by_address, get_default_proxy
-from .schemas import *
+from .schemas import (
+    ENCRYPTED_WALLET_SCHEMA_CURRENT,
+    ENCRYPTED_WALLET_SCHEMA_CURRENT_NODATAKEY,
+    WALLET_SCHEMA_CURRENT, WALLET_SCHEMA_CURRENT_NODATAKEY,
+    ENCRYPTED_WALLET_SCHEMA_LEGACY,
+    ENCRYPTED_WALLET_SCHEMA_LEGACY_013,
+    ENCRYPTED_WALLET_SCHEMA_LEGACY_014
+)
 
 import virtualchain
-from virtualchain.lib.ecdsalib import *
+from virtualchain.lib.ecdsalib import ecdsa_private_key, get_pubkey_hex
 import keylib
 
 from .logger import get_logger
@@ -78,7 +82,7 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
     Return the encrypted dict on success
     Return {'error': ...} on error
     """
-    
+
     if test_legacy:
         assert BLOCKSTACK_TEST, 'test_legacy only works in test mode'
 
@@ -136,20 +140,20 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
         jsonschema.validate(recombined_wallet, WALLET_SCHEMA_CURRENT)
     except ValidationError as ve:
         if test_legacy:
-            # no data key is allowed if we're testing the absence of a data key 
+            # no data key is allowed if we're testing the absence of a data key
             jsonschema.validate(recombined_wallet, WALLET_SCHEMA_CURRENT_NODATAKEY)
         else:
             raise
 
     # good to go!
-    # encrypt secrets 
+    # encrypt secrets
     wallet_secret_str = json.dumps(wallet_enc, sort_keys=True)
     password_hex = hexlify(password)
     encrypted_secret_str = aes_encrypt(wallet_secret_str, password_hex)
 
     # fulfill wallet
     wallet['enc'] = encrypted_secret_str
-    
+
     # sanity check
     try:
         jsonschema.validate(wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
@@ -161,8 +165,33 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
 
     return wallet
 
+def save_modified_wallet(decrypted_wallet, password, config_path = CONFIG_PATH):
+    """
+    Encrypt and save a given @decrypted_wallet using @password at the
+    wallet path specified by the @config_dir (or default)
 
-def make_wallet(password, config_path=CONFIG_PATH, payment_privkey_info=None, owner_privkey_info=None, data_privkey_info=None, test_legacy=False, encrypt=True):
+    Return {'status' : True} on success
+    Return {'error' : ...} on failure
+    """
+    config_dir = os.path.dirname(config_path)
+
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+
+    encrypted_wallet = encrypt_wallet(decrypted_wallet, password)
+    if 'error' in encrypted_wallet:
+        return encrypted_wallet
+    # sanity check
+    jsonschema.validate(encrypted_wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
+
+    try:
+        backup_wallet(wallet_path, "prior")
+    except:
+        return {'error' :
+                'Could not persist new wallet, failed to backup previous wallet at {}'.format(wallet_path)}
+
+    return write_wallet(encrypted_wallet, path=wallet_path)
+
+def make_wallet(password, payment_privkey_info=None, owner_privkey_info=None, data_privkey_info=None, test_legacy=False, encrypt=True):
     """
     Make a new, encrypted wallet structure.
     The owner and payment keys will be 2-of-3 multisig key bundles.
@@ -171,7 +200,7 @@ def make_wallet(password, config_path=CONFIG_PATH, payment_privkey_info=None, ow
     Return the new wallet on success.
     Return {'error': ...} on failure
     """
-    
+
     if test_legacy and not BLOCKSTACK_TEST:
         raise Exception("Not in testing but tried to make a legacy wallet")
 
@@ -190,7 +219,7 @@ def make_wallet(password, config_path=CONFIG_PATH, payment_privkey_info=None, ow
         'data_privkey': data_privkey_info,
         'version': SERIES_VERSION,
     }
-    
+
     if not test_legacy:
         jsonschema.validate(decrypted_wallet, WALLET_SCHEMA_CURRENT)
 
@@ -453,7 +482,7 @@ def inspect_wallet_data(data):
                         log.exception(ve2)
                         log.exception(ve3)
                         log.exception(ve4)
-           
+
                     log.error('Invalid wallet data')
                     return {'error': 'Invalid wallet data'}
 
@@ -461,28 +490,22 @@ def inspect_wallet_data(data):
 
     # wallets with same group number don't need to be migrated
     # between each other.
-    wallet_version_compatibility_groups = {
-        "0.14.2" : 0,
-        "0.14.3" : 0,
-        "0.14.4" : 0,
-    }
+    wallet_version_changes_at = [ (0, 14, 2) ]
+    wallet_version_changes_at.sort()
 
-    # version check 
+    data_version = data.get('version', '0.0.0')
+    data_version_tuple = tuple(map(int, data_version.split('.')))
+    # version check
     # if the version has changed, we'll need to potentially migrate
-    # to e.g. trigger a re-encryption 
-    if not data.has_key('version'):
+    # to e.g. trigger a re-encryption
+    if data_version_tuple == (0,0,0):
         log.debug("Wallet has no version; triggering migration")
         migrated = True
-
-    elif data['version'] != SERIES_VERSION:
-        if (data['version'] in wallet_version_compatibility_groups and
-            wallet_version_compatibility_groups.get(SERIES_VERSION, None) ==
-            wallet_version_compatibility_groups[data['version']]):
-            pass # no migration needed
-        else:
-            log.debug("Wallet series has changed from {} to {}; triggerring migration".format(
-                data['version'], SERIES_VERSION))
-            migrated = True
+    elif data_version_tuple < max(wallet_version_changes_at):
+        # a wallet format change occurred at some point
+        log.debug("Wallet series has changed from {} to {}; triggerring migration".format(
+            data['version'], SERIES_VERSION))
+        migrated = True
 
     if any_legacy:
         migrated = True
@@ -640,7 +663,6 @@ def write_wallet(data, path=None, config_path=CONFIG_PATH, test_legacy=False):
             if test_legacy:
                 # allow no-data-key wallets
                 jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_CURRENT_NODATAKEY)
-    
             else:
                 if BLOCKSTACK_DEBUG:
                     log.exception(ve)
@@ -716,7 +738,7 @@ def initialize_wallet(password='', wallet_path=None, interactive=True, config_di
                 password = res['password']
                 break
 
-        wallet = make_wallet(password, config_path=config_path)
+        wallet = make_wallet(password)
         if 'error' in wallet:
             log.error('make_wallet failed: {}'.format(wallet['error']))
             return wallet
@@ -731,23 +753,20 @@ def initialize_wallet(password='', wallet_path=None, interactive=True, config_di
         result['wallet'] = wallet
         result['wallet_password'] = password
 
-        if not interactive:
-            return result
-
         if interactive:
-            print('Wallet created. Make sure to backup the following:')
-            output = {
-                'wallet_password': password,
-                'wallet': wallet
-            }
-            print_result(output)
+            print('Wallet created.')
+            input_prompt = 'Would you like us to print out your password and encrypted private key for backup purposes? (y/n): '
+            user_input = raw_input(input_prompt)
+            user_input = user_input.lower()
+            if user_input == 'y':
+                output = {
+                    'wallet_password': password,
+                    'wallet': wallet
+                }
+                print_result(output)
 
-        input_prompt = 'Have you backed up the above information? (y/n): '
-        user_input = raw_input(input_prompt)
-        user_input = user_input.lower()
-
-        if user_input != 'y':
-            return {'error': 'Please back up your private key first'}
+        print('Wallet is encrypted using your password and stored ' +
+              ' at "{}", please make sure you create a backup.'.format(wallet_path))
 
     except KeyboardInterrupt:
         return {'error': 'Interrupted'}
@@ -812,7 +831,7 @@ def load_wallet(password=None, config_path=CONFIG_PATH, wallet_path=None, intera
     return res
 
 
-def backup_wallet(wallet_path):
+def backup_wallet(wallet_path, tag = "legacy"):
     """
     Given the path to an on-disk wallet, back it up.
     Return the new path, or None if there is no such wallet.
@@ -820,10 +839,10 @@ def backup_wallet(wallet_path):
     if not os.path.exists(wallet_path):
         return None
 
-    legacy_path = wallet_path + ".legacy.{}".format(int(time.time()))
+    legacy_path = wallet_path + ".{}.{}".format(tag, int(time.time()))
     while os.path.exists(legacy_path):
         time.sleep(1.0)
-        legacy_path = wallet_path + ".legacy.{}".format(int(time.time()))
+        legacy_path = wallet_path + ".{}.{}".format(tag, int(time.time()))
 
     log.warning('Back up old wallet from {} to {}'.format(wallet_path, legacy_path))
     shutil.move(wallet_path, legacy_path)
