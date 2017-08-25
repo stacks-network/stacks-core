@@ -2,9 +2,17 @@
 
 # This script provides a simple interface for folks to use the docker install
 
+image=quay.io/blockstack/blockstack-core:latest
+# Local Blockstack directory
+homedir=$HOME/.blockstack
+# Blockstack Directory inside container
+containerdir=/root/.blockstack
+# Name of Blockstack API container
+containername=blockstack-api
+
 build () {
   echo "Building blockstack docker image. This might take a minute..."
-  docker build -t quay.io/blockstack/blockstack-core:latest .
+  docker build -t $image .
 }
 
 setup () {
@@ -12,9 +20,11 @@ setup () {
     echo "Need to input new wallet password when running setup: ./bsdocker setup mypass"
     exit 1
   fi
-  docker run -it -v $HOME/.blockstack:/root/.blockstack quay.io/blockstack/blockstack-core:latest blockstack setup -y --password $1
-  docker run -it -v $HOME/.blockstack:/root/.blockstack quay.io/blockstack/blockstack-core:latest sed -i 's/api_endpoint_bind = localhost/api_endpoint_bind = 0.0.0.0/' /root/.blockstack/client.ini
-  docker run -it -v $HOME/.blockstack:/root/.blockstack quay.io/blockstack/blockstack-core:latest sed -i 's/api_endpoint_host = localhost/api_endpoint_host = 0.0.0.0/' /root/.blockstack/client.ini
+  docker run -it -v $homedir:$containerdir $image blockstack setup -y --password $1
+  
+  # Use init containers to set the API bind to 0.0.0.0
+  docker run -it -v $homedir:$containerdir $image sed -i 's/api_endpoint_bind = localhost/api_endpoint_bind = 0.0.0.0/' $containerdir/client.ini
+  docker run -it -v $homedir:$containerdir $image sed -i 's/api_endpoint_host = localhost/api_endpoint_host = 0.0.0.0/' $containerdir/client.ini
 }
 
 start () {
@@ -32,15 +42,15 @@ start () {
     if [ "$(docker ps -aq -f status=exited -f name=blockstack-api)" ]; then
       # cleanup old container if its still around
       echo "removing old container..."
-      docker rm blockstack-api
+      docker rm $containername
     fi
     
     # If there is no existing blockstack-api container, run one
     # Linux needs to mount /tmp:/tmp
     if [[ $(uname) == 'Linux' ]]; then
-      docker run -d --name blockstack-api -v $HOME/.blockstack:/root/.blockstack -v /tmp/:/tmp/ -p 6270:6270 quay.io/blockstack/blockstack-core:latest blockstack api start-foreground --password $1 --api_password $1 --debug
+      docker run -d --name $containername -v $homedir:$containerdir -v /tmp/:/tmp/ -p 6270:6270 $image blockstack api start-foreground --password $1 --api_password $1 --debug
     elif [[ $(uname) == 'Darwin' ]]; then
-      docker run -d --name blockstack-api -v $HOME/.blockstack:/root/.blockstack -p 6270:6270 blockstack:latest blockstack api start-foreground --password $1 --api_password $1 --debug
+      docker run -d --name $containername -v $homedir:$containerdir -p 6270:6270 $image blockstack api start-foreground --password $1 --api_password $1 --debug
     fi
   fi
 
@@ -48,22 +58,22 @@ start () {
 
 stop () {
   echo "stopping the running blockstack-api container"
-  docker stop blockstack-api && docker rm blockstack-api
+  docker stop $containername && docker rm $containername
 }
 
 enter () {
   echo "entering docker container"
-  docker exec -it blockstack-api /bin/bash
+  docker exec -it $containername /bin/bash
 }
 
 logs () {
   echo "streaming logs for blockstack-api container"
-  docker logs blockstack-api -f
+  docker logs $containername -f
 }
 
 push () {
   echo "pushing build container up to quay.io..."
-  docker push quay.io/blockstack/blockstack-core:latest
+  docker push $image
 }
 
 commands () {
