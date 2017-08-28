@@ -121,7 +121,7 @@ push () {
 
 commands () {
   cat <<-EOF
-bsdocker commands:
+blockstack docker launcher commands:
   start -> start the blockstack api server
   stop -> stop the blockstack api server
   setup -> run the setup for blockstack and generate a wallet
