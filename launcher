@@ -2,8 +2,11 @@
 
 # This script provides a simple interface for folks to use the docker install
 
-coreimage=quay.io/blockstack/blockstack-core:latest
-browserimage=quay.io/blockstack/blockstack-browser:latest
+coreimage=quay.io/blockstack/blockstack-core
+coretag=latest
+browserimage=quay.io/blockstack/blockstack-browser
+browsertag=latest
+gitrev=$(git rev-parse --short HEAD)
 # Local Blockstack directory
 homedir=$HOME/.blockstack
 # Blockstack Directory inside container
@@ -15,7 +18,12 @@ browsercontainer=blockstack-browser
 
 build () {
   echo "Building blockstack docker image. This might take a minute..."
-  docker build -t $coreimage .
+  docker build -t $coreimage:latest .
+}
+
+build-dev () {
+  echo "Building image from git branch $(git rev-parse HEAD)"
+  docker build -f docker/Dockerfile.dev -t $coreimage:$(git rev-parse --short HEAD) .
 }
 
 setup () {
@@ -23,11 +31,16 @@ setup () {
     echo "Need to input new wallet password when running setup: ./launcher setup mypass"
     exit 1
   fi
-  docker run -it -v $homedir:$containerdir $coreimage blockstack setup -y --password $1
+  docker run -it -v $homedir:$containerdir $coreimage:$coretag blockstack setup -y --password $1
   
   # Use init containers to set the API bind to 0.0.0.0
-  docker run -it -v $homedir:$containerdir $coreimage sed -i 's/api_endpoint_bind = localhost/api_endpoint_bind = 0.0.0.0/' $containerdir/client.in -e CORSPROXY_HOST="0.0.0.0"i
-  docker run -it -v $homedir:$containerdir $coreimage sed -i 's/api_endpoint_host = localhost/api_endpoint_host = 0.0.0.0/' $containerdir/client.ini
+  docker run -it -v $homedir:$containerdir $coreimage:$coretag sed -i 's/api_endpoint_bind = localhost/api_endpoint_bind = 0.0.0.0/' $containerdir/client.in -e CORSPROXY_HOST="0.0.0.0"i
+  docker run -it -v $homedir:$containerdir $coreimage:$coretag sed -i 's/api_endpoint_host = localhost/api_endpoint_host = 0.0.0.0/' $containerdir/client.ini
+}
+
+start-dev () {
+  local coretag=$gitrev
+  start $1
 }
 
 start () {
@@ -50,12 +63,12 @@ start () {
     
     # If there is no existing $corecontainer container, run one
     if [[ $(uname) == 'Linux' ]]; then
-      docker run -d --name $corecontainer -v $homedir:$containerdir -p 6270:6270 $coreimage blockstack api start-foreground --password $1 --api_password $1
+      docker run -d --name $corecontainer -v $homedir:$containerdir -p 6270:6270 $coreimage:$coretag blockstack api start-foreground --password $1 --api_password $1
     elif [[ $(uname) == 'Darwin' ]]; then
-      docker run -d --name $corecontainer -v $homedir:$containerdir -p 6270:6270 $coreimage blockstack api start-foreground --password $1 --api_password $1
+      docker run -d --name $corecontainer -v $homedir:$containerdir -p 6270:6270 $coreimage:$coretag blockstack api start-foreground --password $1 --api_password $1
     elif [[ $(uname) == 'Windows' ]]; then
       echo "Don't know if this works!!!"
-      docker run -d --name $corecontainer -v $homedir:$containerdir -p 6270:6270 $coreimage blockstack api start-foreground --password $1 --api_password $1
+      docker run -d --name $corecontainer -v $homedir:$containerdir -p 6270:6270 $coreimage:$coretag blockstack api start-foreground --password $1 --api_password $1
     fi
   fi
 
@@ -113,29 +126,41 @@ stop () {
 }
 
 enter () {
-  echo "entering docker container"
+  echo "entering $corecontainer docker container"
   docker exec -it $corecontainer /bin/bash
 }
 
 logs () {
-  echo "streaming logs for blockstack-api container"
+  echo "streaming logs for $corecontainer container"
   docker logs $corecontainer -f
 }
 
 push () {
-  echo "pushing build container up to quay.io..."
-  docker push $coreimage
+  echo "pushing $coreimage:latest container up to quay.io..."
+  docker push $coreimage:latest
+}
+
+push-dev () {
+  echo "pushing $coreimage:$(git rev-parse --short HEAD) container up to quay.io..."
+  docker push $coreimage:$(git rev-parse --short HEAD)
 }
 
 commands () {
   cat <<-EOF
 blockstack docker launcher commands:
-  start -> start the blockstack api server
-  stop -> stop the blockstack api server
   setup -> run the setup for blockstack and generate a wallet
+  start -> start the blockstack api server
+  browser -> run the two browser containers as well
   logs -> access the logs from the blockstack api server
   enter -> exec into the running docker container
-  browser -> run the two browser containers as well
+  stop -> stop the blockstack api server
+  
+blockstack docker launcher developer commands:
+  build -> build $coreimage:latest image
+  build-dev -> build $coreimage:<commithash> image
+  push -> push $coreimage:latest image 
+  push-dev -> push $coreimage:<commithash> image 
+  start-dev -> start the blockstack api server from a dev build
 EOF
 }
 
@@ -152,6 +177,9 @@ case $1 in
   build)
     build 
     ;;
+  build-dev)
+    build-dev 
+    ;;
   enter)
     enter 
     ;;
@@ -161,8 +189,14 @@ case $1 in
   start)
     start $2
     ;;
+  start-dev)
+    start-dev $2
+    ;;
   push)
     push
+    ;;
+  push-dev)
+    push-dev
     ;;
   *)
     commands
