@@ -20,7 +20,7 @@ build () {
 
 setup () {
   if [ $# -eq 0 ]; then
-    echo "Need to input new wallet password when running setup: ./bsdocker setup mypass"
+    echo "Need to input new wallet password when running setup: ./launcher setup mypass"
     exit 1
   fi
   docker run -it -v $homedir:$containerdir $coreimage blockstack setup -y --password $1
@@ -33,7 +33,7 @@ setup () {
 start () {
   # Check for args first
   if [ $# -eq 0 ]; then
-    echo "Need to input password for wallet located in the $HOME/.blockstack folder when staring api: ./bsdocker start mypass"
+    echo "Need to input password for wallet located in the $HOME/.blockstack folder when staring api: ./launcher start mypass"
     exit 1
   fi
   
@@ -62,6 +62,12 @@ start () {
 }
 
 browser () {
+  # Check for args first
+  if [ $# -eq 0 ]; then
+    echo "Need to input password for wallet located in the $HOME/.blockstack folder when staring api: ./launcher start mypass"
+    exit 1
+  fi
+  
   # Check if the blockstack-browser-* containers are running or stopped. 
   if [ "$(docker ps -q -f name=$browsercontainer)" ]; then
     echo "containers are already running"
@@ -77,9 +83,11 @@ browser () {
     if [[ $(uname) == 'Linux' ]]; then
       docker run -d --name $browsercontainer-static -p 8888:8888 $browserimage blockstack-browser
       docker run -d --name $browsercontainer-cors -p 1337:1337 -e CORSPROXY_HOST="0.0.0.0" $browserimage blockstack-cors-proxy
+      sensible-browser "http://localhost:8888/#coreAPIPassword=$1"
     elif [[ $(uname) == 'Darwin' ]]; then
       docker run -d --name $browsercontainer-static -p 8888:8888 $browserimage blockstack-browser
       docker run -d --name $browsercontainer-cors -p 1337:1337 -e CORSPROXY_HOST="0.0.0.0" $browserimage blockstack-cors-proxy
+      open "http://localhost:8888/#coreAPIPassword=$1"
     elif [[ $(uname) == 'Windows' ]]; then
       echo "Don't know if this works!!!"
       docker run -d --name $browsercontainer-static -p 8888:8888 $browserimage blockstack-browser
@@ -148,7 +156,7 @@ case $1 in
     enter 
     ;;
   browser)
-    browser 
+    browser $2
     ;;
   start)
     start $2
