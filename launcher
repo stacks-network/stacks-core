@@ -26,7 +26,7 @@ setup () {
   docker run -it -v $homedir:$containerdir $coreimage blockstack setup -y --password $1
   
   # Use init containers to set the API bind to 0.0.0.0
-  docker run -it -v $homedir:$containerdir $coreimage sed -i 's/api_endpoint_bind = localhost/api_endpoint_bind = 0.0.0.0/' $containerdir/client.ini
+  docker run -it -v $homedir:$containerdir $coreimage sed -i 's/api_endpoint_bind = localhost/api_endpoint_bind = 0.0.0.0/' $containerdir/client.in -e CORSPROXY_HOST="0.0.0.0"i
   docker run -it -v $homedir:$containerdir $coreimage sed -i 's/api_endpoint_host = localhost/api_endpoint_host = 0.0.0.0/' $containerdir/client.ini
 }
 
@@ -76,14 +76,14 @@ browser () {
     # If there are no existing blockstack-browser-* containers, run them
     if [[ $(uname) == 'Linux' ]]; then
       docker run -d --name $browsercontainer-static -p 8888:8888 $browserimage blockstack-browser
-      docker run -d --name $browsercontainer-cors -p 1337:1337 $browserimage blockstack-cors-proxy
+      docker run -d --name $browsercontainer-cors -p 1337:1337 -e CORSPROXY_HOST="0.0.0.0" $browserimage blockstack-cors-proxy
     elif [[ $(uname) == 'Darwin' ]]; then
       docker run -d --name $browsercontainer-static -p 8888:8888 $browserimage blockstack-browser
-      docker run -d --name $browsercontainer-cors -p 1337:1337 $browserimage blockstack-cors-proxy
+      docker run -d --name $browsercontainer-cors -p 1337:1337 -e CORSPROXY_HOST="0.0.0.0" $browserimage blockstack-cors-proxy
     elif [[ $(uname) == 'Windows' ]]; then
       echo "Don't know if this works!!!"
       docker run -d --name $browsercontainer-static -p 8888:8888 $browserimage blockstack-browser
-      docker run -d --name $browsercontainer-cors -p 1337:1337 $browserimage blockstack-cors-proxy
+      docker run -d --name $browsercontainer-cors -p 1337:1337 -e CORSPROXY_HOST="0.0.0.0" $browserimage blockstack-cors-proxy
     fi
   fi
 }
