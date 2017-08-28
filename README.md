@@ -174,22 +174,22 @@ $ blockstack-core/images/scripts/debian-release-candidate.sh
 
 > _*WARNING*_: This install path is currently for developers only. 
 
-To run the Blockstack API and the Blockstack Browser in docker containers is easy! There is also a provided CLI: `bsdocker.sh`. The CLI will pull down the images from our [Quay image repository](https://quay.io/organization/blockstack). If you want to build the API image locally run `./bsdocker build`. The browser image and build script are in the [`blockstack-browser`](https://github.com/blockstack/blockstack-browser) repository.
+To run the Blockstack API and the Blockstack Browser in docker containers is easy! There is also a provided CLI: `launcher`. The CLI will pull down the images from our [Quay image repository](https://quay.io/organization/blockstack). If you want to build the API image locally run `./launcher build`. The browser image and build script are in the [`blockstack-browser`](https://github.com/blockstack/blockstack-browser) repository.
 
 ```bash
 # First run the setup command. This will create a `$HOME/.blockstack` directory to store your Blockstack Core API config and wallet
-$ ./bsdocker setup <password>
+$ ./launcher setup <password>
 
 # Next you can start the Blockstack Core API
-$ ./bsdocker start <password>
+$ ./launcher start <password>
 
 # Finally start the Blockstack Browser
-$ ./bsdocker browser
+$ ./launcher browser
 
 # Now open your browser to `localhost:8888` to view the blockstack browser!
 
 # When you are done you can clean up your environment by running
-$ ./bsdocker stop
+$ ./launcher stop
 ```
 
 ## Community
