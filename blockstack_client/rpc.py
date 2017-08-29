@@ -1635,7 +1635,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Accepts as query string arguments:
         * blockchain_id
         * force (0, 1)
-        * idata (0, 1)
         * device_ids (list)
         * device_pubkeys (list)
         * this_device_id (str)
@@ -1663,8 +1662,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         datastore_id = res['datastore_id']
         app_name = res['app_name']
         
-        force = qs.get('force', '0')
-        idata = qs.get('idata', '0')
+        force = (qs.get('force', '0') != '0')
         this_device_id = qs.get('this_device_id', None)
 
         path = qs.get('path', None)
@@ -1688,7 +1686,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if path is None:
                 return self._reply_json({'error': 'No path given', 'errno': "EINVAL"}, status_code=401)
 
-            res = gaia.get_file_data(datastore_id, path, data_pubkeys, config_path=self.server.config_path, blockchain_id=blockchain_id, full_app_name=app_name)
+            res = gaia.get_file_data(datastore_id, path, data_pubkeys, config_path=self.server.config_path, blockchain_id=blockchain_id, full_app_name=app_name, force=force)
 
         elif item_type == 'device_roots':
             # get device root listing
@@ -1701,11 +1699,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 if this_device_id == dpk['device_id']:
                     this_data_pubkey = dpk['public_key']
 
-            res = gaia.get_device_root_directory(datastore_id, None, this_device_id, this_data_pubkey, config_path=self.server.config_path, blockchain_id=blockchain_id, full_app_name=app_name)
+            res = gaia.get_device_root_directory(datastore_id, None, this_device_id, this_data_pubkey, config_path=self.server.config_path, blockchain_id=blockchain_id, full_app_name=app_name, force=force)
 
         elif item_type == 'listing':
             # get listing
-            res = gaia.get_root_directory(datastore_id, None, data_pubkeys, config_path=self.server.config_path, blockchain_id=blockchain_id, full_app_name=app_name)
+            res = gaia.get_root_directory(datastore_id, None, data_pubkeys, config_path=self.server.config_path, blockchain_id=blockchain_id, full_app_name=app_name, force=force)
 
         elif item_type == 'headers':
             # file header
@@ -1715,7 +1713,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if this_device_id is None:
                 return self._reply_json({'error': 'missing "this_device_id" query argument'}, status_code=401)
             
-            res = gaia.get_file_info(datastore_id, path, data_pubkeys, this_device_id, blockchain_id=blockchain_id, full_app_name=app_name, config_path=self.server.config_path)
+            res = gaia.get_file_info(datastore_id, path, data_pubkeys, this_device_id, blockchain_id=blockchain_id, full_app_name=app_name, config_path=self.server.config_path, force=force)
 
         if json_is_error(res):
             # propagate an error code, if possible
