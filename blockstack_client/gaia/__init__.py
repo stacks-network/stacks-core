@@ -87,7 +87,8 @@ from directory import (
 )
 
 from file import (
-    get_file_info
+    get_file_info,
+    get_file_data,
 )
 
 from metadata import (
