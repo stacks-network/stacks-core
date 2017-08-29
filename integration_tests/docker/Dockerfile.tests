@@ -1,5 +1,0 @@
-FROM quay.io/blockstack/blockstack-core:dev
-
-WORKDIR /src/blockstack/integration_tests
-
-RUN ./setup.py build && ./setup.py install
