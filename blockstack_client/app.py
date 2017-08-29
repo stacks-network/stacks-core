@@ -60,7 +60,9 @@ def is_valid_app_name(app_name):
 def app_domain_to_app_name(app_domain):
     """
     Convert an app comain (e.g. an Origin: string, a DNS name)
-    to its fully-qualified application name for use in the token file
+    to its fully-qualified application name for use in the token file.
+
+    This method is idempotent.
     """
     if is_valid_app_name(app_domain):
         return app_domain
@@ -74,6 +76,7 @@ def app_domain_to_app_name(app_domain):
 
     else:
         return '{}.1'.format(urlinfo.netloc)
+
 
 def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_public_keys, requester_device_id, master_data_privkey, session_lifetime=None, config_path=CONFIG_PATH ):
     """
