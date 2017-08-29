@@ -351,12 +351,12 @@ def _find_device_root_info( api_client, this_device_id=None, data_pubkeys=None, 
     device_root = None
     created = False
     res = api_client.backend_datastore_get_device_root(this_device_id, blockchain_id=blockchain_id, full_app_name=full_app_name,
-                                                       datastore_id=datastore_id, data_pubkeys=data_pubkeys)
+                                                       datastore_id=datastore_id, data_pubkeys=data_pubkeys, force=force)
 
     if 'error' in res:
         if expect_device_root:
             log.error("Failed to get device {} root page for {}.{}: {}".format(this_device_id, datastore_id, root_uuid, res['error']))
-            return {'error': res['error'], 'errno': "EREMOTEIO"}
+            return {'error': res['error'], 'errno': res.get('errno', 'EREMOTEIO')}
         
         else:
             log.warning("Failed to get device {} root page for {}.{}: {}".format(this_device_id, datastore_id, root_uuid, res['error']))
