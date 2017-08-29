@@ -79,28 +79,45 @@ def get_file_data_from_header(datastore_id, file_name, file_header, drivers, con
     return {'status': True, 'data': file_data}
 
 
-def get_file_data(datastore, file_name, data_pubkeys, force=False, timestamp=0, config_path=CONFIG_PATH, proxy=None, blockchain_id=None): 
+def get_file_data(datastore_id, file_name, data_pubkeys, this_device_id=None, device_ids=None, force=False, timestamp=0, config_path=CONFIG_PATH, proxy=None, blockchain_id=None, full_app_name=None): 
     """
     Get file data
 
     This is a server-side method.
 
-    NOTE: @blockchain_id is not required; it's fed into the drivers as a hint.
-
     Return {'status': True, 'data': the actual data}
     Return {'error': ..., 'errno': ...} on error
     """
-    
-    res = get_file_info(datastore, file_name, data_pubkeys, "", force=force, timestamp=timestamp, config_path=config_path, proxy=proxy, blockchain_id=blockchain_id)
+    from .datastore import get_datastore_info
+
+    # look up the datastore
+    device_ids = None
+    if data_pubkeys is not None:
+        device_ids = [dpk['device_id'] for dpk in data_pubkeys]
+
+    if not this_device_id:
+        this_device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
+     
+    res = get_datastore_info(blockchain_id=blockchain_id, full_app_name=full_app_name, datastore_id=datastore_id, device_ids=device_ids, config_path=config_path)
+    if 'error' in res:
+        log.error("Failed to get datastore info: {}".format(res['error']))
+        return res
+
+    datastore = res['datastore']
+
+    root_uuid = datastore['root_uuid']
+    drivers = datastore['drivers']
+    datastore_id = datastore_get_id(datastore['pubkey'])
+
+    res = get_file_info(datastore_id, file_name, data_pubkeys, this_device_id, datastore=datastore, force=force, timestamp=timestamp, config_path=config_path, proxy=proxy, blockchain_id=blockchain_id, full_app_name=full_app_name)
     if 'error' in res:
         return res
 
-    datastore_id = datastore_get_id(datastore['pubkey'])
     file_header = res['file_info']
     return get_file_data_from_header(datastore_id, file_name, file_header, datastore['drivers'], config_path=config_path, blockchain_id=blockchain_id)
 
 
-def get_file_info( datastore, file_name, data_pubkeys, this_device_id, force=False, timestamp=0, config_path=CONFIG_PATH, proxy=None, blockchain_id=None ):
+def get_file_info( datastore_id, file_name, data_pubkeys, this_device_id, datastore=None, drivers=None, device_ids=None, force=False, timestamp=0, config_path=CONFIG_PATH, proxy=None, blockchain_id=None, full_app_name=None ):
     """
     Look up all the inodes along the given fully-qualified path, verifying them and ensuring that they're fresh along the way.
 
@@ -109,17 +126,31 @@ def get_file_info( datastore, file_name, data_pubkeys, this_device_id, force=Fal
     Return {'status': True, 'device_root_page': device_root_dir, 'file_info': header}
     Return {'error': ..., 'errno': ...} on error
     """
+    from .datastore import get_datastore_info
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    datastore_id = datastore_get_id(datastore['pubkey'])
+    if datastore is None:
+        # look up the datastore
+        if device_ids is None and data_pubkeys is not None:
+            device_ids = [dpk['device_id'] for dpk in data_pubkeys]
+     
+        res = get_datastore_info(blockchain_id=blockchain_id, full_app_name=full_app_name, datastore_id=datastore_id, device_ids=device_ids, config_path=config_path)
+        if 'error' in res:
+            log.error("Failed to get datastore info: {}".format(res['error']))
+            return res
+
+        datastore = res['datastore']
+
+    root_uuid = datastore['root_uuid']
     drivers = datastore['drivers']
+    datastore_id = datastore_get_id(datastore['pubkey'])
 
     log.debug("Lookup {}/{}".format(datastore_id, file_name))
 
     # fetch all device-specific versions of this directory
-    # TODO: this will need to be refactored when we have a segmented root directory
-    res = get_root_directory(datastore_id, datastore['root_uuid'], drivers, data_pubkeys, timestamp=timestamp, force=force, config_path=config_path, proxy=proxy, blockchain_id=blockchain_id)
+    res = get_root_directory(datastore_id, root_uuid, data_pubkeys, drivers=drivers, timestamp=timestamp, force=force, config_path=config_path, proxy=proxy, blockchain_id=blockchain_id, full_app_name=full_app_name)
     if 'error' in res:
         log.error("Failed to get root directory for datastore {}".format(datastore_id))
         return res
