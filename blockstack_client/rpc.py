@@ -2600,11 +2600,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if persist:
             password = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
             if not password:
-                return self._reply_json(
-                    {'error' : 'Failed to load encryption password for wallet, refusing to persist key change.'}, 500)
-            status = wallet.save_modified_wallet(new_wallet, password, config_path = self.server.config_path)
-            if 'error' in status:
-                return self._reply_json(status, 500)
+                return self._reply_json({'error' : 'Failed to load encryption password for wallet, refusing to persist key change.'}, status_code=500)
+
+            res = wallet.save_modified_wallet(new_wallet, password, config_path=self.server.config_path)
+            if 'error' in res:
+                return self._reply_json(res, status_code=500)
+
         if 'error' in new_wallet:
             return self._reply_json({'error': 'Failed to reinstantiate wallet'}, status_code=500)
 
