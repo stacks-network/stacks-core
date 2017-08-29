@@ -63,9 +63,6 @@ from schemas import (
     OP_HEX_PATTERN,
     LENGTH_MAX_NAME,
     LENGTH_MAX_NAMESPACE_ID,
-    DATASTORE_LOOKUP_EXTENDED_RESPONSE_SCHEMA,
-    MUTABLE_DATUM_FILE_TYPE,
-    DATASTORE_LOOKUP_RESPONSE_SCHEMA,
     OP_URLENCODED_NOSLASH_COLON_CLASS,
     OP_NAME_CLASS,
     OP_NAMESPACE_CLASS,
@@ -533,7 +530,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.error('Legacy decode error:')
             log.exception(ve)
             return self._reply_json({'error': 'Invalid authRequest token: does not match any known request schemas'}, status_code=401)
-
+        
+        # NOTE: we want the scheme:// part here
         app_domain = str(decoded_token['payload']['app_domain'])
         methods = [str(m) for m in decoded_token['payload']['methods'] if len(m) > 0]
         blockchain_id = None
@@ -1329,8 +1327,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Return {'status': True, 'datastore_id': ..., 'app_name': ...} on success
         Return {'error': ...} on error
         """
-        datastore_id = ''
-        app_name = ''
+        datastore_id = None
+        app_name = None
 
         if not app.is_valid_app_name(datastore_id_or_app_name) and re.match(OP_BASE58CHECK_PATTERN, datastore_id_or_app_name):
             # datastore ID
@@ -1364,7 +1362,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         app_name = ''
 
         blockchain_id = path_info['qs_values'].get('blockchain_id', '')
-        device_ids = path_info['qs_values'].get('device_ids', '')
+        device_ids = path_info['qs_values'].get('device_ids', '').split(',')
         
         res = self._parse_datastore_id(datastore_id_or_app_name)
         if 'error' in res:
@@ -1377,9 +1375,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             # need device IDs and datastore_id if blockchain_id isn't given
             if not datastore_id or not device_ids:
                 return self._reply_json({'error': 'Datastore ID and device IDs are required if the blockchain ID is not given'}, status_code=401)
-
-        internal = self.server.get_internal_proxy()
-        res = internal.cli_get_datastore(blockchain_id, app_name, datastore_id, device_ids, config_path=self.server.config_path)
+    
+        res = gaia.get_datastore_info(blockchain_id=blockchain_id, datastore_id=datastore_id, device_ids=device_ids, full_app_name=app_name, config_path=self.server.config_path)
         if 'error' in res:
             log.debug("Failed to get datastore: {}".format(res['error']))
             if res.has_key('errno'):
@@ -1390,7 +1387,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': res['error']}, status_code=503)
 
         ret = {
-            'datastore': res
+            'datastore': res['datastore']
         }
         return self._reply_json(ret)
 
@@ -1442,7 +1439,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
 
         qs = path_info['qs_values']
-        internal = self.server.get_internal_proxy()
 
         # maybe storing signed datastore?
         request = self._read_json()
@@ -1473,6 +1469,15 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
  
         datastore_pubkey = None
         authentic = False
+
+        # app domain must be a valid fully-qualified app domain (i.e. ends in .1 or .x)
+        app_domain = urlparse.urlparse(ses['app_domain']).netloc
+        if not app.is_valid_app_name(app_domain):
+            return self._reply_json({'error': 'Invalid application domain name "{}"'.format(app_domain)}, status_code=401)
+        
+        log.debug("app domain: {}".format(app_domain))
+
+        blockchain_id = ses['blockchain_id']
 
         # authenticate, and require qs-given device IDs to be covered by the tombstones.
         # at least one of the session's keys must succeed
@@ -1515,7 +1520,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         datastore_id = p[0]
 
         # delete
-        res = gaia.delete_datastore_info( datastore_id, tombstone_info['datastore_tombstones'], tombstone_info['root_tombstones'], ses['app_public_keys'], config_path=self.server.config_path )
+        res = gaia.delete_datastore_info( datastore_id, tombstone_info['datastore_tombstones'], tombstone_info['root_tombstones'], ses['app_public_keys'], 
+                                          blockchain_id=blockchain_id, full_app_name=app_domain, config_path=self.server.config_path )
         if 'error' in res:
             return self._reply_json({'error': 'Failed to delete datastore info: {}'.format(res['error']), 'errno': res['errno']})
 
@@ -1531,7 +1537,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 403 on invalid user ID or invalid signatures
         Reply 503 on (partial) failure to delete all replicas
         """
-        internal = self.server.get_internal_proxy()
         qs = path_info['qs_values']
         force = qs.get('force', "0")
         force = (force.lower() in ['1', 'true'])
@@ -1595,8 +1600,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 key_file_res = key_file.lookup_app_pubkeys(blockchain_id, app_name, cache=gaia.GLOBAL_CACHE)
                 if 'error' in key_file_res:
                     return {'error': 'Failed to load key delegation information for "{}"'.format(blockchain_id), 'status_code': 503}
-
+                
                 app_pubkeys = key_file_res['pubkeys']
+                if len(app_pubkeys.keys()) == 0:
+                    return {'error': 'Blockchain ID {} is not registered in application {}'.format(blockchain_id, app_name), 'status_code': 404}
+
                 device_ids = app_pubkeys.keys()
                 app_public_keys = [app_pubkeys[device_id] for device_id in device_ids]
 
@@ -1654,7 +1662,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         datastore_id = res['datastore_id']
         app_name = res['app_name']
-
+        
         force = qs.get('force', '0')
         idata = qs.get('idata', '0')
         this_device_id = qs.get('this_device_id', None)
@@ -1667,17 +1675,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.error("Failed to load device keys: {}".format(res['error']))
             return self._reply_json({'error': res['error']}, status_code=res['status_code'])
         
-        device_ids = [dpk['device_id'] for dpk in res['data_pubkeys']]
-        app_public_keys = [dpk['public_key'] for dpk in res['data_pubkeys']]
+        data_pubkeys = res['data_pubkeys']
 
-        # serialize
-        device_ids = ','.join(device_ids)
-        app_public_keys = ','.join(app_public_keys)
+        log.debug("Device IDs: {}".format(','.join([dpk['device_id'] for dpk in data_pubkeys])))
+        log.debug("Device pubkeys: {}".format(','.join([dpk['public_key'] for dpk in data_pubkeys])))
 
-        log.debug("Device IDs: {}".format(device_ids))
-        log.debug("Device pubkeys: {}".format(app_public_keys))
-
-        internal = self.server.get_internal_proxy()
         res = None
         status_code = 200
 
@@ -1686,21 +1688,24 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if path is None:
                 return self._reply_json({'error': 'No path given', 'errno': "EINVAL"}, status_code=401)
 
-            log.debug("Will run cli_datastore_getfile()")
-            res = internal.cli_datastore_getfile(blockchain_id, app_name, path, datastore_id, force, device_ids, app_public_keys, config_path=self.server.config_path)
+            res = gaia.get_file_data(datastore_id, path, data_pubkeys, config_path=self.server.config_path, blockchain_id=blockchain_id, full_app_name=app_name)
 
         elif item_type == 'device_roots':
             # get device root listing
             if this_device_id is None:
                 return self._reply_json({'error': 'missing "this_device_id" query argument'}, status_code=401)
 
-            log.debug("Will run cli_datastore_listfiles_device")
-            res = internal.cli_datastore_device_listfiles(blockchain_id, app_name, this_device_id, datastore_id, force, device_ids, app_public_keys, config_path=self.server.config_path)
+            # directly do the query
+            this_data_pubkey = None
+            for dpk in data_pubkeys:
+                if this_device_id == dpk['device_id']:
+                    this_data_pubkey = dpk['public_key']
+
+            res = gaia.get_device_root_directory(datastore_id, None, this_device_id, this_data_pubkey, config_path=self.server.config_path, blockchain_id=blockchain_id, full_app_name=app_name)
 
         elif item_type == 'listing':
             # get listing
-            log.debug("Will run cli_datastore_listfiles")
-            res = internal.cli_datastore_listfiles(blockchain_id, app_name, datastore_id, force, device_ids, app_public_keys, config_path=self.server.config_path)
+            res = gaia.get_root_directory(datastore_id, None, data_pubkeys, config_path=self.server.config_path, blockchain_id=blockchain_id, full_app_name=app_name)
 
         elif item_type == 'headers':
             # file header
@@ -1709,9 +1714,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
             if this_device_id is None:
                 return self._reply_json({'error': 'missing "this_device_id" query argument'}, status_code=401)
-
-            log.debug("Will run cli_datastore_stat()")
-            res = internal.cli_datastore_stat(blockchain_id, app_name, path, datastore_id, force, device_ids, app_public_keys, this_device_id, config_path=self.server.config_path)
+            
+            res = gaia.get_file_info(datastore_id, path, data_pubkeys, this_device_id, blockchain_id=blockchain_id, full_app_name=app_name, config_path=self.server.config_path)
 
         if json_is_error(res):
             # propagate an error code, if possible
@@ -1725,6 +1729,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if item_type == 'files':
             # return raw bytes
+            res = res['data']
             bytes_range = self._get_request_range()
             if bytes_range == (None, None):
                 # no bytes range
@@ -1845,9 +1850,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Invalid request'}, status_code=401)
         
         # app domain must be a valid fully-qualified app domain (i.e. ends in .1 or .x)
-        app_domain = app.app_domain_to_app_name(ses['app_domain'])
+        app_domain = urlparse.urlparse(ses['app_domain']).netloc
         if not app.is_valid_app_name(app_domain):
             return self._reply_json({'error': 'Invalid application domain name "{}"'.format(app_domain)}, status_code=401)
+        
+        log.debug("app domain: {}".format(app_domain))
 
         # optionally takes a public key 
         qs = path_info['qs_values']
@@ -4724,53 +4731,49 @@ class BlockstackAPIEndpointClient(object):
         Return {'status': True, 'datastore': ...} on success
         Return {'error': ..., 'errno': ...} on error
         """
+        assert not is_api_server(self.config_dir), 'BUG: called from API server'
         assert (blockchain_id and full_app_name) or datastore_id, 'Need both blockchain ID and full_app_name or need datastore ID'
+        
+        res = self.check_version()
+        if 'error' in res:
+            return res
 
-        if is_api_server(self.config_dir):
-            # directly do this
-            return gaia.get_datastore_info(blockchain_id=blockchain_id, full_app_name=full_app_name, datastore_id=datastore_id, device_ids=device_ids, config_path=self.config_path)
-
+        # ask the API server
+        headers = self.make_request_headers(need_session=False)
+        store_id = None
+        if datastore_id:
+            store_id = datastore_id
         else:
-            res = self.check_version()
-            if 'error' in res:
-                return res
+            store_id = full_app_name
 
-            # ask the API server
-            headers = self.make_request_headers(need_session=False)
-            store_id = None
-            if datastore_id:
-                store_id = datastore_id
+            # sanitize
+            scheme = urlparse.urlparse(store_id).scheme
+            if scheme:
+                store_id = store_id[len(scheme) + len('://'):]
+
+        url = 'http://{}:{}/v1/stores/{}'.format(self.server, self.port, urllib.quote(store_id))
+
+        if device_ids:
+            if '?' not in url:
+                url += '?'
             else:
-                store_id = full_app_name
+                url += '&'
 
-                # sanitize
-                scheme = urlparse.urlparse(store_id).scheme
-                if scheme:
-                    store_id = store_id[len(scheme) + len('://'):]
+            url += 'device_ids={}'.format(','.join(device_ids))
 
-            url = 'http://{}:{}/v1/stores/{}'.format(self.server, self.port, urllib.quote(store_id))
+        if blockchain_id:
+            if '?' not in url:
+                url += '?'
+            else:
+                url += '&'
 
-            if device_ids:
-                if '?' not in url:
-                    url += '?'
-                else:
-                    url += '&'
+            url += 'blockchain_id={}'.format(urllib.quote(blockchain_id))
 
-                url += 'device_ids={}'.format(','.join(device_ids))
+        log.debug("get datastore: {}".format(url))
+        req = requests.get( url, timeout=self.timeout, headers=headers)
 
-            if blockchain_id:
-                if '?' not in url:
-                    url += '?'
-                else:
-                    url += '&'
-
-                url += 'blockchain_id={}'.format(urllib.quote(blockchain_id))
-
-            log.debug("get datastore: {}".format(url))
-            req = requests.get( url, timeout=self.timeout, headers=headers)
-
-            resp_schema = {'type': 'object', 'properties': {'datastore': DATASTORE_SCHEMA}, 'required': ['datastore']}
-            return self.get_response(req, schema=resp_schema)
+        resp_schema = {'type': 'object', 'properties': {'datastore': DATASTORE_SCHEMA}, 'required': ['datastore']}
+        return self.get_response(req, schema=resp_schema)
 
 
     def backend_datastore_delete(self, datastore_id, datastore_tombstones, root_tombstones, data_pubkeys):
@@ -4800,97 +4803,110 @@ class BlockstackAPIEndpointClient(object):
         resp_schema = {'type': 'object', 'properties': {'status': {'type': 'boolean'}}, 'requierd': ['status']}
         return self.get_response(req, schema=resp_schema)
 
+    
+    @classmethod
+    def _get_store_id(cls, blockchain_id, datastore_id, full_app_name):
+        """
+        Get the datastore ID to use.
+        Prefer app name to datastore ID
+        """
 
-    def backend_datastore_get_device_root(self, blockchain_id, datastore, device_id, data_pubkeys, force=False):
+        store_id = None
+        if blockchain_id and full_app_name:
+            store_id = full_app_name
+
+            # sanitize
+            scheme = urlparse.urlparse(store_id).scheme
+            if scheme:
+                store_id = store_id[len(scheme) + len('://'):]
+        
+        else:
+            store_id = datastore_id
+        
+        return store_id
+
+
+    def backend_datastore_get_device_root(self, device_id, blockchain_id=None, datastore_id=None, full_app_name=None, data_pubkeys=None, force=False):
         """
         Get the device-specific root directory listing.
         Return {'status': True, 'device_root_page': {...}} on success
         Return {'error': ..., 'errno': ...} on failure
         """
-        if is_api_server(self.config_dir):
-            # directly do the query
-            data_pubkey = None
-            for dpk in data_pubkeys:
-                if device_id == dpk['device_id']:
-                    data_pubkey = dpk['public_key']
+        assert not is_api_server(self.config_dir), 'BUG: called as API server'
+        assert (datastore_id and data_pubkeys) or (blockchain_id and full_app_name), 'need either both datastore_id and data_pubkeys or full_app_name and blockchain_id'
 
-            if data_pubkey is None:
-                return {'error': 'No data public key for {}'.format(device_id), 'errno': "EINVAL"}
+        # client
+        res = self.check_version()
+        if 'error' in res:
+            return res
 
-            datastore_id = gaia.datastore_get_id(datastore['pubkey'])
-            return gaia.get_device_root_directory(datastore_id, datastore['root_uuid'], datastore['drivers'], device_id, data_pubkey, force=force, config_path=self.config_path, blockchain_id=blockchain_id)
+        # ask the API server 
+        headers = self.make_request_headers(need_session=False)
+        
+        store_id = self._get_store_id(blockchain_id, datastore_id, full_app_name)
 
-        else:
-            # client
-            res = self.check_version()
-            if 'error' in res:
-                return res
+        url = 'http://{}:{}/v1/stores/{}/device_roots?force={}&this_device_id={}'.format(self.server, self.port, store_id, '1' if force else '0', device_id)
 
-            # ask the API server 
-            headers = self.make_request_headers(need_session=False)
-            datastore_id = gaia.datastore_get_id(datastore['pubkey'])
-            
+        if data_pubkeys:
             device_ids = [dpk['device_id'] for dpk in data_pubkeys]
             device_pubkeys = [dpk['public_key'] for dpk in data_pubkeys]
             device_ids_str = urllib.quote( ','.join(device_ids))
             device_pubkeys_str = urllib.quote( ','.join(device_pubkeys))
 
-            url = 'http://{}:{}/v1/stores/{}/device_roots?force={}&this_device_id={}&device_ids={}&device_pubkeys={}'.format(self.server, self.port, datastore_id, '1' if force else '0', device_id, device_ids_str, device_pubkeys_str)
-            
-            if blockchain_id:
-                url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
+            url += '&device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
+        
+        if blockchain_id:
+            url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
 
-            log.debug("get_device_root: {}".format(url))
+        log.debug("get_device_root: {}".format(url))
 
-            req = requests.get(url, timeout=self.timeout, headers=headers)
-            res = self.get_response(req, schema=GET_DEVICE_ROOT_RESPONSE)
-            return res
+        req = requests.get(url, timeout=self.timeout, headers=headers)
+        res = self.get_response(req, schema=GET_DEVICE_ROOT_RESPONSE)
+        return res
 
     
-    def backend_datastore_get_root(self, blockchain_id, datastore, data_pubkeys, timestamp=0, force=False, full_app_name=None):
+    def backend_datastore_get_root(self, blockchain_id=None, datastore_id=None, full_app_name=None, data_pubkeys=None, timestamp=0, force=False):
         """
         Get the datastore-wide root directory listing.
         Return {'status'; True, 'root': ...} on success
         Return {'error': ..., 'errno': ...} on failure
         """
-        if is_api_server(self.config_dir):
-            # directly do the query
-            datastore_id = gaia.datastore_get_id(datastore['pubkey'])
-            res = gaia.get_root_directory(datastore_id, datastore['root_uuid'], datastore['drivers'], data_pubkeys, timestamp=timestamp, config_path=self.config_path, blockchain_id=blockchain_id, full_app_name=full_app_name)
-            if 'error' in res:
-                return res
 
-            return {'status': True, 'root': res['root']}
+        assert not is_api_server(self.config_dir), 'BUG: called as API server'
+        assert (blockchain_id and full_app_name) or (datastore_id and data_pubkeys), 'Need either blockchain_id/full_app_name or datastore_id/data_pubkeys'
 
-        else:
-            # client
-            res = self.check_version()
-            if 'error' in res:
-                return res
+        # client
+        assert (datastore_id and data_pubkeys) or (blockchain_id and full_app_name), 'need either both datastore_id and data_pubkeys or full_app_name and blockchain_id'
 
-            # ask the API server 
-            headers = self.make_request_headers(need_session=False)
-            datastore_id = gaia.datastore_get_id(datastore['pubkey'])
-            url = 'http://{}:{}/v1/stores/{}/listing?force={}'.format(self.server, self.port, datastore_id, force)
-            
-            if blockchain_id:
-                url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
-            
-            if data_pubkeys is not None:
-                device_ids = [dpk['device_id'] for dpk in data_pubkeys]
-                device_pubkeys = [dpk['public_key'] for dpk in data_pubkeys]
-                device_ids_str = urllib.quote( ','.join(device_ids))
-                device_pubkeys_str = urllib.quote( ','.join(device_pubkeys))
-
-                url += '&device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
-
-            log.debug("get root: {}".format(url))
-            req = requests.get(url, timeout=self.timeout, headers=headers)
-            res = self.get_response(req, schema=GET_ROOT_RESPONSE)
+        res = self.check_version()
+        if 'error' in res:
             return res
 
+        # ask the API server 
+        headers = self.make_request_headers(need_session=False)
 
-    def backend_datastore_lookup(self, blockchain_id, datastore, path, device_id, data_pubkeys=None, force=False):
+        store_id = self._get_store_id(blockchain_id, datastore_id, full_app_name)
+
+        url = 'http://{}:{}/v1/stores/{}/listing?force={}'.format(self.server, self.port, store_id, force)
+        
+        if blockchain_id:
+            url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
+        
+        if data_pubkeys is not None:
+            device_ids = [dpk['device_id'] for dpk in data_pubkeys]
+            device_pubkeys = [dpk['public_key'] for dpk in data_pubkeys]
+            device_ids_str = urllib.quote( ','.join(device_ids))
+            device_pubkeys_str = urllib.quote( ','.join(device_pubkeys))
+
+            url += '&device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
+
+        log.debug("get root: {}".format(url))
+        req = requests.get(url, timeout=self.timeout, headers=headers)
+        res = self.get_response(req, schema=GET_ROOT_RESPONSE)
+        return res
+
+
+    def backend_datastore_lookup(self, path, device_id, blockchain_id=None, datastore_id=None, full_app_name=None, data_pubkeys=None, force=False):
         """
         Look up a file's metadata, and optionally the device-specific root directory page it came from
 
@@ -4898,92 +4914,91 @@ class BlockstackAPIEndpointClient(object):
 
         Return {'error': ..., 'errno': ...} on failure.
         """
-        if is_api_server(self.config_dir):
-            # directly do the lookup
-            return gaia.get_file_info(datastore, path, data_pubkeys, device_id, force=force, config_path=self.config_path, blockchain_id=blockchain_id)
+        assert not is_api_server(self.config_dir), 'BUG: called as API server'
+        assert (blockchain_id and full_app_name) or (datastore_id and data_pubkeys), 'Need either blockchain_id/full_app_name or datastore_id/data_pubkeys'
 
-        else:
-            # client
-            res = self.check_version()
-            if 'error' in res:
-                return res
-
-            # ask the API server
-            headers = self.make_request_headers(need_session=False)
-            datastore_id = gaia.datastore_get_id(datastore['pubkey'])
-            url = 'http://{}:{}/v1/stores/{}/headers?path={}&force={}&this_device_id={}'.format(
-                    self.server, self.port, datastore_id, urllib.quote(path), '1' if force else '0', device_id
-            )
-            if blockchain_id:
-                url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
-
-            if data_pubkeys is not None and len(data_pubkeys) > 0:
-                device_ids = [urllib.quote(dk['device_id']) for dk in data_pubkeys]
-                device_pubkeys = [dk['public_key'] for dk in data_pubkeys]
-
-                device_ids_str = urllib.quote( ','.join(device_ids))
-                device_pubkeys_str = urllib.quote( ','.join(device_pubkeys))
-
-                url += '&device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
-
-            log.debug("lookup: {}".format(url))
-
-            req = requests.get( url, timeout=self.timeout, headers=headers)
-            res = self.get_response(req, schema=FILE_LOOKUP_RESPONSE)
+        # client
+        res = self.check_version()
+        if 'error' in res:
             return res
 
+        # ask the API server
+        headers = self.make_request_headers(need_session=False)
+        store_id = self._get_store_id(blockchain_id, datastore_id, full_app_name)
 
-    def backend_datastore_getfile(self, blockchain_id, datastore, file_name, data_pubkeys, force=False, timestamp=0):
+        url = 'http://{}:{}/v1/stores/{}/headers?path={}&force={}&this_device_id={}'.format(
+                self.server, self.port, store_id, urllib.quote(path), '1' if force else '0', device_id
+        )
+        if blockchain_id:
+            url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
+
+        if data_pubkeys is not None and len(data_pubkeys) > 0:
+            device_ids = [urllib.quote(dk['device_id']) for dk in data_pubkeys]
+            device_pubkeys = [dk['public_key'] for dk in data_pubkeys]
+
+            device_ids_str = urllib.quote( ','.join(device_ids))
+            device_pubkeys_str = urllib.quote( ','.join(device_pubkeys))
+
+            url += '&device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
+
+        log.debug("lookup: {}".format(url))
+
+        req = requests.get( url, timeout=self.timeout, headers=headers)
+        res = self.get_response(req, schema=FILE_LOOKUP_RESPONSE)
+        return res
+
+
+    def backend_datastore_getfile(self, file_name, blockchain_id=None, datastore_id=None, data_pubkeys=None, full_app_name=None, force=False, timestamp=0):
         """
         Get file data
         Usually not needed, since files usually have HTTP(S) URLs
         Return {'status': True, 'data': the data} on success
         Return {'error': ..., 'errno': ...} on failure
         """
-        if is_api_server(self.config_dir):
-            # get the file 
-            return gaia.datastore_get_file_data(datastore, file_name, data_pubkeys=data_pubkeys, force=force, timestamp=timestamp, config_path=self.config_path, blockchain_id=blockchain_id)
+        
+        assert not is_api_server(self.config_dir), 'BUG: called as API server'
+        assert (blockchain_id and full_app_name) or (datastore_id and data_pubkeys), 'Need either blockchain_id/full_app_name or datastore_id/data_pubkeys'
 
-        else:
-            # client
-            # get it from the API server
-            # (NOTE: most clients can simply `fetch`, `curl`, etc. the file URLs)
-            res = self.check_version()
-            if 'error' in res:
-                return res
-
-            headers = self.make_request_headers(need_session=False)
-            datastore_id = gaia.datastore_get_id(datastore['pubkey'])
-            url = 'http://{}:{}/v1/stores/{}/files?path={}&force={}'.format(
-                    self.server, self.port, datastore_id, urllib.quote(file_name), '1' if force else '0'
-            )
-
-            if blockchain_id:
-                url += '&blockchain_id={}'.format(blockchain_id)
-
-            if data_pubkeys is not None and len(data_pubkeys) > 0:
-                device_ids = [urllib.quote(dk['device_id']) for dk in data_pubkeys]
-                device_pubkeys = [dk['public_key'] for dk in data_pubkeys]
-
-                device_ids_str = urllib.quote( ','.join(device_ids))
-                device_pubkeys_str = urllib.quote( ','.join(device_pubkeys))
-
-                url += '&device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
-    
-            log.debug("getfile: {}".format(url))
-            req = requests.get(url, timeout=self.timeout, headers=headers)
-            res = None
-
-            if req.status_code != 200:
-                res = self.get_response(req)
-                log.error("Failed to get {}: {}".format(url, res['error']))
-                return res
-                
-            else:
-                data = req.content
-                res = {'status': True, 'data': req.content}
-
+        # client
+        # get it from the API server
+        # (NOTE: most clients can simply `fetch`, `curl`, etc. the file URLs)
+        res = self.check_version()
+        if 'error' in res:
             return res
+
+        store_id = self._get_store_id(blockchain_id, datastore_id, full_app_name)
+
+        headers = self.make_request_headers(need_session=False)
+        url = 'http://{}:{}/v1/stores/{}/files?path={}&force={}'.format(
+                self.server, self.port, store_id, urllib.quote(file_name), '1' if force else '0'
+        )
+
+        if blockchain_id:
+            url += '&blockchain_id={}'.format(blockchain_id)
+
+        if data_pubkeys is not None and len(data_pubkeys) > 0:
+            device_ids = [urllib.quote(dk['device_id']) for dk in data_pubkeys]
+            device_pubkeys = [dk['public_key'] for dk in data_pubkeys]
+
+            device_ids_str = urllib.quote( ','.join(device_ids))
+            device_pubkeys_str = urllib.quote( ','.join(device_pubkeys))
+
+            url += '&device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
+
+        log.debug("getfile: {}".format(url))
+        req = requests.get(url, timeout=self.timeout, headers=headers)
+        res = None
+
+        if req.status_code != 200:
+            res = self.get_response(req)
+            log.error("Failed to get {}: {}".format(url, res['error']))
+            return res
+            
+        else:
+            data = req.content
+            res = {'status': True, 'data': req.content}
+
+        return res
 
 
     def backend_datastore_putfile(self, datastore_str, datastore_sig, file_name, file_header_blob, payload, signature, device_id, blockchain_id=None, full_app_name=None):
