@@ -19,7 +19,12 @@
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-""" 
+"""
+"""
+TEST ENV CLIENT_STORAGE_DRIVERS test
+TEST ENV CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE test
+"""
+
 import os
 import testlib
 import pybitcoin
@@ -110,8 +115,13 @@ def scenario( wallets, **kw ):
 
     # export to environment
     blockstack_client.set_secret("BLOCKSTACK_API_SESSION", res['token'])
-
     ses = res['token']
+
+    # require that we only use URLs in the device root pages
+    res = testlib.blockstack_test_setenv("TEST_BLOCKSTACK_TEST_URLS_ONLY", "1")
+    if 'error' in res:
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False
 
     print 'session:'
     print ses
@@ -124,7 +134,7 @@ def scenario( wallets, **kw ):
         file_data = f.read(16384)
 
     # make datastore 
-    res = testlib.blockstack_cli_create_datastore( datastore_pk, ['disk'], ses )
+    res = testlib.blockstack_cli_create_datastore( datastore_pk, ['test'], ses )
     if 'error' in res:
         print "failed to create datastore: {}".format(res['error'])
         return False
@@ -247,8 +257,8 @@ def scenario( wallets, **kw ):
         print json.dumps(res)
         return False
 
-    # no more data in disk driver
-    names = os.listdir("/tmp/blockstack-disk/mutable")
+    # no more data in test driver
+    names = os.listdir("/tmp/blockstack-integration-test-storage/mutable")
     if names != ['foo.test']:
         print 'improper cleanup'
         return False
