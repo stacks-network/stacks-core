@@ -31,6 +31,7 @@ import urllib
 import urllib2
 import base64
 import time
+import copy
 
 import blockstack_zones
 import blockstack_profiles
@@ -799,7 +800,7 @@ def get_driver_urls( fq_data_id, storage_drivers ):
 
 
 def get_mutable_data(fq_data_id, data_pubkeys, urls=None, data_addresses=None, data_hash=None,
-                     blockchain_id=None, drivers=None, decode=True, bsk_version=None):
+                     blockchain_id=None, drivers=None, decode=True, bsk_version=None, driver_args={}):
     """
     Low-level call to get mutable data, given a fully-qualified data name.
     
@@ -833,6 +834,13 @@ def get_mutable_data(fq_data_id, data_pubkeys, urls=None, data_addresses=None, d
                 log.debug("Invalid address '{}'".format(a))
                 continue
 
+    driver_kw = copy.deepcopy(driver_args)
+    if blockchain_id:
+        driver_kw['fqu'] = blockchain_id
+
+    driver_kw['data_pubkeys'] = data_pubkeys
+    driver_kw['data_pubkey_hashes'] = data_pubkey_hashes
+         
     log.debug('get_mutable_data {} blockchain_id={} bsk_version={} drivers={}'.format(fq_data_id, blockchain_id, bsk_version, ','.join([d.__name__ for d in handlers_to_use])))
 
     for storage_handler in handlers_to_use:
@@ -881,7 +889,7 @@ def get_mutable_data(fq_data_id, data_pubkeys, urls=None, data_addresses=None, d
 
             log.debug('Try {} ({})'.format(storage_handler.__name__, url))
             try:
-                data_txt = storage_handler.get_mutable_handler(url, fqu=blockchain_id, data_pubkeys=data_pubkeys, data_pubkey_hashes=data_pubkey_hashes)
+                data_txt = storage_handler.get_mutable_handler(url, **driver_kw)
             except UnhandledURLException as uue:
                 # handler doesn't handle this URL
                 msg = 'Storage handler {} does not handle URLs like {}'
@@ -1010,7 +1018,9 @@ def put_immutable_data(data_text, txid, data_hash=None, required=None, skip=None
     return None if successes == 0 and required_successes == len(set(required) - set(skip)) else data_hash
 
 
-def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_privkey=None, data_pubkey=None, data_signature=None, key_file=False, blockchain_id=None, required=None, skip=None, required_exclusive=False):
+def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_privkey=None, data_pubkey=None, data_signature=None,
+                    key_file=False, blockchain_id=None, required=None, skip=None, required_exclusive=False, driver_args={}):
+
     """
     Given the unserialized data, store it into our mutable data stores.
     Do so in a best-effort way.  This method fails if all storage providers fail,
@@ -1064,6 +1074,12 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
     successes = 0
     required_successes = 0
     driver_urls = {}
+    
+    driver_kw = copy.deepcopy(driver_args)
+    if blockchain_id:
+        driver_kw['fqu'] = blockchain_id
+
+    driver_kw['key_file'] = key_file
 
     for handler in storage_handlers:
         if handler.__name__ in skip:
@@ -1086,7 +1102,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
         log.debug('Try "{}"'.format(handler.__name__))
 
         try:
-            store_url = handler.put_mutable_handler(fq_data_id, serialized_data, fqu=blockchain_id, key_file=key_file)
+            store_url = handler.put_mutable_handler(fq_data_id, serialized_data, **driver_kw)
             assert isinstance(store_url, (str,unicode))
         except Exception as e:
             log.exception(e)
@@ -1156,7 +1172,7 @@ def delete_immutable_data(data_hash, txid, privkey=None, signed_data_tombstone=N
     return True
 
 
-def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None, required=None, required_exclusive=False, skip=None, blockchain_id=None, key_file=False):
+def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None, required=None, required_exclusive=False, skip=None, blockchain_id=None, key_file=False, driver_args={}):
     """
     Given the data ID and private key of a user,
     go and delete the associated mutable data.
@@ -1184,6 +1200,11 @@ def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None,
 
     required_successes = 0
 
+    driver_kw = copy.deepcopy(driver_args)
+    if blockchain_id:
+        driver_kw['fqu'] = blockchain_id
+    driver_kw['key_file'] = key_file
+
     # remove data
     for handler in storage_handlers:
         if handler.__name__ in skip:
@@ -1199,7 +1220,7 @@ def delete_mutable_data(fq_data_id, privatekey=None, signed_data_tombstone=None,
 
         rc = False
         try:
-            rc = handler.delete_mutable_handler(fq_data_id, signed_data_tombstone, fqu=blockchain_id, key_file=key_file)
+            rc = handler.delete_mutable_handler(fq_data_id, signed_data_tombstone, **driver_kw)
         except Exception as e:
             log.exception(e)
             rc = False
