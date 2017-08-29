@@ -703,167 +703,6 @@ PUT_DATA_RESPONSE = {
 }
 
 
-# DEPRECATED
-MUTABLE_DATUM_FILE_TYPE = 1
-MUTABLE_DATUM_DIR_TYPE = 2
-
-# DEPRECATED
-MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES = {
-    'type': {
-        # file, directory
-        'type': 'integer',
-        'minimum': MUTABLE_DATUM_FILE_TYPE,
-        'maximum': MUTABLE_DATUM_DIR_TYPE,
-    },
-    'owner': {
-        # hash of public key
-        'type': 'string',
-        'pattern': OP_ADDRESS_PATTERN
-    },
-    'uuid': {
-        # inode ID
-        'type': 'string',
-        'pattern': OP_UUID_PATTERN
-    },
-    'readers': {
-        # who can read this inode?
-        'type': 'array',
-        'items': {
-            # hash of public key
-            'type': 'string',
-            'pattern': OP_ADDRESS_PATTERN
-        },
-    },
-    'reader_pubkeys': {
-        # public keys (loaded at run-time, not stored)
-        'type': 'array',
-        'items': {
-            'type': 'string',
-            'pattern': OP_HEX_PATTERN
-        },
-    },
-    'version': {
-        # inode version
-        'type': 'integer',
-        'minimum': 1
-    },
-    'proto_version': {
-        # version of the protocol
-        'type': 'integer',
-        'minimum': 1,
-    },
-}
-
-# DEPRECATED
-# header contains hash of payload
-MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
-MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES.update({
-    'data_hash': {
-        # hash of associated inode data
-        'type': 'string',
-        'pattern': OP_HEX_PATTERN
-    },
-})
-
-# DEPRECATED
-MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
-MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
-
-# DEPRECATED
-MUTABLE_DATUM_INODE_HEADER_SCHEMA = {
-    'type': 'object',
-    'properties': MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES,
-    'additionalProperties': False,
-    'required': list(set(MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES.keys()) - set(['reader_pubkeys']))  # headers only include reader pubkey hashes
-}
-
-# DEPRECATED
-MUTABLE_DATUM_DIRENT_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'type': {
-            'type': 'integer',
-            'minimum': MUTABLE_DATUM_FILE_TYPE,
-            'maximum': MUTABLE_DATUM_DIR_TYPE,
-        },
-        'uuid': {
-            'type': 'string',
-            'pattern': OP_UUID_PATTERN
-        },
-        'version': {
-            'type': 'integer',
-            'minimum': 1,
-        },
-    },
-    'additionalProperties': False,
-    'required': [
-        'type',
-        'uuid',
-        'version',
-    ],
-}
-
-# DEPRECATED
-# NOTE: *unserialized* idata
-MUTABLE_DATUM_DIR_IDATA_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'children': {
-            'type': 'object',
-            'patternProperties': {
-                # maps name to UUID, links, and type
-                OP_URLENCODED_NOSLASH_PATTERN: MUTABLE_DATUM_DIRENT_SCHEMA
-            },
-        },
-        'header': MUTABLE_DATUM_INODE_HEADER_SCHEMA,
-    },
-    'required': [
-        'children',
-        'header',
-    ],
-    'additionalProperties': False,
-}
-
-# DEPRECATED
-MUTABLE_DATUM_FILE_IDATA_SCHEMA = {
-    'type': 'string',
-    'pattern': OP_BASE64_PATTERN
-}
-
-# DEPRECATED
-MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.update({
-    'idata': MUTABLE_DATUM_FILE_IDATA_SCHEMA
-})
-
-# DEPRECATED
-MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.update({
-    'idata': MUTABLE_DATUM_DIR_IDATA_SCHEMA
-})
-
-# DEPRECATED
-MUTABLE_DATUM_INODE_SCHEMA = {
-    'type': 'object',
-    'properties': MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES,
-    'additionalProperties': False,
-    'required': list(set(MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.keys()) - set(['reader_pubkeys']))    # public keys are loaded at runtime, not stored
-}
-
-# DEPRECATED
-MUTABLE_DATUM_FILE_SCHEMA = {
-    'type': 'object',
-    'properties': MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES,
-    'additionalProperties': False,
-    'required': list(set(MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.keys()) - set(['reader_pubkeys']))    # public keys are loaded at runtime, not stored
-}
-
-# DEPRECATED
-MUTABLE_DATUM_DIR_SCHEMA = {
-    'type': 'object',
-    'properties': MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES,
-    'additionalProperties': False,
-    'required': list(set(MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.keys()) - set(['reader_pubkeys']))     # public keys are loaded at runtime, not stored
-}
-
 # replicated datastore
 DATASTORE_SCHEMA = {
     'type': 'object',
@@ -1238,110 +1077,6 @@ DELETE_DATASTORE_REQUEST_SCHEMA = {
     ],
 }
 
-# DEPRECATED
-DATASTORE_LOOKUP_PATH_ENTRY_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'name': {
-            'type': 'string',
-            'pattern': OP_URLENCODED_NOSLASH_OR_EMPTY_PATTERN,
-        },
-        'uuid': {
-            'type': 'string',
-            'pattern': OP_UUID_PATTERN,
-        },
-        'parent': {
-            'type': 'string',
-            'pattern': OP_URLENCODED_OR_EMPTY_PATTERN,
-        },
-        'inode': MUTABLE_DATUM_DIR_SCHEMA,
-    },
-    'required': [
-        'name',
-        'uuid',
-        'parent',
-        'inode',
-    ],
-    'additionalProperties': False,
-}
-
-# DEPRECATED
-DATASTORE_LOOKUP_INODE_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'name': {
-            'type': 'string',
-            'pattern': OP_URLENCODED_NOSLASH_OR_EMPTY_PATTERN,
-        },
-        'uuid': {
-            'type': 'string',
-            'pattern': OP_UUID_PATTERN,
-        },
-        'parent': {
-            'type': 'string',
-            'pattern': OP_URLENCODED_OR_EMPTY_PATTERN,
-        },
-        'inode': {
-            'anyOf': [
-                MUTABLE_DATUM_DIR_SCHEMA,
-                MUTABLE_DATUM_FILE_SCHEMA,
-                MUTABLE_DATUM_INODE_HEADER_SCHEMA,
-            ],
-        },
-    },
-    'required': [
-        'name',
-        'uuid',
-        'parent',
-        'inode',
-    ],
-    'additionalProperties': False,
-}
-
-# DEPRECATED
-DATASTORE_LOOKUP_RESPONSE_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'data': {
-            'anyOf': [
-                MUTABLE_DATUM_DIR_IDATA_SCHEMA,
-                MUTABLE_DATUM_FILE_IDATA_SCHEMA,
-                MUTABLE_DATUM_INODE_HEADER_SCHEMA,
-            ],
-        },
-        'status': {
-            'type': 'boolean',
-        },
-    },
-    'additionalProperties': False,
-    'required': [
-        'data',
-        'status',
-    ],
-}
-
-# DEPRECATED
-DATASTORE_LOOKUP_EXTENDED_RESPONSE_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'path_info': {
-            'type': 'object',
-            'patternProperties': {
-                OP_URLENCODED_OR_EMPTY_PATTERN: DATASTORE_LOOKUP_INODE_SCHEMA,
-            },
-        },
-        'inode_info': DATASTORE_LOOKUP_INODE_SCHEMA,
-        'status': {
-            'type': 'boolean',
-        },
-    },
-    'additionalProperties': False,
-    'required': [
-        'path_info',
-        'inode_info',
-        'status',
-    ],
-}
 
 OP_HISTORY_SCHEMA = {
     'type': 'object',
@@ -1775,10 +1510,18 @@ APP_KEY_BUNDLE_SCHEMA = {
                                 'pattern': OP_URI_TARGET_PATTERN,
                             },
                         },
+                        'root_urls': {
+                            'type': 'array',
+                            'items': {
+                                'type': 'string',
+                                'pattern': OP_URI_TARGET_PATTERN,
+                            },
+                        },
                     },
                     'required': [
                         'public_key',
                         'datastore_urls',
+                        'root_urls',
                     ],
                 },
             },
