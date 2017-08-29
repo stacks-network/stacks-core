@@ -23,7 +23,8 @@ build () {
 
 build-dev () {
   echo "Building image from git branch $(git rev-parse HEAD)"
-  docker build -f docker/Dockerfile.dev -t $coreimage:$(git rev-parse --short HEAD) .
+  docker build -f docker/Dockerfile.dev -t $coreimage:$gitrev
+  docker tag $coreimage:$gitrev $coreimage:dev
 }
 
 setup () {
@@ -142,7 +143,8 @@ push () {
 
 push-dev () {
   echo "pushing $coreimage:$(git rev-parse --short HEAD) container up to quay.io..."
-  docker push $coreimage:$(git rev-parse --short HEAD)
+  docker push $coreimage:$gitrev
+  docker push $coreimage:dev
 }
 
 commands () {
