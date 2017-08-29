@@ -3558,8 +3558,10 @@ def nodejs_copy_package( testdir, package_name ):
     if not os.path.exists(node_package_path):
         raise Exception("Missing node package {}: no directory {}".format(package_name, node_package_path))
 
-    rc = os.system('cp -a "{}"/* "{}"'.format(node_package_path, testdir))
+    cmd = 'cd "{}" && cp -a $(ls -a --color=none | grep -v node_modules | grep -v ".git" | egrep -v \'^\\.{{1,2}}$\') "{}"'.format(node_package_path, testdir)
+    rc = os.system(cmd)
     if rc != 0:
+        print 'failed command: {}'.format(cmd)
         raise Exception("Failed to copy {} to {}".format(node_package_path, testdir))
 
     return True
@@ -3576,12 +3578,21 @@ def nodejs_link_package( testdir, package_name ):
     return True
 
 
-def nodejs_run_test( testdir, test_name="core-test" ):
+def nodejs_run_test( testdir, build_cmd='build', test_name="core-test" ):
     """
     Run a nodejs test
     """
-    rc = os.system('cd "{}" && npm install && npm run {} 2>&1 | tee /dev/stderr | egrep "^npm ERR"'.format(testdir, test_name))
+    cmd = 'cd "{}" && npm install && npm run {}'.format(testdir, build_cmd)
+    rc = os.system(cmd)
+    if rc != 0:
+        print 'failed command: {}'.format(cmd)
+        raise Exception("Test {} failed".format(test_name))
+
+    cmd = 'cd "{}" && npm run {} 2>&1 | tee /dev/stderr | egrep "^npm ERROR"'.format(testdir, test_name)
+    rc = os.system(cmd)
     if rc == 0:
+        # found an error
+        print 'failed command: {}'.format(cmd)
         raise Exception("Test {} failed".format(test_name))
 
     return True
@@ -3597,6 +3608,4 @@ def interactive_breakpoint(**kw):
             i = raw_input('interactive breakpoint (type "go" to continue): ')
             if i == 'go':
                 break
-
-
 
