@@ -85,7 +85,7 @@ def data_blob_sign( data_blob_str, data_privkey ):
 
 def make_data_tombstones( device_ids, data_id ):
     """
-    Make tombstones for mutable data across devices
+    Make tombstones for data across devices
     """
     ts = [make_data_tombstone( make_fq_data_id(device_id, data_id) ) for device_id in device_ids]
     return ts
@@ -93,7 +93,7 @@ def make_data_tombstones( device_ids, data_id ):
 
 def sign_data_tombstones( tombstones, data_privkey ):
     """
-    Sign all mutable data tombstones with the given private key.
+    Sign all data tombstones with the given private key.
     Return the list of sigend tombstones
     """
     return [sign_data_tombstone(ts, data_privkey) for ts in tombstones]
