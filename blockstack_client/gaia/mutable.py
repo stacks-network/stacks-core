@@ -173,7 +173,7 @@ def get_mutable(fq_data_id, device_ids=None, raw=False, data_pubkeys=None, data_
         res = {'error': 'Failed to fetch mutable data'}
         if stale:
             res['stale'] = stale
-            res['error'] = 'Failed to fetch mutable data for {} due to timestamp mismatch.'
+            res['error'] = 'Failed to fetch mutable data for {} due to timestamp mismatch.'.format(fq_data_id)
             log.error("Failed to fetch mutable data for {} due to timestamp mismatch.".format(fq_data_id))
 
         if notfound:
