@@ -211,13 +211,20 @@ def get_device_root_directory( datastore_id, root_uuid, device_id, device_pubkey
     errcode = 0
     for driver in drivers:
         fq_data_id = make_fq_data_id(device_id, data_id)
-        res = None
+        device_root_timestamp = timestamp
+
+        if timestamp == 0 and not force:
+            res = get_device_root_version(datastore_id, root_uuid, device_ids, config_path=config_path)
+            if 'error' in res:
+                return {'error': 'Failed to query device root version for {}'.format(fq_data_id)}
+        
+            device_root_timestamp = res['version']
 
         if driver:
-            res = get_mutable(fq_data_id, device_ids=[device_id], blockchain_id=blockchain_id, timestamp=timestamp, force=force,
+            res = get_mutable(fq_data_id, device_ids=[device_id], blockchain_id=blockchain_id, timestamp=device_root_timestamp, force=force,
                                           data_pubkeys=[device_pubkey], storage_drivers=[driver], urls=root_urls, proxy=proxy, config_path=config_path)
         else:
-            res = get_mutable(fq_data_id, device_ids=[device_id], blockchain_id=blockchain_id, timestamp=timestamp, force=force,
+            res = get_mutable(fq_data_id, device_ids=[device_id], blockchain_id=blockchain_id, timestamp=device_root_timestamp, force=force,
                                           data_pubkeys=[device_pubkey], urls=root_urls, proxy=proxy, config_path=config_path)
 
         if 'error' in res:
@@ -362,7 +369,10 @@ def get_root_directory(datastore_id, root_uuid, data_pubkeys, drivers=None, root
 
         result = sg.get_result(task_id)
         if 'error' in result:
-            log.error("Failed to fetch root from {}".format(device_id))
+            log.error("Failed to fetch root from {} ({}, errno={})".format(device_id, result['error'], result['errno']))
+            if result['errno'] == 'ESTALE' and not force:
+                # got a device root directory, but it was stale
+                return {'error': 'Stale device root directory: {}'.format(result['error']), 'errno': 'ESTALE'}
 
             # no device directory; assume empty
             result = {'device_root_page': make_empty_device_root_directory(datastore_id, [], 0)}
