@@ -647,7 +647,7 @@ def key_file_update_profile(parsed_key_file, new_profile, signing_private_key):
     return {'status': True, 'key_file': profile_jwt_txt}
 
 
-def key_file_update_apps(parsed_key_file, device_id, app_name, app_pubkey, fq_datastore_id, datastore_urls, signing_private_key):
+def key_file_update_apps(parsed_key_file, device_id, app_name, app_pubkey, fq_datastore_id, datastore_urls, root_urls, signing_private_key):
     """
     Given a parsed key file, a device ID, an application name, its public key, and the device's signing private key,
     insert a new entry for the application for this device
@@ -679,6 +679,7 @@ def key_file_update_apps(parsed_key_file, device_id, app_name, app_pubkey, fq_da
         'public_key': app_pubkey,
         'fq_datastore_id': fq_datastore_id,
         'datastore_urls': datastore_urls,
+        'root_urls': root_urls,
     }
 
     cur_apps[device_id]['timestamp'] = int(time.time())
@@ -968,7 +969,7 @@ def lookup_app_listing(name, full_application_name, cache=None, cache_max_age=60
     """
     Given a blockchain ID (name), and the full application name (i.e. ending in .1 or .x),
     go and get all of the public keys for it in the app keys file
-    Return {'status': True, 'key_file': ..., 'app_info': {'$device_id': ...}} on success
+    Return {'status': True, 'key_file': ..., 'app_info': {'$device_id': {...app-specific state...}} on success
     Return {'error': ...} on error
     """
     assert name
@@ -997,7 +998,7 @@ def lookup_app_listing(name, full_application_name, cache=None, cache_max_age=60
             log.debug("Device '{}' does not have access to application '{}'".format(dev_id, full_application_name))
             continue
 
-        app_info[dev_id] = dev_app_info
+        app_info[dev_id] = dev_app_info[full_application_name]
 
     return {'status': True, 'app_info': app_info, 'key_file': parsed_key_file}
 
@@ -1013,7 +1014,7 @@ def lookup_app_pubkeys(name, full_application_name, cache=None, cache_max_age=60
     if 'error' in res:
         return res
 
-    return {'status': True, 'key_file': res['key_file'], 'pubkeys': dict([(dev_id, res['app_info'][dev_id][full_application_name]['public_key']) for dev_id in res['app_info'].keys()])}
+    return {'status': True, 'key_file': res['key_file'], 'pubkeys': dict([(dev_id, res['app_info'][dev_id]['public_key']) for dev_id in res['app_info'].keys()])}
 
 
 def make_initial_key_file(name, user_profile, owner_privkey_info, config_path=CONFIG_PATH):
@@ -1054,7 +1055,7 @@ def make_initial_key_file(name, user_profile, owner_privkey_info, config_path=CO
 
 
 def key_file_add_app( blockchain_id, datastore_id, parsed_key_file, this_device_id, app_domain, app_privkey, signing_privkey,
-                      cache=None, datastore_urls=[], config_path=CONFIG_PATH ):
+                      cache=None, datastore_urls=[], root_urls=[], config_path=CONFIG_PATH ):
     """
     Add application information to a key file, and save the key file.
     Return {'status': True} on success
@@ -1071,7 +1072,7 @@ def key_file_add_app( blockchain_id, datastore_id, parsed_key_file, this_device_
         app_domain_noscheme = app_domain[len(app_domain_scheme) + len('://'):]
 
     # add this app's public key (but we don't have URLs for its datastore yet) 
-    res = key_file_update_apps(parsed_key_file, this_device_id, app_domain_noscheme, get_pubkey_hex(app_privkey), fq_datastore_id, datastore_urls, signing_privkey)
+    res = key_file_update_apps(parsed_key_file, this_device_id, app_domain_noscheme, get_pubkey_hex(app_privkey), fq_datastore_id, datastore_urls, root_urls, signing_privkey)
     if 'error' in res:
         msg = 'Failed to add key file entry for {} for logging in with {} with device {}'.format(app_domain, blockchain_id, this_device_id)
         log.error(msg)
@@ -1571,7 +1572,7 @@ if __name__ == "__main__":
 
     # update the key file's apps
     helloblockstack_com_pubkey = keylib.ECPrivateKey().public_key().to_hex()
-    res = key_file_update_apps(key_file, 'test_device_1', "helloblockstack.com.1", helloblockstack_com_pubkey, 'test:test.datastore', ['file:///test'], get_signing_privkey(name_owner_privkeys['test_device_1']))
+    res = key_file_update_apps(key_file, 'test_device_1', "helloblockstack.com.1", helloblockstack_com_pubkey, 'test:test.datastore', ['file:///test'], ['file:///test-root'], get_signing_privkey(name_owner_privkeys['test_device_1']))
     assert 'error' not in res, res['error']
 
     # re-extract 
@@ -1597,6 +1598,7 @@ if __name__ == "__main__":
     assert key_file['keys']['apps']['test_device_1']['apps'].has_key('helloblockstack.com.1')
     assert key_file['keys']['apps']['test_device_1']['apps']['helloblockstack.com.1']['public_key'] == helloblockstack_com_pubkey
     assert key_file['keys']['apps']['test_device_1']['apps']['helloblockstack.com.1']['datastore_urls'] == ['file:///test']
+    assert key_file['keys']['apps']['test_device_1']['apps']['helloblockstack.com.1']['root_urls'] == ['file:///test-root']
     assert key_file['keys']['apps']['test_device_1']['apps']['helloblockstack.com.1']['fq_datastore_id'] == 'test:test.datastore'
 
     
