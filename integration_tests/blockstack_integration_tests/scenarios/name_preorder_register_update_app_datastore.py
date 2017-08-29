@@ -58,42 +58,6 @@ def scenario( wallets, **kw ):
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] )
     testlib.start_api("0123456789abcdef")
 
-    '''
-    testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
-    testlib.next_block( **kw )
-
-    testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
-    testlib.next_block( **kw )
-
-    testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
-    testlib.next_block( **kw )
-
-    testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
-    testlib.next_block( **kw )
-    
-    testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
-    testlib.next_block( **kw )
-    
-    # migrate profiles 
-    res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
-    if 'error' in res:
-        res['test'] = 'Failed to initialize foo.test profile'
-        print json.dumps(res, indent=4, sort_keys=True)
-        error = True
-        return 
-    
-    res = testlib.start_api("0123456789abcdef")
-    if 'error' in res:
-        print 'failed to start API: {}'.format(res)
-        return False
-
-    # tell serialization-checker that value_hash can be ignored here
-    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
-    sys.stdout.flush()
-    
-    testlib.next_block( **kw )
-    '''
-
     # sign in and make a token 
     datastore_pk = keylib.ECPrivateKey(wallets[-1].privkey).to_hex()
     res = testlib.blockstack_cli_app_signin(None, datastore_pk, 'http://localhost.1:8888', ['store_read', 'store_write', 'store_admin'])
@@ -262,50 +226,4 @@ def check( state_engine ):
         print "Key operation failed."
         return False
 
-    '''
-    # not revealed, but ready 
-    ns = state_engine.get_namespace_reveal( "test" )
-    if ns is not None:
-        print "namespace not ready"
-        return False 
-
-    ns = state_engine.get_namespace( "test" )
-    if ns is None:
-        print "no namespace"
-        return False 
-
-    if ns['namespace_id'] != 'test':
-        print "wrong namespace"
-        return False 
-
-    names = ['foo.test']
-    wallet_keys_list = [wallet_keys]
-    test_proxy = testlib.TestAPIProxy()
-
-    for i in xrange(0, len(names)):
-        name = names[i]
-        wallet_payer = 3 * (i+1) - 1
-        wallet_owner = 3 * (i+1)
-        wallet_data_pubkey = 3 * (i+1) + 1
-        wallet_keys = wallet_keys_list[i]
-
-        # not preordered
-        preorder = state_engine.get_name_preorder( name, pybitcoin.make_pay_to_address_script(wallets[wallet_payer].addr), wallets[wallet_owner].addr )
-        if preorder is not None:
-            print "still have preorder"
-            return False
-    
-        # registered 
-        name_rec = state_engine.get_name( name )
-        if name_rec is None:
-            print "name does not exist"
-            return False 
-
-        # owned 
-        if name_rec['address'] != wallets[wallet_owner].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[wallet_owner].addr):
-            print "name has wrong owner"
-            return False 
-
-        # try to authenticate
-    '''
     return True
