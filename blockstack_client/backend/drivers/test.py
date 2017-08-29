@@ -40,8 +40,9 @@ DEFAULT_INDEX_DIRNAME = '/index'
 DISK_ROOT = None
 INDEX_DIRNAME = '/index'
 
-INDEXED_STORAGE = False
 DVCONF = None
+
+USE_URLS_ONLY = False
 
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
@@ -49,10 +50,10 @@ def env_setup():
    """
    Set globals based on environment
    """
-   global DISK_ROOT, INDEX_DIRNAME, INDEXED_STORAGE, DVCONF, CONFIG_PATH
+   global DISK_ROOT, INDEX_DIRNAME, DVCONF, CONFIG_PATH, USE_URLS_ONLY
    
-   INDEXED_STORAGE = (os.environ.get("TEST_BLOCKSTACK_TEST_INDEXED_STORAGE") == "1")
    DISK_ROOT = os.environ.get("TEST_BLOCKSTACK_TEST_DISK_ROOT", DEFAULT_DISK_ROOT)
+   USE_URLS_ONLY = os.environ.get("TEST_BLOCKSTACK_TEST_URLS_ONLY", False)
 
    DVCONF = driver_config("test", CONFIG_PATH, test_get_chunk, test_put_chunk, test_delete_chunk, driver_info={}, index_stem=INDEX_DIRNAME, compress=True)
 
@@ -64,7 +65,7 @@ def storage_init(conf, index=False, force_index=False):
    Return True on success
    Return False on error 
    """
-   global DISK_ROOT, INDEXED_STORAGE, CONFIG_PATH, DVCONF
+   global DISK_ROOT, CONFIG_PATH, DVCONF
 
    config_path = conf['path']
    if os.path.exists( config_path ):
@@ -90,12 +91,6 @@ def storage_init(conf, index=False, force_index=False):
    
    CONFIG_PATH = config_path
    DVCONF = driver_config("test", config_path, test_get_chunk, test_put_chunk, test_delete_chunk, driver_info={}, index_stem=INDEX_DIRNAME, compress=True)
-
-   if index:
-       url = index_setup(DVCONF, force=force_index)
-       if url is None:
-           log.error("Failed to set up index")
-           return False
 
    return True 
 
@@ -216,6 +211,10 @@ def make_mutable_url( data_id ):
     # replace all /'s with -2f
     data_id_noslash = data_id.replace( "/", "-2f" )
    
+    if USE_URLS_ONLY:
+        # return a "poison pill" URL 
+        return 'test-invalid-url:///mutable/{}'.format(data_id_noslash)
+
     return "test:///mutable/{}".format(data_id_noslash)
 
 
@@ -228,7 +227,6 @@ def get_immutable_handler( key, **kw ):
    
     env_setup()
 
-    index_manifest_url = kw.get('index_manifest_url')
     blockchain_id = kw.get('fqu')
   
     if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
@@ -237,11 +235,7 @@ def get_immutable_handler( key, **kw ):
     key = key.replace('/', '-2f')
     path = '/immutable/{}'.format(key)
 
-    if INDEXED_STORAGE:
-        return get_indexed_data(DVCONF, blockchain_id, path, index_manifest_url=index_manifest_url)
-
-    else:
-        return test_get_chunk(DVCONF, path)
+    return test_get_chunk(DVCONF, path)
 
 
 def get_mutable_handler( url, **kw ):
@@ -254,7 +248,6 @@ def get_mutable_handler( url, **kw ):
     
     env_setup()
 
-    index_manifest_url = kw.get('index_manifest_url')
     blockchain_id = kw.get('fqu')
   
     if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
@@ -266,11 +259,7 @@ def get_mutable_handler( url, **kw ):
 
     path = url[len("test://"):]
 
-    if INDEXED_STORAGE:
-        return get_indexed_data(DVCONF, blockchain_id, path, index_manifest_url=index_manifest_url)
-
-    else:
-        return test_get_chunk(DVCONF, path)
+    return test_get_chunk(DVCONF, path)
 
 
 def put_immutable_handler( key, data, txid, **kw ):
@@ -290,10 +279,7 @@ def put_immutable_handler( key, data, txid, **kw ):
     key = key.replace('/', '-2f')
     path = '/immutable/{}'.format(key)
 
-    if INDEXED_STORAGE:
-        return put_indexed_data(DVCONF, path, data)
-    else:
-        return test_put_chunk(DVCONF, data, path)
+    return test_put_chunk(DVCONF, data, path)
 
 
 def put_mutable_handler( data_id, data_bin, **kw ):
@@ -310,10 +296,7 @@ def put_mutable_handler( data_id, data_bin, **kw ):
     data_id = data_id.replace('/', '-2f')
     path = '/mutable/{}'.format(data_id)
 
-    if INDEXED_STORAGE:
-        return put_indexed_data(DVCONF, path, data_bin)
-    else:
-        return test_put_chunk(DVCONF, data_bin, path)
+    return test_put_chunk(DVCONF, data_bin, path)
 
 
 def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
@@ -332,10 +315,7 @@ def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
     key = key.replace('/', '-2f')
     path = '/immutable/{}'.format(key)
 
-    if INDEXED_STORAGE:
-        return delete_indexed_data(DVCONF, path)
-    else:
-        return test_delete_chunk(DVCONF, path)
+    return test_delete_chunk(DVCONF, path)
 
 
 def delete_mutable_handler( data_id, signature, **kw ):
@@ -354,10 +334,7 @@ def delete_mutable_handler( data_id, signature, **kw ):
     data_id = data_id.replace('/', '-2f')
     path = '/mutable/{}'.format(data_id)
 
-    if INDEXED_STORAGE:
-        return delete_indexed_data(DVCONF, path)
-    else:
-        return test_delete_chunk(DVCONF, path)
+    return test_delete_chunk(DVCONF, path)
 
 
 def get_classes():
