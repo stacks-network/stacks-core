@@ -49,14 +49,14 @@ from ..logger import get_logger
 from ..proxy import get_default_proxy
 from ..config import get_config, get_local_device_id
 from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DEFAULT_DEVICE_ID, CONFIG_PATH
-from ..key_file import lookup_app_pubkeys
+from ..key_file import lookup_app_pubkeys, lookup_app_listing
 from ..schemas import ROOT_DIRECTORY_ENTRY_SCHEMA, ROOT_DIRECTORY_LEAF, OP_DATASTORE_ID_CLASS, OP_URLENCODED_CLASS, ROOT_DIRECTORY_SCHEMA
 from ..storage import sign_data_payload, make_data_tombstone, make_fq_data_id, sign_data_tombstone, parse_data_tombstone, verify_data_tombstone, parse_fq_data_id, \
         hash_data_payload, sign_data_payload, serialize_mutable_data, get_storage_handlers, verify_data_payload, sign_raw_data, verify_raw_data
 from ..utils import ScatterGather
 
 from .cache import GLOBAL_CACHE
-from .blob import data_blob_parse, data_blob_serialize
+from .blob import data_blob_parse, data_blob_serialize, datastore_get_id
 from .mutable import get_mutable, put_raw_data
 from .metadata import get_device_root_version
 from .policy import prioritize_read_drivers
@@ -132,19 +132,21 @@ def _merge_root_directories( roots ):
     return {'status': True, 'files': merged_files}
 
 
-def get_device_root_directory( datastore_id, root_inode_uuid, drivers, device_id, device_pubkey, timestamp=0, cache_max_lifetime=10, force=False, config_path=CONFIG_PATH, proxy=None, blockchain_id=None):
+def get_device_root_directory( datastore_id, root_uuid, device_id, device_pubkey, drivers=None, root_urls=None,
+                               timestamp=0, cache_max_lifetime=10, force=False, config_path=CONFIG_PATH, proxy=None, blockchain_id=None, full_app_name=None):
     """
     Get the root directory for a specific device in a datastore.
     This is a server-side method
+
+    TODO: with root_urls, this can become a client-side method
 
     Return {'status': True, 'device_root_page': {...}} on success
     Return {'error': ..., 'errno': ...} on error
     """
     
-    # cached?
-    res = GLOBAL_CACHE.get_device_root_directory(datastore_id, device_id, root_inode_uuid, cache_max_lifetime)
-    if res:
-        return {'status': True, 'device_root_page': res}
+    from .datastore import get_datastore_info
+
+    assert (datastore_id and device_id and device_pubkey) or (blockchain_id and full_app_name), 'Need drivers, urls, or both blockchain ID and full app name'
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
@@ -152,14 +154,74 @@ def get_device_root_directory( datastore_id, root_inode_uuid, drivers, device_id
     conf = get_config(config_path)
     assert conf
 
-    data_id = '{}.{}'.format(datastore_id, root_inode_uuid)
+    parsed_key_file = None
+    device_ids = [device_id]
     
+    # find out datastore info
+    if (blockchain_id is not None and full_app_name is not None) and (not root_urls or datastore_id is None or root_uuid is None):
+        # get from key file (and get root URLs)
+        res = lookup_app_listing(blockchain_id, full_app_name, cache=GLOBAL_CACHE, proxy=proxy, config_path=config_path)
+        if 'error' in res:
+            res['errno'] = "EINVAL"
+            return res
+
+        if len(res['app_info'].keys()) == 0:
+            msg = 'Blockchain ID {} is not registered in application {}'.format(blockchain_id, full_app_name)
+            log.error(msg)
+            return {'error': msg, 'errno': 'EINVAL'}
+
+        if device_id not in res['app_info']:
+            return {'error': 'Failed to find data for device {} in key file for {} (application {})'.format(device_id, blockchain_id, full_app_name)}
+            
+        if not root_urls:
+            root_urls = res['app_info'][device_id]['root_urls']
+
+        if device_pubkey is None:
+            device_pubkey = res['app_info'][device_id]['public_key']
+
+        parsed_key_file = res['key_file']
+        device_ids = res['app_info'].keys()
+
+    # datastore ID?
+    if datastore_id is None or root_uuid is None or drivers is None:
+        dinfo_res = get_datastore_info(blockchain_id=blockchain_id, datastore_id=datastore_id, device_ids=device_ids, full_app_name=full_app_name, config_path=config_path, proxy=proxy, parsed_key_file=parsed_key_file)
+        if 'error' in dinfo_res:
+            log.error("No datastore ID given, and could not determine it")
+            return {'error': "no datastore ID given, and could not determine it: {}".format(dinfo_res['error'])}
+
+        datastore = dinfo_res['datastore']
+        datastore_id = datastore_get_id(datastore['pubkey'])
+
+        if root_uuid is None:
+            root_uuid = datastore['root_uuid']
+
+        if drivers is None:
+            drivers = datastore['drivers']
+
+    # cached?
+    res = GLOBAL_CACHE.get_device_root_directory(datastore_id, device_id, root_uuid, cache_max_lifetime)
+    if res:
+        return {'status': True, 'device_root_page': res}
+
+    data_id = '{}.{}'.format(datastore_id, root_uuid)
+   
+    if drivers is None:
+        drivers = [None]
+
     errcode = 0
     for driver in drivers:
         fq_data_id = make_fq_data_id(device_id, data_id)
-        res = get_mutable(fq_data_id, device_ids=[device_id], blockchain_id=blockchain_id, timestamp=timestamp, force=force, data_pubkeys=[device_pubkey], storage_drivers=[driver], proxy=proxy, config_path=config_path)
+        res = None
+
+        if driver:
+            res = get_mutable(fq_data_id, device_ids=[device_id], blockchain_id=blockchain_id, timestamp=timestamp, force=force,
+                                          data_pubkeys=[device_pubkey], storage_drivers=[driver], urls=root_urls, proxy=proxy, config_path=config_path)
+        else:
+            res = get_mutable(fq_data_id, device_ids=[device_id], blockchain_id=blockchain_id, timestamp=timestamp, force=force,
+                                          data_pubkeys=[device_pubkey], urls=root_urls, proxy=proxy, config_path=config_path)
+
         if 'error' in res:
-            log.error("Failed to get device root data {} (stale={}): {}".format(root_inode_uuid, res.get('stale', False), res['error']))
+            log.error("Failed to get device root data {} (stale={}): {}".format(root_uuid, res.get('stale', False), res['error']))
             errcode = "EREMOTEIO"
             if res.get('stale'):
                 errcode = "ESTALE"
@@ -192,14 +254,14 @@ def get_device_root_directory( datastore_id, root_inode_uuid, drivers, device_id
                 continue
             
             # cache!
-            GLOBAL_CACHE.put_device_root_directory(datastore_id, device_id, root_inode_uuid, root_page, cache_max_lifetime)
+            GLOBAL_CACHE.put_device_root_directory(datastore_id, device_id, root_uuid, root_page, cache_max_lifetime)
             
             return {'status': True, 'device_root_page': root_page}
         
     return {'error': 'No data fetched from {}'.format(device_id), 'errno': errcode}
 
 
-def get_root_directory(datastore_id, root_uuid, drivers, data_pubkeys, timestamp=0, force=False, config_path=CONFIG_PATH, proxy=None, full_app_name=None, blockchain_id=None):
+def get_root_directory(datastore_id, root_uuid, data_pubkeys, drivers=None, root_urls=None, timestamp=0, force=False, config_path=CONFIG_PATH, proxy=None, full_app_name=None, blockchain_id=None):
     """
     Get the root directory for a datastore.  Fetch the device-specific directories from all devices and merge them.
 
@@ -207,39 +269,87 @@ def get_root_directory(datastore_id, root_uuid, drivers, data_pubkeys, timestamp
 
     This is a server-side method.
 
+    TODO: with urls, this can become a client-side method
+
     Return {'status': True, 'root': {'$filename': '$file_entry'}, 'device_root_pages': [root directories]} on success
     Return {'error': ..., 'errno': ...} on error.
     """
 
+    from .datastore import get_datastore_info
+
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
-    assert data_pubkeys or (full_app_name and blockchain_id), 'Need either data_pubkeys or both full_app_name and blockchain_id'
+    assert (datastore_id and data_pubkeys) or (full_app_name and blockchain_id), 'Need either data_pubkeys or both full_app_name and blockchain_id'
 
     conf = get_config(config_path)
     assert conf
+    
+    parsed_key_file = None
 
-    if data_pubkeys is None:
+    if data_pubkeys:
+        device_ids = [dpk['device_id'] for dpk in data_pubkeys]
+
+    if (data_pubkeys is None or root_urls is None or root_uuid is None) and (blockchain_id is not None and full_app_name is not None):
         # get from key file (and use root URLs)
-        res = lookup_app_pubkeys(blockchain_id, full_app_name, cache=GLOBAL_CACHE, proxy=proxy)
+        res = lookup_app_listing(blockchain_id, full_app_name, cache=GLOBAL_CACHE, proxy=proxy, config_path=config_path)
         if 'error' in res:
             res['errno'] = "EINVAL"
             return res
-        
-        data_pubkeys = [{'device_id': dev_id, 'public_key': res['pubkeys'][dev_id]} for dev_id in data_pubkeys.keys()]
+       
+        if len(res['app_info'].keys()) == 0:
+            msg = 'Blockchain ID {} is not registered in application {}'.format(blockchain_id, full_app_name)
+            log.error(msg)
+            return {'error': msg, 'errno': 'EINVAL'}
+
+        if data_pubkeys is None:
+            data_pubkeys = [{'device_id': dev_id, 'public_key': res['app_info'][dev_id]['public_key']} for dev_id in data_pubkeys.keys()]
+
+        if root_urls is None:
+            root_urls = dict([(dev_id, res['app_info'][dev_id]['root_urls']) for dev_id in res['app_info'].keys()])
+
+        parsed_key_file = res['key_file']
+        device_ids = res['app_info'].keys()
+    
+    # datastore info?
+    if datastore_id is None or root_uuid is None:
+        dinfo_res = get_datastore_info(blockchain_id=blockchain_id, datastore_id=datastore_id, device_ids=device_ids, full_app_name=full_app_name, config_path=config_path, proxy=proxy, parsed_key_file=parsed_key_file)
+        if 'error' in dinfo_res:
+            log.error("No datastore ID given, and could not determine it")
+            return {'error': "no datastore ID given, and could not determine it: {}".format(dinfo_res['error']), 'errno': 'EINVAL'}
+
+        datastore = dinfo_res['datastore']
+        if datastore_id is not None and datastore_id != datastore_get_id(datastore['pubkey']):
+            return {'error': 'Datastore mismatch: given datastore ID {} does not match queried datastore ID {}'.format(datastore_id, datastore_get_id(datastore['pubkey'])), 'errno': 'EINVAL'}
+
+        datastore_id = datastore_get_id(datastore['pubkey'])
+
+        if root_uuid is None:
+            root_uuid = datastore['root_uuid']
+
+        if drivers is None:
+            drivers = datastore['drivers']
 
     data_id = '{}.{}'.format(datastore_id, root_uuid)
 
     # optimization: try local drivers before non-local drivers
-    drivers = prioritize_read_drivers(config_path, drivers)
+    if drivers:
+        drivers = prioritize_read_drivers(config_path, drivers)
 
     sg = ScatterGather()
     for data_pubkey_info in data_pubkeys:
         device_id = data_pubkey_info['device_id']
         data_pubkey = data_pubkey_info['public_key']
         task_id = 'fetch_root_{}'.format(device_id)
+        
+        urls = None
+        if root_urls:
+            assert root_urls.has_key(device_id), root_urls
+            urls = root_urls[device_id]
 
-        fetch_root_directory = functools.partial(get_device_root_directory, datastore_id, root_uuid, drivers, device_id, data_pubkey, timestamp=timestamp, force=force, config_path=config_path, blockchain_id=blockchain_id)
+        fetch_root_directory = functools.partial(get_device_root_directory, datastore_id, root_uuid, device_id, data_pubkey,
+                                                drivers=drivers, timestamp=timestamp, force=force, root_urls=urls, config_path=config_path, full_app_name=full_app_name, blockchain_id=blockchain_id)
+
         sg.add_task(task_id, fetch_root_directory)
 
     sg.run_tasks()
@@ -282,8 +392,8 @@ def put_device_root_data(datastore_id, device_id, root_uuid, directory_blob, dir
     """
 
     fq_data_id = make_fq_data_id(device_id, '{}.{}'.format(datastore_id, root_uuid))
-    serialized_root = serialize_mutable_data(directory_blob, data_pubkey=directory_pubkey, data_signature=directory_signature)    
-    res = put_raw_data(fq_data_id, serialized_root, drivers, config_path=config_path, blockchain_id=blockchain_id, data_pubkey=directory_pubkey, data_signature=directory_signature) 
+    serialized_root = serialize_mutable_data(directory_blob, data_pubkey=directory_pubkey, data_signature=directory_signature)
+    res = put_raw_data(fq_data_id, serialized_root, drivers, config_path=config_path, blockchain_id=blockchain_id, data_pubkey=directory_pubkey, data_signature=directory_signature)
 
     # uncache
     GLOBAL_CACHE.evict_device_root_directory(datastore_id, device_id, root_uuid)
