@@ -67,6 +67,8 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
     """
     Get a datastore's information.
     This is a server-side method.
+    
+    TODO: this could be made into a client-side method, since we're using URLs
 
     There are two ways to call this method:
     * supply blockchain_id and full_app_name
@@ -94,12 +96,12 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
 
     # use URLs when possible
     fq_datastore_id = None
-    datastore_urls = []
+    datastore_urls = None
 
     # prefer token-file path over direct datastore query
     if blockchain_id and full_app_name:
 
-        # multi-reader single-writer storage 
+        # possibly reading a multi-reader single-writer storage 
         if parsed_key_file is None:
             res = key_file_get(blockchain_id, cache=GLOBAL_CACHE, proxy=proxy)
             if 'error' in res:
@@ -114,8 +116,13 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
         if 'error' in res:
             res['errno'] = "EINVAL"
             return res
-        
+         
         app_info = res['app_info']
+        if len(app_info.keys()) == 0:
+            msg = 'Blockchain ID {} is not registered in application {}'.format(blockchain_id, full_app_name)
+            log.error(msg)
+            return {'error': msg, 'errno': 'EINVAL'}
+
         if device_ids is None:
             device_ids = app_info.keys()
         
@@ -123,20 +130,32 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
         multiple_datastores = {}
         creating_device_id = None
         for dev_id in app_info.keys():
-            if len(app_info[dev_id][full_app_name]['datastore_urls']) > 0:
-                if len(datastore_urls) > 0:
+            if len(app_info[dev_id]['datastore_urls']) >= 0:
+                if datastore_urls:
                     # multiple devices claim to have created this datastore 
                     log.warning("Device {} also created a datastore for {}".format(dev_id, full_app_name))
-                    multiple_datastores[dev_id] = app_info[dev_id][full_app_name]['datastore_urls']
+                    multiple_datastores[dev_id] = app_info[dev_id]['datastore_urls']
                     continue
 
-                datastore_urls = app_info[dev_id][full_app_name]['datastore_urls']
-                fq_datastore_id = app_info[dev_id][full_app_name]['fq_datastore_id']
+                datastore_urls = app_info[dev_id]['datastore_urls']
+                fq_datastore_id = app_info[dev_id]['fq_datastore_id']
                 creating_device_id = dev_id
+
+            elif fq_datastore_id is None:
+                fq_datastore_id = app_info[dev_id]['fq_datastore_id']
         
         if multiple_datastores:
             msg = 'Corrupt key file for {}: the following devices have created datastores for {}: {}'.format(blockchain_id, full_app_name, multiple_datastores.keys() + [creating_device_id])
             log.error(msg)
+            return {'error': msg}
+
+        if fq_datastore_id is None:
+            msg = 'Invalid key file: no entry has a fully-qualified datastore ID'
+            log.error(msg)
+
+            if BLOCKSTACK_DEBUG:
+                log.debug('\n{}'.format(json.dumps(app_info, indent=4, sort_keys=True)))
+
             return {'error': msg}
 
         # find the devices that support this datastore
@@ -152,7 +171,7 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
                 continue
 
             found_device_ids.append(dev_id)
-            datastore_addresses.append(datastore_get_id(app_info[dev_id][full_app_name]['public_key']))
+            datastore_addresses.append(datastore_get_id(app_info[dev_id]['public_key']))
 
         device_ids = found_device_ids
 
@@ -405,7 +424,7 @@ def put_datastore_info( datastore_info, datastore_sigs, root_tombstones, config_
     return {'status': True, 'root_urls': root_urls, 'datastore_urls': datastore_urls}
 
 
-def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, data_pubkeys, blockchain_id=None, force=False, proxy=None, config_path=CONFIG_PATH ):
+def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, data_pubkeys, blockchain_id=None, full_app_name=None, force=False, proxy=None, config_path=CONFIG_PATH ):
     """
     Delete a datastore.  Only do so if its root directory is empty (unless force=True).
     Any device can delete the datastore.
@@ -421,7 +440,7 @@ def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, 
     device_ids = [dk['device_id'] for dk in data_pubkeys]
 
     # get the datastore first
-    datastore_info = get_datastore_info(blockchain_id=blockchain_id, datastore_id=datastore_id, device_ids=device_ids, config_path=config_path, proxy=proxy, no_cache=True)
+    datastore_info = get_datastore_info(blockchain_id=blockchain_id, full_app_name=full_app_name, datastore_id=datastore_id, device_ids=device_ids, config_path=config_path, proxy=proxy, no_cache=True)
     if 'error' in datastore_info:
         log.error("Failed to look up datastore information for {}: {}".format(datastore_id, datastore_info['error']))
         return {'error': 'Failed to look up datastore', 'errno': "ENOENT"}
@@ -431,7 +450,7 @@ def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, 
     drivers = datastore['drivers']
 
     # get root directory
-    res = get_root_directory(datastore_id, root_uuid, drivers, data_pubkeys, timestamp=0, force=force, config_path=config_path, proxy=proxy, blockchain_id=blockchain_id)
+    res = get_root_directory(datastore_id, root_uuid, data_pubkeys, drivers=drivers, timestamp=0, force=force, config_path=config_path, proxy=proxy, blockchain_id=blockchain_id, full_app_name=full_app_name)
     if 'error' in res:
         if not force:
             log.error("Failed to get root directory")
@@ -476,6 +495,11 @@ def verify_file_data(full_app_name, datastore, file_name, file_header_blob, payl
             res['errno'] = "EINVAL"
             return res
          
+        if len(res['pubkeys'].keys()) == 0:
+            msg = 'Blockchain ID {} is not registered in application {}'.format(blockchain_id, full_app_name)
+            log.error(msg)
+            return {'error': msg, 'errno': 'EINVAL'}
+
         data_pubkey = res['pubkeys'].get(device_id, None)
         if data_pubkey is None:
             return {'error': 'Unknown device {}'.format(device_id)}
@@ -545,6 +569,11 @@ def verify_root_data(datastore, root_data_blob, signature, device_id, blockchain
             res['errno'] = "EINVAL"
             return res
          
+        if len(res['pubkeys'].keys()) == 0:
+            msg = 'Blockchain ID {} is not registered in application {}'.format(blockchain_id, full_app_name)
+            log.error(msg)
+            return {'error': msg, 'errno': 'EINVAL'}
+
         data_pubkey = res['pubkeys'].get(device_id, None)
         if data_pubkey is None:
             return {'error': 'Unknown device {}'.format(device_id)}
@@ -620,6 +649,11 @@ def datastore_get_file_data(datastore, file_name, data_pubkeys, full_app_name=No
             res['errno'] = "EINVAL"
             return res
         
+        if len(res['pubkeys'].keys()) == 0:
+            msg = 'Blockchain ID {} is not registered in application {}'.format(blockchain_id, full_app_name)
+            log.error(msg)
+            return {'error': msg, 'errno': 'EINVAL'}
+
         data_pubkeys = [{'device_id': dev_id, 'public_key': res['pubkeys'][dev_id]} for dev_id in data_pubkeys.keys()]
 
     return get_file_data(datastore, file_name, data_pubkeys, force=force, timestamp=0, config_path=CONFIG_PATH, blockchain_id=blockchain_id)
@@ -642,6 +676,11 @@ def datastore_get_device_root(full_app_name, datastore, device_id, data_pubkey=N
         if 'error' in res:
             res['errno'] = "EINVAL"
             return res
+
+        if len(res['pubkeys'].keys()) == 0:
+            msg = 'Blockchain ID {} is not registered in application {}'.format(blockchain_id, full_app_name)
+            log.error(msg)
+            return {'error': msg, 'errno': 'EINVAL'}
 
         data_pubkey = res['pubkeys'].get(device_id, None)
         if not data_pubkey:
@@ -669,6 +708,11 @@ def datastore_put_file_data(full_app_name, datastore, file_name, file_header_blo
         if 'error' in res:
             res['errno'] = "EINVAL"
             return res
+
+        if len(res['pubkeys'].keys()) == 0:
+            msg = 'Blockchain ID {} is not registered in application {}'.format(blockchain_id, full_app_name)
+            log.error(msg)
+            return {'error': msg, 'errno': 'EINVAL'}
 
         data_pubkey = res['pubkeys'].get(device_id, None)
         if not data_pubkey:
@@ -752,6 +796,11 @@ def datastore_delete_file_data(datastore, signed_tombstones, blockchain_id=None,
             res['errno'] = "EINVAL"
             return res
         
+        if len(res['pubkeys'].keys()) == 0:
+            msg = 'Blockchain ID {} is not registered in application {}'.format(blockchain_id, full_app_name)
+            log.error(msg)
+            return {'error': msg, 'errno': 'EINVAL'}
+
         data_pubkeys = [{'device_id': dev_id, 'public_key': res['pubkeys'][dev_id]} for dev_id in data_pubkeys.keys()]
 
     # must be well-formed tombstones
