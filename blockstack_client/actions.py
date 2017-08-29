@@ -60,6 +60,7 @@ import binascii
 from decimal import Decimal
 import string
 import jsontokens
+import urlparse
 
 requests.packages.urllib3.disable_warnings()
 
@@ -177,7 +178,7 @@ from .key_file import key_file_profile_serialize, key_file_update_profile, key_f
 
 from .schemas import (
     OP_URLENCODED_PATTERN, OP_NAME_PATTERN,
-    OP_BASE58CHECK_PATTERN, MUTABLE_DATUM_FILE_TYPE)
+    OP_BASE58CHECK_PATTERN)
 
 import keylib
 
@@ -3918,7 +3919,7 @@ def cli_unqueue(args, config_path=CONFIG_PATH):
 def find_datastore_device_pubkeys(blockchain_id, args_device_ids, args_device_pubkeys, full_application_name=None, datastore_id=None, proxy=None):
     """
     Find the list of (device ID, app-specific signing key) pairs for a given name.
-    Use either the CSV string given in args (args_device_dis), or look it up from the token file.
+    Use either the CSV string given in args (args_device_ids), or look it up from the token file.
 
     Return {'status': True, 'key_file': ..., 'device_ids': [{'device_id': ..., 'public_key': ...}...[} on success
     Return {'errro': ...} on error
@@ -4966,21 +4967,6 @@ def cli_remove_device( args, config_path=CONFIG_PATH, proxy=None ):
     raise NotImplementedError("Missing token file parsing logic")
 
 
-def _remove_datastore(rpc, datastore, datastore_privkey, data_pubkeys, force=False, config_path=CONFIG_PATH ):
-    """
-    Delete a user datastore
-    Return {'status': True} on success
-    Return {'error': ...} on error
-    """
-    
-    datastore_pubkey = get_pubkey_hex(datastore_privkey)
-    datastore_id = datastore_get_id(datastore_pubkey)
-
-    # delete the datastore record
-    log.debug("Delete datastore {}".format(datastore_id))
-    return delete_datastore(rpc, datastore, datastore_privkey, data_pubkeys, config_path=config_path)
-
-
 def find_signing_privkey( parsed_key_file, owner_privkey_info ):
     """
     Get the signing private key from this owner key
@@ -5061,36 +5047,25 @@ def delete_datastore_by_type( datastore_type, datastore_privkey, session, force=
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-    datastore_id = datastore_get_id(get_pubkey_hex(datastore_privkey))
     session_payload = jsontokens.decode_token(session)['payload']
+    
     blockchain_id = session_payload['blockchain_id']
-
+    app_domain = urlparse.urlparse(session_payload['app_domain']).netloc
+    
+    # NOTE: only valid for single-reader storage
+    datastore_id = session_payload['app_user_id']
     data_pubkeys = session_payload['app_public_keys']
     device_ids = [dk['device_id'] for dk in data_pubkeys]
-
-    app_domain = session_payload['app_domain']
     
     rpc = local_api_connect(config_path=config_path, api_session=session)
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
-    
-    datastore_info = rpc.backend_datastore_get(blockchain_id, app_domain, datastore_id=datastore_id, device_ids=device_ids)
-    if 'error' in datastore_info:
-        return datastore_info
-
-    datastore = datastore_info['datastore']
-    if datastore['type'] != datastore_type:
-        return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
-
-    res = _remove_datastore(rpc, datastore, datastore_privkey, data_pubkeys, force=force, config_path=config_path)
-    if 'error' in res:
-        log.error("Failed to delete datastore record")
-        return res
-
-    return {'status': True}
+   
+    res = delete_datastore(rpc, datastore_privkey, blockchain_id=blockchain_id, full_app_name=app_domain, datastore_id=datastore_id, data_pubkeys=data_pubkeys, config_path=config_path)
+    return res
 
 
-def datastore_file_get(datastore_type, blockchain_id, app_name, path, data_pubkeys, datastore_id=None, force=False, config_path=CONFIG_PATH ):
+def datastore_file_get(datastore_type, path, blockchain_id=None, full_app_name=None, data_pubkeys=None, datastore_id=None, force=False, config_path=CONFIG_PATH, proxy=None ):
     """
     Get a file from a datastore or collection.
     Return {'status': True, 'data': ...} on success
@@ -5100,20 +5075,8 @@ def datastore_file_get(datastore_type, blockchain_id, app_name, path, data_pubke
     rpc = local_api_connect(config_path=config_path)
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
-
-    device_ids = [dk['device_id'] for dk in data_pubkeys]
-    datastore_info = rpc.backend_datastore_get(blockchain_id, app_name, datastore_id=datastore_id, device_ids=device_ids)
-    if 'error' in datastore_info:
-        if 'errno' not in datastore_info:
-            datastore_info['errno'] = "EPERM"
-
-        return datastore_info
-
-    datastore = datastore_info['datastore']
-    if datastore['type'] != datastore_type:
-        return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
-
-    res = datastore_getfile( rpc, blockchain_id, datastore, path, data_pubkeys, force=force, config_path=config_path )
+    
+    res = datastore_getfile(rpc, path, blockchain_id=blockchain_id, full_app_name=full_app_name, datastore_id=datastore_id, data_pubkeys=data_pubkeys, config_path=config_path, force=force, proxy=proxy)
     return res
 
 
@@ -5144,24 +5107,16 @@ def datastore_file_put(datastore_type, app_name, datastore_privkey, path, data, 
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    device_ids = [dk['device_id'] for dk in data_pubkeys]
-    datastore_info = rpc.backend_datastore_get(blockchain_id, app_name, datastore_id=datastore_id, device_ids=device_ids)
-    if 'error' in datastore_info:
-        return datastore_info
-
-    datastore = datastore_info['datastore']
-    datastore_id = datastore_get_id(datastore['pubkey'])
-
     log.debug("putfile {} to {}".format(path, datastore_id))
 
-    res = datastore_putfile( rpc, datastore, path, data, datastore_privkey, data_pubkeys, config_path=config_path )
+    res = datastore_putfile( rpc, path, data, datastore_privkey, data_pubkeys=data_pubkeys, config_path=config_path, datastore_id=datastore_id, full_app_name=app_name, blockchain_id=blockchain_id )
     if 'error' in res:
         return res
 
     return res
 
 
-def datastore_path_stat(datastore_type, blockchain_id, app_name, path, this_device_id, data_pubkeys, datastore_id=None, force=False, config_path=CONFIG_PATH ):
+def datastore_path_stat(datastore_type, path, this_device_id, blockchain_id=None, full_app_name=None, data_pubkeys=None, datastore_id=None, force=False, config_path=CONFIG_PATH ):
     """
     Stat a path in a datastore or collection
     Return {'status': True, 'file_info': ...} on success
@@ -5171,21 +5126,12 @@ def datastore_path_stat(datastore_type, blockchain_id, app_name, path, this_devi
     rpc = local_api_connect(config_path=config_path)
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
-
-    device_ids = [dk['device_id'] for dk in data_pubkeys]
-    datastore_info = rpc.backend_datastore_get(blockchain_id, app_name, datastore_id=datastore_id, device_ids=device_ids)
-    if 'error' in datastore_info:
-        return datastore_info
-
-    datastore = datastore_info['datastore']
-    if datastore['type'] != datastore_type:
-        return {'error': 'This is a {}'.format(datastore['type'])}
-
-    res = datastore_stat( rpc, blockchain_id, datastore, path, data_pubkeys, this_device_id, force=force, config_path=config_path )
+    
+    res = datastore_stat( rpc, path, this_device_id, blockchain_id=blockchain_id, datastore_id=datastore_id, data_pubkeys=data_pubkeys, full_app_name=full_app_name, force=force, config_path=config_path )
     return res
 
 
-def datastore_files_list(datastore_type, blockchain_id, app_name, data_pubkeys, datastore_id=None, force=False, timestamp=0, config_path=CONFIG_PATH ):
+def datastore_files_list(datastore_type, blockchain_id=None, full_app_name=None, data_pubkeys=None, datastore_id=None, force=False, timestamp=0, config_path=CONFIG_PATH ):
     """
     List the files in a datastore or collection
     Return {'status': True, 'root': ...} on success
@@ -5195,29 +5141,15 @@ def datastore_files_list(datastore_type, blockchain_id, app_name, data_pubkeys, 
     rpc = local_api_connect(config_path=config_path)
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
-
-    device_ids = [dk['device_id'] for dk in data_pubkeys]
-    datastore_info = rpc.backend_datastore_get(blockchain_id, app_name, datastore_id=datastore_id, device_ids=device_ids)
-    if 'error' in datastore_info:
-        if 'errno' not in datastore_info:
-            datastore_info['errno'] = "EPERM"
-
-        return datastore_info
-
-    datastore = datastore_info['datastore']
-    if datastore['type'] != datastore_type:
-        return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
     
-    datastore_id = datastore_get_id(datastore['pubkey'])
-    
-    res = rpc.backend_datastore_get_root(blockchain_id, datastore, data_pubkeys, timestamp=timestamp, force=force, full_app_name=app_name)
+    res = rpc.backend_datastore_get_root(blockchain_id=blockchain_id, datastore_id=datastore_id, full_app_name=full_app_name, data_pubkeys=data_pubkeys, timestamp=timestamp, force=force)
     if 'error' in res:
         return res
 
     return {'status': True, 'root': res['root']}
 
 
-def datastore_files_list_device(datastore_type, blockchain_id, device_id, app_name, data_pubkeys, datastore_id=None, force=False, config_path=CONFIG_PATH ):
+def datastore_files_list_device(datastore_type, device_id, blockchain_id=None, full_app_name=None, data_pubkeys=None, datastore_id=None, force=False, config_path=CONFIG_PATH ):
     """
     List the files in a datastore or collection from a specific device
     Return {'status': True, 'device_root_page': ...} on success
@@ -5228,22 +5160,7 @@ def datastore_files_list_device(datastore_type, blockchain_id, device_id, app_na
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    device_ids = [dk['device_id'] for dk in data_pubkeys]
-    if device_id not in device_ids:
-        return {'error': 'Unknown device "{}"'.format(device_id)}
-
-    datastore_info = rpc.backend_datastore_get(blockchain_id, app_name, datastore_id=datastore_id, device_ids=device_ids)
-    if 'error' in datastore_info:
-        if 'errno' not in datastore_info:
-            datastore_info['errno'] = "EPERM"
-
-        return datastore_info
-
-    datastore = datastore_info['datastore']
-    if datastore['type'] != datastore_type:
-        return {'error': '{} is a {}'.format(datastore_id, datastore['type'])}
-    
-    res = rpc.backend_datastore_get_device_root(blockchain_id, datastore, device_id, data_pubkeys, force=force)
+    res = rpc.backend_datastore_get_device_root(device_id, blockchain_id=blockchain_id, datastore_id=datastore_id, full_app_name=full_app_name, data_pubkeys=data_pubkeys, force=force)
     if 'error' in res:
         return res
 
@@ -5386,7 +5303,7 @@ def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None, password=No
         signing_privkey = res['signing_privkey']
         
         # insert URLs
-        res = key_file_add_app(blockchain_id, datastore_id, parsed_key_file, this_device_id, app_domain, privkey, signing_privkey, datastore_urls=datastore_urls, cache=GLOBAL_CACHE, config_path=config_path)
+        res = key_file_add_app(blockchain_id, datastore_id, parsed_key_file, this_device_id, app_domain, privkey, signing_privkey, datastore_urls=datastore_urls, root_urls=root_urls, cache=GLOBAL_CACHE, config_path=config_path)
         if 'error' in res:
             msg = "Failed to add application to key file for {}: {}".format(blockchain_id, res['error'])
             log.error(msg)
@@ -5456,14 +5373,17 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False, pro
 
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
+    
+    data_pubkeys = None
 
-    res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), full_application_name=app_name, datastore_id=datastore_id, proxy=proxy)
-    if 'error' in res:
-        return {'error': 'Failed to query device list for {}: {}'.format(blockchain_id, res['error'])}
-   
-    data_pubkeys = res['pubkeys']
+    if blockchain_id is None or app_name is None:
+        res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), full_application_name=app_name, datastore_id=datastore_id, proxy=proxy)
+        if 'error' in res:
+            return {'error': 'Failed to query device list for {}: {}'.format(blockchain_id, res['error'])}
+       
+        data_pubkeys = res['pubkeys']
 
-    res = datastore_file_get('datastore', blockchain_id, app_name, path, data_pubkeys, datastore_id=datastore_id, force=force, config_path=config_path)
+    res = datastore_file_get('datastore', path, blockchain_id=blockchain_id, full_app_name=app_name, data_pubkeys=data_pubkeys, datastore_id=datastore_id, force=force, config_path=config_path, proxy=proxy)
     if json_is_error(res):
         return res
 
@@ -5518,14 +5438,17 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False, proxy=N
 
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
+    
+    data_pubkeys = None
 
-    res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), full_application_name=app_name, datastore_id=datastore_id, proxy=proxy)
-    if 'error' in res:
-        return {'error': 'Failed to query device list for {}: {}'.format(blockchain_id, res['error'])}
+    if blockchain_id is None or app_name is None:
+        res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), full_application_name=app_name, datastore_id=datastore_id, proxy=proxy)
+        if 'error' in res:
+            return {'error': 'Failed to query device list for {}: {}'.format(blockchain_id, res['error'])}
    
-    data_pubkeys = res['pubkeys']
+        data_pubkeys = res['pubkeys']
 
-    res = datastore_path_stat('datastore', blockchain_id, app_name, path, this_device_id, data_pubkeys, datastore_id=datastore_id, force=force, config_path=config_path) 
+    res = datastore_path_stat('datastore', path, this_device_id, blockchain_id=blockchain_id, full_app_name=app_name, data_pubkeys=data_pubkeys, datastore_id=datastore_id, force=force, config_path=config_path) 
     if json_is_error(res):
         return res
 
@@ -5591,14 +5514,7 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False ):
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = rpc.backend_datastore_get(blockchain_id, app_domain, datastore_id=datastore_id, device_ids=device_ids)
-    if 'error' in datastore_info:
-        datastore_info['errno'] = "EPERM"
-        return datastore_info
-
-    datastore = datastore_info['datastore']
-
-    res = datastore_deletefile( rpc, datastore, path, privkey, data_pubkeys, force=force, config_path=config_path )
+    res = datastore_deletefile( rpc, path, privkey, data_pubkeys, blockchain_id=blockchain_id, full_app_name=app_domain, datastore_id=datastore_id, force=force, config_path=config_path )
     return res
 
 
@@ -5639,14 +5555,16 @@ def cli_datastore_listfiles(args, config_path=CONFIG_PATH, interactive=False, pr
 
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
+    
+    data_pubkeys = None
+    if blockchain_id is None or app_name is None:
+        res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), full_application_name=app_name, datastore_id=datastore_id, proxy=proxy)
+        if 'error' in res:
+            return {'error': 'Failed to query device list for {}: {}'.format(blockchain_id, res['error'])}
+       
+        data_pubkeys = res['pubkeys']
 
-    res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), full_application_name=app_name, datastore_id=datastore_id, proxy=proxy)
-    if 'error' in res:
-        return {'error': 'Failed to query device list for {}: {}'.format(blockchain_id, res['error'])}
-   
-    data_pubkeys = res['pubkeys']
-
-    res = datastore_files_list("datastore", blockchain_id, app_name, data_pubkeys, datastore_id=datastore_id, force=force, config_path=config_path)
+    res = datastore_files_list("datastore", blockchain_id=blockchain_id, full_app_name=app_name, data_pubkeys=data_pubkeys, datastore_id=datastore_id, force=force, config_path=config_path)
     return res
 
 
@@ -5690,14 +5608,16 @@ def cli_datastore_device_listfiles(args, config_path=CONFIG_PATH, interactive=Fa
 
     if hasattr(args, 'force') and args.force.lower() in ['1', 'true']:
         force = True
+    
+    data_pubkeys = None
+    if blockchain_id is None or app_name is None:
+        res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), full_application_name=app_name, datastore_id=datastore_id, proxy=proxy)
+        if 'error' in res:
+            return {'error': 'Failed to query device list for {}: {}'.format(blockchain_id, res['error'])}
+       
+        data_pubkeys = res['pubkeys']
 
-    res = find_datastore_device_pubkeys(blockchain_id, getattr(args, 'device_ids', None), getattr(args, 'device_pubkeys', None), full_application_name=app_name, datastore_id=datastore_id, proxy=proxy)
-    if 'error' in res:
-        return {'error': 'Failed to query device list for {}: {}'.format(blockchain_id, res['error'])}
-   
-    data_pubkeys = res['pubkeys']
-
-    res = datastore_files_list_device("datastore", blockchain_id, device_id, app_name, data_pubkeys, datastore_id=datastore_id, force=force, config_path=config_path)
+    res = datastore_files_list_device("datastore", device_id, blockchain_id=blockchain_id, full_app_name=app_name, data_pubkeys=data_pubkeys, datastore_id=datastore_id, force=force, config_path=config_path)
     return res
 
 
