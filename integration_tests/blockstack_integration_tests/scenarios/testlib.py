@@ -2191,6 +2191,7 @@ def blockstack_REST_call( method, route, session, api_pass=None, app_fqu=None, a
         headers['authorization'] = 'bearer {}'.format(session)
         app_domain = jsontokens.decode_token(session)["payload"]["app_domain"]
         headers['origin'] = "http://{}".format(app_domain)
+
     elif api_pass:
         headers['authorization'] = 'bearer {}'.format(api_pass)
         headers['origin'] = 'http://localhost:3000'
