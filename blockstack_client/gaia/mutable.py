@@ -193,7 +193,7 @@ def get_mutable(fq_data_id, device_ids=None, raw=False, data_pubkeys=None, data_
 
 
 def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, blockchain_id=None, proxy=None, raw=False, timestamp=None,
-                config_path=CONFIG_PATH, storage_drivers=None, storage_drivers_exclusive=False, zonefile_storage_drivers=None ):
+                config_path=CONFIG_PATH, storage_drivers=None, storage_drivers_exclusive=False, zonefile_storage_drivers=None, driver_args={} ):
     """
     put_mutable.
 
@@ -258,7 +258,8 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, block
 
 def delete_mutable(signed_data_tombstones, proxy=None, storage_drivers=None,
                                            storage_drivers_exclusive=False,
-                                           blockchain_id=None, config_path=CONFIG_PATH):
+                                           blockchain_id=None, config_path=CONFIG_PATH,
+                                           driver_args={}):
     """
     delete_mutable
 
@@ -288,7 +289,7 @@ def delete_mutable(signed_data_tombstones, proxy=None, storage_drivers=None,
         assert ts_data, "Unparseable signed tombstone '{}'".format(signed_data_tombstone)
 
         fq_data_id = ts_data['id']
-        rc = delete_mutable_data(fq_data_id, signed_data_tombstone=signed_data_tombstone, required=storage_drivers, required_exclusive=storage_drivers_exclusive, blockchain_id=blockchain_id)
+        rc = delete_mutable_data(fq_data_id, signed_data_tombstone=signed_data_tombstone, required=storage_drivers, required_exclusive=storage_drivers_exclusive, blockchain_id=blockchain_id, driver_args=driver_args)
         if not rc:
             log.error("Failed to delete {} from storage providers".format(fq_data_id))
             worst_rc = False
@@ -300,7 +301,7 @@ def delete_mutable(signed_data_tombstones, proxy=None, storage_drivers=None,
     return {'status': True}
 
 
-def put_raw_data( fq_data_id, data_bytes, drivers, config_path=CONFIG_PATH, blockchain_id=None, data_pubkey=None, data_signature=None ):
+def put_raw_data( fq_data_id, data_bytes, drivers, config_path=CONFIG_PATH, blockchain_id=None, data_pubkey=None, data_signature=None, driver_args={}):
     """
     Store raw file or serialized directory data to the backend drivers.
     Write to each driver in parallel.
@@ -315,7 +316,7 @@ def put_raw_data( fq_data_id, data_bytes, drivers, config_path=CONFIG_PATH, bloc
         """
         Store the data_bytes to a driver
         """
-        res = put_mutable(fq_data_id, data_bytes, data_pubkey, data_signature, raw=True, blockchain_id=blockchain_id, storage_drivers=[driver], storage_drivers_exclusive=True, config_path=config_path)
+        res = put_mutable(fq_data_id, data_bytes, data_pubkey, data_signature, raw=True, blockchain_id=blockchain_id, storage_drivers=[driver], storage_drivers_exclusive=True, config_path=config_path, driver_args=driver_args)
         if 'error' in res:
             log.error("Failed to put data to {}: {}".format(driver, res['error']))
             return {'error': 'Failed to replicate data to {}'.format(driver), 'errno': "EREMOTEIO"}
@@ -348,7 +349,7 @@ def put_raw_data( fq_data_id, data_bytes, drivers, config_path=CONFIG_PATH, bloc
     return {'status': True, 'urls': urls}
 
 
-def delete_raw_data( signed_tombstones, drivers, config_path=CONFIG_PATH, blockchain_id=None, proxy=None ):
+def delete_raw_data( signed_tombstones, drivers, config_path=CONFIG_PATH, blockchain_id=None, proxy=None, driver_args={} ):
     """
     Delete data from multiple drivers in parallel.
     
@@ -365,7 +366,7 @@ def delete_raw_data( signed_tombstones, drivers, config_path=CONFIG_PATH, blockc
         """
         Delete the data from the driver, given the tombstone
         """
-        res = delete_mutable(signed_tombstones, proxy=proxy, storage_drivers=[driver], storage_drivers_exclusive=True, blockchain_id=blockchain_id, config_path=config_path)
+        res = delete_mutable(signed_tombstones, proxy=proxy, storage_drivers=[driver], storage_drivers_exclusive=True, blockchain_id=blockchain_id, config_path=config_path, driver_args=driver_args)
         if 'error' in res:
             return {'error': 'Failed to delete {} from {}'.format(signed_tombstones, driver)}
 
