@@ -74,7 +74,7 @@ def get_file_data_from_header(datastore_id, file_name, file_header, drivers, con
     fq_file_name = '{}/{}'.format(datastore_id, file_name)
     file_data = get_mutable_data(fq_file_name, None, urls=urls, data_hash=data_hash, blockchain_id=blockchain_id, drivers=drivers, decode=False)
     if file_data is None:
-        return {'error': 'Failed to load {}', 'errno': "ENODATA"}
+        return {'error': 'Failed to load {}'.format(fq_file_name), 'errno': "ENODATA"}
     
     return {'status': True, 'data': file_data}
 
@@ -152,8 +152,8 @@ def get_file_info( datastore_id, file_name, data_pubkeys, this_device_id, datast
     # fetch all device-specific versions of this directory
     res = get_root_directory(datastore_id, root_uuid, data_pubkeys, drivers=drivers, timestamp=timestamp, force=force, config_path=config_path, proxy=proxy, blockchain_id=blockchain_id, full_app_name=full_app_name)
     if 'error' in res:
-        log.error("Failed to get root directory for datastore {}".format(datastore_id))
-        return res
+        log.error("Failed to get root directory for datastore {}: {}".format(datastore_id, res['error']))
+        return {'error': 'Failed to get root directory: {}'.format(res['error']), 'errno': res['errno']}
 
     # NOTE: this is possibly None
     device_root = res['device_root_pages'].get(this_device_id)
