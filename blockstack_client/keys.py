@@ -32,7 +32,7 @@ import jsonschema
 from jsonschema.exceptions import ValidationError
 
 from logger import get_logger
-from constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
+from constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, VERSION
 
 import virtualchain
 from virtualchain.lib.ecdsalib import (
@@ -483,6 +483,7 @@ def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None
 
     ret['data_pubkey'] = ecdsa_private_key(ret['data_privkey']).public_key().to_hex()
     ret['data_pubkeys'] = [ret['data_pubkey']]
+    ret['version'] = VERSION
 
     return ret
 
