@@ -215,14 +215,14 @@ def save_modified_wallet(decrypted_wallet, password, config_path = CONFIG_PATH):
     encrypted_wallet = encrypt_wallet(decrypted_wallet, password)
     if 'error' in encrypted_wallet:
         return encrypted_wallet
+
     # sanity check
     jsonschema.validate(encrypted_wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
 
     try:
         backup_wallet(wallet_path, "prior")
     except:
-        return {'error' :
-                'Could not persist new wallet, failed to backup previous wallet at {}'.format(wallet_path)}
+        return {'error': 'Could not persist new wallet, failed to backup previous wallet at {}'.format(wallet_path)}
 
     return write_wallet(encrypted_wallet, path=wallet_path)
 
