@@ -90,12 +90,12 @@ class SubdomainOpsQueue(object):
             raise subdomains.SubdomainAlreadyExists(subdomain_name, self.domain)
 
     def _get_queued_rows(self):
-        sql = """SELECT received_at, subdomain FROM {} 
+        sql = """SELECT received_at, subdomain FROM {}
         WHERE in_tx ISNULL ORDER BY received_at ASC LIMIT {};
         """.format(self.queue_table, self.entries_per_tx_hint)
         out = list(self._execute(sql, ()).fetchall())
-        return [ (received_at, 
-                  subdomains.Subdomain.parse_subdomain_record(self.domain, json.loads(packed_subdomain))) 
+        return [ (received_at,
+                  subdomains.Subdomain.parse_subdomain_record(self.domain, json.loads(packed_subdomain)))
                  for received_at, packed_subdomain in out ]
 
     def _set_in_tx(self, subds, txid):
@@ -117,7 +117,7 @@ class SubdomainOpsQueue(object):
         if not status:
             return {"status" : "Subdomain is queued for update and should be announced within the next few blocks."}
         if status.startswith("ERR"):
-            return {"error" : 
+            return {"error" :
                     "There was a problem propagating your subdomain registration. The" +
                     " server experience an {} error while trying to issue the update.".format(status)}
         return {"status" :
@@ -139,7 +139,7 @@ class SubdomainOpsQueue(object):
         zf_init = get_zonefile(self.domain)
         for slice_sz in range(len(queued_rows), -1, -1):
             if slice_sz == 0:
-                return {'error' : 
+                return {'error' :
                         "Failed to construct small enough zonefile (size < {})".format(self.zonefile_limit)}
             cur_queued_rows = queued_rows[:slice_sz]
             indexes, entries = zip(* cur_queued_rows)

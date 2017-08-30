@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -23,9 +23,23 @@
 
 from binascii import hexlify
 
+from ..constants import (
+    DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
+    TRANSFER_KEEP_DATA, TRANSFER_REMOVE_DATA, LENGTH_MAX_NAME,
+    LENGTH_CONSENSUS_HASH, NAME_TRANSFER, NAME_PREORDER)
+
+import os
+
 from ..b40 import is_b40
-from ..config import *
-from ..scripts import *
+from ..scripts import (
+    hash256_trunc128,
+    blockstack_script_to_hex,
+    add_magic_bytes,
+    is_name_valid,
+    tx_get_unspents,
+    hash256_trunc128
+)
+
 from ..logger import get_logger
 
 import virtualchain

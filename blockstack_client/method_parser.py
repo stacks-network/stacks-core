@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -24,6 +24,7 @@
 import re
 
 import config
+import constants
 
 log = config.get_logger('blockstack-client')
 
@@ -130,7 +131,7 @@ def parse_methods(method_list):
                 assert arg_type in ['str', 'int'], "arg_type is {}".format(arg_type)
                 arg_type = eval(arg_type)
             except AssertionError as ae:
-                if config.BLOCKSTACK_DEBUG:
+                if constants.BLOCKSTACK_DEBUG:
                     log.exception(ae)
 
                 raise ValueError(error_msg.format(method_name, 'failed to parse arg', l))

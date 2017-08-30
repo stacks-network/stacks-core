@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -34,6 +34,8 @@ import posixpath
 import urllib
 import threading
 import time
+import tempfile
+
 from functools import wraps
 
 if os.environ.get("BLOCKSTACK_DEBUG", None) is not None:
@@ -973,6 +975,7 @@ def _get_indexed_data_impl( dvconf, blockchain_id, name, raw=False, index_manife
     if data_url is None:
         # cache miss
         # go get the url for this data
+        manifest_page = None
         data_url, index_pages = index_lookup(dvconf, index_manifest_url, blockchain_id, name, index_stem=index_stem, manifest_page=manifest_page)
         if data_url is None:
             log.error("No data URL from index for '{}'".format(name))

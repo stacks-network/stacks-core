@@ -64,7 +64,7 @@ regtest = True
 spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
 
 [blockstack]
-server_version = 0.14.2
+server_version = 0.14.4
 rpc_port = %s
 backup_frequency = 1
 backup_max_age = 30
@@ -89,9 +89,10 @@ DEFAULT_CLIENT_INI_TEMPLATE = """
 accounts = @CLIENT_ACCOUNTS_PATH@
 users = @CLIENT_USERS_PATH@
 datastores = @CLIENT_DATASTORES_PATH@
-client_version = 0.14.2
+client_version = 0.14.4
 server = localhost
 port = %s
+protocol = http
 metadata = @CLIENT_METADATA@
 storage_drivers = @CLIENT_STORAGE_DRIVERS@
 storage_drivers_required_write = @CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE@
@@ -362,6 +363,7 @@ def load_scenario( scenario_name ):
     try:
         scenario = importlib.import_module( scenario_name )
     except ImportError, ie:
+        log.exception(ie)
         raise Exception("Failed to import '%s'." % scenario_name )
 
     # validate 
