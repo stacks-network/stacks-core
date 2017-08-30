@@ -1,4 +1,4 @@
-#!/usr/bin/env python 
+#!/usr/bin/env python
 
 import os
 
@@ -12,7 +12,7 @@ os.environ['BLOCKSTACK_ATLAS_NETWORK_SIMULATION'] = '1'
 TEST_FIRST_BLOCK_HEIGHT = 250   # how many blocks we have to generate to start regtest
 os.environ['BLOCKSTACK_TEST_FIRST_BLOCK'] = str(TEST_FIRST_BLOCK_HEIGHT + 6)
 
-import sys 
+import sys
 import subprocess
 import signal
 import shutil
@@ -27,6 +27,8 @@ import threading
 import argparse
 import BaseHTTPServer
 import cgi
+from datetime import datetime
+from influxdb import InfluxDBClient
 
 blockstack = None
 blockstackd = None
@@ -35,7 +37,7 @@ g_interactive = False
 
 import pybitcoin
 
-import virtualchain 
+import virtualchain
 log = virtualchain.get_logger("blockstack-test-scenario")
 
 from virtualchain.lib.blockchain.bitcoin_blockchain import JSONRPCException
@@ -79,7 +81,7 @@ zonefile_storage_drivers = disk
 profile_storage_drivers = disk
 data_storage_drivers = disk
 atlas = True
-atlas_seeds = 
+atlas_seeds =
 atlas_blacklist =
 atlas_hostname = localhost
 """ % TEST_RPC_PORT
@@ -182,7 +184,7 @@ class WebTestServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         panel += '<form action="/done" method="post">'
         panel += '    <input type="submit" value="Done testing"></form>'
         panel += '</body></html>'
-        
+
         self.send_response(200)
         self.send_header('content-type', 'text/html')
         self.send_header('content-length', len(panel))
@@ -211,7 +213,7 @@ class WebTestServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 log.error("postvars = {}".format(postvars))
                 self.send_response(401, "Invalid number of blocks")
                 self.end_headers()
-                return 
+                return
 
             for i in xrange(0, numblocks):
                 self.server.next_block()
@@ -230,7 +232,7 @@ class WebTestServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 log.error("Missing addr or value")
                 self.send_response(401, "Invalid request: missing addr or value")
                 self.end_headers()
-                return 
+                return
 
             try:
                 value = int(value[0])
@@ -316,17 +318,17 @@ def load_scenario( scenario_name ):
     A scenario is a python file with:
     * a global variable 'wallet' that is a dict
     which maps private keys to their initial values.
-    * a global variable 'consensus' that represents 
+    * a global variable 'consensus' that represents
     the initial consensus hash.
-    * a callable called 'scenario' that takes the 
+    * a callable called 'scenario' that takes the
     wallet as an argument and runs the test.
-    * a callable called 'check' that takes the state 
+    * a callable called 'check' that takes the state
     engine as an argument and checks it for correctness.
     """
 
     log.debug("Load scenario %s" % scenario_name)
 
-    # strip .py from scenario name 
+    # strip .py from scenario name
     if scenario_name.endswith(".py"):
         scenario_name = scenario_name[:-3]
 
@@ -334,7 +336,7 @@ def load_scenario( scenario_name ):
     log.debug("Identifying scenario path")
     p = subprocess.Popen( "python -c 'import %s; print %s.__file__'" % (scenario_name, scenario_name), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE )
     path_buf, err = p.communicate()
-    
+
     if p.returncode is not None and p.returncode != 0:
         print >> sys.stderr, err
         raise Exception("Failed to load %s, exit code %s" % (scenario_name, p.returncode))
@@ -348,7 +350,7 @@ def load_scenario( scenario_name ):
     # load any test pragmas (like environment variables) and set them now
     with open(path, "r") as f:
         scenario_data = f.readlines()
-        
+
     for line in scenario_data:
         line = line.strip()
         try:
@@ -366,29 +368,29 @@ def load_scenario( scenario_name ):
         log.exception(ie)
         raise Exception("Failed to import '%s'." % scenario_name )
 
-    # validate 
+    # validate
     if not hasattr( scenario, "wallets" ):
-        # default empty wallet 
+        # default empty wallet
         log.warning("Empty wallet for scenario '%s'" % scenario_name )
         scenario.wallets = {}
 
     if not hasattr( scenario, "consensus" ):
-        # default consensus hash 
+        # default consensus hash
         log.warning("No consensus hash for '%s'" % scenario_name )
         scenario.consensus = "00" * 16
 
     if not hasattr( scenario, "scenario" ):
-        # not a valid test 
+        # not a valid test
         log.error("Invalid scenario '%s': no 'scenario' method" % scenario_name )
-        return None 
+        return None
 
     if not hasattr( scenario, "check" ):
-        # not a valid test 
+        # not a valid test
         log.error("Invalid scenario '%s': no 'check' method" % scenario_name )
-        return None 
+        return None
 
     return scenario
-   
+
 
 def generate_config_file( scenario, path, template, extra_fields):
     """
@@ -421,7 +423,7 @@ def generate_config_file( scenario, path, template, extra_fields):
     spv_headers_path = os.path.join( os.environ.get("VIRTUALCHAIN_WORKING_DIR", None), "spv_headers.dat")
 
     config_txt = config_txt.replace( "@CLIENT_BLOCKCHAIN_HEADERS@", spv_headers_path )
-    config_txt = config_txt.replace( "@CLIENT_METADATA@", client_metadata ) 
+    config_txt = config_txt.replace( "@CLIENT_METADATA@", client_metadata )
     config_txt = config_txt.replace( "@CLIENT_ACCOUNTS_PATH@", accounts_dir )
     config_txt = config_txt.replace( "@CLIENT_USERS_PATH@", users_dir )
     config_txt = config_txt.replace( "@CLIENT_DATASTORES_PATH@", datastores_path )
@@ -456,7 +458,7 @@ def network_start( blockstack_opts, db ):
 
     blockstackd.rpc_start(TEST_RPC_PORT)
     return atlas_state
-    
+
 
 def storage_start( blockstack_opts ):
     """
@@ -553,7 +555,7 @@ def sync_virtualchain_upcall( blockstack_opts, need_db_refresh=False ):
         rpcclient.db_refresh()
 
     log.debug("sync atlas node up to %s" % (height))
-    
+
     # synchronize atlas db
     if blockstack_opts.get('atlas', False) and hasattr(blockstackd, "atlasdb_sync_zonefiles"):
         if old_lastblock < db.lastblock:
@@ -566,8 +568,8 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     """
     Run a test scenario:
     * set up the virtualchain to use our mock UTXO provider and mock bitcoin blockchain
-    * seed it with the initial values in the wallet 
-    * set the initial consensus hash 
+    * seed it with the initial values in the wallet
+    * set the initial consensus hash
     * start the API server
     * run the scenario method
     * run the check method
@@ -617,7 +619,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     print ""
     print "atlas node initialization"
     print ""
-        
+
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
 
     if hasattr(blockstackd, "atlasdb_init"):
@@ -650,14 +652,14 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     # start taking RPC requests
     atlas_state = network_start( blockstack_opts, db )
 
-    # start storage 
+    # start storage
     storage_start( blockstack_opts )
 
     # start pinging bitcoind so it pushes out p2p messages
     pinger = Pinger()
     pinger.start()
 
-    # shutdown procedure 
+    # shutdown procedure
     def shutdown_procedure(*args, **kw):
         log.info("Shutting down network")
         network_stop()
@@ -673,7 +675,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
         log.info("Shutting down API endpoint")
         blockstack_client.rpc.local_api_stop(client_config_dir)
-        
+
         if pinger:
             log.info("Shutting down pinger")
             pinger.ask_join()
@@ -715,7 +717,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         "blockstack_opts": blockstack_opts
     }
 
-    # sync initial utxos 
+    # sync initial utxos
     testlib.next_block( **test_env )
 
     # load the scenario into the mock blockchain and mock utxo provider
@@ -750,8 +752,8 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         blockstack_client.rpc.local_api_stop(client_config_dir)
         log.error("Failed to run tests '%s'" % scenario.__name__)
         shutdown_procedure()
-        return False 
-    
+        return False
+
     if not rc:
         shutdown_procedure()
         return rc
@@ -790,13 +792,13 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
             webtest_server = WebTestServer(webtest_port, test_env)
             while not webtest_server.done:
                 webtest_server.handle_request()
-           
+
 
     pinger.ask_join()
     pinger.join()
     pinger = None
 
-    # stop atlas support 
+    # stop atlas support
     atlas_stop( atlas_state )
     if interactive:
         shutdown_procedure()
@@ -804,7 +806,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     log.info("\n\nScenario checks passed; verifying history\n\n")
 
-    # run database integrity check at each block 
+    # run database integrity check at each block
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RO)
     rc = False
     try:
@@ -817,11 +819,11 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     log.info("History check passes!")
 
-    if need_db_refresh: 
+    if need_db_refresh:
         rpcclient = testlib.TestAPIProxy()
         rpcclient.db_refresh()
 
-    # run snv at each name 
+    # run snv at each name
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RO)
     rc = False
     try:
@@ -836,7 +838,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     # verify atlas zonefiles
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RO)
-    
+
     if atlas_state is not None:
         rc = testlib.check_atlas_zonefiles( db, blockstack_opts['atlasdb_path'] )
         if not rc:
@@ -896,7 +898,7 @@ def bitcoin_regtest_reset():
         f.flush()
         os.fsync(f.fileno())
 
-    # start up 
+    # start up
     log.debug("Starting up bitcoind in regtest mode")
     rc = os.system("bitcoind -daemon -conf=%s" % (bitcoin_conf))
     if rc != 0:
@@ -999,11 +1001,11 @@ def bitcoin_regtest_fill_wallets( wallets, default_payment_wallet=None ):
     for wallet in wallets:
         # fill each wallet
         fill_wallet( bitcoind, wallet, 50 )
-        
+
     if default_payment_wallet is not None:
         # fill optional default payment address
         fill_wallet( bitcoind, default_payment_wallet, 250 )
-        
+
     bitcoind.generate(6)
 
     print >> sys.stderr, ""
@@ -1051,7 +1053,7 @@ class BitcoinRegtestUTXOProvider(object):
 
     def __init__(self, bitcoind):
         self.bitcoind = bitcoind
-   
+
 
     def get_unspents( self, address, blockchain_client=None ):
         """
@@ -1106,6 +1108,7 @@ def parse_args( argv ):
     parser.add_argument("--interactive-web", dest='webtest_port', type=int,
             help='Run interactively, but generate blocks only when programmatically instructedr', required=False)
     parser.add_argument("--working-dir", dest='working_dir', type=str, help="Working directory to use to store database state", required=False)
+    parser.add_argument("--influx", dest='influx', action='store_true', help="Write test output to monitoring in additon to stdout", required=False)
     parser.add_argument("scenario_module", type=str, help="Python module to run")
 
     args, _ = parser.parse_known_args()
@@ -1114,8 +1117,11 @@ def parse_args( argv ):
 
 if __name__ == "__main__":
 
+    test_start = datetime.utcnow()
+    test_end = None
+
     if len(sys.argv) < 2:
-        print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [--interactive-web port] [scenario.import.path] [OPTIONAL: working dir]"
+        print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [--interactive-web port] [--influx] [scenario.import.path] [OPTIONAL: working dir]"
         sys.exit(1)
 
     args = parse_args(sys.argv)
@@ -1125,6 +1131,21 @@ if __name__ == "__main__":
     webtest_port = None
     working_dir = None
     scenario_module = args.scenario_module
+    influx_client = None
+
+    if hasattr(args, "influx") and args.influx is not False:
+        # TODO: pull config from ENV
+        # host = os.environ["INFLUX_HOST"]
+        influx_host = os.environ["INFLUX_HOST"]
+        influx_user = os.environ["INFLUX_USER"]
+        influx_pass = os.environ["INFLUX_PASS"]
+        influx_ssl = os.environ["INFLUX_SSL"]
+
+        if influx_ssl == "True":
+            influx_ssl = True
+
+        influx_client = InfluxDBClient(host=influx_host, port=8086, username=influx_user, password=influx_pass, ssl=influx_ssl, database='testing')
+        influx_client.create_database("testing")
 
     if hasattr(args, "blocktime") and args.blocktime is not None:
         interactive = True
@@ -1140,7 +1161,7 @@ if __name__ == "__main__":
 
     if hasattr(args, "working_dir") and args.working_dir is not None:
         working_dir = args.working_dir
-    
+
     else:
         working_dir = "/tmp/blockstack-run-scenario.%s" % scenario_module
 
@@ -1150,34 +1171,34 @@ if __name__ == "__main__":
             shutil.rmtree(working_dir)
 
     if not os.path.exists(working_dir):
-        os.makedirs(working_dir)   
+        os.makedirs(working_dir)
 
     client_working_dir = os.path.join(working_dir, "client")
     client_metadata = os.path.join(client_working_dir, "metadata")
     client_accounts_path = os.path.join(client_working_dir, "app_accounts")
     client_users_path = os.path.join(client_working_dir, "users")
     client_queue_path = os.path.join( client_working_dir, "queues.db" )
-    config_file = os.path.join( working_dir, "blockstack-server.ini" ) 
+    config_file = os.path.join( working_dir, "blockstack-server.ini" )
     client_config_file = os.path.join( client_working_dir, "client.ini" )
     client_datastores_path = os.path.join( client_working_dir, "datastores" )
 
     os.makedirs(client_working_dir)
-    os.makedirs(client_metadata) 
+    os.makedirs(client_metadata)
     os.makedirs(client_accounts_path)
     os.makedirs(client_datastores_path)
 
-    # export to test 
+    # export to test
     os.environ["BLOCKSTACK_CLIENT_CONFIG"] = client_config_file
     os.environ["BLOCKSTACK_SERVER_CONFIG"] = config_file
     os.environ['VIRTUALCHAIN_WORKING_DIR'] = working_dir
 
-    # load up the scenario (so it can set its own extra envars) 
+    # load up the scenario (so it can set its own extra envars)
     scenario = load_scenario( scenario_module )
     if scenario is None:
         print "Failed to load '%s'" % scenario_module
         sys.exit(1)
 
-    # *now* we can import blockstack 
+    # *now* we can import blockstack
     import blockstack
     import blockstack.blockstackd as blockstackd
     from blockstack.lib import *
@@ -1186,24 +1207,24 @@ if __name__ == "__main__":
 
     import blockstack_integration_tests.scenarios.testlib as testlib
 
-    # set up bitcoind 
+    # set up bitcoind
     bitcoin_regtest_reset()
 
-    # set up disk storage 
+    # set up disk storage
     if os.path.exists("/tmp/blockstack-disk"):
         shutil.rmtree("/tmp/blockstack-disk")
-    
+
     if os.path.exists("/tmp/blockstack-integration-test-storage"):
         shutil.rmtree("/tmp/blockstack-integration-test-storage")
 
-    # set up SPV 
+    # set up SPV
     if os.path.exists("/tmp/blockstack-test-scenario-spv.dat"):
         os.unlink("/tmp/blockstack-test-scenario-spv.dat")
 
-    # set up default payment wallet 
-    default_payment_wallet = testlib.MultisigWallet( 2, '5JYAj69z2GuFAZHrkhRuBKoCmKh6GcPXgcw9pbH8e8J2pu2RU9z', '5Kfg4xkZ1gGN5ozgDZ37Mn3EH9pXSuWZnQt1pzax4cLax8PetNs', '5JXB7rNxZa8yQtpuKtwy1nWUUTgdDEYTDmaEqQvKKC8HCWs64bL' ) 
+    # set up default payment wallet
+    default_payment_wallet = testlib.MultisigWallet( 2, '5JYAj69z2GuFAZHrkhRuBKoCmKh6GcPXgcw9pbH8e8J2pu2RU9z', '5Kfg4xkZ1gGN5ozgDZ37Mn3EH9pXSuWZnQt1pzax4cLax8PetNs', '5JXB7rNxZa8yQtpuKtwy1nWUUTgdDEYTDmaEqQvKKC8HCWs64bL' )
 
-    # load wallets 
+    # load wallets
     bitcoin_regtest_fill_wallets( scenario.wallets, default_payment_wallet=default_payment_wallet )
     testlib.set_default_payment_wallet( default_payment_wallet )
     testlib.set_wallets( scenario.wallets )
@@ -1246,20 +1267,70 @@ if __name__ == "__main__":
                              "REDIRECT_DATA": redirect_data, \
                              "DATA_SERVERS": data_servers })
 
+
     if rc != 0:
         log.error("failed to write config file: exit %s" % rc)
         sys.exit(1)
 
-    # run the test 
+
+    # run the test
     rc = run_scenario( scenario, config_file, client_config_file, interactive=interactive, blocktime=blocktime, webtest_port=webtest_port )
-   
+
     if rc:
+        # time the test
+
+        # retrieve git information from the environment
+
         print "SUCCESS %s" % scenario.__name__
         # shutil.rmtree( working_dir )
+        if args.influx:
+            test_time = datetime.utcnow() - test_start
+            git_commit = os.environ["GIT_COMMIT"]
+            git_branch = os.environ["GIT_BRANCH"]
+            num_tests = os.environ["NUM_TESTS"]
+            point = [
+                {
+                    "measurement": "integration_tests",
+                    "tags": {
+                        "git_branch": git_branch,
+                        "git_commit": git_commit,
+                        "success": True,
+                        "test_scenario": scenario_module.split(".")[2]
+                    },
+                    "time": datetime.utcnow().isoformat(),
+                    "fields": {
+                        "runtime": test_time.microseconds,
+                        "num_tests": num_tests
+                    }
+                }
+            ]
+            influx_client.write_points(point)
+
         sys.exit(0)
     else:
+        if args.influx:
+            test_time = datetime.utcnow() - test_start
+            git_commit = os.environ["GIT_COMMIT"]
+            git_branch = os.environ["GIT_BRANCH"]
+            num_tests = os.environ["NUM_TESTS"]
+            point = [
+                {
+                    "measurement": "integration_tests",
+                    "tags": {
+                        "git_branch": git_branch,
+                        "git_commit": git_commit,
+                        "success": True,
+                        "test_scenario": scenario_module.split(".")[2]
+                    },
+                    "time": datetime.datetime.utcnow().isoformat(),
+                    "fields": {
+                        "runtime": test_time.microseconds,
+                        "num_tests": num_tests
+                    }
+                }
+            ]
+            influx_client.write_points(point)
+
         print >> sys.stderr, "FAILURE %s" % scenario.__name__
         print >> sys.stderr, "Test output in %s" % working_dir
         os.abort()
-
-    
