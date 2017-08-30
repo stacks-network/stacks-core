@@ -1,0 +1,18 @@
+FROM quay.io/blockstack/blockstack-core:dev
+
+# Install Bitcoin
+RUN apt-get -y update
+RUN apt-get install -y python-software-properties 
+RUN apt-get install -y software-properties-common
+
+RUN add-apt-repository ppa:bitcoin/bitcoin
+RUN apt-get update
+RUN apt-get install -y bitcoind sqlite3
+
+# Add standard username and password
+RUN mkdir ~/.bitcoin
+RUN echo "rpcuser=blockstack\nrpcpassword=blockstacksystem\n" > ~/.bitcoin/bitcoin.conf
+
+WORKDIR /src/blockstack/integration_tests
+
+RUN ./setup.py build && ./setup.py install

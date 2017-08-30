@@ -1,44 +1,113 @@
 #!/bin/bash
 
 # This script provides a simple interface for folks to use the docker install
+bstestimage=quay.io/blockstack/blockstack-integration-tests
+bstesttag=latest
+coreimage=quay.io/blockstack/blockstack-core
+coretag=dev
+gitrev=$(git rev-parse --short HEAD)
 
-bitcoindimage=quay.io/blockstack/bitcoind-regtest
-bitcoindtag=latest
-btcdockerfile=$(pwd)/docker/Dockerfile.btcregtest
+# Dockerfiles
+devdf=$(pwd)/docker/Dockerfile.dev
+intdf=$(pwd)/docker/Dockerfile.tests
 
-build-btc () {
-  echo "Building integration bitcoind image..."
-  docker build -t $bitcoindimage:latest -f $btcdockerfile .
+# Number of docker images to run concurrently
+numContainers=40
+
+build-tests () {
+  echo "Building core image from git branch $(git rev-parse HEAD)"
+  docker build -f $devdf -t $coreimage:$gitrev $(dirname $(pwd))
+  docker tag $coreimage:$gitrev $coreimage:$coretag
+  echo "Building test image from core image :$gitrev"
+  docker build -f $intdf -t $bstestimage:$bstesttag $(pwd)
 }
 
-build-dev () {
-  echo "Building image from git branch $(git rev-parse HEAD)"
-  docker build -f docker/Dockerfile.dev -t $coreimage:$gitrev
-  docker tag $coreimage:$gitrev $coreimage:dev
+percent () {
+  awk "BEGIN { pc=100*${1}/${2}; i=int(pc); print (pc-i<0.5)?i:i+1 }"
 }
 
+log-progress () {
+  local inprogress=$(expr $(docker ps | wc -l) - 1)
+  local completed=$(expr $(docker ps -a -f status=exited | wc -l) - 1) 
+  local totaltests=$(expr $(ls -1 $(pwd)/blockstack_integration_tests/scenarios/ | sed -e 's/\.py$//' | wc -l) - 2) 
+  local remaining=$(expr $totaltests - $(expr $inprogress + $completed))
+  echo "TotalTests: $totaltests, Completed: $(percent $completed $totaltests)%, InProgress: $(percent $inprogress $totaltests)%, Remaining: $(percent $remaining $totaltests)%"
+}
+
+run-all () { 
+  # Local variables for the test
+  local start=$(date +%s)
+  local scenarios=$(ls -1 $(pwd)/blockstack_integration_tests/scenarios/ | sed -e 's/\.py$//')
+  local outputFolder=$(pwd)/test-out/$(git rev-parse --abbrev-ref HEAD)-$(git rev-parse HEAD)
+  
+  # Initalize the test output folder
+  mkdir -p $outputFolder
+  
+  # Loop through all the test scenarios
+  for sc in $scenarios; do
+    # Skip things that aren't tests
+    if [ $sc == "__init__" ] || [ $sc == "attic" ]; then
+      continue
+    fi
+    
+    # local variables for each test
+    local homedir=$outputFolder/$sc/
+    local containerdir=/tmp/
+    local command="blockstack-test-scenario blockstack_integration_tests.scenarios.$sc"
+    
+    # Create folder for test results
+    mkdir -p $homedir
+
+    # Limit number of running docker containers to $numContainers
+    while [ $(docker ps -q | wc -l) -ge $numContainers ]; do
+      sleep 1
+    done
+    
+    # Run the docker image, pipe test logs to output folder
+    docker run -d --name "$sc-$gitrev" -v $homedir:$containerdir $bstestimage:$bstesttag $command >> /dev/null 2>&1
+    
+    # Report on testing progress
+    log-progress
+  done
+  
+  # TODO: Start here tomorrow
+  # Wait for tests to finish before reporting
+  echo "All tests running. Waiting for tests to finish..."
+  while [ $(docker ps -q | wc -l) -gt 0 ]; do
+    sleep 30
+    
+    # Log progress periodically
+    log-progress
+  done
+  
+  echo "Results:"
+  for sc in $scenarios; do
+    local result=$(docker logs --tail 10 $sc-$gitrev | grep "SUCCESS" | wc -l)
+    if [ $result -eq 1 ]; then
+      echo "Test $sc from commit $gitrev completed with SUCCESS"
+    else
+      echo "Test $sc from commit $gitrev completed with FAIL"
+    fi
+  done
+}
 
 commands () {
   cat <<-EOF
 blockstack docker launcher commands:
-  setup -> run the setup for blockstack and generate a wallet
-  start -> start the blockstack api server
-  browser -> run the two browser containers as well
-  logs -> access the logs from the blockstack api server
-  enter -> exec into the running docker container
-  stop -> stop the blockstack api server
+  build-tests -> build the test container
+  run-all -> loop through the tests runing 20 at a time
 EOF
 }
 
 case $1 in
-  build)
-    build 
+  build-tests)
+    build-tests 
     ;;
-  build-dev)
-    build-dev 
+  run-all)
+    run-all 
     ;;
-  build-btc)
-    build-btc 
+  log-progress)
+    log-progress $1
     ;;
   *)
     commands
