@@ -1732,7 +1732,7 @@ def blockstack_cli_app_put_resource( blockchain_id, app_domain, res_path, res_fi
     return cli_app_put_resource( args, config_path=config_path, interactive=interactive, password=password, proxy=test_proxy )
 
 
-def blockstack_cli_app_signin( blockchain_id, app_privkey, app_domain, api_methods, device_ids=None, public_keys=None, config_path=None ):
+def blockstack_cli_app_signin( blockchain_id, app_privkey, app_domain, api_methods, device_ids=None, public_keys=None, config_path=None, this_device_id=None ):
     """
     sign in and get a token
     """
@@ -1762,10 +1762,13 @@ def blockstack_cli_app_signin( blockchain_id, app_privkey, app_domain, api_metho
     args.device_ids = device_ids
     args.public_keys = public_keys
 
+    if this_device_id:
+        args.this_device_id = this_device_id
+
     return cli_app_signin( args, config_path=config_path )
 
 
-def blockstack_cli_create_datastore(datastore_privkey, drivers, ses, device_ids=None, config_path=None):
+def blockstack_cli_create_datastore(datastore_privkey, drivers, ses, device_ids=None, this_device_id=None, config_path=None):
     """
     create_datastore
     """
@@ -1779,6 +1782,9 @@ def blockstack_cli_create_datastore(datastore_privkey, drivers, ses, device_ids=
     args.privkey = datastore_privkey
     args.session = ses
     args.drivers = ",".join(drivers)
+    
+    if this_device_id:
+        args.this_device_id = this_device_id
 
     return cli_create_datastore( args, config_path=config_path)
 
@@ -3053,7 +3059,7 @@ def put_test_data( relpath, data, **kw ):
     return True
 
 
-def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=True, config_path=None ):
+def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=True, this_device_id=None, config_path=None ):
     """
     Migrate a user's profile from the legacy format to the profile/zonefile format.
     Broadcast an update transaction with the zonefile hash.
@@ -3131,7 +3137,7 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
     user_zonefile_hash = blockstack_client.hash_zonefile( user_zonefile )
     
     # make a key file 
-    res = blockstack_client.key_file.make_initial_key_file(name, user_profile, owner_privkey_info, config_path=proxy.config_path)
+    res = blockstack_client.key_file.make_initial_key_file(name, user_profile, owner_privkey_info, this_device_id=this_device_id, config_path=proxy.config_path)
     if 'error' in res:
         log.error("Failed to make initial key file: {}".format(res['error']))
         return res
