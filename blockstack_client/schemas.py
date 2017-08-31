@@ -702,7 +702,6 @@ PUT_DATA_RESPONSE = {
     ]
 }
 
-
 # replicated datastore
 DATASTORE_SCHEMA = {
     'type': 'object',
@@ -1591,58 +1590,40 @@ BLOCKSTACK_KEY_FILE_SCHEMA = {
     'additionalProperties': False,
 }
 
-'''
-# Blockstack key file
-BLOCKSTACK_KEY_FILE_SCHEMA = {
+
+GET_PROFILE_RESPONSE = {
     'type': 'object',
     'properties': {
-        'version': {
-            'type': 'string',
-            'pattern': '^3\.0$',
+        'status': {
+            'type': 'boolean',
         },
         'profile': {
-            'type': 'string'
-        },
-        'keys': {
-            'type': 'object',
-            'properties': {
-                'name': {
-                    'type': 'array',
-                    'items': {
-                        'type': 'string',
-                        'pattern': OP_PUBKEY_PATTERN,
-                    },
-                },
-                'delegation': {
+            'anyOf': [
+                {
                     'type': 'string',
                 },
-                'apps': {
+                {
                     'type': 'object',
-                    'patternProperties': {
-                        '^.+$': {
-                            'type': 'string',
-                        },
-                    },
                 },
-            },
-            'required': [
-                'name',
-                'delegation',
-                'apps',
             ],
-            'additionalProperties': False,
         },
-        'timestamp': {
-            'type': 'integer',
-            'minimum': 0,
+        'zonefile': {
+            'type': 'string',
+        },
+        'zonefile_b64': {
+            'type': 'string',
+            'pattern': OP_BASE64_PATTERN,
+        },
+        'name_record': {
+            'type': 'object',
+            'properties': NAMEOP_SCHEMA_PROPERTIES,
+            'required': NAMEOP_SCHEMA_REQUIRED,
         },
     },
     'required': [
-        'version',
+        'status',
         'profile',
-        'keys',
-        'timestamp'
+        'name_record',
     ],
-    'additionalProperties': False,
 }
-'''
+
