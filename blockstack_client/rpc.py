@@ -72,7 +72,8 @@ from schemas import (
     GET_DEVICE_ROOT_RESPONSE,
     GET_ROOT_RESPONSE,
     FILE_LOOKUP_RESPONSE,
-    PUT_DATA_RESPONSE
+    PUT_DATA_RESPONSE,
+    GET_PROFILE_RESPONSE,
 )
 
 import keylib
@@ -111,6 +112,8 @@ import keys
 import storage
 import key_file
 from utils import daemonize, streq_constant
+
+from profile import get_profile
 
 import virtualchain
 from virtualchain.lib.ecdsalib import get_pubkey_hex, verify_raw_data
@@ -1268,13 +1271,23 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply the profile on success
         Return 404 on failure to load
         """
-        internal = self.server.get_internal_proxy()
-        resp = internal.cli_lookup(name)
-        if json_is_error(resp):
-            self._reply_json({'error': resp['error']}, status_code=404)
-            return
+        res = get_profile(name, use_legacy=True, include_raw_zonefile=True, include_name_record=True)
+        if json_is_error(res):
+            return self._reply_json({'error': res['error']}, status_code=404)
+        
+        ret = {
+            'status': True,
+            'profile': res['profile'],
+            'name_record': res['name_record'],
+        }
 
-        return self._reply_json(resp['profile'])
+        try:
+            json.dumps(res['raw_zonefile'])
+            ret['zonefile'] = res['raw_zonefile']
+        except:
+            ret['zonefile_b64'] = base64.b64encode(res['raw_zonefile'])
+        
+        return self._reply_json(ret)
 
 
     def _store_name_profile(self, ses, path_info, name):
@@ -1364,6 +1377,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         blockchain_id = path_info['qs_values'].get('blockchain_id', '')
         device_ids = path_info['qs_values'].get('device_ids', '').split(',')
         
+        if device_ids == ['']:
+            device_ids = None
+
         res = self._parse_datastore_id(datastore_id_or_app_name)
         if 'error' in res:
             self._reply_json({'error': res['error']}, status_code=401)
@@ -1455,7 +1471,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'error': 'Not implemented'}, status_code=501)
 
 
-    def _delete_signed_datastore( self, ses, path_info, tombstone_info, device_ids ):
+    def _delete_signed_datastore( self, ses, path_info, tombstone_info, device_ids=None ):
         """
         Given a set of sigend tombstones, go delete the datastore.
         """
@@ -1478,6 +1494,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         log.debug("app domain: {}".format(app_domain))
 
         blockchain_id = ses['blockchain_id']
+
+        if device_ids is None:
+            device_ids = [apk['device_id'] for apk in ses['app_public_keys']];
 
         # authenticate, and require qs-given device IDs to be covered by the tombstones.
         # at least one of the session's keys must succeed
@@ -1721,6 +1740,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 status_code = self.http_errors[res['errno']]
 
             else:
+                log.error("Failed operation {}: errno = '{}', error = '{}'".format(item_type, res['errno'], res['error']))
                 status_code = 502
 
             return self._reply_json(res, status_code)
@@ -5077,13 +5097,13 @@ class BlockstackAPIEndpointClient(object):
         return res
 
 
-    def backend_datastore_deletefile(self, datastore_str, datastore_sig, signed_tombstones, data_pubkeys, synchronous=False, blockchain_id=None, full_app_name=None):
+    def backend_datastore_deletefile(self, datastore_str, datastore_sig, signed_tombstones, data_pubkeys=None, blockchain_id=None, full_app_name=None):
         """
         Delete file data
         Return {'status': True} on success
         Return {"error': ...} on error
         """
-        assert not is_api_server(self.config_dir)
+        assert not is_api_server(self.config_dir), "BUG: tried to delete file with API server"
 
         res = self.check_version()
         if 'error' in res:
@@ -5091,10 +5111,12 @@ class BlockstackAPIEndpointClient(object):
 
         datastore_id = gaia.datastore_get_id(json.loads(datastore_str)['pubkey'])
         headers = self.make_request_headers(need_session=True)
-        url = 'http://{}:{}/v1/stores/{}/files?sync={}'.format(self.server, self.port, datastore_id, '1' if synchronous else '0')
-        
+        url = 'http://{}:{}/v1/stores/{}/files'.format(self.server, self.port, datastore_id)
+        sep = '?'
+
         if blockchain_id:
-            url += '&blockchain_id=' + urllib.quote(blockchain_id)
+            url += sep + 'blockchain_id=' + urllib.quote(blockchain_id)
+            sep = '&'
 
         if data_pubkeys is not None and len(data_pubkeys) > 0:
             device_ids = [urllib.quote(dk['device_id']) for dk in data_pubkeys]
@@ -5103,7 +5125,8 @@ class BlockstackAPIEndpointClient(object):
             device_ids_str = urllib.quote( ','.join(device_ids))
             device_pubkeys_str = urllib.quote( ','.join(device_pubkeys))
 
-            url += '&device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
+            url += sep + 'device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
+            sep = '&'
 
         request_struct = {
             'headers': [],
@@ -5117,8 +5140,30 @@ class BlockstackAPIEndpointClient(object):
         log.debug("deletefile: {}".format(url))
         req = requests.delete(url, data=json.dumps(request_struct), timeout=self.timeout, headers=headers)
 
-        resp_schema = {'type': 'object', 'properties': {'status': {'type': 'boolean'}}, 'requierd': ['status']}
+        resp_schema = {'type': 'object', 'properties': {'status': {'type': 'boolean'}}, 'required': ['status']}
         res = self.get_response(req, schema=resp_schema)
+        return res
+
+    
+    def backend_get_name_profile(self, blockchain_id):
+        """
+        Get a blockchain ID's profile
+        Return {'status': True, 'profile': ...} on success
+        Return {'error': ...} on error
+        """
+        assert not is_api_server(self.config_dir), "BUG: tried to get profile with API server"
+
+        res = self.check_version()
+        if 'error' in res:
+            return res
+
+        headers = self.make_request_headers(need_session=False)
+        url = 'http://{}:{}/v1/names/{}/profile'.format(self.server, self.port, blockchain_id)
+        
+        log.debug("get_profile: {}".format(url))
+        req = requests.get(url, timeout=self.timeout, headers=headers)
+
+        res = self.get_response(req, schema=GET_PROFILE_RESPONSE)
         return res
 
 
