@@ -4449,7 +4449,7 @@ def find_api_password( config_path=CONFIG_PATH, interactive=False ):
     return {'status': True, 'api_pass': api_pass}
 
 
-def device_app_setup(blockchain_id, app_domain, this_device_id, app_privkey, owner_privkey, config_path=CONFIG_PATH, api_pass=None):
+def device_app_setup(blockchain_id, app_domain, this_device_id, app_privkey, config_path=CONFIG_PATH, api_pass=None, password=None, interactive=False):
     """
     Link a device to an application.
     * If the user hasn't signed into this application anywhere yet, then do nothing and return success (i.e. a call to create_datastore() will take care of this)
@@ -4524,8 +4524,13 @@ def device_app_setup(blockchain_id, app_domain, this_device_id, app_privkey, own
             datastore_id = datastore_get_id(get_pubkey_hex(app_privkey))
         
         else:
-            # some other device has signed in.
             # link the datastore ID to this device's key file.
+            # need owner keys
+            wallet_keys = get_wallet_keys(config_path, password)
+            if 'error' in wallet_keys:
+                return wallet_keys
+
+            owner_privkey = wallet_keys['owner_privkey']
 
             # get signing private key 
             res = find_signing_privkey(parsed_key_file, owner_privkey)
@@ -4563,8 +4568,8 @@ def cli_app_signin(args, config_path=CONFIG_PATH, interactive=True, password=Non
     arg: privkey (str) 'The app-specific private key to use'
     arg: app_domain (str) 'The fully-qualified application domain'
     arg: api_methods (str) 'A CSV of requested methods to allow'
-    arg: device_ids (str) 'A CSV of device IDs that can write to the app datastore'
-    arg: public_keys (str) 'A CSV of public keys that can write to the app datastore'
+    opt: device_ids (str) 'A CSV of device IDs that can write to the app datastore'
+    opt: public_keys (str) 'A CSV of public keys that can write to the app datastore'
     opt: this_device_id (str) 'The device ID to log in as'
     """
 
@@ -4575,8 +4580,14 @@ def cli_app_signin(args, config_path=CONFIG_PATH, interactive=True, password=Non
     app_domain = str(args.app_domain)
     api_methods = str(args.api_methods)
     app_privkey = str(args.privkey)
-    device_ids = str(args.device_ids)
-    public_keys = str(args.public_keys)
+
+    device_ids = ''
+    if getattr(args, 'device_ids', None):
+        device_ids = str(args.device_ids)
+    
+    public_keys = ''
+    if getattr(args, 'public_keys', None):
+        public_keys = str(args.public_keys)
 
     api_methods = api_methods.split(',')
     device_ids = device_ids.split(',')
@@ -4584,7 +4595,7 @@ def cli_app_signin(args, config_path=CONFIG_PATH, interactive=True, password=Non
 
     password = get_default_password(config_path)
 
-    if len(device_ids) != len(public_keys):
+    if (len(device_ids) > 0 or len(public_keys) > 0) and len(device_ids) != len(public_keys):
         return {'error': 'Mismatch between device IDs and public keys'}
     
     if device_ids == ['']:
@@ -4622,11 +4633,7 @@ def cli_app_signin(args, config_path=CONFIG_PATH, interactive=True, password=Non
             return {'error': 'If no blockchain ID is given, then device_ids and public_keys are required'}
 
     else:
-        wallet_keys = get_wallet_keys(config_path, password)
-        if 'error' in wallet_keys:
-            return wallet_keys
-
-        res = device_app_setup(blockchain_id, app_domain, this_device_id, app_privkey, wallet_keys['owner_privkey'], config_path=config_path, api_pass=api_pass)
+        res = device_app_setup(blockchain_id, app_domain, this_device_id, app_privkey, config_path=config_path, api_pass=api_pass, password=password)
         if 'error' in res:
             return res
         
@@ -4985,7 +4992,7 @@ def find_signing_privkey( parsed_key_file, owner_privkey_info ):
     return {'status': True, 'signing_privkey': signing_privkey}
 
 
-def create_datastore_by_type( datastore_type, datastore_privkey, session, drivers=None, config_path=CONFIG_PATH ):
+def create_datastore_by_type( datastore_type, datastore_privkey, session, drivers=None, this_device_id=None, config_path=CONFIG_PATH ):
     """
     Create a datastore or a collection for the given user with the given name.
     Return {'status': True, 'root_urls': ..., 'datastore_urls': ...} on success
@@ -5007,7 +5014,7 @@ def create_datastore_by_type( datastore_type, datastore_privkey, session, driver
     if rpc is None:
         return {'error': 'API endpoint not running. Please start it with `api start`'}
 
-    datastore_info = make_datastore_info( datastore_type, datastore_pubkey, device_ids, driver_names=drivers, config_path=config_path)
+    datastore_info = make_datastore_info( datastore_type, datastore_pubkey, device_ids, driver_names=drivers, this_device_id=this_device_id, config_path=config_path)
     if 'error' in datastore_info:
         return datastore_info
    
@@ -5284,7 +5291,7 @@ def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None, password=No
             return {'error': 'Datastore already exists: created by device {}'.format(app_info.keys()[0])}
 
     # create the datastore
-    res = create_datastore_by_type('datastore', privkey, str(args.session), drivers=drivers, config_path=config_path )
+    res = create_datastore_by_type('datastore', privkey, str(args.session), drivers=drivers, this_device_id=this_device_id, config_path=config_path )
     if 'error' in res:
         return res
     
