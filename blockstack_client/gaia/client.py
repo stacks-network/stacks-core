@@ -49,7 +49,7 @@ from ..logger import get_logger
 from ..proxy import get_default_proxy, json_is_error
 from ..config import get_config, get_local_device_id
 from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, DEFAULT_DEVICE_ID, CONFIG_PATH
-from ..key_file import lookup_app_listing
+from ..key_file import key_file_parse, lookup_app_listing
 from ..schemas import ROOT_DIRECTORY_ENTRY_SCHEMA
 from ..storage import sign_data_payload, make_data_tombstone, make_fq_data_id, sign_data_tombstone, parse_data_tombstone, verify_data_tombstone, parse_fq_data_id, hash_data_payload, sign_data_payload, serialize_mutable_data, \
         sign_raw_data, verify_raw_data
@@ -115,7 +115,7 @@ def delete_datastore(api_client, datastore_privkey, blockchain_id=None, full_app
 
     # find datastore info so we can make tombstones
     if blockchain_id and full_app_name:
-        res = lookup_app_listing(blockchain_id, full_app_name, cache=GLOBAL_CACHE, proxy=proxy, config_path=config_path)
+        res = _get_app_listing(api_client, blockchain_id, full_app_name, config_path=config_path)
         if 'error' in res:
             res['errno'] = "EINVAL"
             return res
@@ -125,8 +125,6 @@ def delete_datastore(api_client, datastore_privkey, blockchain_id=None, full_app
             log.error(msg)
             return {'error': msg, 'errno': 'EINVAL'}
 
-        parsed_key_file = res['key_file']
-    
         device_ids = res['app_info'].keys()
 
         if data_pubkeys is None:
@@ -232,6 +230,35 @@ def datastore_make_file_entry(data_hash, data_urls):
     return file_entry
 
 
+def _get_app_listing(api_client, blockchain_id, full_app_name, config_path=CONFIG_PATH):
+    """
+    Get the app key listing for a blockchain ID in an app
+    return {'status': True, 'app_info': ...} on success
+    Return {'error': ...} on failure
+    """
+    res = api_client.backend_get_name_profile(blockchain_id)
+    if 'error' in res:
+        return res
+
+    profile = res['profile']
+    name_record = res['name_record']
+    address = name_record['address']
+
+    if not isinstance(profile, (str,unicode)):
+        return {'error': 'Profile must have keyfile data, and must be a JWT'}
+
+    res = key_file_parse(profile, address)
+    if 'error' in res:
+        return res
+
+    parsed_key_file = res['key_file']
+    res = lookup_app_listing(blockchain_id, full_app_name, config_path=config_path, parsed_key_file=parsed_key_file)
+    if 'error' in res:
+        return res
+
+    return {'status': True, 'app_info': res['app_info']}
+    
+
 def _find_datastore_info(api_client, datastore_id=None, blockchain_id=None, data_pubkeys=None, full_app_name=None, this_device_id=None, config_path=CONFIG_PATH, proxy=None):
     """
     Get datastore information:  pubkey/device pairs, key file, and datastore record.
@@ -244,14 +271,13 @@ def _find_datastore_info(api_client, datastore_id=None, blockchain_id=None, data
     if this_device_id is None:
         this_device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
     
-    parsed_key_file = None
     datastore_urls = None
     device_ids = None
 
     # get key file, if we can 
     if full_app_name is not None and blockchain_id is not None and data_pubkeys is None:
         # get from key file
-        res = lookup_app_listing(blockchain_id, full_app_name, cache=GLOBAL_CACHE, proxy=proxy, config_path=config_path)
+        res = _get_app_listing(api_client, blockchain_id, full_app_name, config_path=config_path)
         if 'error' in res:
             res['errno'] = "EINVAL"
             return res
@@ -264,7 +290,6 @@ def _find_datastore_info(api_client, datastore_id=None, blockchain_id=None, data
         if this_device_id not in res['app_info']:
             return {'error': 'Failed to find data for device {} in key file for {} (application {})'.format(this_device_id, blockchain_id, full_app_name)}
 
-        parsed_key_file = res['key_file']
         data_pubkeys = [{'data_pubkey': res['app_info'][dev_id][full_app_name]['public_key'], 'device_id': dev_id} for dev_id in res['app_info'].keys()]
 
     # get the datastore
@@ -296,7 +321,6 @@ def _find_datastore_info(api_client, datastore_id=None, blockchain_id=None, data
         'status': True,
         'datastore': datastore,
         'data_pubkeys': data_pubkeys,
-        'key_file': parsed_key_file,
         'data_pubkey': data_pubkey
     }
 
@@ -325,7 +349,6 @@ def _find_device_root_info( api_client, this_device_id=None, data_pubkeys=None, 
 
     datastore = res['datastore']
     data_pubkeys = res['data_pubkeys']
-    parsed_key_file = res['key_file']
     data_pubkey = res['data_pubkey']
 
     datastore_id = datastore_get_id(datastore['pubkey'])
@@ -367,7 +390,7 @@ def _find_device_root_info( api_client, this_device_id=None, data_pubkeys=None, 
     else:
         device_root = res['device_root_page']
 
-    return {'status': True, 'device_root': device_root, 'created': created, 'datastore': datastore, 'key_file': parsed_key_file}
+    return {'status': True, 'device_root': device_root, 'created': created, 'datastore': datastore}
 
 
 def device_root_serialize(device_id, datastore_id, root_uuid, device_root, blockchain_id=None, config_path=CONFIG_PATH):
@@ -649,7 +672,7 @@ def datastore_deletefile(api_client, file_name, data_privkey_hex, data_pubkeys, 
 
     log.debug("deletefile {}/{}".format(datastore_id, file_name))
 
-    res = api_client.backend_datastore_deletefile(datastore_str, datastore_sig, signed_file_tombstones, data_pubkeys, blockchain_id=blockchain_id, full_app_name=full_app_name, synchronous=synchronous)
+    res = api_client.backend_datastore_deletefile(datastore_str, datastore_sig, signed_file_tombstones, data_pubkeys=data_pubkeys, blockchain_id=blockchain_id, full_app_name=full_app_name)
     if 'error' in res:
         return res
 
