@@ -142,7 +142,7 @@ def verify_data_tombstones( tombstones, data_pubkey, device_ids=None ):
     return True
 
 
-def make_mutable_data_info(data_id, data_payload, device_ids=None, timestamp=None, blockchain_id=None, config_path=CONFIG_PATH, create=False, is_fq_data_id=False):
+def make_mutable_data_info(data_id, data_payload, device_ids=None, timestamp=None, blockchain_id=None, config_path=CONFIG_PATH, create=False, this_device_id=None, is_fq_data_id=False):
     """
     Make mutable data to serialize, sign, and store.
     data_payload must be a string.
@@ -157,7 +157,12 @@ def make_mutable_data_info(data_id, data_payload, device_ids=None, timestamp=Non
    
     fq_data_id = None
     
-    device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
+    device_id = None
+    if this_device_id:
+        device_id = this_device_id
+    else:
+        device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
+        
     if device_id is None:
         raise Exception("Failed to get device ID")
 
