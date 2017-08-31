@@ -26,6 +26,7 @@
 
 import testlib
 import pybitcoin
+import blockstack_client
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -40,10 +41,10 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 def scenario( wallets, **kw ):
 
     # save the wallet 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey, start_rpc=False )
-    if 'error' in wallet:
-        print 'failed to set wallet: {}'.format(wallet)
-        return False
+    test_proxy = testlib.TestAPIProxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey, payment_privkey=wallets[2].privkey )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] )
 
     testlib.blockstack_namespace_preorder( "id", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -59,6 +60,19 @@ def scenario( wallets, **kw ):
 
     testlib.blockstack_name_register( "demo.id", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
+ 
+    # migrate profiles 
+    res = testlib.migrate_profile( "demo.id", proxy=test_proxy, wallet_keys=wallet_keys )
+    if 'error' in res:
+        res['test'] = 'Failed to initialize demo.id profile'
+        print json.dumps(res, indent=4, sort_keys=True)
+        error = True
+        return 
+    
+    res = testlib.start_api("0123456789abcdef")
+    if 'error' in res:
+        print 'failed to start API: {}'.format(res)
+        return False
 
 
     
