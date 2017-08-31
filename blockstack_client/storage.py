@@ -42,6 +42,7 @@ from config import get_config, CONFIG_PATH
 from scripts import hex_hash160
 import schemas
 from keys import is_singlesig_hex
+from key_file import key_file_parse
 
 import virtualchain
 from virtualchain.lib.ecdsalib import (
@@ -505,11 +506,11 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, 
 
     Try to verify with both keys, if given.
 
-    Return the parsed JSON dict on success
+    Return the parsed JSON dict or string on success
     Return None on error
     """
     
-    # newer version?
+    # bsk2 data (from Gaia)?
     if mutable_data_json_txt.startswith("bsk2.") or bsk_version == 2:
         raw = False
         if not mutable_data_json_txt.startswith("bsk2."):
@@ -521,7 +522,7 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, 
 
         return parse_mutable_data_v2(mutable_data_json_txt, public_key, public_key_hash=public_key_hash, data_hash=data_hash, raw=raw)
         
-    # legacy parser
+    # either a profile or a keyfile
     assert public_key is not None or public_key_hash is not None, 'Need a public key or public key hash'
 
     mutable_data_jwt = None
@@ -529,9 +530,20 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, 
         mutable_data_jwt = json.loads(mutable_data_json_txt)
         assert isinstance(mutable_data_jwt, (dict, list))
     except:
-        # TODO: Check use of catchall exception handler
-        log.error('Invalid JSON')
-        return None
+        # is a keyfile?
+        keys_or_hash = None
+        if public_key_hash:
+            keys_or_hash = public_key_hash
+        else:
+            keys_or_hash = [public_key]
+
+        res = key_file_parse(mutable_data_json_txt, keys_or_hash)
+        if 'error' in res:
+            log.error("Invalid JSON, and not a key file")
+            return None
+
+        # success 
+        return mutable_data_json_txt
 
     mutable_data_json = None
 
@@ -913,15 +925,21 @@ def get_mutable_data(fq_data_id, data_pubkeys, urls=None, data_addresses=None, d
                         data = parse_mutable_data(data_txt, data_pubkey, bsk_version=bsk_version)
                         if data is not None:
                             break
+                        else:
+                            log.warning("Failed to parse with public key {}".format(data_pubkey))
 
                 if data is None and data_addresses is not None:
                     for data_address in data_addresses:
                         data = parse_mutable_data(data_txt, None, public_key_hash=data_address, bsk_version=bsk_version)
                         if data is not None:
                             break
+                        else:
+                            log.warning("Failed to parse with public key address {}".format(data_address))
 
                 if data is None and data_hash is not None:
                     data = parse_mutable_data(data_txt, None, data_hash=data_hash, bsk_version=bsk_version)
+                    if data is None:
+                        log.warning("Failed to verify with data hash {}".format(data_hash))
 
                 if data is None:
                     msg = 'Unparseable data from "{}"'
