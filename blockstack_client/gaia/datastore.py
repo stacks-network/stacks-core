@@ -44,7 +44,7 @@ from virtualchain.lib.ecdsalib import get_pubkey_hex
 
 from ..logger import get_logger
 from ..proxy import get_default_proxy
-from ..config import get_config, get_local_device_id
+from ..config import get_config
 from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, CONFIG_PATH
 from ..storage import sign_data_payload, make_data_tombstone, make_fq_data_id, sign_data_tombstone, parse_data_tombstone, verify_data_tombstone, parse_fq_data_id, \
         hash_data_payload, sign_data_payload, serialize_mutable_data, get_storage_handlers, verify_data_payload, decode_mutable_data
@@ -123,7 +123,7 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
             log.error(msg)
             return {'error': msg, 'errno': 'EINVAL'}
 
-        if device_ids is None:
+        if device_ids is None or len(device_ids) == 0:
             device_ids = app_info.keys()
         
         # at most one device can have created this datastore
@@ -222,7 +222,7 @@ def get_datastore_info( blockchain_id=None, datastore_id=None, device_ids=None, 
     return {'status': True, 'datastore': datastore}
     
 
-def _init_datastore_info( datastore_type, datastore_pubkey, driver_names, device_ids, reader_pubkeys=[], config_path=CONFIG_PATH ):
+def _init_datastore_info( datastore_type, datastore_pubkey, driver_names, device_ids, reader_pubkeys=[], this_device_id=None, config_path=CONFIG_PATH ):
     """
     Make the private part of a datastore record.
     @datastore_pubkey must be one of the device-specific app-specific public keys.
@@ -240,7 +240,7 @@ def _init_datastore_info( datastore_type, datastore_pubkey, driver_names, device
 
     root_dir = make_empty_device_root_directory(datastore_id, reader_pubkeys, timestamp)
     root_dir_str = data_blob_serialize(root_dir)
-    root_dir_struct = make_mutable_data_info(root_data_id, root_dir_str, device_ids=device_ids, timestamp=timestamp, config_path=config_path)
+    root_dir_struct = make_mutable_data_info(root_data_id, root_dir_str, device_ids=device_ids, timestamp=timestamp, this_device_id=this_device_id, config_path=config_path)
     root_dir_blob = data_blob_serialize(root_dir_struct)
 
     datastore_info = {
@@ -254,7 +254,7 @@ def _init_datastore_info( datastore_type, datastore_pubkey, driver_names, device
     return {'datastore_blob': data_blob_serialize(datastore_info), 'root_blob': root_dir_blob}
 
 
-def make_datastore_info( datastore_type, datastore_pubkey_hex, device_ids, driver_names=None, config_path=CONFIG_PATH ):
+def make_datastore_info( datastore_type, datastore_pubkey_hex, device_ids, this_device_id=None, driver_names=None, config_path=CONFIG_PATH ):
     """
     Create a new datastore record with the given name, using the given account_info structure
 
@@ -269,7 +269,7 @@ def make_datastore_info( datastore_type, datastore_pubkey_hex, device_ids, drive
         driver_handlers = get_storage_handlers()
         driver_names = [h.__name__ for h in driver_handlers]
 
-    datastore_info = _init_datastore_info( datastore_type, datastore_pubkey_hex, driver_names, device_ids, config_path=config_path)
+    datastore_info = _init_datastore_info( datastore_type, datastore_pubkey_hex, driver_names, device_ids, this_device_id=this_device_id, config_path=config_path)
     if 'error' in datastore_info:
         return datastore_info
    
@@ -281,7 +281,7 @@ def make_datastore_info( datastore_type, datastore_pubkey_hex, device_ids, drive
     data_id = '{}.datastore'.format(datastore_id)
     
     # encapsulate to mutable data
-    datastore_info = make_mutable_data_info(data_id, datastore_str, device_ids=device_ids, config_path=config_path)
+    datastore_info = make_mutable_data_info(data_id, datastore_str, device_ids=device_ids, this_device_id=this_device_id, config_path=config_path)
     if 'error' in datastore_info:
         # only way this fails is if we had create=True and it already existed 
         return {'error': datastore_info['error'], 'errno': datastore_info['errno']}
