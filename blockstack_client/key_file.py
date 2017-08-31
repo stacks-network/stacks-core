@@ -528,7 +528,7 @@ def key_file_create(name, name_owner_privkeys, device_id, key_order=None, apps=N
         if BLOCKSTACK_TEST:
             log.exception(e)
 
-        return {'error': 'Invalid profile'}
+        return {'error': 'Invalid profile: not a Person'}
 
     device_specific_name_owner_privkey = name_owner_privkeys[device_id]
     
@@ -1017,13 +1017,15 @@ def lookup_app_pubkeys(name, full_application_name, cache=None, cache_max_age=60
     return {'status': True, 'key_file': res['key_file'], 'pubkeys': dict([(dev_id, res['app_info'][dev_id]['public_key']) for dev_id in res['app_info'].keys()])}
 
 
-def make_initial_key_file(name, user_profile, owner_privkey_info, config_path=CONFIG_PATH):
+def make_initial_key_file(name, user_profile, owner_privkey_info, this_device_id=None, config_path=CONFIG_PATH):
     """
     Given a profile, set it up as an "initial" key file (given the owner private key bundle)
     Return {'status': True, 'key_file': serialized key file} on success
     Return {'error': ...} on error
     """
-    this_device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
+    if not this_device_id:
+        this_device_id = get_local_device_id(config_dir=os.path.dirname(config_path))
+
     name_owner_privkeys = {}
     pubkey_order = []
 
