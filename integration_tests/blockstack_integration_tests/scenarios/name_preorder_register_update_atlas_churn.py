@@ -134,8 +134,8 @@ def scenario( wallets, **kw ):
         if src_hostport is None:
             return 0.0
 
-        src_host, src_port = blockstack_client.config.url_to_host_port( src_hostport )
-        dest_host, dest_port = blockstack_client.config.url_to_host_port( dest_hostport )
+        src_host, src_port = blockstack_client.utils.url_to_host_port( src_hostport )
+        dest_host, dest_port = blockstack_client.utils.url_to_host_port( dest_hostport )
 
         now = int(time.time())
         # offset = (now - time_start) % len(all_peers)
