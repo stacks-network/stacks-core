@@ -3581,7 +3581,7 @@ def nodejs_copy_package( testdir, package_name ):
     if not os.path.exists(node_package_path):
         raise Exception("Missing node package {}: no directory {}".format(package_name, node_package_path))
 
-    rc = os.system('cp -a "{}"/* "{}"'.format(node_package_path, testdir))
+    rc = os.system('cp -a "{}"/. "{}"'.format(node_package_path, testdir))
     if rc != 0:
         raise Exception("Failed to copy {} to {}".format(node_package_path, testdir))
 
