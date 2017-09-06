@@ -42,7 +42,7 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=0.14.3',
+        'virtualchain>=0.14.5',
         'keychain>=0.14.2.0',
         'protocoin>=0.2',
         'blockstack-profiles>=0.14.1',
