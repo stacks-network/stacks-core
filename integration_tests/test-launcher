@@ -145,6 +145,7 @@ run-all-kube () {
   # Make tmp directory
   mkdir -p $tmpDir
 
+  echo "Running $numTests tests..."
   # Make the manifests to launch the pods
   for sc in $scenarios; do
     make-manifest $sc $numTests
