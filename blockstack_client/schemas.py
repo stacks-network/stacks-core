@@ -82,7 +82,7 @@ OP_URI_TARGET_PATTERN_NOSCHEME = r'^([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
 OP_TOMBSTONE_PATTERN = '^delete-([0-9]+):([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
 OP_SIGNED_TOMBSTONE_PATTERN = '^delete-([0-9]+):([a-zA-Z0-9\-_.~%#?&\\:/=]+):({})$'.format(OP_BASE64_PATTERN_SECTION)
 OP_DNS_NAME_PATTERN = r'([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])(\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]))*'
-OP_APP_NAME_PATTERN = r'^(^({})\.1(:[0-9]+){{0,1}}$)|({}\.x$)$'.format(OP_DNS_NAME_PATTERN, OP_NAME_OR_SUBDOMAIN_FRAGMENT)
+OP_APP_NAME_PATTERN = r'^(^({})\.1(:[0-9]+){{0,1}}$)|(^({})\.x$)$'.format(OP_DNS_NAME_PATTERN, OP_NAME_OR_SUBDOMAIN_FRAGMENT)
 
 OP_ANY_TYPE_SCHEMA = [
     {
