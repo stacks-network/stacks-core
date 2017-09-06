@@ -145,7 +145,7 @@ run-all-kube () {
   # Make the manifests to launch the pods
   for sc in $scenarios; do
     make-manifest $sc $numTests
-    kubectl apply -f $tmpDir/$sc
+    kubectl apply -f $tmpDir/$sc.yaml
   done
 
   # Remove the temporary files
@@ -231,7 +231,6 @@ run-one-local () {
     -v $outputdir:$containerdir \
     $testImage:$testTag $command >> /dev/null 2>&1
 }
-
 
 # get-runtime-docker $containerID -> gets duration of test in seconds
 get-runtime-docker () {
