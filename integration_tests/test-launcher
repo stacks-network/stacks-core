@@ -288,6 +288,14 @@ write-local () {
   rm $importFile
 }
 
+progress-local () {
+  local inprogress=$(expr $(docker ps -f status=running -f name="$gitCommit" | wc -l) - 1)
+  local completed=$(expr $(docker ps -a -f status=exited -f name="$gitCommit" | wc -l) - 1)
+  local totaltests=$(expr $(ls -1 $(pwd)/blockstack_integration_tests/scenarios/ | sed -e 's/\.py$//' | wc -l) - 2)
+  local remaining=$(expr $totaltests - $(expr $inprogress + $completed))
+  echo "TotalTests: $totaltests, Completed: $(percent $completed $totaltests)%, InProgress: $(percent $inprogress $totaltests)%, Remaining: $(percent $remaining $totaltests)%"
+}
+
 commands () {
   cat <<-EOF
 BLOCKSTACK DOCKER TEST LAUNCHER:
@@ -331,11 +339,7 @@ case $1 in
     write-local
     ;;
   progress-local)
-    local inprogress=$(expr $(docker ps -f status=running -f name="$gitCommit" | wc -l) - 1)
-    local completed=$(expr $(docker ps -a -f status=exited -f name="$gitCommit" | wc -l) - 1)
-    local totaltests=$(expr $(ls -1 $(pwd)/blockstack_integration_tests/scenarios/ | sed -e 's/\.py$//' | wc -l) - 2)
-    local remaining=$(expr $totaltests - $(expr $inprogress + $completed))
-    echo "TotalTests: $totaltests, Completed: $(percent $completed $totaltests)%, InProgress: $(percent $inprogress $totaltests)%, Remaining: $(percent $remaining $totaltests)%"
+    progress-local
     ;;
   cleanup-files-local)
     echo "Removing container /tmp data $testOutputDir..."
