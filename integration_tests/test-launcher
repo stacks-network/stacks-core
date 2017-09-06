@@ -134,6 +134,10 @@ EOF
 run-all-kube () {
   local tmpDir=$testDir/tmp/$gitCommit
   local scenarios=$(tests)
+  local numTests=0
+  for sc in $scenarios; do
+    ((totaltests++))
+  done
 
   # Create kubernetes namespace
   kubectl create ns $gitCommit
