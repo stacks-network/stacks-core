@@ -52,6 +52,7 @@ from blob import data_blob_parse
 from directory import put_device_root_data
 from cache import GLOBAL_CACHE
 from mutable import put_raw_data
+from metadata import get_metadata_dir
 
 log = get_logger('gaia-write_log')
 
@@ -74,8 +75,8 @@ def write_log_path(config_path=CONFIG_PATH):
     """
     conf = get_config(config_path)
     assert conf
-
-    metadata_dir = conf.get('metadata', None)
+    
+    metadata_dir = get_metadata_dir(conf, config_path=config_path)
     assert metadata_dir
 
     path = os.path.join(metadata_dir, 'write_log.db')
