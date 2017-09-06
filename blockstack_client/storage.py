@@ -799,14 +799,18 @@ def get_drivers_for_url(url):
 
 def get_driver_urls( fq_data_id, storage_drivers ):
     """
+    DEPRECATED
+
     Get the list of URLs for a particular datum
     """
     ret = []
     for sh in storage_drivers:
         if not getattr(sh, 'make_mutable_url', None):
             continue
-        
-        ret.append( sh.make_mutable_url(fq_data_id) )
+       
+        url = sh.make_mutable_url(fq_data_id)
+        if url:
+            ret.append( url )
 
     return ret
 
@@ -922,7 +926,12 @@ def get_mutable_data(fq_data_id, data_pubkeys, urls=None, data_addresses=None, d
                 data = None
                 if data_pubkeys is not None:
                     for data_pubkey in data_pubkeys:
-                        data = parse_mutable_data(data_txt, data_pubkey, bsk_version=bsk_version)
+                        try:
+                            data = parse_mutable_data(data_txt, data_pubkey, bsk_version=bsk_version)
+                        except AssertionError:
+                            # possibly a profile
+                            data = None
+
                         if data is not None:
                             break
                         else:
@@ -930,11 +939,12 @@ def get_mutable_data(fq_data_id, data_pubkeys, urls=None, data_addresses=None, d
 
                 if data is None and data_addresses is not None:
                     for data_address in data_addresses:
-                        data = parse_mutable_data(data_txt, None, public_key_hash=data_address, bsk_version=bsk_version)
-                        if data is not None:
-                            break
-                        else:
-                            log.warning("Failed to parse with public key address {}".format(data_address))
+                        if data_address:
+                            data = parse_mutable_data(data_txt, None, public_key_hash=data_address, bsk_version=bsk_version)
+                            if data is not None:
+                                break
+                            else:
+                                log.warning("Failed to parse with public key address {}".format(data_address))
 
                 if data is None and data_hash is not None:
                     data = parse_mutable_data(data_txt, None, data_hash=data_hash, bsk_version=bsk_version)
