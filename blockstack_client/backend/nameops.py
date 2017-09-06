@@ -164,6 +164,8 @@ def make_cheapest_nameop( opcode, utxo_client, payment_address, payment_utxos, *
 
     # estimate the cheapest transaction by selecting inputs in decreasing value
     # NOTE: payment_utxos should already be sorted in decreasing value 
+    unsigned_tx = None
+    i = None
 
     for i in xrange(1, len(payment_utxos)+1):
         try:
