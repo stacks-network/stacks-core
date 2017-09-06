@@ -343,18 +343,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Return False if not
         """
         allowed_urlparse = [urlparse.urlparse(a) for a in allowed]
-        allowed_origins = dict()
-        for parsed, a in zip(allowed_urlparse, allowed):
-            if not parsed.netloc:
-                # try to see if we got a domainname (legacy path)
-                parsed = urlparse.urlparse("http://{}".format(a))
-                assert parsed.netloc, "Invalid origin {}".format(a)
-            allowed_origins[parsed.netloc] = parsed
-
         origin_info = urlparse.urlparse(origin_header)
-        if origin_info.netloc in allowed_origins.keys():
-            allowed_origin = allowed_origins[origin_info.netloc]
-            if origin_info.scheme == allowed_origin.scheme and origin_info.netloc == allowed_origin.netloc:
+
+        for allowed in allowed_urlparse:
+            if allowed.scheme == origin_info.scheme and allowed.netloc == origin_info.netloc:
                 return True
 
         return False
@@ -3499,6 +3491,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
+            r'^/v1/users/({})'.format(NAME_CLASS): {
+                'routes': {
+                    'GET': self.GET_name_profile,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'profile',
+                        'desc': 'read name profile',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
+                    },
+                },
+            },
             r'^/v1/names/({})/profile$'.format(NAME_CLASS): {
                 'routes': {
                     'GET': self.GET_name_profile,
@@ -4091,7 +4097,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         log.debug("\nfull path: {}\nmethod: {}\npath: {}\nqs: {}\nheaders:\n{}\n".format(self.path, method_name, path_info['path'], qs_values, '\n'.join( '{}: {}'.format(k, v) for (k, v) in self.headers.items() )))
 
         have_password = False
+        auth_valid = True
         session = self.verify_session(qs_values)
+
         if not session:
             # password authentication
             # don't even try to authenticate with the password unless the Origin is set appropriately 
@@ -4108,25 +4116,41 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             # check origin.
             # NOTE: this is a *fully-qualified* app domain, so we should remove the '.1' or '.x' 
             app_domain = session['app_domain']
+            app_name = app_domain
             session_verified = False
+            auth_valid = False
             try:
                 origin_header = self.headers.get('origin', None)
                 if origin_header is not None:
                     scheme = urlparse.urlparse(origin_header).scheme
+                    if not scheme:
+                        return self._reply_json({'error': 'Invalid Origin (no scheme)'}, status_code=401);
+                    
                     origin_header = '{}://{}'.format(scheme, app.app_domain_to_app_name(origin_header))
 
+                    if not app.is_valid_app_name(app_name):
+                        # suffix not given.
+                        # assume it's an ICANN name 
+                        if not urlparse.urlparse(app_name).scheme:
+                            app_name = 'http://' + app_name
+
+                        app_name = app.app_domain_to_app_name(app_name)
+
                     # convert origin to .1 or .x, since app domains have it
-                    session_verified = self.verify_origin(origin_header, [app_domain])
+                    session_verified = self.verify_origin(origin_header, ['http://' + app_name, 'https://' + app_name])
 
             except AssertionError as e:
+                log.exception(e)
                 session = None
                 err = {'error' : e.message}
                 return self._reply_json(err, status_code = 403)
-
+            
             if not session_verified:
                 # invalid session
-                log.warning("Invalid session: app domain '{}' does not match Origin '{}'".format(app_domain, origin_header))
+                log.warning("Invalid session: app domain '{}' does not match Origin '{}'".format(app_name, origin_header))
                 session = None
+            else:
+                auth_valid = True
 
         authorized = False
 
@@ -4136,7 +4160,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._send_headers(status_code=503, content_type='text/plain')
             return
 
-        if not use_session and not use_password:
+        if not auth_valid:
+            # invalid auth credentials 
+            log.debug("Invalid authentication credentials")
+            authorized = False
+
+        elif not use_session and not use_password:
             # no auth needed
             log.debug("No authentication needed")
             authorized = True
