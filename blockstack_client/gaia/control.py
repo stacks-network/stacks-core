@@ -98,6 +98,10 @@ def gaia_stop():
     global WRITE_LOG_THREAD, GAIA_RUNNING
 
     GAIA_RUNNING = False
-    WRITE_LOG_THREAD.signal_stop()
+    try:
+        if WRITE_LOG_THREAD:
+            WRITE_LOG_THREAD.signal_stop()
+    except:
+        pass
 
 
