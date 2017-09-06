@@ -136,7 +136,7 @@ run-all-kube () {
   local scenarios=$(tests)
   local numTests=0
   for sc in $scenarios; do
-    ((totaltests++))
+    ((numTests++))
   done
 
   # Create kubernetes namespace
