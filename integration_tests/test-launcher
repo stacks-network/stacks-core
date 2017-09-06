@@ -119,7 +119,7 @@ spec:
       - name: INFLUX_SSL
         value: "$influxSSL"
       - name: NUM_TESTS
-        value: $2
+        value: "$2"
     resources:
       limits:
         cpu: 1000m
@@ -134,7 +134,6 @@ EOF
 run-all-kube () {
   local tmpDir=$testDir/tmp/$gitCommit
   local scenarios=$(tests)
-  local numTests=${#scenarios[@]}
 
   # Create kubernetes namespace
   kubectl create ns $gitCommit
@@ -252,8 +251,8 @@ get-runtime-docker () {
 results-local () {
   local exited=$(docker ps -a -q  -f status=exited -f name="$gitCommit")
   for test in $exited; do
-    local success=$(docker logs $test --tail 100 2>&1 | grep -c "SUCCESS")
-    local failure=$(docker logs $test --tail 100 2>&1 | grep -c "FAILURE")
+    local success=$(docker logs $test --tail 120 2>&1 | grep -c "SUCCESS")
+    local failure=$(docker logs $test --tail 120 2>&1 | grep -c "FAILURE")
     local name=$(docker inspect -f '{{.Name}}' $test)
     local runtime=$(get-runtime-docker $test)
     if [ $success -eq 1 ]; then
@@ -305,9 +304,13 @@ write-local () {
 }
 
 progress-local () {
+  local scenarios=$(tests)
+  local totaltests=0
+  for sc in $scenarios; do
+    ((totaltests++))
+  done
   local inprogress=$(expr $(docker ps -f status=running -f name="$gitCommit" | wc -l) - 1)
   local completed=$(expr $(docker ps -a -f status=exited -f name="$gitCommit" | wc -l) - 1)
-  local totaltests=$(expr $(ls -1 $(pwd)/blockstack_integration_tests/scenarios/ | sed -e 's/\.py$//' | wc -l) - 2)
   local remaining=$(expr $totaltests - $(expr $inprogress + $completed))
   echo "TotalTests: $totaltests, Completed: $(percent $completed $totaltests)%, InProgress: $(percent $inprogress $totaltests)%, Remaining: $(percent $remaining $totaltests)%"
 }
