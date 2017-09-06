@@ -208,6 +208,8 @@ def app_get_datastore_pubkey( session ):
 
 def app_publish( dev_blockchain_id, app_domain, app_method_list, app_index_uris, app_index_file, app_driver_hints=[], data_privkey=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH ):
     """
+    DEPRECATED -- meant for building Blockstack-native applications, but this approach is wrong
+
     Instantiate an application.
     * replicate the (opaque) app index file to "index.html" to each URL in app_uris
     * replicate the list of URIs and the list of methods to ".blockstack" via each of the client's storage drivers.
@@ -280,6 +282,8 @@ def app_publish( dev_blockchain_id, app_domain, app_method_list, app_index_uris,
 
 def app_get_config( blockchain_id, app_domain, data_pubkey=None, proxy=None, config_path=CONFIG_PATH ):
     """
+    DEPRECATED -- meant for building Blockstack-native applications, but this approach is wrong
+
     Get application configuration bundle.
     
     data_pubkey should be the publisher's public key.
@@ -312,6 +316,8 @@ def app_get_config( blockchain_id, app_domain, data_pubkey=None, proxy=None, con
 
 def app_get_resource( blockchain_id, app_domain, res_name, app_config=None, data_pubkey=None, proxy=None, config_path=CONFIG_PATH ):
     """
+    DEPRECATED -- meant for building Blockstack-native applications, but this approach is wrong
+
     Get a named application resource from mutable storage
 
     data_pubkey should be the publisher's public key 
@@ -340,6 +346,8 @@ def app_get_resource( blockchain_id, app_domain, res_name, app_config=None, data
 
 def app_put_resource( blockchain_id, app_domain, res_name, res_data, app_config=None, data_privkey=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH ):
     """
+    DEPRECATED -- meant for building Blockstack-native applications, but this approach is wrong
+
     Store data to a named application resource in mutable storage.
 
     data_privkey should be the publisher's private key
@@ -386,6 +394,8 @@ def app_put_resource( blockchain_id, app_domain, res_name, res_data, app_config=
 
 def app_delete_resource( blockchain_id, app_domain, res_name, app_config=None, data_privkey=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH ):
     """
+    DEPRECATED -- meant for building Blockstack-native applications, but this approach is wrong
+
     Remove data from a named application resource in mutable storage.
 
     data_privkey should be the publisher's private key
@@ -426,6 +436,8 @@ def app_delete_resource( blockchain_id, app_domain, res_name, app_config=None, d
 
 def app_unpublish( blockchain_id, app_domain, force=False, data_privkey=None, app_config=None, wallet_keys=None, proxy=None, config_path=CONFIG_PATH ):
     """
+    DEPRECATED -- meant for building Blockstack-native applications, but this approach is wrong
+
     Unpublish an application
     Deletes its config and index.
     Does NOT delete its resources.
