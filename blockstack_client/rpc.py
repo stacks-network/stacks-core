@@ -1323,7 +1323,33 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.error("Failed to validate profile request")
             return self._reply_json({'error': 'Failed to parse profile JSON request'}, status_code=401)
 
-        pass
+        # authenticate
+        name_rec = proxy.get_name_blockchain_record(name)
+        if json_is_error(name_rec):
+            # error
+            status_code = None
+            if json_is_exception(name_rec):
+                status_code = 500
+            else:
+                status_code = 404
+
+            return self._reply_json({'error': name_rec['error']}, status_code=status_code)
+        
+        profile_txt = request['profile_data']
+
+        # verify and validate
+        res = key_file.key_file_parse(profile_txt, name_rec['address'])
+        if 'error' in res:
+            log.error("Failed to parse key file: {}".format(res['error']))
+            return self._reply_json({'error': 'Failed to parse key file: {}'.format(res['error'])}, status_code=401)
+
+        # looks good. store it
+        res = key_file.key_file_put(name, profile_txt, cache=gaia.GLOBAL_CACHE, config_path=self.server.config_path)
+        if 'error' in res:
+            log.error("Failed to store key file: {}".format(res['error']))
+            return self._reply_json({'error': 'Failed to store key file: {}'.format(res['error'])}, status_code=502)
+
+        return self._reply_json({'status': True})
 
 
     def POST_name_profile(self, ses, path_info, name):
