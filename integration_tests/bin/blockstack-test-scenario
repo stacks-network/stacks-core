@@ -1222,7 +1222,7 @@ if __name__ == "__main__":
         print "Failed to load '%s'" % scenario_module
 
         if args.influx:
-            influx_write(influx_client, test_start, testscenario_module.split(".")[2]_name, "failure-load")
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-load")
 
         sys.exit(1)
 
@@ -1282,7 +1282,7 @@ if __name__ == "__main__":
         log.error("failed to write config file: exit %s" % rc)
 
         if args.influx:
-            influx_write(influx_client, test_start, testscenario_module.split(".")[2]_name, "failure-config")
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-config")
 
         sys.exit(1)
 
@@ -1302,7 +1302,7 @@ if __name__ == "__main__":
 
     if rc != 0:
         if args.influx:
-            influx_write(influx_client, test_start, testscenario_module.split(".")[2]_name, "failure-config")
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-config")
 
         log.error("failed to write config file: exit %s" % rc)
         sys.exit(1)
@@ -1319,12 +1319,12 @@ if __name__ == "__main__":
         print "SUCCESS %s" % scenario.__name__
         # shutil.rmtree( working_dir )
         if args.influx:
-            influx_write(influx_client, test_start, testscenario_module.split(".")[2]_name, "success")
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "success")
 
         sys.exit(0)
     else:
         if args.influx:
-            influx_write(influx_client, test_start, testscenario_module.split(".")[2]_name, "failure")
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure")
 
         print >> sys.stderr, "FAILURE %s" % scenario.__name__
         print >> sys.stderr, "Test output in %s" % working_dir
