@@ -54,7 +54,6 @@ log = get_logger("blockstack-storage-drivers-dropbox")
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
 DROPBOX_TOKEN = None
-INDEX_DIRNAME = "index"
 DVCONF = None
 
 BLOCKSTACK_DEBUG = (os.environ.get("BLOCKSTACK_DEBUG") == "1")
@@ -158,7 +157,7 @@ def dropbox_get_chunk(dvconf, name):
         return None
     
 
-def storage_init(conf, index=False, force_index=False):
+def storage_init(conf, **kw):
     """
     Initialize dropbox storage driver
     """
@@ -188,14 +187,7 @@ def storage_init(conf, index=False, force_index=False):
         log.warn("Config file '{}': section 'dropbox' is missing 'token'.  Write access will be disabled".format(config_path))
 
     # set up driver 
-    DVCONF = driver_config("dropbox", config_path, dropbox_get_chunk, dropbox_put_chunk, dropbox_delete_chunk, driver_info={'dropbox_token': DROPBOX_TOKEN}, index_stem=INDEX_DIRNAME, compress=compress)
-    if index:
-        # instantiate the index 
-        url = index_setup(DVCONF, force=force_index)
-        if not url:
-            log.error("Failed to set up index")
-            return False
-
+    DVCONF = driver_config("dropbox", config_path, dropbox_get_chunk, dropbox_put_chunk, dropbox_delete_chunk, driver_info={'dropbox_token': DROPBOX_TOKEN}, compress=compress)
     return True
 
 
@@ -215,27 +207,23 @@ def handles_url( url ):
 
 def make_mutable_url( data_id ):
     """
-    The URL here is a misnomer, since only Dropbox.com
-    can create public URLs.
-
-    This URL here will instruct get_chunk() to go and search through
-    the index for the target data.
+    We can't generate URLs on the fly
     """
-    return index_make_mutable_url('www.dropbox.com', data_id)
+    return None
 
 
 def get_immutable_handler( key, **kw ):
     """
     Get data by hash
     """
-    return index_get_immutable_handler(DVCONF, key, **kw)
+    return dropbox_get_chunk(DVCONF, 'immutable-{}'.format(key))
 
 
 def get_mutable_handler( url, **kw ):
     """
     Get data by URL
     """
-    return index_get_mutable_handler(DVCONF, url, **kw)
+    return http_get_data(DVCONF, url)
 
 
 def put_immutable_handler( key, data, txid, **kw ):
@@ -243,7 +231,7 @@ def put_immutable_handler( key, data, txid, **kw ):
     Put data by hash and txid
     Returns a URL on success; None on error
     """
-    return index_put_immutable_handler(DVCONF, key, data, txid, **kw)
+    return dropbox_put_chunk(DVCONF, 'immutable-{}'.format(key), data_bin)
 
 
 def put_mutable_handler( data_id, data_bin, **kw ):
@@ -251,21 +239,21 @@ def put_mutable_handler( data_id, data_bin, **kw ):
     Put data by file ID
     Returns a URL on success; None on error
     """
-    return index_put_mutable_handler(DVCONF, data_id, data_bin, **kw)
+    return dropbox_put_chunk(DVCONF, data_id, data_bin)
 
 
 def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
     """
     Delete by hash
     """
-    return index_delete_immutable_handler(DVCONF, key, txid, sig_key_txid, **kw)
+    return dropbox_delete_chunk(DVCONF, 'immutable-{}'.format(key))
 
 
 def delete_mutable_handler( data_id, signature, **kw ):
     """
     Delete by data ID
     """
-    return index_delete_mutable_handler(DVCONF, data_id, signature, **kw)
+    return dropbox_delete_chunk(DVCONF, data_id)
 
 
 def get_classes():
