@@ -81,7 +81,8 @@ def key_file_get_name_public_keys(key_file, name_addr):
 
         public_keys = key_file['keys']['name']
         for public_key in public_keys:
-            if virtualchain.address_reencode(keylib.public_key_to_address(str(public_key))) == name_addr:
+            if virtualchain.address_reencode(keylib.public_key_to_address(keylib.key_formatting.compress(str(public_key)))) == name_addr or \
+               virtualchain.address_reencode(keylib.public_key_to_address(keylib.key_formatting.decompress(str(public_key)))) == name_addr:
                 name_owner_pubkeys = [str(public_key)]
                 break
 
@@ -264,6 +265,7 @@ def key_file_parse(profile_txt, name_owner_pubkeys_or_addr):
             return res
 
         name_owner_pubkeys = res['public_keys']
+        log.debug("Try verifying with {}".format(name_owner_pubkeys))
 
     else:
         if not isinstance(name_owner_pubkeys_or_addr, list):
@@ -278,7 +280,9 @@ def key_file_parse(profile_txt, name_owner_pubkeys_or_addr):
         if len(name_owner_pubkeys) > 1:
             assert delegation_verifier.verify(delegation_jwt, name_owner_pubkeys)
         else:
-            assert delegation_verifier.verify(delegation_jwt, name_owner_pubkeys[0])
+            # try both compressed and uncompressed
+            assert (delegation_verifier.verify(delegation_jwt, keylib.key_formatting.compress(name_owner_pubkeys[0])) or \
+                    delegation_verifier.verify(delegation_jwt, keylib.key_formatting.decompress(name_owner_pubkeys[0])))
 
     except AssertionError as ae:
         if BLOCKSTACK_TEST:
@@ -1178,8 +1182,9 @@ def key_file_check_versions(key_file, versions=None, min_timestamp=None):
     if key_file['keys']['delegation']['timestamp'] < versions['delegation']:
         return {'error': 'Key file delegation file is stale ({} < {})'.format(key_file['keys']['delegation']['timestamp'], versions['delegation'])}
 
-    if key_file['profile']['timestamp'] < versions['profile']:
-        return {'error': 'Key file profile is stale ({} < {})'.format(key_file['profile']['timestamp'], versions['profile'])}
+    if key_file['profile'].has_key('timestamp'):
+        if key_file['profile']['timestamp'] < versions['profile']:
+            return {'error': 'Key file profile is stale ({} < {})'.format(key_file['profile']['timestamp'], versions['profile'])}
 
     return {'status': True}
 
@@ -1223,10 +1228,11 @@ def key_file_put_versions(name, key_file_jwt, config_path=CONFIG_PATH):
         return {'error': 'Failed to store data version for delegation bundle for key file for {}: {}'.format(name, res['error'])}
 
     # store profile version 
-    res = put_mutable_data_version('{}.{}'.format(name, 'profile'), profile_bundle['timestamp'], [DEFAULT_DEVICE_ID], config_path=config_path)
-    if 'error' in res:
-        log.error("Failed to store data version for profile bundle for key file for {}".format(name))
-        return {'error': 'Failed to store data version for profile bundle for key file for {}: {}'.format(name, res['error'])}
+    if profile_bundle.has_key('timestamp'):
+        res = put_mutable_data_version('{}.{}'.format(name, 'profile'), profile_bundle['timestamp'], [DEFAULT_DEVICE_ID], config_path=config_path)
+        if 'error' in res:
+            log.error("Failed to store data version for profile bundle for key file for {}".format(name))
+            return {'error': 'Failed to store data version for profile bundle for key file for {}: {}'.format(name, res['error'])}
 
     return {'status': True}
 
