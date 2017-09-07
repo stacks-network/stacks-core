@@ -127,6 +127,10 @@ def load_storage(module_name):
     """
     Load a storage implementation, given its module name.
     """
+    from blockstack_client.backend.drivers import SUPPORTED_DRIVERS
+    if module_name not in SUPPORTED_DRIVERS:
+        raise ValueError("Unsupported/unknown driver {}".format(module_name))
+
     try:
         prefix = 'blockstack_client.backend.drivers.{}'
         storage_impl = importlib.import_module(prefix.format(module_name))
