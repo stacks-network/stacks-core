@@ -1,6 +1,7 @@
 # extras for test-launcher
 __init__
 attic
+testlib
 # list of tests to ignore
 virtualchain_abort
 name_preorder_register_update_file_benchmark
