@@ -4107,7 +4107,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         else:
             # got a session.
             # check origin.
-            # NOTE: this is a *fully-qualified* app domain, so we should remove the '.1' or '.x' 
             app_domain = session['app_domain']
             app_name = app_domain
             session_verified = False
@@ -4125,7 +4124,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         origin_header = '{}://{}'.format(scheme, app.app_domain_to_app_name(origin_header))
                     
                     app_name_scheme = urlparse.urlparse(app_name).scheme
-                    if scheme:
+                    if app_name_scheme:
                         app_name = urlparse.urlparse(app_name).netloc
 
                     if not app.is_valid_app_name(app_name):
@@ -4133,9 +4132,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         # assume it's an ICANN name 
                         log.debug("{} is not a valid app domain".format(app_name))
 
-                        if not urlparse.urlparse(app_name).scheme:
+                        if not urlparse.urlparse(app_name).netloc:
                             app_name = 'http://' + app_name
-                        
+
                         app_name = app.app_domain_to_app_name(app_name)
 
                     # convert origin to .1 or .x, since app domains have it
