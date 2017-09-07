@@ -23,7 +23,7 @@ session JWT.</p>
 <div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>authRequestToken</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NksifQ.eyJhcHBfZG9tYWluIjoiaGVsbG9ibG9ja3N0YWNrLmNvbSIsIm1ldGhvZHMiOltdLCJhcHBfcHVibGljX2tleSI6IjAyYjk0ZjY4NDgzOGFkMjdmZTE0Nzk1MGMyNjQ1ZjRhYzhjYmU1OTJlYjYzYmQwYTQ5MWQ2YzBlYWZjNjE0YzVjMCJ9.0lLrxt8uGtB2rCKB9sb0jK1DdrrWuuuWM</span></span><p>nsyjvFnmjNx0XfG14Npl72w6hp9W2OHoXdPe7VuXkfvKmVNlQdeA (jwt token) - app token before signing</p>
 </dd></dl></div></div></div><hr class="split"><div class="middle"><section id="core-node-administration" class="resource-group"><h2 class="group-heading">Core Node Administration <a href="#core-node-administration" class="permalink">&para;</a></h2></section></div><div class="middle"><div id="core-node-administration-ping-the-node" class="resource"><a href="#core-node-administration-ping-the-node" class="permalink"> </a><h3 class="resource-heading">Ping the node &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/node/ping</span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
   "<span class="hljs-attribute">status</span>": <span class="hljs-value"><span class="hljs-string">"alive"</span></span>,
-  "<span class="hljs-attribute">version</span>": <span class="hljs-value"><span class="hljs-string">"0.14.2"</span>
+  "<span class="hljs-attribute">version</span>": <span class="hljs-value"><span class="hljs-string">"###version###"</span>
 </span>}</code></pre><div style="height: 1px;"></div><h5>Schema</h5><pre><code>{
      'type': 'object',
      'properties': {
@@ -395,7 +395,87 @@ wallet can be managed through these endpoints.</p>
 <ul>
 <li>Authorization: <code>wallet_read</code></li>
 </ul>
-</div></div><hr class="split"><div class="middle"><div id="core-wallet-management-set-a-specific-wallet-key" class="resource"><a href="#core-wallet-management-set-a-specific-wallet-key" class="permalink"> </a><h3 class="resource-heading">Set a specific wallet key &para;</h3></div></div><div class="right"><div class="definition"><span class="method put">PUT</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/wallet/keys/<span class="hljs-attribute" title="keyname">owner</span></span></div><div class="tabs"><div class="example-names"><span>Requests</span><span class="tab-button">example 1</span><span class="tab-button">example 2</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code><span class="hljs-string">"cPo24qGYz76xSbUCug6e8LzmzLGJPZoowQC7fCVPLN2tzCUJgfcW"</span></code></pre><div style="height: 1px;"></div></div></div><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
+</div></div><hr class="split"><div class="middle"><div id="core-wallet-management-set-a-specific-wallet-key" class="resource"><a href="#core-wallet-management-set-a-specific-wallet-key" class="permalink"> </a><h3 class="resource-heading">Set a specific wallet key &para;</h3></div></div><div class="right"><div class="definition"><span class="method put">PUT</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/wallet/keys/<span class="hljs-attribute" title="keyname">owner</span></span></div><div class="tabs"><div class="example-names"><span>Requests</span><span class="tab-button">example 1</span><span class="tab-button">example 2</span><span class="tab-button">example 3</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code><span class="hljs-string">"cPo24qGYz76xSbUCug6e8LzmzLGJPZoowQC7fCVPLN2tzCUJgfcW"</span></code></pre><div style="height: 1px;"></div></div></div><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
+  "<span class="hljs-attribute">status</span>": <span class="hljs-value"><span class="hljs-literal">true</span>
+</span>}</code></pre><div style="height: 1px;"></div><h5>Schema</h5><pre><code>{
+  'anyOf': [
+    {
+          'type': 'object',
+          'properties': {
+               'status': {
+                  'type': 'boolean'
+               },
+          },
+    },
+    {
+        'type': 'object',
+        'properties': {
+            'error': {
+                'type': 'string',
+            },
+        },
+    },
+  ],
+ }</code></pre><div style="height: 1px;"></div></div></div></div></div></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Schema</h5><pre><code>{
+  "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"object"</span></span>,
+  "<span class="hljs-attribute">properties</span>": <span class="hljs-value">{
+    "<span class="hljs-attribute">private_key</span>": <span class="hljs-value">{
+      "<span class="hljs-attribute">anyOf</span>": <span class="hljs-value">[
+        {
+          "<span class="hljs-attribute">anyOf</span>": <span class="hljs-value">[
+            {
+              "<span class="hljs-attribute">pattern</span>": <span class="hljs-value"><span class="hljs-string">"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$"</span></span>,
+              "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"string"</span>
+            </span>},
+            {
+              "<span class="hljs-attribute">pattern</span>": <span class="hljs-value"><span class="hljs-string">"^([0-9a-fA-F]+)$"</span></span>,
+              "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"string"</span>
+            </span>}
+          ]
+        </span>},
+        {
+          "<span class="hljs-attribute">properties</span>": <span class="hljs-value">{
+            "<span class="hljs-attribute">address</span>": <span class="hljs-value">{
+              "<span class="hljs-attribute">pattern</span>": <span class="hljs-value"><span class="hljs-string">"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$"</span></span>,
+              "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"string"</span>
+            </span>}</span>,
+            "<span class="hljs-attribute">private_keys</span>": <span class="hljs-value">{
+              "<span class="hljs-attribute">items</span>": <span class="hljs-value">{
+                "<span class="hljs-attribute">anyOf</span>": <span class="hljs-value">[
+                  {
+                    "<span class="hljs-attribute">pattern</span>": <span class="hljs-value"><span class="hljs-string">"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$"</span></span>,
+                    "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"string"</span>
+                  </span>},
+                  {
+                    "<span class="hljs-attribute">pattern</span>": <span class="hljs-value"><span class="hljs-string">"^([0-9a-fA-F]+)$"</span></span>,
+                    "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"string"</span>
+                  </span>}
+                ]
+              </span>}</span>,
+              "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"array"</span>
+            </span>}</span>,
+            "<span class="hljs-attribute">redeem_script</span>": <span class="hljs-value">{
+              "<span class="hljs-attribute">pattern</span>": <span class="hljs-value"><span class="hljs-string">"^([0-9a-fA-F]+)$"</span></span>,
+              "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"string"</span>
+            </span>}
+          </span>}</span>,
+          "<span class="hljs-attribute">required</span>": <span class="hljs-value">[
+            <span class="hljs-string">"address"</span>,
+            <span class="hljs-string">"redeem_script"</span>,
+            <span class="hljs-string">"private_keys"</span>
+          ]</span>,
+          "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"object"</span>
+        </span>}
+      ]
+    </span>}</span>,
+    "<span class="hljs-attribute">persist_change</span>": <span class="hljs-value">{
+      "<span class="hljs-attribute">type</span>": <span class="hljs-value"><span class="hljs-string">"boolean"</span>
+    </span>}
+  </span>}</span>,
+  "<span class="hljs-attribute">required</span>": <span class="hljs-value">[
+    <span class="hljs-string">"private_key"</span>
+  ]
+</span>}</code></pre><div style="height: 1px;"></div></div></div><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
   "<span class="hljs-attribute">status</span>": <span class="hljs-value"><span class="hljs-literal">true</span>
 </span>}</code></pre><div style="height: 1px;"></div><h5>Schema</h5><pre><code>{
   'anyOf': [
@@ -487,13 +567,18 @@ wallet can be managed through these endpoints.</p>
   ],
  }</code></pre><div style="height: 1px;"></div></div></div></div></div></div></div></div><div class="middle"><div id="core-wallet-management-set-a-specific-wallet-key-put" class="action put"><h4 class="action-heading"><div class="name">Set a specific wallet key</div><a href="#core-wallet-management-set-a-specific-wallet-key-put" class="method put">PUT</a><code class="uri">/v1/wallet/keys/{keyname}</code></h4><p>This call instructs the blockstack core node to use a particular key
 instead of the core node’s configured wallet key. The setting of this
-key is <em>temporary</em>. It is not written to <code>~/.blockstack/wallet.json</code>,
-and on a subsequent restart, the key will return to the original key.
-However, the core registrar <em>tracks</em> the owner key used for each <code>PREORDER</code>,
-and stores that private key encrypted (with <code>scrypt</code> and the core wallet
-password) in the queue. When the registrar detects that the key being used
-for a particular name has changed, it will recover by submitting further
+key is <em>temporary</em> by default, meaning that it is not written to
+<code>~/.blockstack/wallet.json</code>, and on a subsequent restart, the key will
+return to the original key.  However, the core registrar <em>tracks</em> the
+owner key used for each <code>PREORDER</code>, and stores that private key
+encrypted (with <code>scrypt</code> and the core wallet password) in the
+queue. When the registrar detects that the key being used for a
+particular name has changed, it will recover by submitting further
 transactions with the stored key.</p>
+<p>However, for blockstack core &gt;= 0.14.5, the <code>persist_change</code> keyword
+will instruct the core node to write the changed key to
+<code>~/.blockstack/wallet.json</code>. In this mode, the node will backup the
+previous wallet to <code>~/.blockstack/wallet.json.prior.&lt;timestamp&gt;</code></p>
 <ul>
 <li>Requires root authorization</li>
 </ul>
@@ -814,9 +899,97 @@ after the <code>UPDATE</code> has 6 confirmations.</p>
 <li>Authorization: <code>revoke</code></li>
 </ul>
 <div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>name</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>bar.test</span></span><p>fully-qualified name</p>
-</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="managing-names-transfer-name" class="resource"><a href="#managing-names-transfer-name" class="permalink"> </a><h3 class="resource-heading">Transfer name &para;</h3></div></div><div class="right"><div class="definition"><span class="method put">PUT</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/names/<span class="hljs-attribute" title="name">bar.test</span>/owner</span></div><div class="tabs"><div class="example-names"><span>Requests</span><span class="tab-button">example 1</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
+</dd></dl></div></div></div><hr class="split"><div class="middle"><div id="managing-names-transfer-name" class="resource"><a href="#managing-names-transfer-name" class="permalink"> </a><h3 class="resource-heading">Transfer name &para;</h3></div></div><div class="right"><div class="definition"><span class="method put">PUT</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/names/<span class="hljs-attribute" title="name">bar.test</span>/owner</span></div><div class="tabs"><div class="example-names"><span>Requests</span><span class="tab-button">example 1</span><span class="tab-button">example 2</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
   "<span class="hljs-attribute">owner</span>": <span class="hljs-value"><span class="hljs-string">"mjZicz7GSJBZuGeCMEgpzr8U9w6d41DfXm"</span>
 </span>}</code></pre><div style="height: 1px;"></div></div></div><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">202</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
+  "<span class="hljs-attribute">message</span>": <span class="hljs-value"><span class="hljs-string">"Name queued for transfer.  The process takes ~1 hour.  You can check the status with `blockstack info`."</span></span>,
+  "<span class="hljs-attribute">success</span>": <span class="hljs-value"><span class="hljs-literal">true</span></span>,
+  "<span class="hljs-attribute">transaction_hash</span>": <span class="hljs-value"><span class="hljs-string">"c0d677f9ee681abbed8ca6d231bc4ece517c8c6695ce883e5e196b5395402779"</span>
+</span>}</code></pre><div style="height: 1px;"></div><h5>Schema</h5><pre><code>{
+  'anyOf': [
+    {
+          'type': 'object',
+          'properties': {
+               'success': {
+                  'type': 'boolean'
+               },
+               'transaction_hash': {
+                   'type': 'string',
+                   'pattern': r'^([0-9a-fA-F]+)$',
+               },
+          },
+    },
+    {
+        'type': 'object',
+        'properties': {
+            'error': {
+                'type': 'string',
+            },
+        },
+    },
+  ],
+}</code></pre><div style="height: 1px;"></div></div></div></div></div></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Schema</h5><pre><code>{
+            'type': 'object',
+            'properties': {
+                'owner': {
+                    'type': 'string',
+                    'pattern': OP_BASE58CHECK_PATTERN,
+                },
+                'tx_fee': {
+                    'type': 'integer',
+                    'minimum': 0,
+                    'maximum': 500000
+                },
+                'owner_key': {
+                    'anyOf': [
+                        {
+                            'anyOf': [
+                                {
+                                    'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                    'type': 'string'
+                                },
+                                {
+                                    'pattern': '^([0-9a-fA-F]+)$',
+                                    'type': 'string'
+                                }
+                            ]
+                        },
+                        {
+                            'properties': {
+                                'address': {
+                                    'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                    'type': 'string'
+                                },
+                                'private_keys': {
+                                    'items': {
+                                        'anyOf': [
+                                            {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        ]
+                                    },
+                                    'type': 'array'
+                                },
+                                'redeem_script': {
+                                    'pattern': '^([0-9a-fA-F]+)$',
+                                    'type': 'string'
+                                }
+                            },
+                            'required': [
+                                'owner'
+                            ],
+                            'type': 'object'
+                        }
+                    ]
+                }
+            },
+            'additionalProperties': False,
+        }</code></pre><div style="height: 1px;"></div></div></div><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">202</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{
   "<span class="hljs-attribute">message</span>": <span class="hljs-value"><span class="hljs-string">"Name queued for transfer.  The process takes ~1 hour.  You can check the status with `blockstack info`."</span></span>,
   "<span class="hljs-attribute">success</span>": <span class="hljs-value"><span class="hljs-literal">true</span></span>,
   "<span class="hljs-attribute">transaction_hash</span>": <span class="hljs-value"><span class="hljs-string">"c0d677f9ee681abbed8ca6d231bc4ece517c8c6695ce883e5e196b5395402779"</span>
@@ -867,6 +1040,55 @@ after the <code>UPDATE</code> has 6 confirmations.</p>
                     'minimum': 0,
                     'maximum': 500000
                 },
+                'owner_key': {
+                    'anyOf': [
+                        {
+                            'anyOf': [
+                                {
+                                    'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                    'type': 'string'
+                                },
+                                {
+                                    'pattern': '^([0-9a-fA-F]+)$',
+                                    'type': 'string'
+                                }
+                            ]
+                        },
+                        {
+                            'properties': {
+                                'address': {
+                                    'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                    'type': 'string'
+                                },
+                                'private_keys': {
+                                    'items': {
+                                        'anyOf': [
+                                            {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        ]
+                                    },
+                                    'type': 'array'
+                                },
+                                'redeem_script': {
+                                    'pattern': '^([0-9a-fA-F]+)$',
+                                    'type': 'string'
+                                }
+                            },
+                            'required': [
+                                'address',
+                                'redeem_script',
+                                'private_keys'
+                            ],
+                            'type': 'object'
+                        }
+                    ]
+                }
             },
             'additionalProperties': False,
         }</code></pre><div style="height: 1px;"></div></div></div><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">202</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>{<span class="hljs-string">'success'</span>: <span class="hljs-literal">true</span>, <span class="hljs-string">'transaction_hash'</span> : <span class="hljs-string">'...'</span>}</code></pre><div style="height: 1px;"></div><h5>Schema</h5><pre><code>{
@@ -928,8 +1150,8 @@ The <code>zonefile</code> field is preserved for legacy compatibility.</p>
 This method returns an error for names that have non-standard zone files.</p>
 <div class="title"><strong>URI Parameters</strong><div class="collapse-button show"><span class="close">Hide</span><span class="open">Show</span></div></div><div class="collapse-content"><dl class="inner"><dt>name</dt><dd><code>string</code>&nbsp;<span class="required">(required)</span>&nbsp;<span class="text-muted example"><strong>Example:&nbsp;</strong><span>bar.test</span></span><p>fully-qualified name</p>
 </dd></dl></div></div></div><hr class="split"><div class="middle"><section id="name-querying" class="resource-group"><h2 class="group-heading">Name Querying <a href="#name-querying" class="permalink">&para;</a></h2><p>This family of API endpoints deals with querying name information.</p>
-</section></div><div class="middle"><div id="name-querying-get-all-names" class="resource"><a href="#name-querying-get-all-names" class="permalink"> </a><h3 class="resource-heading">Get all names &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/names?page=<span class="hljs-attribute" title="page">23</span></span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>[ <span class="hljs-string">"aldenquimby.id"</span>, <span class="hljs-string">"aldeoryn.id"</span>, 
-     <span class="hljs-string">"alderete.id"</span>, <span class="hljs-string">"aldert.id"</span>, 
+</section></div><div class="middle"><div id="name-querying-get-all-names" class="resource"><a href="#name-querying-get-all-names" class="permalink"> </a><h3 class="resource-heading">Get all names &para;</h3></div></div><div class="right"><div class="definition"><span class="method get">GET</span>&nbsp;<span class="uri"><span class="hostname"></span>/v1/names?page=<span class="hljs-attribute" title="page">23</span></span></div><div class="tabs"><div class="tabs"><div class="example-names"><span>Responses</span><span class="tab-button">200</span></div><div class="tab"><div><div class="inner"><h5>Headers</h5><pre><code><span class="hljs-attribute">Content-Type</span>: <span class="hljs-string">application/json</span></code></pre><div style="height: 1px;"></div><h5>Body</h5><pre><code>[ <span class="hljs-string">"aldenquimby.id"</span>, <span class="hljs-string">"aldeoryn.id"</span>,
+     <span class="hljs-string">"alderete.id"</span>, <span class="hljs-string">"aldert.id"</span>,
      <span class="hljs-string">"aldi.id"</span>, <span class="hljs-string">"aldighieri.id"</span>, ... ]</code></pre><div style="height: 1px;"></div><h5>Schema</h5><pre><code>{
      'type': 'array',
      'items': {
