@@ -1335,6 +1335,8 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     opt: recipient (str) 'The recipient address, if not this wallet'
     opt: min_confs (int) 'The minimum number of confirmations on the initial preorder'
     opt: unsafe_reg (str) 'Should we aggressively register the name (ie, use low min confs)'
+    opt: owner_key (str) 'Owners private key string which will receive the name'
+    opt: payment_key (str) 'Payers private key string'
     """
 
     # NOTE: if force_data == True, then the zonefile will be the zonefile text itself, not a path.
@@ -1347,7 +1349,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     password = get_default_password(password)
 
     conf = config.get_config(config_path)
-    assert conf 
+    assert conf
 
     res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
@@ -1371,6 +1373,17 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
         unsafe_reg = True
     else:
         unsafe_reg = False
+
+    args_ownerkey = getattr(args, 'owner_key', None)
+    if args_ownerkey is None or len(args_ownerkey) == 0:
+        owner_key = None
+    else:
+        owner_key = args_ownerkey
+    args_paymentkey = getattr(args, 'payment_key', None)
+    if args_paymentkey is None or len(args_paymentkey) == 0:
+        payment_key = None
+    else:
+        payment_key = args_paymentkey
 
     # name must be well-formed
     error = check_valid_name(fqu)
@@ -1398,7 +1411,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
                     return {'error': 'Non-standard zone file'}
 
         user_zonefile = zonefile_info['zonefile_str']
-    
+
     else:
         # make a default zonefile
         _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
@@ -1428,9 +1441,16 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
         wallet_keys = get_wallet_keys(config_path, password)
         if 'error' in wallet_keys:
             return wallet_keys
-        
-        owner_privkey_info = wallet_keys['owner_privkey']
-        payment_privkey_info = wallet_keys['payment_privkey']
+
+        if owner_key:
+            owner_privkey_info = owner_key
+        else:
+            owner_privkey_info = wallet_keys['owner_privkey']
+
+        if payment_key:
+            payment_privkey_info = payment_key
+        else:
+            payment_privkey_info = wallet_keys['payment_privkey']
 
         operations = ['preorder', 'register', 'update']
         required_checks = ['is_name_available', 'is_payment_address_usable', 'owner_can_receive']
@@ -1499,10 +1519,16 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     rpc = local_api_connect(config_path=config_path)
     assert rpc
 
+    additionals = {}
+    if payment_key:
+        additionals['payment_key'] = payment_key
+    if owner_key:
+        additionals['owner_key'] = owner_key
+
     try:
         resp = rpc.backend_preorder(fqu, cost_satoshis, user_zonefile, user_profile,
                                     transfer_address, min_payment_confs,
-                                    unsafe_reg = unsafe_reg)
+                                    unsafe_reg = unsafe_reg, **additionals)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1535,7 +1561,8 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     arg: name (str) 'The name to update.'
     opt: data (str) 'A path to a file with the zone file data.'
     opt: nonstandard (str) 'If true, then do not validate or parse the zone file.'
-    opt: ownerkey (str) 'A private key string to be used for the update.'
+    opt: owner_key (str) 'A private key string to be used for the update.'
+    opt: payment_key (str) 'Payers private key string'
     """
 
     # NOTE: if force_data == True, then the zonefile will be the zonefile text itself, not a path.
@@ -1655,13 +1682,20 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     assert rpc
 
     try:
-        args_ownerkey = getattr(args, 'ownerkey', None)
-        # NOTE: already did safety checks
+        args_ownerkey = getattr(args, 'owner_key', None)
         if args_ownerkey is None or len(args_ownerkey) == 0:
             owner_key = None
         else:
             owner_key = args_ownerkey
-        resp = rpc.backend_update(fqu, user_data_txt, None, None, owner_key = owner_key )
+        args_paymentkey = getattr(args, 'payment_key', None)
+        if args_paymentkey is None or len(args_paymentkey) == 0:
+            payment_key = None
+        else:
+            payment_key = args_paymentkey
+
+        # NOTE: already did safety checks
+        resp = rpc.backend_update(
+            fqu, user_data_txt, None, None, owner_key = owner_key, payment_key = payment_key)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1685,7 +1719,8 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     help: Transfer a blockchain ID to a new owner
     arg: name (str) 'The name to transfer'
     arg: address (str) 'The address (base58check-encoded pubkey hash) to receive the name'
-    opt: ownerkey (str) 'A private key string to be used for the update.'
+    opt: owner_key (str) 'A private key string to be used for the update.'
+    opt: payment_key (str) 'Payers private key string'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1718,13 +1753,20 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     assert rpc
 
     try:
-        args_ownerkey = getattr(args, 'ownerkey', None)
+        args_ownerkey = getattr(args, 'owner_key', None)
         if args_ownerkey is None or len(args_ownerkey) == 0:
             owner_key = None
         else:
             owner_key = args_ownerkey
 
-        resp = rpc.backend_transfer(fqu, transfer_address, owner_key = owner_key)
+        args_paymentkey = getattr(args, 'payment_key', None)
+        if args_paymentkey is None or len(args_paymentkey) == 0:
+            payment_key = None
+        else:
+            payment_key = args_paymentkey
+
+        resp = rpc.backend_transfer(
+            fqu, transfer_address, owner_key = owner_key, payment_key = payment_key)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -3816,7 +3858,8 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     help: Directly set the hash associated with the name in the blockchain.
     arg: name (str) 'The name to update'
     arg: zonefile_hash (str) 'The RIPEMD160(SHA256(zonefile)) hash'
-    arg: ownerkey (str) 'The key to be used if not the wallets ownerkey'
+    arg: owner_key (str) 'The key to be used if not the wallets ownerkey'
+    arg: payment_key (str) 'The key to be used if not the wallets paymentkey'
     """
     password = get_default_password(password)
 
@@ -3840,13 +3883,21 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     assert rpc
 
     try:
-        args_ownerkey = getattr(args, 'ownerkey', None)
+        args_ownerkey = getattr(args, 'owner_key', None)
         # NOTE: already did safety checks
         if args_ownerkey is None or len(args_ownerkey) == 0:
             owner_key = None
         else:
             owner_key = args_ownerkey
-        resp = rpc.backend_update(fqu, None, None, zonefile_hash, owner_key = owner_key )
+        args_paymentkey = getattr(args, 'payment_key', None)
+        if args_paymentkey is None or len(args_paymentkey) == 0:
+            payment_key = None
+        else:
+            payment_key = args_paymentkey
+
+        # NOTE: already did safety checks
+        resp = rpc.backend_update(
+            fqu, None, None, zonefile_hash, owner_key = owner_key, payment_key = payment_key)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}

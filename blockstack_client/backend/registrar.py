@@ -1143,8 +1143,8 @@ def get_wallet(config_path=None, proxy=None):
 
 # RPC method: backend_preorder
 def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_payment_confs,
-             proxy=None, config_path=CONFIG_PATH, unsafe_reg = False, owner_privkey = None,
-             payment_privkey = None):
+             proxy = None, config_path = CONFIG_PATH, unsafe_reg = False, owner_key = None,
+             payment_key = None):
     """
     Send preorder transaction and enter it in queue.
     Queue up additional state so we can update and transfer it as well.
@@ -1171,14 +1171,10 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
         data['error'] = "Already in queue."
         return data
 
-    if payment_privkey is None:
-        payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
-    else:
-        payment_privkey_info = payment_privkey
-    if owner_privkey is None:
-        owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
-    else:
-        owner_privkey_info = owner_privkey
+    if payment_key is None:
+        payment_key = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
+    if owner_key is None:
+        owner_key = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
 
     name_data = {
         'transfer_address': transfer_address,
@@ -1199,15 +1195,15 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
     passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
     if passwd:
         name_data['owner_privkey'] = aes_encrypt(
-            str(owner_privkey_info), hexlify( passwd ))
+            str(owner_key), hexlify( passwd ))
         name_data['payment_privkey'] = aes_encrypt(
-            str(payment_privkey_info), hexlify( passwd ))
+            str(payment_key), hexlify( passwd ))
     else:
         log.warn("Registrar couldn't access wallet password to encrypt privkey," +
                  " sheepishly refusing to store the private key unencrypted.")
 
     log.debug("async_preorder({}, zonefile_data={}, profile={}, transfer_address={})".format(fqu, zonefile_data, profile, transfer_address)) 
-    resp = async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost_satoshis,
+    resp = async_preorder(fqu, payment_key, owner_key, cost_satoshis,
                           name_data=name_data, min_payment_confs=min_payment_confs,
                           proxy=proxy, config_path=config_path, queue_path=state.queue_path)
 
@@ -1230,8 +1226,8 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
 
 
 # RPC method: backend_update
-def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, config_path=CONFIG_PATH, proxy=None,
-            prior_name_data = None, owner_key = None, payment_key = None ):
+def update(fqu, zonefile_txt, profile, zonefile_hash, transfer_address, config_path=CONFIG_PATH, proxy=None,
+           prior_name_data = None, owner_key = None, payment_key = None ):
     """
     Send a new zonefile hash.  Queue the zonefile data for subsequent replication.
     zonefile_txt_b64 must be b64-encoded so we can send it over RPC sanely
