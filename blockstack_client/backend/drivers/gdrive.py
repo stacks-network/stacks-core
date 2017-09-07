@@ -43,7 +43,6 @@ GDRIVE_HANDLE = None
 GDRIVE_SETTINGS_PATH = None
 RELOAD_DRIVE = False
 DVCONF = None
-INDEX_DIRNAME = "/index"
 
 GDRIVE_SETTINGS_YAML_TEMPLATE = """
 client_config_backend: file
@@ -260,55 +259,51 @@ def handles_url( url ):
 
 def make_mutable_url( data_id ):
     """
-    The URL here is a misnomer, since only Dropbox.com
-    can create public URLs.
-
-    This URL here will instruct get_chunk() to go and search through
-    the index for the target data.
+    We can't generate these on the fly
     """
-    return index_make_mutable_url('www.dropbox.com', data_id)
+    return None
 
 
 def get_immutable_handler( key, **kw ):
     """
     Get data by hash
     """
-    return index_get_immutable_handler(DVCONF, key, **kw)
+    return gdrive_get_chunk(DVCONF, 'immutable-{}'.format(key))
 
 
 def get_mutable_handler( url, **kw ):
     """
     Get data by URL
     """
-    return index_get_mutable_handler(DVCONF, url, **kw)
+    return http_get_data(DVCONF, url)
 
 
 def put_immutable_handler( key, data, txid, **kw ):
     """
     Put data by hash and txid
     """
-    return index_put_immutable_handler(DVCONF, key, data, txid, **kw)
+    return gdrive_put_chunk(DVCONF, 'immutable-{}'.format(key), data)
 
 
 def put_mutable_handler( data_id, data_bin, **kw ):
     """
     Put data by file ID
     """
-    return index_put_mutable_handler(DVCONF, data_id, data_bin, **kw)
+    return gdrive_put_chunk(DVCONF, data_id, data_bin)
 
 
 def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
     """
     Delete by hash
     """
-    return index_delete_immutable_handler(DVCONF, key, txid, sig_key_txid, **kw)
+    return gdrive_delete_chunk(DVCONF, 'immutable-{}'.format(key))
 
 
 def delete_mutable_handler( data_id, signature, **kw ):
     """
     Delete by data ID
     """
-    return index_delete_mutable_handler(DVCONF, data_id, signature, **kw)
+    return gdrive_delete_chunk(DVCONF, data_id)
     
 
 def storage_init(conf, index=False, force_index=False, **kw):
