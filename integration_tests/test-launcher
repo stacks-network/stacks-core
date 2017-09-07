@@ -164,7 +164,7 @@ run-one-kube () {
   # Check for test name arguement
   if [ $# -eq 0 ]; then
     echo "need to input name of test to run"
-    echo "to get a list of tests run see blockstack_integration_tests/scenarios"
+    echo "to get a list of tests run 'ls ./blockstack_integration_tests/scenarios'"
     exit 1
   fi
 
@@ -184,10 +184,182 @@ run-one-kube () {
   rm -rf $tmpDir
 }
 
+progress-kube () {
+  local testName=""
+
+  # Check for input and use current branch if none
+  if [ $# -eq 0 ]; then
+    echo "No test specified, using $gitCommit"
+    echo ""
+    testName=$gitCommit
+  else
+    echo "Checking progress for test $1"
+    echo ""
+    testName=$1
+  fi
+
+  # Get number of scenarios supposed to be running
+  local totaltests=0
+  local scenarios=$(tests)
+  for sc in $scenarios; do
+    ((totaltests++))
+  done
+
+  # Get number of pods created in testing namespace
+  local totalpods=0
+  local pods=$(kubectl get pods --namespace $testName -o jsonpath='{.items[*].metadata.name}' -a)
+  for pod in $pods; do
+    ((totalpods++))
+  done
+
+  # If the above returns no pods then exit with message
+  if [ $totalpods -eq 0 ]; then
+    echo "need to input namespace name (not $testName) to get progress"
+    echo ""
+    echo "to get a list of namespaces run:         'kubectl get ns'"
+    echo "Use the namespace to get a list of pods: 'kubectl get pods --namespace <ns>'"
+    exit 1
+  fi
+
+  # Get number of running pods in namespace
+  local totalrunning=0
+  local podsrunning=$(kubectl get pods --namespace $testName -o jsonpath='{.items[*].metadata.name}')
+  for pod in $podsrunning; do
+    ((totalrunning++))
+  done
+
+  local completed=$(expr $totalpods - $totalrunning)
+  local remaining=$(expr $totalpods - $completed)
+
+  # Log test progress
+  echo "TotalTests -> $totaltests"
+  echo "TotalPods  -> $totalpods"
+  echo "Completed:"
+  echo "  Percent  -> $(percent $completed $totaltests)%"
+  echo "  Number   -> $completed"
+  echo "Remaining:"
+  echo "  Percent  -> $(percent $totalrunning $totaltests)%"
+  echo "  Number   -> $remaining"
+
+  # If there is a difference between $totaltests and $totalpods alert the operator
+  if [[ ! $totaltests -eq $totalpods ]]; then
+    echo ""
+    echo "Branch indicates $totaltests test, however only $totalpods running. Commit: $testName"
+    echo "  - This could indicate you chose a namespace where there is no test running. Check with kubectl get ns"
+    echo "  - This could mean the tests have mainly completed and the cluster has started scaling down"
+    echo "  - This could also indicate an issue, check the results"
+  fi
+}
+
+results-kube () {
+  local testName=""
+
+  # Check for input or use default
+  if [ $# -eq 0 ]; then
+    # echo "No test specified, using $gitCommit"
+    testName=$gitCommit
+  else
+    # echo "Getting results for test $1"
+    testName=$1
+  fi
+
+  echo "RUNTIME STATS:"
+  # Average test runtime
+  local average="SELECT mean(\"runtime\")/60, stddev(\"runtime\")/60 FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
+  local averageReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$average")
+
+  if [ "$averageReturn" = "{\"results\":[{}]}" ]; then
+    echo "  - Avg    -> No results!"
+    echo "  - Stddev -> No results!"
+  else
+    echo "  - Avg    -> $(echo $(echo $averageReturn | jq -r '.results[0].series[0].values[0][1]')| awk '{print substr($0,0,5)}') min"
+    echo "  - Stddev -> $(echo $(echo $averageReturn | jq -r '.results[0].series[0].values[0][2]')| awk '{print substr($0,0,5)}') min"
+  fi
+
+  # Max test runtime
+  local max="SELECT max(\"runtime\")/60, \"test_scenario\" FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
+  local maxReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$max")
+
+  if [ "$maxReturn" = "{\"results\":[{}]}" ]; then
+    echo "  - Max    -> No results!"
+  else
+    echo "  - Max    -> $(echo $(echo $maxReturn | jq -r '.results[0].series[0].values[0][1]') | awk '{print substr($0,0,5)}') min"
+    echo "    * test: $(echo $maxReturn | jq -r '.results[0].series[0].values[0][2]')"
+  fi
+
+  # Min test runtime
+  local min="SELECT min(\"runtime\")/60, \"test_scenario\" FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
+  local minReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$min")
+
+  if [ "$minReturn" = "{\"results\":[{}]}" ]; then
+    echo "  - Min    -> No results!"
+  else
+    echo "  - Min    -> $(echo $(echo $minReturn | jq -r '.results[0].series[0].values[0][1]') | awk '{print substr($0,0,5)}') min"
+    echo "    * test: $(echo $minReturn | jq -r '.results[0].series[0].values[0][2]')"
+  fi
+
+  # Number of tests run
+  local success="SELECT first(\"num_tests\") FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
+  local successReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$success")
+
+  echo ""
+  if [ "$successReturn" = "{\"results\":[{}]}" ]; then
+    echo "Number Tests -> No results!"
+  else
+    echo "Number Tests: $(echo $successReturn | jq -r '.results[0].series[0].values[0][1]')"
+  fi
+
+  # Number of successful tests
+  local success="SELECT count(\"runtime\") FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName' AND status = 'success'"
+  local successReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$success")
+
+  if [ "$successReturn" = "{\"results\":[{}]}" ]; then
+    echo "Success Tests -> No results!"
+  else
+    echo "Success Tests: $(echo $successReturn | jq -r '.results[0].series[0].values[0][1]')"
+  fi
+
+  # Return failed tests if there are any
+  local failed="SELECT \"runtime\", \"test_scenario\" FROM \"testing\".\"autogen\".\"integration_tests\" WHERE status = 'failed' AND git_commit = '$testName'"
+  local failedReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$failed")
+
+  if [ "$failedReturn" = "{\"results\":[{}]}" ]; then
+    echo "Failed Tests: 0"
+    echo "  - NONE!"
+  else
+    local failedTests=$(echo $failedReturn | jq -r '.results[0].series[0].values[][2]')
+    local numFailed=0
+
+    for test in $failedTests; do
+      ((numFailed++))
+    done
+
+    echo "Failed Tests: $numFailed"
+
+    for test in $failedTests; do
+      echo "  - $test"
+    done
+  fi
+}
+
 # Just delete the namespace where all the pods where.
 clean-all-kube () {
-  echo "removing all tests in namespace $gitCommit"
-  kubectl delete ns $gitCommit
+  local testName=""
+
+  # Check for input or use default
+  if [ $# -eq 0 ]; then
+    echo "No test specified, using $gitCommit"
+    echo ""
+    testName=$gitCommit
+  else
+    echo "Getting results for test $1"
+    echo ""
+    testName=$1
+  fi
+
+  local gitCommit=$1
+  echo "removing all tests in namespace $testName"
+  kubectl delete ns $testName
 }
 
 # Runs all the tests in seperate docker containers
@@ -339,6 +511,7 @@ BLOCKSTACK DOCKER TEST LAUNCHER:
   Run tests against a Kubernetes Cluster, special configruation needed:
     run-all-kube         -> run all tests as kubernetes pods in $gitCommit namespace
     run-one-kube         -> run single test in a kubernetes pod (pass test name)
+    progress-kube        -> check the progress of a running kube test on $gitCommit
     clean-all-kube       -> remove testing namespace ($gitCommit) and delete pods
 EOF
 }
@@ -378,10 +551,16 @@ case $1 in
     run-all-kube
     ;;
   clean-all-kube)
-    clean-all-kube
+    clean-all-kube $2
     ;;
   run-one-kube)
     run-one-kube $2
+    ;;
+  progress-kube)
+    progress-kube $2
+    ;;
+  results-kube)
+    results-kube $2
     ;;
   *)
     commands
