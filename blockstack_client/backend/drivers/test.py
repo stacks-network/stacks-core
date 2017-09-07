@@ -35,10 +35,7 @@ from ConfigParser import SafeConfigParser
 log = get_logger("blockstack-storage-driver-test")
 
 DEFAULT_DISK_ROOT = "/tmp/blockstack-integration-test-storage"
-DEFAULT_INDEX_DIRNAME = '/index'
-
 DISK_ROOT = None
-INDEX_DIRNAME = '/index'
 
 DVCONF = None
 
@@ -50,15 +47,15 @@ def env_setup():
    """
    Set globals based on environment
    """
-   global DISK_ROOT, INDEX_DIRNAME, DVCONF, CONFIG_PATH, USE_URLS_ONLY
+   global DISK_ROOT, DVCONF, CONFIG_PATH, USE_URLS_ONLY
    
    DISK_ROOT = os.environ.get("TEST_BLOCKSTACK_TEST_DISK_ROOT", DEFAULT_DISK_ROOT)
    USE_URLS_ONLY = os.environ.get("TEST_BLOCKSTACK_TEST_URLS_ONLY", False)
 
-   DVCONF = driver_config("test", CONFIG_PATH, test_get_chunk, test_put_chunk, test_delete_chunk, driver_info={}, index_stem=INDEX_DIRNAME, compress=True)
+   DVCONF = driver_config("test", CONFIG_PATH, test_get_chunk, test_put_chunk, test_delete_chunk, driver_info={}, compress=True)
 
 
-def storage_init(conf, index=False, force_index=False):
+def storage_init(conf, **kw):
    """
    Local disk implementation of the storage_init API call.
    Do one-time global setup--i.e. make directories.
@@ -90,7 +87,7 @@ def storage_init(conf, index=False, force_index=False):
        os.makedirs( DISK_ROOT )
    
    CONFIG_PATH = config_path
-   DVCONF = driver_config("test", config_path, test_get_chunk, test_put_chunk, test_delete_chunk, driver_info={}, index_stem=INDEX_DIRNAME, compress=True)
+   DVCONF = driver_config("test", config_path, test_get_chunk, test_put_chunk, test_delete_chunk, driver_info={}, compress=True)
 
    return True 
 
@@ -382,9 +379,6 @@ if __name__ == "__main__":
    if not rc:
       raise Exception("Failed to initialize")
    
-   index_manifest_url = index_setup(DVCONF)
-   assert index_manifest_url
-   
    # put_immutable_handler
    print "put_immutable_handler"
    for i in xrange(0, len(test_data)):
@@ -419,7 +413,7 @@ if __name__ == "__main__":
       
       d_id, d, n, s, url = test_data[i]
       
-      rd = get_immutable_handler( hash_data( d ), fqu='foo.id', index_manifest_url=index_manifest_url)
+      rd = get_immutable_handler( hash_data( d ), fqu='foo.id')
       if rd is None:
           raise Exception("Failed to get {}".format(hash_data(d)))
 
@@ -434,7 +428,7 @@ if __name__ == "__main__":
      
       log.debug("Get {}".format(url))
 
-      rd_json = get_mutable_handler( url, fqu='foo.id', index_manifest_url=index_manifest_url )
+      rd_json = get_mutable_handler( url, fqu='foo.id' )
       rd = parse_mutable_data( rd_json, data_pubkey )
       if rd is None:
          raise Exception("Failed to parse mutable data '%s'" % rd_json)
