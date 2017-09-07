@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack
@@ -72,6 +72,7 @@ def scenario( wallets, **kw ):
 
     resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef" )
     if 'error' in resp:
+        import sys
         print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
         return False
 

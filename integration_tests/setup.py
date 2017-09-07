@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
 from setuptools import setup, find_packages
 
@@ -30,7 +30,8 @@ setup(
     install_requires=[
         'blockstack>=0.14.2',
         'pybitcoin>=0.9.8',
-        'xmlrunner>=1.7.7'
+        'xmlrunner>=1.7.7',
+        'influxdb>=4.1.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',

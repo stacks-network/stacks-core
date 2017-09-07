@@ -1,0 +1,14 @@
+{{ range .items -}}
+{{ $status := index .status.containerStatuses 0 }}
+{{- if $status.state.running -}}
+{{ "[0] RUNNING   : " }}{{ $status.state.running.startedAt }}{{ " " }}{{ .metadata.labels.test }}{{"\n"}}
+{{- end -}}
+{{- if $status.state.terminated -}}
+{{- if eq $status.state.terminated.reason "Completed" -}}
+{{ "[ ] COMPLETED : " }}{{ $status.state.terminated.finishedAt }}{{ " " }}{{ .metadata.labels.test }}{{"\n"}}
+{{- end -}}
+{{- if eq $status.state.terminated.reason "Error" -}}
+{{ "[X] FAILED    : " }}{{ $status.state.terminated.finishedAt }}{{ " " }}{{ .metadata.labels.test }}{{"\n"}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

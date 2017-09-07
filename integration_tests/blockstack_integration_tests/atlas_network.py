@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack
@@ -44,7 +44,7 @@ import virtualchain
 
 from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 
-from blockstack_client.config import FIRST_BLOCK_MAINNET
+from blockstack_client.constants import FIRST_BLOCK_MAINNET
 from blockstack_client.logger import get_logger
 from blockstack_client.utils import url_to_host_port, atlas_inventory_to_string
 

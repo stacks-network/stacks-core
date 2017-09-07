@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -29,10 +29,13 @@ import httplib
 import virtualchain
 import jsonschema
 import virtualchain
-from virtualchain.lib.ecdsalib import *
+from virtualchain.lib.ecdsalib import get_pubkey_hex
 import keylib
 
-from .proxy import *
+from .proxy import (
+    json_is_error, get_name_blockchain_history, get_name_blockchain_record,
+    get_default_proxy)
+
 from blockstack_client import storage, subdomains
 from blockstack_client import user as user_db
 
@@ -41,7 +44,7 @@ from .constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTA
 
 from .zonefile import get_name_zonefile
 from .keys import get_data_privkey_info
-from .schemas import *
+from .schemas import PROFILE_ACCOUNT_SCHEMA
 from .config import get_config
 from .constants import BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE
 

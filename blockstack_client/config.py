@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
@@ -36,13 +36,26 @@ import time
 import shutil
 import requests
 import keylib
+import json
 
 from binascii import hexlify
 from ConfigParser import SafeConfigParser
 
 import virtualchain
-from .utxo import *
-from .constants import *
+from .utxo import (
+    SUPPORTED_UTXO_PROVIDERS, default_utxo_provider_opts,
+    SUPPORTED_UTXO_PARAMS, SUPPORTED_UTXO_PROMPT_MESSAGES,
+    connect_utxo_provider
+)
+from .constants import (
+    NAME_REGISTRATION, OPCODE_NAMES, CONFIG_DIR, CONFIG_PATH,
+    TX_MIN_CONFIRMATIONS, BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT,
+    METADATA_DIRNAME, BLOCKSTACK_DEFAULT_STORAGE_DRIVERS,
+    BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE, DEFAULT_API_PORT,
+    DEFAULT_API_HOST, DEFAULT_QUEUE_PATH, DEFAULT_POLL_INTERVAL,
+    DEFAULT_BLOCKCHAIN_READER, DEFAULT_BLOCKCHAIN_WRITER,
+    VERSION
+)
 from .logger import get_logger
 
 log = get_logger('blockstack-client')
@@ -284,14 +297,14 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True, set_migrat
     all_opts = read_config_file(config_path=config_file, set_migrate=set_migrate)
     blockstack_opts = {}
     blockstack_opts_defaults = all_opts['blockstack-client']
-    
+
     migrated = False
     if set_migrate:
         migrated = all_opts['migrated']
         del all_opts['migrated']
 
     blockstack_params = blockstack_opts_defaults.keys()
-    
+
     if not force:
         # defaults
         blockstack_opts = copy.deepcopy(blockstack_opts_defaults)
@@ -694,6 +707,7 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
 
     BLOCKSTACK_CLI_SERVER_HOST = os.environ.get('BLOCKSTACK_CLI_SERVER_HOST', None)     # overrides config file
     BLOCKSTACK_CLI_SERVER_PORT = os.environ.get('BLOCKSTACK_CLI_SERVER_PORT', None)     # overrides config file
+    BLOCKSTACK_CLI_SERVER_PROTOCOL = os.environ.get('BLOCKSTACK_CLI_SERVER_PROTOCOL', None)
 
     if BLOCKSTACK_CLI_SERVER_PORT is not None:
         try:
@@ -721,6 +735,7 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
         parser.add_section('blockstack-client')
         parser.set('blockstack-client', 'server', str(BLOCKSTACKD_SERVER))
         parser.set('blockstack-client', 'port', str(BLOCKSTACKD_PORT))
+        parser.set('blockstack-client', 'protocol', 'https')
         parser.set('blockstack-client', 'metadata', METADATA_DIRNAME)
         parser.set('blockstack-client', 'storage_drivers', BLOCKSTACK_DEFAULT_STORAGE_DRIVERS)
         parser.set('blockstack-client', 'storage_drivers_required_write', BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE)
@@ -817,21 +832,40 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
         }
     }
 
-    # convert field names
-    renamed_fields_014_subdomains = {}
-    dropped_fields_014_subdomains = {}
-    changed_fields_014_subdomains = {}
-    added_fields_014_subdomains = {
+    renamed_fields_014_4 = {}
+    dropped_fields_014_4 = {}
+    changed_fields_014_4 = {}
+    added_fields_014_4 = {
         'subdomain-resolution': {
             'subdomains_db' : str(config_dir) + "/subdomains.db"
         },
     }
 
+    # add HTTPS support in 0.14.4.3
+    renamed_fields_014_4_3 = {}
+    dropped_fields_014_4_3 = {}
+    changed_fields_014_4_3 = {
+        'blockstack-client': {
+            'port' : (str(6264), str(BLOCKSTACKD_PORT))
+        }
+    }
+
+    # should only default to https if we also are pointed at node.blockstack.org
+    if ret['blockstack-client']['server'] == 'node.blockstack.org':
+        protocol_default = 'https'
+    else:
+        protocol_default = 'http'
+    added_fields_014_4_3 = {
+        'blockstack-client': {
+            'protocol' : protocol_default
+        }
+   }
+
     # grow this list with future releases...
-    renamed_fields = [renamed_fields_014_1, renamed_fields_014_subdomains]
-    removed_fields = [dropped_fields_014_1, dropped_fields_014_subdomains]
-    added_fields = [added_fields_014_1, added_fields_014_subdomains]
-    changed_fields = [changed_fields_014_1, changed_fields_014_subdomains]
+    renamed_fields = [renamed_fields_014_1, renamed_fields_014_4, renamed_fields_014_4_3]
+    removed_fields = [dropped_fields_014_1, dropped_fields_014_4, dropped_fields_014_4_3]
+    added_fields = [added_fields_014_1, added_fields_014_4, added_fields_014_4_3]
+    changed_fields = [changed_fields_014_1, changed_fields_014_4, changed_fields_014_4_3]
 
     migrated = False
 
@@ -857,7 +891,7 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
 
                         del ret[sec][old_field_name]
                         ret[sec][new_field_name] = value
-                        
+
                         migrated = True
 
         for sec in added_field_set.keys():
@@ -876,10 +910,10 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
             if ret.has_key(sec):
                 for dropped_field_name in dropped_field_set[sec]:
                     if ret[sec].has_key(dropped_field_name):
-                        
+
                         log.debug("Remove old field {}.{}".format(sec, dropped_field_name))
                         del ret[sec][dropped_field_name]
-                        
+
                         migrated = True
 
         for sec in changed_field_set.keys():
@@ -887,18 +921,25 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
                 ret[sec] = {}
 
             for changed_field_name in changed_field_set[sec]:
-
-                if ret[sec][changed_field_name] != changed_field_set[sec][changed_field_name]:
-                    log.debug("Change {}.{} to {}".format(sec, changed_field_name, changed_field_set[sec][changed_field_name]))
-                    ret[sec][changed_field_name] = changed_field_set[sec][changed_field_name]
+                changed_field_value = changed_field_set[sec][changed_field_name]
+                if isinstance(changed_field_value, tuple):
+                    prior_default, new_default = changed_field_value
+                    if ret[sec][changed_field_name] == prior_default:
+                        log.debug("Change {}.{} to {}".format(sec, changed_field_name, new_default))
+                        ret[sec][changed_field_name] = new_default
+                        migrated = True
+                elif ret[sec][changed_field_name] != changed_field_value:
+                    log.debug("Change {}.{} to {}".format(sec, changed_field_name, changed_field_value))
+                    ret[sec][changed_field_name] = changed_field_value
 
                     migrated = True
-   
+
     # overrides from the environment
     env_overrides = {
         'blockstack-client': {
             'server': BLOCKSTACK_CLI_SERVER_HOST,
             'port': BLOCKSTACK_CLI_SERVER_PORT,
+            'protocol': BLOCKSTACK_CLI_SERVER_PROTOCOL,
         },
     }
 
