@@ -20,6 +20,10 @@
     You should have received a copy of the GNU General Public License
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """ 
+"""
+TEST ENV CLIENT_STORAGE_DRIVERS disk,http
+TEST ENV CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE disk
+"""
 
 import testlib
 import pybitcoin
