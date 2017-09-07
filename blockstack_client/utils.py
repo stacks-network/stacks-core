@@ -178,7 +178,7 @@ def url_to_host_port(url, port=None):
 
     if not port:
         conf = get_config()
-        port = ['blockstack-client']['port']
+        port = conf['port']
 
     urlinfo = urllib2.urlparse.urlparse(url)
     hostport = urlinfo.netloc
