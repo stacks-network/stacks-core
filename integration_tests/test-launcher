@@ -238,8 +238,8 @@ run-one-local () {
 
 # get-runtime-docker $containerID -> gets duration of test in seconds
 get-runtime-docker () {
-  local started=$(docker inspect $1 -f {{.State.StartedAt}})
-  local finished=$(docker inspect $1 -f {{.State.FinishedAt}})
+  local started=$(docker inspect -f {{.State.StartedAt}} $1)
+  local finished=$(docker inspect -f {{.State.FinishedAt}} $1)
   local sunix=0
   local funix=0
   if [[ $(uname) == 'Linux' ]]; then
