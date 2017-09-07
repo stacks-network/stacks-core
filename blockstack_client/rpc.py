@@ -2869,31 +2869,33 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         DANGEROUS
 
-        Initialize a storage driver explicitly, including instantiating its index.
+        Initialize a storage driver explicitly
         qs values:
         * driver (str): the name of the driver
-        * index (0, 1): set up the index as well as the driver
-        * force (0, 1): (DANGEROUS) forcibly set up the index, even if it appears to already exist
 
-        Reply 200 on success, with the index manifest URL
+        Reply 200 on success
         Reply 202 on success, if we're still in the process of setting up the driver.
         Reply 401 if the driver is invalid
         Reply 500 if the driver fails to initialize
         """
         qs_values = path_info['qs_values']
-        instantiate_index = qs_values.get('index', '0')
-        force_instantiate_index = qs_values.get('force', '0')
 
         if len(driver_name) == 0:
             return self._reply_json({'error': 'Missing driver name'}, status_code=401)
+        
+        try:
+            driver_mod = bsk_client.load_storage(driver_name)
+            if driver_mod is None:
+                return self._reply_json({'error': 'Invalid driver'}, status_code=401)
 
-        instantiate_index = (instantiate_index == '1')
-        force_instantiate_index = (force_instantiate_index == '1')
+        except ValueError:
+            return self._reply_json({'error': 'Invalid driver name'}, status_code=401)
 
-        # TODO: don't load just anything...
-        driver_mod = bsk_client.load_storage(driver_name)
-        if driver_mod is None:
-            return self._reply_json({'error': 'Invalid driver'}, status_code=401)
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            return self._reply_json({'error': 'Failed to load driver'}, status_code=500)
 
         # patch config file
         # expect: { 'driver_config': { '$driver_name': { '$property': '$value', ...} } }
@@ -2929,10 +2931,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Updating driver config for {}".format(driver_name))
             driver_config = driver_request['driver_config']
 
-            # may need to re-index
             change = False
-            cur_index_urls = []
-            log.debug("Set up config and index driver {} system-wide".format(driver_name))
+            log.debug("Set up config for driver {} system-wide".format(driver_name))
 
             # write storage config
             try:
@@ -2961,7 +2961,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         # instantiate...
         try:
-            res = bsk_client.register_storage(driver_mod, conf, index=instantiate_index, force_index=force_instantiate_index)
+            res = bsk_client.register_storage(driver_mod, conf)
         except backend_drivers.ConcurrencyViolationException as cve:
             # already running 
             if BLOCKSTACK_DEBUG:
@@ -2978,14 +2978,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if not res:
             return self._reply_json({'error': 'Driver failed to initialize'}, status_code=500)
 
-        # reply the index URL, if we have one
-        index_url = backend_drivers.index_settings_get_index_manifest_url(driver_name, self.server.config_path)
-
         ret = {
             'status': True,
         }
-        if index_url:
-            ret['index_url'] = index_url
 
         return self._reply_json(ret)
 
@@ -3116,10 +3111,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
 
         # make sure we have the right encoding
-        new_addr = virtualchain.address_reencode(str(address))
-        if new_addr != address:
-            log.debug("Re-encode {} to {}".format(new_addr, address))
-            address = new_addr
+        address = virtualchain.address_reencode(str(address))
 
         min_confirmations = path_info['qs_values'].get('min_confirmations', '{}'.format(TX_MIN_CONFIRMATIONS))
         try:
@@ -4073,6 +4065,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         path_info = self.get_path_and_qs()
         if 'error' in path_info:
+            log.debug('Failed to parse path and qs: {}'.format(path_info['error']))
             self._send_headers(status_code=401, content_type='text/plain')
             return
 
@@ -4123,17 +4116,26 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 origin_header = self.headers.get('origin', None)
                 if origin_header is not None:
                     scheme = urlparse.urlparse(origin_header).scheme
+                    origin_netloc = urlparse.urlparse(origin_header).netloc
                     if not scheme:
+                        log.debug("Invalid Origin '{}'".format(origin_header))
                         return self._reply_json({'error': 'Invalid Origin (no scheme)'}, status_code=401);
+                   
+                    if not app.is_valid_app_name(origin_netloc):
+                        origin_header = '{}://{}'.format(scheme, app.app_domain_to_app_name(origin_header))
                     
-                    origin_header = '{}://{}'.format(scheme, app.app_domain_to_app_name(origin_header))
+                    app_name_scheme = urlparse.urlparse(app_name).scheme
+                    if scheme:
+                        app_name = urlparse.urlparse(app_name).netloc
 
                     if not app.is_valid_app_name(app_name):
                         # suffix not given.
                         # assume it's an ICANN name 
+                        log.debug("{} is not a valid app domain".format(app_name))
+
                         if not urlparse.urlparse(app_name).scheme:
                             app_name = 'http://' + app_name
-
+                        
                         app_name = app.app_domain_to_app_name(app_name)
 
                     # convert origin to .1 or .x, since app domains have it
@@ -5642,8 +5644,6 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
         signal.signal(signal.SIGINT, local_api_exit_handler)
         signal.signal(signal.SIGQUIT, local_api_exit_handler)
         signal.signal(signal.SIGTERM, local_api_exit_handler)
-    else:
-        log.warning("Not setting signal handlers since we are in test mode")
 
     wallet = load_wallet(
         password=password, config_path=config_path,
@@ -5676,6 +5676,13 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
             # parent
             log.debug("Parent {} forked intermediate child {}".format(os.getpid(), res))
             return {'status': True}
+
+        # now a daemon.
+        # we can and should clear out our signal handlers
+        log.debug("Clearing old signal handlers")
+        signal.signal(signal.SIGINT, local_api_exit_handler)
+        signal.signal(signal.SIGQUIT, local_api_exit_handler)
+        signal.signal(signal.SIGTERM, local_api_exit_handler)
 
     # daemon child takes this path...
     atexit.register(local_api_atexit)
