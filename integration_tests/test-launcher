@@ -25,6 +25,9 @@ influxUser=$INFLUX_USER
 influxPass=$INFLUX_PASS
 influxSSL=$INFLUX_SSL
 
+#  Set the slackURL from the environment
+slackURL=$SLACK_URL
+
 # Set the number of containers to run to the number of logical cores in the system
 # This prevents CPU contention in the container which leads to Bitcoind calls timing out
 numContainers=1
@@ -163,27 +166,35 @@ run-commit-kube () {
   local outputFile=$testOutputDir/test-out.txt
 
   # First run the docker build and push
-  echo "Building docker image, this may take a minute..." > $outputFile
+  echo "Building docker image, this may take a minute..." >> $outputFile
   push-image > $testOutputDir/build-push.txt 2>&1
 
   # Start the tests against kubernetes cluster
-  echo "Starting kubernetes tests..." > $outputFile
+  echo "Starting kubernetes tests..." >> $outputFile
   run-all-kube > $testOutputDir/run-all-kube.txt 2>&1
 
   # Wait for the tests to complete and log progress periodically
-  echo "Waiting for test to complete..." > $outputFile
+  echo "Waiting for test to complete..." >> $outputFile
   while [ -n "$(kubectl get pods --namespace $gitCommit -o jsonpath='{.items[*].metadata.name}')" ]; do
-    progress-kube > $outputFile 2>&1
+
+    # Save logs from failed tests
+    local failedTests=$(kubectl get pods --namespace $gitCommit -o go-template='{{ range .items -}}{{ $status := index .status.containerStatuses 0 }}{{- if $status.state.terminated -}}{{- if eq $status.state.terminated.reason "Error" -}}{{ .metadata.name }}{{- end -}}{{- end -}}{{- end -}}' -a)
+    for pod in $failedTests; do
+      kubectl get logs --namespace $gitCommit $pod --tail 120 > $testOutputDir/$pod-failed.log 2>&1
+    done
+
+    # Log progress
+    progress-kube >> $outputFile 2>&1
     sleep 60
   done
 
   # Once test is done, post results to slack
-  echo "Test complete, sending results to slack..." > $outputFile
+  echo "Test complete, sending results to slack..." >> $outputFile
   results-kube > $testOutputDir/slack-post.txt 2>&1
 
   # Cleanup kubernetes namespace
-  echo "Deleting namespace..." > $outputFile
-  clean-all-kube > $outputFile
+  echo "Deleting namespace..." >> $outputFile
+  clean-all-kube >> $outputFile
 }
 
 # Run 1 test in Kubernetes
@@ -238,6 +249,13 @@ progress-kube () {
     ((totalpods++))
   done
 
+  # Get number of nodes in cluster
+  local totalnodes=0
+  local nodes=$(kubectl get nodes -o jsonpath='{.items[*].metadata.name}')
+  for node in $nodes; do
+    ((totalnodes++))
+  done
+
   # If the above returns no pods then exit with message
   if [ $totalpods -eq 0 ]; then
     echo "[$(date --utc +%FT%TZ)] no pods detected for $testName-$gitBranch"
@@ -255,12 +273,12 @@ progress-kube () {
   local remaining=$(expr $totalpods - $completed)
 
   # Log test progress
-  echo "[$(date --utc +%FT%TZ)] TotalTests: $totaltests TotalPods: $totalpods Completed: $(percent $completed $totaltests)% ($completed) Remaining: $(percent $totalrunning $totaltests)% ($remaining)"
+  echo "[$(date --utc +%FT%TZ)] TotalTests: $totaltests TotalPods: $totalpods TotalNodes: $totalnodes Completed: $(percent $completed $totaltests)% ($completed) Remaining: $(percent $totalrunning $totaltests)% ($remaining)"
 
   # If there is a difference between $totaltests and $totalpods alert the operator
-  if [[ ! $totaltests -eq $totalpods ]]; then
-    echo "[$(date --utc +%FT%TZ)] $totaltests tests, $totalpods pods. Check details $testName-$gitBranch"
-  fi
+  # if [[ ! $totaltests -eq $totalpods ]]; then
+  #   echo "[$(date --utc +%FT%TZ)] $totaltests tests, $totalpods pods. Check details $testName-$gitBranch"
+  # fi
 }
 
 results-kube () {
@@ -336,8 +354,6 @@ results-kube () {
       ((numFailed++))
     done
   fi
-
-  local slackURL=$SLACK_URL
 
   # Construct JSON Payload
   local textPayload="\`\`\`RUNTIME STATS FOR COMMIT $testName ON BRANCH $gitBranch:
