@@ -24,6 +24,7 @@ influxHost=$INFLUX_HOST
 influxUser=$INFLUX_USER
 influxPass=$INFLUX_PASS
 influxSSL=$INFLUX_SSL
+influxDatabase=testing
 
 #  Set the slackURL from the environment
 slackURL=$SLACK_URL
@@ -160,7 +161,41 @@ run-all-kube () {
   rm -rf $tmpDir
 }
 
+log-start-stop () {
+  # Get number of scenarios supposed to be running
+  local totaltests=0
+  local scenarios=$(tests)
+  for sc in $scenarios; do
+    ((totaltests++))
+  done
+
+  # Get number of pods created in testing namespace
+  local totalpods=0
+  local pods=$(kubectl get pods --namespace $testName -o jsonpath='{.items[*].metadata.name}' -a)
+  for pod in $pods; do
+    ((totalpods++))
+  done
+
+  # Get number of nodes in cluster
+  local totalnodes=0
+  local nodes=$(kubectl get nodes -o jsonpath='{.items[*].metadata.name}')
+  for node in $nodes; do
+    ((totalnodes++))
+  done
+
+  if [ "$1" = "start" ]; then
+    influx -host $influxHost -ssl -username $influxUser -password $influxPass -database $influxDatabase -execute "INSERT test_progress,git_commit=$testName,git_branch=$gitBranch,event=startstop total_tests=${totaltests}i,total_pods=${totalpods}i,total_nodes=${totalnodes}i,comp_perc=0.0,comp=0i,remain_perc=100.0,remain=${totaltests}i $(date +%s)"
+  elif [ "$1" = "stop" ]; then
+    influx -host $influxHost -ssl -username $influxUser -password $influxPass -database $influxDatabase -execute "INSERT test_progress,git_commit=$testName,git_branch=$gitBranch,event=startstop total_tests=${totaltests}i,total_pods=${totalpods}i,total_nodes=${totalnodes}i,comp_perc=100.0,comp=${totaltests}i,remain_perc=0.0,remain=0i $(date +%s)"
+  fi
+  # Log test start
+
+}
+
 run-commit-kube () {
+  # Log test start
+  log-start-stop start
+
   # Make a directory and file for the test output
   mkdir -p $testOutputDir
   local outputFile=$testOutputDir/test-out.txt
@@ -171,7 +206,7 @@ run-commit-kube () {
 
   # Start the tests against kubernetes cluster
   echo "Starting kubernetes tests..." >> $outputFile
-  run-all-kube > $testOutputDir/run-all-kube.txt 2>&1
+  run-all-kube > $testOutputDir/run-all-kube.txt 2>&1 &
 
   # Wait for the tests to complete and log progress periodically
   echo "Waiting for test to complete..." >> $outputFile
@@ -184,9 +219,13 @@ run-commit-kube () {
     done
 
     # Log progress
-    progress-kube >> $outputFile 2>&1
+    local write=$(progress-kube)
+    influx -host $influxHost -ssl -username $influxUser -password $influxPass -database $influxDatabase -execute "$write"
     sleep 60
   done
+
+  # Log test stop
+  log-start-stop stop 
 
   # Once test is done, post results to slack
   echo "Test complete, sending results to slack..." >> $outputFile
@@ -272,13 +311,16 @@ progress-kube () {
   local completed=$(expr $totalpods - $totalrunning)
   local remaining=$(expr $totalpods - $completed)
 
-  # Log test progress
-  echo "[$(date --utc +%FT%TZ)] TotalTests: $totaltests TotalPods: $totalpods TotalNodes: $totalnodes Completed: $(percent $completed $totaltests)% ($completed) Remaining: $(percent $totalrunning $totaltests)% ($remaining)"
-  
-  # If there is a difference between $totaltests and $totalpods alert the operator
-  # if [[ ! $totaltests -eq $totalpods ]]; then
-  #   echo "[$(date --utc +%FT%TZ)] $totaltests tests, $totalpods pods. Check details $testName-$gitBranch"
-  # fi
+  if [ "$(uname)" = "Darwin" ]; then
+    # Log test progress - Format Human on Mac
+    echo "[$(date '+%FT%TZ')] TotalTests: $totaltests TotalPods: $totalpods TotalNodes: $totalnodes Completed: $(percent $completed $totaltests)% ($completed) Remaining: $(percent $totalrunning $totaltests)% ($remaining)"
+  elif [ "$(uname)" = "Linux" ]; then
+    # Log test progress - Format Influx for reporting
+    echo "INSERT test_progress,git_commit=$testName,git_branch=$gitBranch,event=progress total_tests=${totaltests}i,total_pods=${totalpods}i,total_nodes=${totalnodes}i,comp_perc=$(percent $completed $totaltests),comp=${completed}i,remain_perc=$(percent $totalrunning $totaltests),remain=${remaining}i $(date +%s)"
+  else
+    # Log test progress - Format JSON just for fun
+    echo "{ \"timestamp\": $(date +%s), \"totalTests\": $totalTests, \"totalPods\": $totalPods, \"totalNodes\": $totalNodes, \"completedPercent\": $(percent $completed $totaltests), \"completed\": $completed, \"remainingPercent\": $(percent $totalrunning $totaltests),\"remaining\": $remaining}"
+  fi
 }
 
 results-kube () {
@@ -298,7 +340,7 @@ results-kube () {
 
   # Average test runtime
   local average="SELECT mean(\"runtime\")/60, stddev(\"runtime\")/60 FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
-  local averageReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$average")
+  local averageReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database $influxDatabase -execute "$average")
   local averageTest="None"
   local stddevTest="None"
   if [ ! "$averageReturn" = "$nullResult" ]; then
@@ -308,7 +350,7 @@ results-kube () {
 
   # Max test runtime
   local max="SELECT max(\"runtime\")/60, \"test_scenario\" FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
-  local maxReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$max")
+  local maxReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database $influxDatabase -execute "$max")
   local maxTime="None"
   local fastTest="None"
   if [ ! "$maxReturn" = "$nullResult" ]; then
@@ -318,7 +360,7 @@ results-kube () {
 
   # Min test runtime
   local min="SELECT min(\"runtime\")/60, \"test_scenario\" FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
-  local minReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$min")
+  local minReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database $influxDatabase -execute "$min")
   local minTime="None"
   local slowTest="None"
   if [ ! "$minReturn" = "$nullResult" ]; then
@@ -328,7 +370,7 @@ results-kube () {
 
   # Number of tests run
   local num="SELECT first(\"num_tests\") FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
-  local numReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$num")
+  local numReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database $influxDatabase -execute "$num")
   local totalTests="None"
   if [ ! "$numReturn" = "$nullResult" ]; then
     totalTests=$(echo $numReturn | jq -r '.results[0].series[0].values[0][1]')
@@ -336,7 +378,7 @@ results-kube () {
 
   # Number of successful tests
   local success="SELECT count(\"mean\") FROM (SELECT mean(\"runtime\") FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName' AND status = 'success' GROUP BY test_scenario)"
-  local successReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$success")
+  local successReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database $influxDatabase -execute "$success")
   local numSuccess="None"
   if [ ! "$successReturn" = "$nullResult" ]; then
     numSuccess=$(echo $successReturn | jq -r '.results[0].series[0].values[0][1]')
@@ -344,7 +386,7 @@ results-kube () {
 
   # Return failed tests if there are any
   local failed="SELECT \"runtime\", \"test_scenario\" FROM \"testing\".\"autogen\".\"integration_tests\" WHERE status = 'failed' AND git_commit = '$testName'"
-  local failedReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$failed")
+  local failedReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database $influxDatabase -execute "$failed")
   local failedTests="None"
   local numFailed=0
   if [ ! "$failedReturn" = "$nullResult" ]; then
