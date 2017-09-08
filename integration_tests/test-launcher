@@ -158,31 +158,32 @@ run-all-kube () {
 }
 
 run-commit-kube () {
-  # Make a directory for the output files
+  # Make a directory and file for the test output
   mkdir -p $testOutputDir
+  local outputFile=$testOutputDir/test-out.txt
 
   # First run the docker build and push
-  echo "Building docker image, this may take a minute..."
-  nohup push-image > $testOutputDir/build-push.txt
+  echo "Building docker image, this may take a minute..." > $outputFile
+  push-image > $testOutputDir/build-push.txt 2>&1
 
   # Start the tests against kubernetes cluster
-  echo "Starting kubernetes tests..."
-  nohup run-all-kube > $testOutputDir/run-all-kube.txt
+  echo "Starting kubernetes tests..." > $outputFile
+  run-all-kube > $testOutputDir/run-all-kube.txt 2>&1
 
   # Wait for the tests to complete and log progress periodically
-  echo "Waiting for test to complete..."
+  echo "Waiting for test to complete..." > $outputFile
   while [ -n "$(kubectl get pods --namespace $gitCommit -o jsonpath='{.items[*].metadata.name}')" ]; do
-    progress-kube
+    progress-kube > $outputFile 2>&1
     sleep 60
   done
 
   # Once test is done, post results to slack
-  echo "Test complete, sending results to slack..."
-  nohup results-kube > $testOutputDir/slack-post.txt
+  echo "Test complete, sending results to slack..." > $outputFile
+  results-kube > $testOutputDir/slack-post.txt 2>&1
 
   # Cleanup kubernetes namespace
-  echo "Deleting namespace..."
-  clean-all-kube
+  echo "Deleting namespace..." > $outputFile
+  clean-all-kube > $outputFile
 }
 
 # Run 1 test in Kubernetes
