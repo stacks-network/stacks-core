@@ -184,9 +184,9 @@ log-start-stop () {
   done
 
   if [ "$1" = "start" ]; then
-    influx -host $influxHost -ssl -username $influxUser -password $influxPass -database $influxDatabase -execute "INSERT test_progress,git_commit=$testName,git_branch=$gitBranch,event=startstop total_tests=${totaltests}i,total_pods=${totalpods}i,total_nodes=${totalnodes}i,comp_perc=0.0,comp=0i,remain_perc=100.0,remain=${totaltests}i $(date +%s)"
+    influx -host $influxHost -ssl -username $influxUser -password $influxPass -database $influxDatabase -execute "INSERT test_progress,git_commit=$gitCommit,git_branch=$gitBranch,event=startstop total_tests=${totaltests}i,total_pods=${totalpods}i,total_nodes=${totalnodes}i,comp_perc=0.0,comp=0i,remain_perc=100.0,remain=${totaltests}i $(date +%s)"
   elif [ "$1" = "stop" ]; then
-    influx -host $influxHost -ssl -username $influxUser -password $influxPass -database $influxDatabase -execute "INSERT test_progress,git_commit=$testName,git_branch=$gitBranch,event=startstop total_tests=${totaltests}i,total_pods=${totalpods}i,total_nodes=${totalnodes}i,comp_perc=100.0,comp=${totaltests}i,remain_perc=0.0,remain=0i $(date +%s)"
+    influx -host $influxHost -ssl -username $influxUser -password $influxPass -database $influxDatabase -execute "INSERT test_progress,git_commit=$gitCommit,git_branch=$gitBranch,event=startstop total_tests=${totaltests}i,total_pods=${totalpods}i,total_nodes=${totalnodes}i,comp_perc=100.0,comp=${totaltests}i,remain_perc=0.0,remain=0i $(date +%s)"
   fi
   # Log test start
 
