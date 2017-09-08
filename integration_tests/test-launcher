@@ -152,7 +152,8 @@ run-all-kube () {
     kubectl apply -f $tmpDir/$sc.yaml
   done
 
-  # Remove the temporary files
+  # Wait to remove the temporary files
+  sleep 60
   rm -rf $tmpDir
 }
 
@@ -264,82 +265,81 @@ results-kube () {
   fi
 
   echo "RUNTIME STATS:"
+
+  # Null Influx result
+  local nullResult="{\"results\":[{}]}"
+
   # Average test runtime
   local average="SELECT mean(\"runtime\")/60, stddev(\"runtime\")/60 FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
   local averageReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$average")
-
-  if [ "$averageReturn" = "{\"results\":[{}]}" ]; then
-    echo "  - Avg    -> No results!"
-    echo "  - Stddev -> No results!"
-  else
-    echo "  - Avg    -> $(echo $(echo $averageReturn | jq -r '.results[0].series[0].values[0][1]')| awk '{print substr($0,0,5)}') min"
-    echo "  - Stddev -> $(echo $(echo $averageReturn | jq -r '.results[0].series[0].values[0][2]')| awk '{print substr($0,0,5)}') min"
+  local averageTest="None"
+  local stddevTest="None"
+  if [ ! "$averageReturn" = "$nullResult" ]; then
+    averageTest=$(echo $(echo $averageReturn | jq -r '.results[0].series[0].values[0][1]')| awk '{print substr($0,0,5)}')
+    stddevTest=$(echo $(echo $averageReturn | jq -r '.results[0].series[0].values[0][2]')| awk '{print substr($0,0,5)}')
   fi
 
   # Max test runtime
   local max="SELECT max(\"runtime\")/60, \"test_scenario\" FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
   local maxReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$max")
-
-  if [ "$maxReturn" = "{\"results\":[{}]}" ]; then
-    echo "  - Max    -> No results!"
-  else
-    echo "  - Max    -> $(echo $(echo $maxReturn | jq -r '.results[0].series[0].values[0][1]') | awk '{print substr($0,0,5)}') min"
-    echo "    * test: $(echo $maxReturn | jq -r '.results[0].series[0].values[0][2]')"
+  local maxTime="None"
+  local fastTest="None"
+  if [ ! "$maxReturn" = "$nullResult" ]; then
+    maxTime=$(echo $(echo $maxReturn | jq -r '.results[0].series[0].values[0][1]') | awk '{print substr($0,0,5)}')
+    fastTest=$(echo $maxReturn | jq -r '.results[0].series[0].values[0][2]')
   fi
 
   # Min test runtime
   local min="SELECT min(\"runtime\")/60, \"test_scenario\" FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
   local minReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$min")
-
-  if [ "$minReturn" = "{\"results\":[{}]}" ]; then
-    echo "  - Min    -> No results!"
-  else
-    echo "  - Min    -> $(echo $(echo $minReturn | jq -r '.results[0].series[0].values[0][1]') | awk '{print substr($0,0,5)}') min"
-    echo "    * test: $(echo $minReturn | jq -r '.results[0].series[0].values[0][2]')"
+  local minTime="None"
+  local slowTest="None"
+  if [ ! "$minReturn" = "$nullResult" ]; then
+    minTime=$(echo $(echo $minReturn | jq -r '.results[0].series[0].values[0][1]') | awk '{print substr($0,0,5)}')
+    slowTest=$(echo $minReturn | jq -r '.results[0].series[0].values[0][2]')
   fi
 
   # Number of tests run
-  local success="SELECT first(\"num_tests\") FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
-  local successReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$success")
-
-  echo ""
-  if [ "$successReturn" = "{\"results\":[{}]}" ]; then
-    echo "Number Tests -> No results!"
-  else
-    echo "Number Tests: $(echo $successReturn | jq -r '.results[0].series[0].values[0][1]')"
+  local num="SELECT first(\"num_tests\") FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
+  local numReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$num")
+  local totalTests="None"
+  if [ ! "$numReturn" = "$nullResult" ]; then
+    totalTests=$(echo $numReturn | jq -r '.results[0].series[0].values[0][1]')
   fi
 
   # Number of successful tests
   local success="SELECT count(\"runtime\") FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName' AND status = 'success'"
   local successReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$success")
-
-  if [ "$successReturn" = "{\"results\":[{}]}" ]; then
-    echo "Success Tests -> No results!"
-  else
-    echo "Success Tests: $(echo $successReturn | jq -r '.results[0].series[0].values[0][1]')"
+  local numSuccess="None"
+  if [ ! "$successReturn" = "$nullResult" ]; then
+    numSuccess=$(echo $successReturn | jq -r '.results[0].series[0].values[0][1]')
   fi
 
   # Return failed tests if there are any
   local failed="SELECT \"runtime\", \"test_scenario\" FROM \"testing\".\"autogen\".\"integration_tests\" WHERE status = 'failed' AND git_commit = '$testName'"
   local failedReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database testing -execute "$failed")
-
-  if [ "$failedReturn" = "{\"results\":[{}]}" ]; then
-    echo "Failed Tests: 0"
-    echo "  - NONE!"
-  else
-    local failedTests=$(echo $failedReturn | jq -r '.results[0].series[0].values[][2]')
-    local numFailed=0
-
+  local failedTests="None"
+  local numFailed=0
+  if [ ! "$failedReturn" = "$nullResult" ]; then
+    failedTests=$(echo $failedReturn | jq -r '.results[0].series[0].values[][2]')
+    numFailed=0
     for test in $failedTests; do
       ((numFailed++))
     done
-
-    echo "Failed Tests: $numFailed"
-
-    for test in $failedTests; do
-      echo "  - $test"
-    done
   fi
+
+  echo "  - Avg    -> $averageTest min"
+  echo "  - Stddev -> $stddevTest min"
+  echo "  - Max    -> $maxTime min"
+  echo "    * test: $fastTest"
+  echo "  - Min    -> $minTime min"
+  echo "    * test: $slowTest"
+  echo "Number Tests: $totalTests"
+  echo "Success Tests: $numSuccess"
+  echo "Failed Tests: $numFailed"
+  for test in $failedTests; do
+    echo "  - $test"
+  done
 }
 
 # Just delete the namespace where all the pods where.
