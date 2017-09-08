@@ -1364,7 +1364,8 @@ def transfer(fqu, transfer_address, prior_name_data = None, config_path=CONFIG_P
 
 
 # RPC method: backend_renew
-def renew( fqu, renewal_fee, config_path=CONFIG_PATH, proxy=None ):
+def renew(fqu, renewal_fee, config_path=CONFIG_PATH, proxy=None, owner_key = None,
+          payment_key = None):
     """
     Renew a name
 
@@ -1387,10 +1388,12 @@ def renew( fqu, renewal_fee, config_path=CONFIG_PATH, proxy=None ):
 
     resp = None
 
-    payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
-    owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    if payment_key is None:
+        payment_key = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
+    if owner_key is None:
+        owner_key = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
 
-    resp = async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee,
+    resp = async_renew(fqu, owner_key, payment_key, renewal_fee,
                        proxy=proxy,
                        config_path=config_path,
                        queue_path=state.queue_path)

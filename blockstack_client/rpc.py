@@ -4321,13 +4321,14 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_renew(self, fqu, renewal_fee):
+    def backend_renew(self, fqu, renewal_fee, owner_key = None, payment_key = None):
         """
         Queue a renewal
         """
         if is_api_server(self.config_dir):
             # directly invoke the renew
-            return backend.registrar.renew(fqu, renewal_fee, config_path=self.config_path)
+            return backend.registrar.renew(fqu, renewal_fee, config_path=self.config_path,
+                                           owner_key = owner_key, payment_key = payment_key)
 
         else:
             res = self.check_version()
@@ -4338,6 +4339,12 @@ class BlockstackAPIEndpointClient(object):
             data = {
                 'name': fqu,
             }
+
+            if owner_key is not None:
+                data['owner_key'] = owner_key
+            if payment_key is not None:
+                data['payment_key'] = payment_key
+
 
             headers = self.make_request_headers()
             req = requests.post( 'http://{}:{}/v1/names'.format(self.server, self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)

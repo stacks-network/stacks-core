@@ -242,6 +242,7 @@ def scenario( wallets, **kw ):
 
     # make zonefile for recipients
     zonefiles = []
+    postages = []
     for i in [1,2,3]:
         name = "tricky{}.test".format(i)
         driver_urls = blockstack_client.storage.make_mutable_data_urls(name, use_only=['dht', 'disk'])
@@ -356,18 +357,19 @@ def check( state_engine ):
         print "wrong namespace"
         return False
 
-    names = ['foo.test', 'bar.test', 'tricky1.test', 'tricky2.test', 'tricky3.test']
-    owners = [ wallets[3].addr , new_addr, new_addr, new_addr, new_addr ]
+    names = [ 'bar.test', 'tricky1.test', 'tricky2.test', 'tricky3.test']
+    owners = [ new_addr ] * 4
+    payers = [ wallets[1].addr ] * 4
+
     test_proxy = testlib.TestAPIProxy()
 
     for i in xrange(0, len(names)):
         name = names[i]
-        wallet_payer = 5
-        wallet_owner = 3 + i
-        wallet_data_pubkey = 4
 
         # not preordered
-        preorder = state_engine.get_name_preorder( name, pybitcoin.make_pay_to_address_script(wallets[wallet_payer].addr), wallets[wallet_owner].addr )
+        preorder = state_engine.get_name_preorder(
+            name, pybitcoin.make_pay_to_address_script(payers[i]), owners[i])
+
         if preorder is not None:
             print "still have preorder"
             return False
@@ -382,5 +384,7 @@ def check( state_engine ):
         if name_rec['address'] != owners[i]:
             print "name {} has wrong owner".format(name)
             return False
+
+        print name_rec
 
     return True
