@@ -220,6 +220,7 @@ run-commit-kube () {
 
     # Log progress
     local write=$(progress-kube)
+    echo "$write"
     influx -host $influxHost -ssl -username $influxUser -password $influxPass -precision s -database $influxDatabase -execute "$write"
     sleep 60
   done
