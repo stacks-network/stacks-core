@@ -934,6 +934,100 @@ after the `UPDATE` has 6 confirmations.
                             },
                             'unsafe': {
                                 'type': 'boolean'
+                            },
+                            'owner_key': {
+                                'anyOf': [
+                                    {
+                                        'anyOf': [
+                                            {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'properties': {
+                                            'address': {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            'private_keys': {
+                                                'items': {
+                                                    'anyOf': [
+                                                        {
+                                                            'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                            'type': 'string'
+                                                        },
+                                                        {
+                                                            'pattern': '^([0-9a-fA-F]+)$',
+                                                            'type': 'string'
+                                                        }
+                                                    ]
+                                                },
+                                                'type': 'array'
+                                            },
+                                            'redeem_script': {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        },
+                                        'required': [
+                                            'owner'
+                                        ],
+                                        'type': 'object'
+                                    }
+                                ]
+                            },
+                            'payment_key': {
+                                'anyOf': [
+                                    {
+                                        'anyOf': [
+                                            {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'properties': {
+                                            'address': {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            'private_keys': {
+                                                'items': {
+                                                    'anyOf': [
+                                                        {
+                                                            'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                            'type': 'string'
+                                                        },
+                                                        {
+                                                            'pattern': '^([0-9a-fA-F]+)$',
+                                                            'type': 'string'
+                                                        }
+                                                    ]
+                                                },
+                                                'type': 'array'
+                                            },
+                                            'redeem_script': {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        },
+                                        'required': [
+                                            'owner'
+                                        ],
+                                        'type': 'object'
+                                    }
+                                ]
                             }
                         },
                         'required': [
@@ -977,7 +1071,7 @@ after the `UPDATE` has 6 confirmations.
                 },
               ],
             }
-                
+
 
 ## Revoke name [DELETE /v1/names/{name}]
 Revokes the name from blockstack.
@@ -1048,6 +1142,53 @@ Transfers a name to a different owner.
                                 'maximum': 500000
                             },
                             'owner_key': {
+                                'anyOf': [
+                                    {
+                                        'anyOf': [
+                                            {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'properties': {
+                                            'address': {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            'private_keys': {
+                                                'items': {
+                                                    'anyOf': [
+                                                        {
+                                                            'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                            'type': 'string'
+                                                        },
+                                                        {
+                                                            'pattern': '^([0-9a-fA-F]+)$',
+                                                            'type': 'string'
+                                                        }
+                                                    ]
+                                                },
+                                                'type': 'array'
+                                            },
+                                            'redeem_script': {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        },
+                                        'required': [
+                                            'owner'
+                                        ],
+                                        'type': 'object'
+                                    }
+                                ]
+                            },
+                            'payment_key': {
                                 'anyOf': [
                                     {
                                         'anyOf': [
@@ -1212,9 +1353,54 @@ The `zonefile` field is preserved for legacy compatibility.
                                             }
                                         },
                                         'required': [
-                                            'address',
-                                            'redeem_script',
-                                            'private_keys'
+                                            'owner'
+                                        ],
+                                        'type': 'object'
+                                    }
+                                ]
+                            },
+                            'payment_key': {
+                                'anyOf': [
+                                    {
+                                        'anyOf': [
+                                            {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'properties': {
+                                            'address': {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            'private_keys': {
+                                                'items': {
+                                                    'anyOf': [
+                                                        {
+                                                            'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                            'type': 'string'
+                                                        },
+                                                        {
+                                                            'pattern': '^([0-9a-fA-F]+)$',
+                                                            'type': 'string'
+                                                        }
+                                                    ]
+                                                },
+                                                'type': 'array'
+                                            },
+                                            'redeem_script': {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        },
+                                        'required': [
+                                            'owner'
                                         ],
                                         'type': 'object'
                                     }

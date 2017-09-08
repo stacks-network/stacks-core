@@ -696,7 +696,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 },
                 'unsafe': {
                     'type': 'boolean'
-                }
+                },
+                'owner_key': PRIVKEY_INFO_SCHEMA,
+                'payment_key': PRIVKEY_INFO_SCHEMA
             },
             'required': [
                 'name'
@@ -719,6 +721,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         unsafe_reg = request.get('unsafe', False)
         make_profile = request.get('make_profile', False)
 
+        owner_key = request.get('owner_key', None)
+        payment_key = request.get('payment_key', None)
+
         if unsafe_reg:
             unsafe_reg = 'true'
         else:
@@ -739,7 +744,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         # do we own this name already?
         # i.e. do we need to renew?
-        res = proxy.get_names_owned_by_address( self.server.wallet_keys['owner_addresses'][0] )
+        if owner_key is None:
+            check_already_owned_by = self.server.wallet_keys['owner_addresses'][0]
+        else:
+            check_already_owned_by = virtualchain.get_privkey_address(owner_key)
+        res = proxy.get_names_owned_by_address(check_already_owned_by)
         if json_is_error(res):
             log.error("Failed to get names owned by address")
             self._reply_json({'error': 'Failed to list names by address'}, status_code=500)
@@ -749,20 +758,23 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if name in res:
             # renew
             for prop in request_schema['properties'].keys():
-                if prop in request.keys() and prop not in ['name']:
-                    log.debug("Invalid argument {}".format(prop))
-                    return self._reply_json({'error': 'Name already owned by this wallet'}, status_code=401)
+                if prop in request.keys() and prop not in ['name', 'owner_key', 'payment_key']:
+                    log.debug("Invalid renewal argument {}".format(prop))
+                    return self._reply_json(
+                        {'error': 'Name already owned by this wallet and ' +
+                         '`{}` is an invalid argument for renewal'.format(prop)}, status_code=401)
 
             op = 'renew'
             log.debug("renew {}".format(name))
-            res = internal.cli_renew(name, interactive=False, cost_satoshis=cost_satoshis)
+            res = internal.cli_renew(name, owner_key, payment_key, interactive=False,
+                                     cost_satoshis=cost_satoshis)
 
         else:
             # register
             op = 'register'
             log.debug("register {}".format(name))
             res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs,
-                                        unsafe_reg, interactive=False, force_data=True,
+                                        unsafe_reg, owner_key, payment_key, interactive=False, force_data=True,
                                         cost_satoshis=cost_satoshis, make_profile = make_profile)
 
         if 'error' in res:
@@ -944,7 +956,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'minimum': 0,
                     'maximum': TX_MAX_FEE
                 },
-                'owner_key': PRIVKEY_INFO_SCHEMA
+                'owner_key': PRIVKEY_INFO_SCHEMA,
+                'payment_key': PRIVKEY_INFO_SCHEMA
             },
             'required': [
                 'owner'
@@ -973,8 +986,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Re-encode {} to {}".format(new_addr, recipient_address))
             recipient_address = new_addr
 
-        privkey_info = request.get('owner_key', None)
-        res = internal.cli_transfer(name, recipient_address, privkey_info, interactive=False)
+        owner_key = request.get('owner_key', None)
+        payment_key = request.get('payment_key', None)
+
+        res = internal.cli_transfer(name, recipient_address, owner_key, payment_key, interactive=False)
         if 'error' in res:
             log.error("Failed to transfer {}: {}".format(name, res['error']))
             self._reply_json({"error": 'Transfer failed.\n{}'.format(res['error'])}, status_code=500)
@@ -1020,7 +1035,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'minimum': 0,
                     'maximum': TX_MAX_FEE
                 },
-                'owner_key': PRIVKEY_INFO_SCHEMA
+                'owner_key': PRIVKEY_INFO_SCHEMA,
+                'payment_key': PRIVKEY_INFO_SCHEMA
             },
             'additionalProperties': False,
         }
@@ -1063,13 +1079,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         res = None
-        privkey_info = request.get('owner_key', None)
+        owner_key = request.get('owner_key', None)
+        payment_key = request.get('payment_key', None)
 
         if zonefile_str is not None:
-            res = internal.cli_update(name, str(zonefile_str), "false", privkey_info, interactive=False,
+            res = internal.cli_update(name, str(zonefile_str), "false", owner_key, payment_key, interactive=False,
                                       nonstandard=True, force_data=True)
         else:
-            res = internal.cli_set_zonefile_hash(name, str(zonefile_hash), privkey_info)
+            res = internal.cli_set_zonefile_hash(name, str(zonefile_hash), owner_key, payment_key)
 
         if 'error' in res:
             log.error("Failed to update {}: {}".format(name, res['error']))
@@ -4183,15 +4200,19 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_preorder(self, fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs,
-                         unsafe_reg = False):
+    def backend_preorder(self, fqu, cost_satoshis, user_zonefile, user_profile,
+                         transfer_address, min_payment_confs, unsafe_reg = False,
+                         payment_key = None, owner_key = None):
         """
         Queue up a name for registration.
         """
 
         if is_api_server(self.config_dir):
             # directly invoke the registrar
-            return backend.registrar.preorder(fqu, cost_satoshis, user_zonefile, user_profile, transfer_address, min_payment_confs, config_path=self.config_path, unsafe_reg=unsafe_reg)
+            return backend.registrar.preorder(
+                fqu, cost_satoshis, user_zonefile, user_profile, transfer_address,
+                min_payment_confs, config_path = self.config_path, unsafe_reg = unsafe_reg,
+                owner_key = owner_key, payment_key = payment_key)
 
         else:
             res = self.check_version()
@@ -4215,6 +4236,11 @@ class BlockstackAPIEndpointClient(object):
             if cost_satoshis is not None:
                 data['cost_satoshis'] = cost_satoshis
 
+            if payment_key is not None:
+                data['payment_key'] = payment_key
+            if owner_key is not None:
+                data['owner_key'] = owner_key
+
             if user_profile:
                 # aaron: I'm making explicit a previously-baked-in assumption
                 #   if the user_profile was given to this function, and we make an RPC
@@ -4229,15 +4255,17 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_update(self, fqu, zonefile_txt, profile, zonefile_hash, owner_key = None):
+    def backend_update(self, fqu, zonefile_txt, profile, zonefile_hash,
+                       owner_key = None, payment_key = None):
         """
         Queue an update
         """
         if is_api_server(self.config_dir):
             # directly invoke the registrar
             return backend.registrar.update(
-                fqu, zonefile_txt,  profile, zonefile_hash,
-                None, config_path = self.config_path, owner_key = owner_key)
+                fqu, zonefile_txt, profile, zonefile_hash, None,
+                config_path=self.config_path, owner_key=owner_key,
+                payment_key=payment_key)
 
         else:
             res = self.check_version()
@@ -4261,20 +4289,23 @@ class BlockstackAPIEndpointClient(object):
 
             if owner_key is not None:
                 data['owner_key'] = owner_key
+            if payment_key is not None:
+                data['payment_key'] = payment_key
 
             headers = self.make_request_headers()
             req = requests.put( 'http://{}:{}/v1/names/{}/zonefile'.format(self.server, self.port, fqu), data=json.dumps(data), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
-    def backend_transfer(self, fqu, recipient_addr, owner_key = None):
+    def backend_transfer(self, fqu, recipient_addr, owner_key = None, payment_key = None):
         """
         Queue a transfer
         """
         if is_api_server(self.config_dir):
             # directly invoke the transfer
             return backend.registrar.transfer(
-                fqu, recipient_addr, config_path=self.config_path, owner_key = owner_key)
+                fqu, recipient_addr, config_path=self.config_path,
+                owner_key = owner_key, payment_key = payment_key)
 
         else:
             res = self.check_version()
@@ -4288,6 +4319,8 @@ class BlockstackAPIEndpointClient(object):
 
             if owner_key is not None:
                 data['owner_key'] = owner_key
+            if payment_key is not None:
+                data['payment_key'] = payment_key
 
             headers = self.make_request_headers()
             req = requests.put('http://{}:{}/v1/names/{}/owner'.format(self.server, self.port, fqu),
@@ -4295,13 +4328,14 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_renew(self, fqu, renewal_fee):
+    def backend_renew(self, fqu, renewal_fee, owner_key = None, payment_key = None):
         """
         Queue a renewal
         """
         if is_api_server(self.config_dir):
             # directly invoke the renew
-            return backend.registrar.renew(fqu, renewal_fee, config_path=self.config_path)
+            return backend.registrar.renew(fqu, renewal_fee, config_path=self.config_path,
+                                           owner_key = owner_key, payment_key = payment_key)
 
         else:
             res = self.check_version()
@@ -4312,6 +4346,12 @@ class BlockstackAPIEndpointClient(object):
             data = {
                 'name': fqu,
             }
+
+            if owner_key is not None:
+                data['owner_key'] = owner_key
+            if payment_key is not None:
+                data['payment_key'] = payment_key
+
 
             headers = self.make_request_headers()
             req = requests.post( 'http://{}:{}/v1/names'.format(self.server, self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)

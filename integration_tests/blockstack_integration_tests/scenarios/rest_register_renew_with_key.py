@@ -27,7 +27,6 @@ import urllib2
 import json
 import blockstack_client
 import blockstack_profiles
-import blockstack_zones
 import sys
 import keylib
 import time
@@ -55,19 +54,16 @@ error = False
 index_file_data = "<html><head></head><body>foo.test hello world</body></html>"
 resource_data = "hello world"
 
-new_key = "cPo24qGYz76xSbUCug6e8LzmzLGJPZoowQC7fCVPLN2tzCUJgfcW"
-new_addr = "mqnupoveYRrSHmrxFT9nQQEZt3RLsetbBQ"
+owner_key = "cPo24qGYz76xSbUCug6e8LzmzLGJPZoowQC7fCVPLN2tzCUJgfcW"
+owner_addr = "mqnupoveYRrSHmrxFT9nQQEZt3RLsetbBQ"
 
-insanity_key = "cSCyE5Q1AFVyDAL8LkHo1sFMVqmwdvFcCbGJ71xEvto2Nrtzjm67"
+payment_key = wallets[1].privkey
 
 def scenario( wallets, **kw ):
 
     global wallet_keys, wallet_keys_2, error, index_file_data, resource_data
 
-    empty_key = ECPrivateKey().to_hex()
-
-    wallet_keys = testlib.blockstack_client_initialize_wallet(
-        "0123456789abcdef", empty_key, empty_key, empty_key)
+    wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
 
@@ -87,96 +83,114 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
-
-    config_dir = os.path.dirname(config_path)
     conf = blockstack_client.get_config(config_path)
     assert conf
 
     api_pass = conf['api_password']
 
-    payment_key = wallets[1].privkey
 
-    # make zonefile for recipient
-    driver_urls = blockstack_client.storage.make_mutable_data_urls('bar.test', use_only=['dht', 'disk'])
-    zonefile = blockstack_client.zonefile.make_empty_zonefile('bar.test', wallets[4].pubkey_hex, urls=driver_urls)
-    zonefile_txt = blockstack_zones.make_zone_file( zonefile, origin='bar.test', ttl=3600 )
-
-    no_key_postage = {'name': 'bar.test', 'zonefile': zonefile_txt}
-    key_postage = dict(no_key_postage)
-    key_postage['payment_key'] = payment_key
-    key_postage['owner_key'] = new_key
-
-    res = testlib.blockstack_REST_call('POST', '/v1/names', None, api_pass=api_pass, data=no_key_postage)
-    if 'error' not in res['response']:
-        print "Successfully registered user with should-have-been-bad keys"
-        print res
-        return False
-
-    res = testlib.blockstack_REST_call('POST', '/v1/names', None, api_pass=api_pass, data=key_postage)
-    if 'error' in res['response']:
+    # register the name bar.test. autogenerate the rest
+    postage = {'name': 'bar.test', 'owner_key' : owner_key, 'payment_key' : payment_key}
+    res = testlib.blockstack_REST_call('POST', '/v1/names', None, api_pass=api_pass, data=postage)
+    if 'error' in res:
         res['test'] = 'Failed to register user'
         print json.dumps(res)
         error = True
         return False
 
-    print "Registering bar.test"
-    for i in xrange(0, 6):
-        testlib.next_block( **kw )
-    if not res:
-        return False
-    # wait for the preorder to get confirmed
-    for i in xrange(0, 6):
-        testlib.next_block( **kw )
-    # wait for register to go through
-    print 'Wait for register to be submitted'
-    time.sleep(10)
-    # wait for the register to get confirmed
-    for i in xrange(0, 6):
-        testlib.next_block( **kw )
-    res = testlib.verify_in_queue(None, 'bar.test', 'register', None, api_pass = api_pass )
-    if not res:
-        return False
-    for i in xrange(0, 6):
-        testlib.next_block( **kw )
-    print 'Wait for update to be submitted'
-    time.sleep(10)
-    # wait for update to get confirmed
-    for i in xrange(0, 6):
-        testlib.next_block( **kw )
-    res = testlib.verify_in_queue(None, 'bar.test', 'update', None, api_pass = api_pass )
-    if not res:
-        print res
-        print "update error in first update"
-        return False
+    print res
+    tx_hash = res['response']['transaction_hash']
+
+    # wait for preorder to get confirmed...
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
-    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test",
-                                       None, api_pass=api_pass)
+    res = testlib.verify_in_queue(None, 'bar.test', 'preorder', tx_hash )
+    if not res:
+        return False
+
+    # wait for the preorder to get confirmed
+    for i in xrange(0, 6):
+        testlib.next_block( **kw )
+
+    # wait for register to go through
+    print 'Wait for register to be submitted'
+    time.sleep(10)
+
+    # wait for the register to get confirmed
+    for i in xrange(0, 6):
+        testlib.next_block( **kw )
+
+    res = testlib.verify_in_queue(None, 'bar.test', 'register', None )
+    if not res:
+        return False
+
+    for i in xrange(0, 6):
+        testlib.next_block( **kw )
+
+    print 'Wait for update to be submitted'
+    time.sleep(10)
+
+    # wait for update to get confirmed
+    for i in xrange(0, 6):
+        testlib.next_block( **kw )
+
+    res = testlib.verify_in_queue(None, 'bar.test', 'update', None )
+    if not res:
+        return False
+
+    for i in xrange(0, 6):
+        testlib.next_block( **kw )
+
+    print 'Wait for update to be confirmed'
+    time.sleep(10)
+
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", None, api_pass=api_pass)
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get name bar.test'
         print json.dumps(res)
         return False
 
     zonefile_hash = res['response']['zonefile_hash']
+    old_expire_block = res['response']['expire_block']
 
-    # should still be registered
-    if res['response']['status'] != 'registered':
-        print "register not complete"
+    # renew it
+    res = testlib.blockstack_REST_call('POST', '/v1/names', None, api_pass=api_pass, data=postage)
+    if 'error' in res or res['http_status'] != 202:
+        res['test'] = 'Failed to renew name'
         print json.dumps(res)
         return False
 
-    # do we have the history for the name?
-    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/history",
-                                       None, api_pass=api_pass )
+    # verify in renew queue
+    for i in xrange(0, 6):
+        testlib.next_block( **kw )
+
+    res = testlib.verify_in_queue(None, 'bar.test', 'renew', None )
+    if not res:
+        return False
+
+    for i in xrange(0, 6):
+        testlib.next_block( **kw )
+
+    # new expire block
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", None, api_pass=api_pass)
     if 'error' in res or res['http_status'] != 200:
-        res['test'] = "Failed to get name history for foo.test"
+        res['test'] = 'Failed to get name bar.test'
+        print json.dumps(res)
+        return False
+
+    new_expire_block = res['response']['expire_block']
+
+    # do we have the history for the name?
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/history", None, api_pass=api_pass)
+    if 'error' in res or res['http_status'] != 200:
+        res['test'] = "Failed to get name history for bar.test"
         print json.dumps(res)
         return False
 
     # valid history?
     hist = res['response']
-    if len(hist.keys()) != 3:
+    if len(hist.keys()) != 4:
         res['test'] = 'Failed to get update history'
         res['history'] = hist
         print json.dumps(res, indent=4, sort_keys=True)
@@ -184,78 +198,18 @@ def scenario( wallets, **kw ):
 
     # get the zonefile
     res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile/{}".format(zonefile_hash),
-                                       None, api_pass=api_pass )
-    if 'error' in res or res['http_status'] != 200:
-        res['test'] = 'Failed to get name zonefile'
-        print json.dumps(res)
-        return False
-
-    # same zonefile we put?
-    if res['response']['zonefile'] != zonefile_txt:
-        res['test'] = 'mismatched zonefile, expected\n{}\n'.format(zonefile_txt)
-        print json.dumps(res)
-        return False
-
-    # okay, now let's try to do an update.
-    # make zonefile for recipient
-    driver_urls = blockstack_client.storage.make_mutable_data_urls('bar.test', use_only=['http', 'disk'])
-    zonefile = blockstack_client.zonefile.make_empty_zonefile('bar.test', wallets[3].pubkey_hex, urls=driver_urls)
-    zonefile_txt = blockstack_zones.make_zone_file( zonefile, origin='bar.test', ttl=3600 )
-
-    # let's do this update.
-    res = testlib.blockstack_REST_call(
-        'PUT', '/v1/names/bar.test/zonefile', None, api_pass=api_pass, data={
-            'zonefile': zonefile_txt, 'owner_key' : new_key, 'payment_key' : payment_key
-        })
-    if 'error' in res or res['http_status'] != 202:
-        res['test'] = 'Failed to register user'
-        print json.dumps(res)
-        error = True
-        return False
-    else:
-        print "Submitted update!"
-        print res
-
-    print 'Wait for update to be submitted'
-    time.sleep(10)
-
-    # wait for update to get confirmed
-    for i in xrange(0, 6):
-        testlib.next_block( **kw )
-
-    res = testlib.verify_in_queue(None, 'bar.test', 'update', None, api_pass = api_pass )
-    if not res:
-        print "update error in second update"
-        print res
-        return False
-
-    for i in xrange(0, 6):
-        testlib.next_block( **kw )
-
-    # wait for zonefile to propagate
-    time.sleep(10)
-
-    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test",
                                        None, api_pass=api_pass)
     if 'error' in res or res['http_status'] != 200:
-        res['test'] = 'Failed to get name bar.test'
-        print json.dumps(res)
-        return False
-
-    zonefile_hash = res['response']['zonefile_hash']
-    # get the zonefile
-    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile/{}".format(zonefile_hash),
-                                       None, api_pass=api_pass )
-    if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get name zonefile'
         print json.dumps(res)
         return False
 
-    # same zonefile we put?
-    if res['response']['zonefile'] != zonefile_txt:
-        res['test'] = 'mismatched zonefile, expected\n{}\n'.format(zonefile_txt)
-        print json.dumps(res)
+    # verify pushed back
+    if old_expire_block + 12 >= new_expire_block:
+        # didn't go through
+        print >> sys.stderr, "Renewal didn't work: %s --> %s" % (old_expire_block, new_expire_block)
         return False
+
 
 def check( state_engine ):
 
@@ -284,7 +238,7 @@ def check( state_engine ):
         return False
 
     names = ['bar.test']
-    owners = [ new_addr ]
+    wallet_keys_list = [wallet_keys, wallet_keys]
     test_proxy = testlib.TestAPIProxy()
 
     for i in xrange(0, len(names)):
@@ -297,7 +251,7 @@ def check( state_engine ):
             return False
 
         # owned
-        if name_rec['address'] != owners[i]:
+        if name_rec['address'] != owner_addr:
             print "name {} has wrong owner".format(name)
             return False
 
