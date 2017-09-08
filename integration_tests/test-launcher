@@ -215,7 +215,7 @@ run-commit-kube () {
     # Save logs from failed tests
     local failedTests=$(kubectl get pods --namespace $gitCommit -o go-template='{{ range .items -}}{{- if .status.containerStatuses -}}{{ $status := index .status.containerStatuses 0 }}{{- if $status.state.terminated -}}{{- if eq $status.state.terminated.reason "Error" -}}{{ .metadata.name }}{{- end -}}{{- end -}}{{- end -}}{{- end -}}' -a)
     for pod in $failedTests; do
-      kubectl get logs --namespace $gitCommit $pod --tail 120 > $testOutputDir/$pod-failed.log 2>&1
+      kubectl logs --namespace $gitCommit $pod --tail 120 > $testOutputDir/$pod-failed.log 2>&1
     done
 
     # Log progress
@@ -600,7 +600,7 @@ BLOCKSTACK DOCKER TEST LAUNCHER:
     progress-kube        -> check the progress of a running kube test on $gitCommit
     clean-all-kube       -> remove testing namespace ($gitCommit) and delete pods
     run-commit-kube      -> run a full test and report for $gitCommit-$gitBranch
-    results-kube         -> post results to slack
+    results-kube         -> post results to slack (need to set SLACK_URL)
 EOF
 }
 
