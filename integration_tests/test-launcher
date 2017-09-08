@@ -128,7 +128,7 @@ run-commit-kube () {
   while [ -n "$(kubectl get pods --namespace $gitCommit -o jsonpath='{.items[*].metadata.name}')" ]; do
 
     # Save logs from failed tests
-    local failedTests=$(kubectl get pods --namespace $gitCommit -o go-template='{{ range .items -}}{{ $status := index .status.containerStatuses 0 }}{{- if $status.state.terminated -}}{{- if eq $status.state.terminated.reason "Error" -}}{{ .metadata.name }}{{- end -}}{{- end -}}{{- end -}}' -a)
+    local failedTests=$(kubectl get pods --namespace $gitCommit -o go-template='{{ range .items -}}{{- if .status.containerStatuses -}}{{ $status := index .status.containerStatuses 0 }}{{- if $status.state.terminated -}}{{- if eq $status.state.terminated.reason "Error" -}}{{ .metadata.name }}{{- end -}}{{- end -}}{{- end -}}{{- end -}}' -a)
     for pod in $failedTests; do
       kubectl get logs --namespace $gitCommit $pod --tail 120 > $testOutputDir/$pod-failed.log 2>&1
     done
@@ -225,7 +225,7 @@ progress-kube () {
 
   # Log test progress
   echo "[$(date --utc +%FT%TZ)] TotalTests: $totaltests TotalPods: $totalpods TotalNodes: $totalnodes Completed: $(percent $completed $totaltests)% ($completed) Remaining: $(percent $totalrunning $totaltests)% ($remaining)"
-
+  
   # If there is a difference between $totaltests and $totalpods alert the operator
   # if [[ ! $totaltests -eq $totalpods ]]; then
   #   echo "[$(date --utc +%FT%TZ)] $totaltests tests, $totalpods pods. Check details $testName-$gitBranch"
