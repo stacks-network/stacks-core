@@ -165,19 +165,24 @@ run-commit-kube () {
   echo "Building docker image, this may take a minute..."
   nohup push-image > $testOutputDir/build-push.txt
 
+  # Start the tests against kubernetes cluster
   echo "Starting kubernetes tests..."
   nohup run-all-kube > $testOutputDir/run-all-kube.txt
 
-  sleep 60
-
+  # Wait for the tests to complete and log progress periodically
   echo "Waiting for test to complete..."
-  while [ -n "$(kubectl get pods --namespace $testName -o jsonpath='{.items[*].metadata.name}')" ]; do
+  while [ -n "$(kubectl get pods --namespace $gitCommit -o jsonpath='{.items[*].metadata.name}')" ]; do
     progress-kube
     sleep 60
   done
 
+  # Once test is done, post results to slack
   echo "Test complete, sending results to slack..."
   nohup results-kube > $testOutputDir/slack-post.txt
+
+  # Cleanup kubernetes namespace
+  echo "Deleting namespace..."
+  clean-all-kube
 }
 
 # Run 1 test in Kubernetes
