@@ -171,7 +171,7 @@ log-start-stop () {
 
   # Get number of pods created in testing namespace
   local totalpods=0
-  local pods=$(kubectl get pods --namespace $testName -o jsonpath='{.items[*].metadata.name}' -a)
+  local pods=$(kubectl get pods --namespace $gitCommit -o jsonpath='{.items[*].metadata.name}' -a)
   for pod in $pods; do
     ((totalpods++))
   done
@@ -225,7 +225,7 @@ run-commit-kube () {
   done
 
   # Log test stop
-  log-start-stop stop 
+  log-start-stop stop
 
   # Once test is done, post results to slack
   echo "Test complete, sending results to slack..." >> $outputFile
