@@ -744,7 +744,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         # do we own this name already?
         # i.e. do we need to renew?
-        res = proxy.get_names_owned_by_address( self.server.wallet_keys['owner_addresses'][0] )
+        if owner_key is None:
+            check_already_owned_by = self.server.wallet_keys['owner_addresses'][0]
+        else:
+            check_already_owned_by = virtualchain.get_privkey_address(owner_key)
+        res = proxy.get_names_owned_by_address(check_already_owned_by)
         if json_is_error(res):
             log.error("Failed to get names owned by address")
             self._reply_json({'error': 'Failed to list names by address'}, status_code=500)
@@ -754,13 +758,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if name in res:
             # renew
             for prop in request_schema['properties'].keys():
-                if prop in request.keys() and prop not in ['name']:
-                    log.debug("Invalid argument {}".format(prop))
-                    return self._reply_json({'error': 'Name already owned by this wallet'}, status_code=401)
+                if prop in request.keys() and prop not in ['name', 'owner_key', 'payment_key']:
+                    log.debug("Invalid renewal argument {}".format(prop))
+                    return self._reply_json(
+                        {'error': 'Name already owned by this wallet and ' +
+                         '`{}` is an invalid argument for renewal'.format(prop)}, status_code=401)
 
             op = 'renew'
             log.debug("renew {}".format(name))
-            res = internal.cli_renew(name, interactive=False, cost_satoshis=cost_satoshis)
+            res = internal.cli_renew(name, owner_key, payment_key, interactive=False,
+                                     cost_satoshis=cost_satoshis)
 
         else:
             # register

@@ -1788,6 +1788,8 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     command: renew
     help: Renew a blockchain ID
     arg: name (str) 'The blockchain ID to renew'
+    opt: owner_key (str) 'A private key string to be used for the update.'
+    opt: payment_key (str) 'Payers private key string'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1823,6 +1825,18 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     price_args.name_or_namespace = fqu
     price_args.operations = 'renewal'
 
+    args_ownerkey = getattr(args, 'owner_key', None)
+    if args_ownerkey is None or len(args_ownerkey) == 0:
+        owner_key = None
+    else:
+        owner_key = args_ownerkey
+
+    args_paymentkey = getattr(args, 'payment_key', None)
+    if args_paymentkey is None or len(args_paymentkey) == 0:
+        payment_key = None
+    else:
+        payment_key = args_paymentkey
+
     costs = cli_price( price_args, config_path=config_path, password=password, proxy=proxy )
     if 'error' in costs:
         return {'error': 'Failed to get renewal costs.  Please try again with `--debug` to see error messages.'}
@@ -1831,7 +1845,7 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
 
     if cost_satoshis is None:
         cost_satoshis = costs['name_price']['satoshis']
-    
+
     if not local_rpc.is_api_server(config_dir=config_dir):
         # also verify that we own the name
         _, owner_address, _ = get_addresses_from_file(config_dir=config_dir)
@@ -1868,13 +1882,18 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
             print('\nExiting.')
             exit(0)
 
-    
+
     rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     log.debug("Renew {} for {} BTC".format(fqu, cost_satoshis))
     try:
-        resp = rpc.backend_renew(fqu, cost_satoshis)
+        additionals = {}
+        if owner_key:
+            additionals['owner_key'] = owner_key
+        if payment_key:
+            additionals['payment_key'] = payment_key
+        resp = rpc.backend_renew(fqu, cost_satoshis, **additionals)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}

@@ -66,7 +66,8 @@ def scenario( wallets, **kw ):
 
     global wallet_keys, wallet_keys_2, error, index_file_data, resource_data
 
-    wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
+    wallet_keys = testlib.blockstack_client_initialize_wallet(
+        "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
 
@@ -224,7 +225,7 @@ def scenario( wallets, **kw ):
 
     # okay, now let's try to do a transfer.
     # FIRST, I want to change the key to a key that
-    #  doesn't own the name.
+    #  doesn't own the name and a payment key that has no money
     res = testlib.blockstack_REST_call('PUT', '/v1/wallet/keys/owner', None, api_pass=api_pass,
                                        data=insanity_key)
     if res['http_status'] != 200 or 'error' in res:
@@ -232,10 +233,19 @@ def scenario( wallets, **kw ):
         print res
         return False
 
+    res = testlib.blockstack_REST_call('PUT', '/v1/wallet/keys/payment', None, api_pass=api_pass,
+                                       data=insanity_key)
+    if res['http_status'] != 200 or 'error' in res:
+        print 'failed to set owner key'
+        print res
+        return False
+
+    payment_key = wallets[1].privkey
+
     # let's do this with the bad key
     res = testlib.blockstack_REST_call(
         'PUT', '/v1/names/bar.test/owner', None, api_pass=api_pass, data={
-            'owner': destination_owner
+            'owner': destination_owner, 'payment_key' : payment_key
         })
     if 'error' in res or res['http_status'] != 202:
         res['test'] = '(Correctly) failed to transfer user'
@@ -245,7 +255,8 @@ def scenario( wallets, **kw ):
     # let's do this with the good one!
     res = testlib.blockstack_REST_call(
         'PUT', '/v1/names/bar.test/owner', None, api_pass=api_pass, data={
-            'owner': destination_owner, 'owner_key' : new_key
+            'owner': destination_owner, 'owner_key' : new_key,
+            'payment_key' : payment_key
         })
     if 'error' in res or res['http_status'] != 202:
         res['test'] = '(Wrongly) failed to transfer user'
