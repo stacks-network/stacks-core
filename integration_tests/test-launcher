@@ -308,8 +308,8 @@ progress-kube () {
     ((totalrunning++))
   done
 
-  local completed=$(expr $totalpods - $totalrunning)
-  local remaining=$(expr $totalpods - $completed)
+  local completed=$(expr $totaltests - $totalrunning)
+  local remaining=$(expr $totaltests - $completed)
 
   if [ "$(uname)" = "Darwin" ]; then
     # Log test progress - Format Human on Mac
@@ -422,7 +422,7 @@ results-kube () {
   jq -n -c --arg text "$textPayload" '{text: $text}' > tmp.txt
 
   # Post it to Slack
-  curl -v -H 'Content-type: application/json' --data "@$(pwd)/tmp.txt" $slackURL
+  curl -v -H 'Content-type: application/json' --data "@$(pwd)/tmp.txt" $SLACK_URL
 
   # Remove the temp file
   rm tmp.txt
@@ -600,6 +600,7 @@ BLOCKSTACK DOCKER TEST LAUNCHER:
     progress-kube        -> check the progress of a running kube test on $gitCommit
     clean-all-kube       -> remove testing namespace ($gitCommit) and delete pods
     run-commit-kube      -> run a full test and report for $gitCommit-$gitBranch
+    results-kube         -> post results to slack
 EOF
 }
 
@@ -645,6 +646,9 @@ case $1 in
     ;;
   progress-kube)
     progress-kube $2
+    ;;
+  results-kube)
+    results-kube $2
     ;;
   run-commit-kube)
     run-commit-kube
