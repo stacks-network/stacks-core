@@ -54,11 +54,11 @@ def get_mutable_handler( url, **kw ):
 
 def put_immutable_handler( key, data, txid, **kw ):
     # read only
-    return False
+    return None
 
 def put_mutable_handler( data_id, data_bin, **kw ):
     # read only
-    return False
+    return None
 
 def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
     return True
