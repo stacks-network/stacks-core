@@ -271,7 +271,7 @@ def put_immutable_handler( key, data, txid, **kw ):
     env_setup()
 
     if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
-        return False
+        return None
     
     key = key.replace('/', '-2f')
     path = '/immutable/{}'.format(key)
@@ -288,7 +288,7 @@ def put_mutable_handler( data_id, data_bin, **kw ):
     env_setup()
 
     if os.environ.get('BLOCKSTACK_INTEGRATION_TEST_STORAGE_FAILURE') == '1':
-        return False
+        return None
     
     data_id = data_id.replace('/', '-2f')
     path = '/mutable/{}'.format(data_id)
