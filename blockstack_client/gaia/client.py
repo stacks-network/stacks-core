@@ -129,7 +129,10 @@ def delete_datastore(api_client, datastore_privkey, blockchain_id=None, full_app
 
         if data_pubkeys is None:
             data_pubkeys = [{'device_id': dev_id, 'public_key': res['app_info'][dev_id]['public_key']} for dev_id in device_ids]
-    
+   
+    if device_ids is None:
+        device_ids = [dpk['device_id'] for dpk in data_pubkeys]
+
     res = get_datastore(api_client, blockchain_id=blockchain_id, datastore_id=datastore_id, full_app_name=full_app_name, device_ids=device_ids)
     if 'error' in res:
         return res
