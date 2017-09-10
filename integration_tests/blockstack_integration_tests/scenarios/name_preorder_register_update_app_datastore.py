@@ -168,7 +168,7 @@ def scenario( wallets, **kw ):
 
     for dpath in ['file1', 'file2', 'file3', 'file4', 'file5']:
         if dpath in res['root']:
-            print 'missing {}'.format(dpath)
+            print 'still present: {}'.format(dpath)
             print res
             return False
 
