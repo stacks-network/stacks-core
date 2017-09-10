@@ -5062,7 +5062,6 @@ def delete_datastore_by_type( datastore_type, datastore_privkey, session, force=
     # NOTE: only valid for single-reader storage
     datastore_id = session_payload['app_user_id']
     data_pubkeys = session_payload['app_public_keys']
-    device_ids = [dk['device_id'] for dk in data_pubkeys]
     
     rpc = local_api_connect(config_path=config_path, api_session=session)
     if rpc is None:
