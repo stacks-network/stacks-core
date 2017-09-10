@@ -1082,7 +1082,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
     if data_privkey is not None:
         if not is_singlesig_hex(data_privkey):
             log.error('Only single-signature data private keys are supported')
-            return False
+            return {'error': 'Only single-signature data private keys are supported'}
 
         data_pubkey = get_pubkey_hex( data_privkey )
 
@@ -1120,25 +1120,26 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
                 continue
 
             log.debug("Required storage provider {} does not implement put_mutable_handler".format(handler.__name__))
-            return False
+            return {'error': 'Required storage provider {} does not implement put_mutable_handler'.format(handler.__name__)}
 
         if required_exclusive and handler.__name__ not in required:
             log.debug("Skipping {}: it is optional".format(handler.__name__))
             continue
 
+    for handler in storage_handlers:
         store_url = None
         log.debug('Try "{}"'.format(handler.__name__))
 
         try:
             store_url = handler.put_mutable_handler(fq_data_id, serialized_data, **driver_kw)
-            assert isinstance(store_url, (str,unicode))
+            assert isinstance(store_url, (str,unicode)), type(store_url)
         except Exception as e:
-            log.exception(e)
+            log.error("Failed to replicate data with '{}'".format(handler.__name__))
             if handler.__name__ not in required:
                 continue
             
-            log.error("Failed to replicate data with '{}'".format(handler.__name__))
-            return None
+            log.exception(e)
+            return {'error': 'Failed to replicate data with {}'.format(handler.__name__)}
 
         if store_url:
             log.debug("Replicated {} bytes with {} (store URL = {})".format(len(serialized_data), handler.__name__, store_url))
@@ -1156,7 +1157,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
         
         # required driver failed
         log.error("Failed to replicate to required storage provider '{}'".format(handler.__name__))
-        return False
+        return {'error': 'Failed to replicate to required storage provider {}'.format(handler.__name__)}
 
     # failed everywhere or succeeded somewhere
     if (successes > 0) and (required_successes >= len(set(required) - set(skip))):
@@ -1307,16 +1308,19 @@ def make_fq_data_id(device_id, data_id):
     """
     Make a fully-qualified data ID, prefixed by the device ID
     """
-    return urllib.quote(str('{}:{}'.format(device_id, data_id).replace('/', '\\x2f')))
+    return urllib.quote(str('{}:{}.gaia'.format(device_id, data_id).replace('/', '\\x2f')))
 
 
 def parse_fq_data_id(fq_data_id):
     """
     Parse a fully-qualified data ID
     """
+    if not fq_data_id.endswith('.gaia'):
+        return None, None
+
     fq_data_id = urllib.unquote(fq_data_id).replace('\\x2f', '/')
     parts = fq_data_id.split(":", 1)
     if len(parts) != 2:
         return None, None
 
-    return parts[0], parts[1]
+    return parts[0], parts[1][:-len('.gaia')]
