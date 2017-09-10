@@ -1444,14 +1444,30 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.error("Invalid datastore and sig info")
             return False
 
+        qs = path_info['qs_values']
+
         datastore_info = datastore_sigs_info['datastore_info']
         root_tombstones = datastore_sigs_info['root_tombstones']
         sigs_info = datastore_sigs_info['datastore_sigs']
-        datastore_pubkey_hex = app.app_get_datastore_pubkey( ses )
+        datastore_pubkey_hex = None
+
+        if ses is not None:
+            datastore_pubkey_hex = app.app_get_datastore_pubkey( ses )
+        else:
+            if not qs.has_key('datastore_pubkey'):
+                log.error("Missing datastore_pubkey")
+                return self._reply_json({'error': 'Invalid request: no session and no datastore_pubkey query argument'}, status_code=401)
+
+            datastore_pubkey_hex = qs['datastore_pubkey']
+            try:
+                keylib.ECPublicKey(datastore_pubkey_hex)
+            except:
+                log.error("Malformed public key {}".format(datastore_pubkey_hex))
+                return self._reply_json({'error': 'Invalid request: malformed public key "{}"'.format(datastore_pubkey_hex)}, status_code=401)
 
         res = gaia.verify_datastore_info( datastore_info, sigs_info, datastore_pubkey_hex )
         if not res:
-            log.debug("Failed to verify datastore signature with {}".format(datastore_pubkey_hex))
+            log.error("Failed to verify datastore signature with {}".format(datastore_pubkey_hex))
             return self._reply_json({'error': 'Unable to verify datastore info with {}'.format(datastore_pubkey_hex)}, status_code=403)
 
         res = gaia.put_datastore_info( datastore_info, sigs_info, root_tombstones, config_path=self.server.config_path )
@@ -3924,22 +3940,22 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'name': 'store_write',
                         'desc': 'create the datastore for the app user',
                         'auth_session': True,
-                        'auth_pass': False,     # need app_domain from session
-                        'need_data_key': True,
+                        'auth_pass': True,
+                        'need_data_key': False,
                     },
                     'PUT': {
                         'name': 'store_write',
                         'desc': 'update the app user\'s datastore',
                         'auth_session': True,
-                        'auth_pass': False,     # need app_domain from session
-                        'need_data_key': True,
+                        'auth_pass': True,
+                        'need_data_key': False,
                     },
                     'DELETE': {
                         'name': 'store_write',
                         'desc': 'delete the app user\'s datastore',
                         'auth_session': True,
-                        'auth_pass': False,     # need app_domain from session
-                        'need_data_key': True,
+                        'auth_pass': True,     # need app_domain from session
+                        'need_data_key': False,
                     },
                 },
             },
@@ -4155,7 +4171,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         authorized = False
 
-        # sanity check: this API only works if we have a data key
         if self.server.master_data_privkey is None and need_data_key:
             log.debug("No master data private key set")
             self._send_headers(status_code=503, content_type='text/plain')
@@ -4807,7 +4822,7 @@ class BlockstackAPIEndpointClient(object):
         Return {'error': ..., 'errno': ...} on error
         """
         assert not is_api_server(self.config_dir), 'BUG: called from API server'
-        assert (blockchain_id and full_app_name) or datastore_id, 'Need both blockchain ID and full_app_name or need datastore ID'
+        assert (blockchain_id and full_app_name) or (datastore_id and device_ids), 'Need both blockchain ID and full_app_name or need datastore ID'
         
         res = self.check_version()
         if 'error' in res:
