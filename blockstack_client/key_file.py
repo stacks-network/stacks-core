@@ -345,11 +345,11 @@ def key_file_parse(profile_txt, name_owner_pubkeys_or_addr):
 
     if not key_file:
         # unverifiable 
-        return {'error': 'Failed to verify key file with name owner public keys'}
+        return {'error': 'Failed to verify key file with signing public keys'}
 
     if not profile:
         # unverifiable 
-        return {'error': 'Failed to verify profile with name owner public keys'}
+        return {'error': 'Failed to verify profile with signing public keys'}
 
     # the device IDs in the delegation file must include all of the device IDs in the app key bundles
     for device_id in key_file['keys']['apps'].keys():
