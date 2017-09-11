@@ -1474,7 +1474,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
             if user_profile is None:
                 user_profile = make_empty_user_profile()
 
-            res = make_initial_key_file(fqu, user_profile, owner_privkey_info, config_path=config_path)
+            res = make_initial_key_file(user_profile, owner_privkey_info, config_path=config_path)
             if 'error' in res:
                 return res
 
