@@ -450,6 +450,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
     opt: message (str) 'A message to include with the payment (up to 40 bytes)'
     opt: min_confs (int) 'The minimum confirmations for oustanding transactions'
     opt: tx_only (str) 'If "True", only return the transaction'
+    opt: payment_key (str) 'Payers private key string'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -461,7 +462,10 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
     message = getattr(args, 'message', None)
     min_confs = getattr(args, 'min_confs', TX_MIN_CONFIRMATIONS)
     tx_only = getattr(args, 'tx_only', False)
-   
+    payment_key = getattr(args, 'payment_key', None)
+    if payment_key is None or len(payment_key) == 0:
+        payment_key = None
+
     if min_confs is None:
         min_confs = TX_MIN_CONFIRMATIONS
 
@@ -470,7 +474,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
             tx_only = True
         else:
             tx_only = False
-    
+
     else:
         tx_only = False
 
@@ -496,23 +500,28 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
             return {'error': 'Message must be {} bytes or less (got {})'.format(
                 virtualchain.lib.blockchain.bitcoin_blockchain.MAX_DATA_LEN, len(message))}
 
-    res = wallet_ensure_exists(config_path=config_path)
-    if 'error' in res:
-        return res
- 
-    if wallet_keys is None:
-        res = load_wallet(password=password, wallet_path=wallet_path, interactive=interactive, include_private=True)
+    if payment_key is None:
+        res = wallet_ensure_exists(config_path=config_path)
         if 'error' in res:
             return res
-    
-        wallet_keys = res['wallet']
 
-    send_addr, _, _ = get_addresses_from_file(config_dir=config_dir, wallet_path=wallet_path)
+        if wallet_keys is None:
+            res = load_wallet(password=password, wallet_path=wallet_path,
+                              interactive=interactive, include_private=True)
+            if 'error' in res:
+                return res
+            wallet_keys = res['wallet']
+
+        payment_key = wallet_keys['payment_privkey']
+        send_addr, _, _ = get_addresses_from_file(config_dir=config_dir, wallet_path=wallet_path)
+    else:
+        send_addr = virtualchain.get_privkey_address(payment_key)
+
     inputs = get_utxos(str(send_addr), min_confirmations=min_confs, config_path=config_path)
-    
+
     if len(inputs) == 0:
         log.error("No UTXOs for {}".format(send_addr))
-        return {'error': 'Failed to find UTXOs for wallet payment address'}
+        return {'error': 'Failed to find UTXOs for payment address'}
 
     total_value = sum(inp['value'] for inp in inputs)
 
@@ -529,29 +538,29 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
             if amt < 0:
                 log.error("Dust: total value = {}, tx fee = {}".format(total_value, tx_fee))
                 return {'error': 'Cannot withdraw dust'}
-           
+
             if total_value < amt:
-                # too high 
+                # too high
                 return {'error': 'Requested withdraw value {} exceeds balance {}'.format(amt, total_value)}
 
             selected_inputs = select_utxos(inputs, amt)
             if selected_inputs is None:
-                # too high 
+                # too high
                 return {'error': 'Not enough inputs: requested withdraw value {} exceeds balance {}'.format(amt, total_value)}
 
         else:
             if total_value < amt:
-                # too high 
+                # too high
                 return {'error': 'Requested withdraw value {} exceeds balance {}'.format(amt, total_value)}
 
             selected_inputs = select_utxos(inputs, amt)
             if selected_inputs is None:
-                # too high 
+                # too high
                 return {'error': 'Not enough inputs: requested withdraw value {} exceeds balance {}'.format(amt, total_value)}
 
             change = virtualchain.calculate_change_amount(selected_inputs, amt, tx_fee)
             log.debug("Withdraw {}, tx fee {}".format(amt, tx_fee))
-            
+
         outputs = [
             {'script': virtualchain.make_payment_script(recipient_addr),
              'value': amt},
@@ -559,7 +568,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
 
         if amt < total_value and change > 0:
             # need change and tx fee
-            outputs.append( 
+            outputs.append(
                 {'script': virtualchain.make_payment_script(send_addr),
                   "value": change}
             )
@@ -570,7 +579,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
                  "value": 0} ] + outputs
 
         serialized_tx = serialize_tx(selected_inputs, outputs)
-        signed_tx = sign_tx(serialized_tx, wallet_keys['payment_privkey'])
+        signed_tx = sign_tx(serialized_tx, payment_key)
         return signed_tx
 
     tx = mktx(amount, 0)
@@ -585,7 +594,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
 
     if tx_only:
         return {'status': True, 'tx': tx}
-    
+
     log.debug("Withdraw {} from {} to {}".format(amount, send_addr, recipient_addr))
 
     res = broadcast_tx( tx, config_path=config_path )

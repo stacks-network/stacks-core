@@ -29,8 +29,8 @@ import blockstack_client
 import blockstack_profiles
 import blockstack_zones
 import sys
-import keylib
 import time
+import virtualchain
 
 from keylib import ECPrivateKey, ECPublicKey
 
@@ -110,6 +110,33 @@ def scenario( wallets, **kw ):
     if 'error' not in res['response']:
         print "Successfully registered user with should-have-been-bad keys"
         print res
+        return False
+
+    # let's do a small withdraw
+    res = testlib.blockstack_REST_call('POST', '/v1/wallet/balance', None, api_pass=api_pass, data= {
+        'address' : virtualchain.get_privkey_address(empty_key),
+        'amount' : int(1e4),
+        'payment_key' : payment_key
+        })
+    if 'error' in res['response']:
+        res['test'] = 'Failed to perform withdraw'
+        print json.dumps(res)
+        error = True
+        return False
+    for i in xrange (0, 1):
+        testlib.next_block( **kw )
+    print 'Waiting for the withdraw to go through'
+    res = testlib.blockstack_REST_call('GET', '/v1/wallet/balance/0', None, api_pass=api_pass)
+    if 'error' in res['response']:
+        res['test'] = 'Failed to get wallet balance'
+        print json.dumps(res)
+        error = True
+        return False
+
+    if int(res['response']['balance']['satoshis']) <= 0:
+        res['test'] = 'Wallet balance did not increment!'
+        print json.dumps(res)
+        error = True
         return False
 
     res = testlib.blockstack_REST_call('POST', '/v1/names', None, api_pass=api_pass, data=key_postage)
