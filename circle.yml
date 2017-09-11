@@ -25,7 +25,7 @@ test:
     - blockstack api stop -y
 deployment:
   tarball_venv:
-    branch: /*/
+    branch: /.*?/
     commands:
       - cp -r ../virtualenvs/venv-system ./venv-copy
       - virtualenv --relocatable ../virtualenvs/venv-system
