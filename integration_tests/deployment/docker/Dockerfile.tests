@@ -1,0 +1,47 @@
+FROM ubuntu:xenial
+
+# Install dependancies from apt
+RUN apt-get update
+RUN apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools libgmp3-dev
+
+# Install Bitcoin
+RUN apt-get -y update
+RUN apt-get install -y python-software-properties
+RUN apt-get install -y software-properties-common
+
+RUN add-apt-repository ppa:bitcoin/bitcoin
+RUN apt-get update
+RUN apt-get install -y bitcoind sqlite3 curl
+
+# Add standard username and password
+RUN mkdir ~/.bitcoin
+RUN echo "rpcuser=blockstack\nrpcpassword=blockstacksystem\n" > ~/.bitcoin/bitcoin.conf
+
+# Install NodeJS
+RUN curl -sL https://deb.nodesource.com/setup_6.x | bash -
+RUN apt-get install -y nodejs
+
+# Install requirements for the blockstack.js integration tests
+RUN apt-get install -y git babel
+RUN npm i -g browserify
+RUN git clone https://git@github.com/blockstack/blockstack.js.git /tmp/blockstack.js
+RUN git clone https://github.com/blockstack/blockstack-storage-js.git /tmp/blockstack-storage-js
+RUN cd /tmp/blockstack.js && npm ln
+RUN cd /tmp/blockstack-storage-js && npm ln
+
+# Install pyparsing
+RUN pip install --upgrade pip && pip install pyparsing
+
+# Build blockstack first
+WORKDIR /src/blockstack
+
+# Copy all files from the repo into the container
+COPY . .
+
+# Install Blockstack from source
+RUN pip install .
+
+# Change into the tests directory
+WORKDIR /src/blockstack/integration_tests
+
+RUN ./setup.py build && ./setup.py install

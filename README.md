@@ -172,33 +172,24 @@ $ blockstack-core/images/scripts/debian-release-candidate.sh
 
 ## Running in Docker
 
-To run the Blockstack API in a docker container requires a couple of steps. Run the following commands from the root of the repo:
+> _*WARNING*_: This install path is currently for developers only. 
+
+To run the Blockstack API and the Blockstack Browser in docker containers is easy! There is also a provided CLI: `launcher`. The CLI will pull down the images from our [Quay image repository](https://quay.io/organization/blockstack). If you want to build the API image locally run `./launcher build`. The browser image and build script are in the [`blockstack-browser`](https://github.com/blockstack/blockstack-browser) repository.
 
 ```bash
-# Build image
-$ docker build -t myrepo/blockstack:latest .
+# First run the setup command. This will create a `$HOME/.blockstack` directory to store your Blockstack Core API config and wallet
+$ ./launcher setup <password>
 
-# Setup wallet and client config using the ./data/blockstack-api directory for your client.
-$ docker run -it -v $(pwd)/data/blockstack-api:/root/.blockstack myrepo/blockstack:latest blockstack setup -y --password PASSWORD
+# Next you can start the Blockstack Core API
+$ ./launcher start <password>
 
-# Update [blockstack-client]api_endpoint_bind = 0.0.0.0
-$ nano $(pwd)/data/client.ini
+# Finally start the Blockstack Browser
+$ ./launcher browser
 
-### MAC
+# Now open your browser to `localhost:8888` to view the blockstack browser!
 
-# Start API on top of newly created wallet and configuration // run in terminal window
-$ docker run -it -v $(pwd)/data/blockstack-api:/root/.blockstack -p 6270:6270 myrepo/blockstack:latest blockstack api start-foreground --password PASSWORD --debug
-
-# Start API on top of newly created wallet and configuration // run detached
-$ docker run -d -v $(pwd)/data/blockstack-api:/root/.blockstack -p 6270:6270 myrepo/blockstack:latest blockstack api start-foreground --password PASSWORD --debug
-
-### LINUX
-
-# Start API on top of newly created wallet and configuration // run in terminal window
-$ docker run -it -v $(pwd)/data/blockstack-api:/root/.blockstack -v /tmp/:/tmp/ -p 6270:6270 myrepo/blockstack:latest blockstack api start-foreground --password PASSWORD --debug
-
-# Start API on top of newly created wallet and configuration // run detached
-$ docker run -d -v $(pwd)/data/blockstack-api:/root/.blockstack -v /tmp/:/tmp/ -p 6270:6270 myrepo/blockstack:latest blockstack api start-foreground --password PASSWORD --debug
+# When you are done you can clean up your environment by running
+$ ./launcher stop
 ```
 
 ## Community

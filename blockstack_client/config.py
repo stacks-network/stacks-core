@@ -717,7 +717,7 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
 
     if BLOCKSTACK_CLI_SERVER_PORT is not None:
         try:
-            BLOCKSTACK_CLI_SERVER_PORT = int(BLOCKSTACK_CLI_SERVER_PORT)
+            BLOCKSTACK_CLI_SERVER_PORT = BLOCKSTACK_CLI_SERVER_PORT
         except:
             raise Exception("Invalid server port")
 
@@ -861,9 +861,15 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
     # add HTTPS support in 0.14.4.3
     renamed_fields_014_4_3 = {}
     dropped_fields_014_4_3 = {}
+
+    if ret['blockstack-client']['server'] == 'node.blockstack.org':
+        blockstackd_port_default = 6263
+    else:
+        blockstackd_port_default = 6264
+
     changed_fields_014_4_3 = {
         'blockstack-client': {
-            'port' : (str(6264), str(BLOCKSTACKD_PORT))
+            'port' : (str(6264), str(blockstackd_port_default))
         }
     }
 
@@ -941,7 +947,8 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
                 changed_field_value = changed_field_set[sec][changed_field_name]
                 if isinstance(changed_field_value, tuple):
                     prior_default, new_default = changed_field_value
-                    if ret[sec][changed_field_name] == prior_default:
+                    old_value = ret[sec][changed_field_name]
+                    if old_value == prior_default and old_value != new_default:
                         log.debug("Change {}.{} to {}".format(sec, changed_field_name, new_default))
                         ret[sec][changed_field_name] = new_default
                         migrated = True
@@ -968,6 +975,9 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
                     log.debug("Override {}.{} from {} to {}".format(sec, field_name, ret[sec][field_name], new_value))
                     ret[sec][field_name] = new_value
 
+    # force client:port to int
+    if 'blockstack-client' in ret:
+        ret['blockstack-client']['port'] = int(ret['blockstack-client']['port'])
 
     # helpful at runtime
     ret['path'] = config_path

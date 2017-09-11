@@ -1,0 +1,389 @@
+#!/bin/bash
+
+# This script provides a simple interface for running the integration tests in docker
+
+# Docker Image Settings
+testImage=quay.io/blockstack/integrationtests
+testTag=latest
+
+# Git Branch and commit information
+gitCommit=$(git rev-parse --short HEAD)
+gitBranch=$(git rev-parse --abbrev-ref HEAD)
+
+# Test directories
+repoDir=$(git rev-parse --show-toplevel)
+testDir=$repoDir/integration_tests
+outputDir=$testDir/test-out
+testOutputDir=$outputDir/$gitBranch-$gitCommit
+
+# Dockerfile
+testDF=$testDir/deployment/docker/Dockerfile.tests
+
+# Pull Influx configuration from ENV
+influxHost=$INFLUX_HOST
+influxUser=$INFLUX_USER
+influxPass=$INFLUX_PASS
+influxSSL=$INFLUX_SSL
+
+# Set the number of containers to run to the number of logical cores in the system
+# This prevents CPU contention in the container which leads to Bitcoind calls timing out
+numContainers=1
+if [[ $(uname) == 'Linux' ]]; then
+  # Pull from /proc/cpuinfo on Linux
+  numContainers=$(grep -c ^processor /proc/cpuinfo)
+elif [[ $(uname) == 'Darwin' ]]; then
+  # Pull from sysctl on Mac
+  numContainers=$(sysctl -n hw.logicalcpu)
+fi
+
+# Build the test container
+build-image () {
+  # Build testing container from blockstack-core:dev
+  echo "Building test image from core image :$gitCommit"
+  echo "docker build -f $testDF -t $testImage:$testTag $repoDir"
+  docker build -f $testDF -t $testImage:$testTag $repoDir
+  docker tag $testImage:$testTag $testImage:$gitCommit
+}
+
+# Push the test containers to .acr
+push-image () {
+  # First build the tests to push
+  build-image
+
+  # Then push testing image to registry
+  echo "Pushing test image from core image :$gitCommit"
+  docker push $testImage:$gitCommit
+  docker push $testImage:$testTag
+}
+
+# Division formatting for percent
+percent () {
+  awk "BEGIN { pc=100*${1}/${2}; i=int(pc); print (pc-i<0.5)?i:i+1 }"
+}
+
+# Outputs the array of tests to run
+tests () {
+  # Get test scenarios
+  local scenarios=($(ls -1 $(pwd)/blockstack_integration_tests/scenarios/ | sed -e 's/\.py$//'))
+
+  # Declare arrays for Tests to Skip and Output
+  declare -a skips
+  declare -a out
+
+  # Make skips array from file
+  while read -r line; do
+      [[ "$line" =~ ^#.*$ ]] && continue
+      skips+=("$line")
+  done < "./blockstack_integration_tests/tests_skip.txt"
+
+  # Loop through scenarios
+  for sc in "${scenarios[@]}"; do
+    if [[ ${skips[*]} =~ $sc ]]; then
+      continue
+    else
+      out+=($sc)
+    fi
+  done
+  echo "${out[@]}"
+}
+
+make-manifest () {
+  local name=$(echo $1 |  sed -e 's/_/-/g')
+  cat <<-EOF > $testDir/tmp/$gitCommit/$1.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "$name"
+  namespace: "$gitCommit"
+  labels:
+    commit: "$gitCommit"
+    test: "$1"
+spec:
+  restartPolicy: Never
+  containers:
+  - name: integration-test-run
+    image: "$testImage:$gitCommit"
+    imagePullPolicy: "Always"
+    command: ["blockstack-test-scenario", "blockstack_integration_tests.scenarios.$1", "--influx"]
+    env:
+      - name: GIT_COMMIT
+        value: "$gitCommit"
+      - name: GIT_BRANCH
+        value: "$gitBranch"
+      - name: INFLUX_HOST
+        value: "$influxHost"
+      - name: INFLUX_USER
+        value: "$influxUser"
+      - name: INFLUX_PASS
+        value: "$influxPass"
+      - name: INFLUX_SSL
+        value: "$influxSSL"
+      - name: NUM_TESTS
+        value: "$2"
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 4Gi
+      requests:
+        cpu: 1000m
+        memory: 1Gi
+EOF
+}
+
+# Runs all tests in Kubernetes
+run-all-kube () {
+  local tmpDir=$testDir/tmp/$gitCommit
+  local scenarios=$(tests)
+  local numTests=0
+  for sc in $scenarios; do
+    ((numTests++))
+  done
+
+  # Create kubernetes namespace
+  kubectl create ns $gitCommit
+
+  # Make tmp directory
+  mkdir -p $tmpDir
+
+  echo "Running $numTests tests..."
+  # Make the manifests to launch the pods
+  for sc in $scenarios; do
+    make-manifest $sc $numTests
+    kubectl apply -f $tmpDir/$sc.yaml
+  done
+
+  # Remove the temporary files
+  rm -rf $tmpDir
+}
+
+# Run 1 test in Kubernetes
+run-one-kube () {
+  local tmpDir=$testDir/tmp/$gitCommit
+  local numTests=1
+
+  # Check for test name arguement
+  if [ $# -eq 0 ]; then
+    echo "need to input name of test to run"
+    echo "to get a list of tests run see blockstack_integration_tests/scenarios"
+    exit 1
+  fi
+
+  # Create kubernetes namespace
+  kubectl create ns $gitCommit
+
+  # Make tmp directory
+  mkdir -p $tmpDir/tmp/$gitCommit
+
+  # Create the manifest file
+  make-manifest $1 $numTests
+
+  # Run it
+  kubectl apply -f $tmpDir/$1.yaml
+
+  # Remove temporary files
+  rm -rf $tmpDir
+}
+
+# Just delete the namespace where all the pods where.
+clean-all-kube () {
+  echo "removing all tests in namespace $gitCommit"
+  kubectl delete ns $gitCommit
+}
+
+# Runs all the tests in seperate docker containers
+run-all-local () {
+  # List of test scenarios to run
+  local scenarios=$(tests)
+
+  # Loop through all test scenarios
+  for sc in $scenarios; do
+
+    # local variables for each scenario
+    local command="blockstack-test-scenario blockstack_integration_tests.scenarios.$sc"
+
+    # Limit number of running docker containers to number of cores on the system
+    while [ $(docker ps -q -f status=running -f name="$gitCommit" | wc -l) -ge $numContainers ]; do
+      sleep 5
+    done
+
+    # Run the docker image, pipe test logs to output folder
+    docker run -d --name "$sc-$gitCommit" $testImage:$testTag $command >> /dev/null 2>&1
+  done
+
+  # Wait for tests to finish before exiting
+  echo "All tests running. Waiting for tests to finish..."
+  while [ $(docker ps -q -f status=running -f name="$gitCommit" | wc -l) -ge 0 ]; do
+    sleep 10
+  done
+}
+
+# Run one test locally
+run-one-local () {
+  local outputdir=$testOutputDir/$1/
+  local containerdir=/tmp/
+  local command="blockstack-test-scenario blockstack_integration_tests.scenarios.$1"
+
+  if [ $# -eq 0 ]; then
+    echo "need to input name of test to run"
+    echo "to get a list of tests run see blockstack_integration_tests/scenarios"
+    exit 1
+  fi
+
+  docker run -d \
+    --name "$1-$gitCommit-mounted" \
+    --net=host \
+    -v $outputdir:$containerdir \
+    $testImage:$testTag $command >> /dev/null 2>&1
+}
+
+# get-runtime-docker $containerID -> gets duration of test in seconds
+get-runtime-docker () {
+  local started=$(docker inspect -f {{.State.StartedAt}} $1)
+  local finished=$(docker inspect -f {{.State.FinishedAt}} $1)
+  local sunix=0
+  local funix=0
+  if [[ $(uname) == 'Linux' ]]; then
+    sunix=$(date -d "$started" "+%s")
+    funix=$(date -d "$finished" "+%s")
+  elif [[ $(uname) == 'Darwin' ]]; then
+    sunix=$(date -jf "%FT%T" "$started" "+%s" 2> /dev/null)
+    funix=$(date -jf "%FT%T" "$finished" "+%s" 2> /dev/null)
+  fi
+  expr $funix - $sunix
+}
+
+# Prints out the results in a human readable fashion
+results-local () {
+  local exited=$(docker ps -a -q  -f status=exited -f name="$gitCommit")
+  for test in $exited; do
+    local success=$(docker logs $test --tail 120 2>&1 | grep -c "SUCCESS")
+    local failure=$(docker logs $test --tail 120 2>&1 | grep -c "FAILURE")
+    local name=$(docker inspect -f '{{.Name}}' $test)
+    local runtime=$(get-runtime-docker $test)
+    if [ $success -eq 1 ]; then
+      echo "[ ] SUCCESS in $(expr $runtime / 60)m $(expr $runtime % 60)s -> $name"
+    elif [ $failure -eq 1 ]; then
+      echo "[X] FAILURE in $(expr $runtime / 60)m $(expr $runtime % 60)s -> $name (docker logs $test)"
+    else
+      echo "Might want to look at this container: docker logs $test"
+    fi
+  done
+}
+
+# Prints out the results in format for insertion into InfluxDB
+write-local () {
+  local exited=$(docker ps -a -q  -f status=exited -f name="$gitCommit")
+  local reportTime=$(date +%s)
+  local importFile=$testDir/influx.txt
+
+  # Clear importFile
+  rm -f $importFile
+
+  # Write DDL and DML
+  echo "# DDL" >> $importFile
+  echo "CREATE DATABASE testing" >> $importFile
+  echo "" >> $importFile
+  echo "# DML" >> $importFile
+  echo "# CONTEXT-DATABASE: testing" >> $importFile
+  echo "# CONTEXT-RETENTION-POLICY: autogen" >> $importFile
+  echo "" >> $importFile
+
+  # Loop through tests and write points
+  for test in $exited; do
+    local success=$(docker logs $test --tail 100 2>&1 | grep -c "SUCCESS")
+    local failure=$(docker logs $test --tail 100 2>&1 | grep -c "FAILURE")
+    local name=$(docker inspect -f '{{.Name}}' $test)
+    local runtime=$(get-runtime-docker $test)
+    if [ $success -eq 1 ]; then
+      echo "integration_tests,git_commit=$gitCommit,git_branch=$gitBranch,test_scenario=$name,success=true runtime=${runtime}i $reportTime" >> $importFile
+    elif [ $failure -eq 1 ]; then
+      echo "integration_tests,git_commit=$gitCommit,git_branch=$gitBranch,test_scenario=$name,success=false runtime=${runtime}i $reportTime" >> $importFile
+    fi
+  done
+
+  # Write the data to configured influx instance
+  influx -host $influxHost -ssl -username $influxUser -password $influxPass -import -path $importFile -precision "s"
+
+  # Remove the importFile
+  rm $importFile
+}
+
+progress-local () {
+  local scenarios=$(tests)
+  local totaltests=0
+  for sc in $scenarios; do
+    ((totaltests++))
+  done
+  local inprogress=$(expr $(docker ps -f status=running -f name="$gitCommit" | wc -l) - 1)
+  local completed=$(expr $(docker ps -a -f status=exited -f name="$gitCommit" | wc -l) - 1)
+  local remaining=$(expr $totaltests - $(expr $inprogress + $completed))
+  echo "TotalTests: $totaltests, Completed: $(percent $completed $totaltests)%, InProgress: $(percent $inprogress $totaltests)%, Remaining: $(percent $remaining $totaltests)%"
+}
+
+commands () {
+  cat <<-EOF
+BLOCKSTACK DOCKER TEST LAUNCHER:
+  Build and push testing docker images:
+    build-image -> build the test container (for local testing)
+    push-image   -> build and push tests image to container registry (for kubernetes testing)
+
+  Running tests on local Docker daemon:
+    run-one-local        -> run one test locally (pass test name)
+    run-all-local        -> loop through the tests runing $numContainers at a time
+    results-local        -> check results from finished tests
+    write-local          -> write test results to a configured influx instance (need to configure)
+    progress-local       -> log progress in the test suite
+    cleanup-files-local  -> remove all files from test
+    cleanup-docker-local -> cleanup docker containers from test
+
+  Run tests against a Kubernetes Cluster, special configruation needed:
+    run-all-kube         -> run all tests as kubernetes pods in $gitCommit namespace
+    run-one-kube         -> run single test in a kubernetes pod (pass test name)
+    clean-all-kube       -> remove testing namespace ($gitCommit) and delete pods
+EOF
+}
+
+case $1 in
+  build-image)
+    build-image
+    ;;
+  push-image)
+    push-image
+    ;;
+  run-all-local)
+    run-all-local
+    ;;
+  run-one-local)
+    run-one-local $2
+    ;;
+  results-local)
+    results-local
+    ;;
+  write-local)
+    write-local
+    ;;
+  progress-local)
+    progress-local
+    ;;
+  cleanup-files-local)
+    echo "Removing container /tmp data $testOutputDir..."
+    rm -rf $testOutputDir
+    ;;
+  cleanup-docker-local)
+    echo "Removing all test docker containers..."
+    docker stop $(docker ps -a -q -f name="$gitCommit") > /dev/null 2>&1
+    docker rm $(docker ps -a -q -f name="$gitCommit") > /dev/null 2>&1
+    ;;
+  run-all-kube)
+    run-all-kube
+    ;;
+  clean-all-kube)
+    clean-all-kube
+    ;;
+  run-one-kube)
+    run-one-kube $2
+    ;;
+  *)
+    commands
+    ;;
+esac

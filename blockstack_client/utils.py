@@ -29,8 +29,8 @@ import hashlib
 import threading
 import traceback
 
-from constants import DEFAULT_BLOCKSTACKD_PORT
-from logger import get_logger
+from .config import get_config
+from .logger import get_logger
 
 log = get_logger('blockstack-client')
 
@@ -168,13 +168,17 @@ def daemonize( logpath, child_wait=None ):
     return 0
 
 
-def url_to_host_port(url, port=DEFAULT_BLOCKSTACKD_PORT):
+def url_to_host_port(url, port=None):
     """
     Given a URL, turn it into (host, port).
     Return (None, None) on invalid URL
     """
     if not url.startswith('http://') or not url.startswith('https://'):
         url = 'http://' + url
+
+    if not port:
+        conf = get_config()
+        port = conf['port']
 
     urlinfo = urllib2.urlparse.urlparse(url)
     hostport = urlinfo.netloc

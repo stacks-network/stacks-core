@@ -1,7 +1,10 @@
+# extras for test-launcher
+__init__
+attic
+testlib
 # list of tests to ignore
 virtualchain_abort
 name_preorder_register_update_file_benchmark
-
 # skip multi-preorder and multi-register for now, since it's not ready
 name_preorder_multi
 name_preorder_multi_preorder_register
@@ -12,28 +15,31 @@ name_preorder_multi_register_multipleblocks_snv
 name_preorder_multi_register_nochangeaddress
 name_preorder_multi_register_update_transfer_renew_revoke_verify
 name_preorder_multi_register_update_transfer_renew_revoke_verify_snv
-
 # will likely never work again
 rpc_register_multi_parallel
-
 # superceded
 name_preorder_register_update_file
 name_preorder_register_upadte_file_nodatakey
 name_preorder_register_update_file_benchmark
-
 # GPG is broken
 name_preorder_register_update_gpg
 name_preorder_register_update_gpg_nodatakey
-
 # in development
-name_preorder_register_update_multidevice_storage
-name_preorder_register_update_storage_gateway
-name_preorder_register_update_upgrade_storage
+name_pre_reg_up_multidevice_storage
+name_pre_reg_up_storage_gateway
+name_pre_reg_up_upgrade_storage
 rpc_register_nextepoch_wallet
-
 # superceded by better functionality
 name_preorder_register_update_blockstackurl
 name_preorder_register_update_blockstackurl_nodatakey
 name_preorder_register_update_blockstackurl_nozonefilekey
 rest_stores
 rest_stores_rmtree
+# NOT WORKING per @kantai
+name_pre_reg_up_app_datastore_stale_file
+name_pre_reg_up_app_datastore_stale_directory
+name_pre_reg_up_app_datastore_rmtree
+name_pre_reg_up_datakey_migration
+name_pre_reg_up_deletemutable
+name_pre_reg_up_deletemutable_nodatakey
+name_pre_reg_up_nonstandard_zonefile

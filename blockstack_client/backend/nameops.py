@@ -167,6 +167,9 @@ def make_cheapest_nameop( opcode, utxo_client, payment_address, payment_utxos, *
     unsigned_tx = None
     i = None
 
+    if len(payment_utxos) < 1:
+        raise ValueError("No UTXOs for address {}".format(payment_address))
+
     for i in xrange(1, len(payment_utxos)+1):
         try:
             log.debug("Try building a {} with inputs 0-{} of {}".format(opcode, i, payment_address))
@@ -2174,6 +2177,9 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
         additionals['min_payment_confs'] = name_data['min_payment_confs']
     if 'owner_privkey' in name_data:
         additionals['owner_privkey'] = name_data['owner_privkey']
+    if 'payment_privkey' in name_data:
+        additionals['payment_privkey'] = name_data['payment_privkey']
+
     if 'transaction_hash' in resp:
         if not BLOCKSTACK_DRY_RUN:
             # watch this preorder, and register it when it gets queued
@@ -2217,6 +2223,30 @@ def check_owner_privkey_info(owner_privkey_info, name_data):
     return owner_address, owner_privkey_info
 
 
+def check_payment_privkey_info(payment_privkey_info, name_data):
+    """
+    Verify that a name data is consistent with the given payment private key.
+    If not, then extract the new name owner private key information from the wallet.
+
+    Return (payment address, payment private key info)
+    """
+    payment_address = virtualchain.get_privkey_address(payment_privkey_info)
+    if 'payment_address' in name_data and payment_address != name_data['payment_address']:
+
+       log.debug("Registrar payment address changed since beginning registration : from {} to {}".format(
+           name_data['payment_address'], payment_address))
+
+       payment_address = name_data['payment_address']
+       passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
+       payment_privkey_info = aes_decrypt(
+           str(name_data['payment_privkey']), hexlify( passwd ))
+
+       if not virtualchain.get_privkey_address(payment_privkey_info) == payment_address:
+           raise Exception("Attempting to correct registrar address to {}, but failed!".format(payment_address))
+
+    return payment_address, payment_privkey_info
+
+
 def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
                    proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH, safety_checks=True):
     """
@@ -2244,8 +2274,7 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
     owner_address, owner_privkey_info = check_owner_privkey_info( owner_privkey_info, name_data )
-
-    payment_address = virtualchain.get_privkey_address( payment_privkey_info )
+    payment_address, payment_privkey_info = check_payment_privkey_info( payment_privkey_info, name_data )
 
     # check register_queue first
     # stale preorder will get removed from preorder_queue
@@ -2283,6 +2312,8 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
         additionals['min_payment_confs'] = name_data['min_payment_confs']
     if 'owner_privkey' in name_data:
         additionals['owner_privkey'] = name_data['owner_privkey']
+    if 'payment_privkey' in name_data:
+        additionals['payment_privkey'] = name_data['payment_privkey']
 
     try:
         resp = do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster,
@@ -2363,6 +2394,7 @@ def async_update(fqu, zonefile_data, owner_privkey_info, payment_privkey_info,
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
 
     owner_address, owner_privkey_info = check_owner_privkey_info( owner_privkey_info, name_data )
+    payment_address, payment_privkey_info = check_payment_privkey_info( payment_privkey_info, name_data )
 
     if in_queue("update", fqu, path=queue_path):
         log.error("Already in update queue: %s" % fqu)
@@ -2380,6 +2412,8 @@ def async_update(fqu, zonefile_data, owner_privkey_info, payment_privkey_info,
 
     if 'owner_privkey' in name_data:
         additionals['owner_privkey'] = name_data['owner_privkey']
+    if 'payment_privkey' in name_data:
+        additionals['payment_privkey'] = name_data['payment_privkey']
 
     resp = {}
     try:
@@ -2393,6 +2427,7 @@ def async_update(fqu, zonefile_data, owner_privkey_info, payment_privkey_info,
     if 'transaction_hash' in resp:
         if not BLOCKSTACK_DRY_RUN:
             queue_append("update", fqu, resp['transaction_hash'],
+                         payment_address = payment_address,
                          zonefile_data=zonefile_data,
                          zonefile_hash=zonefile_hash,
                          owner_address=owner_address,
@@ -2410,7 +2445,7 @@ def async_update(fqu, zonefile_data, owner_privkey_info, payment_privkey_info,
         return {'error': 'Failed to broadcast update transaction: {}'.format(resp['error'])}
 
 
-def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_info, 
+def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_info,
                    config_path=CONFIG_PATH, proxy=None, queue_path=DEFAULT_QUEUE_PATH, name_data = {}):
     """
         Transfer a previously registered fqu, using a different payment address.
@@ -2432,6 +2467,7 @@ def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
 
     owner_address, owner_privkey_info = check_owner_privkey_info( owner_privkey_info, name_data )
+    payment_address, payment_privkey_info = check_payment_privkey_info( payment_privkey_info, name_data )
 
     if in_queue("transfer", fqu, path=queue_path):
         log.error("Already in transfer queue: %s" % fqu)
@@ -2447,6 +2483,8 @@ def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
     additionals = {}
     if 'owner_privkey' in name_data:
         additionals['owner_privkey'] = name_data['owner_privkey']
+    if 'payment_privkey' in name_data:
+        additionals['payment_privkey'] = name_data['payment_privkey']
 
     if 'transaction_hash' in resp:
         if not BLOCKSTACK_DRY_RUN:

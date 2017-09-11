@@ -320,7 +320,7 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
                  config_path=CONFIG_PATH, block_height=None,
                  zonefile_data=None, key_file=None, zonefile_hash=None,
                  unsafe_reg = None, confirmations_needed = None,
-                 owner_privkey=None,
+                 owner_privkey=None, payment_privkey = None,
                  min_payment_confs = None, path=DEFAULT_QUEUE_PATH):
 
     """
@@ -334,7 +334,7 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
 
     # required for all queues
     new_entry['payment_address'] = payment_address
-    
+
     if block_height is None:
         block_height = get_block_height(config_path=config_path)
 
@@ -352,6 +352,8 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
         new_entry['min_payment_confs'] = min_payment_confs
     if owner_privkey is not None:
         new_entry['owner_privkey'] = owner_privkey
+    if payment_privkey is not None:
+        new_entry['payment_privkey'] = payment_privkey
 
     if zonefile_data is not None:
         new_entry['zonefile_b64'] = base64.b64encode(zonefile_data)
