@@ -2216,6 +2216,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'message': {
                     'type': 'string',
                 },
+                'payment_key': PRIVKEY_INFO_SCHEMA,
             },
             'required': [
                 'address'
@@ -2232,6 +2233,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         min_confs = request.get('min_confs', TX_MIN_CONFIRMATIONS)
         tx_only = request.get('tx_only', False)
         message = request.get('message', None)
+        payment_key = request.get('payment_key', None)
 
         if tx_only:
             tx_only = 'True'
@@ -2248,7 +2250,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             address = new_addr
 
         internal = self.server.get_internal_proxy()
-        res = internal.cli_withdraw(address, amount, message, min_confs, tx_only, config_path=self.server.config_path, interactive=False, wallet_keys=self.server.wallet_keys)
+        res = internal.cli_withdraw(
+            address, amount, message, min_confs, tx_only, payment_key,
+            config_path=self.server.config_path, interactive=False,
+            wallet_keys=self.server.wallet_keys)
         if 'error' in res:
             log.debug("Failed to transfer balance: {}".format(res['error']))
             error_msg = {'error': 'Failed to transfer balance: {}'.format(res['error'])}
