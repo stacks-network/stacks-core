@@ -470,7 +470,7 @@ def key_file_get_key_order(name_owner_privkeys, pubkeys):
     return {'status': True, 'key_order': key_order}
 
 
-def key_file_create(name, name_owner_privkeys, device_id, key_order=None, apps=None, profile=None, delegations=None, config_path=CONFIG_PATH):
+def key_file_create(name_owner_privkeys, device_id, key_order=None, apps=None, profile=None, delegations=None, config_path=CONFIG_PATH):
     """
     Make a new key file, possibly from an existing profile.  Sign and serialize the delegations file,
     and sign and serialize each of the app bundles.
@@ -495,7 +495,6 @@ def key_file_create(name, name_owner_privkeys, device_id, key_order=None, apps=N
         # default
         delegations = {
             'version': '1.0',
-            'name': name,
             'devices': {},
             'timestamp': int(time.time()),
         }
@@ -1021,7 +1020,7 @@ def lookup_app_pubkeys(name, full_application_name, cache=None, cache_max_age=60
     return {'status': True, 'key_file': res['key_file'], 'pubkeys': dict([(dev_id, res['app_info'][dev_id]['public_key']) for dev_id in res['app_info'].keys()])}
 
 
-def make_initial_key_file(name, user_profile, owner_privkey_info, this_device_id=None, config_path=CONFIG_PATH):
+def make_initial_key_file(user_profile, owner_privkey_info, this_device_id=None, config_path=CONFIG_PATH):
     """
     Given a profile, set it up as an "initial" key file (given the owner private key bundle)
     Return {'status': True, 'key_file': serialized key file} on success
@@ -1052,9 +1051,9 @@ def make_initial_key_file(name, user_profile, owner_privkey_info, this_device_id
 
         pubkey_order = [this_device_id]
 
-    res = key_file_create(name, name_owner_privkeys, this_device_id, key_order=pubkey_order, profile=user_profile, config_path=config_path)
+    res = key_file_create(name_owner_privkeys, this_device_id, key_order=pubkey_order, profile=user_profile, config_path=config_path)
     if 'error' in res:
-        return {'error': 'Failed to generate key file for {}: {}'.format(name, res['error'])}
+        return {'error': 'Failed to generate key file: {}'.format(res['error'])}
 
     user_key_file = res['key_file']
     return {'status': True, 'key_file': user_key_file}
@@ -1099,7 +1098,7 @@ def key_file_add_app( blockchain_id, datastore_id, parsed_key_file, this_device_
     return {'status': True}
 
 
-def key_file_get_versions(name, device_ids, config_path=CONFIG_PATH):
+def key_file_get_versions(name_or_address, device_ids, config_path=CONFIG_PATH):
     """
     Get the version vector for a key file.
     Return {'status': True, 'versions': ...} on success
@@ -1110,9 +1109,9 @@ def key_file_get_versions(name, device_ids, config_path=CONFIG_PATH):
     versions = {}
 
     # look up key file version from metadata 
-    res = get_mutable_data_version(name, [DEFAULT_DEVICE_ID], config_path=config_path)
+    res = get_mutable_data_version(name_or_address, [DEFAULT_DEVICE_ID], config_path=config_path)
     if 'error' in res:
-        log.error("Failed to load version for key file for {}".format(name))
+        log.error("Failed to load version for key file for {}".format(name_or_address))
         return res
 
     versions['key_file'] = res['version']
@@ -1121,25 +1120,25 @@ def key_file_get_versions(name, device_ids, config_path=CONFIG_PATH):
 
     # look up key file app bundle version from metadata
     for device_id in device_ids:
-        res = get_mutable_data_version('{}.{}'.format(name, 'apps'), [device_id], config_path=config_path)
+        res = get_mutable_data_version('{}.{}'.format(name_or_address, 'apps'), [device_id], config_path=config_path)
         if 'error' in res:
-            log.error("Failed to load version for key file for {}".format(name))
+            log.error("Failed to load version for key file for {}".format(name_or_address))
             return res
     
         versions['apps'][device_id] = res['version']
 
     # look up key file delegation bundle version from metadata 
-    res = get_mutable_data_version('{}.{}'.format(name, 'delegation'), [DEFAULT_DEVICE_ID], config_path=config_path)
+    res = get_mutable_data_version('{}.{}'.format(name_or_address, 'delegation'), [DEFAULT_DEVICE_ID], config_path=config_path)
     if 'error' in res:
-        log.error("Failed to load version for key file for {}".format(name))
+        log.error("Failed to load version for key file for {}".format(name_or_address))
         return res
 
     versions['delegation'] = res['version']
 
     # look up key file delegation bundle version from metadata 
-    res = get_mutable_data_version('{}.{}'.format(name, 'profile'), [DEFAULT_DEVICE_ID], config_path=config_path)
+    res = get_mutable_data_version('{}.{}'.format(name_or_address, 'profile'), [DEFAULT_DEVICE_ID], config_path=config_path)
     if 'error' in res:
-        log.error("Failed to load version for key file for {}".format(name))
+        log.error("Failed to load version for key file for {}".format(name_or_address))
         return res
 
     versions['profile'] = res['version']
@@ -1189,7 +1188,7 @@ def key_file_check_versions(key_file, versions=None, min_timestamp=None):
     return {'status': True}
 
 
-def key_file_put_versions(name, key_file_jwt, config_path=CONFIG_PATH):
+def key_file_put_versions(name_or_address, key_file_jwt, config_path=CONFIG_PATH):
     """
     Store version vector for key file fields.
     Return {'status': True} on success
@@ -1206,33 +1205,33 @@ def key_file_put_versions(name, key_file_jwt, config_path=CONFIG_PATH):
     key_file = jsontokens.decode_token(key_file_jwt)['payload']
 
     # store key file version 
-    res = put_mutable_data_version('{}.{}'.format(name, 'keyfile'), key_file['timestamp'], [DEFAULT_DEVICE_ID], config_path=config_path)
+    res = put_mutable_data_version('{}.{}'.format(name_or_address, 'keyfile'), key_file['timestamp'], [DEFAULT_DEVICE_ID], config_path=config_path)
     if 'error' in res:
-        log.error("Failed to store data version for key file for {}".format(name))
-        return {'error': 'Failed to store data version for key file for {}: {}'.format(name, res['error'])}
+        log.error("Failed to store data version for key file for {}".format(name_or_address))
+        return {'error': 'Failed to store data version for key file for {}: {}'.format(name_or_address, res['error'])}
 
     # store key app bundle version for each device
     for device_id in key_file['keys']['apps']:
         app_keys = jsontokens.decode_token(key_file['keys']['apps'][device_id])['payload']
         ts = app_keys['timestamp']
-        res = put_mutable_data_version('{}.{}'.format(name, 'apps'), ts, [device_id], config_path=config_path)
+        res = put_mutable_data_version('{}.{}'.format(name_or_address, 'apps'), ts, [device_id], config_path=config_path)
         if 'error' in res:
-            log.error("Failed to store data version for app key bundle for key file for {}".format(name))
-            return {'error': 'Failed to store data version for app key bundle for key file for {}: {}'.format(name, res['error'])}
+            log.error("Failed to store data version for app key bundle for key file for {}".format(name_or_address))
+            return {'error': 'Failed to store data version for app key bundle for key file for {}: {}'.format(name_or_address, res['error'])}
 
     # store delegate version
     delegation_bundle = jsontokens.decode_token(key_file['keys']['delegation'])['payload']
-    res = put_mutable_data_version('{}.{}'.format(name, 'delegation'), delegation_bundle['timestamp'], [DEFAULT_DEVICE_ID], config_path=config_path)
+    res = put_mutable_data_version('{}.{}'.format(name_or_address, 'delegation'), delegation_bundle['timestamp'], [DEFAULT_DEVICE_ID], config_path=config_path)
     if 'error' in res:
-        log.error("Failed to store data version for delegation bundle for key file for {}".format(name))
-        return {'error': 'Failed to store data version for delegation bundle for key file for {}: {}'.format(name, res['error'])}
+        log.error("Failed to store data version for delegation bundle for key file for {}".format(name_or_address))
+        return {'error': 'Failed to store data version for delegation bundle for key file for {}: {}'.format(name_or_address, res['error'])}
 
     # store profile version 
     if profile_bundle.has_key('timestamp'):
-        res = put_mutable_data_version('{}.{}'.format(name, 'profile'), profile_bundle['timestamp'], [DEFAULT_DEVICE_ID], config_path=config_path)
+        res = put_mutable_data_version('{}.{}'.format(name_or_address, 'profile'), profile_bundle['timestamp'], [DEFAULT_DEVICE_ID], config_path=config_path)
         if 'error' in res:
-            log.error("Failed to store data version for profile bundle for key file for {}".format(name))
-            return {'error': 'Failed to store data version for profile bundle for key file for {}: {}'.format(name, res['error'])}
+            log.error("Failed to store data version for profile bundle for key file for {}".format(name_or_address))
+            return {'error': 'Failed to store data version for profile bundle for key file for {}: {}'.format(name_or_address, res['error'])}
 
     return {'status': True}
 
@@ -1397,7 +1396,7 @@ def key_file_get(name, cache=None, cache_max_age=600, zonefile_storage_drivers=N
     return ret
 
 
-def key_file_put(name, new_profile_txt, cache=None, proxy=None, required_drivers=None, config_path=CONFIG_PATH):
+def key_file_put(name_or_address, new_profile_txt, cache=None, proxy=None, required_drivers=None, config_path=CONFIG_PATH):
     """
     Set the new key file data.  CLIENTS SHOULD NOT CALL THIS METHOD DIRECTLY.
     Takes a serialized key file (as a string).
@@ -1425,27 +1424,27 @@ def key_file_put(name, new_profile_txt, cache=None, proxy=None, required_drivers
         else:
             required_storage_drivers = config.get('storage_drivers', '').split(',')
 
-    log.debug('Save updated key file for "{}" to {}'.format(name, ','.join(required_storage_drivers)))
+    log.debug('Save updated key file for "{}" to {}'.format(name_or_address, ','.join(required_storage_drivers)))
     
-    storage_res = storage.put_mutable_data(name, new_profile_txt, sign=False, raw=True, required=required_storage_drivers, key_file=True, blockchain_id=name)
+    storage_res = storage.put_mutable_data(name_or_address, new_profile_txt, sign=False, raw=True, required=required_storage_drivers, key_file=True)
     if 'error' in storage_res:
         log.error("Failed to store updated key file: {}".format(storage_res['error']))
-        return {'error': 'Failed to store key file for {}'.format(name)}
+        return {'error': 'Failed to store key file for {}'.format(name_or_address)}
 
     # cache evict
     if cache:
-        cache.evict_key_file(name)
+        cache.evict_key_file(name_or_address)
 
     # store new version
-    res = key_file_put_versions(name, new_profile_txt, config_path=config_path)
+    res = key_file_put_versions(name_or_address, new_profile_txt, config_path=config_path)
     if 'error' in res:
-        log.error("Failed to store data version vector for key file for {}".format(name))
-        return {'error': 'Failed to store data version vector for key file for {}: {}'.format(name, res['error'])}
+        log.error("Failed to store data version vector for key file for {}".format(name_or_address))
+        return {'error': 'Failed to store data version vector for key file for {}: {}'.format(name_or_address, res['error'])}
     
     return storage_res
 
 
-def key_file_delete(blockchain_id, signing_private_key, cache=None, proxy=None):
+def key_file_delete(name_or_address, signing_private_key, cache=None, proxy=None):
     """
     Delete key file data.  CLIENTS SHOULD NOT CALL THIS DIRECTLY
     Return {'status: True} on success
@@ -1454,13 +1453,13 @@ def key_file_delete(blockchain_id, signing_private_key, cache=None, proxy=None):
 
     proxy = get_default_proxy() if proxy is None else proxy
 
-    rc = storage.delete_mutable_data(blockchain_id, signing_private_key)
+    rc = storage.delete_mutable_data(name_or_address, signing_private_key)
     if not rc:
         return {'error': 'Failed to delete key file'}
     
     # clear cache
     if cache:
-        cache.evict_key_file(name)
+        cache.evict_key_file(name_or_address)
 
     return {'status': True}
 
@@ -1492,7 +1491,6 @@ if __name__ == "__main__":
     }
     delegations = {
         'version': '1.0',
-        'name': name,
         'devices': {
             'test_device_1': key_file_make_delegation_entry(name_owner_privkeys['test_device_1'], 'test_device_1', 0)['delegation'],
         },
@@ -1500,7 +1498,7 @@ if __name__ == "__main__":
     }
 
     # make key file
-    key_info = key_file_create("test.id", name_owner_privkeys, device_id, profile=profile, delegations=delegations, apps=apps)
+    key_info = key_file_create(name_owner_privkeys, device_id, profile=profile, delegations=delegations, apps=apps)
     assert 'error' not in key_info, key_info
 
     key_file_txt = key_info['key_file']
@@ -1572,8 +1570,8 @@ if __name__ == "__main__":
     for k in ['@type', 'accounts', 'name']:
         assert key_file['profile'][k] == new_profile[k], new_profile
 
-    expected_delegation = {'version': '1.0', 'name': name, 'devices': new_delegations}
-    for k in ['version', 'name', 'devices']:
+    expected_delegation = {'version': '1.0', 'devices': new_delegations}
+    for k in ['version', 'devices']:
         assert key_file['keys']['delegation'][k] == expected_delegation[k]
 
     assert key_file['keys']['apps'] == apps
@@ -1598,8 +1596,8 @@ if __name__ == "__main__":
     for k in ['@type', 'accounts', 'name']:
         assert key_file['profile'][k] == new_profile[k], new_profile
 
-    expected_delegation = {'version': '1.0', 'name': name, 'devices': new_delegations}
-    for k in ['version', 'name', 'devices']:
+    expected_delegation = {'version': '1.0', 'devices': new_delegations}
+    for k in ['version', 'devices']:
         assert key_file['keys']['delegation'][k] == expected_delegation[k]
 
     assert key_file['keys']['apps'].has_key('test_device_1')
