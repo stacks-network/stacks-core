@@ -3137,7 +3137,7 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
     user_zonefile_hash = blockstack_client.hash_zonefile( user_zonefile )
     
     # make a key file 
-    res = blockstack_client.key_file.make_initial_key_file(name, user_profile, owner_privkey_info, this_device_id=this_device_id, config_path=proxy.config_path)
+    res = blockstack_client.key_file.make_initial_key_file(user_profile, owner_privkey_info, this_device_id=this_device_id, config_path=proxy.config_path)
     if 'error' in res:
         log.error("Failed to make initial key file: {}".format(res['error']))
         return res
