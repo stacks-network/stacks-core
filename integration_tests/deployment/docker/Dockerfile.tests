@@ -2,7 +2,7 @@ FROM ubuntu:xenial
 
 # Install dependancies from apt
 RUN apt-get update
-RUN apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools libgmp3-dev
+RUN apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools libgmp3-dev lsof
 
 # Install Bitcoin
 RUN apt-get -y update
