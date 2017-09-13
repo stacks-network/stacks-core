@@ -22,15 +22,15 @@ def storage_init(conf, **kwargs):
             log.exception(e)
             return False
 
-        if parser.has_section('gaia_hub'):
-            if parser.has_option('gaia_hub', 'token'):
-                ACCESS_TOKEN = parser.get('gaia_hub', 'token')
-            if parser.has_option('gaia_hub', 'address'):
-                ACCESS_ADDRESS = parser.get('gaia_hub', 'address')
-            if parser.has_option('gaia_hub', 'server'):
-                HUB_SERVER = parser.get('gaia_hub', 'server')
-            if parser.has_option('gaia_hub', 'url_prefix'):
-                HUB_URL_PREFIX = parser.get('gaia_hub', 'url_prefix')
+        if parser.has_section('gaia-hub'):
+            if parser.has_option('gaia-hub', 'token'):
+                ACCESS_TOKEN = parser.get('gaia-hub', 'token')
+            if parser.has_option('gaia-hub', 'address'):
+                ACCESS_ADDRESS = parser.get('gaia-hub', 'address')
+            if parser.has_option('gaia-hub', 'server'):
+                HUB_SERVER = parser.get('gaia-hub', 'server')
+            if parser.has_option('gaia-hub', 'url-prefix'):
+                HUB_URL_PREFIX = parser.get('gaia-hub', 'url-prefix')
 
     return True
 
@@ -42,7 +42,7 @@ def data_id_to_hex( data_id ):
 
 def make_mutable_url( data_id ):
     path = data_id_to_hex(data_id)
-    url = "{}{}/{}".format(HUB_URL_PREFIX, ACCESS_ADDRESS, path)
+    url = "{}/{}".format(HUB_URL_PREFIX, path)
     log.debug( "make_mutable_url: {}".format(url))
     return url
 
@@ -52,7 +52,7 @@ def put_mutable_handler( data_id, data_txt, **kw ):
         ACCESS_ADDRESS,
         data_id_to_hex( data_id ))
     headers = {
-        "Authorization" : "bearer {}".format(ACCESS_TOKEN)
+        "Authentication" : "bearer {}".format(ACCESS_TOKEN)
     }
     log.debug( "put_mutable_url: {}".format(url))
 
@@ -71,7 +71,6 @@ def put_mutable_handler( data_id, data_txt, **kw ):
     elif resp_obj['publicURL'] != make_mutable_url(data_id):
         msg = "Unexpected publicURL. Expected '{}', Actual '{}'".format(
             make_mutable_url(data_id), resp_obj['publicURL'])
-        raise Exception(msg)
     return True
 
 def get_mutable_handler( data_url, **kw):
