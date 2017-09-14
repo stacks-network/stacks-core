@@ -3,40 +3,65 @@
 [![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![Slack](https://img.shields.io/badge/join-slack-e32072.svg?style=flat)](http://slack.blockstack.org/)
 
-Blockstack is a new decentralized internet where you own your data and your apps run locally without remote servers. 
+**`blockstack-core` is the reference implementation of the Blockstack protocol.**
+- `blockstack-core`
+  * Creating and transmitting blockchain transactions,
+  * Creating and parsing [virtualchain](https://github.com/blockstack/virtualchain) state, and
+  * Communicating with the peer network, Atlas. The
+- `blockstack-core api`
+  * Provides a RESTful interface for clients to interact with `blockstack-core` functionality
+  * Contains your bitcoin wallet
+  * [API Docs](docs/api-specs.md) [(rendered)](https://blockstack.github.io/blockstack-core/)
+- `blockstack`
+  * A command-line-interface for the `blockstack-core api`, and `blockstack-core`
+
+## What is Blockstack?
+
+Blockstack is a new decentralized internet where you own your data and your apps run locally without remote servers.
 
 Blockstack provides decentralized services for naming/DNS, identity, authentication and storage. Developers can use JavaScript libraries to build serverless apps and they don't need to worry about managing infrastructure.
 
-For more info on Blockstack see: http://github.com/blockstack/blockstack
+If you are looking to get started with the blockstack platform and register a name, we recommend you start with the [Blockstack Browser](https://github.com/blockstack/blockstack-browser) first.
 
-**Blockstack Core is the reference implementation of Blockstack.** It is responsible for processing blockchain transactions, creating virtualchain state, and building the peer network amongst other things. Blockstack Core provides a RESTful interface for clients and also comes with a command-line-interface (CLI).
+For more info on Blockstack here are some good links:
+- [Join our Slack Channel!](http://forum.blockstack.org/)
+- [Join our Forum!](http://forum.blockstack.org/)
+- [Read the Whitepaper](blockstack.org/whitepaper.pdf)
+- [Documentation](https://blockstack.org/docs)
+- [Mailing List](http://blockstack.us14.list-manage1.com/subscribe?u=394a2b5cfee9c4b0f7525b009&id=0e5478ae86)
+- [`blockstack/blockstack`](http://github.com/blockstack/blockstack)
 
 ## Table of Contents
 
 - [Installing Blockstack](#installing-blockstack)
 - [Development Status](#development-status)
 - [Blockstack Docs](#blockstack-docs)
-- [API Docs](#api-docs)
 - [Contributing](#contributing)
-- [Community](#community)
 
 ## Installing Blockstack
 
-There are two major supported methods for installing `blockstack`: our `apt` repo or a `pip install`.
+If you are looking to register a name, or use blockstack application, we recommend that you start with the [blockstack-browser](https://github.com/blockstack/blockstack-browser)
+You can find install instructions for:
+- [Linux](https://github.com/blockstack/packaging/tree/master/browser-core-docker#installing-blockstack-browser-and-api-with-docker) using our Docker `launcher` script.
+- [Windows](http://packages.blockstack.com/repositories/windows/) - Alpha installer which installs docker utilities and our docker images.
+- [macOS](https://github.com/blockstack/blockstack-browser/releases)
 
+If you are looking to install `blockstack-core`, there are two methods:
+- [`pip install`](#install-with-pip)
+- [`docker`](#install-with-docker)
 
-### `pip` Installation 
+### Install with `pip`
 
 You should use `pip2` if you have it instead of `pip`. Blockstack is built against Python `2.7`.
 
-For Mac:
+On Mac:
 
 ```bash
 # Install blockstack
 $ pip2 install blockstack --upgrade
 ```
 
-For Debian & Ubuntu:
+On Debian & Ubuntu:
 
 ```bash
 # Install dependancies
@@ -47,50 +72,40 @@ $ sudo pip2 install pyparsing
 $ sudo pip2 install blockstack --upgrade
 ```
 
-For SUSE and openSUSE:
+#### Setting up `blockstack-api`
 
-```bash
-# Install dependancies
-$ sudo zypper update && zypper install rng-tools gcc python-devel python2-pip libffi-devel libopenssl-devel
-
-# Install blockstack
-$ sudo pip install blockstack --upgrade 
-```
-
-To install the `blockstack-browser`, [follow the instructions](https://github.com/blockstack/blockstack-browser) over on the repository.
-
-### `apt` Installation
-
-```bash
-# Add our apt repository
-$ wget -qO - https://raw.githubusercontent.com/blockstack/packaging/master/repo-key.pub | sudo apt-key add -
-$ echo "echo 'deb http://packages.blockstack.com/repositories/ubuntu/ xenial main' > /etc/apt/sources.list.d/blockstack.list" | sudo -E bash -
-
-# Install blockstack
-$ sudo apt update && sudo apt install blockstack
-```
-
-To install the `blockstack-browser`, [follow the instructions](https://github.com/blockstack/blockstack-browser) over on the repository.
-
-### Setting up your install
-
-If this is your first time installing blockstack first run `blockstack setup` and follow the prompts. Use the defaults for all of the options.
+If this is your first time installing blockstack first you will need to run `blockstack setup` and follow the prompts. Using the defaults is recommended. This process generates your wallet and the `blockstack` configuration files.
 
 > NOTE: This process generates a wallet. *BE SURE TO SAVE THE WALLET PASSWORD YOU TYPE IN*.
 
-Next you need to start the [`blockstack api`](https://blockstack.github.io/blockstack-core/) server:
+Next you need to start the [`blockstack api`](https://blockstack.github.io/blockstack-core/) server: `blockstack api start`. Now, you can test your installation by running `blockstack info` which should display the last block processed and the latest consensus hash.
 
-```
-$ blockstack api start
+
+### Install with `docker`
+
+> _*WARNING*_: This install path is currently in developer alpha state. We will be adding more features here in the coming months.
+
+Blockstack API and the Blockstack Browser run well in docker. There is a provided CLI to help you build and launch the `docker` images if you are not comfortable with `docker`: `launcher`.
+The CLI will pull down the images from our [Quay image repository](https://quay.io/organization/blockstack).
+
+You can download the launcher script from our packaging repo: [download](https://raw.githubusercontent.com/blockstack/packaging/master/browser-core-docker/launcher)
+
+```bash
+# First run the pull command. This will fetch the latest docker images from our image repository.
+$ ./launcher pull
+
+# The first time you run ./launcher start, it will create a `$HOME/.blockstack` directory to
+# store your Blockstack Core API config and wallet and prompt you for a password to protect those
+# Next you can start the Blockstack Core API
+$ ./launcher start
+
+# When you are done you can clean up your environment by running
+$ ./launcher stop
 ```
 
-Now, you can test your installation by trying:
+This will start the Blockstack browser and a paired `blockstack-api` daemon.
 
-```
-$ blockstack info 
-```
-
-which should display the last block processed and the latest consensus hash.
+If you would like to build your own docker image, you can use the Dockerfile in the root of this repository.
 
 ### Running a `blockstack-core` instance
 
@@ -99,42 +114,27 @@ After installation, you can (optionally) do a fast-sync that quickly syncs a loc
 ```bash
 # Download the Atlas snapshot
 $ blockstack-core --debug fast_sync http://fast-sync.blockstack.org/snapshot.bsk
-```
 
-And start Blockstack Core to index the blockchain:
-
-```bash
-# To start the server
+# start the blockstack-core daemon to index the blockchain
 $ blockstack-core --debug start
 
-# Read the server logs
+# Check the server logs for errors
 $ tail -f ~/.blockstack-server/blockstack-server.log
 ```
 
-Next, visit the [basic usage docs](https://blockstack.org/docs) and [extended usage docs](https://blockstack.org/docs) to learn how to register names of your own, as well as transfer them and associate data with them.
+Next, visit the [usage docs](https://blockstack.org/docs) to learn how to register names of your own, as well as transfer them and associate data with them.
 
-If you encounter any technical issues in installing or using Blockstack, please [search the open issues](https://github.com/blockstack/blockstack-core/issues) and start a new one if your issue is not covered. 
-
-#### Support for Integration Tests and Regtest Environment
-
-Our integration test suite allows you to easily get a regtest environment up and running with Blockstack, and the above `apt` package includes the suite. However, you'll need to install `bitcoind` and `sqlite3` for the tests to execute properly. For that you'll need to add bitcoin's PPA (or install it otherwise).
-
-```
-$ sudo apt install software-properties-common
-$ sudo add-apt-repository ppa:bitcoin/bitcoin
-$ sudo apt update
-$ sudo apt install sqlite3 bitcoind
-```
+If you encounter any technical issues in installing or using Blockstack, please [search the open issues](https://github.com/blockstack/blockstack-core/issues) and start a new one if your issue is not covered. You can also visit the `forum` or `#support` channel in Slack.
 
 ## Development Status
 
-**v0.14.2** is the current stable release of Blockstack Core (available on the master branch).<br>
-**v0.14.3** is the next release candidate for Blockstack Core (available on the [v0.14.3 branch](https://github.com/blockstack/blockstack-core/tree/rc-0.14.3)).
+**v0.14.5** is the current stable release of Blockstack Core (available on the master branch).<br>
+**v0.14.6** will be the next release for `blockstack-core`.
 
-Most of the development is happening in the [v0.14.3 branch](https://github.com/blockstack/blockstack-core/tree/rc-0.14.3). Please submit all
-pull requests to that branch.
+The next release is being built on the [develop](https://github.com/blockstack/blockstack-core/tree/develop). Please submit all
+pull requests to the `develop` branch.
 
-In the list of [release notes](https://github.com/blockstack/blockstack-core/tree/master/release_notes) you can find what has changed in these versions.
+In the list of [release notes](https://github.com/blockstack/blockstack-core/tree/master/release_notes) you can find what has changed in each release.
 
 ## Blockstack Docs
 
@@ -152,11 +152,6 @@ You can also read the Blockstack paper:
 
 If you have high-level questions about Blockstack, try [searching our forum](https://forum.blockstack.org) and start a new question if your question is not answered there.
 
-## API Docs
-
-A local core node will expose a RESTful API after starting the api with `blockstack api start`.
-Documentation for that lives [here](https://blockstack.github.io/blockstack-core/), which is generated from blueprint markdown [here](docs/api-specs.md).
-
 ## Contributing
 
 We welcome any small or big contributions! Please take a moment to
@@ -169,36 +164,6 @@ You can install the latest release candidate by:
 $ git clone https://github.com/blockstack/blockstack-core.git
 $ blockstack-core/images/scripts/debian-release-candidate.sh
 ```
-
-## Running in Docker
-
-> _*WARNING*_: This install path is currently for developers only. 
-
-To run the Blockstack API and the Blockstack Browser in docker containers is easy! There is also a provided CLI: `launcher`. The CLI will pull down the images from our [Quay image repository](https://quay.io/organization/blockstack). If you want to build the API image locally run `./launcher build`. The browser image and build script are in the [`blockstack-browser`](https://github.com/blockstack/blockstack-browser) repository.
-
-```bash
-# First run the setup command. This will create a `$HOME/.blockstack` directory to store your Blockstack Core API config and wallet
-$ ./launcher setup <password>
-
-# Next you can start the Blockstack Core API
-$ ./launcher start <password>
-
-# Finally start the Blockstack Browser
-$ ./launcher browser
-
-# Now open your browser to `localhost:8888` to view the blockstack browser!
-
-# When you are done you can clean up your environment by running
-$ ./launcher stop
-```
-
-## Community
-
-We have an active community of developers and the best place to interact with the community is:
-
-- [Mailing List](http://blockstack.us14.list-manage1.com/subscribe?u=394a2b5cfee9c4b0f7525b009&id=0e5478ae86) (3,000+ members)
-- [Blockstack Forum](http://forum.blockstack.org)
-- [Live chat on Slack](http://chat.blockstack.org/) (2,400+ members)
 
 ## Copyright and License
 
