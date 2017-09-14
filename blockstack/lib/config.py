@@ -1182,8 +1182,8 @@ def versions_need_upgrade(v_from, v_to):
         (lambda v : v[:2] < (0,14))
     ]
 
-    v1 = ( int(x) for x in str(v_from).split('.') )
-    v2 = ( int(x) for x in str(v_to).split('.') )
+    v1 = tuple( int(x) for x in str(v_from).split('.') )
+    v2 = tuple( int(x) for x in str(v_to).split('.') )
     if len(v1) < 3 or len(v2) < 3:
         return True # one isn't semver
     if v1[:2] == v2[:2]:
