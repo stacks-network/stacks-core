@@ -22,15 +22,15 @@ def storage_init(conf, **kwargs):
             log.exception(e)
             return False
 
-        if parser.has_section('gaia-hub'):
-            if parser.has_option('gaia-hub', 'token'):
-                ACCESS_TOKEN = parser.get('gaia-hub', 'token')
-            if parser.has_option('gaia-hub', 'address'):
-                ACCESS_ADDRESS = parser.get('gaia-hub', 'address')
-            if parser.has_option('gaia-hub', 'server'):
-                HUB_SERVER = parser.get('gaia-hub', 'server')
-            if parser.has_option('gaia-hub', 'url-prefix'):
-                HUB_URL_PREFIX = parser.get('gaia-hub', 'url-prefix')
+        if parser.has_section('gaia_hub'):
+            if parser.has_option('gaia_hub', 'token'):
+                ACCESS_TOKEN = parser.get('gaia_hub', 'token')
+            if parser.has_option('gaia_hub', 'address'):
+                ACCESS_ADDRESS = parser.get('gaia_hub', 'address')
+            if parser.has_option('gaia_hub', 'server'):
+                HUB_SERVER = parser.get('gaia_hub', 'server')
+            if parser.has_option('gaia_hub', 'url_prefix'):
+                HUB_URL_PREFIX = parser.get('gaia_hub', 'url_prefix')
 
     return True
 
