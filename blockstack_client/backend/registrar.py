@@ -346,7 +346,7 @@ class RegistrarWorker(threading.Thread):
         return accepted
 
 
-    @classmethod 
+    @classmethod
     def register_preorders( cls, queue_path, wallet_data, config_path=CONFIG_PATH, proxy=None ):
         """
         Find all confirmed preorders, and register them.
@@ -363,7 +363,7 @@ class RegistrarWorker(threading.Thread):
         for preorder in preorders:
 
             log.debug("Preorder for '%s' (%s) is confirmed!" % (preorder['fqu'], preorder['tx_hash']))
-            
+
             # did we already register?
             if in_queue("register", preorder['fqu'], path=queue_path):
                 log.warn("Already queued name '%s' for registration" % preorder['fqu'])
@@ -1015,7 +1015,6 @@ def state():
     data = get_queue_state(path=state.queue_path)
     return data
 
-
 # RPC method: backend_set_wallet
 def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, proxy=None):
     """
@@ -1143,7 +1142,9 @@ def get_wallet(config_path=None, proxy=None):
 
 
 # RPC method: backend_preorder
-def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_payment_confs, proxy=None, config_path=CONFIG_PATH, unsafe_reg = False):
+def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_payment_confs,
+             proxy = None, config_path = CONFIG_PATH, unsafe_reg = False, owner_key = None,
+             payment_key = None):
     """
     Send preorder transaction and enter it in queue.
     Queue up additional state so we can update and transfer it as well.
@@ -1170,8 +1171,10 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
         data['error'] = "Already in queue."
         return data
 
-    payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
-    owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    if payment_key is None:
+        payment_key = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
+    if owner_key is None:
+        owner_key = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
 
     name_data = {
         'transfer_address': transfer_address,
@@ -1188,17 +1191,19 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
         name_data['confirmations_needed'] = PREORDER_CONFIRMATIONS
         name_data['unsafe_reg'] = True
 
-    # save the current owner_privkey_info, scrypted with our password
+    # save the current privkey_info, scrypted with our password
     passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
     if passwd:
         name_data['owner_privkey'] = aes_encrypt(
-            str(owner_privkey_info), hexlify( passwd ))
+            str(owner_key), hexlify( passwd ))
+        name_data['payment_privkey'] = aes_encrypt(
+            str(payment_key), hexlify( passwd ))
     else:
         log.warn("Registrar couldn't access wallet password to encrypt privkey," +
                  " sheepishly refusing to store the private key unencrypted.")
 
     log.debug("async_preorder({}, zonefile_data={}, profile={}, transfer_address={})".format(fqu, zonefile_data, profile, transfer_address)) 
-    resp = async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost_satoshis,
+    resp = async_preorder(fqu, payment_key, owner_key, cost_satoshis,
                           name_data=name_data, min_payment_confs=min_payment_confs,
                           proxy=proxy, config_path=config_path, queue_path=state.queue_path)
 
@@ -1221,8 +1226,8 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
 
 
 # RPC method: backend_update
-def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, config_path=CONFIG_PATH, proxy=None,
-            prior_name_data = None, owner_key = None ):
+def update(fqu, zonefile_txt, profile, zonefile_hash, transfer_address, config_path=CONFIG_PATH, proxy=None,
+           prior_name_data = None, owner_key = None, payment_key = None ):
     """
     Send a new zonefile hash.  Queue the zonefile data for subsequent replication.
     zonefile_txt_b64 must be b64-encoded so we can send it over RPC sanely
@@ -1248,11 +1253,10 @@ def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, config_
 
     resp = None
 
-    payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
+    if payment_key is None:
+        payment_key = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
     if owner_key is None:
-        owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
-    else:
-        owner_privkey_info = owner_key
+        owner_key = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
 
     replication_error = None
 
@@ -1267,8 +1271,8 @@ def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, config_
 
         log.debug("async_update({}, zonefile_data={}, profile={}, transfer_address={})".format(fqu, zonefile_txt, profile, transfer_address)) 
         resp = async_update(fqu, zonefile_txt, profile,
-                            owner_privkey_info,
-                            payment_privkey_info,
+                            owner_key,
+                            payment_key,
                             name_data=name_data,
                             zonefile_hash=zonefile_hash,
                             proxy=proxy,
@@ -1305,7 +1309,7 @@ def update( fqu, zonefile_txt, profile, zonefile_hash, transfer_address, config_
 
 # RPC method: backend_transfer
 def transfer(fqu, transfer_address, prior_name_data = None, config_path=CONFIG_PATH, proxy=None,
-             owner_key = None):
+             owner_key = None, payment_key = None):
     """
     Send transfer transaction.
     Keeps the zonefile data.
@@ -1327,18 +1331,17 @@ def transfer(fqu, transfer_address, prior_name_data = None, config_path=CONFIG_P
         data['error'] = "Already in queue."
         return data
 
-    payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
+    if payment_key is None:
+        payment_key = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
     if owner_key is None:
-        owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
-    else:
-        owner_privkey_info = owner_key
+        owner_key = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
 
     kwargs = {}
     if prior_name_data:
         kwargs['name_data'] = prior_name_data
     resp = async_transfer(fqu, transfer_address,
-                          owner_privkey_info,
-                          payment_privkey_info,
+                          owner_key,
+                          payment_key,
                           proxy=proxy,
                           config_path=config_path,
                           queue_path=state.queue_path, **kwargs)
@@ -1361,7 +1364,8 @@ def transfer(fqu, transfer_address, prior_name_data = None, config_path=CONFIG_P
 
 
 # RPC method: backend_renew
-def renew( fqu, renewal_fee, config_path=CONFIG_PATH, proxy=None ):
+def renew(fqu, renewal_fee, config_path=CONFIG_PATH, proxy=None, owner_key = None,
+          payment_key = None):
     """
     Renew a name
 
@@ -1384,10 +1388,12 @@ def renew( fqu, renewal_fee, config_path=CONFIG_PATH, proxy=None ):
 
     resp = None
 
-    payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
-    owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    if payment_key is None:
+        payment_key = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
+    if owner_key is None:
+        owner_key = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
 
-    resp = async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee,
+    resp = async_renew(fqu, owner_key, payment_key, renewal_fee,
                        proxy=proxy,
                        config_path=config_path,
                        queue_path=state.queue_path)
