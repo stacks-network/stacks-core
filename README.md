@@ -40,11 +40,9 @@ For more info on Blockstack here are some good links:
 
 ## Installing Blockstack
 
-If you are looking to register a name, or use blockstack application, we recommend that you start with the [blockstack-browser](https://github.com/blockstack/blockstack-browser)
-You can find install instructions for:
-- [Linux](https://github.com/blockstack/packaging/tree/master/browser-core-docker#installing-blockstack-browser-and-api-with-docker) using our Docker `launcher` script.
-- [Windows](http://packages.blockstack.com/repositories/windows/) - Alpha installer which installs docker utilities and our docker images.
-- [macOS](https://github.com/blockstack/blockstack-browser/releases)
+If you are looking to register a name, or use blockstack application, we recommend that you start with the [blockstack-browser](https://github.com/blockstack/blockstack-browser). If you are looking to install `blockstack-core`, there are two methods:
+- [`pip install`](#install-with-pip)
+- [`docker`](#install-with-docker)
 
 If you are looking to install `blockstack-core`, there are two methods:
 - [`pip install`](#install-with-pip)
@@ -72,40 +70,33 @@ $ sudo pip2 install pyparsing
 $ sudo pip2 install blockstack --upgrade
 ```
 
-#### Setting up `blockstack-api`
-
-If this is your first time installing blockstack first you will need to run `blockstack setup` and follow the prompts. Using the defaults is recommended. This process generates your wallet and the `blockstack` configuration files.
-
-> NOTE: This process generates a wallet. *BE SURE TO SAVE THE WALLET PASSWORD YOU TYPE IN*.
-
-Next you need to start the [`blockstack api`](https://blockstack.github.io/blockstack-core/) server: `blockstack api start`. Now, you can test your installation by running `blockstack info` which should display the last block processed and the latest consensus hash.
-
-
 ### Install with `docker`
 
 > _*WARNING*_: This install path is currently in developer alpha state. We will be adding more features here in the coming months.
 
-Blockstack API and the Blockstack Browser run well in docker. There is a provided CLI to help you build and launch the `docker` images if you are not comfortable with `docker`: `launcher`.
-The CLI will pull down the images from our [Quay image repository](https://quay.io/organization/blockstack).
-
-You can download the launcher script from our packaging repo: [download](https://raw.githubusercontent.com/blockstack/packaging/master/browser-core-docker/launcher)
+Blockstack API and the Blockstack Browser run well in docker. There is a provided CLI to help you build and launch the `docker` images if you are not comfortable with `docker`: `launcher`. The CLI will pull down the images from our [Quay image repository](https://quay.io/organization/blockstack). If you want to build the `blockstack-core` image locally run `./launcher build`.
 
 ```bash
-# First run the pull command. This will fetch the latest docker images from our image repository.
-$ ./launcher pull
+# First run the setup command. This will create a `$HOME/.blockstack` directory to store your Blockstack Core API config and wallet
+$ ./launcher setup <password>
 
-# The first time you run ./launcher start, it will create a `$HOME/.blockstack` directory to
-# store your Blockstack Core API config and wallet and prompt you for a password to protect those
 # Next you can start the Blockstack Core API
-$ ./launcher start
+$ ./launcher start <password>
 
 # When you are done you can clean up your environment by running
 $ ./launcher stop
 ```
 
-This will start the Blockstack browser and a paired `blockstack-api` daemon.
+### Setting up your `blockstack-api`
 
-If you would like to build your own docker image, you can use the Dockerfile in the root of this repository.
+If this is your first time installing blockstack first you will need to run `blockstack setup` and follow the prompts. Using the defaults is recommended. This process generates your wallet and the `blockstack` configuration files.
+
+```bash
+# First run the pull command. This will fetch the latest docker images from our image repository.
+$ ./launcher pull
+
+Next you need to start the [`blockstack api`](https://blockstack.github.io/blockstack-core/) server: `blockstack api start`. Now, you can test your installation by running `blockstack info` which should display the last block processed and the latest consensus hash.
+
 
 ### Running a `blockstack-core` instance
 
