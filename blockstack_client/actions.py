@@ -102,7 +102,7 @@ from .storage import get_driver_urls, get_storage_handlers, sign_data_payload, \
 
 from .backend.blockchain import (
     get_balance, get_utxos, broadcast_tx, select_utxos,
-    get_tx_confirmations, get_tx_fee, get_tx_fee_per_byte, get_block_height
+    get_tx_confirmations, get_block_height
 )
 
 from .backend.registrar import get_wallet as registrar_get_wallet
@@ -589,14 +589,14 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
                  "value": 0} ] + outputs
 
         serialized_tx = serialize_tx(selected_inputs, outputs)
-        signed_tx = sign_tx(serialized_tx, payment_key)
+        signed_tx = sign_tx(serialized_tx, selected_inputs, payment_key)
         return signed_tx
 
     tx = mktx(amount, 0)
     if json_is_error(tx):
         return tx
 
-    tx_fee = get_tx_fee(tx, config_path=config_path)
+    tx_fee = virtualchain.get_tx_fee(tx, config_path=config_path)
 
     tx = mktx(amount, tx_fee)
     if json_is_error(tx):
@@ -623,7 +623,7 @@ def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_priv
     """
  
     # first things first: get fee per byte 
-    tx_fee_per_byte = get_tx_fee_per_byte(config_path=config_path)
+    tx_fee_per_byte = virtualchain.get_tx_fee_per_byte(config_path=config_path)
     if tx_fee_per_byte is None:
         log.error("Unable to calculate fee per byte")
         return {'error': 'Unable to get fee estimate'}
