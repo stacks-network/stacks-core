@@ -72,6 +72,7 @@ class Wallet(object):
 
         self.pubkey_hex = pk.public_key().to_hex()
         self.addr = pk.public_key().address()
+        self.segwit = False
 
         log.debug("Wallet %s (%s)" % (self.privkey, self.addr))
 
@@ -83,12 +84,45 @@ class MultisigWallet(object):
         self.m = m
         self.n = len(pks)
         self.pks = pks
+        self.segwit = False
 
         self.addr = self.privkey['address']
 
         log.debug("Multisig wallet %s" % (self.addr))
         log.debug(json.dumps(self.privkey, indent=4, sort_keys=True))
 
+
+class SegwitWallet(object):
+    def __init__(self, pk_wif ):
+
+        self.privkey = virtualchain.make_segwit_info( pk_wif )
+        pk = virtualchain.BitcoinPrivateKey( pk_wif )
+
+        self._pk = pk
+        self.segwit = True
+
+        self.pubkey_hex = pk.public_key().to_hex()
+        self.addr = self.privkey['address']
+        
+        log.debug("P2SH-P2WPKH Wallet %s (%s)" % (self.privkey, self.addr))
+
+        log.debug(json.dumps(self.privkey, indent=4, sort_keys=True))
+
+
+class MultisigSegwitWallet(object):
+    def __init__(self, m, *pks ):
+
+        self.privkey = virtualchain.make_multisig_segwit_info( m, pks )
+        self.m = m
+        self.n = len(pks)
+        self.pks = pks
+        self.segwit = True
+
+        self.addr = self.privkey['address']
+
+        log.debug("Multisig P2SH-P2WSH wallet %s" % (self.addr))
+        log.debug(json.dumps(self.privkey, indent=4, sort_keys=True))
+       
 
 class APICallRecord(object):
     def __init__(self, method, name, result ):
@@ -2494,6 +2528,7 @@ def hard_local_api_stop(config_dir):
 
     return True
 
+
 def instantiate_wallet():
     """
     Load the current wallet's addresses into bitcoin.
@@ -2554,6 +2589,7 @@ def get_utxos( addr ):
     """
     inputs = blockstack_client.backend.blockchain.get_utxos(addr)
     return inputs
+
 
 def send_funds_tx( privkey, satoshis, payment_addr ):
     """
