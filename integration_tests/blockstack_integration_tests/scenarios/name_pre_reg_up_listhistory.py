@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import blockstack_client
 import blockstack_profiles
@@ -90,7 +90,7 @@ def check( state_engine ):
         return False 
 
     name = "foo.test"
-    preorder = state_engine.get_name_preorder( name, pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
+    preorder = state_engine.get_name_preorder( name, virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
     if preorder is not None:
         print "still have preorder"
         return False
@@ -102,7 +102,7 @@ def check( state_engine ):
         return False 
 
     # owned 
-    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[4].addr):
+    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[4].addr):
         print "name has wrong owner"
         return False 
 

@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import virtualchain
 

@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -74,19 +74,19 @@ def check( state_engine ):
         return False 
 
     # all preordered
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
     if preorder is None:
         return False
     
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[4].addr), wallets[5].addr )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[4].addr), wallets[5].addr )
     if preorder is None:
         return False 
 
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[0].addr), wallets[1].addr )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[0].addr), wallets[1].addr )
     if preorder is None:
         return False
     
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[5].addr), wallets[2].addr )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[5].addr), wallets[2].addr )
     if preorder is None:
         return False
     

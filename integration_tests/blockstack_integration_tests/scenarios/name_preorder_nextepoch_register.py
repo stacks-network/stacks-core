@@ -26,7 +26,7 @@ TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 259
 """
 
 import testlib
-import pybitcoin
+import virtualchain
 import blockstack as blockstack_server
 
 wallets = [
@@ -85,13 +85,13 @@ def check( state_engine ):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr, include_failed=True )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr, include_failed=True )
     if preorder is not None:
         print "preorder exists"
         return False
     
     # not preordered
-    preorder = state_engine.get_name_preorder( "bar.test", pybitcoin.make_pay_to_address_script(wallets[3].addr), wallets[4].addr, include_failed=True )
+    preorder = state_engine.get_name_preorder( "bar.test", virtualchain.make_payment_script(wallets[3].addr), wallets[4].addr, include_failed=True )
     if preorder is not None:
         print "preorder exists"
         return False
@@ -109,12 +109,12 @@ def check( state_engine ):
         return False 
 
     # owned by
-    if name_rec_foo['address'] != wallets[3].addr or name_rec_foo['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
+    if name_rec_foo['address'] != wallets[3].addr or name_rec_foo['sender'] != virtualchain.make_payment_script(wallets[3].addr):
         print "sender is wrong"
         return False 
 
     # owned by
-    if name_rec_bar['address'] != wallets[4].addr or name_rec_bar['sender'] != pybitcoin.make_pay_to_address_script(wallets[4].addr):
+    if name_rec_bar['address'] != wallets[4].addr or name_rec_bar['sender'] != virtualchain.make_payment_script(wallets[4].addr):
         print "sender is wrong"
         return False 
 

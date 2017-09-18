@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import time
 import json
 import sys
@@ -118,7 +118,7 @@ def check( state_engine ):
 
     # owned by the right address 
     owner_address = wallets[4].addr
-    if name_rec['address'] != owner_address or name_rec['sender'] != pybitcoin.make_pay_to_address_script(owner_address):
+    if name_rec['address'] != owner_address or name_rec['sender'] != virtualchain.make_payment_script(owner_address):
         print "sender is wrong"
         return False 
 

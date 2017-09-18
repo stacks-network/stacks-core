@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import os
 import sys
@@ -90,7 +90,7 @@ def check( state_engine ):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "judecn.id", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
+    preorder = state_engine.get_name_preorder( "judecn.id", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
     if preorder is not None:
         return False
     
@@ -100,7 +100,7 @@ def check( state_engine ):
         return False 
 
     # owned by
-    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
+    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[3].addr):
         return False 
 
     # announcements exist...

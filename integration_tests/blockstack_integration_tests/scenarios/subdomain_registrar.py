@@ -20,7 +20,7 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """ 
 
-import pybitcoin
+import virtualchain
 import time
 import json
 import sys
