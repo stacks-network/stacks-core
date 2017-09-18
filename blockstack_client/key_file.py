@@ -156,7 +156,12 @@ def _key_file_parse_profile(profile_txt):
                 unverified_profile = unverified_profile[0]
                 assert isinstance(unverified_profile, dict)
 
-            unverified_profile = unverified_profile['claim']
+            if unverified_profile.has_key('claim'):
+                unverified_profile = unverified_profile['claim']
+
+            elif unverified_profile.has_key('token'):
+                unverified_profile = jsontokens.decode_token(unverified_profile['token'])['payload']['claim']
+
         except Exception as e1:
             try:
                 # possibly a JWT
