@@ -124,7 +124,10 @@ PRIVKEY_MULTISIG_SCHEMA = {
         },
         'private_keys': {
             'type': 'array',
-            'items': PRIVKEY_SINGLESIG_SCHEMA
+            'items': PRIVKEY_SINGLESIG_SCHEMA,
+        },
+        'segwit': {
+            'type': 'boolean',
         },
     },
     'required': [
