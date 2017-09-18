@@ -1040,11 +1040,14 @@ def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, p
 
         return {'error': 'Missing wallet information'}
 
+    def _key_valid(k):
+        return virtualchain.is_singlesig(k) or virtualchain.is_multisig(k) or virtualchain.btc_is_singlesig_segwit(k) or virtualchain.btc_is_multisig_segwit(k)
+
     # sanity check...
-    if not virtualchain.is_singlesig( payment_keypair[1] ) and not virtualchain.is_multisig( payment_keypair[1] ):
+    if not _key_valid(payment_keypair[1]):
         return {'error': 'Invalid payment key info'}
 
-    if not virtualchain.is_singlesig( owner_keypair[1] ) and not virtualchain.is_multisig( owner_keypair[1] ):
+    if not _key_valid(owner_keypair[1]):
         return {'error': 'Invalid owner key info'}
 
     if not is_singlesig_hex( data_keypair[1] ):
