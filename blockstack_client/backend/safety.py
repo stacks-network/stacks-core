@@ -61,7 +61,7 @@ from ..utils import ScatterGather, ScatterGatherThread
 
 from .blockchain import (
     get_balance, is_address_usable, get_utxos,
-    can_receive_name, get_tx_fee_per_byte
+    can_receive_name 
 )
 
 from virtualchain.lib.ecdsalib import ecdsa_private_key
@@ -1182,7 +1182,7 @@ def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey
     payment_address = virtualchain.get_privkey_address(payment_privkey_info)
     
     # first things first: get fee per byte 
-    tx_fee_per_byte = get_tx_fee_per_byte(config_path=config_path)
+    tx_fee_per_byte = virtualchain.get_tx_fee_per_byte(config_path=config_path)
     if tx_fee_per_byte is None:
         log.error("Unable to calculate fee per byte")
         return {'error': 'Unable to get fee estimate'}
