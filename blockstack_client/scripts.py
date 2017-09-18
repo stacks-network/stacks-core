@@ -22,6 +22,8 @@
 """
 import json, re
 from binascii import hexlify, unhexlify
+import socket
+import time
 
 import virtualchain
 
@@ -113,12 +115,14 @@ def is_valid_hash(value):
 
     return len(strvalue) == 64
 
+
 def is_valid_int(value):
     try:
         int(value)
         return True
     except ValueError:
         return False
+
 
 def blockstack_script_to_hex(script):
     """ Parse the readable version of a script, return the hex version.
@@ -210,7 +214,7 @@ def tx_get_subsidy_info(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_c
     payer_address, payer_utxo_inputs = tx_get_address_and_utxos(
         subsidy_key_info, utxo_client, address=subsidy_address 
     )
-   
+
     # NOTE: units are in satoshis
     tx_inputs, tx_outputs = deserialize_tx(blockstack_tx)
 
@@ -277,8 +281,9 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
     @simulated_sign tells us not to actually sign, but just compute expected sig lengths
 
     Returns the transaction; signed if subsidy_key_info is given; unsigned otherwise;
-    if simulated_sign, returns a tuple (unsigned tx, expected length of hex encoded signatures)
-    Returns None if we can't get subsidy info
+    if simulated_sign, returns a tuple (unsigned tx, expected length of encoded signatures in bytes)
+
+    Returns None if we can't get subsidy info (or (None, None) if simulated_sign is True)
     Raise ValueError if there are not enough inputs to subsidize
     """
 
@@ -287,7 +292,10 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
     subsidy_info = tx_get_subsidy_info(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_client, tx_fee=tx_fee, subsidy_address=subsidy_address)
     if 'error' in subsidy_info:
         log.error("Failed to get subsidy info: {}".format(subsidy_info['error']))
-        return None
+        if simulated_sign:
+            return (None, None)
+        else:
+            return None
 
     payer_utxo_inputs = subsidy_info['payer_utxos']
     payer_address = subsidy_info['payer_address']
@@ -296,6 +304,7 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
         dust_fee = subsidy_info['dust_fee']
     else:
         dust_fee = 0 # NOTE: caller needed to include this in the passed tx_fee!
+
     tx_fee = subsidy_info['tx_fee']
     tx_inputs = subsidy_info['ins']
 
@@ -341,24 +350,19 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
     if subsidy_key_info is not None and not simulated_sign:
         for i in range(len(consumed_inputs)):
             idx = i + len(tx_inputs)
+            amount = consumed_inputs[i]['value']
+            out_script = consumed_inputs[i]['out_script']
+
             subsidized_tx = tx_sign_input(
-                subsidized_tx, idx, subsidy_key_info, hashcode=virtualchain.SIGHASH_ANYONECANPAY
+                subsidized_tx, idx, out_script, amount, subsidy_key_info, hashcode=(virtualchain.SIGHASH_ALL | virtualchain.SIGHASH_ANYONECANPAY)
             )
+
     elif simulated_sign:
-        return subsidized_tx, 2*(len(consumed_inputs) * tx_estimate_signature_len_bytes(subsidy_key_info))
+        return subsidized_tx, len(consumed_inputs) * tx_estimate_signature_len(subsidy_key_info)
     else:
         log.debug("Warning: no subsidy key given; transaction will be subsidized but not signed")
 
     return subsidized_tx
-
-def tx_estimate_signature_len_bytes(privkey_info):
-    if virtualchain.is_singlesig(privkey_info):
-        return 73
-    else:
-        m, _ = virtualchain.parse_multisig_redeemscript( privkey_info['redeem_script'] )
-        siglengths = 74 * m
-        scriptlen = len(privkey_info['redeem_script']) / 2
-        return 6 + scriptlen + siglengths
 
 
 def tx_get_unspents(address, utxo_client, min_confirmations=None):
@@ -379,7 +383,17 @@ def tx_get_unspents(address, utxo_client, min_confirmations=None):
     if min_confirmations != TX_MIN_CONFIRMATIONS:
         log.warning("Using UTXOs with {} confirmations instead of the default {}".format(min_confirmations, TX_MIN_CONFIRMATIONS))
 
-    data = get_unspents(address, utxo_client)
+    data = None
+    for i in xrange(0, 3):
+        try:
+            data = get_unspents(address, utxo_client)
+            break
+        except socket.error:
+            log.warning("Failed to reach UTXO client; trying again...")
+            time.sleep(1)
+
+    if data is None:
+        raise Exception("Failed to connect to UTXO provider")
 
     try:
         assert type(data) == list, "No UTXO list returned (got {})".format(type(data))
