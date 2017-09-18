@@ -9,7 +9,7 @@ os.environ['BLOCKSTACK_CLIENT_TEST_ALTERNATIVE_CONFIG'] = '1'
 os.environ['BLOCKSTACK_TESTNET'] = '1'
 os.environ['BLOCKSTACK_ATLAS_NETWORK_SIMULATION'] = '1'
 
-TEST_FIRST_BLOCK_HEIGHT = 250   # how many blocks we have to generate to start regtest
+TEST_FIRST_BLOCK_HEIGHT = 432 + 250   # how many blocks we have to generate to start regtest
 os.environ['BLOCKSTACK_TEST_FIRST_BLOCK'] = str(TEST_FIRST_BLOCK_HEIGHT + 6)
 
 import sys
@@ -895,7 +895,7 @@ def bitcoin_regtest_reset():
 
     os.makedirs(bitcoin_dir)
     with open(bitcoin_conf, "w") as f:
-        f.write("rpcuser=%s\nrpcpassword=%s\nregtest=1\ntxindex=1\nlisten=1\nserver=1\ndatadir=%s\ndebug=1" % (opts['bitcoind_user'], opts['bitcoind_passwd'], bitcoin_dir))
+        f.write("rpcuser=%s\nrpcpassword=%s\nregtest=1\ntxindex=1\nlisten=1\nserver=1\ndatadir=%s\ndebug=1\nrpcserialversion=0" % (opts['bitcoind_user'], opts['bitcoind_passwd'], bitcoin_dir))
         f.flush()
         os.fsync(f.fileno())
 
@@ -930,6 +930,7 @@ def bitcoin_regtest_reset():
         return False
 
     # generate 250 blocks (50 BTC coinbase each), and confirm them
+    # also generate 432 blocks to activate segwit
     bitcoind = virtualchain.connect_bitcoind(opts)
     res = bitcoind.generate(TEST_FIRST_BLOCK_HEIGHT-1)
     if len(res) != TEST_FIRST_BLOCK_HEIGHT-1:
@@ -950,13 +951,51 @@ def fill_wallet( bitcoind, wallet, value ):
     """
     if type(wallet.privkey) in [str, unicode]:
         # single private key
-        testnet_wif = virtualchain.BitcoinPrivateKey(wallet.privkey).to_wif()
+        testnet_wif = virtualchain.BitcoinPrivateKey(virtualchain.get_singlesig_privkey(wallet.privkey)).to_wif()
         addr = virtualchain.BitcoinPublicKey(wallet.pubkey_hex).address()
 
-        log.debug("Fill %s (%s) (%s) with %s" % (addr, wallet.privkey, testnet_wif, value ))
+        log.debug("Fill %s (%s) with %s" % (addr, testnet_wif, value ))
 
         bitcoind.importprivkey(testnet_wif, "")
         bitcoind.sendtoaddress( addr, value )
+
+    
+    elif wallet.segwit and len(wallet.privkey['private_keys']) == 1:
+        # single private key, p2sh-p2wpkh
+        testnet_wif = virtualchain.BitcoinPrivateKey(virtualchain.get_singlesig_privkey(wallet.privkey)).to_wif()
+        addr = virtualchain.BitcoinPublicKey(wallet.pubkey_hex).address()
+
+        bitcoind.importprivkey(testnet_wif, "")
+
+        segwit_wallet = virtualchain.make_segwit_info(testnet_wif)
+        p2sh_p2wpkh_addr = bitcoind.addwitnessaddress(addr)
+        assert p2sh_p2wpkh_addr == segwit_wallet['address'], 'bitcoind.addwitnessaddress({}) == {}, expected {}'.format(addr, p2sh_p2wpkh_addr, segwit_wallet['address'])
+        
+        log.debug("Fill p2sh-p2wpkh %s (%s) with %s" % (segwit_wallet['address'], testnet_wif, value ))
+        bitcoind.sendtoaddress( segwit_wallet['address'], value )
+   
+    elif wallet.segwit and len(wallet.privkey['private_keys']) > 1:
+        # multisig p2sh-p2wsh
+        testnet_wifs = []
+        testnet_pubks = []
+        for pk in wallet.privkey['private_keys']:
+            if not pk.startswith("c"):
+                pk = virtualchain.BitcoinPrivateKey(pk).to_wif()
+
+            testnet_wifs.append(pk)
+            testnet_pubks.append( virtualchain.BitcoinPrivateKey(pk).public_key().to_hex() )
+
+        multisig_info = virtualchain.make_multisig_info( wallet.m, testnet_wifs )
+        bitcoind.addmultisigaddress( wallet.m, testnet_pubks )
+        bitcoind.importaddress( multisig_info['address'] )
+
+        # have bitcoin track the p2sh-p2wsh equivalent address
+        segwit_wallet = virtualchain.make_multisig_segwit_info( wallet.m, testnet_wifs )
+        p2sh_p2wsh_addr = bitcoind.addwitnessaddress(multisig_info['address'])
+        assert p2sh_p2wsh_addr == segwit_wallet['address'], 'bitcoind.addwitnessaddress({}) == {}, expected {}'.format(multisig_info['address'], p2sh_p2wsh_addr, segwit_wallet['address'])
+
+        log.debug("Fill p2sh-p2wsh %s with %s" % (segwit_wallet['address'], value ))
+        bitcoind.sendtoaddress( segwit_wallet['address'], value )
 
     else:
         # multisig address
