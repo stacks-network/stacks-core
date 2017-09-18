@@ -261,7 +261,7 @@ def privkey_to_string(privkey_info):
     if virtualchain.is_singlesig(privkey_info):
         return singlesig_privkey_to_string(privkey_info)
 
-    if virtualchain.is_multisig(privkey_info):
+    elif isinstance(privkey_info, dict) and privkey_info.has_key('private_keys'):
         return multisig_privkey_to_string(privkey_info)
 
     return None
@@ -328,7 +328,7 @@ def get_compressed_and_decompressed_private_key_info(privkey_info):
     Get the compressed and decompressed versions of private keys and addresses
     Return {'compressed_addr': ..., 'compressed_private_key_info': ..., 'decompressed_addr': ..., 'decompressed_private_key_info': ...} on success
     """
-    if virtualchain.is_multisig(privkey_info):
+    if virtualchain.is_multisig(privkey_info) or virtualchain.btc_is_multisig_segwit(privkey_info):
 
         # get both compressed and decompressed addresses 
         privkeys = privkey_info['private_keys']
@@ -348,9 +348,9 @@ def get_compressed_and_decompressed_private_key_info(privkey_info):
                 'compressed_private_key_info': compressed_multisig,
                 'compressed_addr': compressed_addr, 'decompressed_addr': decompressed_addr}
 
-    elif virtualchain.is_singlesig(privkey_info):
+    elif virtualchain.is_singlesig(privkey_info) or virtualchain.btc_is_singlesig_segwit(privkey_info):
         
-        pk = privkey_info
+        pk = virtualchain.get_singlesig_privkey(privkey_info)
 
         # get both compressed and decompressed addresses
         compressed_pk = None
@@ -436,6 +436,38 @@ def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None
         'payment_privkey': None,
     }
 
+    def _convert_key(given_privkey):
+        if virtualchain.is_multisig(given_privkey):
+            pks = given_privkey['private_keys']
+            m, _ = virtualchain.parse_multisig_redeemscript(given_privkey['redeem_script'])
+            assert m <= len(pks)
+
+            multisig_info = virtualchain.make_multisig_info(m, pks)
+            ret['given_privkey'] = multisig_info
+            ret['owner_addresses'] = [virtualchain.get_privkey_address(multisig_info)]
+
+        elif virtualchain.is_singlesig(given_privkey):
+            pk = ecdsa_private_key(given_privkey).to_hex()
+            ret['given_privkey'] = pk
+            ret['owner_addresses'] = [virtualchain.get_privkey_address(pk)]
+
+        elif virtualchain.btc_is_singlesig_segwit(given_privkey):
+            pk = virtualchain.make_segwit_info( virtualchain.get_singlesig_privkey(given_privkey) )
+            ret['given_privkey'] = pk
+            ret['owner_addresses'] = [pk['address']]
+
+        elif virtualchain.btc_is_multisig_segwit(given_privkey):
+            pks = given_privkey['private_keys']
+            m, _ = virtualchain.parse_multisig_redeemscript(given_privkey['redeem_script'])
+            assert m <= len(pks)
+
+            pk = virtualchain.make_multisig_segwit_info(m, pks)
+            ret['given_privkey'] = pk
+            ret['owner_addresses'] = [pk['address']]
+
+        else:
+            raise ValueError('Invalid owner key info')
+
     if data_privkey is not None:
         if not virtualchain.is_singlesig(data_privkey):
             raise ValueError('Invalid data key info')
@@ -444,42 +476,12 @@ def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None
         ret['data_privkey'] = pk_data
 
     if owner_privkey is not None:
-        if virtualchain.is_multisig(owner_privkey):
-            pks = owner_privkey['private_keys']
-            m, _ = virtualchain.parse_multisig_redeemscript(owner_privkey['redeem_script'])
-            assert m <= len(pks)
-
-            multisig_info = virtualchain.make_multisig_info(m, pks)
-            ret['owner_privkey'] = multisig_info
-            ret['owner_addresses'] = [virtualchain.get_privkey_address(multisig_info)]
-
-        elif virtualchain.is_singlesig(owner_privkey):
-            pk_owner = ecdsa_private_key(owner_privkey).to_hex()
-            ret['owner_privkey'] = pk_owner
-            ret['owner_addresses'] = [virtualchain.get_privkey_address(pk_owner)]
-
-        else:
-            raise ValueError('Invalid owner key info')
+        _convert_key(owner_privkey)
 
     if payment_privkey is None:
         return ret
 
-    if virtualchain.is_multisig(payment_privkey):
-        pks = payment_privkey['private_keys']
-        m, _ = virtualchain.parse_multisig_redeemscript(payment_privkey['redeem_script'])
-        assert m <= len(pks)
-
-        multisig_info = virtualchain.make_multisig_info(m, pks)
-        ret['payment_privkey'] = multisig_info
-        ret['payment_addresses'] = [virtualchain.get_privkey_address(multisig_info)]
-
-    elif virtualchain.is_singlesig(payment_privkey):
-        pk_payment = ecdsa_private_key(payment_privkey).to_hex()
-        ret['payment_privkey'] = pk_payment
-        ret['payment_addresses'] = [virtualchain.get_privkey_address(pk_payment)]
-
-    else:
-        raise ValueError('Invalid payment key info')
+    _convert_key(payment_privkey)
 
     ret['data_pubkey'] = ecdsa_private_key(ret['data_privkey']).public_key().to_hex()
     ret['data_pubkeys'] = [ret['data_pubkey']]
@@ -534,9 +536,10 @@ def get_data_privkey(user_zonefile, wallet_keys=None, config_path=CONFIG_PATH):
         # the wallet data key *must* match the owner key
         owner_privkey_info = wallet['owner_privkey']
         owner_privkey = None
+
         if virtualchain.is_singlesig(owner_privkey_info):
             owner_privkey = owner_privkey_info
-        elif virtualchain.is_multisig(owner_privkey_info):
+        else:
             owner_privkey = owner_privkey_info['private_keys'][0]
 
         owner_pubkey = keylib.key_formatting.decompress(get_pubkey_hex(str(owner_privkey)))
@@ -584,38 +587,6 @@ def get_payment_privkey_info(wallet_keys=None, config_path=CONFIG_PATH):
     assert payment_privkey_info is not None, 'No payment private key set'
 
     return payment_privkey_info
-
-
-def get_privkey_info_params(privkey_info, config_path=CONFIG_PATH):
-    """
-    Get the parameters that characterize a private key
-    info bundle:  the number of private keys, and the
-    number of signatures required to make a valid
-    transaction.
-    * for single private keys, this is (1, 1)
-    * for multisig info dicts, this is (m, n)
-
-    Return (m, n) on success
-    Return (None, None) on failure
-    """
-
-    if privkey_info is None:
-        from .backend.blockchain import get_block_height
-
-        key_config = (2, 3)
-        log.warning('No private key info given, assuming {} key config'.format(key_config))
-        return key_config
-
-    if virtualchain.is_singlesig( privkey_info ):
-        return (1, 1)
-    
-    elif virtualchain.is_multisig( privkey_info ):
-        m, pubs = virtualchain.parse_multisig_redeemscript(privkey_info['redeem_script'])
-        if m is None or pubs is None:
-            return None, None
-        return m, len(pubs)
-
-    return None, None
 
 
 def find_name_index(name_address, master_privkey_hex, max_tries=25, start=0):
