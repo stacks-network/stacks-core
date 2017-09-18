@@ -158,18 +158,21 @@ def announce_tx(*args, **kw):
     return serialize_tx(inputs, outputs)
 
 
-def sign_tx(tx_hex, private_key_info):
+def sign_tx(tx_hex, prev_outputs, private_key_info):
     """
     Sign a transaction
+    @param tx_hex (string) the hex-encoded unsigned transaction
+    @param prev_outputs (list) a list of [{'out_script': xxx, 'value': xxx}] dicts
+    @param private_key_info (string or dict) the private key info bundle
     """
-    return virtualchain.tx_sign_all_unsigned_inputs(private_key_info, tx_hex)
+    return virtualchain.tx_sign_all_unsigned_inputs(private_key_info, prev_outputs, tx_hex)
 
 
-def sign_and_broadcast_tx(tx_hex, private_key_info, config_path=CONFIG_PATH, tx_broadcaster=None):
+def sign_and_broadcast_tx(tx_hex, prev_outputs, private_key_info, config_path=CONFIG_PATH, tx_broadcaster=None):
     """
     Sign and send a transaction
     """
-    signed_tx = sign_tx(tx_hex, private_key_info)
+    signed_tx = sign_tx(tx_hex, prev_outputs, private_key_info)
     resp = {}
     try:
         resp = broadcast_tx(signed_tx, config_path=config_path, tx_broadcaster=tx_broadcaster)
