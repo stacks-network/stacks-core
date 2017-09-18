@@ -227,7 +227,7 @@ def save_modified_wallet(decrypted_wallet, password, config_path = CONFIG_PATH):
     return write_wallet(encrypted_wallet, path=wallet_path)
 
 
-def make_wallet(password, payment_privkey_info=None, owner_privkey_info=None, data_privkey_info=None, test_legacy=False, encrypt=True):
+def make_wallet(password, payment_privkey_info=None, owner_privkey_info=None, data_privkey_info=None, test_legacy=False, encrypt=True, segwit=None):
     """
     Make a new, encrypted wallet structure.
     The owner and payment keys will be 2-of-3 multisig key bundles.
@@ -240,9 +240,18 @@ def make_wallet(password, payment_privkey_info=None, owner_privkey_info=None, da
     if test_legacy and not BLOCKSTACK_TEST:
         raise Exception("Not in testing but tried to make a legacy wallet")
 
+    if segwit is None:
+        segwit = virtualchain.get_features('segwit')
+
     # default to 2-of-3 multisig key info if data isn't given
-    payment_privkey_info = virtualchain.make_multisig_wallet(2, 3) if payment_privkey_info is None and not test_legacy else payment_privkey_info
-    owner_privkey_info = virtualchain.make_multisig_wallet(2, 3) if owner_privkey_info is None and not test_legacy else owner_privkey_info
+    if segwit:
+        payment_privkey_info = virtualchain.make_multisig_segwit_info(2,3) if payment_privkey_info is None and not test_legacy else payment_privkey_info
+        owner_privkey_info = virtualchain.make_multisig_segwit_info(2,3) if owner_privkey_info is None and not test_legacy else owner_privkey_info
+
+    else:
+        payment_privkey_info = virtualchain.make_multisig_wallet(2,3) if payment_privkey_info is None and not test_legacy else payment_privkey_info
+        owner_privkey_info = virtualchain.make_multisig_wallet(2,3) if owner_privkey_info is None and not test_legacy else owner_privkey_info
+
     data_privkey_info = ecdsa_private_key().to_hex() if data_privkey_info is None and not test_legacy else data_privkey_info
 
     decrypted_wallet = {
@@ -352,7 +361,7 @@ def make_legacy_wallet_013_keys(data, password):
  
     data_privkey = None
     if virtualchain.is_singlesig(owner_privkey):
-        data_privkey = owner_privkey
+        data_privkey = virtualchain.get_singlesig_privkey(owner_privkey)
     else:
         # data private key gets instantiated from the first owner private key,
         # if we have a multisig key bundle.
@@ -376,7 +385,7 @@ def get_data_key_from_owner_key_LEGACY(owner_privkey):
     """
     data_privkey = None
     if virtualchain.is_singlesig(owner_privkey):
-        data_privkey = owner_privkey
+        data_privkey = virtualchain.get_singlesig_privkey(owner_privkey)
     else:
         # data private key gets instantiated from the first owner private key,
         # if we have a multisig key bundle.
