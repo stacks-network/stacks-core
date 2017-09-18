@@ -22,7 +22,7 @@
 """
 
 import httplib
-from virtualchain import AuthServiceProxy
+from virtualchain import AuthServiceProxy, JSONRPCException
 from .blockchain_client import BlockchainClient
 
 from blockstack_client import constants
@@ -97,12 +97,19 @@ def get_unspents(address, blockchain_client):
                                     addresses)
 
     if constants.BLOCKSTACK_TESTNET and len(unspents) == 0:
+        # force re-import
         try:
             bitcoind.importaddress(str(address))
             unspents = bitcoind.listunspent(min_confirmations, max_confirmation,
                                             addresses)
-        except Exception as e:
-            return format_unspents([])
+        except JSONRPCException as e:
+            if e.code == -4:
+                # already loaded (this is a problem for segwit addresses)
+                pass
+
+            else:
+                raise e
+
     return format_unspents(unspents)
 
 
