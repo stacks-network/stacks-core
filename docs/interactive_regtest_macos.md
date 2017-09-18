@@ -5,13 +5,13 @@ You can setup our integration test with docker.
 First, pull the integration test container from quay.
 
 ```
-docker pull quay.io/blockstack/blockstack-core-with-regtest:develop
+docker pull quay.io/blockstack/integrationtests:develop
 ```
 
 Then, start the docker container:
 
 ```
-docker run -dt -p 6270:6270 -v /tmp:/tmp -e BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 -e BLOCKSTACK_TEST_CLIENT_BIND=0.0.0.0 quay.io/blockstack/blockstack-core-with-regtest:develop blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.portal_test_env
+docker run -dt -p 6270:6270 -v /tmp:/tmp -e BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 -e BLOCKSTACK_TEST_CLIENT_BIND=0.0.0.0 quay.io/blockstack/integrationtests:develop blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.portal_test_env
 ```
 
 You can see the running container:
