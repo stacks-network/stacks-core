@@ -26,7 +26,7 @@ TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 258
 """
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import shutil
 import tempfile

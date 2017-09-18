@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import shutil
 import tempfile
@@ -172,7 +172,7 @@ def check( state_engine ):
 
     # not preordered 
     for i in xrange(0, len(wallets)):
-        preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[i].addr), wallets[(i+1)%5].addr )
+        preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[i].addr), wallets[(i+1)%5].addr )
         if preorder is not None:
             print "preordered"
             return False
@@ -189,13 +189,13 @@ def check( state_engine ):
         return False 
 
     # transferred 
-    if name_rec['address'] != wallets[5].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script( wallets[5].addr ):
+    if name_rec['address'] != wallets[5].addr or name_rec['sender'] != virtualchain.make_payment_script( wallets[5].addr ):
         print "wrong owner"
         return False
 
     # not preordered 
     for i in xrange(0, len(wallets)):
-        preorder = state_engine.get_name_preorder( "bar.test", pybitcoin.make_pay_to_address_script(wallets[i].addr), wallets[(i+1)%5].addr )
+        preorder = state_engine.get_name_preorder( "bar.test", virtualchain.make_payment_script(wallets[i].addr), wallets[(i+1)%5].addr )
         if preorder is not None:
             print "preordered"
             return False
@@ -212,13 +212,13 @@ def check( state_engine ):
         return False 
 
     # transferred 
-    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script( wallets[3].addr ):
+    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != virtualchain.make_payment_script( wallets[3].addr ):
         print "wrong owner"
         return False
 
     # not preordered 
     for i in xrange(0, len(wallets)):
-        preorder = state_engine.get_name_preorder( "baz.test", pybitcoin.make_pay_to_address_script(wallets[i].addr), wallets[(i+1)%5].addr )
+        preorder = state_engine.get_name_preorder( "baz.test", virtualchain.make_payment_script(wallets[i].addr), wallets[(i+1)%5].addr )
         if preorder is not None:
             print "preordered"
             return False
@@ -235,7 +235,7 @@ def check( state_engine ):
         return False 
 
     # transferred 
-    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script( wallets[4].addr ):
+    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != virtualchain.make_payment_script( wallets[4].addr ):
         print "wrong owner"
         return False
 

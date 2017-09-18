@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import blockstack_client 
 import json
 
@@ -128,7 +128,7 @@ def check( state_engine ):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
     if preorder is not None:
         return False
     
@@ -138,11 +138,11 @@ def check( state_engine ):
         return False 
 
     # owned by
-    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
+    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[3].addr):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "bar.test", pybitcoin.make_pay_to_address_script(wallets[4].addr), wallets[5].addr )
+    preorder = state_engine.get_name_preorder( "bar.test", virtualchain.make_payment_script(wallets[4].addr), wallets[5].addr )
     if preorder is not None:
         return False
     
@@ -152,11 +152,11 @@ def check( state_engine ):
         return False 
 
     # owned by
-    if name_rec['address'] != wallets[5].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[5].addr):
+    if name_rec['address'] != wallets[5].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[5].addr):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "baz.test", pybitcoin.make_pay_to_address_script(wallets[6].addr), wallets[7].addr )
+    preorder = state_engine.get_name_preorder( "baz.test", virtualchain.make_payment_script(wallets[6].addr), wallets[7].addr )
     if preorder is not None:
         return False
     
@@ -166,7 +166,7 @@ def check( state_engine ):
         return False 
 
     # owned by
-    if name_rec['address'] != wallets[7].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[7].addr):
+    if name_rec['address'] != wallets[7].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[7].addr):
         return False 
 
     # snv lookup works

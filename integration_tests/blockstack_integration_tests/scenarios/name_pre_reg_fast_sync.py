@@ -24,7 +24,7 @@
 import os
 import shutil
 import testlib
-import pybitcoin
+import virtualchain
 import blockstack
 import blockstack_client
 import blockstack_zones

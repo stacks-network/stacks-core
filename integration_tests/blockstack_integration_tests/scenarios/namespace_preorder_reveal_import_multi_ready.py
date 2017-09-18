@@ -23,7 +23,7 @@
 
 import testlib 
 import json
-import pybitcoin
+import virtualchain
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -90,7 +90,7 @@ def check( state_engine ):
     if foo['value_hash'] != "33" * 20:
         return False
 
-    if foo['address'] != wallets[4].addr or foo['sender'] != pybitcoin.make_pay_to_address_script(wallets[4].addr):
+    if foo['address'] != wallets[4].addr or foo['sender'] != virtualchain.make_payment_script(wallets[4].addr):
         return False 
     
     return True

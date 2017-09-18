@@ -26,7 +26,7 @@ TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 263
 """
 
 import testlib
-import pybitcoin
+import virtualchain
 import blockstack as blockstack_server
 import virtualchain 
 
@@ -96,7 +96,7 @@ def check( state_engine ):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[4].addr), wallets[3].addr, include_failed=True )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[4].addr), wallets[3].addr, include_failed=True )
     if preorder is not None:
         print "preorder exists"
         return False

@@ -22,7 +22,7 @@
 """ 
 import os
 import testlib
-import pybitcoin
+import virtualchain
 import urllib2
 import json
 import blockstack_client

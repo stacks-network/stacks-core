@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import blockstack as blockstack_server
 
@@ -130,14 +130,14 @@ def check( state_engine ):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[3].addr), wallets[4].addr, include_failed=True )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[3].addr), wallets[4].addr, include_failed=True )
     if preorder is not None:
         return False
      
     # failed preorder is still there
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr, include_failed=True )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr, include_failed=True )
     if preorder is None:
-        print "missing preorder (%s, %s)" % (pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr)
+        print "missing preorder (%s, %s)" % (virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr)
         return False
 
     # failed preorder paid epoch 2 fee
@@ -152,7 +152,7 @@ def check( state_engine ):
         return False 
 
     # blocks updated
-    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[4].addr):
+    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[4].addr):
         print json.dumps(name_rec, indent=4, sort_keys=True )
         return False
 
@@ -179,7 +179,7 @@ def check( state_engine ):
     
     # epoch 1 fee paid on first preorder
     historic_name_rec = historic_name_rec[0]
-    if historic_name_rec['address'] != wallets[3].addr or historic_name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
+    if historic_name_rec['address'] != wallets[3].addr or historic_name_rec['sender'] != virtualchain.make_payment_script(wallets[3].addr):
         print "historic sender is wrong"
         return False
 

@@ -28,7 +28,7 @@ TEST ENV BLOCKSTACK_EPOCH_2_PRICE_MULTIPLIER 1.0
 """
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import blockstack as blockstack_server
 
@@ -139,7 +139,7 @@ def check( state_engine ):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
     if preorder is not None:
         print json.dumps(name_rec, indent=4)
         return False
@@ -156,7 +156,7 @@ def check( state_engine ):
         return False 
 
     # transferred
-    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[4].addr):
+    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[4].addr):
         print json.dumps(name_rec, indent=4 )
         return False
 
@@ -179,7 +179,7 @@ def check( state_engine ):
             print "was not transfered at %s" % transfer_block
             return False
 
-        if historic_name_rec['address'] != transfer_recipient or historic_name_rec['sender'] != pybitcoin.make_pay_to_address_script(transfer_recipient):
+        if historic_name_rec['address'] != transfer_recipient or historic_name_rec['sender'] != virtualchain.make_payment_script(transfer_recipient):
             print "wrong address/sender, got %s, %s" % (historic_name_rec['address'], historic_name_rec['sender'])
             return False
 

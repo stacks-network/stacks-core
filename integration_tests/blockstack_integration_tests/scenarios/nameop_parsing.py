@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import blockstack
 import binascii
 import sys
@@ -67,9 +67,9 @@ def compile_test( opcode, tests ):
 def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_address=None, import_update_hash=None ):
 
     opcode_name = OPCODE_NAMES[opcode]
-    pubk = pybitcoin.BitcoinPublicKey(fake_pubkey)
+    pubk = virtualchain.BitcoinPublicKey(fake_pubkey)
     address = pubk.address()
-    script_pubkey = pybitcoin.make_pay_to_address_script( address )
+    script_pubkey = virtualchain.make_payment_script( address )
     senders = [{
         "script_pubkey": script_pubkey,
         "script_type": "pubkeyhash",
@@ -86,7 +86,7 @@ def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_addres
     script = "OP_RETURN %s" % payload
 
     try:
-        scripthex = pybitcoin.make_op_return_script( payload )
+        scripthex = virtualchain.make_data_script(payload)
     except:
         if len(payload) == 0:
             scripthex = "6a"
@@ -101,8 +101,8 @@ def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_addres
         }}]
 
     if recipient_address is not None:
-        script = "OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG" % binascii.hexlify( pybitcoin.bin_double_sha256( fake_pubkey ) )
-        scripthex = pybitcoin.make_pay_to_address_script( recipient_address )
+        script = "OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG" % binascii.hexlify( virtualchain.lib.hashing.bin_double_sha256( fake_pubkey ) )
+        scripthex = virtualchain.make_payment_script( recipient_address )
         outputs.append( {
             "scriptPubKey": {
                 "asm": script,
@@ -113,12 +113,12 @@ def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_addres
 
     if import_update_hash is not None:
         script = "OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG" % import_update_hash
-        scripthex = pybitcoin.make_pay_to_address_script( pybitcoin.hex_hash160_to_address( import_update_hash ) )
+        scripthex = virtualchain.make_payment_script( virtualchain.lib.hashing.hex_hash160_to_address( import_update_hash ) )
         outputs.append( {
             "scriptPubKey": {
                 "asm": script,
                 "hex": scripthex,
-                "addresses": [ pybitcoin.hex_hash160_to_address(import_update_hash) ]
+                "addresses": [ virtualchain.lib.hashing.hex_hash160_to_address(import_update_hash) ]
             }
         })
    
@@ -297,8 +297,8 @@ def check( state_engine ):
     all_tests["#"] = compile_test( "#", announces )
 
     fake_pubkey = wallets[0].pubkey_hex
-    fake_sender = pybitcoin.make_pay_to_address_script( wallets[0].addr )
-    fake_recipient = pybitcoin.make_pay_to_address_script( wallets[1].addr )
+    fake_sender = virtualchain.make_payment_script( wallets[0].addr )
+    fake_recipient = virtualchain.make_payment_script( wallets[1].addr )
     fake_recipient_address = wallets[1].addr
     fake_import_update_hash = "44" * 20
 

@@ -26,7 +26,7 @@ TEST ENV CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE disk
 """
 
 import testlib
-import pybitcoin
+import virtualchain
 import time
 import json
 import sys

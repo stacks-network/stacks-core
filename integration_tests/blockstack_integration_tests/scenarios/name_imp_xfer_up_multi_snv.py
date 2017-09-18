@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import shutil
 import tempfile
@@ -125,7 +125,7 @@ def check( state_engine ):
     # not preordered 
     for i in xrange(0, len(wallets)):
         for name in ["foo.test", "bar.test", "baz.test"]:
-            preorder = state_engine.get_name_preorder( name, pybitcoin.make_pay_to_address_script(wallets[i].addr), wallets[(i+1)%5].addr )
+            preorder = state_engine.get_name_preorder( name, virtualchain.make_payment_script(wallets[i].addr), wallets[(i+1)%5].addr )
             if preorder is not None:
                 print "preordered"
                 return False
@@ -145,7 +145,7 @@ def check( state_engine ):
 
     # transferred 
     name_rec = state_engine.get_name( "bar.test" )
-    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script( wallets[4].addr ):
+    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != virtualchain.make_payment_script( wallets[4].addr ):
         print "wrong owner"
         return False
 

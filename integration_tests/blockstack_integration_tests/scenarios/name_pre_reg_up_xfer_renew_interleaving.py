@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import shutil
 import tempfile
@@ -59,7 +59,7 @@ def do_interleaving( name, namerecs, order ):
 
         if op == 'r':
             # renew
-            print "\nrenew '%s' with %s\n" % (name, pybitcoin.make_pay_to_address_script( namerecs[name][0].addr ))
+            print "\nrenew '%s' with %s\n" % (name, virtualchain.make_payment_script( namerecs[name][0].addr ))
             resp = testlib.blockstack_name_renew( name, namerecs[name][0].privkey, register_addr=namerecs[name][0].addr, safety_checks=False )
             if 'error' in resp:
                 print json.dumps( resp, indent=4 )
@@ -72,7 +72,7 @@ def do_interleaving( name, namerecs, order ):
 
         elif op == 't':
             # transfer and exchange wallets 
-            print "\ntransfer '%s' from %s to %s" % (name, pybitcoin.make_pay_to_address_script( namerecs[name][0].addr ), pybitcoin.make_pay_to_address_script( namerecs[name][1].addr ))
+            print "\ntransfer '%s' from %s to %s" % (name, virtualchain.make_payment_script( namerecs[name][0].addr ), virtualchain.make_payment_script( namerecs[name][1].addr ))
             resp = testlib.blockstack_name_transfer( name, namerecs[name][1].addr, True, namerecs[name][0].privkey, safety_checks=False )
             if 'error' in resp:
                 print json.dumps( resp, indent=4 )
@@ -202,7 +202,7 @@ def check( state_engine ):
             return False 
 
         # check owner 
-        if name_rec['address'] != names[name]['address'] or name_rec['sender'] != pybitcoin.make_pay_to_address_script( names[name]['address'] ):
+        if name_rec['address'] != names[name]['address'] or name_rec['sender'] != virtualchain.make_payment_script( names[name]['address'] ):
             print "owner mismatch on %s: expected %s, got %s" % (name, names[name]['address'], name_rec['address'])
             return False 
 

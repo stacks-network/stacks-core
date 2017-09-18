@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 
 wallets = [
@@ -85,7 +85,7 @@ def check( state_engine ):
         return False 
 
     # not preoredered (should get back nothing, no matter what, since the name was registered)
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[3].addr), wallets[4].addr )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[3].addr), wallets[4].addr )
     if preorder is not None:
         print "preorder is not none"
         return False

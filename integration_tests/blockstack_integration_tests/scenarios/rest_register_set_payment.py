@@ -22,7 +22,7 @@
 """
 import os
 import testlib
-import pybitcoin
+import virtualchain
 import urllib2
 import json
 import blockstack_client
@@ -293,7 +293,7 @@ def check( state_engine ):
         # not preordered
         preorder = state_engine.get_name_preorder(
             name,
-            pybitcoin.make_pay_to_address_script(wallet_payer),
+            virtualchain.make_payment_script(wallet_payer),
             wallet_owner)
         if preorder is not None:
             print "still have preorder"
