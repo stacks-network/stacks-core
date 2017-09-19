@@ -42,7 +42,7 @@ def data_id_to_hex( data_id ):
 
 def make_mutable_url( data_id ):
     path = data_id_to_hex(data_id)
-    url = "{}/{}".format(HUB_URL_PREFIX, path)
+    url = "{}{}/{}".format(HUB_URL_PREFIX, ACCESS_ADDRESS, path)
     log.debug( "make_mutable_url: {}".format(url))
     return url
 
@@ -71,6 +71,7 @@ def put_mutable_handler( data_id, data_txt, **kw ):
     elif resp_obj['publicURL'] != make_mutable_url(data_id):
         msg = "Unexpected publicURL. Expected '{}', Actual '{}'".format(
             make_mutable_url(data_id), resp_obj['publicURL'])
+        raise Exception(msg)
     return True
 
 def get_mutable_handler( data_url, **kw):
