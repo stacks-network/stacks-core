@@ -52,7 +52,7 @@ def put_mutable_handler( data_id, data_txt, **kw ):
         ACCESS_ADDRESS,
         data_id_to_hex( data_id ))
     headers = {
-        "Authentication" : "bearer {}".format(ACCESS_TOKEN)
+        "Authorization" : "bearer {}".format(ACCESS_TOKEN)
     }
     log.debug( "put_mutable_url: {}".format(url))
 
