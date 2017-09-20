@@ -96,19 +96,6 @@ And from the container, set the test environment variables:
 Now you can run `blockstack` commands from the container shell:
 
 ```bash
-     $ blockstack lookup foo.id
-```
-
-# Getting Started with Python virtualenv and local bitcoind
-
-You can run the integration test framework without using our docker containers, however, this
-requires a bit more setup.
-
-
-To install the test framework, first install `blockstack-core` and all of its
-dependencies (done above).
-
-```bash
     $ virtualenv --python=python2 blockstack-testing
     $ cd blockstack-testing
     $ source bin/activate
