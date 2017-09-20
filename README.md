@@ -134,7 +134,7 @@ If you encounter any technical issues in installing or using Blockstack, please 
 The next release is being built on the [develop](https://github.com/blockstack/blockstack-core/tree/develop). Please submit all
 pull requests to the `develop` branch.
 
-In the list of [release notes](https://github.com/blockstack/blockstack-core/tree/master/release_notes) you can find what has changed in each release.
+In the list of [release notes](./release_notes) you can find what has changed in each release.
 
 ## Blockstack Docs
 
