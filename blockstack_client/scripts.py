@@ -358,7 +358,7 @@ def tx_make_subsidizable(blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_
             )
 
     elif simulated_sign:
-        return subsidized_tx, len(consumed_inputs) * tx_estimate_signature_len(subsidy_key_info)
+        return subsidized_tx, len(consumed_inputs) * virtualchain.tx_estimate_signature_len(subsidy_key_info)
     else:
         log.debug("Warning: no subsidy key given; transaction will be subsidized but not signed")
 
