@@ -9,7 +9,7 @@ dependencies:
           PYSCRYPT_NO_LINK_FLAGS: "1"
           LDFLAGS: /usr/local/opt/openssl/lib/libcrypto.a /usr/local/opt/openssl/lib/libssl.a
           CPPFLAGS: -I/usr/local/opt/openssl/include
-    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/blockstack/virtualchain@rc-0.14.5
+    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/blockstack/virtualchain@rc-0.14.5-segwit
     - ../virtualenvs/venv-system/bin/pip install git+https://github.com/blockstack/jsontokens-py@develop
 compile:
   post:
