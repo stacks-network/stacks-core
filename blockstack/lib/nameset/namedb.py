@@ -1021,11 +1021,14 @@ class BlockstackDB( virtualchain.StateEngine ):
         nameops = self.get_all_ops_at( block_id )
         ret = []
         for nameop in nameops:
-            if nameop.has_key('op') and nameop['op'] in [NAME_UPDATE, NAME_IMPORT]:
+            if nameop.has_key('op') and op_get_opcode_name(nameop['op']) in ['NAME_UPDATE', 'NAME_IMPORT', 'NAME_REGISTRATION', 'NAME_RENEWAL']:
+
                 assert nameop.has_key('value_hash')
                 assert nameop.has_key('name')
                 assert nameop.has_key('txid')
-                ret.append( {'name': nameop['name'], 'value_hash': nameop['value_hash'], 'txid': nameop['txid']} )
+
+                if nameop['value_hash'] is not None:
+                    ret.append( {'name': nameop['name'], 'value_hash': nameop['value_hash'], 'txid': nameop['txid']} )
 
         return ret
 
