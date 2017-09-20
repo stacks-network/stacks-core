@@ -19,8 +19,6 @@ You can pull the integration test image from quay.
 docker pull quay.io/blockstack/integrationtests:develop
 ```
 
-To see a full list of tags check out our [Quay repo](https://quay.io/organization/blockstack)!
-
 The `test-launcher` tool can also be used to build an integration test
 image from your local repository.
 
@@ -51,49 +49,20 @@ docker stop $IMAGE
 You can setup an interactive regtest environment for connecting to a
 Blockstack Browser (or interaction via the CLI).
 
-The easiest way to get started with our integration tests is to use
-our integration test docker images.
+In interactive mode, a test idles after its checks finish (i.e. after
+`check()` returns).  This leaves you with a running Bitcoin node and a
+running Blockstack Core node that you can interact with via the
+Blockstack CLI, as if it were a production system.
 
-# Setting up with Docker
+To start a test in interactive mode, pass the `--interactive` switch.
 
-You can pull the integration test image from quay.
-
-```bash
-docker pull quay.io/blockstack/integrationtests:develop
-```
-
-The `test-launcher` tool can also be used to build an integration test
-image from your local repository.
-
-To run a particular test (e.g., `blockstack_integration_tests.scenarios.portal_test_env`), you can execute:
-
-```bash
-IMAGE=$(docker run -dt -v /tmp:/tmp quay.io/blockstack/integrationtests:develop blockstack-test-scenario blockstack_integration_tests.scenarios.portal_test_env)
-```
-
-You can check the status of the test:
-
-```bash
-docker logs -f $IMAGE
-```
-
-And stop the test with:
-```bash
-docker stop $IMAGE
-```
-
-## Running interactive tests with Docker
-
-You can setup an interactive regtest environment for connecting to a
-Blockstack Browser (or interaction via the CLI).
-
-With the docker file already pulled, you can execute:
+For example, with the docker file already pulled, you can execute:
 
 ```bash
 IMAGE=$(docker run -dt -p 6270:6270 -v /tmp:/tmp -e BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 -e BLOCKSTACK_TEST_CLIENT_BIND=0.0.0.0 quay.io/blockstack/integrationtests:develop blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.portal_test_env)
 ```
 
-You now the setup has finished when it has displayed in the log:
+You know the setup has finished when it has displayed in the log:
 
 ```bash
 $ docker logs -f $IMAGE | grep inished
@@ -128,7 +97,7 @@ Now you can run `blockstack` commands from the container shell:
      $ blockstack lookup foo.id
 ```
 
-# Setting up with Python virtualenv and local bitcoind
+# Getting Started with Python virtualenv and local bitcoind
 
 You can run the integration test framework without using our docker containers, however, this
 requires a bit more setup.
@@ -185,10 +154,7 @@ $ export PATH=/Users/Whomever/Wherever/bitcoin/src:$PATH
 
 ## Running tests
 
-Once all of the required packages are installed you can run individual test scenarios.  Test scenarios
-are organized as Python modules, which can be imported from `blockstack_integration_tests.scenarios`.  For example, the following
-command runs the test that will create a `.test` namespace, preorder and register the name `foo.test`, set its zonefile hash, 
-and create an empty profile for it:
+Run a test with the `blockstack-test-scenario` command
 
 ```
      $ blockstack-test-scenario blockstack_integration_tests.scenarios.rpc_register
@@ -201,15 +167,6 @@ If all is well, the test will run for a 5-10 minutes and print:
 ```
 
 ## Interactive Testing
-
-This example will set up an interactive regtest node that you can connect to via Blockstack Browser
-
-## Interactive Testing
-
-Hitting `^C` (or sending `SIGINT`) to the `blockstack-test-scenario` process will cause the test to stop idling, finish its built-in
-tests, and clean up after itself.
-
-To interact with this using the Blockstack Browser, you need to use the api_password:
 
 This example will set up an interactive regtest node that you can connect to via Blockstack Browser
 
