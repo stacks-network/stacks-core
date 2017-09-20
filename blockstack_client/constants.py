@@ -274,6 +274,7 @@ OPFIELDS = {
 
 
 # a few contants borrowed from Blockstack Core
+MAX_OP_LENGTH = 80
 LENGTH_VALUE_HASH = 20
 LENGTH_CONSENSUS_HASH = 16
 LENGTH_MAX_NAME = 37  # maximum name length
