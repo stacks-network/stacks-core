@@ -29,7 +29,7 @@ Getting Started
 can do this with:
 
 ```bash
-    $ virtualenv blockstack-testing
+    $ virtualenv --python=python2 blockstack-testing
     $ cd blockstack-testing
     $ source bin/activate
     (blockstack-testing) $ git clone https://github.com/blockstack/blockstack-core blockstack-core
