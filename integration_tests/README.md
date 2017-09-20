@@ -1,32 +1,110 @@
-Blockstack Integration Tests
-----------------------------
+# Blockstack Integration Tests
 
-This is the end-to-end Blockstack test framework.  New Blockstack developers should familiarize themselves with this repository first, 
-since the integration tests offer a straightforward way to set up and run all the components in a sandboxed environment.  Once installed,
-developers can easily interact with a fully-featured Blockstack core node running on a private Bitcoin blockchain.
+This is the end-to-end Blockstack test framework. New Blockstack
+developers should familiarize themselves with this first, since the
+integration tests offer a straightforward way to set up and run all
+the components in a sandboxed environment.
 
-Dependencies
-------------
+Once installed, developers can easily interact with a fully-featured
+Blockstack core node running on a private Bitcoin blockchain.
 
-The tests cover the following repositories, and must be installed prior to running integration tests:
+# Getting Started with Docker
 
-* [blockstack-core](https://github.com/blockstack/blockstack-core)
-* [blockstack-zones](https://github.com/blockstack/dns-zone-file-py)
-* [blockstack.js](https://github.com/blockstack/blockstack.js)
-* [virtualchain](https://github.com/blockstack/virtualchain)
-* [keylib-py](https://github.com/blockstack/keylib-py)
-* [keychain-manager-py](https://github.com/blockstack/keychain-manager-py)
-* [blockstack-profiles](https://github.com/blockstack/blockstack-profiles-py)
+The easiest way to get started with our integration tests is to use
+our integration test docker images.
 
-In addition, you must install the Bitcoin daemon and CLI tool and Node.js.
+You can pull the integration test image from quay.
 
-**NB** Your Bitcoin daemon must support `-regtest` mode, and must support the `keypoolrefill` RPC call.  You can test this by verifying that `bitcoind -regtest` works and `bitcoin-cli keypoolrefill 1 works` while `bitcoind -regtest` is running.
+```bash
+docker pull quay.io/blockstack/integrationtests:develop
+```
 
-Getting Started
----------------
+The `test-launcher` tool can also be used to build an integration test
+image from your local repository.
 
-**We highly recommend that you run the test framework in a virtualenv.**  You
-can do this with:
+Once you have the docker image, you can run individual test
+scenarios. Test scenarios are organized as Python modules, which can
+be imported from `blockstack_integration_tests.scenarios`. For
+example, the following command runs the test that will create a
+`.id` namespace, preorder and register the name `foo.id`, set its
+zonefile hash, and create an empty profile for it:
+
+```bash
+IMAGE=$(docker run -dt -v /tmp:/tmp quay.io/blockstack/integrationtests:develop blockstack-test-scenario blockstack_integration_tests.scenarios.portal_test_env)
+```
+
+You can check the status of the test:
+
+```bash
+docker logs -f $IMAGE
+```
+
+And stop the test with:
+```bash
+docker stop $IMAGE
+```
+
+## Running interactive tests with Docker
+
+You can setup an interactive regtest environment for connecting to a
+Blockstack Browser (or interaction via the CLI).
+
+In interactive mode, a test idles after its checks finish (i.e. after
+`check()` returns).  This leaves you with a running Bitcoin node and a
+running Blockstack Core node that you can interact with via the
+Blockstack CLI, as if it were a production system.
+
+To start a test in interactive mode, pass the `--interactive` switch.
+
+For example, with the docker file already pulled, you can execute:
+
+```bash
+IMAGE=$(docker run -dt -p 6270:6270 -v /tmp:/tmp -e BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 -e BLOCKSTACK_TEST_CLIENT_BIND=0.0.0.0 quay.io/blockstack/integrationtests:develop blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.portal_test_env)
+```
+
+You know the setup has finished when it has displayed in the log:
+
+```bash
+$ docker logs -f $IMAGE | grep inished
+```
+
+The API password for connecting from the browser is:
+
+```
+blockstack_integration_test_api_password
+```
+
+## Using CLI commands from the docker container
+
+To use the CLI commands once your docker container has started, connect to the docker container:
+
+```bash
+docker exec -it $IMAGE bash
+```
+
+And from the container, set the test environment variables:
+
+```bash
+     $ export BLOCKSTACK_TEST=1    # tells Blockstack CLI that it's running with the test environment
+     $ export BLOCKSTACK_TESTNET=1 # tells Blockstack CLI to use testnet addresses
+     $ export BLOCKSTACK_DEBUG=1   # print debug-level output in the CLI; great for troubleshooting
+     $ export BLOCKSTACK_CLIENT_CONFIG=/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.portal_test_env/client/client.ini
+```
+
+Now you can run `blockstack` commands from the container shell:
+
+```bash
+     $ blockstack lookup foo.id
+```
+
+# Getting Started with Python virtualenv and local bitcoind
+
+You can run the integration test framework without using our docker containers, however, this
+requires a bit more setup.
+
+
+To install the test framework, first install `blockstack-core` and all of its
+dependencies (done above).
 
 ```bash
     $ virtualenv --python=python2 blockstack-testing
@@ -34,20 +112,49 @@ can do this with:
     $ source bin/activate
     (blockstack-testing) $ git clone https://github.com/blockstack/blockstack-core blockstack-core
     (blockstack-testing) $ cd blockstack-core/ && ./setup.py build && ./setup.py install
-``` 
+```
 
-To install the test framework, first install `blockstack-core` and all of its
-dependencies (done above).  Then, do the following to install the integration tests:
+**macOS Note**: Installing the python `scrypt` library on macOS
+requires OpenSSL headers. Those can be obtained via HomeBrew (and
+setup using environment variables `LDFLAGS` and
+`CPPFLAGS`). Alternatively, you can use the virtualenv tarball that
+ships with our macOS releases of Blockstack Browser. Generally, on
+macOS, it is much easier to setup our test environment with Docker.
+
+Then, do the following to install the integration tests:
 
 ```
     $ cd integration_tests/
     $ ./setup.py build && sudo ./setup.py install
 ```
 
-Once all of the required packages are installed you can run individual test scenarios.  Test scenarios
-are organized as Python modules, which can be imported from `blockstack_integration_tests.scenarios`.  For example, the following
-command runs the test that will create a `.test` namespace, preorder and register the name `foo.test`, set its zonefile hash, 
-and create an empty profile for it:
+## Installing bitcoind in macOS
+
+You'll need the `bitcoind` console app, which apparently doesn't
+come included with `Bitcoin-QT` on macOS, so we'll need to build
+it from source, using this [guide](https://github.com/bitcoin/bitcoin/blob/master/doc/build-osx.md)
+
+Summary:
+```bash
+$ brew install automake berkeley-db4 libtool boost --c++11 miniupnpc openssl pkg-config protobuf qt libevent
+$ git clone https://github.com/bitcoin/bitcoin
+$ cd bitcoin
+$ ./autogen.sh
+$ ./configure
+$ make
+```
+
+You need to add the `src/` directory from your bitcoind build to your
+path:
+
+```
+$ export PATH=/Users/Whomever/Wherever/bitcoin/src:$PATH
+```
+
+
+## Running tests
+
+Run a test with the `blockstack-test-scenario` command
 
 ```
      $ blockstack-test-scenario blockstack_integration_tests.scenarios.rpc_register
@@ -59,36 +166,24 @@ If all is well, the test will run for a 5-10 minutes and print:
      SUCCESS blockstack_integration_tests.scenarios.rpc_register
 ```
 
-Internally, the test-runner (`blockstack-test-scenario`) starts up a Bitcoin node locally in `-regtest` mode, giving the test its own private testnet
-blockchain.  It mines some blocks with Bitcoin, fills some test-specified addresses with an initial balance (those specified in the 
-test module's `wallets` global variable), and sets up a temporary configuration
-directory tree in `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.rpc_register/`.
+## Interactive Testing
 
-Once Bitcoin is ready, the
-test-runner starts up Blockstack Core and has it crawl the local Bitcoin blockchain.  It then runs the test's `scenario()` method, which 
-feeds it a string of Blockstack CLI commands at the desired block heights.  Once the `scenario()` method finishes, the test runner
-calls the `check()` method to verify that the test generated the right state.  If this passes, the test-runner verifies the 
-Blockstack node's database integrity, performs automated SNV tests, and checks that the Atlas network crawled the right zonefiles.
+This example will set up an interactive regtest node that you can connect to via Blockstack Browser
 
-Interactive Testing
--------------------
-
-By default, tests run in an automated fashion.  However, you can make the test idle after its checks finish (i.e. after `check()`
-returns).  This leaves you with a running Bitcoin node and a running Blockstack Core node that you can interact with via the Blockstack CLI, as if it 
-were a production system.  The idea here is to use the test to pre-populate the blockchain and Blockstack Core node with
-the state you want (i.e. particular names and namespaces, particular addresses with the balances you want, etc.), and then experiment
-manually from there.
-
-To start a test in interactive mode, pass the `--interactive` switch with your desired block time (in seconds).  For example, this
-command will run the test, and make both Bitcoin and Blockstack Core advance by one block every 10 seconds once the test logic
-finishes:
-
-```
-     $ blockstack-test-scenario --interactive 10 blockstack_integration_tests.scenarios.rpc_register
+```bash
+ $ BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.portal_test_env
 ```
 
 Hitting `^C` (or sending `SIGINT`) to the `blockstack-test-scenario` process will cause the test to stop idling, finish its built-in
 tests, and clean up after itself.
+
+To interact with this using the Blockstack Browser, you need to use the api_password:
+
+```
+blockstack_integration_test_api_password
+```
+
+### Using the CLI
 
 While the test is idling, you can interact with the Blockstack Core node with the Blockstack CLI.  To do so, you'll need to set
 the following environment variables:
@@ -97,7 +192,7 @@ the following environment variables:
      $ export BLOCKSTACK_TEST=1    # tells Blockstack CLI that it's running with the test environment
      $ export BLOCKSTACK_TESTNET=1 # tells Blockstack CLI to use testnet addresses
      $ export BLOCKSTACK_DEBUG=1   # print debug-level output in the CLI; great for troubleshooting
-     $ 
+     $
      $ # this tells the CLI where to find the test-generated config file
      $ export BLOCKSTACK_CLIENT_CONFIG=/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.rpc_register/client/client.ini
 ```
@@ -108,12 +203,33 @@ Once set, you can use the Blockstack CLI as normal, and it will interact with th
      $ blockstack lookup foo.test
      {
          "profile": {
-             "@type": "Person", 
+             "@type": "Person",
              "accounts": []
-         }, 
+         },
          "zonefile": '$ORIGIN foo.test\n$TTL 3600\npubkey TXT "pubkey:data:03762f2da226d9c531e8ed371c9e133bfbf42d8475778b7a2be92ab0b376539ae7"\n_file URI 10 1 "file:///tmp/blockstack-disk/mutable/foo.test"'
      }
 ```
+
+# Information on the testing Framework
+
+Internally, the test-runner (`blockstack-test-scenario`) starts up a
+Bitcoin node locally in `-regtest` mode, giving the test its own
+private testnet blockchain.  It mines some blocks with Bitcoin, fills
+some test-specified addresses with an initial balance (those specified
+in the test module's `wallets` global variable), and sets up a
+temporary configuration directory tree in
+`/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.<foo>/`.
+
+Once Bitcoin is ready, the test-runner starts up Blockstack Core and
+has it crawl the local Bitcoin blockchain.  It then runs the test's
+`scenario()` method, which feeds it a string of Blockstack CLI
+commands at the desired block heights.  Once the `scenario()` method
+finishes, the test runner calls the `check()` method to verify that
+the test generated the right state.  If this passes, the test-runner
+verifies the Blockstack node's database integrity, performs automated
+SNV tests, and checks that the Atlas network crawled the right
+zonefiles.
+
 
 Relevant Files, Ports, Tips, and Tricks
 ---------------------------------------
@@ -163,7 +279,7 @@ Troubleshooting
 
 * Test output can be lengthy.  If you want to preserve it, we recommend `tee(1)`-ing it to a log file.
 
-Examples
+CLI Examples
 --------
 
 You can register names like normal when running the test in interactive mode:
@@ -179,7 +295,7 @@ You can register names like normal when running the test in interactive mode:
      Continue? (Y/n): y
      {
          "message": "The name has been queued up for registration and will take a few hours to go through. You can check on the status at any time by running 'blockstack info'.", 
-         "success": true, 
+         "success": true,
          "transaction_hash": "4fa9cd94f195b1aa391727c8949d88dbae25eddf1097bc8930fdb44c6a27b3d7"
      }
 ```
