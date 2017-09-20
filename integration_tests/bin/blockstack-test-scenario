@@ -1149,6 +1149,7 @@ def parse_args( argv ):
             help='Run interactively, but generate blocks only when programmatically instructedr', required=False)
     parser.add_argument("--working-dir", dest='working_dir', type=str, help="Working directory to use to store database state", required=False)
     parser.add_argument("--influx", dest='influx', action='store_true', help="Write test output to monitoring in additon to stdout", required=False)
+    parser.add_argument('--force-segwit', dest='force_segwit', action='store_true', help="Forcibly convert all wallets to support segwit transactions", required=False)
     parser.add_argument("scenario_module", type=str, help="Python module to run")
 
     args, _ = parser.parse_known_args()
@@ -1184,7 +1185,7 @@ if __name__ == "__main__":
     test_end = None
 
     if len(sys.argv) < 2:
-        print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [--interactive-web port] [--influx] [scenario.import.path] [OPTIONAL: working dir]"
+        print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [--interactive-web port] [--influx] [--force-segwit] [scenario.import.path] [OPTIONAL: working dir]"
         sys.exit(1)
 
     args = parse_args(sys.argv)
@@ -1195,6 +1196,7 @@ if __name__ == "__main__":
     working_dir = None
     scenario_module = args.scenario_module
     influx_client = None
+    force_segwit = False
 
     if hasattr(args, "influx") and args.influx is not False:
         # TODO: pull config from ENV
@@ -1233,6 +1235,9 @@ if __name__ == "__main__":
             log.debug("Remove %s" % working_dir)
             shutil.rmtree(working_dir)
 
+    if hasattr(args, 'force_segwit') and args.force_segwit:
+        force_segwit = True
+
     if not os.path.exists(working_dir):
         os.makedirs(working_dir)
 
@@ -1254,6 +1259,11 @@ if __name__ == "__main__":
     os.environ["BLOCKSTACK_CLIENT_CONFIG"] = client_config_file
     os.environ["BLOCKSTACK_SERVER_CONFIG"] = config_file
     os.environ['VIRTUALCHAIN_WORKING_DIR'] = working_dir
+    os.environ['BLOCKSTACK_SEGWIT_TEST'] = '1'
+
+    if force_segwit:
+        os.environ['BLOCKSTACK_TEST_FORCE_SEGWIT'] = '1'
+        print 'WARN: Forcing all wallets to generate segwit transactions'
 
     # load up the scenario (so it can set its own extra envars)
     scenario = load_scenario( scenario_module )
