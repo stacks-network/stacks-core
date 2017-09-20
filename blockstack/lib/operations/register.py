@@ -63,6 +63,8 @@ RENEWAL_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
     'last_renewed',
     'sender',
     'address',
+    'sender_pubkey',
+    'value_hash',
     'op_fee'
 ]
 
@@ -161,6 +163,8 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     if recipient is None:
         log.debug("No recipient script given")
         return False
+
+    epoch_features = get_epoch_features(block_id)
 
     name_fee = None
     namespace = None
@@ -263,10 +267,13 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     elif state_engine.is_name_registered( name ):
         # Case 2: we're renewing
 
-        # name must be owned by the recipient already
-        if not state_engine.is_name_owner( name, recipient ):
-            log.debug("Renew: Name '%s' is registered but not owned by recipient %s" % (name, recipient))
-            return False
+        # pre F-day 2017: name must be owned by the recipient already
+        # post F-day 2017: recipient can be anybody
+        if EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE not in epoch_features:
+            # pre F-day 2017
+            if not state_engine.is_name_owner( name, recipient ):
+                log.debug("Renew: Name '%s' is registered but not owned by recipient %s" % (name, recipient))
+                return False
 
         # name must be owned by the sender
         if not state_engine.is_name_owner( name, sender ):
@@ -279,6 +286,8 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
             return False
         
         log.debug("Renewing name '%s'" % name )
+        if not state_engine.is_name_owner( name, recipient ):
+            log.debug("Transferring name '{}' to {}".format(name, recipient))
 
         prev_name_rec = state_engine.get_name( name )
         
@@ -333,6 +342,18 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     del nameop['recipient']
     del nameop['recipient_address']
 
+    value_hash = nameop['value_hash']
+
+    if value_hash is not None:
+        # deny value hash if we're not in an epoch that supports register/update in one nameop
+        if opcode == 'NAME_REGISTRATION' and EPOCH_FEATURE_OP_REGISTER_UPDATE not in epoch_features:
+            log.debug("Name '{}' has a zone file hash, but this is not supported in this epoch".format(nameop['name']))
+            return False
+
+        log.debug("Adding value hash {} for name '{}'".format(value_hash, nameop['name']))
+        
+    nameop['value_hash'] = value_hash
+
     # regster/renewal
     return True
 
@@ -355,6 +376,8 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     sender = nameop['sender']
     address = nameop['address']
 
+    epoch_features = get_epoch_features(block_id)
+
     # address mixed into the preorder
     recipient_addr = nameop.get('recipient_address', None)
     if recipient_addr is None:
@@ -366,14 +389,23 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
         log.debug("No recipient given")
         return False
 
-    # on renewal, the sender and recipient must be the same 
+    # pre F-day 2017, on renewal, the sender and recipient must be the same 
+    # post F-day 2017, the recipient and sender can differ 
     if sender != recipient:
-        log.debug("Sender '%s' is not the recipient '%s'" % (sender, recipient))
-        return False 
+        if EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE not in epoch_features:
+            log.debug("Sender '%s' is not the recipient '%s'" % (sender, recipient))
+            return False 
+
+        else:
+            log.debug("Transferring '{}' to '{}'".format(sender, recipient))
 
     if recipient_addr != address:
-        log.debug("Sender address '%s' is not the recipient address '%s'" % (address, recipient_addr))
-        return False
+        if EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE not in epoch_features:
+            log.debug("Sender address '%s' is not the recipient address '%s'" % (address, recipient_addr))
+            return False
+
+        else:
+            log.debug("Transferring '{}' to '{}'".format(address, recipient_addr))
                 
     name_fee = None
     namespace = None
@@ -413,10 +445,12 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
         log.debug("Name '%s' is not registered" % name)
         return False
 
-    # name must be owned by the recipient already
+    # pre F-day 2017: name must be owned by the recipient already
+    # post F-day 2017: doesn't matter
     if not state_engine.is_name_owner( name, recipient ):
-        log.debug("Renew: Name '%s' not owned by recipient %s" % (name, recipient))
-        return False
+        if EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE not in epoch_features:
+            log.debug("Renew: Name '%s' not owned by recipient %s" % (name, recipient))
+            return False
 
     # name must be owned by the sender
     if not state_engine.is_name_owner( name, sender ):
@@ -435,7 +469,7 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     name_block_number = prev_name_rec['block_number']
     name_fee = nameop['op_fee']
     preorder_hash = prev_name_rec['preorder_hash']
-    value_hash = prev_name_rec['value_hash']
+    value_hash = prev_name_rec['value_hash']        # use previous name record's value hash by default
 
     # check name fee
     name_without_namespace = get_name_from_fq_name( name )
@@ -444,6 +478,13 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     if name_fee < price_name( name_without_namespace, namespace, block_id ):
         log.debug("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace, block_id ), name_fee ))
         return False
+ 
+    # if we're in an epoch that allows us to include a value hash in the renewal, and one is given, then set it 
+    # instead of the previous name record's value hash.
+    if EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE in epoch_features:
+        if nameop.has_key('value_hash') and nameop['value_hash'] is not None:
+            log.debug("Adding value hash {} for name '{}'".format(value_hash, nameop['name']))
+            value_hash = nameop['value_hash']
 
     nameop['op'] = "%s:" % (NAME_REGISTRATION,)
     nameop['opcode'] = "NAME_RENEWAL"
@@ -459,10 +500,16 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     nameop['last_renewed'] = block_id
 
     # propagate new sender information
+    nameop['sender'] = nameop['recipient']
+    nameop['address'] = nameop['recipient_address']
     del nameop['recipient']
     del nameop['recipient_address']
-    del nameop['sender_pubkey']
-    
+
+    # pre F-day 2017: we don't change sender_pubkey
+    # post F-day 2017: we do, since the sender can have changed
+    if EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE not in epoch_features:
+        del nameop['sender_pubkey']
+   
     # renewal!
     return True
 
@@ -515,7 +562,7 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
        log.exception(e)
        raise Exception("Failed to extract")
 
-    parsed_payload = parse( payload )
+    parsed_payload = parse( payload, block_id )
     assert parsed_payload is not None 
 
     ret = {
@@ -533,6 +580,7 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
        "op": NAME_REGISTRATION
     }
 
+    # adds name, value_hash
     ret.update( parsed_payload )
 
     # NOTE: will get deleted if this is a renew
@@ -544,7 +592,7 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     return ret
 
 
-def parse(bin_payload):
+def parse(bin_payload, block_height):
     """
     Interpret a block's nulldata back into a name.  The first three bytes (2 magic + 1 opcode)
     will not be present in bin_payload.
@@ -552,14 +600,37 @@ def parse(bin_payload):
     The name will be directly represented by the bytes given.
     """
     
-    fqn = bin_payload
+    # pre F-day 2017: bin_payload is the name.
+    # post F-day 2017: bin_payload is the name and possibly the update hash
+    epoch_features = get_epoch_features(block_height)
+    fqn = None
+    value_hash = None
+
+    if EPOCH_FEATURE_OP_REGISTER_UPDATE in epoch_features or EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE in epoch_features:
+        # payload is possibly name + update hash.
+        # if so, it's guaranteed to be max_name_len + value_hash_len bytes long.
+        if len(bin_payload) == LENGTHS['blockchain_id_name'] + LENGTHS['value_hash']:
+            value_hash = bin_payload[-20:].encode('hex')
+            fqn = bin_payload[:LENGTHS['blockchain_id_name']]
+
+            # strip trailing 0's
+            fqn = fqn.rstrip('\x00')
+
+        else:
+            fqn = bin_payload
+
+    else:
+        # payload is only the name
+        fqn = bin_payload
  
     if not is_name_valid( fqn ):
+        log.debug("Invalid name: {} ({})".format(fqn, fqn.encode('hex')))
         return None
 
     return {
        'opcode': 'NAME_REGISTRATION',
-       'name': fqn
+       'name': fqn,
+       'value_hash': value_hash
     }
  
  
@@ -575,16 +646,26 @@ def restore_delta( name_rec, block_number, history_index, working_db, untrusted_
 
     from ..nameset import BlockstackDB
 
-    name_rec_script = build_registration( str(name_rec['name']) )
+    epoch_features = get_epoch_features(block_number)
+    value_hash = None
+
+    # restore history to find previous sender, address, public key
+    name_rec_prev = BlockstackDB.get_previous_name_version( name_rec, block_number, history_index, untrusted_db )
+    
+    # restore zone file hash, if this is supported in this epoch
+    if EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE in epoch_features and op_get_opcode_name(name_rec['op']) == 'NAME_RENEWAL' and name_rec.has_key('value_hash'):
+        value_hash = name_rec['value_hash']
+
+    if EPOCH_FEATURE_OP_REGISTER_UPDATE in epoch_features and op_get_opcode_name(name_rec['op']) == 'NAME_REGISTRATION' and name_rec.has_key('value_hash'):
+        value_hash = name_rec['value_hash']
+
+    name_rec_script = build_registration( str(name_rec['name']), value_hash=value_hash )
     name_rec_payload = unhexlify( name_rec_script )[3:]
-    ret_op = parse( name_rec_payload )
+    ret_op = parse( name_rec_payload, block_number )
 
     # reconstruct the registration/renewal op's recipient info
     ret_op['recipient'] = str(name_rec['sender'])
     ret_op['recipient_address'] = str(name_rec['address'])
-
-    # restore history to find previous sender, address, public key
-    name_rec_prev = BlockstackDB.get_previous_name_version( name_rec, block_number, history_index, untrusted_db )
 
     sender = name_rec_prev['sender']
     address = name_rec_prev['address']
