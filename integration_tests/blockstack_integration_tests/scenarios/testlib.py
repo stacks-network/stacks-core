@@ -74,7 +74,13 @@ class Wallet(object):
         self.addr = pk.public_key().address()
         self.segwit = False
 
-        log.debug("Wallet %s (%s)" % (self.privkey, self.addr))
+        if os.environ.get('BLOCKSTACK_TEST_FORCE_SEGWIT') == '1':
+            self.segwit = True
+            self.privkey = virtualchain.make_segwit_info(pk_wif)
+            log.debug("P2SH-P2WPKH Wallet %s (%s)" % (self.privkey, self.addr))
+
+        else:
+            log.debug("Wallet %s (%s)" % (self.privkey, self.addr))
 
 
 class MultisigWallet(object):
@@ -88,8 +94,13 @@ class MultisigWallet(object):
 
         self.addr = self.privkey['address']
 
-        log.debug("Multisig wallet %s" % (self.addr))
-        log.debug(json.dumps(self.privkey, indent=4, sort_keys=True))
+        if os.environ.get('BLOCKSTACK_TEST_FORCE_SEGWIT') == '1':
+            self.segwit = True
+            self.privkey = virtualchain.make_multisig_segwit_info( m, pks )
+            log.debug("Multisig P2SH-P2WSH wallet %s" % (self.addr))
+
+        else:
+            log.debug("Multisig wallet %s" % (self.addr))
 
 
 class SegwitWallet(object):
@@ -106,8 +117,6 @@ class SegwitWallet(object):
         
         log.debug("P2SH-P2WPKH Wallet %s (%s)" % (self.privkey, self.addr))
 
-        log.debug(json.dumps(self.privkey, indent=4, sort_keys=True))
-
 
 class MultisigSegwitWallet(object):
     def __init__(self, m, *pks ):
@@ -121,7 +130,6 @@ class MultisigSegwitWallet(object):
         self.addr = self.privkey['address']
 
         log.debug("Multisig P2SH-P2WSH wallet %s" % (self.addr))
-        log.debug(json.dumps(self.privkey, indent=4, sort_keys=True))
        
 
 class APICallRecord(object):
@@ -327,7 +335,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, subs
     return resp
 
 
-def blockstack_name_register( name, privatekey, register_addr, wallet=None, subsidy_key=None, user_public_key=None, safety_checks=True, config_path=None ):
+def blockstack_name_register( name, privatekey, register_addr, value_hash=None, wallet=None, subsidy_key=None, safety_checks=True, config_path=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -339,12 +347,13 @@ def blockstack_name_register( name, privatekey, register_addr, wallet=None, subs
     kwargs = {}
     if not safety_checks:
         kwargs = {'tx_fee' : 1} # regtest shouldn't care about the tx_fee
-    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
+
+    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, value_hash=value_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
     api_call_history.append( APICallRecord( "register", name, resp ) )
     return resp
 
 
-def blockstack_name_update( name, data_hash, privatekey, user_public_key=None, subsidy_key=None, consensus_hash=None, test_api_proxy=True, safety_checks=True, config_path=None ):
+def blockstack_name_update( name, data_hash, privatekey, subsidy_key=None, consensus_hash=None, test_api_proxy=True, safety_checks=True, config_path=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -359,7 +368,7 @@ def blockstack_name_update( name, data_hash, privatekey, user_public_key=None, s
     return resp
 
 
-def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_key=None, subsidy_key=None, consensus_hash=None, safety_checks=True, config_path=None ):
+def blockstack_name_transfer( name, address, keepdata, privatekey, subsidy_key=None, consensus_hash=None, safety_checks=True, config_path=None ):
      
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -374,30 +383,27 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_k
     return resp
 
 
-def blockstack_name_renew( name, privatekey, register_addr=None, subsidy_key=None, user_public_key=None, safety_checks=True, config_path=None ):
+def blockstack_name_renew( name, privatekey, recipient_addr=None, subsidy_key=None, safety_checks=True, config_path=None, value_hash=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
     name_cost_info = test_proxy.get_name_cost( name )
-    if register_addr is None:
-        register_addr = virtualchain.get_privkey_address(privatekey)
-    else:
-        assert register_addr == virtualchain.get_privkey_address(privatekey)
 
     payment_key = get_default_payment_wallet().privkey
     if subsidy_key is not None:
         payment_key = subsidy_key 
 
     log.debug("Renew %s for %s satoshis" % (name, name_cost_info['satoshis']))
-    resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['satoshis'], test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+    resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['satoshis'], test_proxy, test_proxy, 
+            value_hash=value_hash, recipient_addr=recipient_addr, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     api_call_history.append( APICallRecord( "renew", name, resp ) )
     return resp
 
 
-def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, user_public_key=None, safety_checks=True, config_path=None ):
+def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, safety_checks=True, config_path=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -465,7 +471,7 @@ def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, co
     return resp
 
 
-def blockstack_announce( message, privatekey, user_public_key=None, subsidy_key=None, safety_checks=True, config_path=None ):
+def blockstack_announce( message, privatekey, subsidy_key=None, safety_checks=True, config_path=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )

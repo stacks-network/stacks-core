@@ -27,7 +27,7 @@ import json
 import blockstack as blockstack_server
 
 """
-TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 266
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 698
 """
 
 wallets = [
