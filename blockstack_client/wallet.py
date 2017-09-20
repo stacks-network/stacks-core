@@ -241,12 +241,13 @@ def make_wallet(password, payment_privkey_info=None, owner_privkey_info=None, da
         raise Exception("Not in testing but tried to make a legacy wallet")
 
     if segwit is None:
+        # no preference given.
         segwit = virtualchain.get_features('segwit')
 
     # default to 2-of-3 multisig key info if data isn't given
     if segwit:
-        payment_privkey_info = virtualchain.make_multisig_segwit_info(2,3) if payment_privkey_info is None and not test_legacy else payment_privkey_info
-        owner_privkey_info = virtualchain.make_multisig_segwit_info(2,3) if owner_privkey_info is None and not test_legacy else owner_privkey_info
+        payment_privkey_info = virtualchain.make_multisig_segwit_wallet(2,3) if payment_privkey_info is None and not test_legacy else payment_privkey_info
+        owner_privkey_info = virtualchain.make_multisig_segwit_wallet(2,3) if owner_privkey_info is None and not test_legacy else owner_privkey_info
 
     else:
         payment_privkey_info = virtualchain.make_multisig_wallet(2,3) if payment_privkey_info is None and not test_legacy else payment_privkey_info
