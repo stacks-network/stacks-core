@@ -33,30 +33,60 @@ from ..scripts import (
 
 from ..constants import (
     DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
-    BLOCKSTACK_BURN_ADDRESS)
+    BLOCKSTACK_BURN_ADDRESS, LENGTH_VALUE_HASH,
+    MAX_OP_LENGTH, LENGTH_MAX_NAME
+)
+
 from ..logger import get_logger
 
 import virtualchain
 log = get_logger("blockstack-server")
 
 
-def build(name):
+def build(name, value_hash=None):
     """
     Takes in the name that was preordered, including the namespace ID (but not the id: scheme)
     Returns a hex string representing up to the maximum-length name's bytes.
     
-    Record format:
+    Record format (pre F-day 2017):
     
-    0    2  3                             39
-    |----|--|-----------------------------|
-    magic op   name.ns_id (37 bytes)
+    0    2  3                                  39
+    |----|--|----------------------------------|
+    magic op   name.ns_id (up to 37 bytes)
+
+
+    Record format (post F-day 2017):
     
+    0    2  3                                  39                  59
+    |----|--|----------------------------------|-------------------|
+    magic op   name.ns_id (37 bytes, 0-padded)       value hash
+
+
     """
     
     if not is_name_valid( name ):
         raise Exception("Invalid name '%s'" % name)
 
-    readable_script = "NAME_REGISTRATION 0x%s" % (hexlify(name))
+    if value_hash is not None:
+        if len(value_hash) != LENGTH_VALUE_HASH * 2:
+            raise Exception("Invalid value hash '%s' (%s)" % (value_hash, type(value_hash)))
+
+    data = name.encode('hex')
+    payload = None
+
+    if value_hash:
+        # pad name with 0's until it's 37 bytes (so id:${name} will be 40 bytes)
+        name_data = '{}{}'.format(data, '00' * (LENGTH_MAX_NAME - len(data)/2))
+        assert len(name_data) == LENGTH_MAX_NAME * 2, 'BUG: invalid name data {}'.format(name_data)
+
+        payload = '{}{}'.format(name_data, value_hash)
+        assert len(payload) == (LENGTH_MAX_NAME + LENGTH_VALUE_HASH) * 2, 'BUG: invalid payload {}'.format(payload)
+
+    else:
+        payload = data
+
+    readable_script = "NAME_REGISTRATION 0x%s" % (payload)
+
     hex_script = blockstack_script_to_hex(readable_script)
     packaged_script = add_magic_bytes(hex_script)
     
@@ -66,10 +96,13 @@ def build(name):
 def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renewal_fee=None, pay_fee=True):
     """
     Make outputs for a register:
-    [0] OP_RETURN with the name 
-    [1] pay-to-address with the *register_addr*, not the sender's address.
-    [2] change address with the NAME_PREORDER sender's address
+    [0] OP_RETURN with the name, and possibly a value hash 
+    [1] pay-to-address with the *register_addr*, not the sender's address.  If renewing, this is the new owner address.
+    [2] change address with the NAME_PREORDER or NAME_RENEWAL's subsidizer's sender's address
     [3] (OPTIONAL) renewal fee, sent to the burn address
+
+    If value_hash is given, it must be a hex string
+
     Raise ValueError if there are not enough inputs to make the transaction
     """
     
@@ -107,13 +140,15 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
             dust_fee = 0
             op_fee = 0
             bill = 0
-  
+ 
+    payload = str(data)
+
     outputs = [
         # main output
-        {"script": virtualchain.make_data_script(str(data)),
+        {"script": virtualchain.make_data_script(payload),
          "value": 0},
     
-        # register address
+        # register/new-owner address
         {"script": virtualchain.make_payment_script(register_addr),
          "value": dust_value},
         
@@ -133,10 +168,14 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
     return outputs
     
 
-def make_transaction(name, preorder_addr, register_addr, blockchain_client, tx_fee=0, renewal_fee=None, subsidize=False, safety=True):
-    
-    preorder_addr = str(preorder_addr)
-    register_addr = str(register_addr)
+def make_transaction(name, preorder_or_owner_addr, register_or_new_owner_addr, blockchain_client, tx_fee=0, renewal_fee=None, value_hash=None, subsidize=False, safety=True):
+    # register_or_new_owner_addr is the address of the recipient in NAME_PREORDER
+    # register_or_new_owner_addr is the address of the current name owner in standard NAME_RENEWAL (pre F-day 2017)
+    # register_or_new_owner_addr is the address of the current or new name owner, in the post-F-day 2017 NAME_RENEWAL
+    # if value_hash is given, it must be a hex string (and will only be accepted post F-day 2017)
+
+    preorder_or_owner_addr = str(preorder_or_owner_addr)
+    register_or_new_owner_addr = str(register_or_new_owner_addr)
     name = str(name)
     tx_fee = int(tx_fee)
     
@@ -148,20 +187,21 @@ def make_transaction(name, preorder_addr, register_addr, blockchain_client, tx_f
     change_inputs = None
     pay_fee = True
     
-    change_inputs = tx_get_unspents( preorder_addr, blockchain_client )
+    change_inputs = tx_get_unspents( preorder_or_owner_addr, blockchain_client )
     if safety:
-        assert len(change_inputs) > 0, "No UTXOs for {}".format(preorder_addr)
+        assert len(change_inputs) > 0, "No UTXOs for {}".format(preorder_or_owner_addr)
 
     if renewal_fee is not None:
+        # this is a NAME_RENEWAL
         # will be subsidizing with a separate payment key
-        assert preorder_addr == register_addr, "%s != %s" % (preorder_addr, register_addr)
+        # assert preorder_addr == register_addr, "%s != %s" % (preorder_addr, register_addr)
         pay_fee = False
 
     if subsidize:
         pay_fee = False
 
-    nulldata = build(name)
-    outputs = make_outputs(nulldata, change_inputs, register_addr, preorder_addr, tx_fee, renewal_fee=renewal_fee, pay_fee=pay_fee )
+    nulldata = build(name, value_hash=value_hash)
+    outputs = make_outputs(nulldata, change_inputs, register_or_new_owner_addr, preorder_or_owner_addr, tx_fee, renewal_fee=renewal_fee, pay_fee=pay_fee )
  
     return (change_inputs, outputs)
 
@@ -237,5 +277,6 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
     # reconstruct the recipient information
     ret_op['recipient'] = str(name_rec['sender'])
     ret_op['recipient_address'] = str(name_rec['address'])
+
     return ret_op
 
