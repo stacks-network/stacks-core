@@ -134,7 +134,7 @@ If you encounter any technical issues in installing or using Blockstack, please 
 The next release is being built on the [develop](https://github.com/blockstack/blockstack-core/tree/develop). Please submit all
 pull requests to the `develop` branch.
 
-In the list of [release notes](https://github.com/blockstack/blockstack-core/tree/master/release_notes) you can find what has changed in each release.
+In the list of [release notes](./release_notes) you can find what has changed in each release.
 
 ## Blockstack Docs
 
@@ -157,7 +157,7 @@ If you have high-level questions about Blockstack, try [searching our forum](htt
 We welcome any small or big contributions! Please take a moment to
 [review the guidelines for contributing to open source](https://guides.github.com/activities/contributing-to-open-source/) in order to make the contribution process easy and effective for everyone involved.
 
-**Developers**:  You can try out Blockstack Core in a local sandbox using our [integration test framework](https://github.com/blockstack/blockstack-integration-tests).
+**Developers**:  You can try out Blockstack Core in a local sandbox using our [integration test framework](./integration_tests).
 
 You can install the latest release candidate by:
 ```bash
