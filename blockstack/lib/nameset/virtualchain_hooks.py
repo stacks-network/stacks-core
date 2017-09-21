@@ -166,8 +166,6 @@ def db_parse( block_id, txid, vtxindex, op, data, senders, inputs, outputs, fee,
        log.error("Skipping unrecognized opcode")
        return None
 
-   op_fee = get_burn_fee_from_outputs( outputs )
-
    log.debug("PARSE %s at (%s, %s): %s" % (opcode, block_id, vtxindex, data.encode('hex')))
 
    # get the data
@@ -179,10 +177,6 @@ def db_parse( block_id, txid, vtxindex, op, data, senders, inputs, outputs, fee,
        op = None
 
    if op is not None:
-
-       # propagate fees
-       if op_fee is not None:
-          op['op_fee'] = op_fee
 
        # propagate tx data 
        op['vtxindex'] = int(vtxindex)
