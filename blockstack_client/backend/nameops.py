@@ -43,7 +43,9 @@ from ..config import DEFAULT_QUEUE_PATH, CONFIG_PATH, get_utxo_provider_client, 
 from ..constants import (
     BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS, BLOCKSTACK_DRY_RUN,
     PREORDER_CONFIRMATIONS, RPC_MAX_ZONEFILE_LEN, APPROX_TX_IN_P2SH_LEN, APPROX_TX_OUT_P2SH_LEN,
-    APPROX_TX_IN_P2PKH_LEN, APPROX_TX_OUT_P2PKH_LEN, APPROX_TX_OVERHEAD_LEN)
+    APPROX_TX_IN_P2PKH_LEN, APPROX_TX_OUT_P2PKH_LEN, APPROX_TX_OVERHEAD_LEN, NAMESPACE_VERSION_PAY_TO_CREATOR,
+    BLOCKSTACK_BURN_ADDRESS
+)
 
 from ..proxy import get_default_proxy
 from ..proxy import getinfo as blockstack_getinfo
@@ -200,15 +202,15 @@ def make_cheapest_namespace_preorder( namespace_id, payment_address, reveal_addr
     return make_cheapest_nameop('NAMESPACE_PREORDER', utxo_client, payment_address, payment_utxos, namespace_id, reveal_address, cost, consensus_hash, payment_address, utxo_client, tx_fee=tx_fee )
 
 
-def make_cheapest_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, preorder_addr, utxo_client, payment_utxos, tx_fee=0):
+def make_cheapest_namespace_reveal( namespace_id, version_bits, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, preorder_addr, utxo_client, payment_utxos, tx_fee=0):
     """
     Given namespace reveal info, make the cheapest possible namespace reveal transaction.
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success
     Return None on error
     """
-    return make_cheapest_nameop('NAMESPACE_REVEAL', utxo_client, preorder_addr, payment_utxos, namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, preorder_addr, utxo_client,
-                                tx_fee=tx_fee)
+    return make_cheapest_nameop('NAMESPACE_REVEAL', utxo_client, preorder_addr, payment_utxos, namespace_id, version_bits, reveal_addr, lifetime, coeff, base_cost, bucket_exponents,
+            nonalpha_discount, no_vowel_discount, preorder_addr, utxo_client, tx_fee=tx_fee)
 
 
 def make_cheapest_namespace_ready( namespace_id, reveal_addr, utxo_client, payment_utxos, tx_fee=0):
@@ -231,14 +233,14 @@ def make_cheapest_name_import( name, recipient_address, zonefile_hash, reveal_ad
     return make_cheapest_nameop("NAME_IMPORT", utxo_client, reveal_address, payment_utxos, name, recipient_address, zonefile_hash, reveal_address, utxo_client, tx_fee=tx_fee )
 
 
-def make_cheapest_name_preorder( name, payment_address, owner_address, cost, consensus_hash, utxo_client, payment_utxos, tx_fee=0):
+def make_cheapest_name_preorder( name, payment_address, owner_address, burn_address, cost, consensus_hash, utxo_client, payment_utxos, tx_fee=0):
     """
     Given name preorder info, make the cheapest possible name preorder transaction.
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success.
     Return None on error
     """
-    return make_cheapest_nameop('NAME_PREORDER', utxo_client, payment_address, payment_utxos, name, payment_address, owner_address, cost, consensus_hash, utxo_client, tx_fee=tx_fee )
+    return make_cheapest_nameop('NAME_PREORDER', utxo_client, payment_address, payment_utxos, name, payment_address, owner_address, burn_address, cost, consensus_hash, utxo_client, tx_fee=tx_fee )
 
 
 def make_cheapest_name_registration( name, payment_address, owner_address, utxo_client, payment_utxos, value_hash=None, tx_fee=0, subsidize=False):
@@ -376,7 +378,7 @@ def estimate_preorder_tx_fee( name, name_cost, payment_privkey_info, owner_privk
     try:
         try:
             unsigned_tx, n_inputs = make_cheapest_name_preorder(
-                name, payment_addr, owner_address, name_cost, fake_consensus_hash,
+                name, payment_addr, owner_address, BLOCKSTACK_BURN_ADDRESS, name_cost, fake_consensus_hash,
                 utxo_client, payment_utxos)
 
             assert unsigned_tx
@@ -972,7 +974,7 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_privkey_info, tx_fee
 
     try:
         try:
-            unsigned_tx, num_utxos = make_cheapest_namespace_reveal( namespace_id, fake_reveal_address, 1, 2, 3, [4,5,6,7,8,9,10,11,12,13,14,15,0,1,2,3], 4, 5, payment_address, utxo_client, payment_utxos)
+            unsigned_tx, num_utxos = make_cheapest_namespace_reveal( namespace_id, 1, fake_reveal_address, 1, 2, 3, [4,5,6,7,8,9,10,11,12,13,14,15,0,1,2,3], 4, 5, payment_address, utxo_client, payment_utxos)
             assert unsigned_tx
 
             signed_tx = sign_tx(unsigned_tx, payment_utxos[:num_utxos], payment_privkey_info)
@@ -1252,7 +1254,21 @@ def do_blockchain_tx( unsigned_tx, prev_outputs, privkey_info=None, config_path=
         return {'error': 'Failed to sign and broadcast transaction'}
 
 
-def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, utxo_client, tx_broadcaster, tx_fee=None,
+def get_namespace_from_name( name ):
+   """
+   Get a fully-qualified name's namespace, if it has one.
+   It's the sequence of characters after the last "." in the name.
+   If there is no "." in the name, then it belongs to the null
+   namespace (i.e. the empty string will be returned)
+   """
+   if "." not in name:
+      # empty namespace
+      return ""
+
+   return name.split(".")[-1]
+
+
+def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, utxo_client, tx_broadcaster, burn_address=None, tx_fee=None,
                  config_path=CONFIG_PATH, proxy=None, consensus_hash=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
     Preorder a name.
@@ -1284,6 +1300,21 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     payment_address = virtualchain.get_privkey_address( payment_privkey_info )
     
     min_confirmations = utxo_client.min_confirmations
+
+    if burn_address is None:
+        # look up burn address 
+        namespace_id = get_namespace_from_name(fqu) 
+        namespace_info = blockstack_get_namespace_blockchain_record(namespace_id, proxy=proxy)
+        if 'error' in namespace_info:
+            return namespace_info
+
+        # does this namespace support burn-to-namespace-creator?
+        if (namespace_info['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR) != 0:
+            burn_address = namespace_info['address']
+        else:
+            burn_address = BLOCKSTACK_BURN_ADDRESS
+            
+    log.debug("Will send name preorder fee to {}".format(burn_address))
 
     if not dry_run and (safety_checks or (cost_satoshis is None or tx_fee is None)):
         tx_fee = 0
@@ -1327,7 +1358,7 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     log.debug("Preordering (%s, %s, %s), for %s, tx_fee = %s" % (fqu, payment_address, owner_address, cost_satoshis, tx_fee))
 
     try:
-        unsigned_tx, num_utxos = make_cheapest_name_preorder(fqu, payment_address, owner_address, cost_satoshis, consensus_hash, utxo_client, payment_utxos, tx_fee=tx_fee)
+        unsigned_tx, num_utxos = make_cheapest_name_preorder(fqu, payment_address, owner_address, burn_address, cost_satoshis, consensus_hash, utxo_client, payment_utxos, tx_fee=tx_fee)
         assert unsigned_tx
     except (AssertionError, ValueError) as ve:
         if BLOCKSTACK_DEBUG:
@@ -1927,7 +1958,7 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
     return resp
 
 
-def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, payment_privkey_info, utxo_client, tx_broadcaster,
+def do_namespace_reveal( namespace_id, version_bits, reveal_address, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, payment_privkey_info, utxo_client, tx_broadcaster,
                          config_path=CONFIG_PATH, tx_fee=None, proxy=None, safety_checks=True, dry_run=BLOCKSTACK_DRY_RUN ):
     """
     Reveal a namespace
@@ -1974,7 +2005,7 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
     log.debug("Revealing namespace (%s, %s, %s), tx_fee = %s" % (namespace_id, payment_address, reveal_address, tx_fee))
 
     try:
-        unsigned_tx, num_utxos = make_cheapest_namespace_reveal(namespace_id, reveal_address, lifetime, coeff, base_cost, bucket_exponents,
+        unsigned_tx, num_utxos = make_cheapest_namespace_reveal(namespace_id, version_bits, reveal_address, lifetime, coeff, base_cost, bucket_exponents,
                                                                 nonalpha_discount, no_vowel_discount, payment_address, utxo_client, payment_utxos, tx_fee=tx_fee)
         assert unsigned_tx
     except (AssertionError, ValueError) as ve:
