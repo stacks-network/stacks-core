@@ -37,7 +37,8 @@ from ..scripts import (
 
 from ..constants import (
     DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
-    BLOCKSTACK_VERSION, LENGTH_MAX_NAMESPACE_ID)
+    NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR,
+    LENGTH_MAX_NAMESPACE_ID)
 
 import virtualchain
 log = get_logger("blockstack-log")
@@ -99,6 +100,9 @@ def namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, 
    if len(namespace_id) > LENGTH_MAX_NAMESPACE_ID:
       raise Exception("Invalid namespace ID length for '%s' (expected length between 1 and %s)" % (namespace_id, LENGTH_MAX_NAMESPACE_ID))
    
+   if version not in [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR]:
+      raise Exception("Invalid namespace version bits {:x}".format(version))
+
    if lifetime < 0 or lifetime > (2**32 - 1):
       import blockstack
       lifetime = blockstack.NAMESPACE_LIFE_INFINITE 
@@ -210,7 +214,7 @@ def make_outputs( data, inputs, reveal_addr, change_addr, tx_fee):
     
     
 
-def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, preorder_addr, blockchain_client, tx_fee=0, safety=True ):
+def make_transaction( namespace_id, version, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, preorder_addr, blockchain_client, tx_fee=0, safety=True ):
    """
    Propagate a namespace.
    
@@ -245,7 +249,7 @@ def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, buc
 
    assert is_namespace_valid(namespace_id)
 
-   nulldata = build( namespace_id, BLOCKSTACK_VERSION, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount )
+   nulldata = build( namespace_id, version, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount )
    
    # get inputs and from public key
    inputs = tx_get_unspents( preorder_addr, blockchain_client )
