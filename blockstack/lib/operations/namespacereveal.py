@@ -77,10 +77,13 @@ def namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, 
    # sanity check 
    if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
       raise Exception("Namespace ID '%s' has non-base-38 characters" % namespace_id)
-   
+  
    if len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
       raise Exception("Invalid namespace ID length for '%s' (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))
-   
+    
+   if version not in [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR]:
+      raise Exception("Invalid namespace version bits {:x}".format(version))
+
    if lifetime < 0 or lifetime > (2**32 - 1):
       lifetime = NAMESPACE_LIFE_INFINITE 
 
@@ -120,6 +123,8 @@ def check( state_engine, nameop, block_id, checked_ops ):
     Return True if accepted
     Return False if not
     """
+
+    epoch_features = get_epoch_features(block_id)
 
     namespace_id = nameop['namespace_id']
     namespace_id_hash = nameop['preorder_hash']
@@ -169,9 +174,22 @@ def check( state_engine, nameop, block_id, checked_ops ):
        return False
 
     # must be a version we support
-    if int(nameop['version']) != BLOCKSTACK_VERSION:
-       log.debug("Namespace '%s' requires version %s, but this blockstack is version %s" % (namespace_id, nameop['version'], BLOCKSTACK_VERSION))
-       return False
+    # pre F-day 2017: only support names that send payment to the burn address
+    # post F-day 2017: support both pay-to-burn and pay-to-creator
+    namespace_version_bits = int(nameop['version'])
+    if EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR in epoch_features:
+        # post F-day 2017
+        # can send to burn address or namespace preorder address
+        if namespace_version_bits not in [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR]:
+            log.debug("Namespace '%s' requires version %s or %s" % (namespace_id, [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR]))
+            return False
+    
+    else:
+        # pre F-day 2017
+        # can only send to burn address
+        if namespace_version_bits != NAMESPACE_VERSION_PAY_TO_BURN:
+           log.debug("Namespace '%s' requires version %s, but this blockstack is version %s" % (namespace_id, nameop['version'], NAMESPACE_VERSION_PAY_TO_BURN))
+           return False
 
     # check fee...
     if not 'op_fee' in namespace_preorder:
