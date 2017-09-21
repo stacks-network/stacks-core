@@ -706,6 +706,15 @@ class BlockstackDB( virtualchain.StateEngine ):
         historical_recs = namedb_restore_from_history( namespace_rec, block_number )
         return historical_recs
 
+    
+    def get_preorders_at( self, block_number, offset=None, count=None ):
+        """
+        Get the list of outstanding preorders at a block number.
+        Return the list of them
+        """
+        preorders = namedb_get_preorders_at(self.db, block_number, offset=offset, count=count)
+        return preorders
+
 
     def get_name_history_diffs( self, name ):
         """
