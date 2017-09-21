@@ -49,7 +49,8 @@ MUTATE_FIELDS = FIELDS[:]
 
 # fields to back up when this operation is applied
 BACKUP_FIELDS = [
-    "__all__"
+    "__all__",
+    'burn_address'
 ]
 
 @state_preorder("check_preorder_collision")
@@ -64,15 +65,6 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
     namespace_id_hash = nameop['preorder_hash']
     consensus_hash = nameop['consensus_hash']
-
-    # namespace must not exist
-    # NOTE: now checked externally
-    """
-    for pending_namespace_preorder in pending_nameops[ NAMESPACE_PREORDER ]:
-       if pending_namespace_preorder['namespace_id_hash'] == namespace_id_hash:
-          log.debug("Namespace hash '%s' is already preordered" % namespace_id_hash)
-          return False
-    """
 
     # cannot be preordered already
     if not state_engine.is_new_namespace_preorder( namespace_id_hash ):
@@ -94,6 +86,43 @@ def check( state_engine, nameop, block_id, checked_ops ):
     return True
 
 
+def get_namespace_preorder_burn_info( outputs ):
+    """
+    Given the set of outputs, find the fee sent 
+    to our burn address.
+    
+    Return the fee and burn address on success as {'op_fee': ..., 'burn_address': ...}
+    Return None if not found
+    """
+    
+    if len(outputs) < 3:
+        # not a well-formed preorder 
+        return None 
+    
+    assert outputs[0].has_key('scriptPubKey')
+    assert outputs[2].has_key('scriptPubKey')
+
+    data_scriptpubkey = outputs[0]['scriptPubKey']
+    burn_scriptpubkey = outputs[2]['scriptPubKey']
+
+    assert data_scriptpubkey.has_key('asm')
+    assert burn_scriptpubkey.has_key('hex')
+    assert outputs[2].has_key('value')
+
+    if data_scriptpubkey['asm'][0:9] != 'OP_RETURN':
+        # not a well-formed preorder
+        return None
+
+    if virtualchain.script_hex_to_address(burn_scriptpubkey['hex']) is None:
+        # not a well-formed preorder
+        return None
+
+    op_fee = int(outputs[2]['value'] * (10**8))
+    burn_address = virtualchain.script_hex_to_address(burn_scriptpubkey['hex'])
+
+    return {'op_fee': op_fee, 'burn_address': burn_address}
+
+
 def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     """
     Extract and return a dict of fields from the underlying blockchain transaction data
@@ -110,6 +139,7 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     sender_script = None 
     sender_address = None 
     sender_pubkey_hex = None
+    burn_info = None
 
     try:
 
@@ -128,6 +158,9 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
        if str(senders[0]['script_type']) == 'pubkeyhash':
           sender_pubkey_hex = get_public_key_hex_from_tx( inputs, sender_address )
 
+       burn_info = get_namespace_preorder_burn_info(outputs)
+       assert burn_info
+
     except Exception, e:
        log.exception(e)
        raise Exception("Failed to extract")
@@ -145,6 +178,7 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     }
 
     ret.update( parsed_payload )
+    ret.update( burn_info )
 
     if sender_pubkey_hex is not None:
         ret['sender_pubkey'] = sender_pubkey_hex
@@ -166,7 +200,6 @@ def parse( bin_payload ):
    
    namespace_id_hash = hexlify( namespace_id_hash )
    consensus_hash = hexlify( consensus_hash )
-
    
    return {
       'opcode': 'NAMESPACE_PREORDER',
@@ -185,10 +218,13 @@ def restore_delta( rec, block_number, history_index, working_db, untrusted_db ):
     Return None on error.
     """
 
+    from ..nameset import BlockstackDB 
+
     name_rec_script = build_namespace_preorder( None, None, None, str(rec['consensus_hash']), namespace_id_hash=str(rec['preorder_hash']) )
     name_rec_payload = unhexlify( name_rec_script )[3:]
     ret_op = parse(name_rec_payload)
 
+    ret_op['burn_address'] = rec['burn_address']
     return ret_op
 
 
