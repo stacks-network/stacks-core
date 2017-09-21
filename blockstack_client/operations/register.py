@@ -93,7 +93,7 @@ def build(name, value_hash=None):
     return packaged_script 
 
 
-def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renewal_fee=None, pay_fee=True):
+def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renewal_fee=None, burn_address=BLOCKSTACK_BURN_ADDRESS, pay_fee=True):
     """
     Make outputs for a register:
     [0] OP_RETURN with the name, and possibly a value hash 
@@ -161,14 +161,14 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
         outputs.append(
             
             # burn address (when renewing)
-            {"script": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
+            {"script": virtualchain.make_payment_script(burn_address),
              "value": op_fee}
         )
 
     return outputs
     
 
-def make_transaction(name, preorder_or_owner_addr, register_or_new_owner_addr, blockchain_client, tx_fee=0, renewal_fee=None, value_hash=None, subsidize=False, safety=True):
+def make_transaction(name, preorder_or_owner_addr, register_or_new_owner_addr, blockchain_client, tx_fee=0, burn_address=BLOCKSTACK_BURN_ADDRESS, renewal_fee=None, value_hash=None, subsidize=False, safety=True):
     # register_or_new_owner_addr is the address of the recipient in NAME_PREORDER
     # register_or_new_owner_addr is the address of the current name owner in standard NAME_RENEWAL (pre F-day 2017)
     # register_or_new_owner_addr is the address of the current or new name owner, in the post-F-day 2017 NAME_RENEWAL
@@ -201,7 +201,7 @@ def make_transaction(name, preorder_or_owner_addr, register_or_new_owner_addr, b
         pay_fee = False
 
     nulldata = build(name, value_hash=value_hash)
-    outputs = make_outputs(nulldata, change_inputs, register_or_new_owner_addr, preorder_or_owner_addr, tx_fee, renewal_fee=renewal_fee, pay_fee=pay_fee )
+    outputs = make_outputs(nulldata, change_inputs, register_or_new_owner_addr, preorder_or_owner_addr, tx_fee, burn_address=burn_address, renewal_fee=renewal_fee, pay_fee=pay_fee )
  
     return (change_inputs, outputs)
 
