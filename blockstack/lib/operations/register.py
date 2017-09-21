@@ -69,10 +69,10 @@ RENEWAL_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
 ]
 
 # fields to back up when applying this operation 
-REGISTER_BACKUP_FIELDS = NAMEREC_NAME_BACKUP_FIELDS[:] + REGISTER_MUTATE_FIELDS[:] 
+REGISTER_BACKUP_FIELDS = NAMEREC_NAME_BACKUP_FIELDS[:] + REGISTER_MUTATE_FIELDS[:] + ['burn_address']
 
 RENEWAL_BACKUP_FIELDS = NAMEREC_NAME_BACKUP_FIELDS[:] + RENEWAL_MUTATE_FIELDS[:] + [
-    'consensus_hash',
+    'consensus_hash'
 ]
 
 
@@ -87,29 +87,55 @@ def get_registration_recipient_from_outputs( outputs ):
     
     By construction, it will be the first non-OP_RETURN 
     output (i.e. the second output).
-
-    TODO: remove for() loop
     """
+
+    if len(outputs) < 2:
+        raise Exception("Malformed registration outputs: less than 2")
     
-    ret = None
-    for output in outputs:
-       
-        output_script = output['scriptPubKey']
-        output_asm = output_script.get('asm')
-        output_hex = output_script.get('hex')
-        output_addresses = output_script.get('addresses')
-        
-        if output_asm[0:9] != 'OP_RETURN' and output_hex is not None:
-            
-            # recipient's script_pubkey and address
-            # ret = (output_hex, output_addresses[0])
-            ret = output_hex
-            break
-            
-    if ret is None:
-       raise Exception("No registration address found")
-    
-    return ret 
+    assert outputs[0].has_key('scriptPubKey')
+    assert outputs[1].has_key('scriptPubKey')
+
+    data_scriptpubkey = outputs[0]['scriptPubKey']
+    recipient_scriptpubkey = outputs[1]['scriptPubKey']
+
+    assert data_scriptpubkey.has_key('asm')
+    assert recipient_scriptpubkey.has_key('hex')
+
+    if data_scriptpubkey['asm'][0:9] != 'OP_RETURN':
+        raise Exception("Malformed registration outputs: first output is not an OP_RETURN")
+
+    return recipient_scriptpubkey['hex']
+
+
+def get_renew_burn_info( outputs ):
+    """
+    There are four poutputs: the OP_RETURN, the registration (owner)
+    address, the change address (i.e. from the preorderer), and the
+    burn address with the renewal fee.
+
+    Get the burn address and value
+    """
+    if len(outputs) < 4:
+        raise Exception("Malformed renew outputs: don't have 4")
+
+    assert outputs[0].has_key('scriptPubKey')
+    assert outputs[3].has_key('scriptPubKey')
+
+    data_scriptpubkey = outputs[0]['scriptPubKey']
+    burn_scriptpubkey = outputs[3]['scriptPubKey']
+
+    assert data_scriptpubkey.has_key('asm')
+    assert burn_scriptpubkey.has_key('hex')
+
+    if data_scriptpubkey['asm'][0:9] != 'OP_RETURN':
+        raise Exception("Malformed renew outputs: first output is not an OP_RETURN")
+
+    addr = virtualchain.script_hex_to_address(burn_scriptpubkey['hex'])
+    if addr is None:
+        raise Exception("Malformed renew outputs: last output has a nonstandard script")
+
+    op_fee = int(outputs[3]['value'] * (10**8))
+    return {'burn_address': addr, 'op_fee': op_fee}
 
 
 def get_num_names_owned( state_engine, checked_ops, sender ):
@@ -174,6 +200,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     consensus_hash = None
     transfer_send_block_id = None
     fee_block_id = None         # block ID at which the fee was paid
+    burn_address = None         # preorder/renew burn address
     opcode = nameop['opcode']
     first_registered = nameop['first_registered']
 
@@ -241,6 +268,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         preorder_hash = preorder['preorder_hash']
         preorder_block_number = preorder['block_number']
         fee_block_id = preorder_block_number
+        burn_address = preorder['burn_address']
 
         # pass along the preorder
         state_create_put_preorder( nameop, preorder )
@@ -266,6 +294,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
 
     elif state_engine.is_name_registered( name ):
         # Case 2: we're renewing
+        assert 'burn_address' in nameop, 'BUG: no burn address set in nameop'
 
         # pre F-day 2017: name must be owned by the recipient already
         # post F-day 2017: recipient can be anybody
@@ -298,6 +327,8 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         preorder_hash = prev_name_rec['preorder_hash']
         transfer_send_block_id = prev_name_rec['transfer_send_block_id']
         fee_block_id = block_id
+
+        burn_address = nameop['burn_address']
         opcode = "NAME_RENEWAL"     # will cause this operation to be re-checked under check_renewal()
 
         # pass along prior history 
@@ -310,6 +341,8 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         log.debug("Name '%s' does not exist, or is not preordered by %s" % (name, sender))
         return False
 
+    assert name_fee is not None
+
     # check name fee
     name_without_namespace = get_name_from_fq_name( name )
 
@@ -318,7 +351,24 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     if name_fee < price_name( name_without_namespace, namespace, fee_block_id ):
         log.debug("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace, block_id ), name_fee ))
         return False
-  
+ 
+    # fee must be paid to the right address.
+    # pre F-day 2017: this *must* be the burn address, and the namespace *must* be version 1
+    # post F-day 2017: this *may* be the namespace creator's address
+    expected_burn_address = None
+    if EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR in epoch_features:
+        if (namespace['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR):
+            expected_burn_address = namespace['address']
+        else:
+            expected_burn_address = BLOCKSTACK_BURN_ADDRESS
+
+    else:
+        expected_burn_address = BLOCKSTACK_BURN_ADDRESS
+
+    if expected_burn_address != burn_address:
+        log.debug("Register/renew sends fee to {}, but namespace expects {}".format(burn_address, expected_burn_address))
+        return False
+
     nameop['opcode'] = opcode
     nameop['op_fee'] = name_fee
     nameop['preorder_hash'] = preorder_hash
@@ -353,6 +403,10 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         log.debug("Adding value hash {} for name '{}'".format(value_hash, nameop['name']))
         
     nameop['value_hash'] = value_hash
+
+    if opcode == 'NAME_REGISTRATION' and 'burn_address' in nameop: 
+        # not used in NAME_REGISTRATION (but is used in NAME_RENEWAL)
+        del nameop['burn_address']
 
     # regster/renewal
     return True
@@ -470,6 +524,9 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     name_fee = nameop['op_fee']
     preorder_hash = prev_name_rec['preorder_hash']
     value_hash = prev_name_rec['value_hash']        # use previous name record's value hash by default
+    burn_address = nameop['burn_address']
+
+    assert name_fee is not None
 
     # check name fee
     name_without_namespace = get_name_from_fq_name( name )
@@ -477,6 +534,23 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     # fee must be high enough
     if name_fee < price_name( name_without_namespace, namespace, block_id ):
         log.debug("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace, block_id ), name_fee ))
+        return False
+ 
+    # fee must be paid to the right address.
+    # pre F-day 2017: this *must* be the burn address, and the namespace *must* be version 1
+    # post F-day 2017: this *may* be the namespace creator's address
+    expected_burn_address = None
+    if EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR in epoch_features:
+        if (namespace['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR):
+            expected_burn_address = namespace['address']
+        else:
+            expected_burn_address = BLOCKSTACK_BURN_ADDRESS
+
+    else:
+        expected_burn_address = BLOCKSTACK_BURN_ADDRESS
+
+    if expected_burn_address != burn_address:
+        log.debug("Register/renew sends fee to {}, but namespace expects {}".format(burn_address, expected_burn_address))
         return False
  
     # if we're in an epoch that allows us to include a value hash in the renewal, and one is given, then set it 
@@ -510,6 +584,8 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     if EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE not in epoch_features:
         del nameop['sender_pubkey']
    
+    del nameop['burn_address']
+
     # renewal!
     return True
 
@@ -535,6 +611,8 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
 
     recipient = None 
     recipient_address = None 
+    burn_address = None
+    op_fee = None
 
     try:
        recipient = get_registration_recipient_from_outputs( outputs )
@@ -558,6 +636,12 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
        if str(senders[0]['script_type']) == 'pubkeyhash':
           sender_pubkey_hex = get_public_key_hex_from_tx( inputs, sender_address )
 
+       if len(outputs) >= 4:
+          # renewing
+          burn_info = get_renew_burn_info(outputs)
+          burn_address = burn_info['burn_address']
+          op_fee = burn_info['op_fee']
+
     except Exception, e:
        log.exception(e)
        raise Exception("Failed to extract")
@@ -577,6 +661,8 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
        "txid": txid,
        "first_registered": block_id,        # NOTE: will get deleted if this is a renew
        "last_renewed": block_id,            # NOTE: will get deleted if this is a renew
+       "burn_address": burn_address,        # NOTE: will get deleted if this is a renew
+       'op_fee': op_fee,                    # meant for NAME_RENEWAL
        "op": NAME_REGISTRATION
     }
 
@@ -677,11 +763,20 @@ def restore_delta( name_rec, block_number, history_index, working_db, untrusted_
     else:
         log.debug("NAME_REGISTRATION: sender_pubkey = '%s'" % name_rec_prev['sender_pubkey'])
         sender_pubkey = name_rec_prev['sender_pubkey']
+    
+    namespace_id = get_namespace_from_name(name_rec['name'])
+    namespace = untrusted_db.get_namespace(namespace_id)
+    assert namespace
 
     ret_op['sender'] = sender
     ret_op['address'] = address
     ret_op['revoked'] = False
     ret_op['sender_pubkey'] = sender_pubkey
+
+    if (namespace['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR):
+        ret_op['burn_address'] = namespace['address']
+    else:
+        ret_op['burn_address'] = BLOCKSTACK_BURN_ADDRESS
 
     return ret_op
 
