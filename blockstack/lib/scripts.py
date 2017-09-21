@@ -171,39 +171,6 @@ def find_by_opcode( checked_ops, opcode ):
             ret.append(opdata)
 
     return ret 
-
-
-def get_burn_fee_from_outputs( outputs ):
-    """
-    Given the set of outputs, find the fee sent 
-    to our burn address.
-    
-    Return the fee on success
-    Return None if not found
-    """
-    
-    ret = None
-    for output in outputs:
-       
-        output_script = output['scriptPubKey']
-        output_asm = output_script.get('asm')
-        output_hex = output_script.get('hex')
-        output_addresses = output_script.get('addresses')
-       
-        if len(output_addresses) == 0:
-            # not possible
-            continue
-
-        if output_asm[0:9] != 'OP_RETURN' and BLOCKSTACK_BURN_ADDRESS == output_addresses[0]:
-            
-            # recipient's script_pubkey and address
-            ret = int(output['value']*(10**8))
-            if os.environ.get("BLOCKSTACK_TEST") == "1" and ret > 1000 * (10**8):
-                raise Exception("Absurdly high burn output\n%s" % simplejson.dumps(outputs, indent=4, sort_keys=True))
-
-            break
-    
-    return ret 
     
 
 def get_public_key_hex_from_tx( inputs, address ):
