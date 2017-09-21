@@ -78,6 +78,7 @@ CREATE TABLE preorders( preorder_hash TEXT NOT NULL,
                         op_fee INT NOT NULL,
                         txid TEXT NOT NULL,
                         vtxindex INT,
+                        burn_address TEXT NOT NULL,
 
                         -- primary key includes the block number and txid, so an expired preorder can be overwritten
                         PRIMARY KEY(preorder_hash,block_number,txid));
@@ -988,6 +989,10 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
 
     try:
         assert 'preorder_hash' in preorder_record.keys(), "BUG: no preorder hash"
+        assert 'block_number' in preorder_record.keys(), "BUG: preorder has no block number"
+        assert 'vtxindex' in preorder_record.keys(), "BUG: preorder has no vtxindex"
+        assert 'txid' in preorder_record.keys(), "BUG: preorder has no txid"
+        assert 'burn_address' in preorder_record.keys(), 'BUG: preorder has no burn address'
     except Exception, e:
         log.exception(e)
         log.error("FATAL: no preorder hash")
@@ -1191,6 +1196,7 @@ def namedb_state_create_from_prior_history( cur, opcode, new_record, block_id, v
         assert 'block_number' in preorder_record.keys(), "BUG: preorder has no block number"
         assert 'vtxindex' in preorder_record.keys(), "BUG: preorder has no vtxindex"
         assert 'txid' in preorder_record.keys(), "BUG: preorder has no txid"
+        assert 'burn_address' in preorder_record.keys(), 'BUG: preorder has no burn address'
     except Exception, e:
         log.exception(e)
         log.error("FATAL: no preorder hash")
@@ -1280,7 +1286,7 @@ def namedb_history_save( cur, opcode, history_id, block_id, vtxindex, txid, inpu
 
         # full back-up of this record
         if not history_snapshot:
-            history_diff_fields = op_get_consensus_fields( prev_opcode )
+            history_diff_fields = op_get_consensus_fields( prev_opcode ) + filter(lambda x: x != '__all__', prev_history_diff_fields)
         else:
             history_diff_fields = input_rec.keys()
 
@@ -1290,16 +1296,18 @@ def namedb_history_save( cur, opcode, history_id, block_id, vtxindex, txid, inpu
 
         history_snapshot = True
 
+        log.debug("Backup (%s, %s) from %s: %s" % (block_id, vtxindex, prev_opcode, ",".join(sorted(history_diff_fields))))
         history_diff = dict( [(field, input_rec[field]) for field in history_diff_fields] )
         history_diff['history_snapshot'] = True
 
     else:
         
         # field-by-field backup of this record
-        # sanity check... 
+        # sanity check...
+        # what fields will this opcode overwrite?
         history_diff_fields = op_get_backup_fields( opcode )
 
-        # sanity check
+        # sanity check: given operation must have the fields to be backed up
         missing = []
         for field in history_diff_fields:
             if not input_rec.has_key( field ):
