@@ -3163,6 +3163,7 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         print("Price bucket exponents: {}".format(params['buckets']))
         print("Non-alpha discount:     {}".format(params['nonalpha_discount']))
         print("No-vowel discount:      {}".format(params['no_vowel_discount']))
+        print("Burn or receive fees?   {}".format('Burn' if (params['version'] & blockstack.NAMESPACE_VERSION_PAY_TO_BURN) else 'Receive'))
         print("")
 
         formula_str = format_price_formula(namespace_id, block_height)
@@ -3193,41 +3194,47 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         'base': base,
         'buckets': bbs,
         'nonalpha_discount': nonalpha_discount,
-        'no_vowel_discount': no_vowel_discount
+        'no_vowel_discount': no_vowel_discount,
+        'version': blockstack.NAMESPACE_VERSION_PAY_TO_BURN,
     }
 
     block_height = get_block_height(config_path=config_path)
 
     options = {
-        '1': {
+        '0': {
             'msg': 'Set name lifetime in blocks             (positive integer between 1 and {}, or "infinite")'.format(2**32 - 1),
             'var': 'lifetime',
             'parse': lambda x: infinite_lifetime if x == "infinite" else int(x)
         },
-        '2': {
+        '1': {
             'msg': 'Set price coefficient                   (positive integer between 1 and 255)',
             'var': 'coeff',
             'parse': lambda x: int(x)
         },
-        '3': {
+        '2': {
             'msg': 'Set base price                          (positive integer between 1 and 255)',
             'var': 'base',
             'parse': lambda x: int(x)
         },
-        '4': {
+        '3': {
             'msg': 'Set price bucket exponents              (16 comma-separated integers, each between 1 and 15)',
             'var': 'buckets',
             'parse': lambda x: parse_bucket_exponents(x)
         },
-        '5': {
+        '4': {
             'msg': 'Set non-alphanumeric character discount (positive integer between 1 and 15)',
             'var': 'nonalpha_discount',
             'parse': lambda x: int(x)
         },
-        '6': {
+        '5': {
             'msg': 'Set no-vowel discount                   (positive integer between 1 and 15)',
             'var': 'no_vowel_discount',
             'parse': lambda x: int(x)
+        },
+        '6': {
+            'msg': 'Toggle name fee burning                 (True: burn fees; False: receive fees)',
+            'var': 'version',
+            'parse': lambda x: blockstack.NAMESPACE_VERSION_PAY_TO_BURN if x.lower() in ['true', '1'] else blockstack.NAMESPACE_VERSION_PAY_TO_CREATOR
         },
         '7': {
             'msg': 'Show name price formula',
@@ -3275,7 +3282,7 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
             try:
                 value = options[selection]['parse'](value_str)
                 namespace_params[ options[selection]['var'] ] = value
-                assert blockstack.namespacereveal.namespacereveal_sanity_check( namespace_id, blockstack.BLOCKSTACK_VERSION, namespace_params['lifetime'],
+                assert blockstack.namespacereveal.namespacereveal_sanity_check( namespace_id, namespace_params['version'], namespace_params['lifetime'],
                                                                                 namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
                                                                                 namespace_params['nonalpha_discount'], namespace_params['no_vowel_discount'] )
 
@@ -3308,7 +3315,7 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     if not interactive:
         # still check this 
         try:
-            assert blockstack.namespacereveal.namespacereveal_sanity_check( namespace_id, blockstack.BLOCKSTACK_VERSION, namespace_params['lifetime'],
+            assert blockstack.namespacereveal.namespacereveal_sanity_check( namespace_id, namespace_params['version'], namespace_params['lifetime'],
                                                                             namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
                                                                             namespace_params['nonalpha_discount'], namespace_params['no_vowel_discount'] )
         except Exception as e:
@@ -3330,8 +3337,9 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     print("This is the final configuration for your namespace:") 
     print_namespace_configuration(namespace_params)
     print("You will NOT be able to change this once it is set.")
-    print("Reveal address:  {}".format(reveal_addr))
-    print("Payment address: {}".format(virtualchain.get_privkey_address(privkey)))
+    print("Reveal address:            {}".format(reveal_addr))
+    print("Payment address:           {}".format(virtualchain.get_privkey_address(privkey)))
+    print("Burn or receive name fees? {}".format('Burn' if (namespace_params['version'] & blockstack.NAMESPACE_VERSION_PAY_TO_BURN) else 'Receive'))
     print("Transaction cost breakdown:\n{}".format(json.dumps(fees, indent=4, sort_keys=True)))
     print("")
 
