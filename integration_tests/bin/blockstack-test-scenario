@@ -1127,6 +1127,7 @@ def influx_write( influx_client, test_start, test_name, status ):
         {
             "measurement": "integration_tests",
             "tags": {
+                "test_run": "{}-{}".format(git_branch, git_commit),
                 "git_branch": git_branch,
                 "git_commit": git_commit,
                 "status": status,
