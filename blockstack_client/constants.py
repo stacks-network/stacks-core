@@ -281,7 +281,9 @@ LENGTH_MAX_NAME = 37  # maximum name length
 LENGTH_MAX_NAMESPACE_ID = 19  # maximum namespace length
 
 # namespace version
-BLOCKSTACK_VERSION = 1
+NAMESPACE_VERSION_PAY_TO_BURN = 0x1
+NAMESPACE_VERSION_PAY_TO_CREATOR = 0x2
+
 NAME_SCHEME = MAGIC_BYTES + NAME_REGISTRATION
 
 # burn address for fees (the address of public key
