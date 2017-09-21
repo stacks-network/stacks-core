@@ -447,7 +447,7 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
     return resp
 
 
-def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, safety_checks=True, config_path=None ):
+def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, version_bits=1, safety_checks=True, config_path=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -455,7 +455,9 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
 
     register_addr = virtualchain.address_reencode(register_addr)
 
-    resp = blockstack_client.do_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy)
+    resp = blockstack_client.do_namespace_reveal( namespace_id, version_bits, register_addr, lifetime, coeff, base, bucket_exponents,
+            nonalpha_discount, no_vowel_discount, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy)
+
     api_call_history.append( APICallRecord( "namespace_reveal", namespace_id, resp ) )
     return resp
 
