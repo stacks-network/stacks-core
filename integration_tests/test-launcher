@@ -91,9 +91,52 @@ tests () {
   echo "${out[@]}"
 }
 
-log-start-stop () {
-  # Get number of scenarios supposed to be running
-  local totaltests=0
+make-manifest () {
+  local name=$(echo $1 |  sed -e 's/_/-/g')
+  cat <<-EOF > $testDir/tmp/$gitCommit/$1.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "$name"
+  namespace: "$gitCommit"
+  labels:
+    commit: "$gitCommit"
+    test: "$1"
+spec:
+  restartPolicy: Never
+  containers:
+  - name: integration-test-run
+    image: "$testImage:$testTag"
+    imagePullPolicy: "Always"
+    command: ["blockstack-test-scenario", "blockstack_integration_tests.scenarios.$1", "--influx"]
+    env:
+      - name: GIT_COMMIT
+        value: "$gitCommit"
+      - name: GIT_BRANCH
+        value: "$gitBranch"
+      - name: INFLUX_HOST
+        value: "$influxHost"
+      - name: INFLUX_USER
+        value: "$influxUser"
+      - name: INFLUX_PASS
+        value: "$influxPass"
+      - name: INFLUX_SSL
+        value: "$influxSSL"
+      - name: NUM_TESTS
+        value: "$2"
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 4Gi
+      requests:
+        cpu: 1000m
+        memory: 1Gi
+EOF
+}
+
+# Runs all tests in Kubernetes
+run-all-kube () {
+  local tmpDir=$testDir/tmp/$gitCommit
   local scenarios=$(tests)
   for sc in $scenarios; do
     ((totaltests++))
