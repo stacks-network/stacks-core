@@ -253,7 +253,7 @@ def make_cheapest_name_registration( name, payment_address, owner_address, utxo_
     return make_cheapest_nameop('NAME_REGISTRATION', utxo_client, payment_address, payment_utxos, name, payment_address, owner_address, utxo_client, value_hash=value_hash, subsidize=subsidize, tx_fee=tx_fee )
 
 
-def make_cheapest_name_renewal( name, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos, recipient_addr=None, value_hash=None, tx_fee=0, subsidize=False):
+def make_cheapest_name_renewal( name, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos, burn_address=None, recipient_addr=None, value_hash=None, tx_fee=0, subsidize=False):
     """
     Given name renewal info, make the cheapest possible name renewal transaction
     @payment_utxos should be sorted by decreasing value
@@ -266,7 +266,7 @@ def make_cheapest_name_renewal( name, owner_address, renewal_fee, utxo_client, p
         recipient_addr = owner_address
         
     return make_cheapest_nameop('NAME_RENEWAL', utxo_client, payment_address, payment_utxos, name, owner_address, recipient_addr, utxo_client, 
-            renewal_fee=renewal_fee, value_hash=value_hash, subsidize=subsidize, tx_fee=tx_fee)
+            burn_address=burn_address, renewal_fee=renewal_fee, value_hash=value_hash, subsidize=subsidize, tx_fee=tx_fee)
 
 
 def make_cheapest_name_update( name, data_hash, consensus_hash, owner_address, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False):
@@ -521,7 +521,7 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_priv
 
     try:
         try:
-            unsigned_tx, num_utxos = make_cheapest_name_renewal(name, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos, value_hash=value_hash)
+            unsigned_tx, num_utxos = make_cheapest_name_renewal(name, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos, burn_address=BLOCKSTACK_BURN_ADDRESS, value_hash=value_hash)
             assert unsigned_tx
 
             signed_subsidized_tx = get_estimated_signed_subsidized(unsigned_tx, fees_registration, 21 * 10**14,
@@ -1268,6 +1268,27 @@ def get_namespace_from_name( name ):
    return name.split(".")[-1]
 
 
+def get_namespace_burn_address(fqu, proxy):
+    """
+    Determine the right burn address to use
+    """
+    burn_address = None
+
+    # look up burn address 
+    namespace_id = get_namespace_from_name(fqu) 
+    namespace_info = blockstack_get_namespace_blockchain_record(namespace_id, proxy=proxy)
+    if 'error' in namespace_info:
+        return namespace_info
+
+    # does this namespace support burn-to-namespace-creator?
+    if (namespace_info['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR) != 0:
+        burn_address = namespace_info['address']
+    else:
+        burn_address = BLOCKSTACK_BURN_ADDRESS
+
+    return burn_address
+
+
 def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, utxo_client, tx_broadcaster, burn_address=None, tx_fee=None,
                  config_path=CONFIG_PATH, proxy=None, consensus_hash=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
@@ -1302,18 +1323,8 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     min_confirmations = utxo_client.min_confirmations
 
     if burn_address is None:
-        # look up burn address 
-        namespace_id = get_namespace_from_name(fqu) 
-        namespace_info = blockstack_get_namespace_blockchain_record(namespace_id, proxy=proxy)
-        if 'error' in namespace_info:
-            return namespace_info
-
-        # does this namespace support burn-to-namespace-creator?
-        if (namespace_info['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR) != 0:
-            burn_address = namespace_info['address']
-        else:
-            burn_address = BLOCKSTACK_BURN_ADDRESS
-            
+        burn_address = get_namespace_burn_address(fqu, proxy)
+   
     log.debug("Will send name preorder fee to {}".format(burn_address))
 
     if not dry_run and (safety_checks or (cost_satoshis is None or tx_fee is None)):
@@ -1653,7 +1664,7 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
     return resp
 
 
-def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster, value_hash=None, recipient_addr=None, tx_fee_per_byte=None, 
+def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster, burn_address=None, value_hash=None, recipient_addr=None, tx_fee_per_byte=None, 
                 config_path=CONFIG_PATH, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
     Renew a name
@@ -1676,6 +1687,9 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     owner_address = virtualchain.get_privkey_address( owner_privkey_info )
     payment_address = virtualchain.get_privkey_address( payment_privkey_info )
 
+    if burn_address is None:
+        burn_address = get_namespace_burn_address(fqu, proxy)
+   
     min_confirmations = utxo_client.min_confirmations 
 
     if not dry_run and (safety_checks or (renewal_fee is None or tx_fee_per_byte is None)):
@@ -1722,7 +1736,9 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     # now send it
     subsidized_tx = None
     try:
-        unsigned_tx, num_utxos = make_cheapest_name_renewal(fqu, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos, recipient_addr=recipient_addr, value_hash=value_hash, subsidize=True )
+        unsigned_tx, num_utxos = make_cheapest_name_renewal(fqu, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos,
+                burn_address=burn_address, recipient_addr=recipient_addr, value_hash=value_hash, subsidize=True )
+
         assert unsigned_tx
 
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 ** (10**6) * (10**8), 
