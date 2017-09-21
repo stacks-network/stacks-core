@@ -41,6 +41,7 @@ from ..scripts import (
 import virtualchain
 log = get_logger("blockstack-client")
 
+
 def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None):
     """
     Takes a name, including the namespace ID (but not the id: scheme), a script_publickey to prove ownership
@@ -76,7 +77,7 @@ def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None):
     return packaged_script
 
 
-def make_outputs( data, inputs, sender_addr, fee, tx_fee, pay_fee=True ):
+def make_outputs( data, inputs, sender_addr, burn_addr, fee, tx_fee, pay_fee=True ):
     """
     Make outputs for a name preorder:
     [0] OP_RETURN with the name 
@@ -109,12 +110,12 @@ def make_outputs( data, inputs, sender_addr, fee, tx_fee, pay_fee=True ):
          "value": virtualchain.calculate_change_amount(inputs, bill, dust_fee)},
         
         # burn address
-        {"script": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
+        {"script": virtualchain.make_payment_script(burn_addr),
          "value": op_fee}
     ]
 
 
-def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, blockchain_client, tx_fee=0, subsidize=False, safety=True):
+def make_transaction(name, preorder_addr, register_addr, burn_addr, fee, consensus_hash, blockchain_client, tx_fee=0, subsidize=False, safety=True):
     """
     Builds and broadcasts a preorder transaction.
     """
@@ -145,7 +146,7 @@ def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, bl
     script_pubkey = virtualchain.make_payment_script( preorder_addr )
 
     nulldata = build( name, script_pubkey, register_addr, consensus_hash)
-    outputs = make_outputs(nulldata, inputs, preorder_addr, fee, tx_fee, pay_fee=pay_fee)
+    outputs = make_outputs(nulldata, inputs, preorder_addr, burn_addr, fee, tx_fee, pay_fee=pay_fee)
     
     return (inputs, outputs)
 
