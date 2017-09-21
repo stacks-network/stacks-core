@@ -50,7 +50,8 @@ MUTATE_FIELDS = FIELDS[:]
 
 # fields to back up when processing this operation 
 BACKUP_FIELDS = [
-    "__all__"
+    "__all__",
+    'burn_address'
 ]
 
 
@@ -104,6 +105,43 @@ def check( state_engine, nameop, block_id, checked_ops ):
     return True
 
 
+def get_preorder_burn_info( outputs ):
+    """
+    Given the set of outputs, find the fee sent 
+    to our burn address.
+    
+    Return the fee and burn address on success as {'op_fee': ..., 'burn_address': ...}
+    Return None if not found
+    """
+     
+    if len(outputs) != 3:
+        # not a well-formed preorder 
+        return None 
+    
+    assert outputs[0].has_key('scriptPubKey')
+    assert outputs[2].has_key('scriptPubKey')
+
+    data_scriptpubkey = outputs[0]['scriptPubKey']
+    burn_scriptpubkey = outputs[2]['scriptPubKey']
+
+    assert data_scriptpubkey.has_key('asm')
+    assert burn_scriptpubkey.has_key('hex')
+    assert outputs[2].has_key('value')
+
+    if data_scriptpubkey['asm'][0:9] != 'OP_RETURN':
+        # not a well-formed preorder
+        return None
+
+    if virtualchain.script_hex_to_address(burn_scriptpubkey['hex']) is None:
+        # not a well-formed preorder
+        return None
+
+    op_fee = int(outputs[2]['value'] * (10**8))
+    burn_address = virtualchain.script_hex_to_address(burn_scriptpubkey['hex'])
+
+    return {'op_fee': op_fee, 'burn_address': burn_address}
+   
+
 def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     """
     Extract and return a dict of fields from the underlying blockchain transaction data
@@ -143,6 +181,11 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     parsed_payload = parse( payload )
     assert parsed_payload is not None 
 
+    burn_info = get_preorder_burn_info(outputs)
+    if burn_info is None:
+        # nope 
+        raise Exception("No burn outputs")
+
     ret = {
        "sender": sender_script,
        "address": sender_address,
@@ -153,6 +196,7 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     }
 
     ret.update( parsed_payload )
+    ret.update( burn_info )
 
     if sender_pubkey_hex is not None:
         ret['sender_pubkey'] = sender_pubkey_hex
@@ -197,6 +241,8 @@ def restore_delta( name_rec, block_number, history_index, working_db, untrusted_
 
     name_rec_payload = unhexlify( name_rec_script )[3:]
     ret_delta = parse( name_rec_payload )
+
+    ret_delta['burn_address'] = name_rec['burn_address']
     return ret_delta
 
 
