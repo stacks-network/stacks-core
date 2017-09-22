@@ -35,8 +35,6 @@ blockstackd = None
 testlib = None
 g_interactive = False
 
-import pybitcoin
-
 import virtualchain
 log = virtualchain.get_logger("blockstack-test-scenario")
 
@@ -639,7 +637,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts() )
 
-    utxo_provider = pybitcoin.BitcoindClient("blockstack", "blockstacksystem", port=18332, version_byte=virtualchain.version_byte )
+    utxo_provider = blockstack_client.backend.utxo.bitcoind_utxo.BitcoindClient("blockstack", "blockstacksystem", port=18332, version_byte=virtualchain.version_byte )
     working_dir = virtualchain.get_working_dir()
 
     print "working_dir: %s" % working_dir
@@ -1087,7 +1085,7 @@ def bitcoin_regtest_connect( opts, reset=False ):
 
 class BitcoinRegtestUTXOProvider(object):
     """
-    Bitcoin regtest UTXO provider, compatible with pybitcoin.
+    Bitcoin regtest UTXO provider
     All addresses must be created within the bitcoind wallet.
     """
 
@@ -1098,7 +1096,6 @@ class BitcoinRegtestUTXOProvider(object):
     def get_unspents( self, address, blockchain_client=None ):
         """
         Get unspent outputs for an address.
-        Meant to be compatible with pybitcoin.
         (blockchain_client is a BitcoindConnection)
         """
         if blockchain_client is None:
@@ -1125,7 +1122,6 @@ class BitcoinRegtestUTXOProvider(object):
     def broadcast_transaction( self, hex_tx, blockchain_client=None ):
         """
         Send a raw transaction to bitcoin regtest.
-        Meant to be compatible with pybitcoin.
         (blockchain_client is a BitcoindConnection)
         """
         if blockchain_client is None:
