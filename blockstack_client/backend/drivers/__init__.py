@@ -27,5 +27,6 @@ import s3
 import blockstack_resolver
 import blockstack_server
 import http
+import gaia_hub
 
 from common import index_settings_get_index_manifest_url, ConcurrencyViolationException 

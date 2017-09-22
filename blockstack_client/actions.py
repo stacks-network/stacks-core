@@ -450,6 +450,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
     opt: message (str) 'A message to include with the payment (up to 40 bytes)'
     opt: min_confs (int) 'The minimum confirmations for oustanding transactions'
     opt: tx_only (str) 'If "True", only return the transaction'
+    opt: payment_key (str) 'Payers private key string'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -461,7 +462,10 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
     message = getattr(args, 'message', None)
     min_confs = getattr(args, 'min_confs', TX_MIN_CONFIRMATIONS)
     tx_only = getattr(args, 'tx_only', False)
-   
+    payment_key = getattr(args, 'payment_key', None)
+    if payment_key is None or len(payment_key) == 0:
+        payment_key = None
+
     if min_confs is None:
         min_confs = TX_MIN_CONFIRMATIONS
 
@@ -470,7 +474,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
             tx_only = True
         else:
             tx_only = False
-    
+
     else:
         tx_only = False
 
@@ -496,23 +500,28 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
             return {'error': 'Message must be {} bytes or less (got {})'.format(
                 virtualchain.lib.blockchain.bitcoin_blockchain.MAX_DATA_LEN, len(message))}
 
-    res = wallet_ensure_exists(config_path=config_path)
-    if 'error' in res:
-        return res
- 
-    if wallet_keys is None:
-        res = load_wallet(password=password, wallet_path=wallet_path, interactive=interactive, include_private=True)
+    if payment_key is None:
+        res = wallet_ensure_exists(config_path=config_path)
         if 'error' in res:
             return res
-    
-        wallet_keys = res['wallet']
 
-    send_addr, _, _ = get_addresses_from_file(config_dir=config_dir, wallet_path=wallet_path)
+        if wallet_keys is None:
+            res = load_wallet(password=password, wallet_path=wallet_path,
+                              interactive=interactive, include_private=True)
+            if 'error' in res:
+                return res
+            wallet_keys = res['wallet']
+
+        payment_key = wallet_keys['payment_privkey']
+        send_addr, _, _ = get_addresses_from_file(config_dir=config_dir, wallet_path=wallet_path)
+    else:
+        send_addr = virtualchain.get_privkey_address(payment_key)
+
     inputs = get_utxos(str(send_addr), min_confirmations=min_confs, config_path=config_path)
-    
+
     if len(inputs) == 0:
         log.error("No UTXOs for {}".format(send_addr))
-        return {'error': 'Failed to find UTXOs for wallet payment address'}
+        return {'error': 'Failed to find UTXOs for payment address'}
 
     total_value = sum(inp['value'] for inp in inputs)
 
@@ -529,29 +538,29 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
             if amt < 0:
                 log.error("Dust: total value = {}, tx fee = {}".format(total_value, tx_fee))
                 return {'error': 'Cannot withdraw dust'}
-           
+
             if total_value < amt:
-                # too high 
+                # too high
                 return {'error': 'Requested withdraw value {} exceeds balance {}'.format(amt, total_value)}
 
             selected_inputs = select_utxos(inputs, amt)
             if selected_inputs is None:
-                # too high 
+                # too high
                 return {'error': 'Not enough inputs: requested withdraw value {} exceeds balance {}'.format(amt, total_value)}
 
         else:
             if total_value < amt:
-                # too high 
+                # too high
                 return {'error': 'Requested withdraw value {} exceeds balance {}'.format(amt, total_value)}
 
             selected_inputs = select_utxos(inputs, amt)
             if selected_inputs is None:
-                # too high 
+                # too high
                 return {'error': 'Not enough inputs: requested withdraw value {} exceeds balance {}'.format(amt, total_value)}
 
             change = virtualchain.calculate_change_amount(selected_inputs, amt, tx_fee)
             log.debug("Withdraw {}, tx fee {}".format(amt, tx_fee))
-            
+
         outputs = [
             {'script': virtualchain.make_payment_script(recipient_addr),
              'value': amt},
@@ -559,7 +568,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
 
         if amt < total_value and change > 0:
             # need change and tx fee
-            outputs.append( 
+            outputs.append(
                 {'script': virtualchain.make_payment_script(send_addr),
                   "value": change}
             )
@@ -570,7 +579,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
                  "value": 0} ] + outputs
 
         serialized_tx = serialize_tx(selected_inputs, outputs)
-        signed_tx = sign_tx(serialized_tx, wallet_keys['payment_privkey'])
+        signed_tx = sign_tx(serialized_tx, payment_key)
         return signed_tx
 
     tx = mktx(amount, 0)
@@ -585,7 +594,7 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
 
     if tx_only:
         return {'status': True, 'tx': tx}
-    
+
     log.debug("Withdraw {} from {} to {}".format(amount, send_addr, recipient_addr))
 
     res = broadcast_tx( tx, config_path=config_path )
@@ -1335,6 +1344,8 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     opt: recipient (str) 'The recipient address, if not this wallet'
     opt: min_confs (int) 'The minimum number of confirmations on the initial preorder'
     opt: unsafe_reg (str) 'Should we aggressively register the name (ie, use low min confs)'
+    opt: owner_key (str) 'Owners private key string which will receive the name'
+    opt: payment_key (str) 'Payers private key string'
     """
 
     # NOTE: if force_data == True, then the zonefile will be the zonefile text itself, not a path.
@@ -1347,7 +1358,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     password = get_default_password(password)
 
     conf = config.get_config(config_path)
-    assert conf 
+    assert conf
 
     res = wallet_ensure_exists(config_path=config_path)
     if 'error' in res:
@@ -1371,6 +1382,17 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
         unsafe_reg = True
     else:
         unsafe_reg = False
+
+    args_ownerkey = getattr(args, 'owner_key', None)
+    if args_ownerkey is None or len(args_ownerkey) == 0:
+        owner_key = None
+    else:
+        owner_key = args_ownerkey
+    args_paymentkey = getattr(args, 'payment_key', None)
+    if args_paymentkey is None or len(args_paymentkey) == 0:
+        payment_key = None
+    else:
+        payment_key = args_paymentkey
 
     # name must be well-formed
     error = check_valid_name(fqu)
@@ -1398,7 +1420,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
                     return {'error': 'Non-standard zone file'}
 
         user_zonefile = zonefile_info['zonefile_str']
-    
+
     else:
         # make a default zonefile
         _, _, data_pubkey = get_addresses_from_file(config_dir=config_dir)
@@ -1428,9 +1450,16 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
         wallet_keys = get_wallet_keys(config_path, password)
         if 'error' in wallet_keys:
             return wallet_keys
-        
-        owner_privkey_info = wallet_keys['owner_privkey']
-        payment_privkey_info = wallet_keys['payment_privkey']
+
+        if owner_key:
+            owner_privkey_info = owner_key
+        else:
+            owner_privkey_info = wallet_keys['owner_privkey']
+
+        if payment_key:
+            payment_privkey_info = payment_key
+        else:
+            payment_privkey_info = wallet_keys['payment_privkey']
 
         operations = ['preorder', 'register', 'update']
         required_checks = ['is_name_available', 'is_payment_address_usable', 'owner_can_receive']
@@ -1499,10 +1528,16 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     rpc = local_api_connect(config_path=config_path)
     assert rpc
 
+    additionals = {}
+    if payment_key:
+        additionals['payment_key'] = payment_key
+    if owner_key:
+        additionals['owner_key'] = owner_key
+
     try:
         resp = rpc.backend_preorder(fqu, cost_satoshis, user_zonefile, user_profile,
                                     transfer_address, min_payment_confs,
-                                    unsafe_reg = unsafe_reg)
+                                    unsafe_reg = unsafe_reg, **additionals)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1535,7 +1570,8 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     arg: name (str) 'The name to update.'
     opt: data (str) 'A path to a file with the zone file data.'
     opt: nonstandard (str) 'If true, then do not validate or parse the zone file.'
-    opt: ownerkey (str) 'A private key string to be used for the update.'
+    opt: owner_key (str) 'A private key string to be used for the update.'
+    opt: payment_key (str) 'Payers private key string'
     """
 
     # NOTE: if force_data == True, then the zonefile will be the zonefile text itself, not a path.
@@ -1655,13 +1691,20 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     assert rpc
 
     try:
-        args_ownerkey = getattr(args, 'ownerkey', None)
-        # NOTE: already did safety checks
+        args_ownerkey = getattr(args, 'owner_key', None)
         if args_ownerkey is None or len(args_ownerkey) == 0:
             owner_key = None
         else:
             owner_key = args_ownerkey
-        resp = rpc.backend_update(fqu, user_data_txt, None, None, owner_key = owner_key )
+        args_paymentkey = getattr(args, 'payment_key', None)
+        if args_paymentkey is None or len(args_paymentkey) == 0:
+            payment_key = None
+        else:
+            payment_key = args_paymentkey
+
+        # NOTE: already did safety checks
+        resp = rpc.backend_update(
+            fqu, user_data_txt, None, None, owner_key = owner_key, payment_key = payment_key)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1685,7 +1728,8 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     help: Transfer a blockchain ID to a new owner
     arg: name (str) 'The name to transfer'
     arg: address (str) 'The address (base58check-encoded pubkey hash) to receive the name'
-    opt: ownerkey (str) 'A private key string to be used for the update.'
+    opt: owner_key (str) 'A private key string to be used for the update.'
+    opt: payment_key (str) 'Payers private key string'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1718,13 +1762,20 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     assert rpc
 
     try:
-        args_ownerkey = getattr(args, 'ownerkey', None)
+        args_ownerkey = getattr(args, 'owner_key', None)
         if args_ownerkey is None or len(args_ownerkey) == 0:
             owner_key = None
         else:
             owner_key = args_ownerkey
 
-        resp = rpc.backend_transfer(fqu, transfer_address, owner_key = owner_key)
+        args_paymentkey = getattr(args, 'payment_key', None)
+        if args_paymentkey is None or len(args_paymentkey) == 0:
+            payment_key = None
+        else:
+            payment_key = args_paymentkey
+
+        resp = rpc.backend_transfer(
+            fqu, transfer_address, owner_key = owner_key, payment_key = payment_key)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1746,6 +1797,8 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     command: renew
     help: Renew a blockchain ID
     arg: name (str) 'The blockchain ID to renew'
+    opt: owner_key (str) 'A private key string to be used for the update.'
+    opt: payment_key (str) 'Payers private key string'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1781,6 +1834,18 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     price_args.name_or_namespace = fqu
     price_args.operations = 'renewal'
 
+    args_ownerkey = getattr(args, 'owner_key', None)
+    if args_ownerkey is None or len(args_ownerkey) == 0:
+        owner_key = None
+    else:
+        owner_key = args_ownerkey
+
+    args_paymentkey = getattr(args, 'payment_key', None)
+    if args_paymentkey is None or len(args_paymentkey) == 0:
+        payment_key = None
+    else:
+        payment_key = args_paymentkey
+
     costs = cli_price( price_args, config_path=config_path, password=password, proxy=proxy )
     if 'error' in costs:
         return {'error': 'Failed to get renewal costs.  Please try again with `--debug` to see error messages.'}
@@ -1789,7 +1854,7 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
 
     if cost_satoshis is None:
         cost_satoshis = costs['name_price']['satoshis']
-    
+
     if not local_rpc.is_api_server(config_dir=config_dir):
         # also verify that we own the name
         _, owner_address, _ = get_addresses_from_file(config_dir=config_dir)
@@ -1826,13 +1891,18 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
             print('\nExiting.')
             exit(0)
 
-    
+
     rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     log.debug("Renew {} for {} BTC".format(fqu, cost_satoshis))
     try:
-        resp = rpc.backend_renew(fqu, cost_satoshis)
+        additionals = {}
+        if owner_key:
+            additionals['owner_key'] = owner_key
+        if payment_key:
+            additionals['payment_key'] = payment_key
+        resp = rpc.backend_renew(fqu, cost_satoshis, **additionals)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -3816,7 +3886,8 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     help: Directly set the hash associated with the name in the blockchain.
     arg: name (str) 'The name to update'
     arg: zonefile_hash (str) 'The RIPEMD160(SHA256(zonefile)) hash'
-    arg: ownerkey (str) 'The key to be used if not the wallets ownerkey'
+    arg: owner_key (str) 'The key to be used if not the wallets ownerkey'
+    arg: payment_key (str) 'The key to be used if not the wallets paymentkey'
     """
     password = get_default_password(password)
 
@@ -3840,13 +3911,21 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     assert rpc
 
     try:
-        args_ownerkey = getattr(args, 'ownerkey', None)
+        args_ownerkey = getattr(args, 'owner_key', None)
         # NOTE: already did safety checks
         if args_ownerkey is None or len(args_ownerkey) == 0:
             owner_key = None
         else:
             owner_key = args_ownerkey
-        resp = rpc.backend_update(fqu, None, None, zonefile_hash, owner_key = owner_key )
+        args_paymentkey = getattr(args, 'payment_key', None)
+        if args_paymentkey is None or len(args_paymentkey) == 0:
+            payment_key = None
+        else:
+            payment_key = args_paymentkey
+
+        # NOTE: already did safety checks
+        resp = rpc.backend_update(
+            fqu, None, None, zonefile_hash, owner_key = owner_key, payment_key = payment_key)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}

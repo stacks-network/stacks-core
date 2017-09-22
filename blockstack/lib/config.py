@@ -1176,3 +1176,21 @@ def configure( config_file=None, force=False, interactive=True ):
    return ret 
 
 
+def versions_need_upgrade(v_from, v_to):
+    version_upgrades = [
+        # all semver mismatches before "0.14" require upgrade
+        (lambda v : v[:2] < (0,14))
+    ]
+
+    v1 = tuple( int(x) for x in str(v_from).split('.') )
+    v2 = tuple( int(x) for x in str(v_to).split('.') )
+    if len(v1) < 3 or len(v2) < 3:
+        return True # one isn't semver
+    if v1[:2] == v2[:2]:
+        return False # same semver, no upgrade
+    # mismatch, see if this version requires a migration
+    for version_needs_upgrade_check in version_upgrades:
+        if version_needs_upgrade_check(v1):
+            return True
+    return False
+

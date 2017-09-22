@@ -44,6 +44,8 @@ from virtualchain.lib.blockchain.bitcoin_blockchain import JSONRPCException
 
 TEST_RPC_PORT = 16264
 TEST_CLIENT_RPC_PORT = int(os.environ.get("BLOCKSTACK_TEST_CLIENT_RPC_PORT", 16268))
+TEST_CLIENT_BIND = os.environ.get("BLOCKSTACK_TEST_CLIENT_BIND", "localhost")
+
 BLOCKSTACK_STORAGE_DRIVERS = "disk"
 
 if os.environ.get("BLOCKSTACK_STORAGE_DRIVERS", None) is not None:
@@ -107,6 +109,8 @@ rpc_detach = True
 blockchain_reader = bitcoind_utxo
 blockchain_writer = bitcoind_utxo
 anonymous_statistics = False
+api_endpoint_bind = %s
+api_endpoint_host = %s
 
 [blockchain-reader]
 utxo_provider = bitcoind_utxo
@@ -132,7 +136,7 @@ use_https = False
 user = blockstack
 regtest = True
 spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
-""" % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT)
+""" % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT, TEST_CLIENT_BIND, TEST_CLIENT_BIND)
 
 
 class Pinger(threading.Thread):
@@ -1123,6 +1127,7 @@ def influx_write( influx_client, test_start, test_name, status ):
         {
             "measurement": "integration_tests",
             "tags": {
+                "test_run": "{}-{}".format(git_branch, git_commit),
                 "git_branch": git_branch,
                 "git_commit": git_commit,
                 "status": status,

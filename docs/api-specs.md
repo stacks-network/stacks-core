@@ -694,7 +694,7 @@ wallet, to a particular address.
 + Authorization: `wallet_write`
 + Request (application/json)
   + Body
-  
+
             {'address' : 'mibZW6EBpXSTWQNQ9E4fi9hhGKYSMkjyg9',
                'amount' : 100,
                'min_confs' : 6,
@@ -707,7 +707,7 @@ wallet, to a particular address.
                 'properties': {
                     'address': {
                         'type': 'string',
-                        'pattern': r"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$", 
+                        'pattern': r"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$",
                     },
                     'amount': {
                         'type': 'integer',
@@ -723,6 +723,53 @@ wallet, to a particular address.
                     },
                     'tx_only': {
                         'type': 'boolean'
+                    },
+                    'payment_key': {
+                        'anyOf': [
+                            {
+                                'anyOf': [
+                                    {
+                                        'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                        'type': 'string'
+                                    },
+                                    {
+                                        'pattern': '^([0-9a-fA-F]+)$',
+                                        'type': 'string'
+                                    }
+                                ]
+                            },
+                            {
+                                'properties': {
+                                    'address': {
+                                        'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                        'type': 'string'
+                                    },
+                                    'private_keys': {
+                                        'items': {
+                                            'anyOf': [
+                                                {
+                                                    'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                    'type': 'string'
+                                                },
+                                                {
+                                                    'pattern': '^([0-9a-fA-F]+)$',
+                                                    'type': 'string'
+                                                }
+                                            ]
+                                        },
+                                        'type': 'array'
+                                    },
+                                    'redeem_script': {
+                                        'pattern': '^([0-9a-fA-F]+)$',
+                                        'type': 'string'
+                                    }
+                                },
+                                'required': [
+                                    'owner'
+                                ],
+                                'type': 'object'
+                            }
+                        ]
                     }
                 },
                 'required': [
@@ -934,6 +981,100 @@ after the `UPDATE` has 6 confirmations.
                             },
                             'unsafe': {
                                 'type': 'boolean'
+                            },
+                            'owner_key': {
+                                'anyOf': [
+                                    {
+                                        'anyOf': [
+                                            {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'properties': {
+                                            'address': {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            'private_keys': {
+                                                'items': {
+                                                    'anyOf': [
+                                                        {
+                                                            'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                            'type': 'string'
+                                                        },
+                                                        {
+                                                            'pattern': '^([0-9a-fA-F]+)$',
+                                                            'type': 'string'
+                                                        }
+                                                    ]
+                                                },
+                                                'type': 'array'
+                                            },
+                                            'redeem_script': {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        },
+                                        'required': [
+                                            'owner'
+                                        ],
+                                        'type': 'object'
+                                    }
+                                ]
+                            },
+                            'payment_key': {
+                                'anyOf': [
+                                    {
+                                        'anyOf': [
+                                            {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'properties': {
+                                            'address': {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            'private_keys': {
+                                                'items': {
+                                                    'anyOf': [
+                                                        {
+                                                            'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                            'type': 'string'
+                                                        },
+                                                        {
+                                                            'pattern': '^([0-9a-fA-F]+)$',
+                                                            'type': 'string'
+                                                        }
+                                                    ]
+                                                },
+                                                'type': 'array'
+                                            },
+                                            'redeem_script': {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        },
+                                        'required': [
+                                            'owner'
+                                        ],
+                                        'type': 'object'
+                                    }
+                                ]
                             }
                         },
                         'required': [
@@ -977,7 +1118,7 @@ after the `UPDATE` has 6 confirmations.
                 },
               ],
             }
-                
+
 
 ## Revoke name [DELETE /v1/names/{name}]
 Revokes the name from blockstack.
@@ -1048,6 +1189,53 @@ Transfers a name to a different owner.
                                 'maximum': 500000
                             },
                             'owner_key': {
+                                'anyOf': [
+                                    {
+                                        'anyOf': [
+                                            {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'properties': {
+                                            'address': {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            'private_keys': {
+                                                'items': {
+                                                    'anyOf': [
+                                                        {
+                                                            'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                            'type': 'string'
+                                                        },
+                                                        {
+                                                            'pattern': '^([0-9a-fA-F]+)$',
+                                                            'type': 'string'
+                                                        }
+                                                    ]
+                                                },
+                                                'type': 'array'
+                                            },
+                                            'redeem_script': {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        },
+                                        'required': [
+                                            'owner'
+                                        ],
+                                        'type': 'object'
+                                    }
+                                ]
+                            },
+                            'payment_key': {
                                 'anyOf': [
                                     {
                                         'anyOf': [
@@ -1212,9 +1400,54 @@ The `zonefile` field is preserved for legacy compatibility.
                                             }
                                         },
                                         'required': [
-                                            'address',
-                                            'redeem_script',
-                                            'private_keys'
+                                            'owner'
+                                        ],
+                                        'type': 'object'
+                                    }
+                                ]
+                            },
+                            'payment_key': {
+                                'anyOf': [
+                                    {
+                                        'anyOf': [
+                                            {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        'properties': {
+                                            'address': {
+                                                'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                'type': 'string'
+                                            },
+                                            'private_keys': {
+                                                'items': {
+                                                    'anyOf': [
+                                                        {
+                                                            'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
+                                                            'type': 'string'
+                                                        },
+                                                        {
+                                                            'pattern': '^([0-9a-fA-F]+)$',
+                                                            'type': 'string'
+                                                        }
+                                                    ]
+                                                },
+                                                'type': 'array'
+                                            },
+                                            'redeem_script': {
+                                                'pattern': '^([0-9a-fA-F]+)$',
+                                                'type': 'string'
+                                            }
+                                        },
+                                        'required': [
+                                            'owner'
                                         ],
                                         'type': 'object'
                                     }
@@ -1815,6 +2048,95 @@ Get the current Blockstack consensus hash on a blockchain.
                     },
                 },
             }
+
+## Get number of names on blockchain [GET /v1/blockchains/{blockchainName}/name_count]
+Get the number of names on a blockchain.
++ Public Endpoint
++ Parameters
+  + blockchainName : bitcoin (string) - the given blockchain
++ Response 200 (application/json)
+  + Body
+
+               {
+                          "names_count": 73950
+               }
+
+
+## Get operations in block [GET /v1/blockchains/{blockchainName}/operations/{blockHeight}]
+Get the Blockstack operations in a given block
++ Parameters
+  + blockchainName : bitcoin (string) - the given blockchain
+  + blockHeight : 462592 (integer) - the block height
++ Response 200 (application/json)
+  + Body
+
+            [
+              {
+                "address": "19dPuSXMLWFPZviKZvCFYwJnbDVT6iRNc",
+                "block_number": 374094,
+                "consensus_hash": "e00c59ec1340e4400237cc2b4a557eae",
+                "first_registered": 374094,
+                "history": {
+                  "374094": [
+                    {
+                      "address": "19dPuSXMLWFPZviKZvCFYwJnbDVT6iRNc",
+                      "block_number": 374094,
+                      "consensus_hash": null,
+                      "first_registered": 374094,
+                      "importer": "76a914911a799e024b57d6ed17e86ee4a0ed9398c181be88ac",
+                      "importer_address": "1EEEhLT4hwE8PS5QT21kd4v2JTwkJUvu2y",
+                      "last_creation_op": ";",
+                      "last_renewed": 374094,
+                      "namespace_block_number": 373601,
+                      "op": ";",
+                      "op_fee": 25000.0,
+                      "opcode": "NAME_IMPORT",
+                      "preorder_block_number": 374094,
+                      "preorder_hash": "1140784cce1c750b1ac0335e06711b2f01cea93f",
+                      "revoked": false,
+                      "sender": "76a91401a1b568832935dcd4825992c42437748a11b9f888ac",
+                      "sender_pubkey": "035ef035c6420846a30d17471f4baba51a1b624be6be0ba9e805614074dbbbbeb5",
+                      "transfer_send_block_id": null,
+                      "txid": "fb383120a199705e525aa8d63bf3107d82695ae6c521ad5d9aee3053cb2c15ca",
+                      "value_hash": "9def9c1ee06777a4ee347af35a858f5e2da40ff2",
+                      "vtxindex": 434
+                    }
+                  ],
+                  "462593": [
+                    {
+                      "consensus_hash": null,
+                      "op": ";",
+                      "opcode": "NAME_IMPORT",
+                      "transfer_send_block_id": null,
+                      "txid": "fb383120a199705e525aa8d63bf3107d82695ae6c521ad5d9aee3053cb2c15ca",
+                      "value_hash": "9def9c1ee06777a4ee347af35a858f5e2da40ff2",
+                      "vtxindex": 434
+                    }
+                  ]
+                },
+                "importer": "76a914911a799e024b57d6ed17e86ee4a0ed9398c181be88ac",
+                "importer_address": "1EEEhLT4hwE8PS5QT21kd4v2JTwkJUvu2y",
+                "last_creation_op": ";",
+                "last_renewed": 374094,
+                "name": "jfperez.id",
+                "name_consensus_hash": "913db22e6c4ddffff580515858a1e0ba",
+                "name_hash128": "18667519acc4ccce5d263716ae292922",
+                "namespace_block_number": 373601,
+                "namespace_id": "id",
+                "op": "+",
+                "op_fee": 25000.0,
+                "opcode": "NAME_UPDATE",
+                "preorder_block_number": 374094,
+                "preorder_hash": "1140784cce1c750b1ac0335e06711b2f01cea93f",
+                "revoked": false,
+                "sender": "76a91401a1b568832935dcd4825992c42437748a11b9f888ac",
+                "sender_pubkey": "035ef035c6420846a30d17471f4baba51a1b624be6be0ba9e805614074dbbbbeb5",
+                "transfer_send_block_id": null,
+                "txid": "7d73b5dfc1e0c1d39071e8db53a9a3fe543e707981d8e60f4665db873da52f96",
+                "value_hash": "9840e46e553be76d68aa42a78bc93c41f7670358",
+                "vtxindex": 110
+              }
+            ]
 
 ## Get pending transactions [GET /v1/blockchains/{blockchainName}/pending]
 Get the current transactions that the node has issued and are still pending.
