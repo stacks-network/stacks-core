@@ -149,11 +149,11 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
          "value": 0},
     
         # register/new-owner address
-        {"script": virtualchain.make_payment_script(register_addr),
+        {"script": virtualchain.make_payment_script(str(register_addr)),
          "value": dust_value},
         
         # change address (can be the subsidy address)
-        {"script": virtualchain.make_payment_script(change_addr),
+        {"script": virtualchain.make_payment_script(str(change_addr)),
          "value": virtualchain.calculate_change_amount(change_inputs, bill, dust_fee)},
     ]
     
@@ -161,7 +161,7 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
         outputs.append(
             
             # burn address (when renewing)
-            {"script": virtualchain.make_payment_script(burn_address),
+            {"script": virtualchain.make_payment_script(str(burn_address)),
              "value": op_fee}
         )
 
@@ -248,10 +248,6 @@ def get_fees( inputs, outputs ):
             log.debug("output[3] is not a standard script")
             return (None, None) 
         
-        if addr_hash != BLOCKSTACK_BURN_ADDRESS:
-            log.debug("output[3] is not the burn address %s (got %s)" % (BLOCKSTACK_BURN_ADDRESS, addr_hash))
-            return (None, None)
-    
         # should match make_outputs().
         # the +3 comes from 1 owner UTXO + 2 new outputs
         dust_fee = (len(inputs) + 3) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
