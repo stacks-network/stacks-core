@@ -84,6 +84,36 @@ NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after
 """
 MAX_NAMES_PER_SENDER = 25                # a single sender script can own up to this many names
 
+if os.environ.get("BLOCKSTACK_TEST", None) is not None:
+    # testing 
+    log.warning("(%s): in test environment" % os.getpid())
+
+    NAME_IMPORT_KEYRING_SIZE = 5                  # number of keys to derive from the import key
+
+    if os.environ.get("BLOCKSTACK_NAMESPACE_REVEAL_EXPIRE", None) is not None:
+        NAMESPACE_REVEAL_EXPIRE = int(os.environ.get("BLOCKSTACK_NAMESPACE_REVEAL_EXPIRE"))
+        log.warning("NAMESPACE_REVEAL_EXPIRE = %s" % NAMESPACE_REVEAL_EXPIRE)
+
+    else:
+        NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_DAY      # small enough so we can actually test this...
+
+    # make this low enough that we can actually test it with regtest
+    NAMESPACE_1_CHAR_COST = 41 * SATOSHIS_PER_BTC
+
+else:
+    NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
+
+
+NUM_CONFIRMATIONS = 6                         # number of blocks to wait for before accepting names
+if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+    NUM_CONFIRMATIONS = 0
+    log.warning("NUM_CONFIRMATIONS = %s" % NUM_CONFIRMATIONS)
+
+if os.environ.get("BLOCKSTACK_CORE_NUM_CONFS", None) is not None:
+    NUM_CONFIRMATIONS = int(os.environ["BLOCKSTACK_CORE_NUM_CONFS"])
+    log.warning("NUM_CONFIRMATIONS = %s" % NUM_CONFIRMATIONS)
+
+
 """ RPC server configs
 """
 if os.getenv("BLOCKSTACK_TEST") is not None:
@@ -143,8 +173,8 @@ EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR = "BLOCKSTACK_NAMESPACE_BURN_TO_CREATOR"
 # when epochs end (-1 means "never")
 EPOCH_NOW = -1
 EPOCH_1_END_BLOCK = 436650      # F-Day 2016
-EPOCH_2_END_BLOCK = 489247      # F-day 2017
-EPOCH_3_END_BLOCK = 541843      # F-day 2018
+EPOCH_2_END_BLOCK = 488200      # F-day 2017
+EPOCH_3_END_BLOCK = 541843      # F-day 2018 (TODO)
 
 EPOCH_1_NAMESPACE_LIFETIME_MULTIPLIER_id = 1
 EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER_id = 2
@@ -516,37 +546,6 @@ OPCODE_STATELESS_OPS = [
 
 
 NAMESPACE_LIFE_INFINITE = 0xffffffff
-
-OP_RETURN_MAX_SIZE = 40
-
-if os.environ.get("BLOCKSTACK_TEST", None) is not None:
-    # testing 
-    log.warning("(%s): in test environment" % os.getpid())
-
-    NAME_IMPORT_KEYRING_SIZE = 5                  # number of keys to derive from the import key
-
-    if os.environ.get("BLOCKSTACK_NAMESPACE_REVEAL_EXPIRE", None) is not None:
-        NAMESPACE_REVEAL_EXPIRE = int(os.environ.get("BLOCKSTACK_NAMESPACE_REVEAL_EXPIRE"))
-        log.warning("NAMESPACE_REVEAL_EXPIRE = %s" % NAMESPACE_REVEAL_EXPIRE)
-
-    else:
-        NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_DAY      # small enough so we can actually test this...
-
-    # make this low enough that we can actually test it with regtest
-    NAMESPACE_1_CHAR_COST = 41 * SATOSHIS_PER_BTC
-
-else:
-    NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
-
-
-NUM_CONFIRMATIONS = 6                         # number of blocks to wait for before accepting names
-if os.environ.get("BLOCKSTACK_TEST", None) == "1":
-    NUM_CONFIRMATIONS = 0
-    log.warning("NUM_CONFIRMATIONS = %s" % NUM_CONFIRMATIONS)
-
-if os.environ.get("BLOCKSTACK_CORE_NUM_CONFS", None) is not None:
-    NUM_CONFIRMATIONS = int(os.environ["BLOCKSTACK_CORE_NUM_CONFS"])
-    log.warning("NUM_CONFIRMATIONS = %s" % NUM_CONFIRMATIONS)
 
 # burn address for fees (the address of public key 0x0000000000000000000000000000000000000000)
 BLOCKSTACK_BURN_PUBKEY_HASH = "0000000000000000000000000000000000000000"
