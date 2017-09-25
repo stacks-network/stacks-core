@@ -1417,6 +1417,7 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
         res = check_register(fqu, owner_privkey_info, payment_privkey_info, value_hash=value_hash, 
                              config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations,
                              force_it = force_register)
+        
         if 'error' in res and safety_checks:
             log.error("Failed to check register: {}".format(res['error']))
             
@@ -1661,7 +1662,7 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
 
 
 def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster, burn_address=None, value_hash=None, recipient_addr=None, tx_fee_per_byte=None, 
-                config_path=CONFIG_PATH, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
+                tx_fee=0, config_path=CONFIG_PATH, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
     Renew a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1690,7 +1691,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
 
     if not dry_run and (safety_checks or (renewal_fee is None or tx_fee_per_byte is None)):
         # find tx fee, and do sanity checks
-        res = check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, value_hash=value_hash, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
+        res = check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, new_owner_address=recipient_addr, value_hash=value_hash, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
             log.error("Failed to check renewal: {}".format(res['error']))
             return res
@@ -1700,12 +1701,11 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
 
         if renewal_fee is None:
             renewal_fee = res['name_price']
+
         tx_fee = res['tx_fee']
 
         assert tx_fee_per_byte, "Missing tx-per-byte fee"
         assert renewal_fee, "Missing renewal fee"
-    else:
-        tx_fee = 0
 
     # get inputs
     try:
