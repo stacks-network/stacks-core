@@ -98,15 +98,15 @@ def scenario( wallets, **kw ):
 def check( state_engine ):
 
     fees = {
-        "t": blockstack.NAMESPACE_1_CHAR_COST * blockstack.config.get_epoch_price_multiplier( 0, "t" ),
-        "te": blockstack.NAMESPACE_23_CHAR_COST * blockstack.config.get_epoch_price_multiplier( 0, "te" ),
-        "test": blockstack.NAMESPACE_4567_CHAR_COST * blockstack.config.get_epoch_price_multiplier( 0, "test" ),
-        "testtest": blockstack.NAMESPACE_8UP_CHAR_COST * blockstack.config.get_epoch_price_multiplier( 0, "testtest" ),
+        't': blockstack.price_namespace('t', 0),
+        'te': blockstack.price_namespace('te', 0),
+        'test': blockstack.price_namespace('test', 0),
+        'testtest': blockstack.price_namespace('testtest', 0),
 
-        "a": blockstack.NAMESPACE_1_CHAR_COST * blockstack.config.get_epoch_price_multiplier( 270, "a" ),
-        "as": blockstack.NAMESPACE_23_CHAR_COST * blockstack.config.get_epoch_price_multiplier( 270, "as" ),
-        "asdf": blockstack.NAMESPACE_4567_CHAR_COST * blockstack.config.get_epoch_price_multiplier( 270, "asdf" ),
-        "asdfasdf": blockstack.NAMESPACE_8UP_CHAR_COST * blockstack.config.get_epoch_price_multiplier( 270, "asdfasdf" )
+        'a': blockstack.price_namespace('a', 691),
+        'as': blockstack.price_namespace('as', 691),
+        'asdf': blockstack.price_namespace('asdf', 691),
+        'asdfasdf': blockstack.price_namespace('asdfasdf', 691),
     }
 
     # not revealed, but ready 
