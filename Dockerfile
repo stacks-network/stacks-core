@@ -1,13 +1,16 @@
-# Run in Ubuntu
 FROM ubuntu:xenial
 
-# Update apt and install wget
-RUN apt update && apt install -y wget
+WORKDIR /src/blockstack
 
-# Add blockstack apt repo
-RUN wget -qO - https://raw.githubusercontent.com/blockstack/packaging/master/repo-key.pub | apt-key add -
-RUN echo 'deb http://packages.blockstack.com/repositories/ubuntu/ xenial main' > /etc/apt/sources.list.d/blockstack.list
+# Install dependancies from apt
+RUN apt-get -y update
+RUN apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools libgmp3-dev lsof
 
-# Install blockstack
-RUN apt update && apt install -y blockstack
+# Copy all files from the repo into the container
+COPY . .
 
+# Upgrade pip and install pyparsing
+RUN pip install --upgrade pip && pip install pyparsing
+
+# Install Blockstack from source
+RUN pip install .

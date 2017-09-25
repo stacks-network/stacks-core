@@ -2461,9 +2461,10 @@ def setup( working_dir=None, return_parser=False ):
 
     # config file version check
     config_server_version = blockstack_opts.get('server_version', None)
-    if config_server_version is None or not blockstack_client.config.semver_match( str(config_server_version), str(VERSION) ):
-        print >> sys.stderr, "Obsolete config file (%s): '%s' != '%s'\nPlease move it out of the way, so Blockstack Server can generate a fresh one." % (virtualchain.get_config_filename(), config_server_version, VERSION)
-        return None
+    if (config_server_version is None
+        or config.versions_need_upgrade(config_server_version, VERSION)):
+       print >> sys.stderr, "Obsolete config file (%s): '%s' != '%s'\nPlease move it out of the way, so Blockstack Server can generate a fresh one." % (virtualchain.get_config_filename(), config_server_version, VERSION)
+       return None
 
     log.debug("config:\n%s" % json.dumps(opts, sort_keys=True, indent=4))
 
@@ -2474,7 +2475,7 @@ def setup( working_dir=None, return_parser=False ):
     argparser = None
 
     if return_parser:
-       arg_bitcoin_opts, argparser = virtualchain.parse_bitcoind_args( return_parser=return_parser )
+      arg_bitcoin_opts, argparser = virtualchain.parse_bitcoind_args( return_parser=return_parser )
 
     else:
        arg_bitcoin_opts = virtualchain.parse_bitcoind_args( return_parser=return_parser )

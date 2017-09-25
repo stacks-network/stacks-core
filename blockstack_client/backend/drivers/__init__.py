@@ -28,7 +28,8 @@ import blockstack_resolver
 import blockstack_server
 import http
 import dropbox
+import gaia_hub
 
 from common import index_settings_get_index_manifest_url, ConcurrencyViolationException
 
-SUPPORTED_DRIVERS = ['dht', 'disk', 's3', 'blockstack_resolver', 'blockstack_server', 'http', 'dropbox', 'test']
+SUPPORTED_DRIVERS = ['dht', 'disk', 's3', 'blockstack_resolver', 'blockstack_server', 'http', 'dropbox', 'test', 'gaia_hub']
