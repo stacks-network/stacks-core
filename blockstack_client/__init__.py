@@ -77,10 +77,3 @@ from backend.queue import in_queue, queue_append, queue_findone, queue_findall, 
 # legacy compatibility
 import virtualchain
 from virtualchain import SPVClient
-
-# don't allow sending segwit transactions until after F-day 2017 (or unless we're testing)
-import time
-if time.time() >= 1512086400 or os.environ.get("BLOCKSTACK_SEGWIT_TEST") == '1':    # Dec 1 2017 00:00:00 UTC
-    virtualchain.set_features('segwit', True)
-else:
-    virtualchain.set_features('segwit', False)
