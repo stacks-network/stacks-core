@@ -528,7 +528,7 @@ def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
         os.system("bitcoin-cli -regtest -conf=%s stop" % bitcoin_conf)
 
 
-def sync_virtualchain_upcall( blockstack_opts, need_db_refresh=False ):
+def sync_virtualchain_upcall( blockstack_opts ):
     """
     Upcall from the test scenario
     to synchronize virtualchain.
@@ -540,10 +540,6 @@ def sync_virtualchain_upcall( blockstack_opts, need_db_refresh=False ):
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
     testlib.set_state_engine(db)
 
-    if need_db_refresh:
-        rpcclient = testlib.TestAPIProxy()
-        rpcclient.db_refresh()
-
     old_lastblock = db.lastblock
 
     log.debug("sync virtualchain up to %s" % (height))
@@ -551,10 +547,6 @@ def sync_virtualchain_upcall( blockstack_opts, need_db_refresh=False ):
 
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
     testlib.set_state_engine(db)
-
-    if need_db_refresh:
-        rpcclient = testlib.TestAPIProxy()
-        rpcclient.db_refresh()
 
     log.debug("sync atlas node up to %s" % (height))
 
@@ -692,25 +684,18 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     signal.signal(signal.SIGQUIT, signal_shutdown_procedure)
     signal.signal(signal.SIGTERM, signal_shutdown_procedure)
 
-    # do we need to refreshdb?
     rpcclient = None
     res = None
-    need_db_refresh = None
 
     try:
         rpcclient = testlib.TestAPIProxy()
         res = rpcclient.getinfo()
-        need_db_refresh = False
     except Exception as e:
         log.exception(e)
         sys.exit(1)
 
-    if not blockstack_client.config.semver_newer( res['server_version'], "0.14.0" ) and not res['server_version'].startswith("0.14."):
-        log.debug("Need periodic DB refreshes (server_version = %s)" % res['server_version'])
-        need_db_refresh = True
-
     test_env = {
-        "sync_virtualchain_upcall": lambda: sync_virtualchain_upcall(blockstack_opts, need_db_refresh=need_db_refresh),
+        "sync_virtualchain_upcall": lambda: sync_virtualchain_upcall(blockstack_opts),
         "next_block_upcall": bitcoin_regtest_next_block,
         "working_dir": working_dir,
         "bitcoind": bitcoind,
@@ -821,10 +806,6 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         return rc
 
     log.info("History check passes!")
-
-    if need_db_refresh:
-        rpcclient = testlib.TestAPIProxy()
-        rpcclient.db_refresh()
 
     # run snv at each name
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RO)
@@ -1263,7 +1244,12 @@ if __name__ == "__main__":
     os.environ['BLOCKSTACK_SEGWIT_TEST'] = '1'
 
     if force_segwit:
+        # test framework flag
         os.environ['BLOCKSTACK_TEST_FORCE_SEGWIT'] = '1'
+
+        # cli flag
+        os.environ['BLOCKSTACK_FORCE_SEGWIT'] = '1'
+
         print 'WARN: Forcing all wallets to generate segwit transactions'
 
     # load up the scenario (so it can set its own extra envars)
