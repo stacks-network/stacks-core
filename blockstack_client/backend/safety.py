@@ -52,6 +52,7 @@ from ..proxy import (
     get_namespace_cost,
     get_namespace_blockchain_record,
     get_num_names_in_namespace,
+    getinfo
 )
 
 from ..config import get_utxo_provider_client
@@ -177,6 +178,10 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
     If not preordering:
     * name must be registered
     * name must be owned by the owner address
+
+    If renewing:
+    * can only set the value hash if we're in epoch 3+
+    * can only change owner if we're in epoch 3+
 
     Return {'status': True} on success
     Return {'error': ...} on error
@@ -317,6 +322,66 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
 
         return {'status': True}
 
+    def _register_can_change_value_hash(value_hash):
+        """
+        If we're registering, can we set the value hash?
+        """
+        import blockstack
+        if value_hash is not None:
+            indexer_info = getinfo()
+            if 'error' in indexer_info:
+                return {'error': 'Failed to contact indexer'}
+            
+            # +1, so we consider the next block to be formed.
+            epoch_features = blockstack.get_epoch_features(indexer_info['last_block_seen']+1)
+            if blockstack.EPOCH_FEATURE_OP_REGISTER_UPDATE not in epoch_features:
+                # not active yet
+                return {'error': 'NAME_REGISTRATION cannot set value hashes in this epoch (block {})'.format(indexer_info['last_block_seen'])}
+
+            log.debug("Epoch feature '{}' is active!".format(blockstack.EPOCH_FEATURE_OP_REGISTER_UPDATE))
+
+        return {'status': True}
+
+    def _renewal_can_change_value_hash(value_hash):
+        """
+        If we're renewing, can we set the value hash?
+        """
+        import blockstack
+        if value_hash is not None:
+            indexer_info = getinfo()
+            if 'error' in indexer_info:
+                return {'error': 'Failed to contact indexer'}
+
+            # +1, so we consider the next block to be formed
+            epoch_features = blockstack.get_epoch_features(indexer_info['last_block_seen']+1)
+            if blockstack.EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE not in epoch_features:
+                # not active yet
+                return {'error': 'NAME_RENEWAL cannot set value hashes in this epoch (block {})'.format(indexer_info['last_block_seen'])}
+
+            log.debug("Epoch feature '{}' is active!".format(blockstack.EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE))
+
+        return {'status': True}
+
+    def _renewal_can_change_owner_address(transfer_address):
+        """
+        If we're renewing, can we set the transfer address?
+        """
+        import blockstack
+        if transfer_address is not None and transfer_address != owner_address:
+            indexer_info = getinfo()
+            if 'error' in indexer_info:
+                return {'error': 'Failed to contact indexer'}
+
+            # +1, so we consider the next block to be formed
+            epoch_features = blockstack.get_epoch_features(indexer_info['last_block_seen']+1)
+            if blockstack.EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE not in epoch_features:
+                # not active yet
+                return {'error': 'NAME_RENEWAL cannot change the owner in this epoch'}
+            
+            log.debug("Epoch feature '{}' is active!".format(blockstack.EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE))
+
+        return {'status': True}
+
     def _is_name_import_key(fqu_or_ns, import_privkey):
         """
         Is the given private key a valid derived key for importing a name
@@ -402,7 +467,10 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         'is_namespace_still_revealed': lambda: _is_namespace_still_revealed(fqu_or_ns),
         'is_namespace_revealer': lambda: _is_namespace_revealer(fqu_or_ns, owner_address),
         'is_namespace_reveal_address_valid': lambda: _is_namespace_reveal_address_valid(owner_address),
-        'is_name_import_key': lambda: _is_name_import_key(fqu_or_ns, payment_privkey_info)
+        'is_name_import_key': lambda: _is_name_import_key(fqu_or_ns, payment_privkey_info),
+        'register_can_change_value_hash': lambda: _register_can_change_value_hash(value_hash),
+        'renewal_can_change_value_hash': lambda: _renewal_can_change_value_hash(value_hash),
+        'renewal_can_change_owner_address': lambda: _renewal_can_change_owner_address(transfer_address)
     }
     
     # common to all operations
@@ -1303,7 +1371,7 @@ def check_register(fqu, owner_privkey_info, payment_privkey_info, value_hash=Non
     """
     Verify that a register can go through
     """
-    required_checks = ['is_name_available', 'is_payment_address_usable']
+    required_checks = ['is_name_available', 'is_payment_address_usable', 'register_can_change_value_hash']
     if not force_it:
         required_checks += ['owner_can_receive']
     return _check_op(fqu, 'register', required_checks, owner_privkey_info, payment_privkey_info, value_hash=value_hash, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy )
@@ -1327,16 +1395,19 @@ def check_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
     return _check_op(fqu, 'transfer', required_checks, owner_privkey_info, payment_privkey_info, transfer_address=transfer_address, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)
 
 
-def check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, value_hash=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+def check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, value_hash=None, new_owner_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
     """
     Verify that a renew can go through
     """ 
     # find tx fee, and do sanity checks
     assert owner_privkey_info
     assert payment_privkey_info
+    
+    if new_owner_address is None:
+        new_owner_address = virtualchain.get_privkey_address(owner_privkey_info)
 
-    required_checks = ['is_name_registered', 'is_name_owner', 'is_owner_address_usable', 'is_payment_address_usable']
-    res = check_operations( fqu, ['renewal'], owner_privkey_info, payment_privkey_info, value_hash=value_hash, min_payment_confs=min_payment_confs,
+    required_checks = ['is_name_registered', 'is_name_owner', 'is_owner_address_usable', 'is_payment_address_usable', 'recipient_can_receive', 'renewal_can_change_value_hash', 'renewal_can_change_owner_address']
+    res = check_operations( fqu, ['renewal'], owner_privkey_info, payment_privkey_info, value_hash=value_hash, transfer_address=new_owner_address, min_payment_confs=min_payment_confs,
                             required_checks=required_checks, config_path=config_path, proxy=proxy )
 
     opchecks = res.get('opchecks', None)
