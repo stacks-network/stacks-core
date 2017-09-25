@@ -2164,6 +2164,39 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         else:
             return self._reply_json(res)
 
+    def _get_confirmed_balance( self, get_address ):
+        satoshis_confirmed = backend_blockchain.get_balance(
+            get_address, config_path = self.server.config_path,
+            min_confirmations = 1)
+        return satoshis_confirmed
+
+    def GET_confirmed_balance_insight( self, ses, path_info, address ):
+        """
+        Handle GET /insight-api/addr/:address/balance
+        """
+        # step 0, convert address if needed
+        get_address = virtualchain.address_reencode(address)
+        if get_address != address:
+            log.debug("Re-encode {} to {}".format(address, get_address))
+        return self._reply_json( self._get_confirmed_balance(get_address) )
+
+    def GET_unconfirmed_balance_insight( self, ses, path_info, address ):
+        """
+        Handle GET /insight-api/addr/:address/unconfirmedBalance
+        """
+        # step 0, convert address if needed
+        get_address = virtualchain.address_reencode(address)
+        if get_address != address:
+            log.debug("Re-encode {} to {}".format(address, get_address))
+        # step 1, get the confirmed balance
+        satoshis_confirmed = self._get_confirmed_balance(get_address)
+        # step 2, get total balance
+        satoshis_total = backend_blockchain.get_balance(
+            get_address, config_path = self.server.config_path,
+            min_confirmations = 0)
+        # step 3 -> unconfirmed balance = total - confirmed.
+        #   this is replication of kind of silly insight-api behavior
+        return self._reply_json( satoshis_total - satoshis_confirmed )
 
     def GET_wallet_balance( self, ses, path_info, min_confs = None ):
         """
@@ -3335,6 +3368,34 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'need_data_key': True,
                     },
                 },
+            },
+            r'^/insight-api/addr/({})/balance$'.format(BASE58CHECK_CLASS): {
+                'routes': {
+                    'GET': self.GET_confirmed_balance_insight,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'wallet_read',
+                        'desc': 'get the node wallet\'s balance',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False,
+                    },
+                }
+            },
+            r'^/insight-api/addr/({})/unconfirmedBalance$'.format(BASE58CHECK_CLASS): {
+                'routes': {
+                    'GET': self.GET_unconfirmed_balance_insight,
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'wallet_read',
+                        'desc': 'get the node wallet\'s balance',
+                        'auth_session': True,
+                        'auth_pass': True,
+                        'need_data_key': False,
+                    },
+                }
             },
             r'^/v1/wallet/balance$': {
                 'routes': {
