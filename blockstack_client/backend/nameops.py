@@ -1330,7 +1330,7 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     if not dry_run and (safety_checks or (cost_satoshis is None or tx_fee is None)):
         tx_fee = 0
         # find tx fee, and do sanity checks
-        res = check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
+        res = check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations, burn_address=burn_address)
         if 'error' in res and safety_checks:
             log.error("Failed to check preorder: {}".format(res['error']))
             return res
@@ -1690,12 +1690,19 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
 
     if burn_address is None:
         burn_address = get_namespace_burn_address(fqu, proxy)
+    else:
+        burn_address = str(burn_address)
+
+    if value_hash is not None:
+        value_hash = str(value_hash)
    
     min_confirmations = utxo_client.min_confirmations 
 
     if not dry_run and (safety_checks or (renewal_fee is None or tx_fee_per_byte is None)):
         # find tx fee, and do sanity checks
-        res = check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, new_owner_address=recipient_addr, value_hash=value_hash, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
+        res = check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, new_owner_address=recipient_addr, value_hash=value_hash, burn_address=burn_address,
+                            config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
+
         if 'error' in res and safety_checks:
             log.error("Failed to check renewal: {}".format(res['error']))
             return res
