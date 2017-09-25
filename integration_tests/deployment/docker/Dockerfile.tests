@@ -35,6 +35,9 @@ RUN pip install --upgrade pip && pip install pyparsing
 # Build blockstack first
 WORKDIR /src/blockstack
 
+# Install virtualchain 0.14.5
+RUN pip install git+https://github.com/blockstack/virtualchain.git@rc-0.14.5
+
 # Copy all files from the repo into the container
 COPY . .
 
