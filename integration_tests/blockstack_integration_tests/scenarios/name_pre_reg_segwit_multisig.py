@@ -23,7 +23,6 @@
 
 import testlib
 import virtualchain
-import virtualchain
 
 # activate multisig
 """
@@ -42,20 +41,41 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 def scenario( wallets, **kw ):
 
+    print '\nactivating segwit\n'
+
+    virtualchain.set_features("segwit", True)
+
+    print '\nsegwit state: {}\n'.format(virtualchain.get_features('segwit'))
+
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
+    
+    virtualchain.set_features("segwit", False)
     testlib.next_block( **kw )
+    virtualchain.set_features("segwit", True)
 
     testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
+    
+    virtualchain.set_features("segwit", False)
     testlib.next_block( **kw )
+    virtualchain.set_features("segwit", True)
 
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
+    
+    virtualchain.set_features("segwit", False)
     testlib.next_block( **kw )
+    virtualchain.set_features("segwit", True)
 
     testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr, wallet=wallets[3] )
+    
+    virtualchain.set_features("segwit", False)
     testlib.next_block( **kw )
+    virtualchain.set_features("segwit", True)
 
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr, wallet=wallets[3] )
+    
+    virtualchain.set_features("segwit", False)
     testlib.next_block( **kw )
+    virtualchain.set_features("segwit", True)
 
 
 def check( state_engine ):
