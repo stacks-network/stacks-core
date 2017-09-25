@@ -3077,6 +3077,28 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         self._reply_json({'error' : 'Unimplemented'}, status_code = 405)
 
+    def GET_blockchain_num_names( self, ses, path_info, blockchain_name ):
+        """
+        Handle GET /blockchains/:blockchainID/name_count
+        Reply with the number of names on this blockchain
+        """
+        if blockchain_name != 'bitcoin':
+            # not supported
+            self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
+            return
+        num_names = proxy.get_num_names()
+        if json_is_error(num_names):
+            if json_is_exception(info):
+                status_code = 500
+            else:
+                status_code = 404
+
+            self._reply_json({'error': info['error']}, status_code=status_code)
+            return
+
+        self._reply_json({'names_count': num_names})
+        return
+
     def GET_blockchain_consensus( self, ses, path_info, blockchain_name ):
         """
         Handle GET /blockchain/:blockchainID/consensus
@@ -3295,6 +3317,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'names',
                         'desc': 'get names owned by an address on a particular blockchain',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
+                    },
+                },
+            },
+            r'^/v1/blockchains/({})/name_count'.format(URLENCODING_CLASS) : {
+                'routes': {
+                    'GET': self.GET_blockchain_num_names
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'blockchain',
+                        'desc': 'read blockchain name blocks',
                         'auth_session': False,
                         'auth_pass': False,
                         'need_data_key': False,

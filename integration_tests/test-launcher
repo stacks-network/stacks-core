@@ -4,7 +4,7 @@
 
 # Docker Image Settings
 testImage=quay.io/blockstack/integrationtests
-testTag=latest
+testTag=develop
 
 # Git Branch and commit information
 gitCommit=$(git rev-parse --short HEAD)
@@ -14,7 +14,7 @@ gitBranch=$(git rev-parse --abbrev-ref HEAD)
 repoDir=$(git rev-parse --show-toplevel)
 testDir=$repoDir/integration_tests
 outputDir=$testDir/test-out
-testOutputDir=$outputDir/$gitBranch-$gitCommit
+testOutputDir=$outputDir/$gitCommit-$gitBranch
 
 # Dockerfile
 testDF=$testDir/deployment/docker/Dockerfile.tests
@@ -24,6 +24,10 @@ influxHost=$INFLUX_HOST
 influxUser=$INFLUX_USER
 influxPass=$INFLUX_PASS
 influxSSL=$INFLUX_SSL
+influxDatabase=testing
+
+#  Set the slackURL from the environment
+slackURL=$SLACK_URL
 
 # Set the number of containers to run to the number of logical cores in the system
 # This prevents CPU contention in the container which leads to Bitcoind calls timing out
@@ -102,7 +106,7 @@ spec:
   restartPolicy: Never
   containers:
   - name: integration-test-run
-    image: "$testImage:$gitCommit"
+    image: "$testImage:$testTag"
     imagePullPolicy: "Always"
     command: ["blockstack-test-scenario", "blockstack_integration_tests.scenarios.$1", "--influx"]
     env:
@@ -152,8 +156,85 @@ run-all-kube () {
     kubectl apply -f $tmpDir/$sc.yaml
   done
 
-  # Remove the temporary files
+  # Wait to remove the temporary files
+  sleep 60
   rm -rf $tmpDir
+}
+
+log-start-stop () {
+  # Get number of scenarios supposed to be running
+  local totaltests=0
+  local scenarios=$(tests)
+  for sc in $scenarios; do
+    ((totaltests++))
+  done
+
+  # Get number of pods created in testing namespace
+  local totalpods=0
+  local pods=$(kubectl get pods --namespace $gitCommit -o jsonpath='{.items[*].metadata.name}' -a)
+  for pod in $pods; do
+    ((totalpods++))
+  done
+
+  # Get number of nodes in cluster
+  local totalnodes=0
+  local nodes=$(kubectl get nodes -o jsonpath='{.items[*].metadata.name}')
+  for node in $nodes; do
+    ((totalnodes++))
+  done
+
+  if [ "$1" = "start" ]; then
+    influx -host $influxHost -ssl -username $influxUser -password $influxPass -precision s -database $influxDatabase -execute "INSERT test_progress,git_commit=$gitCommit,git_branch=$gitBranch,event=startstop total_tests=${totaltests}i,total_pods=${totalpods}i,total_nodes=${totalnodes}i,comp_perc=0.0,comp=0i,remain_perc=100.0,remain=${totaltests}i $(date +%s)"
+  elif [ "$1" = "stop" ]; then
+    influx -host $influxHost -ssl -username $influxUser -password $influxPass -precision s -database $influxDatabase -execute "INSERT test_progress,git_commit=$gitCommit,git_branch=$gitBranch,event=startstop total_tests=${totaltests}i,total_pods=${totalpods}i,total_nodes=${totalnodes}i,comp_perc=100.0,comp=${totaltests}i,remain_perc=0.0,remain=0i $(date +%s)"
+  fi
+  # Log test start
+
+}
+
+run-commit-kube () {
+  # Log test start
+  log-start-stop start
+
+  # Make a directory and file for the test output
+  mkdir -p $testOutputDir
+  local outputFile=$testOutputDir/test-out.txt
+
+  # First run the docker build and push
+  echo "Building docker image, this may take a minute..." >> $outputFile
+  push-image > $testOutputDir/build-push.txt 2>&1
+
+  # Start the tests against kubernetes cluster
+  echo "Starting kubernetes tests..." >> $outputFile
+  run-all-kube > $testOutputDir/run-all-kube.txt 2>&1
+
+  # Wait for the tests to complete and log progress periodically
+  echo "Waiting for test to complete..." >> $outputFile
+  while [ -n "$(kubectl get pods --namespace $gitCommit -o jsonpath='{.items[*].metadata.name}')" ]; do
+
+    # Save logs from failed tests
+    local failedTests=$(kubectl get pods --namespace $gitCommit -o go-template='{{ range .items -}}{{- if .status.containerStatuses -}}{{ $status := index .status.containerStatuses 0 }}{{- if $status.state.terminated -}}{{- if eq $status.state.terminated.reason "Error" -}}{{ .metadata.name }}{{- end -}}{{- end -}}{{- end -}}{{- end -}}' -a)
+    for pod in $failedTests; do
+      kubectl logs --namespace $gitCommit $pod --tail 120 > $testOutputDir/$pod-failed.log 2>&1
+    done
+
+    # Log progress
+    local write=$(progress-kube)
+    echo "$write"
+    influx -host $influxHost -ssl -username $influxUser -password $influxPass -precision s -database $influxDatabase -execute "$write"
+    sleep 60
+  done
+
+  # Log test stop
+  log-start-stop stop
+
+  # Once test is done, post results to slack
+  echo "Test complete, sending results to slack..." >> $outputFile
+  results-kube > $testOutputDir/slack-post.txt 2>&1
+
+  # Cleanup kubernetes namespace
+  echo "Deleting namespace..." >> $outputFile
+  clean-all-kube >> $outputFile
 }
 
 # Run 1 test in Kubernetes
@@ -164,7 +245,7 @@ run-one-kube () {
   # Check for test name arguement
   if [ $# -eq 0 ]; then
     echo "need to input name of test to run"
-    echo "to get a list of tests run see blockstack_integration_tests/scenarios"
+    echo "to get a list of tests run 'ls ./blockstack_integration_tests/scenarios'"
     exit 1
   fi
 
@@ -184,10 +265,188 @@ run-one-kube () {
   rm -rf $tmpDir
 }
 
+progress-kube () {
+  local testName=""
+
+  # Check for input and use current branch if none
+  if [ $# -eq 0 ]; then
+    testName=$gitCommit
+  else
+    testName=$1
+  fi
+
+  # Get number of scenarios supposed to be running
+  local totaltests=0
+  local scenarios=$(tests)
+  for sc in $scenarios; do
+    ((totaltests++))
+  done
+
+  # Get number of pods created in testing namespace
+  local totalpods=0
+  local pods=$(kubectl get pods --namespace $testName -o jsonpath='{.items[*].metadata.name}' -a)
+  for pod in $pods; do
+    ((totalpods++))
+  done
+
+  # Get number of nodes in cluster
+  local totalnodes=0
+  local nodes=$(kubectl get nodes -o jsonpath='{.items[*].metadata.name}')
+  for node in $nodes; do
+    ((totalnodes++))
+  done
+
+  # If the above returns no pods then exit with message
+  if [ $totalpods -eq 0 ]; then
+    echo "[$(date --utc +%FT%TZ)] no pods detected for $testName-$gitBranch"
+    exit 1
+  fi
+
+  # Get number of running pods in namespace
+  local totalrunning=0
+  local podsrunning=$(kubectl get pods --namespace $testName -o jsonpath='{.items[*].metadata.name}')
+  for pod in $podsrunning; do
+    ((totalrunning++))
+  done
+
+  local completed=$(expr $totaltests - $totalrunning)
+  local remaining=$(expr $totaltests - $completed)
+
+  if [ "$(uname)" = "Darwin" ]; then
+    # Log test progress - Format Human on Mac
+    echo "[$(date '+%FT%TZ')] TotalTests: $totaltests TotalPods: $totalpods TotalNodes: $totalnodes Completed: $(percent $completed $totaltests)% ($completed) Remaining: $(percent $totalrunning $totaltests)% ($remaining)"
+  elif [ "$(uname)" = "Linux" ]; then
+    # Log test progress - Format Influx for reporting
+    echo "INSERT test_progress,git_commit=$testName,git_branch=$gitBranch,event=progress total_tests=${totaltests}i,total_pods=${totalpods}i,total_nodes=${totalnodes}i,comp_perc=$(percent $completed $totaltests),comp=${completed}i,remain_perc=$(percent $totalrunning $totaltests),remain=${remaining}i $(date +%s)"
+  else
+    # Log test progress - Format JSON just for fun
+    echo "{ \"timestamp\": $(date +%s), \"totalTests\": $totalTests, \"totalPods\": $totalPods, \"totalNodes\": $totalNodes, \"completedPercent\": $(percent $completed $totaltests), \"completed\": $completed, \"remainingPercent\": $(percent $totalrunning $totaltests),\"remaining\": $remaining}"
+  fi
+}
+
+results-kube () {
+  local testName=""
+
+  # Check for input or use default
+  if [ $# -eq 0 ]; then
+    # echo "No test specified, using $gitCommit"
+    testName=$gitCommit
+  else
+    # echo "Getting results for test $1"
+    testName=$1
+  fi
+
+  # Null Influx result
+  local nullResult="{\"results\":[{}]}"
+
+  # Average test runtime
+  local average="SELECT mean(\"runtime\")/60, stddev(\"runtime\")/60 FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
+  local averageReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database $influxDatabase -execute "$average")
+  local averageTest="None"
+  local stddevTest="None"
+  if [ ! "$averageReturn" = "$nullResult" ]; then
+    averageTest=$(echo $(echo $averageReturn | jq -r '.results[0].series[0].values[0][1]')| awk '{print substr($0,0,5)}')
+    stddevTest=$(echo $(echo $averageReturn | jq -r '.results[0].series[0].values[0][2]')| awk '{print substr($0,0,5)}')
+  fi
+
+  # Max test runtime
+  local max="SELECT max(\"runtime\")/60, \"test_scenario\" FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
+  local maxReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database $influxDatabase -execute "$max")
+  local maxTime="None"
+  local fastTest="None"
+  if [ ! "$maxReturn" = "$nullResult" ]; then
+    maxTime=$(echo $(echo $maxReturn | jq -r '.results[0].series[0].values[0][1]') | awk '{print substr($0,0,5)}')
+    fastTest=$(echo $maxReturn | jq -r '.results[0].series[0].values[0][2]')
+  fi
+
+  # Min test runtime
+  local min="SELECT min(\"runtime\")/60, \"test_scenario\" FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
+  local minReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database $influxDatabase -execute "$min")
+  local minTime="None"
+  local slowTest="None"
+  if [ ! "$minReturn" = "$nullResult" ]; then
+    minTime=$(echo $(echo $minReturn | jq -r '.results[0].series[0].values[0][1]') | awk '{print substr($0,0,5)}')
+    slowTest=$(echo $minReturn | jq -r '.results[0].series[0].values[0][2]')
+  fi
+
+  # Number of tests run
+  local num="SELECT first(\"num_tests\") FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName'"
+  local numReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database $influxDatabase -execute "$num")
+  local totalTests="None"
+  if [ ! "$numReturn" = "$nullResult" ]; then
+    totalTests=$(echo $numReturn | jq -r '.results[0].series[0].values[0][1]')
+  fi
+
+  # Number of successful tests
+  local success="SELECT count(\"mean\") FROM (SELECT mean(\"runtime\") FROM \"testing\".\"autogen\".\"integration_tests\" WHERE git_commit = '$testName' AND status = 'success' GROUP BY test_scenario)"
+  local successReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database $influxDatabase -execute "$success")
+  local numSuccess="None"
+  if [ ! "$successReturn" = "$nullResult" ]; then
+    numSuccess=$(echo $successReturn | jq -r '.results[0].series[0].values[0][1]')
+  fi
+
+  # Return failed tests if there are any
+  local failed="SELECT \"runtime\", \"test_scenario\" FROM \"testing\".\"autogen\".\"integration_tests\" WHERE status = 'failed' AND git_commit = '$testName'"
+  local failedReturn=$(influx -host $influxHost -ssl -username $influxUser -password $influxPass -format json -database $influxDatabase -execute "$failed")
+  local failedTests="None"
+  local numFailed=0
+  if [ ! "$failedReturn" = "$nullResult" ]; then
+    failedTests=$(echo $failedReturn | jq -r '.results[0].series[0].values[][2]')
+    numFailed=0
+    for test in $failedTests; do
+      ((numFailed++))
+    done
+  fi
+
+  # Construct JSON Payload
+  local textPayload="\`\`\`RUNTIME STATS FOR COMMIT $testName ON BRANCH $gitBranch:
+  - Avg    -> $averageTest min
+  - Stddev -> $stddevTest min
+  - Max    -> $maxTime min
+    - test: $fastTest
+  - Min    -> $minTime min
+    - test: $slowTest
+  Number Tests: $totalTests
+  Success Tests: $numSuccess
+  Failed Tests: $numFailed"
+
+  # Add failed tests to the end
+  for test in $failedTests; do
+    textPayload=$textPayload"
+  - $test"
+  done
+
+  # Close out the code block
+  textPayload=$textPayload"\`\`\`"
+
+  # Write JSON to file
+  jq -n -c --arg text "$textPayload" '{text: $text}' > tmp.txt
+
+  # Post it to Slack
+  curl -v -H 'Content-type: application/json' --data "@$(pwd)/tmp.txt" $SLACK_URL
+
+  # Remove the temp file
+  rm tmp.txt
+}
+
 # Just delete the namespace where all the pods where.
 clean-all-kube () {
-  echo "removing all tests in namespace $gitCommit"
-  kubectl delete ns $gitCommit
+  local testName=""
+
+  # Check for input or use default
+  if [ $# -eq 0 ]; then
+    echo "No test specified, using $gitCommit"
+    echo ""
+    testName=$gitCommit
+  else
+    echo "Getting results for test $1"
+    echo ""
+    testName=$1
+  fi
+
+  local gitCommit=$1
+  echo "removing all tests in namespace $testName"
+  kubectl delete ns $testName
 }
 
 # Runs all the tests in seperate docker containers
@@ -339,7 +598,10 @@ BLOCKSTACK DOCKER TEST LAUNCHER:
   Run tests against a Kubernetes Cluster, special configruation needed:
     run-all-kube         -> run all tests as kubernetes pods in $gitCommit namespace
     run-one-kube         -> run single test in a kubernetes pod (pass test name)
+    progress-kube        -> check the progress of a running kube test on $gitCommit
     clean-all-kube       -> remove testing namespace ($gitCommit) and delete pods
+    run-commit-kube      -> run a full test and report for $gitCommit-$gitBranch
+    results-kube         -> post results to slack (need to set SLACK_URL)
 EOF
 }
 
@@ -378,10 +640,19 @@ case $1 in
     run-all-kube
     ;;
   clean-all-kube)
-    clean-all-kube
+    clean-all-kube $2
     ;;
   run-one-kube)
     run-one-kube $2
+    ;;
+  progress-kube)
+    progress-kube $2
+    ;;
+  results-kube)
+    results-kube $2
+    ;;
+  run-commit-kube)
+    run-commit-kube
     ;;
   *)
     commands
