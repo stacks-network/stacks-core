@@ -335,7 +335,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, subs
     return resp
 
 
-def blockstack_name_register( name, privatekey, register_addr, value_hash=None, wallet=None, subsidy_key=None, safety_checks=True, config_path=None ):
+def blockstack_name_register( name, privatekey, register_addr, value_hash=None, wallet=None, subsidy_key=None, safety_checks=True, config_path=None, tx_fee=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -346,7 +346,10 @@ def blockstack_name_register( name, privatekey, register_addr, value_hash=None, 
 
     kwargs = {}
     if not safety_checks:
-        kwargs = {'tx_fee' : 1} # regtest shouldn't care about the tx_fee
+        if tx_fee is None:
+            tx_fee = 1
+
+        kwargs = {'tx_fee' : tx_fee} # regtest shouldn't care about the tx_fee
 
     resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, value_hash=value_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
     api_call_history.append( APICallRecord( "register", name, resp ) )
@@ -383,7 +386,7 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, subsidy_key=N
     return resp
 
 
-def blockstack_name_renew( name, privatekey, recipient_addr=None, subsidy_key=None, safety_checks=True, config_path=None, value_hash=None ):
+def blockstack_name_renew( name, privatekey, recipient_addr=None, subsidy_key=None, safety_checks=True, config_path=None, value_hash=None, tx_fee=0, tx_fee_per_byte=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -396,7 +399,7 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, subsidy_key=No
         payment_key = subsidy_key 
 
     log.debug("Renew %s for %s satoshis" % (name, name_cost_info['satoshis']))
-    resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['satoshis'], test_proxy, test_proxy, 
+    resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['satoshis'], test_proxy, test_proxy, tx_fee=tx_fee, tx_fee_per_byte=tx_fee_per_byte,
             value_hash=value_hash, recipient_addr=recipient_addr, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     api_call_history.append( APICallRecord( "renew", name, resp ) )
@@ -690,6 +693,8 @@ def blockstack_cli_register( name, password, recipient_address=None, zonefile=No
     """
     Register a name, using the backend RPC endpoint
     """
+    global atlas_zonefiles_present
+
     test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -719,6 +724,9 @@ def blockstack_cli_register( name, password, recipient_address=None, zonefile=No
 
     if 'error' not in resp:
         assert 'transaction_hash' in resp
+
+    if 'value_hash' in resp:
+        atlas_zonefiles_present.append( resp['value_hash'] )
 
     return resp
 
@@ -782,6 +790,8 @@ def blockstack_cli_renew( name, password, config_path=None):
     """
     Renew a name, using the backend RPC endpoint
     """
+    global atlas_zonefiles_present
+
     test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -792,6 +802,9 @@ def blockstack_cli_renew( name, password, config_path=None):
     resp = cli_renew( args, config_path=config_path, password=password, interactive=False, proxy=test_proxy )
     if 'error' not in resp:
         assert 'transaction_hash' in resp
+
+    if 'value_hash' in resp:
+        atlas_zonefiles_present.append( resp['value_hash'] )
 
     return resp
 
