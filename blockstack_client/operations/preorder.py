@@ -24,7 +24,7 @@
 from ..b40 import is_b40
 from ..constants import (
     DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
-    TX_MIN_CONFIRMATIONS, NAME_SCHEME, BLOCKSTACK_BURN_ADDRESS,
+    TX_MIN_CONFIRMATIONS, NAME_SCHEME,
     LENGTH_CONSENSUS_HASH, LENGTH_MAX_NAME)
 from ..logger import get_logger
 
@@ -106,11 +106,11 @@ def make_outputs( data, inputs, sender_addr, burn_addr, fee, tx_fee, pay_fee=Tru
          "value": 0},
         
         # change address (can be subsidy key)
-        {"script": virtualchain.make_payment_script(sender_addr),
+        {"script": virtualchain.make_payment_script(str(sender_addr)),
          "value": virtualchain.calculate_change_amount(inputs, bill, dust_fee)},
         
         # burn address
-        {"script": virtualchain.make_payment_script(burn_addr),
+        {"script": virtualchain.make_payment_script(str(burn_addr)),
          "value": op_fee}
     ]
 
@@ -184,10 +184,6 @@ def get_fees( inputs, outputs ):
     if addr_hash is None:
         log.error("outputs[2] has no decipherable burn address")
         return (None, None) 
-    
-    if addr_hash != BLOCKSTACK_BURN_ADDRESS:
-        log.error("outputs[2] is not the burn address (%s)" % BLOCKSTACK_BURN_ADDRESS)
-        return (None, None)
     
     # should match make_outputs()
     # the +2 comes from 2 new outputs
