@@ -155,7 +155,7 @@ def check_valid_namespace(nsid):
 
 def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
                             required_checks=[], min_confirmations=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH,
-                            transfer_address=None, owner_address=None, value_hash=None, proxy=None):
+                            transfer_address=None, owner_address=None, value_hash=None, burn_address=None, proxy=None):
     """
     Do a sanity check on carrying out a sequence of operations on a given name.
     Prime the given scatter/gather context with the set of necessary callbacks.
@@ -382,6 +382,33 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
 
         return {'status': True}
 
+    def _is_burn_address_correct(fqu, burn_addr):
+        """
+        If we're preordering or registering, is the burn address valid?
+        """
+        import blockstack
+        if burn_addr is not None:
+            indexer_info = getinfo()
+            if 'error' in indexer_info:
+                return {'error': 'Failed to contact indexer'}
+
+            # +1, so we consider the next block to be formed 
+            epoch_features = blockstack.get_epoch_features(indexer_info['last_block_seen']+1)
+            if blockstack.EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR not in epoch_features and virtualchain.address_reencode(burn_addr) != virtualchain.address_reencode(blockstack.BLOCKSTACK_BURN_ADDRESS):
+                # not active yet 
+                return {'error': 'NAME_PREORDER cannot burn to namespace burn address'}
+
+            # what's the namespace burn address?
+            nsid = blockstack.get_namespace_from_name(fqu)
+            ns_info = get_namespace_blockchain_record(nsid)
+            if 'error' in ns_info:
+                return {'error': 'Failed to get namespace info for {}'.format(nsid)}
+
+            if virtualchain.address_reencode(str(ns_info['address'])) != virtualchain.address_reencode(str(burn_addr)):
+                return {'error': 'wrong burn address: expected {}, got {}'.format(virtualchain.address_reencode(str(ns_info['address'])), virtualchain.address_reencode(str(burn_addr)))}
+
+        return {'status': True}
+
     def _is_name_import_key(fqu_or_ns, import_privkey):
         """
         Is the given private key a valid derived key for importing a name
@@ -394,7 +421,7 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
 
         nsid = fqu_or_ns
         if '.' in fqu_or_ns:
-            nsid = fqu_or_ns.split('.')[1]
+            nsid = blockstack.get_namespace_from_name(fqu_or_ns)
 
         if not virtualchain.is_singlesig(import_privkey):
             if BLOCKSTACK_TEST:
@@ -470,7 +497,8 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         'is_name_import_key': lambda: _is_name_import_key(fqu_or_ns, payment_privkey_info),
         'register_can_change_value_hash': lambda: _register_can_change_value_hash(value_hash),
         'renewal_can_change_value_hash': lambda: _renewal_can_change_value_hash(value_hash),
-        'renewal_can_change_owner_address': lambda: _renewal_can_change_owner_address(transfer_address)
+        'renewal_can_change_owner_address': lambda: _renewal_can_change_owner_address(transfer_address),
+        'is_burn_address_correct': lambda: _is_burn_address_correct(fqu_or_ns, burn_address)
     }
     
     # common to all operations
@@ -1236,7 +1264,7 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
     return reply
 
 
-def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey_info, required_checks=[], 
+def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey_info, required_checks=[], burn_address=None, 
                       transfer_address=None, owner_address=None, value_hash=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
     """
     Verify that an operation sequence can be performed, given the set of sanity checks that must pass.
@@ -1259,7 +1287,7 @@ def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey
     sg = ScatterGather()
 
     res = operation_sanity_checks(fqu_or_ns, operations, sg, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
-                                  required_checks=required_checks, owner_address=owner_address, value_hash=value_hash,
+                                  required_checks=required_checks, owner_address=owner_address, burn_address=burn_address, value_hash=value_hash,
                                   min_confirmations=min_payment_confs, config_path=config_path,
                                   transfer_address=transfer_address, proxy=proxy )
 
@@ -1333,7 +1361,7 @@ def _check_op(fqu_or_ns, operation, required_checks, owner_privkey_info, payment
         return {'status': True, 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
 
 
-def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, burn_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
     """
     Verify that a preorder can go through.
 
@@ -1344,9 +1372,9 @@ def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info,
     assert owner_privkey_info
     assert payment_privkey_info
 
-    required_checks = ['is_name_available', 'is_payment_address_usable']
+    required_checks = ['is_name_available', 'is_payment_address_usable', 'is_burn_address_correct']
 
-    res = check_operations( fqu, ['preorder'], owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs,
+    res = check_operations( fqu, ['preorder'], owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs, burn_address=burn_address,
                             required_checks=required_checks, config_path=config_path, proxy=proxy )
 
     opchecks = res.get('opchecks', None)
@@ -1395,7 +1423,7 @@ def check_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
     return _check_op(fqu, 'transfer', required_checks, owner_privkey_info, payment_privkey_info, transfer_address=transfer_address, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)
 
 
-def check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, value_hash=None, new_owner_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+def check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, value_hash=None, new_owner_address=None, burn_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
     """
     Verify that a renew can go through
     """ 
@@ -1406,8 +1434,11 @@ def check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, va
     if new_owner_address is None:
         new_owner_address = virtualchain.get_privkey_address(owner_privkey_info)
 
-    required_checks = ['is_name_registered', 'is_name_owner', 'is_owner_address_usable', 'is_payment_address_usable', 'recipient_can_receive', 'renewal_can_change_value_hash', 'renewal_can_change_owner_address']
-    res = check_operations( fqu, ['renewal'], owner_privkey_info, payment_privkey_info, value_hash=value_hash, transfer_address=new_owner_address, min_payment_confs=min_payment_confs,
+    required_checks = ['is_name_registered', 'is_name_owner', 'is_owner_address_usable', 'is_payment_address_usable', 
+                       'recipient_can_receive', 'renewal_can_change_value_hash', 'renewal_can_change_owner_address',
+                       'is_burn_address_correct']
+
+    res = check_operations( fqu, ['renewal'], owner_privkey_info, payment_privkey_info, value_hash=value_hash, transfer_address=new_owner_address, min_payment_confs=min_payment_confs, burn_address=burn_address,
                             required_checks=required_checks, config_path=config_path, proxy=proxy )
 
     opchecks = res.get('opchecks', None)
