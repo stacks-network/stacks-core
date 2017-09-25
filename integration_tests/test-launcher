@@ -4,7 +4,7 @@
 
 # Docker Image Settings
 testImage=quay.io/blockstack/integrationtests
-testTag=latest
+testTag=develop
 
 # Git Branch and commit information
 gitCommit=$(git rev-parse --short HEAD)
@@ -106,7 +106,7 @@ spec:
   restartPolicy: Never
   containers:
   - name: integration-test-run
-    image: "$testImage:$gitCommit"
+    image: "$testImage:$testTag"
     imagePullPolicy: "Always"
     command: ["blockstack-test-scenario", "blockstack_integration_tests.scenarios.$1", "--influx"]
     env:

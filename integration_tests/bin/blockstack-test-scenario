@@ -904,7 +904,7 @@ def bitcoin_regtest_reset():
 
     # start up
     log.debug("Starting up bitcoind in regtest mode")
-    rc = os.system("bitcoind -daemon -conf=%s" % (bitcoin_conf))
+    rc = os.system("bitcoind -daemon -rpcport=%s -conf=%s" % (18332, bitcoin_conf))
     if rc != 0:
         log.error("Failed to start `bitcoind`: rc = %s" % rc)
         return False
@@ -1127,6 +1127,7 @@ def influx_write( influx_client, test_start, test_name, status ):
         {
             "measurement": "integration_tests",
             "tags": {
+                "test_run": "{}-{}".format(git_branch, git_commit),
                 "git_branch": git_branch,
                 "git_commit": git_commit,
                 "status": status,
