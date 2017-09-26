@@ -462,6 +462,36 @@ The blockstack core node manages its own wallet -- this has three keys
 for payment, name ownership, and signing data (e.g., user profiles). This
 wallet can be managed through these endpoints.
 
+## Get balance via mock-insight API [GET /insight-api/addr/{address}/balance]
+Returns the integer satoshi balance of the given address, with mininum
+of 1 confirmation.
++ Authorization: `wallet_read`
++ Response 200 (application/json)
+  + Body
+
+             2104
+
+  + Schema
+
+             { 'type' : 'integer' }
+
+## Get unconfirmed balance via mock-insight API [GET /insight-api/addr/{address}/unconfirmedBalance]
+Returns the integer *unconfirmed* satoshi balance of the given address
+(only the 0-confirmation balance). To get the min_conf=0 balance of an
+address, you want *unconfirmedBalance* + *balance*. The unconfirmed
+balance may be negative (if there is an unconfirmed spend). This
+specification is strange, I know, but it replicates the interface of
+insight-api.
++ Authorization: `wallet_read`
++ Response 200 (application/json)
+  + Body
+
+             -1000
+
+  + Schema
+
+             { 'type' : 'integer' }
+
 ## Get wallet payment address [GET /v1/wallet/payment_address]
 Returns core node's payment address.
 + Authorization: `wallet_read`

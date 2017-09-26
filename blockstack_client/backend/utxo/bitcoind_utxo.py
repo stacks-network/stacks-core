@@ -110,6 +110,9 @@ def get_unspents(address, blockchain_client):
             else:
                 raise e
 
+        except Exception as e:
+            return format_unspents([])
+
     return format_unspents(unspents)
 
 

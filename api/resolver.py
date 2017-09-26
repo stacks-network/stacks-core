@@ -197,12 +197,13 @@ def format_profile(profile, fqa, zone_file, refresh=False):
 NAME_PATTERN = re.compile(OP_NAME_PATTERN)
 NS_PATTERN = re.compile(OP_NAMESPACE_PATTERN)
 def is_valid_fqa(fqa):
+    if (NAME_PATTERN.match(fqa) is None):
+        return False
     try:
         username, ns = fqa.split(".")
     except:
         return False
-    return ((NAME_PATTERN.match(username) is not None) and
-            (NS_PATTERN.match(ns) is not None))
+    return (NS_PATTERN.match(ns) is not None)
 
 def get_profile(fqa, refresh=False):
     """ Given a fully-qualified username (username.namespace)
