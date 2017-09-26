@@ -49,7 +49,6 @@ setup(
         'blockstack-zones>=0.14.3',
         'defusedxml>=0.4.1',
         'keylib>=0.1.1',
-        'mixpanel>=4.3.1',
         'simplejson>=3.8.2',
         'jsonschema>=2.5.1',
         'jsontokens>=0.0.3',
