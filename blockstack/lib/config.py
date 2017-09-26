@@ -150,6 +150,7 @@ GENESIS_SNAPSHOT = {
 Epoch constants govern externally-adjusted behaviors over different time intervals.
 Specifically:
     * NAMESPACE_LIFETIME_MULTIPLIER:    constant to multiply name lifetimes by
+    * NAMESPACE_LIFETIME_GRACE_PERIOD:  constant to add to the name's lifetime when it's about to expire
     * PRICE_MULTIPLIER:                 constant to multiply name and namespace prices by
 """
 EPOCH_FIELDS = [
@@ -160,6 +161,7 @@ EPOCH_FIELDS = [
 
 EPOCH_NAMESPACE_FIELDS = [
     "NAMESPACE_LIFETIME_MULTIPLIER",
+    "NAMESPACE_LIFETIME_GRACE_PERIOD",
     "PRICE_MULTIPLIER"
 ]
 
@@ -179,6 +181,10 @@ EPOCH_3_END_BLOCK = 541843      # F-day 2018 (TODO)
 EPOCH_1_NAMESPACE_LIFETIME_MULTIPLIER_id = 1
 EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER_id = 2
 EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER_id = 2
+
+EPOCH_1_NAMESPACE_LIFETIME_GRACE_PERIOD_id = 0
+EPOCH_2_NAMESPACE_LIFETIME_GRACE_PERIOD_id = 0
+EPOCH_3_NAMESPACE_LIFETIME_GRACE_PERIOD_id = 4650   # about 30 days
 
 EPOCH_1_PRICE_MULTIPLIER_id = 1.0
 EPOCH_2_PRICE_MULTIPLIER_id = 1.0
@@ -206,6 +212,10 @@ for i in xrange(1, NUM_EPOCHS+1):
         exec("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER" % i)))
         log.warn("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id = %s" % (i, eval("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id" % i)))
 
+    if os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_GRACE_PERIOD" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
+        exec("EPOCH_%s_NAMESPACE_LIFETIME_GRACE_PERIOD_id = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_GRACE_PERIOD" % i)))
+        log.warn("EPOCH_%s_NAMESPACE_LIFETIME_GRACE_PERIOD_id = %s" % (i, eval("EPOCH_%s_NAMESPACE_LIFETIME_GRACE_PERIOD_id" % i)))
+
 del i
 
 # epoch definitions
@@ -218,11 +228,13 @@ EPOCHS = [
         "namespaces": {
             "id": {
                 "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_1_NAMESPACE_LIFETIME_MULTIPLIER_id,
+                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_1_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
                 "PRICE_MULTIPLIER": EPOCH_1_PRICE_MULTIPLIER_id
             },
             "*": {
-                "NAMESPACE_LIFETIME_MULTIPLIER": 1.0,
-                "PRICE_MULTIPLIER": 1.0,
+                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_1_NAMESPACE_LIFETIME_MULTIPLIER_id,
+                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_1_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
+                "PRICE_MULTIPLIER": EPOCH_1_PRICE_MULTIPLIER_id,
             },
         },
         "namespace_prices": [
@@ -255,11 +267,13 @@ EPOCHS = [
         "namespaces": {
             "id": {
                 "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER_id,
+                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_2_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
                 "PRICE_MULTIPLIER": EPOCH_2_PRICE_MULTIPLIER_id
             },
             "*": {
-                "NAMESPACE_LIFETIME_MULTIPLIER": 2.0,
-                "PRICE_MULTIPLIER": 1.0,
+                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER_id,
+                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_2_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
+                "PRICE_MULTIPLIER": EPOCH_2_PRICE_MULTIPLIER_id
             },
         },
         "namespace_prices": [
@@ -292,11 +306,13 @@ EPOCHS = [
         "namespaces": {
             "id": {
                 "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER_id,
+                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_3_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
                 "PRICE_MULTIPLIER": EPOCH_3_PRICE_MULTIPLIER_id
             },
             "*": {
-                "NAMESPACE_LIFETIME_MULTIPLIER": 2.0,
-                "PRICE_MULTIPLIER": 1.0,
+                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER_id,
+                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_3_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
+                "PRICE_MULTIPLIER": EPOCH_3_PRICE_MULTIPLIER_id
             },
         },
         "namespace_prices": [
@@ -619,6 +635,17 @@ def get_epoch_namespace_lifetime_multiplier( block_height, namespace_id ):
         return epoch_config['namespaces'][namespace_id]['NAMESPACE_LIFETIME_MULTIPLIER']
     else:
         return epoch_config['namespaces']['*']['NAMESPACE_LIFETIME_MULTIPLIER']
+
+
+def get_epoch_namespace_lifetime_grace_period( block_height, namespace_id ):
+    """
+    what's the namespace lifetime grace period for this epoch?
+    """
+    epoch_config = get_epoch_config( block_height )
+    if epoch_config['namespaces'].has_key(namespace_id):
+        return epoch_config['namespaces'][namespace_id]['NAMESPACE_LIFETIME_GRACE_PERIOD']
+    else:
+        return epoch_config['namespaces']['*']['NAMESPACE_LIFETIME_GRACE_PERIOD']
 
 
 def get_epoch_price_multiplier( block_height, namespace_id ):
