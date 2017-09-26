@@ -72,7 +72,7 @@ def put_mutable_handler( data_id, data_txt, **kw ):
         msg = "Unexpected publicURL. Expected '{}', Actual '{}'".format(
             make_mutable_url(data_id), resp_obj['publicURL'])
         raise Exception(msg)
-    return True
+    return resp_obj['publicURL']
 
 def get_mutable_handler( data_url, **kw):
     log.debug("get_mutable: {}".format(data_url))
