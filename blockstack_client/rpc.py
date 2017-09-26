@@ -1395,7 +1395,45 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if BLOCKSTACK_DEBUG:
                 log.exception(ve)
 
-            return self._reply_json({'error': 'Invalid tombstone info', 'errno': errno.EINVAL}, status_code=401)
+            return self._reply_json({'error': 'Invalid tombstone info', 'errno': "EINVAL"}, status_code=401)
+ 
+        datastore_pubkey = None
+        authentic = False
+
+        # app domain must be a valid fully-qualified app domain (i.e. ends in .1 or .x)
+        app_domain = urlparse.urlparse(ses['app_domain']).netloc
+        log.debug("app domain: {}".format(app_domain))
+
+        if not app.is_valid_app_name(app_domain):
+            return self._reply_json({'error': 'Invalid application domain name "{}"'.format(app_domain)}, status_code=401)
+
+        blockchain_id = ses['blockchain_id']
+
+        if device_ids is None:
+            device_ids = [apk['device_id'] for apk in ses['app_public_keys']];
+
+        # authenticate, and require qs-given device IDs to be covered by the tombstones.
+        # at least one of the session's keys must succeed
+        for dpk in ses['app_public_keys']:
+            datastore_pubkey = dpk['public_key']
+            res = gaia.verify_data_tombstones( tombstone_info['datastore_tombstones'], datastore_pubkey, device_ids=device_ids )
+            if not res:
+                continue
+
+            res = gaia.verify_data_tombstones( tombstone_info['root_tombstones'], datastore_pubkey, device_ids=device_ids )
+            if not res:
+                continue
+            
+            authentic = True
+            break
+        
+        if not authentic:
+            log.error("Unable to authenticate tombstones")
+            return self._reply_json({'error': 'Failed to authenticate datastore tombstones', 'errno': "EINVAL"})
+
+        # extract datastore ID from tombstones 
+        if len(tombstone_info['datastore_tombstones']) == 0:
+            return self._reply_json({'error': 'Empty tombstone data', 'errno': "EINVAL"})
 
         # authenticate, and require qs-given device IDs to be covered by the tombstones
         datastore_pubkey = app.app_get_datastore_pubkey( ses )
@@ -1717,13 +1755,46 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
             return self._reply_json({'error': 'Invalid request'}, status_code=401)
 
+        # app domain must be a valid fully-qualified app domain (i.e. ends in .1 or .x)
+        app_domain = ses['app_domain']
+        log.debug("app domain: {}".format(ses['app_domain']))
+        if not app.is_valid_app_name(app_domain):
+            # try to see if it was a URL format
+            app_domain = urlparse.urlparse(app_domain).netloc
+
+        if not app.is_valid_app_name(app_domain):
+            return self._reply_json({'error': 'Invalid application domain name "{}"'.format(ses['app_domain'])}, status_code=401)
+
+        # optionally takes a public key
+        qs = path_info['qs_values']
+        this_device_id = ses['device_id']
+
+        data_pubkey = None
+        for dpk in ses['app_public_keys']:
+            if this_device_id == dpk['device_id']:
+                data_pubkey = dpk['public_key']
+
+        if data_pubkey is None:
+            return self._reply_json({'error': 'Invalid session: missing public key for device ID {}'.format(this_device_id)}, status_code=401)
+
         # verify datastore signature
-        datastore_str = str(inode_info['datastore_str'])
-        datastore_sig = str(inode_info['datastore_sig'])
-        datastore_pubkey = app.app_get_datastore_pubkey( ses )
-        res = verify_raw_data(datastore_str, datastore_pubkey, datastore_sig)
-        if not res:
-            return self._reply_json({'error': 'Invalid request: invalid datastore signature'}, status_code=401)
+        # do so by finding the datastore public key
+        datastore_str = str(file_info['datastore_str'])
+        datastore_sig = str(file_info['datastore_sig'])
+
+        datastore_pubkey = None
+        for dpk in ses['app_public_keys']:
+            res = gaia.datastore_verify_and_parse(datastore_str, datastore_sig, dpk['public_key'])
+            if 'error' in res:
+                continue
+
+            datastore_pubkey = dpk['public_key']
+            break
+
+        if datastore_pubkey is None:
+            return self._reply_json({'error': 'Session does not contain a public key that matches the signature on the datastore'}, status_code=401)
+
+        datastore = res['datastore']
 
         datastore = None
         try:
@@ -1746,8 +1817,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             try:
                 payloads = [base64.b64decode(p) for p in payloads_b64]
             except:
-                log.error("putfile: Inode payloads must be base64-encoded")
-                return self._reply_json({'error': 'putfile: inode payloads must be base64-encoded'}, status_code=401)
+                log.error("putfile: File payloads must be base64-encoded")
+                return self._reply_json({'error': 'putfile: file payloads must be base64-encoded'}, status_code=401)
+
+            res = gaia.datastore_put_file_data( app_domain, datastore, file_name, file_header, payload, signature, ses['device_id'],
+                                                config_path=self.server.config_path, blockchain_id=ses['blockchain_id'], data_pubkey=data_pubkey )
+        elif operation == 'deletefile':
+            # NOTE: this can work even if blockchain_id is not given (i.e. the user hasn't claimed a name yet)
+            # in which case, data_pubkey is *required*
+            if ses['blockchain_id'] is None or len(ses['blockchain_id']) == 0:
+                if data_pubkey is None:
+                    return self._reply_json({'error': 'No blockchain ID given, and no data_pubkey given'}, status_code=401)
 
             res = data.datastore_putfile_put_inodes( datastore, data_path, inode_info['inodes'], payloads, inode_info['signatures'], inode_info['tombstones'],
                                                      create=create, exist=exist, config_path=self.server.config_path )
@@ -1881,6 +1961,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
             if blockchain_id != ses.get('blockchain_id', None):
                 return self._reply_json({'error': 'Unauthorized blockchain ID'}, status_code=403)
+
+        if not app.is_valid_app_name(app_domain):
+            return self._reply_json({'error': 'Invalid application domain name "{}"'.format(app_domain)}, status_code=401)
 
         qs = path_info['qs_values']
         pubkey = None
@@ -3904,7 +3987,34 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             # check origin.
             app_domain = session['app_domain']
             try:
-                session_verified = self.verify_origin([app_domain])
+                origin_header = self.headers.get('origin', None)
+                if origin_header is not None:
+                    scheme = urlparse.urlparse(origin_header).scheme
+                    origin_netloc = urlparse.urlparse(origin_header).netloc
+                    if not scheme:
+                        log.debug("Invalid Origin '{}'".format(origin_header))
+                        return self._reply_json({'error': 'Invalid Origin (no scheme)'}, status_code=401);
+
+                    if not app.is_valid_app_name(origin_netloc):
+                        origin_header = '{}://{}'.format(scheme, app.app_domain_to_app_name(origin_header))
+
+                    app_name_scheme = urlparse.urlparse(app_name).scheme
+                    if app_name_scheme:
+                        app_name = urlparse.urlparse(app_name).netloc
+
+                    if not app.is_valid_app_name(app_name):
+                        # suffix not given.
+                        # assume it's an ICANN name
+                        log.debug("{} is not a valid app domain".format(app_name))
+
+                        if not urlparse.urlparse(app_name).netloc:
+                            app_name = 'http://' + app_name
+
+                        app_name = app.app_domain_to_app_name(app_name)
+
+                    # convert origin to .1 or .x, since app domains have it
+                    session_verified = self.verify_origin(origin_header, ['http://' + app_name, 'https://' + app_name])
+
             except AssertionError as e:
                 session = None
                 err = {'error' : e.message}
@@ -3914,6 +4024,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 # invalid session
                 log.warning("Invalid session: app domain '{}' does not match Origin '{}'".format(app_domain, self.headers.get('origin', '')))
                 session = None
+            else:
+                auth_valid = True
+                # set app_domain to corrected app_name
+                session['app_domain'] = app_name
 
         authorized = False
 
@@ -3923,7 +4037,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._send_headers(status_code=503, content_type='text/plain')
             return
 
-        if not use_session and not use_password:
+        if not auth_valid:
+            # invalid auth credentials
+            log.debug("Invalid authentication credentials")
+            authorized = False
+
+        elif not use_session and not use_password:
             # no auth needed
             log.debug("No authentication needed")
             authorized = True
