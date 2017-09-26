@@ -1459,7 +1459,7 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
 
 
 def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster,
-               tx_fee_per_byte=None, config_path=CONFIG_PATH, proxy=None, consensus_hash=None,
+               tx_fee=None, tx_fee_per_byte=None, config_path=CONFIG_PATH, proxy=None, consensus_hash=None,
                dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True, force_update = False ):
     """
     Put a new zonefile hash for a name.
@@ -1477,7 +1477,7 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
         proxy = get_default_proxy()
 
     if dry_run:
-        assert tx_fee_per_byte, 'dry run needs tx fee'
+        assert tx_fee, 'dry run needs tx fee'
         safety_checks = False
 
     fqu = str(fqu)
@@ -1490,7 +1490,7 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
 
     min_confirmations = utxo_client.min_confirmations
 
-    if not dry_run and (safety_checks or tx_fee_per_byte is None):
+    if not dry_run and (safety_checks or tx_fee is None):
         # find tx fee, and do sanity checks
         res = check_update(fqu, owner_privkey_info, payment_privkey_info,
                            config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations,
@@ -1499,13 +1499,14 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
             log.error("Failed to check update: {}".format(res['error']))
             return res
 
-        if tx_fee_per_byte is None:
+        if not tx_fee_per_byte:
             tx_fee_per_byte = res['tx_fee_per_byte']
-        tx_fee = res['tx_fee']
+
+        if not tx_fee:
+            tx_fee = res['tx_fee']
 
         assert tx_fee_per_byte, "Missing tx fee per byte"
-    else:
-        tx_fee = 0
+        assert tx_fee, 'Missing tx fee'
 
     # get consensus hash
     if consensus_hash is None:
@@ -1567,7 +1568,7 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
     return resp
 
 
-def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, tx_fee_per_byte=None,
+def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, tx_fee=None, tx_fee_per_byte=None,
                  config_path=CONFIG_PATH, proxy=None, consensus_hash=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
     Transfer a name to a new address
@@ -1579,7 +1580,7 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
         proxy = get_default_proxy()
 
     if dry_run:
-        assert tx_fee_per_byte is not None, 'Need tx fee for dry run'
+        assert tx_fee is not None, 'Need tx fee for dry run'
         safety_checks = False
 
     # wrap UTXO client so we remember UTXOs 
@@ -1591,20 +1592,21 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
 
     min_confirmations = utxo_client.min_confirmations
 
-    if not dry_run and (safety_checks or tx_fee_per_byte is None):
+    if not dry_run and (safety_checks or tx_fee is None):
         # find tx fee, and do sanity checks
         res = check_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
             log.error("Failed to check transfer: {}".format(res['error']))
             return res
 
-        if tx_fee_per_byte is None:
+        if not tx_fee_per_byte:
             tx_fee_per_byte = res['tx_fee_per_byte']
-        tx_fee = res['tx_fee']
 
-        assert tx_fee_per_byte, "Missing tx fee"
-    else:
-        tx_fee = 0
+        if not tx_fee:
+            tx_fee = res['tx_fee']
+
+        assert tx_fee_per_byte, "Missing tx fee-per-byte"
+        assert tx_fee, 'Missing tx fee'
 
     # get consensus hash
     if consensus_hash is None:
@@ -1662,7 +1664,7 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
 
 
 def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster, burn_address=None, value_hash=None, recipient_addr=None, tx_fee_per_byte=None, 
-                tx_fee=0, config_path=CONFIG_PATH, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
+                tx_fee=None, config_path=CONFIG_PATH, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
     Renew a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1694,7 +1696,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
    
     min_confirmations = utxo_client.min_confirmations 
 
-    if not dry_run and (safety_checks or (renewal_fee is None or tx_fee_per_byte is None)):
+    if not dry_run and (safety_checks or (renewal_fee is None or tx_fee is None)):
         # find tx fee, and do sanity checks
         res = check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, new_owner_address=recipient_addr, value_hash=value_hash, burn_address=burn_address,
                             config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
@@ -1703,15 +1705,17 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
             log.error("Failed to check renewal: {}".format(res['error']))
             return res
 
-        if tx_fee_per_byte is None:
+        if not tx_fee_per_byte:
             tx_fee_per_byte = res['tx_fee_per_byte']
 
-        if renewal_fee is None:
+        if not renewal_fee:
             renewal_fee = res['name_price']
 
-        tx_fee = res['tx_fee']
+        if not tx_fee:
+            tx_fee = res['tx_fee']
 
         assert tx_fee_per_byte, "Missing tx-per-byte fee"
+        assert tx_fee, 'Missing tx fee'
         assert renewal_fee, "Missing renewal fee"
 
     # get inputs
@@ -1760,7 +1764,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
 
 
 def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH,
-               tx_fee_per_byte=None, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True):
+               tx_fee=None, tx_fee_per_byte=None, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True):
     """
     Revoke a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -1781,19 +1785,20 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
     payment_address = virtualchain.get_privkey_address(payment_privkey_info)
     min_confirmations = utxo_client.min_confirmations
 
-    if not dry_run and (safety_checks or tx_fee_per_byte is None):
+    if not dry_run and (safety_checks or tx_fee is None):
         res = check_revoke(fqu, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
         if 'error' in res and safety_checks:
             log.error("Failed to check revoke: {}".format(res['error']))
             return res
 
-        if tx_fee_per_byte is None:
+        if not tx_fee_per_byte:
             tx_fee_per_byte = res['tx_fee_per_byte']
-        tx_fee = res['tx_fee']
 
-        assert tx_fee_per_byte, "Missing tx fee"
-    else:
-        tx_fee = 0
+        if not tx_fee:
+            tx_fee = res['tx_fee']
+
+        assert tx_fee_per_byte, "Missing tx fee per byte"
+        assert tx_fee, 'Missing tx fee'
 
     # get inputs
     try:
@@ -1834,7 +1839,7 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
     log.debug("Revoking %s" % fqu)
     log.debug("<owner, payment> (%s, %s) tx_fee_per_byte = %s" % (owner_address, payment_address, tx_fee_per_byte))
 
-    resp = do_blockchain_tx( subsidized_tx, payment_utxos[:num_utxos], privkey_info=owner_privkey_info, tx_broadcaster=tx_broadcaster, config_path=config_path, dry_run=dry_run )
+    resp = do_blockchain_tx( subsidized_tx, owner_utxos, privkey_info=owner_privkey_info, tx_broadcaster=tx_broadcaster, config_path=config_path, dry_run=dry_run )
     return resp
 
 
@@ -2443,6 +2448,7 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
 
     if 'owner_privkey' in name_data:
         additionals['owner_privkey'] = name_data['owner_privkey']
+
     if 'payment_privkey' in name_data:
         additionals['payment_privkey'] = name_data['payment_privkey']
 
