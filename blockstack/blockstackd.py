@@ -341,27 +341,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                     self.register_function( method )
 
 
-    def analytics(self, event_type, event_payload):
-        """
-        Report analytics information for this server
-        (uses this server's client handle)
-        """
-        ak = None
-        conf = get_blockstack_opts()
-        if conf.has_key('analytics_key'):
-            ak = conf['analytics_key']
-
-        if ak is None or len(ak) == 0:
-            return
-
-        try:
-            blockstack_client.client.analytics_event( event_type, event_payload, analytics_key=ak, action_tag="Perform server action" )
-        except:
-            log.error("Failed to log analytics event")
-        
-        return
-
-
     def success_response(self, method_resp ):
         """
         Make a standard "success" response,
@@ -380,7 +359,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
     def rpc_ping(self, **con_info):
         reply = {}
         reply['status'] = "alive"
-        self.analytics("ping", {})
         return reply
 
 
@@ -421,14 +399,15 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
             # when does this name expire (if it expires)?
             if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
-                namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( db.lastblock, namespace_id )
-                name_record['expire_block'] = max( namespace_record['ready_block'], name_record['last_renewed'] ) + namespace_record['lifetime'] * namespace_lifetime_multiplier
+                deadlines = BlockstackDB.get_name_deadlines(name_record, namespace_record, db.lastblock)
+                name_record['expire_block'] = deadlines['expire_block']
+                name_record['renewal_deadline'] = deadlines['renewal_deadline']
 
             else:
                 name_record['expire_block'] = -1
+                name_record['renewal_deadline'] = -1
 
             db.close()
-            self.analytics("get_name_blockchain_record", {})
             return self.success_response( {'record': name_record} )
 
 
@@ -635,7 +614,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             # return zonefile inv length 
             reply['zonefile_count'] = atlas_get_num_zonefiles()
         
-        self.analytics("getinfo", {})
         return reply
 
 
@@ -761,7 +739,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'error': 'Method not supported'}
 
         db = get_db_state()
-        self.analytics("get_num_names", {})
         num_names = db.get_num_names()
         db.close()
 
@@ -791,7 +768,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'error': 'count is too big'}
 
         db = get_db_state()
-        self.analytics("get_all_names", {})
         all_names = db.get_all_names( offset=offset, count=count )
         db.close()
 
@@ -809,7 +785,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'error': 'Method not supported'}
 
         db = get_db_state()
-        self.analytics("get_all_namespaces", {})
         all_namespaces = db.get_all_namespace_ids()
         db.close()
 
@@ -826,7 +801,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'error': 'Method not supported'}
 
         db = get_db_state()
-        self.analytics('get_num_names_in_namespace', {})
         num_names = db.get_num_names_in_namespace( namespace_id )
         db.close()
 
@@ -857,7 +831,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_namespace_valid( namespace_id ):
             return {'error': 'invalid namespace ID'}
 
-        self.analytics("get_all_names_in_namespace", {'namespace_id': namespace_id})
 
         db = get_db_state()
         res = db.get_names_in_namespace( namespace_id, offset=offset, count=count )
@@ -879,7 +852,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'error': 'Invalid block ID'}
 
         db = get_db_state()
-        self.analytics("get_consensus_at", {'block_id': block_id})
         consensus = db.get_consensus_at( block_id )
         db.close()
         return self.success_response( {'consensus': consensus} )
@@ -1066,7 +1038,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             else:
                 ret[zonefile_hash] = base64.b64encode( zonefile_data )
 
-        # self.analytics("get_zonefiles", {'count': len(zonefile_hashes)})
         log.debug("Serve back %s zonefiles" % len(ret.keys()))
         return self.success_response( {'zonefiles': ret} )
 
@@ -1107,7 +1078,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             else:
                 ret[name] = base64.b64encode(zonefile_data)
 
-        self.analytics("get_zonefiles", {'count': len(names)})
         return self.success_response( {'zonefiles': ret} )
 
 
@@ -1197,7 +1167,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         log.debug("Saved %s zonefile(s)\n", sum(saved))
         log.debug("Reply: {}".format({'saved': saved}))
-        self.analytics("put_zonefiles", {'count': len(zonefile_datas)})
         return self.success_response( {'saved': saved} )
 
 
@@ -1609,22 +1578,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return atlas_get_all_neighbors()
         
    
-    def rpc_get_analytics_key(self, client_uuid, **con_info ):
-        """
-        Get the analytics key
-        """
-
-        if type(client_uuid) not in [str, unicode]:
-            return {'error': 'invalid uuid'}
-
-        conf = get_blockstack_opts()
-        if not conf.has_key('analytics_key') or conf['analytics_key'] is None:
-            return {'error': 'No analytics key'}
-        
-        log.debug("Give key to %s" % client_uuid)
-        return {'analytics_key': conf['analytics_key']}
-
-
 class BlockstackdRPCServer( threading.Thread, object ):
     """
     RPC server thread
