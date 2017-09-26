@@ -144,7 +144,7 @@ class AuthInternal(APITestCase):
         request = {
             'app_domain': 'test.com',
             'app_public_key': blockstack_client.keys.get_pubkey_hex(privkey),
-            'methods': ['wallet_read'],
+            'methods': ['wallet_read', 'user_read'],
         }
 
         signer = jsontokens.TokenSigner()
@@ -179,7 +179,7 @@ class AuthInternal(APITestCase):
         request = {
             'app_domain': 'http://test.com',
             'app_public_key': blockstack_client.keys.get_pubkey_hex(privkey),
-            'methods': ['wallet_read'],
+            'methods': ['wallet_read', 'user_read'],
         }
 
         signer = jsontokens.TokenSigner()
