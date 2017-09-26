@@ -456,7 +456,6 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True, set_migrat
             num_blockstack_opts_prompted += 1
             blockstack_opts['email'] = ''
 
-    # get client UUID for analytics
     u = get_or_set_uuid(config_dir=config_dir)
     if u is None:
         raise Exception('Failed to get/set UUID')
