@@ -181,9 +181,14 @@ def check( state_engine, nameop, block_id, checked_ops ):
         log.debug("Name '%s' is revoked" % name)
         return False
 
-    # name must not be expired
+    # name must not be expired as of the *last block processed*
     if state_engine.is_name_expired( name, state_engine.lastblock ):
         log.debug("Name '%s' is expired" % name)
+        return False
+
+    # name must not be in grace period in this block
+    if state_engine.is_name_in_grace_period(name, block_id):
+        log.debug("Name '{}' is in the renewal grace period.  It can only be renewed at this time.".format(name))
         return False
 
     if not state_engine.is_consensus_hash_valid( block_id, consensus_hash ):
