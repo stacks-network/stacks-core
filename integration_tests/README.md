@@ -19,6 +19,8 @@ You can pull the integration test image from quay.
 docker pull quay.io/blockstack/integrationtests:develop
 ```
 
+To see a full list of tags check out our [Quay repo](https://quay.io/organization/blockstack)!
+
 The `test-launcher` tool can also be used to build an integration test
 image from your local repository.
 
