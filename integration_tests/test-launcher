@@ -190,7 +190,7 @@ results-local () {
       echo "Might want to look at this container: docker logs $test"
     fi
   done
-} 
+}
 
 # Prints out the results in format for insertion into InfluxDB
 write-local () {
