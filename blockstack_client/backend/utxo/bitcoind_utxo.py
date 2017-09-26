@@ -97,10 +97,12 @@ def get_unspents(address, blockchain_client):
                                     addresses)
 
     if constants.BLOCKSTACK_TESTNET and len(unspents) == 0:
-        bitcoind.importaddress(str(address))
-        unspents = bitcoind.listunspent(min_confirmations, max_confirmation,
-                                        addresses)
-
+        try:
+            bitcoind.importaddress(str(address))
+            unspents = bitcoind.listunspent(min_confirmations, max_confirmation,
+                                            addresses)
+        except Exception as e:
+            return format_unspents([])
     return format_unspents(unspents)
 
 
