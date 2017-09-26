@@ -594,14 +594,6 @@ BLOCKSTACK DOCKER TEST LAUNCHER:
     progress-local       -> log progress in the test suite
     cleanup-files-local  -> remove all files from test
     cleanup-docker-local -> cleanup docker containers from test
-
-  Run tests against a Kubernetes Cluster, special configruation needed:
-    run-all-kube         -> run all tests as kubernetes pods in $gitCommit namespace
-    run-one-kube         -> run single test in a kubernetes pod (pass test name)
-    progress-kube        -> check the progress of a running kube test on $gitCommit
-    clean-all-kube       -> remove testing namespace ($gitCommit) and delete pods
-    run-commit-kube      -> run a full test and report for $gitCommit-$gitBranch
-    results-kube         -> post results to slack (need to set SLACK_URL)
 EOF
 }
 
