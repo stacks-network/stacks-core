@@ -149,7 +149,6 @@ from .proxy import (
     get_name_blockchain_history, get_all_namespaces, getinfo,
     storage, is_zonefile_data_current
 )
-from .client import analytics_event
 from .scripts import UTXOException, is_name_valid, is_valid_hash, is_namespace_valid
 from .user import make_empty_user_profile, user_zonefile_data_pubkey
 
@@ -640,8 +639,6 @@ def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_priv
         log.error("Failed to get all operation fees: {}".format(fees['error']))
         return {'error': 'Failed to get some operation fees: {}.  Try again with `--debug` for details.'.format(fees['error'])}
 
-    analytics_event('Name price', {})
-
     # convert to BTC
     btc_keys = [
         'preorder_tx_fee', 'register_tx_fee',
@@ -1043,7 +1040,6 @@ def cli_lookup(args, config_path=CONFIG_PATH):
         return {'error': msg.format(traceback.format_exc())}
 
     result = data
-    analytics_event('Name lookup', {})
 
     return result
 
@@ -1121,7 +1117,9 @@ def cli_whois(args, config_path=CONFIG_PATH):
     if expire_block is not None:
         result['expire_block'] = expire_block
 
-    analytics_event('Whois', {})
+    renew_deadline = record.get('renewal_deadline', None)
+    if renew_deadline is not None:
+        result['renewal_deadline'] = renew_deadline
 
     return result
 
@@ -1554,7 +1552,6 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     if local_rpc.is_api_server(config_dir):
         # log this
         total_estimated_cost = {'total_estimated_cost': opchecks['total_estimated_cost']}
-        analytics_event('Register name', total_estimated_cost)
 
     return result
 
@@ -1716,8 +1713,6 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
 
-    analytics_event('Update name', {})
-
     resp['zonefile_hash'] = user_data_hash
     return resp
 
@@ -1786,8 +1781,6 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
 
     if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
-
-    analytics_event('Transfer name', {})
 
     return resp
 
@@ -1916,8 +1909,6 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
 
-    analytics_event('Renew name', total_estimated_cost)
-
     return resp
 
 
@@ -1987,7 +1978,6 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
     if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
 
-    analytics_event('Revoke name', {})
     return resp
 
 
@@ -2123,8 +2113,6 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
 
-    analytics_event('Migrate name', {})
-    
     resp['zonefile_hash'] = zonefile_hash
     return resp
 
@@ -3944,8 +3932,6 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
 
     if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
-
-    analytics_event('Set zonefile hash', {})
 
     resp['zonefile_hash'] = zonefile_hash
     return resp
