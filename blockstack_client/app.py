@@ -44,6 +44,42 @@ from .storage import classify_storage_drivers
 
 log = get_logger()
 
+def is_valid_app_name(app_name):
+    """
+    Is the given application name valid?
+    i.e. does it match either of our app name schemas?
+    """
+    if not re.match(OP_APP_NAME_PATTERN, app_name):
+        return False
+    else:
+        return True
+   
+
+def app_domain_to_app_name(app_domain):
+    """
+    Convert an app comain (e.g. an Origin: string, a DNS name)
+    to its fully-qualified application name for use in the token file.
+
+    This method is idempotent.
+    """
+    if is_valid_app_name(app_domain):
+        return app_domain
+
+    urlinfo = urlparse.urlparse(app_domain)
+    log.debug("{} -> {}".format(app_domain, urlinfo.netloc))
+    if not urlinfo.netloc:
+        # try as URL:
+        urlinfo = urlparse.urlparse("http://{}/".format(app_domain))
+    assert urlinfo.netloc, app_domain
+
+    if ':' in urlinfo.netloc:
+        p = urlinfo.netloc.split(':', 1)
+        return '{}.1:{}'.format(p[0], p[1])
+
+    else:
+        return '{}.1'.format(urlinfo.netloc)
+
+
 def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_public_keys, requester_device_id, master_data_privkey, session_lifetime=None, config_path=CONFIG_PATH ):
     """
     Make a session JWT for this application.
