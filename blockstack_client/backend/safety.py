@@ -39,6 +39,8 @@ from ..constants import (
     APPROX_NAMESPACE_PREORDER_TX_LEN,
     APPROX_NAMESPACE_REVEAL_TX_LEN,
     APPROX_NAMESPACE_READY_TX_LEN,
+    NAMESPACE_VERSION_PAY_TO_CREATOR,
+    NAMESPACE_VERSION_PAY_TO_BURN
 )
 
 from ..proxy import (
@@ -49,10 +51,12 @@ from ..proxy import (
     is_namespace_revealed,
     is_namespace_ready,
     json_is_error,
+    get_name_blockchain_record,
     get_namespace_cost,
     get_namespace_blockchain_record,
     get_num_names_in_namespace,
-    getinfo
+    getinfo,
+    is_name_owner
 )
 
 from ..config import get_utxo_provider_client
@@ -243,21 +247,15 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         else:
             return {'status': True}
 
-    def _is_name_owner(addr):
+    def _is_name_owner(name, addr):
         """
         Is the given address the name owner?
         """
-        res = get_names_owned_by_address(addr, proxy=proxy)
-        if 'error' in res:
-            log.error("Failed to get names owned by {}: {}".format(addr, res['error']))
-            return {'error': res['error']}
+        res = is_name_owner(name, addr, proxy=proxy)
+        if not res:
+            return {'error': 'Address {} does not own {}'.format(addr, name)}
 
-        else:
-            if fqu_or_ns not in res:
-                log.error("Name {} not owned by {}".format(fqu_or_ns, addr))
-                return {'error': 'Name {} not owned by {}'.format(fqu_or_ns, addr)}
-
-            return {'status': True}
+        return {'status': True}
 
     def _is_namespace_available(ns):
         """
@@ -404,9 +402,43 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
             if 'error' in ns_info:
                 return {'error': 'Failed to get namespace info for {}'.format(nsid)}
 
-            if virtualchain.address_reencode(str(ns_info['address'])) != virtualchain.address_reencode(str(burn_addr)):
+            if (ns_info['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR) != 0 and virtualchain.address_reencode(str(ns_info['address'])) != virtualchain.address_reencode(str(burn_addr)):
                 return {'error': 'wrong burn address: expected {}, got {}'.format(virtualchain.address_reencode(str(ns_info['address'])), virtualchain.address_reencode(str(burn_addr)))}
 
+            if (ns_info['version'] & NAMESPACE_VERSION_PAY_TO_BURN) != 0 and virtualchain.address_reencode(burn_addr) != virtualchain.address_reencode(blockstack.BLOCKSTACK_BURN_ADDRESS):
+                return {'error': 'wrong burn address: expected {}, got {}'.format(virtualchain.address_reencode(blockstack.BLOCKSTACK_BURN_ADDRESS), virtualchain.address_reencode(str(burn_addr)))}
+
+        return {'status': True}
+
+    def _is_name_outside_grace_period(fqu):
+        """
+        Is the name outside the grace period?
+        """
+        import blockstack
+
+        indexer_info = getinfo()
+        if 'error' in indexer_info:
+            return {'error': 'Failed to contact indexer'}
+
+        # +1, so we consider the next block to be formed 
+        block_number = indexer_info['last_block_seen']+1
+        nsid = blockstack.get_namespace_from_name(fqu)
+
+        name_rec = get_name_blockchain_record(fqu)
+        if 'error' in name_rec:
+            log.error("Failed to get name record for {}".format(fqu))
+            return {'error': 'Failed to get name blockchain record for {}'.format(fqu)}
+            
+        namespace_rec = get_namespace_blockchain_record(nsid)
+        if 'error' in namespace_rec:
+            log.error('Failed to get namespace record for {}'.format(nsid))
+            return {'error': 'Failed to get namespace record for {}'.format(nsid)}
+
+        grace_info = blockstack.BlockstackDB.get_name_deadlines(name_rec, namespace_rec, block_number)
+        if (block_number >= grace_info['expire_block'] and block_number < grace_info['renewal_deadline']):
+            return {'error': 'Name {} is in the renewal grace period.  Only renewals are possible.'.format(fqu)}
+           
+        log.debug("Block number is {}, but grace period is between {} and {}".format(block_number, grace_info['expire_block'], grace_info['renewal_deadline']))
         return {'status': True}
 
     def _is_name_import_key(fqu_or_ns, import_privkey):
@@ -488,7 +520,7 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         'is_name_available': _is_name_available,
         'owner_can_receive': lambda: _can_receive_name(owner_address),
         'is_name_registered': _is_name_registered,
-        'is_name_owner': lambda: _is_name_owner(owner_address),
+        'is_name_owner': lambda: _is_name_owner(fqu_or_ns, owner_address),
         'recipient_can_receive': lambda: _can_receive_name(transfer_address),
         'is_namespace_available': lambda: _is_namespace_available(fqu_or_ns),
         'is_namespace_still_revealed': lambda: _is_namespace_still_revealed(fqu_or_ns),
@@ -498,7 +530,8 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         'register_can_change_value_hash': lambda: _register_can_change_value_hash(value_hash),
         'renewal_can_change_value_hash': lambda: _renewal_can_change_value_hash(value_hash),
         'renewal_can_change_owner_address': lambda: _renewal_can_change_owner_address(transfer_address),
-        'is_burn_address_correct': lambda: _is_burn_address_correct(fqu_or_ns, burn_address)
+        'is_burn_address_correct': lambda: _is_burn_address_correct(fqu_or_ns, burn_address),
+        'is_name_outside_grace_period': lambda: _is_name_outside_grace_period(fqu_or_ns),
     }
     
     # common to all operations
@@ -1411,7 +1444,7 @@ def check_update(fqu, owner_privkey_info, payment_privkey_info, min_payment_conf
     """
     required_checks = ['is_payment_address_usable']
     if not force_it:
-        required_checks += ['is_name_registered', 'is_owner_address_usable', 'is_name_owner']
+        required_checks += ['is_name_registered', 'is_owner_address_usable', 'is_name_owner', 'is_name_outside_grace_period']
     return _check_op(fqu, 'update', required_checks, owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)
 
 
@@ -1419,7 +1452,7 @@ def check_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
     """
     Verify that a transfer can go through
     """
-    required_checks = ['is_name_registered', 'is_owner_address_usable', 'is_payment_address_usable', 'is_name_owner', 'recipient_can_receive']
+    required_checks = ['is_name_registered', 'is_owner_address_usable', 'is_payment_address_usable', 'is_name_owner', 'recipient_can_receive', 'is_name_outside_grace_period']
     return _check_op(fqu, 'transfer', required_checks, owner_privkey_info, payment_privkey_info, transfer_address=transfer_address, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)
 
 
@@ -1462,7 +1495,7 @@ def check_revoke(fqu, owner_privkey_info, payment_privkey_info, min_payment_conf
     """
     Verify that a revoke can go through
     """
-    required_checks = ['is_name_registered', 'is_name_owner', 'is_owner_address_usable', 'is_payment_address_usable']
+    required_checks = ['is_name_registered', 'is_name_owner', 'is_owner_address_usable', 'is_payment_address_usable', 'is_name_outside_grace_period']
     return _check_op(fqu, 'revoke', required_checks, owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy )
 
 
