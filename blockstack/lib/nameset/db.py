@@ -281,6 +281,7 @@ def namedb_create( path ):
 
     # add user-defined functions
     con.create_function("namespace_lifetime_multiplier", 2, namedb_get_namespace_lifetime_multiplier)
+    con.create_function("namespace_lifetime_grace_period", 2, namedb_get_namespace_lifetime_grace_period)
     return con
 
 
@@ -293,7 +294,7 @@ def namedb_open( path ):
 
     # add user-defined functions
     con.create_function("namespace_lifetime_multiplier", 2, namedb_get_namespace_lifetime_multiplier)
-
+    con.create_function("namespace_lifetime_grace_period", 2, namedb_get_namespace_lifetime_grace_period)
     return con
 
 
@@ -328,6 +329,24 @@ def namedb_get_namespace_lifetime_multiplier( block_height, namespace_id ):
     try:
         namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( block_height, namespace_id )
         return namespace_lifetime_multiplier
+    except Exception, e:
+        try:
+            with open("/tmp/blockstack_db_exception.txt", "w") as f:
+                f.write(traceback.format_exc())
+        except:
+            raise
+
+        raise
+
+
+def namedb_get_namespace_lifetime_grace_period( block_height, namespace_id ):
+    """
+    User-defined sqlite3 function that gets the namespace
+    lifetime grace period at a particular block height.
+    """
+    try:
+        namespace_lifetime_grace_period = get_epoch_namespace_lifetime_grace_period( block_height, namespace_id )
+        return namespace_lifetime_grace_period
     except Exception, e:
         try:
             with open("/tmp/blockstack_db_exception.txt", "w") as f:
@@ -1598,8 +1617,8 @@ def namedb_select_where_unexpired_names( current_block ):
                                 "(" + \
                                     "namespaces.op = ? AND " + \
                                     "(" + \
-                                        "namespaces.ready_block + (namespaces.lifetime * namespace_lifetime_multiplier(?, namespaces.namespace_id)) > ? OR " + \
-                                        "name_records.last_renewed + (namespaces.lifetime * namespace_lifetime_multiplier(?, namespaces.namespace_id)) >= ?" + \
+                                        "(namespaces.ready_block + ((namespaces.lifetime * namespace_lifetime_multiplier(?, namespaces.namespace_id)) + namespace_lifetime_grace_period(?, namespaces.namespace_id)) > ?) OR " + \
+                                        "(name_records.last_renewed + ((namespaces.lifetime * namespace_lifetime_multiplier(?, namespaces.namespace_id)) + namespace_lifetime_grace_period(?, namespaces.namespace_id)) >= ?)" + \
                                     ")" + \
                                 ") OR " + \
                                 "(" + \
@@ -1609,7 +1628,11 @@ def namedb_select_where_unexpired_names( current_block ):
                         ")" + \
                     ")"
 
-    query_args = (current_block, NAMESPACE_READY, current_block, current_block, current_block, current_block, NAMESPACE_REVEAL, current_block, current_block, NAMESPACE_REVEAL_EXPIRE)
+    query_args = (current_block, 
+                    NAMESPACE_READY, 
+                        current_block, current_block, current_block, 
+                        current_block, current_block, current_block,
+                    NAMESPACE_REVEAL, current_block, current_block, NAMESPACE_REVEAL_EXPIRE)
 
     return (query_fragment, query_args)
 
