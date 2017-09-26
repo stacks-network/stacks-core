@@ -1278,8 +1278,14 @@ NAMEOP_SCHEMA_PROPERTIES = {
     'block_number': OP_HISTORY_SCHEMA['properties']['block_number'],
     'consensus_hash': OP_HISTORY_SCHEMA['properties']['consensus_hash'],
     'expire_block': {
+        # NOTE: filled in by the indexer
         'type': 'integer',
-        'minimum': 0,
+        'minimum': -1,
+    },
+    'renewal_deadline': {
+        # NOTE: filled in by the indexer
+        'type': 'integer',
+        'minimum': -1,
     },
     'first_registered': OP_HISTORY_SCHEMA['properties']['first_registered'],
     'history': {
