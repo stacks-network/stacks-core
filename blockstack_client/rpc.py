@@ -1280,8 +1280,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': resp['error']}, status_code=404)
             return
 
-        self._reply_json(resp['profile'])
-        return
+        if not app_name and not datastore_id:
+            return {'error': 'Invalid datastore ID or app name'}
+        return {'status': True, 'datastore_id': datastore_id, 'app_name': app_name}
 
 
     def GET_store( self, ses, path_info, datastore_id ):
@@ -1296,15 +1297,25 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if not path_info['qs_values'].has_key('device_ids'):
             return self._reply_json({'error': 'Missing device_ids query argument'}, status_code=401)
 
-        blockchain_id = ''
-        if not path_info['qs_values'].has_key('blockchain_id'):
-            return self._reply_json({'error': 'Missing blockchain_id query argument'}, status_code=401)
+        blockchain_id = path_info['qs_values'].get('blockchain_id', '')
+        device_ids = path_info['qs_values'].get('device_ids', '').split(',')
+
+        if device_ids == ['']:
+            device_ids = None
+
+        res = self._parse_datastore_id(datastore_id_or_app_name)
+        if 'error' in res:
+            self._reply_json({'error': res['error']}, status_code=401)
 
         blockchain_id = path_info['qs_values']['blockchain_id']
         device_ids = path_info['qs_values']['device_ids']
 
-        internal = self.server.get_internal_proxy()
-        res = internal.cli_get_datastore(blockchain_id, datastore_id, device_ids, config_path=self.server.config_path)
+        if blockchain_id is None or not scripts.is_name_valid(blockchain_id):
+            # need device IDs and datastore_id if blockchain_id isn't given
+            if not datastore_id or not device_ids:
+                return self._reply_json({'error': 'Datastore ID and device IDs are required if the blockchain ID is not given'}, status_code=401)
+
+        res = gaia.get_datastore_info(blockchain_id=blockchain_id, datastore_id=datastore_id, device_ids=device_ids, full_app_name=app_name, config_path=self.server.config_path)
         if 'error' in res:
             log.debug("Failed to get datastore: {}".format(res['error']))
             if res.has_key('errno'):
