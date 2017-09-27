@@ -66,7 +66,6 @@ def app_domain_to_app_name(app_domain):
         return app_domain
 
     urlinfo = urlparse.urlparse(app_domain)
-    log.debug("{} -> {}".format(app_domain, urlinfo.netloc))
     if not urlinfo.netloc:
         # try as URL:
         urlinfo = urlparse.urlparse("http://{}/".format(app_domain))
