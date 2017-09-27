@@ -1,0 +1,48 @@
+version: '3'
+services:
+  blockstack-core:
+    image: 'quay.io/blockstack/blockstack-core:develop-configure-mongo'
+    command: blockstack-core start --debug --foreground
+    volumes:
+      - './data/blockstack-core/server/:/root/.blockstack-server/'
+      - './data/blockstack-core/api/:/root/.blockstack'
+    networks:
+      - api
+    restart: always
+
+  mongodb:
+    image: mongo:3.4
+    volumes:
+      - './data/mongodb/:/data/db'
+    networks:
+      - api
+    restart: always
+
+  blockstack-api:
+    image: 'quay.io/blockstack/blockstack-core:develop-configure-mongo'
+    command: blockstack api start-foreground --debug --password dummywalletpassword
+    volumes:
+      - './data/blockstack-api/:/root/.blockstack'
+      - '/tmp/:/data/blockstack-api/tmp/'
+    links:
+      - blockstack-core
+    depends_on:
+      - blockstack-core
+    networks:
+      - api
+    restart: always
+
+  search-api:
+    build: .
+    networks:
+      - api
+    restart: always
+    links:
+      - blockstack-core
+      - mongodb
+      - blockstack-api
+    volumes:
+      - "./data/search-api/:/var/blockstack-search"
+
+networks:
+  api: null
