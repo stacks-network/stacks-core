@@ -46,7 +46,7 @@ TEST_RPC_PORT = 16264
 TEST_CLIENT_RPC_PORT = int(os.environ.get("BLOCKSTACK_TEST_CLIENT_RPC_PORT", 16268))
 TEST_CLIENT_BIND = os.environ.get("BLOCKSTACK_TEST_CLIENT_BIND", "localhost")
 
-BLOCKSTACK_STORAGE_DRIVERS = "disk"
+BLOCKSTACK_STORAGE_DRIVERS = "disk,http"
 
 if os.environ.get("BLOCKSTACK_STORAGE_DRIVERS", None) is not None:
     BLOCKSTACK_STORAGE_DRIVERS = os.environ.get("BLOCKSTACK_STORAGE_DRIVERS")
@@ -409,7 +409,7 @@ def generate_config_file( scenario, path, template, extra_fields):
     datastores_path = extra_fields.get("CLIENT_DATASTORES_PATH", "")
     zonefiles_dir = extra_fields.get("ZONEFILES", None)
     storage_drivers = extra_fields.get("CLIENT_STORAGE_DRIVERS", BLOCKSTACK_STORAGE_DRIVERS)
-    storage_drivers_required_write = extra_fields.get("CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE", BLOCKSTACK_STORAGE_DRIVERS)
+    storage_drivers_required_write = "disk" #extra_fields.get("CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE", BLOCKSTACK_STORAGE_DRIVERS)
     serve_data = extra_fields.get("SERVE_DATA", "True")
     redirect_data = extra_fields.get("REDIRECT_DATA", "False")
     data_servers = extra_fields.get("DATA_SERVERS", "True")

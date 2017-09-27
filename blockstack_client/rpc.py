@@ -1388,7 +1388,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if not app_name and not datastore_id:
             return {'error': 'Invalid datastore ID or app name'}
-    
         return {'status': True, 'datastore_id': datastore_id, 'app_name': app_name}
 
 
@@ -1411,7 +1410,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         blockchain_id = path_info['qs_values'].get('blockchain_id', '')
         device_ids = path_info['qs_values'].get('device_ids', '').split(',')
-        
+
         if device_ids == ['']:
             device_ids = None
 
@@ -1426,7 +1425,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             # need device IDs and datastore_id if blockchain_id isn't given
             if not datastore_id or not device_ids:
                 return self._reply_json({'error': 'Datastore ID and device IDs are required if the blockchain ID is not given'}, status_code=401)
-    
+
         res = gaia.get_datastore_info(blockchain_id=blockchain_id, datastore_id=datastore_id, device_ids=device_ids, full_app_name=app_name, config_path=self.server.config_path)
         if 'error' in res:
             log.debug("Failed to get datastore: {}".format(res['error']))
