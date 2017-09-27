@@ -24,8 +24,9 @@ This file is part of Search.
 """
 
 from pymongo import MongoClient
+from api.config import MONGODB_CONNECTION
 
-client = MongoClient()
+client = MongoClient(MONGODB_CONNECTION)
 search_db = client['search_db']
 search_cache = client['search_cache']
 

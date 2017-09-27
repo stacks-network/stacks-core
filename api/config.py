@@ -39,6 +39,8 @@ DEFAULT_NAMESPACE = "id"
 
 PUBLIC_NODE = True
 
+MONGODB_CONNECTION = "mongodb://localhost"
+
 BASE_API_URL = "http://localhost:6270"
 PUBLIC_NODE_URL = 'https://core.blockstack.org'
 SEARCH_NODE_URL = 'https://search.blockstack.org'

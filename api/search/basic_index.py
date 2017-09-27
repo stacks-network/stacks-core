@@ -1,4 +1,5 @@
 #!/usr/bin/env python2
+
 # -*- coding: utf-8 -*-
 """
     Search
@@ -32,7 +33,7 @@ from pymongo import MongoClient
 from .utils import validUsername
 from .utils import get_json, config_log, pretty_print
 
-from api.config import SEARCH_BLOCKCHAIN_DATA_FILE, SEARCH_PROFILE_DATA_FILE
+from api.config import SEARCH_BLOCKCHAIN_DATA_FILE, SEARCH_PROFILE_DATA_FILE, MONGODB_CONNECTION
 
 from .db import namespace, profile_data
 from .db import search_profiles
@@ -118,7 +119,7 @@ def fetch_namespace_from_file():
 
 def flush_db():
 
-    client = MongoClient()
+    client = MongoClient(MONGODB_CONNECTION)
 
     # delete any old cache/index
     client.drop_database('search_db')
