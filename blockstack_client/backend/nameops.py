@@ -239,17 +239,17 @@ def make_cheapest_name_preorder( name, payment_address, owner_address, burn_addr
     return make_cheapest_nameop('NAME_PREORDER', utxo_client, payment_address, payment_utxos, name, payment_address, owner_address, burn_address, cost, consensus_hash, utxo_client, tx_fee=tx_fee )
 
 
-def make_cheapest_name_registration( name, payment_address, owner_address, utxo_client, payment_utxos, value_hash=None, tx_fee=0, subsidize=False):
+def make_cheapest_name_registration( name, payment_address, owner_address, utxo_client, payment_utxos, zonefile_hash=None, tx_fee=0, subsidize=False):
     """
     Given name registration info, make the cheapest possible name register transaction
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success.
     Return None on error
     """
-    return make_cheapest_nameop('NAME_REGISTRATION', utxo_client, payment_address, payment_utxos, name, payment_address, owner_address, utxo_client, value_hash=value_hash, subsidize=subsidize, tx_fee=tx_fee )
+    return make_cheapest_nameop('NAME_REGISTRATION', utxo_client, payment_address, payment_utxos, name, payment_address, owner_address, utxo_client, zonefile_hash=zonefile_hash, subsidize=subsidize, tx_fee=tx_fee )
 
 
-def make_cheapest_name_renewal( name, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos, burn_address=None, recipient_addr=None, value_hash=None, tx_fee=0, subsidize=False):
+def make_cheapest_name_renewal( name, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos, burn_address=None, recipient_addr=None, zonefile_hash=None, tx_fee=0, subsidize=False):
     """
     Given name renewal info, make the cheapest possible name renewal transaction
     @payment_utxos should be sorted by decreasing value
@@ -262,7 +262,7 @@ def make_cheapest_name_renewal( name, owner_address, renewal_fee, utxo_client, p
         recipient_addr = owner_address
         
     return make_cheapest_nameop('NAME_RENEWAL', utxo_client, payment_address, payment_utxos, name, owner_address, recipient_addr, utxo_client, 
-            burn_address=burn_address, renewal_fee=renewal_fee, value_hash=value_hash, subsidize=subsidize, tx_fee=tx_fee)
+            burn_address=burn_address, renewal_fee=renewal_fee, zonefile_hash=zonefile_hash, subsidize=subsidize, tx_fee=tx_fee)
 
 
 def make_cheapest_name_update( name, data_hash, consensus_hash, owner_address, utxo_client, payment_address, payment_utxos, tx_fee=0, subsidize=False):
@@ -417,7 +417,7 @@ def estimate_preorder_tx_fee( name, name_cost, payment_privkey_info, owner_privk
     return tx_fee
 
 
-def estimate_register_tx_fee( name, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, value_hash=None, payment_utxos=None, config_path=CONFIG_PATH, include_dust=False ):
+def estimate_register_tx_fee( name, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, zonefile_hash=None, payment_utxos=None, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a register.
     Optionally include the dust fees as well.
@@ -444,7 +444,7 @@ def estimate_register_tx_fee( name, payment_privkey_info, owner_privkey_info, tx
         try:
             unsigned_tx, n_inputs = make_cheapest_name_registration(
                 name, payment_addr, owner_addr, utxo_client,
-                payment_utxos, value_hash=value_hash)
+                payment_utxos, zonefile_hash=zonefile_hash)
 
             log.debug("Unsigned tx: {}".format(unsigned_tx))
             assert unsigned_tx
@@ -489,7 +489,7 @@ def estimate_register_tx_fee( name, payment_privkey_info, owner_privkey_info, tx
 
 
 def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, 
-                             value_hash=None, owner_utxos=None, payment_utxos=None, config_path=CONFIG_PATH, include_dust=False ):
+                             zonefile_hash=None, owner_utxos=None, payment_utxos=None, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a renewal.
     Optionally include the dust fees as well.
@@ -517,7 +517,7 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_priv
 
     try:
         try:
-            unsigned_tx, num_utxos = make_cheapest_name_renewal(name, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos, burn_address=BLOCKSTACK_BURN_ADDRESS, value_hash=value_hash)
+            unsigned_tx, num_utxos = make_cheapest_name_renewal(name, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos, burn_address=BLOCKSTACK_BURN_ADDRESS, zonefile_hash=zonefile_hash)
             assert unsigned_tx
 
             signed_subsidized_tx = get_estimated_signed_subsidized(unsigned_tx, fees_registration, 21 * 10**14,
@@ -1378,7 +1378,7 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     return resp
 
 
-def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster, value_hash=None, tx_fee=None, 
+def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster, zonefile_hash=None, tx_fee=None, 
                  config_path=CONFIG_PATH, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True,
                  force_register = False ):
 
@@ -1414,7 +1414,7 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
     if not dry_run and (safety_checks or tx_fee is None):
         tx_fee = 0
         # find tx fee, and do sanity checks
-        res = check_register(fqu, owner_privkey_info, payment_privkey_info, value_hash=value_hash, 
+        res = check_register(fqu, owner_privkey_info, payment_privkey_info, zonefile_hash=zonefile_hash, 
                              config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations,
                              force_it = force_register)
         
@@ -1441,11 +1441,11 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
     utxo_client = build_utxo_client( utxo_client, address=payment_address, utxos=payment_utxos )
     assert utxo_client, "Unable to build UTXO client"
 
-    log.debug("Registering (%s, %s, %s), tx_fee = %s, value_hash = %s" % (fqu, payment_address, owner_address, tx_fee, value_hash))
+    log.debug("Registering (%s, %s, %s), tx_fee = %s, zonefile_hash = %s" % (fqu, payment_address, owner_address, tx_fee, zonefile_hash))
 
     # make tx
     try:
-        unsigned_tx, num_utxos = make_cheapest_name_registration(fqu, payment_address, owner_address, utxo_client, payment_utxos, value_hash=value_hash, tx_fee=tx_fee)
+        unsigned_tx, num_utxos = make_cheapest_name_registration(fqu, payment_address, owner_address, utxo_client, payment_utxos, zonefile_hash=zonefile_hash, tx_fee=tx_fee)
         assert unsigned_tx
     except (AssertionError, ValueError) as ve:
         if BLOCKSTACK_TEST:
@@ -1663,7 +1663,7 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
     return resp
 
 
-def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster, burn_address=None, value_hash=None, recipient_addr=None, tx_fee_per_byte=None, 
+def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster, burn_address=None, zonefile_hash=None, recipient_addr=None, tx_fee_per_byte=None, 
                 tx_fee=None, config_path=CONFIG_PATH, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
     Renew a name
@@ -1691,14 +1691,14 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     else:
         burn_address = str(burn_address)
 
-    if value_hash is not None:
-        value_hash = str(value_hash)
+    if zonefile_hash is not None:
+        zonefile_hash = str(zonefile_hash)
    
     min_confirmations = utxo_client.min_confirmations 
 
     if not dry_run and (safety_checks or (renewal_fee is None or tx_fee is None)):
         # find tx fee, and do sanity checks
-        res = check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, new_owner_address=recipient_addr, value_hash=value_hash, burn_address=burn_address,
+        res = check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, new_owner_address=recipient_addr, zonefile_hash=zonefile_hash, burn_address=burn_address,
                             config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
 
         if 'error' in res and safety_checks:
@@ -1738,13 +1738,13 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     utxo_client = build_utxo_client( utxo_client, address=owner_address, utxos=owner_utxos )
     assert utxo_client, "Unable to build UTXO client"
 
-    log.debug("Renewing (%s, %s, %s), tx_fee_per_byte = %s, renewal_fee = %s, value_hash = %s, recipient_addr = %s" % (fqu, payment_address, owner_address, tx_fee_per_byte, renewal_fee, value_hash, recipient_addr))
+    log.debug("Renewing (%s, %s, %s), tx_fee_per_byte = %s, renewal_fee = %s, zonefile_hash = %s, recipient_addr = %s" % (fqu, payment_address, owner_address, tx_fee_per_byte, renewal_fee, zonefile_hash, recipient_addr))
 
     # now send it
     subsidized_tx = None
     try:
         unsigned_tx, num_utxos = make_cheapest_name_renewal(fqu, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos,
-                burn_address=burn_address, recipient_addr=recipient_addr, value_hash=value_hash, subsidize=True )
+                burn_address=burn_address, recipient_addr=recipient_addr, zonefile_hash=zonefile_hash, subsidize=True )
 
         assert unsigned_tx
 
@@ -2291,6 +2291,8 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
         Return {'status': True, ...} on success
         Return {'error': ...} on error
     """
+    
+    import blockstack
 
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
@@ -2302,6 +2304,19 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
         utxo_client = get_utxo_provider_client(config_path=config_path)
 
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
+   
+    zonefile_hash = name_data.get('zonefile_hash')
+    zonefile_data = name_data.get('zonefile')
+
+    if zonefile_data is not None:
+        if zonefile_hash is None:
+            zonefile_hash = get_zonefile_data_hash(zonefile_data)
+        
+        else:
+            assert get_zonefile_data_hash(zonefile_data) == zonefile_hash, "Conflicting zone file hash given"
+
+        if len(zonefile_data) > RPC_MAX_ZONEFILE_LEN:
+            return {'error': 'Zonefile is too big (%s bytes)' % len(zonefile_data)}
 
     owner_address, owner_privkey_info = check_owner_privkey_info( owner_privkey_info, name_data )
     payment_address, payment_privkey_info = check_payment_privkey_info( payment_privkey_info, name_data )
@@ -2338,16 +2353,31 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
         additionals['unsafe_reg'] = name_data['unsafe_reg']
         additionals['confirmations_needed'] = 1
         force_register = True
+
     if 'min_payment_confs' in name_data:
         additionals['min_payment_confs'] = name_data['min_payment_confs']
+
     if 'owner_privkey' in name_data:
         additionals['owner_privkey'] = name_data['owner_privkey']
+
     if 'payment_privkey' in name_data:
         additionals['payment_privkey'] = name_data['payment_privkey']
 
+    # F-day 2017
+    is_regup = False
+    regup_zonefile_hash = None
+    block_height = get_block_height(config_path=config_path)
+    if block_height is None:
+        return {'error': 'Failed to get blockchain height'}
+
+    if blockstack.EPOCH_FEATURE_OP_REGISTER_UPDATE in blockstack.get_epoch_features(block_height):
+        # can set zonefile hash in this epoch 
+        regup_zonefile_hash = zonefile_hash
+        is_regup = True
+
     try:
         resp = do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster,
-                            config_path=config_path, proxy=proxy, force_register = force_register )
+                            zonefile_hash=regup_zonefile_hash, config_path=config_path, proxy=proxy, force_register = force_register )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast registration transaction'}
@@ -2359,7 +2389,8 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
                          owner_address=owner_address,
                          transfer_address=name_data.get('transfer_address'),
                          zonefile_data=name_data.get('zonefile'),
-                         profile=name_data.get('profile'),
+                         key_file=name_data.get('key_file'),
+                         is_regup=is_regup,
                          config_path=config_path,
                          path=queue_path, **additionals)
 
