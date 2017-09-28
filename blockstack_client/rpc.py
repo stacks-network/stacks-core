@@ -556,7 +556,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     break
 
             if requester_public_key is None:
-                return self._reply_json({'error': 'Invalid authRequest token: requesting device does not have a public key listed'}, status_code=401)
+                log.error("Invalid authrequest token: requesting device does not have a public key listed")
+                return self._reply_json({'error': 'Invalid authRequest token: requesting device "{}" does not have a public key listed'.format(requester_device_id)}, status_code=401)
 
             # must match the app private key
             if keylib.key_formatting.decompress(requester_public_key) != keylib.key_formatting.decompress(app_public_key):
@@ -597,6 +598,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Returns 500 on failure to get names
         """
         if blockchain != 'bitcoin':
+            log.error("Unsupported blockchain {}".format(blockchain))
             return self._reply_json({'error': 'Invalid blockchain'}, status_code=401)
 
         address = str(address)
@@ -711,6 +713,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         request = self._read_json(schema=request_schema)
         if request is None or 'error' in request:
+            log.error("Failed to read request")
             return self._reply_json({"error": 'Invalid request'}, status_code=401)
 
         name = request['name']
@@ -748,6 +751,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             check_already_owned_by = self.server.wallet_keys['owner_addresses'][0]
         else:
             check_already_owned_by = virtualchain.get_privkey_address(owner_key)
+
         res = proxy.get_names_owned_by_address(check_already_owned_by)
         if json_is_error(res):
             log.error("Failed to get names owned by address")
@@ -766,7 +770,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
             op = 'renew'
             log.debug("renew {}".format(name))
-            res = internal.cli_renew(name, owner_key, payment_key, interactive=False,
+            res = internal.cli_renew(name, owner_key, payment_key, recipient_address, interactive=False,
                                      cost_satoshis=cost_satoshis)
 
         else:
@@ -970,6 +974,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         request = self._read_json(schema=request_schema)
         if request is None or 'error' in request:
+            log.error("Failed to read name-transfer request")
             self._reply_json({"error": 'Invalid request'}, status_code=401)
             return
 
@@ -977,6 +982,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         try:
             base58.b58decode_check(recipient_address)
         except ValueError:
+            log.error("Invalid recipient address")
             self._reply_json({"error": 'Invalid owner address'}, status_code=401)
             return
 
@@ -1046,9 +1052,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         request = self._read_json(schema=request_schema)
         if request is None:
+            log.error("Invalid request data")
             self._reply_json({"error": 'Invalid request'}, status_code=401)
             return
         elif 'error' in request:
+            log.error("Invalid request: {}".format(request['error']))
             self._reply_json({"error": request["error"]}, status_code=401)
             return
 
@@ -1070,6 +1078,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             try:
                 zonefile_str = base64.b64decode(zonefile_str_b64)
             except:
+                log.error("Failed to decode base64 zonefile")
                 self._reply_json({'error': 'Invalid base64-encoded zonefile'}, status_code=401)
                 return
 
@@ -1273,6 +1282,108 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply the profile on success
         Return 404 on failure to load
         """
+        res = get_profile(name, use_legacy=True, include_raw_zonefile=True, include_name_record=True)
+        if json_is_error(res):
+            return self._reply_json({'error': res['error']}, status_code=404)
+        
+        ret = {
+            'status': True,
+            'profile': res['profile'],
+            'name_record': res['name_record'],
+        }
+
+        try:
+            json.dumps(res['raw_zonefile'])
+            ret['zonefile'] = res['raw_zonefile']
+        except:
+            ret['zonefile_b64'] = base64.b64encode(res['raw_zonefile'])
+        
+        return self._reply_json(ret)
+
+
+    def _store_name_profile(self, ses, path_info, name):
+        """
+        Receive and store a name profile.
+        Takes {'profile_data': signed profile JWT (string)}
+        Returns 200 on success
+        Returns 404 if the name doesn't exist
+        Returns 503 on failure to store
+        """
+        profile_data_schema = {
+            'type': 'object',
+            'properties': {
+                'profile_data': {
+                    'type': 'string'
+                },
+            },
+            'required': [
+                'profile_data'
+            ],
+        }
+        
+        request = self._read_json()
+        if request is None:
+            log.error("Failed to read JSON request")
+            return self._reply_json({'error': 'Failed to read JSON response'}, status_code=401)
+
+        try:
+            jsonschema.validate(request, profile_data_schema)
+        except ValidationError as ve:
+            if BLOCKSTACK_DEBUG:
+                log.exception(ve)
+
+            log.error("Failed to validate profile request")
+            return self._reply_json({'error': 'Failed to parse profile JSON request'}, status_code=401)
+
+        # authenticate
+        name_rec = proxy.get_name_blockchain_record(name)
+        if json_is_error(name_rec):
+            # error
+            status_code = None
+            if json_is_exception(name_rec):
+                status_code = 500
+            else:
+                status_code = 404
+
+            return self._reply_json({'error': name_rec['error']}, status_code=status_code)
+        
+        profile_txt = request['profile_data']
+
+        # verify and validate
+        res = key_file.key_file_parse(profile_txt, name_rec['address'])
+        if 'error' in res:
+            log.error("Failed to parse key file: {}".format(res['error']))
+            return self._reply_json({'error': 'Failed to parse key file: {}'.format(res['error'])}, status_code=401)
+
+        # looks good. store it
+        res = key_file.key_file_put(name, profile_txt, cache=gaia.GLOBAL_CACHE, config_path=self.server.config_path)
+        if 'error' in res:
+            log.error("Failed to store key file: {}".format(res['error']))
+            return self._reply_json({'error': 'Failed to store key file: {}'.format(res['error'])}, status_code=502)
+
+        return self._reply_json({'status': True})
+
+
+    def POST_name_profile(self, ses, path_info, name):
+        return self._store_name_profile(ses, path_info, name)
+
+
+    def PUT_name_profile(self, ses, path_info, name):
+        return self._store_name_profile(ses, path_info, name)
+
+
+    def _parse_datastore_id(self, datastore_id_or_app_name):
+        """
+        Identify whether or not a string is a datastore ID or an app name
+        Return {'status': True, 'datastore_id': ..., 'app_name': ...} on success
+        Return {'error': ...} on error
+        """
+        datastore_id = None
+        app_name = None
+
+        if not app.is_valid_app_name(datastore_id_or_app_name) and re.match(OP_BASE58CHECK_PATTERN, datastore_id_or_app_name):
+            # datastore ID
+            datastore_id = datastore_id_or_app_name
 
         internal = self.server.get_internal_proxy()
         resp = internal.cli_lookup( user_id )
@@ -1305,6 +1416,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         res = self._parse_datastore_id(datastore_id_or_app_name)
         if 'error' in res:
+            log.error("Failed to parse datastore ID: {}".format(res['error']))
             self._reply_json({'error': res['error']}, status_code=401)
 
         blockchain_id = path_info['qs_values']['blockchain_id']
@@ -1313,6 +1425,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if blockchain_id is None or not scripts.is_name_valid(blockchain_id):
             # need device IDs and datastore_id if blockchain_id isn't given
             if not datastore_id or not device_ids:
+                log.error("Datastore and device IDs are required if the blockchain ID is not given")
                 return self._reply_json({'error': 'Datastore ID and device IDs are required if the blockchain ID is not given'}, status_code=401)
 
         res = gaia.get_datastore_info(blockchain_id=blockchain_id, datastore_id=datastore_id, device_ids=device_ids, full_app_name=app_name, config_path=self.server.config_path)
@@ -1359,8 +1472,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("Failed to verify datastore signature with {}".format(datastore_pubkey_hex))
             return self._reply_json({'error': 'Unable to verify datastore info with {}'.format(datastore_pubkey_hex)}, status_code=403)
 
-        res = data.put_datastore_info( datastore_info, sigs_info, root_tombstones, config_path=self.server.config_path )
+        if BLOCKSTACK_TEST:
+            log.debug("Store datastore info:\n{}".format(json.dumps(datastore_sigs_info, indent=4, sort_keys=True)))
+
+        res = gaia.put_datastore_info( datastore_info, sigs_info, root_tombstones, config_path=self.server.config_path )
         if 'error' in res:
+            log.error("Failed to store datastore info: {}".format(res['error']))
             return self._reply_json({'error': 'Failed to store datastore info'}, status_code=503)
 
         return self._reply_json({'status': True})
@@ -1386,7 +1503,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if request and 'error' not in request:
             return self._store_signed_datastore(ses, path_info, request)
         else:
-            return self._reply_json({'error': 'Missing signed datastore info', 'errno': errno.EINVAL}, status_code=401)
+            log.error("Failed to store data: missing datastore info")
+            return self._reply_json({'error': 'Missing signed datastore info', 'errno': "EINVAL"}, status_code=401)
 
 
     def PUT_store( self, ses, path_info, app_user_id ):
@@ -1406,6 +1524,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if BLOCKSTACK_DEBUG:
                 log.exception(ve)
 
+            log.error("Failed to validate tombstone data")
             return self._reply_json({'error': 'Invalid tombstone info', 'errno': "EINVAL"}, status_code=401)
  
         datastore_pubkey = None
@@ -1416,6 +1535,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         log.debug("app domain: {}".format(app_domain))
 
         if not app.is_valid_app_name(app_domain):
+            log.error("Not a valid app domain: {} (from {})".format(app_domain, ses['app_domain']))
             return self._reply_json({'error': 'Invalid application domain name "{}"'.format(app_domain)}, status_code=401)
 
         blockchain_id = ses['blockchain_id']
@@ -1491,7 +1611,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._delete_signed_datastore( ses, path_info, request, device_ids )
 
         else:
-            return self._reply_json({'error': 'Missing signed datastore info', 'errno': errno.EINVAL}, status_code=401)
+            log.error("Failed to read request")
+            return self._reply_json({'error': 'Missing signed datastore info', 'errno': "EINVAL"}, status_code=401)
 
 
     def _get_request_range(self):
@@ -1520,7 +1641,59 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return (start, end)
 
 
-    def GET_store_item( self, ses, path_info, datastore_id, inode_type ):
+    def _load_device_pubkeys(self, qs, ses, app_name, blockchain_id):
+        """
+        Get device IDs and data pubkeys from the query string, or from the blockchain ID
+
+        Returns {'status': True, 'data_pubkeys': [{'device_id': ..., 'public_key': ...}]} on success
+        Return {'error': ..., 'status_code': ...} on failure
+        """
+
+        qs_device_ids = qs.get('device_ids', None)
+        qs_device_pubkeys = qs.get('device_pubkeys', None)
+
+        device_ids = None
+        app_public_keys = None
+
+        if qs_device_ids is None and qs_device_pubkeys is None:
+            # not given; check session
+            if (blockchain_id is not None and len(blockchain_id) > 0) and (app_name is not None and len(app_name) > 0):
+                key_file_res = key_file.lookup_app_pubkeys(blockchain_id, app_name, cache=gaia.GLOBAL_CACHE)
+                if 'error' in key_file_res:
+                    return {'error': 'Failed to load key delegation information for "{}"'.format(blockchain_id), 'status_code': 503}
+                
+                app_pubkeys = key_file_res['pubkeys']
+                if len(app_pubkeys.keys()) == 0:
+                    return {'error': 'Blockchain ID {} is not registered in application {}'.format(blockchain_id, app_name), 'status_code': 404}
+
+                device_ids = app_pubkeys.keys()
+                app_public_keys = [app_pubkeys[device_id] for device_id in device_ids]
+
+            elif ses is not None:
+                # load from session
+                device_ids = [apk['device_id'] for apk in ses['app_public_keys']]
+                app_public_keys = [apk['public_key'] for apk in ses['app_public_keys']]
+            
+            else:
+                # need either blockchain ID or session
+                log.error("Need either a session JWT or both blockchain_id query argument and application name")
+                return {'error': 'Need either a session JWT or both "blockchain_id" query argument and an application name', 'status_code': 401}
+        else:
+            if qs_device_ids is None or qs_device_pubkeys is None:
+                log.error("Missing either device_ids= or device_pubkeys= query args")
+                return {'error': 'Missing either device_ids= or device_pubkeys= query arguments', 'status_code': 401}
+
+            device_ids = [urllib.unquote(dev_id) for dev_id in qs_device_ids.split(',')]
+            app_public_keys = qs_device_pubkeys.split(',')
+
+            if len(device_ids) != len(app_public_keys):
+                log.error("Invalid request: different number of device IDs and device pubkeys")
+                return {'error': 'Invalid request: device_ids must have length equal to device_pubkeys', 'status_code': 401}
+
+        return {'status': True, 'data_pubkeys': [{'device_id': dev_id, 'public_key': data_pubk} for (dev_id, data_pubk) in zip(device_ids, app_public_keys)]}
+
+
+    def GET_store_item( self, ses, path_info, datastore_id_or_app_name, item_type ):
         """
         Get a store item.
         Accepts as query string arguments:
@@ -1548,10 +1721,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         qs = path_info['qs_values']
         blockchain_id = qs.get('blockchain_id', '')
 
-        # include extended information
-        include_extended = qs.get('extended', '0')
-        force = qs.get('force', '0')
-        idata = qs.get('idata', '0')
+        res = self._parse_datastore_id(datastore_id_or_app_name)
+        if 'error' in res:
+            log.error("Failed to parse datastore ID {}".format(datastore_id_or_app_name))
+            return self._reply_json({'error': res['error']}, status_code=401)
 
         # make sure we have device IDs
         device_ids = None
@@ -1577,15 +1750,21 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             device_ids = [urllib.unquote(dev_id) for dev_id in qs_device_ids.split(',')]
             app_public_keys = qs_device_pubkeys.split(',')
 
-            if len(device_ids) != len(app_public_keys):
-                return self._reply_json({'error': 'Invalid request: device_ids must have length equal to device_pubkeys'}, status_code=401)
+        if item_type == 'files':
+            # getfile
+            if path is None:
+                log.error("No path given in files request")
+                return self._reply_json({'error': 'No path given', 'errno': "EINVAL"}, status_code=401)
 
         # serialize
         device_ids = ','.join(device_ids)
         app_public_keys = ','.join(app_public_keys)
 
-        log.debug("Device IDs: {}".format(device_ids))
-        log.debug("Device pubkeys: {}".format(app_public_keys))
+        elif item_type == 'device_roots':
+            # get device root listing
+            if this_device_id is None:
+                log.error("No device ID given in device root request")
+                return self._reply_json({'error': 'missing "this_device_id" query argument'}, status_code=401)
 
         internal = self.server.get_internal_proxy()
         path = qs.get('path', None)
@@ -1601,14 +1780,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 log.debug("Will run cli_datastore_getfile()")
                 res = internal.cli_datastore_getfile(blockchain_id, datastore_id, path, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
 
-                if 'error' not in res:
-                    # base64-encode the result, if we're returning extended information
-                    if include_extended != '0':
-                        res['inode_info']['inode']['idata'] = base64.b64encode(res['inode_info']['inode']['idata'])
+        elif item_type == 'headers':
+            # file header
+            if path is None:
+                log.error("No path given in headers request")
+                return self._reply_json({'error': 'No path given', 'errno': "EINVAL"}, status_code=401)
 
-            else:
-                log.debug("Will run cli_datastore_getinode()")
-                res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
+            if this_device_id is None:
+                log.error("No device ID given in headers request")
+                return self._reply_json({'error': 'missing "this_device_id" query argument'}, status_code=401)
+            
+            res = gaia.get_file_info(datastore_id, path, data_pubkeys, this_device_id, blockchain_id=blockchain_id, full_app_name=app_name, config_path=self.server.config_path, force=force)
 
                 if 'error' not in res and idata:
                     # base64-encode the result
@@ -1629,8 +1811,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 log.debug("Will run cli_datastore_stat()")
                 res = internal.cli_datastore_stat(blockchain_id, datastore_id, path, include_extended, force, device_ids, app_public_keys, config_path=self.server.config_path)
             else:
-                log.debug("Will run cli_datastore_getinode()")
-                res = internal.cli_datastore_getinode(blockchain_id, datastore_id, inode_uuid, include_extended, idata, force, device_ids, app_public_keys, config_path=self.server.config_path)
+                log.error("Failed operation {}: errno = {}, error = '{}'".format(item_type, res['errno'], res['error']))
+                status_code = 502
 
         if json_is_error(res):
             err = {'error': 'Failed to read {}: {}'.format(inode_type, res['error']), 'errno': res.get('errno', errno.EPERM)}
@@ -1764,17 +1946,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if BLOCKSTACK_DEBUG:
                 log.exception(ve)
 
+            log.error("Failed to read file info")
             return self._reply_json({'error': 'Invalid request'}, status_code=401)
 
         # app domain must be a valid fully-qualified app domain (i.e. ends in .1 or .x)
         app_domain = ses['app_domain']
         log.debug("app domain: {}".format(ses['app_domain']))
         if not app.is_valid_app_name(app_domain):
-            # try to see if it was a URL format
-            app_domain = urlparse.urlparse(app_domain).netloc
-
-        if not app.is_valid_app_name(app_domain):
-            return self._reply_json({'error': 'Invalid application domain name "{}"'.format(ses['app_domain'])}, status_code=401)
+            log.error("Invalid app domain {} from {}".format(app_domain, ses['app_domain']))
+            return self._reply_json({'error': 'Invalid application domain name "{}"'.format(app_domain)}, status_code=401)
+        
+        log.debug("app domain: {}".format(app_domain))
 
         # optionally takes a public key
         qs = path_info['qs_values']
@@ -1786,6 +1968,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 data_pubkey = dpk['public_key']
 
         if data_pubkey is None:
+            log.error("Missing device public key")
             return self._reply_json({'error': 'Invalid session: missing public key for device ID {}'.format(this_device_id)}, status_code=401)
 
         # verify datastore signature
@@ -1803,15 +1986,18 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             break
 
         if datastore_pubkey is None:
+            log.error("Missing datastore public key")
             return self._reply_json({'error': 'Session does not contain a public key that matches the signature on the datastore'}, status_code=401)
 
         datastore = res['datastore']
 
-        datastore = None
-        try:
-            datastore = json.loads(datastore_str)
-        except ValueError:
-            return self._reply_json({'error': 'Invalid request: invalid datastore'}, status_code=401)
+        if operation == 'putfile':
+            # NOTE: this can work even if blockchain_id is not given (i.e. the user hasn't claimed a name yet)
+            # in which case, data_pubkey is *required*
+            if ses['blockchain_id'] is None or len(ses['blockchain_id']) == 0:
+                if data_pubkey is None:
+                    log.error("Missing data public key, since blockchain ID is not given")
+                    return self._reply_json({'error': 'No blockchain ID given, and no data_pubkey given'}, status_code=401)
 
         if keylib.key_formatting.decompress(datastore['pubkey']) != keylib.key_formatting.decompress(datastore_pubkey):
             # wrong datastore
@@ -1823,8 +2009,29 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         elif operation == 'putfile':
             # payloads will be base64-encoded
-            payloads_b64 = inode_info['payloads']
-            payloads = None
+            payloads_b64 = file_info['payloads']
+            headers = file_info['headers']
+            signatures = file_info['signatures']
+
+            if file_name is None:
+                log.error("Missing file name")
+                return self._reply_json({'error': 'Missing "path" query argument'}, status_code=401)
+
+            if len(headers) != len(payloads_b64):
+                log.error("Number of payloads does not match number of headers")
+                return self._reply_json({'error': 'Invalid request: number of payloads must match the number of headers'}, status_code=401)
+
+            if len(payloads_b64) != len(signatures):
+                log.error("Number of payloads does not match number of signatures")
+                return self._reply_json({'error': 'Invalid request: number of signatures must match the number of headers'}, status_code=401)
+
+            if len(payloads_b64) != 1:
+                log.error("Only one payload at a time")
+                return self._reply_json({'error': 'Invalid request: can only put one file at a time'}, status_code=401)
+
+            file_header = headers[0]
+            signature = signatures[0]
+            payload = None
             try:
                 payloads = [base64.b64decode(p) for p in payloads_b64]
             except:
@@ -1838,16 +2045,54 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             # in which case, data_pubkey is *required*
             if ses['blockchain_id'] is None or len(ses['blockchain_id']) == 0:
                 if data_pubkey is None:
+                    log.error("missing data public key when no blockchain Id is given")
                     return self._reply_json({'error': 'No blockchain ID given, and no data_pubkey given'}, status_code=401)
 
-            res = data.datastore_putfile_put_inodes( datastore, data_path, inode_info['inodes'], payloads, inode_info['signatures'], inode_info['tombstones'],
-                                                     create=create, exist=exist, config_path=self.server.config_path )
+            # client may require blockchain ID, in which case, data_pubkey will be ignored 
+            conf = blockstack_config.get_config(path=self.server.config_path)
+            if not conf['storage_anonymous_write']:
+                if ses['blockchain_id'] is None or len(ses['blockchain_id']) == 0:
+                    return self._reply_json({'error': 'This node does not support anonymous writes'}, status_code=403)
+
+                data_pubkey = None
+
+            # tombstone required
+            tombstones = file_info['tombstones']
+
+            if len(tombstones) < 1:
+                log.error("Missing tombstones")
+                return self._reply_json({'error': 'Invalid request: expected > 1 tombstone (got {})'.format(len(tombstones))}, status_code=401)
+
+            # takes device IDs and public keys 
+            res = self._load_device_pubkeys(qs, ses, app_domain, ses['blockchain_id'])
+            if 'error' in res:
+                return self._reply_json({'error': res['error']}, status_code=res['status_code'])
+            
+            data_pubkeys = res['data_pubkeys']
+            res = gaia.datastore_delete_file_data( datastore, tombstones, blockchain_id=ses['blockchain_id'], full_app_name=app_domain, data_pubkeys=data_pubkeys, config_path=self.server.config_path)
+
+        elif operation == 'device_roots':
+            # NOTE: this can work even if blockchain_id is not given (i.e. the user hasn't claimed a name yet)
+            # in which case, data_pubkey is *required*
+            if ses['blockchain_id'] is None or len(ses['blockchain_id']) == 0:
+                if data_pubkey is None:
+                    log.error("Missing data public key when no blockchain ID is present")
+                    return self._reply_json({'error': 'No blockchain ID given, and no data_pubkey given'}, status_code=401)
+
+            # client may require blockchain ID, in which case, data_pubkey will be ignored 
+            conf = blockstack_config.get_config(path=self.server.config_path)
+            if not conf['storage_anonymous_write']:
+                if ses['blockchain_id'] is None or len(ses['blockchain_id']) == 0:
+                    return self._reply_json({'error': 'This node does not support anonymous writes'}, status_code=403)
+
+                data_pubkey = None
 
         elif operation == 'rmdir':
             res = data.datastore_rmdir_put_inodes( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_info['signatures'], inode_info['tombstones'], config_path=self.server.config_path )
 
-        elif operation == 'deletefile':
-            res = data.datastore_deletefile_put_inodes( datastore, data_path, inode_info['inodes'], inode_info['payloads'], inode_info['signatures'], inode_info['tombstones'], config_path=self.server.config_path )
+            if len(payloads) != len(signatures):
+                log.error("number of payloads does not match the number of signatures")
+                return self._reply_json({'error': 'Invalid request: number of payloads must match the number of headers'}, status_code=401)
 
         elif operation == 'rmtree':
             res = data.datastore_rmtree_put_inodes( datastore, inode_info['inodes'], inode_info['payloads'], inode_info['signatures'], inode_info['tombstones'], config_path=self.server.config_path )
@@ -1899,12 +2144,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if inode_type == 'files':
                 operation = 'putfile'
             else:
-                operation = 'mkdir'
-
-            return self._patch_from_signed_inodes( ses, path_info, operation, path, request, create=create, exist=exist )
+                log.error("unknown item type {}".format(item_type))
+                return self._reply_json({'error': 'Unrecognized item type "{}"'.format(item_type)}, status_code=401)
 
         else:
-            return self._reply_json({'error': 'Missing signed inode data'}, status_code=401)
+            log.error("Missing signed file data")
+            return self._reply_json({'error': 'Missing signed file data'}, status_code=401)
 
 
     def DELETE_store_item( self, ses, path_info, datastore_id, inode_type ):
@@ -1922,9 +2167,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if datastore_id != ses['app_user_id']:
             return self._reply_json({'error': 'Invalid user', 'errno': errno.EACCES}, status_code=403)
 
-        if inode_type not in ['files', 'directories', 'inodes']:
-            self._reply_json({'error': 'Invalid request', 'errno': errno.EINVAL}, status_code=401)
-            return
+        # one of ses's public keys must match the datastore 
+        valid_session = False
+        for dpk in ses['app_public_keys']:
+            if datastore_id in [gaia.datastore_get_id(keylib.key_formatting.decompress(str(dpk['public_key']))), gaia.datastore_get_id(keylib.key_formatting.compress(str(dpk['public_key'])))]:
+                valid_session = True
+                break
+
+        if not valid_session:
+            log.error("Invalid session: no public key matches the datastore ID")
+            return self._reply_json({'error': 'Invalid session: no public key matches this datastore ID'}, status_code=403)
+
+        if item_type not in ['files']:
+            log.error("Invalid item type {}".format(item_type))
+            return self._reply_json({'error': 'Invalid request', 'errno': "EINVAL"}, status_code=401)
 
         qs = path_info['qs_values']
         path = qs.get('path', None)
@@ -1952,7 +2208,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._patch_from_signed_inodes( ses, path_info, operation, path, request )
 
         else:
-            return self._reply_json({'error': 'Missing signed inode data'}, status_code=401)
+            log.error("Missing signed file data")
+            return self._reply_json({'error': 'Missing signed file data'}, status_code=401)
 
 
     def GET_app_resource( self, ses, path_info, blockchain_id, app_domain ):
@@ -1974,6 +2231,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 return self._reply_json({'error': 'Unauthorized blockchain ID'}, status_code=403)
 
         if not app.is_valid_app_name(app_domain):
+            log.error("Invalid app domain {}".format(app_domain))
             return self._reply_json({'error': 'Invalid application domain name "{}"'.format(app_domain)}, status_code=401)
 
         qs = path_info['qs_values']
@@ -1984,6 +2242,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         internal = self.server.get_internal_proxy()
         res_path = qs.get('name', None)
         if res_path is None:
+            log.error("No resource name given")
             return self._reply_json({'error': 'No resource name given'}, status_code=401)
 
         res = internal.cli_app_get_resource(blockchain_id, app_domain, res_path, pubkey, config_path=self.server.config_path)
@@ -2353,6 +2612,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         request = self._read_json(schema=address_schema)
         if request is None or 'error' in request:
+            log.error("Failed to read request data")
             return self._reply_json({'error': 'Invalid request'}, status_code=401)
 
         address = str(request['address'])
@@ -2404,6 +2664,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         wallet = self._read_json(schema=WALLET_SCHEMA_CURRENT)
         if wallet is None or 'error' in wallet:
+            log.error("Failed to validate wallet keys")
             return self._reply_json({'error': 'Failed to validate wallet keys'}, status_code=401)
 
         res = backend.registrar.set_wallet( (wallet['payment_addresses'][0], wallet['payment_privkey']),
@@ -2442,6 +2703,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         }
 
         if key_id not in ['owner', 'payment', 'data']:
+            log.error("Invalid key ID '{}'".format(key_id))
             return self._reply_json({'error': 'Invalid key ID'}, status_code=401)
 
         request_data = self._read_json(schema=SET_WALLET_KEY_SCHEMA)
@@ -2454,6 +2716,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             persist = False
 
         if privkey_info is None or 'error' in privkey_info:
+            log.error("Failed to validate private key")
             return self._reply_json({'error': 'Failed to validate private key'}, status_code=401)
 
         old_wallet = backend.registrar.get_wallet(config_path=self.server.config_path)
@@ -2477,6 +2740,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             data_privkey_info = privkey_info
 
         else:
+            log.error("Failed to set private key info")
             return self._reply_json({'error': 'Failed to set private key info'}, status_code=401)
 
         if virtualchain.get_privkey_address(changed) == virtualchain.get_privkey_address(privkey_info):
@@ -2535,6 +2799,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         request = self._read_json(schema=password_schema)
         if request is None or 'error' in request:
+            log.error("Invalid request")
             return self._reply_json({'error': 'Invalid request'}, status_code=401)
 
         password = str(request['password'])
@@ -2674,6 +2939,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             loglevel = qs_values.get('level')
 
         if loglevel not in ['debug', 'info', 'warning', 'warn', 'error', 'critical']:
+            log.error("Invalid loglevel {}".format(loglevel))
             return self._reply_json({'error': 'Invalid log level'}, status_code=401)
 
         logmsg = self._read_payload(maxlen=4096)
@@ -2737,15 +3003,24 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         force_instantiate_index = qs_values.get('force', '0')
 
         if len(driver_name) == 0:
+            log.error("Missing driver name")
             return self._reply_json({'error': 'Missing driver name'}, status_code=401)
+        
+        try:
+            driver_mod = bsk_client.load_storage(driver_name)
+            if driver_mod is None:
+                log.error("Invalid driver")
+                return self._reply_json({'error': 'Invalid driver'}, status_code=401)
+
+        except ValueError:
+            log.error("Invalid driver name")
+            return self._reply_json({'error': 'Invalid driver name'}, status_code=401)
 
         instantiate_index = (instantiate_index == '1')
         force_instantiate_index = (force_instantiate_index == '1')
 
-        # TODO: don't load just anything...
-        driver_mod = bsk_client.load_storage(driver_name)
-        if driver_mod is None:
-            return self._reply_json({'error': 'Invalid driver'}, status_code=401)
+            log.error("failed to load driver")
+            return self._reply_json({'error': 'Failed to load driver'}, status_code=500)
 
         # patch config file
         # expect: { 'driver_config': { '$driver_name': { '$property': '$value', ...} } }
@@ -2851,6 +3126,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         if blockchain_name != 'bitcoin':
             # not supported
+            log.error("Unsupported blockchain {}".format(blockchain_name))
             self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
             return
 
@@ -2879,6 +3155,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         if blockchain_name != 'bitcoin':
             # not supported
+            log.error("Unsupported blockchain {}".format(blockchain_name))
             self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
             return
 
@@ -2896,6 +3173,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         self._reply_json({'error' : 'Unimplemented'}, status_code = 405)
 
+
     def GET_blockchain_num_names( self, ses, path_info, blockchain_name ):
         """
         Handle GET /blockchains/:blockchainID/name_count
@@ -2903,6 +3181,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         if blockchain_name != 'bitcoin':
             # not supported
+            log.error("Unsupported blockchain {}".format(blockchain_name))
             self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
             return
         num_names = proxy.get_num_names()
@@ -2918,6 +3197,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self._reply_json({'names_count': num_names})
         return
 
+
     def GET_blockchain_consensus( self, ses, path_info, blockchain_name ):
         """
         Handle GET /blockchain/:blockchainID/consensus
@@ -2928,6 +3208,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         if blockchain_name != 'bitcoin':
             # not supported
+            log.error("Unsupported blockchain {}".format(blockchain_name))
             self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
             return
 
@@ -2956,6 +3237,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         if blockchain_name != 'bitcoin':
             # not supported
+            log.error("Unsupported blockchain {}".format(blockchain_name))
             self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
             return
 
@@ -2987,6 +3269,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         if blockchain_name != 'bitcoin':
             # not supported
+            log.error("Unsupported blockchain {}".format(blockchain_name))
             return self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
 
         # make sure we have the right encoding
@@ -3019,6 +3302,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         if blockchain_name != 'bitcoin':
             # not supported
+            log.error("Unsupported blockchain {}".format(blockchain_name))
             return self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
 
         tx_schema = {
@@ -3038,6 +3322,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         tx_req = None
         tx_req = self._read_json(tx_schema)
         if tx_req is None or 'error' in tx_req:
+            log.error("Failed to parse request")
             return self._reply_json({'error': 'Failed to parse request.  Expected {}'.format(json.dumps(tx_schema))}, status_code=401)
 
         # broadcast!
@@ -3078,6 +3363,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._send_headers(status_code=200, content_type='text/plain')
 
         else:
+            log.error("Invalid command")
             return self._send_headers(status_code=401, content_type='text/plain')
 
 
@@ -4021,7 +4307,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         if not urlparse.urlparse(app_name).netloc:
                             app_name = 'http://' + app_name
 
+                        old_app_name = app_name
                         app_name = app.app_domain_to_app_name(app_name)
+                        log.debug("Converted {} to {}".format(old_app_name, app_name))
 
                     # convert origin to .1 or .x, since app domains have it
                     session_verified = self.verify_origin(origin_header, ['http://' + app_name, 'https://' + app_name])
@@ -4560,14 +4848,15 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_renew(self, fqu, renewal_fee, owner_key = None, payment_key = None):
+    def backend_renew(self, fqu, renewal_fee, owner_key = None, payment_key = None, zonefile_data = None, new_owner_address = None):
         """
         Queue a renewal
         """
         if is_api_server(self.config_dir):
             # directly invoke the renew
             return backend.registrar.renew(fqu, renewal_fee, config_path=self.config_path,
-                                           owner_key = owner_key, payment_key = payment_key)
+                                           owner_key = owner_key, payment_key = payment_key,
+                                           zonefile_data = zonefile_data, new_owner_address = new_owner_address)
 
         else:
             res = self.check_version()
@@ -4583,7 +4872,10 @@ class BlockstackAPIEndpointClient(object):
                 data['owner_key'] = owner_key
             if payment_key is not None:
                 data['payment_key'] = payment_key
-
+            if zonefile_data is not None:
+                data['zonefile'] = zonefile_data
+            if new_owner_address is not None:
+                data['owner_address'] = new_owner_address
 
             headers = self.make_request_headers()
             req = requests.post( 'http://{}:{}/v1/names'.format(self.server, self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)
