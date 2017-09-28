@@ -21,10 +21,12 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
+import os
 import sys
 import requests
 import json
 import traceback
+
 from ...logger import get_logger
 
 log = get_logger("insight-api")

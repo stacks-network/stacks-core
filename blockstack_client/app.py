@@ -31,18 +31,55 @@ import time
 import virtualchain
 from virtualchain.lib.ecdsalib import get_pubkey_hex
 
+import re
 import jsontokens
 import storage
-import data
+import urlparse
+import gaia
 import user as user_db
 from .proxy import get_default_proxy
 
 from config import get_config, get_logger
 from .constants import CONFIG_PATH, BLOCKSTACK_TEST, LENGTH_MAX_NAME, DEFAULT_API_PORT, DEFAULT_API_HOST
-from .schemas import APP_CONFIG_SCHEMA, APP_SESSION_SCHEMA
+from .schemas import APP_CONFIG_SCHEMA, APP_SESSION_SCHEMA, OP_APP_NAME_PATTERN
 from .storage import classify_storage_drivers
 
 log = get_logger()
+
+def is_valid_app_name(app_name):
+    """
+    Is the given application name valid?
+    i.e. does it match either of our app name schemas?
+    """
+    if not re.match(OP_APP_NAME_PATTERN, app_name):
+        return False
+    else:
+        return True
+   
+
+def app_domain_to_app_name(app_domain):
+    """
+    Convert an app comain (e.g. an Origin: string, a DNS name)
+    to its fully-qualified application name for use in the token file.
+
+    This method is idempotent.
+    """
+    if is_valid_app_name(app_domain):
+        return app_domain
+
+    urlinfo = urlparse.urlparse(app_domain)
+    if not urlinfo.netloc:
+        # try as URL:
+        urlinfo = urlparse.urlparse("http://{}/".format(app_domain))
+    assert urlinfo.netloc, app_domain
+
+    if ':' in urlinfo.netloc:
+        p = urlinfo.netloc.split(':', 1)
+        return '{}.1:{}'.format(p[0], p[1])
+
+    else:
+        return '{}.1'.format(urlinfo.netloc)
+
 
 def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_public_keys, requester_device_id, master_data_privkey, session_lifetime=None, config_path=CONFIG_PATH ):
     """
@@ -60,7 +97,7 @@ def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_p
         session_lifetime = conf.get('default_session_lifetime', 1e80)
 
     app_public_key = get_pubkey_hex(app_private_key)
-    app_user_id = data.datastore_get_id(app_public_key)
+    app_user_id = gaia.datastore_get_id(app_public_key)
 
     api_endpoint_host = conf.get('api_endpoint_host', DEFAULT_API_HOST)
     api_endpoint_port = conf.get('api_endpoint_port', DEFAULT_API_PORT)
@@ -70,7 +107,7 @@ def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_p
     ses = {
         'version': 1,
         'blockchain_id': blockchain_id,
-        'app_domain': app_domain,
+        'app_domain': app_domain_to_app_name(app_domain),
         'methods': methods,
         'app_public_keys': app_public_keys,
         'app_user_id': app_user_id,
@@ -93,7 +130,7 @@ def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_p
     return {'session': session, 'session_token': session_token}
 
 
-def app_verify_session( app_session_token, data_pubkey_hex, config_path=CONFIG_PATH ):
+def app_verify_session( app_session_token, data_pubkey_hex, config_path=CONFIG_PATH, prev_sessions={} ):
     """
     Verify and decode a JWT app session token.
     The session is valid if the signature matches and the token is not expired.
@@ -137,6 +174,24 @@ def app_verify_session( app_session_token, data_pubkey_hex, config_path=CONFIG_P
     if session['expires'] < time.time():
         log.debug("Token is expired")
         return None
+    
+    # make sure we never see a stale session if we're testing
+    if BLOCKSTACK_TEST:
+        log.debug("In test mode; verifying that sessions are not stale")
+        if prev_sessions.has_key(session['app_user_id']):
+            
+            prev_session_txt = prev_sessions(session['app_user_id'])
+            prev_session = jsontokens.decode_token(prev_session_txt)['payload']
+
+            if prev_session['timestamp'] > session['timestamp']:
+                log.error("Received stale session")
+                log.error("Previous session:")
+                log.error(prev_session_txt)
+                log.error("Current session:")
+                log.error(app_session_token)
+                return None
+
+            prev_sessions[session['app_user_id']] = app_session_token
 
     return session
 
@@ -156,6 +211,8 @@ def app_get_datastore_pubkey( session ):
 
 def app_publish( dev_blockchain_id, app_domain, app_method_list, app_index_uris, app_index_file, app_driver_hints=[], data_privkey=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH ):
     """
+    DEPRECATED -- meant for building Blockstack-native applications, but this approach is wrong
+
     Instantiate an application.
     * replicate the (opaque) app index file to "index.html" to each URL in app_uris
     * replicate the list of URIs and the list of methods to ".blockstack" via each of the client's storage drivers.
@@ -192,10 +249,11 @@ def app_publish( dev_blockchain_id, app_domain, app_method_list, app_index_uris,
     data_pubkey = get_pubkey_hex(data_privkey)
     config_data_id = storage.make_fq_data_id(app_domain, '.blockstack')
 
-    app_cfg_blob = data.make_mutable_data_info(config_data_id, app_cfg, is_fq_data_id=True)
-    app_cfg_str = data.data_blob_serialize(app_cfg_blob)
-    app_cfg_sig = data.data_blob_sign( app_cfg_str, data_privkey )
-    res = data.put_mutable(config_data_id, app_cfg_str, data_pubkey, app_cfg_sig, app_cfg_blob['version'], blockchain_id=dev_blockchain_id, config_path=config_path)
+    app_cfg_blob = gaia.make_mutable_data_info(config_data_id, app_cfg, is_fq_data_id=True)
+    app_cfg_str = gaia.data_blob_serialize(app_cfg_blob)
+    app_cfg_sig = gaia.data_blob_sign( app_cfg_str, data_privkey )
+
+    res = gaia.put_mutable(config_data_id, app_cfg_str, data_pubkey, app_cfg_sig, blockchain_id=dev_blockchain_id, config_path=config_path)
     if 'error' in res:
         log.error('Failed to replicate application configuration {}: {}'.format(config_data_id, res['error']))
         return {'error': 'Failed to replicate application config'}
@@ -213,10 +271,11 @@ def app_publish( dev_blockchain_id, app_domain, app_method_list, app_index_uris,
     
     # replicate app index file (at least one must succeed)
     # NOTE: the publisher is free to use alternative URIs that are not supported; they'll just be ignored.
-    app_index_blob = data.make_mutable_data_info(index_data_id, app_index_file, is_fq_data_id=True)
-    app_index_blob_str = data.data_blob_serialize(app_index_blob)
-    app_index_sig = data.data_blob_sign(app_index_blob_str, data_privkey)
-    res = data.put_mutable( index_data_id, app_index_blob_str, data_pubkey, app_index_sig, app_index_blob['version'], blockchain_id=dev_blockchain_id, config_path=config_path, storage_drivers=app_driver_hints )
+    app_index_blob = gaia.make_mutable_data_info(index_data_id, app_index_file, is_fq_data_id=True)
+    app_index_blob_str = gaia.data_blob_serialize(app_index_blob)
+    app_index_sig = gaia.data_blob_sign(app_index_blob_str, data_privkey)
+    
+    res = gaia.put_mutable( index_data_id, app_index_blob_str, data_pubkey, app_index_sig, blockchain_id=dev_blockchain_id, config_path=config_path, storage_drivers=app_driver_hints )
     if 'error' in res:
         log.error("Failed to replicate application index file to {}: {}".format(",".join(urls), res['error']))
         return {'error': 'Failed to replicate index file'}
@@ -226,6 +285,8 @@ def app_publish( dev_blockchain_id, app_domain, app_method_list, app_index_uris,
 
 def app_get_config( blockchain_id, app_domain, data_pubkey=None, proxy=None, config_path=CONFIG_PATH ):
     """
+    DEPRECATED -- meant for building Blockstack-native applications, but this approach is wrong
+
     Get application configuration bundle.
     
     data_pubkey should be the publisher's public key.
@@ -237,7 +298,7 @@ def app_get_config( blockchain_id, app_domain, data_pubkey=None, proxy=None, con
     proxy = get_default_proxy() if proxy is None else proxy
 
     # go get config
-    res = data.get_mutable( ".blockstack", [app_domain], data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, blockchain_id=blockchain_id )
+    res = gaia.get_mutable( ".blockstack", [app_domain], data_pubkeys=[data_pubkey], proxy=proxy, config_path=config_path, blockchain_id=blockchain_id )
     if 'error' in res:
         log.error("Failed to get application config file: {}".format(res['error']))
         return res
@@ -258,6 +319,8 @@ def app_get_config( blockchain_id, app_domain, data_pubkey=None, proxy=None, con
 
 def app_get_resource( blockchain_id, app_domain, res_name, app_config=None, data_pubkey=None, proxy=None, config_path=CONFIG_PATH ):
     """
+    DEPRECATED -- meant for building Blockstack-native applications, but this approach is wrong
+
     Get a named application resource from mutable storage
 
     data_pubkey should be the publisher's public key 
@@ -274,9 +337,9 @@ def app_get_resource( blockchain_id, app_domain, res_name, app_config=None, data
     if app_config is not None:
         # use driver hints
         driver_hints = app_config['driver_hints']
-        urls = storage.get_driver_urls( res_data_id, storage.get_storage_handlers() )
+        urls = storage.get_driver_urls( res_name, storage.get_storage_handlers() )
 
-    res = data.get_mutable( res_name, [app_domain], data_pubkey=data_pubkey, proxy=proxy, config_path=config_path, urls=urls, blockchain_id=blockchain_id )
+    res = gaia.get_mutable( res_name, [app_domain], data_pubkeys=[data_pubkey], proxy=proxy, config_path=config_path, urls=urls, blockchain_id=blockchain_id )
     if 'error' in res:
         log.error("Failed to get resource {}: {}".format(res_name, res['error']))
         return {'error': 'Failed to load resource'}
@@ -286,6 +349,8 @@ def app_get_resource( blockchain_id, app_domain, res_name, app_config=None, data
 
 def app_put_resource( blockchain_id, app_domain, res_name, res_data, app_config=None, data_privkey=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH ):
     """
+    DEPRECATED -- meant for building Blockstack-native applications, but this approach is wrong
+
     Store data to a named application resource in mutable storage.
 
     data_privkey should be the publisher's private key
@@ -318,10 +383,11 @@ def app_put_resource( blockchain_id, app_domain, res_name, res_data, app_config=
         # use driver hints
         driver_hints = app_config['driver_hints']
 
-    res_blob = data.make_mutable_data_info(res_data_id, res_data, is_fq_data_id=True)
-    res_blob_str = data.data_blob_serialize(res_blob)
-    res_sig = data.data_blob_sign(res_blob_str, data_privkey)
-    res = data.put_mutable(res_data_id, res_blob_str, data_pubkey, res_sig, res_blob['version'], blockchain_id=blockchain_id, config_path=config_path, storage_drivers=driver_hints)
+    res_blob = gaia.make_mutable_data_info(res_data_id, res_data, is_fq_data_id=True)
+    res_blob_str = gaia.data_blob_serialize(res_blob)
+    res_sig = gaia.data_blob_sign(res_blob_str, data_privkey)
+
+    res = gaia.put_mutable(res_data_id, res_blob_str, data_pubkey, res_sig, blockchain_id=blockchain_id, config_path=config_path, storage_drivers=driver_hints)
     if 'error' in res:
         log.error("Failed to store resource {}: {}".format(res_data_id, res['error']))
         return {'error': 'Failed to store resource'}
@@ -331,6 +397,8 @@ def app_put_resource( blockchain_id, app_domain, res_name, res_data, app_config=
 
 def app_delete_resource( blockchain_id, app_domain, res_name, app_config=None, data_privkey=None, proxy=None, wallet_keys=None, config_path=CONFIG_PATH ):
     """
+    DEPRECATED -- meant for building Blockstack-native applications, but this approach is wrong
+
     Remove data from a named application resource in mutable storage.
 
     data_privkey should be the publisher's private key
@@ -360,7 +428,8 @@ def app_delete_resource( blockchain_id, app_domain, res_name, app_config=None, d
 
     tombstone = storage.make_data_tombstone(res_data_id)
     signed_tombstone = storage.sign_data_tombstone(res_data_id, data_privkey)
-    res = data.delete_mutable(res_data_id, [signed_tombstone], proxy=proxy, storage_drivers=driver_hints, blockchain_id=blockchain_id, is_fq_data_id=True, config_path=config_path)
+
+    res = gaia.delete_mutable([signed_tombstone], proxy=proxy, storage_drivers=driver_hints, blockchain_id=blockchain_id, config_path=config_path)
     if 'error' in res:
         log.error("Failed to delete resource {}: {}".format(res_data_id, res['error']))
         return {'error': 'Failed to delete resource'}
@@ -370,6 +439,8 @@ def app_delete_resource( blockchain_id, app_domain, res_name, app_config=None, d
 
 def app_unpublish( blockchain_id, app_domain, force=False, data_privkey=None, app_config=None, wallet_keys=None, proxy=None, config_path=CONFIG_PATH ):
     """
+    DEPRECATED -- meant for building Blockstack-native applications, but this approach is wrong
+
     Unpublish an application
     Deletes its config and index.
     Does NOT delete its resources.
@@ -420,7 +491,8 @@ def app_unpublish( blockchain_id, app_domain, force=False, data_privkey=None, ap
     # delete the index
     index_tombstone = storage.make_data_tombstone(index_data_id)
     signed_index_tombstone = storage.sign_data_tombstone(index_data_id, data_privkey)
-    res = data.delete_mutable(index_data_id, [signed_index_tombstone], proxy=proxy, storage_drivers=storage_drivers, blockchain_id=blockchain_id, is_fq_data_id=True, config_path=config_path)
+
+    res = gaia.delete_mutable([signed_index_tombstone], proxy=proxy, storage_drivers=storage_drivers, blockchain_id=blockchain_id, config_path=config_path)
     if 'error' in res:
         log.warning("Failed to delete index file {}".format(index_data_id))
         ret['app_config'] = app_config
@@ -429,7 +501,8 @@ def app_unpublish( blockchain_id, app_domain, force=False, data_privkey=None, ap
     # delete the config 
     config_tombstone = storage.make_data_tombstone(config_data_id)
     signed_config_tombstone = storage.sign_data_tombstone(config_data_id, data_privkey)
-    res = data.delete_mutable(config_data_id, [signed_config_tombstone], proxy=proxy, blockchain_id=blockchain_id, is_fq_data_id=True, config_path=config_path)
+
+    res = gaia.delete_mutable([signed_config_tombstone], proxy=proxy, blockchain_id=blockchain_id, config_path=config_path)
     if 'error' in res:
         log.warning("Failed to delete config file {}".format(config_data_id))
         if not ret.has_key('app_config'):

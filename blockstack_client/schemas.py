@@ -37,8 +37,14 @@ from .constants import (
 
 import blockstack_profiles
 
+OP_URLENCODED_NOSLASH_CLASS = r'[a-zA-Z0-9\-_.~%]'
+OP_URLENCODED_NOSLASH_COLON_CLASS = r'[a-zA-Z0-9\-_.~%:]'
+OP_URLENCODED_CLASS = r'[a-zA-Z0-9\-_.~%/]'
+OP_NAME_CLASS = r'[a-z0-9\-_.+]{{{},{}}}'.format(3, LENGTH_MAX_NAME)
+OP_NAMESPACE_CLASS = r'[a-z0-9\-_+]{{{},{}}}'.format(1, LENGTH_MAX_NAMESPACE_ID)
+OP_BASE58CHECK_CLASS = r'[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]'
 OP_CONSENSUS_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTH_CONSENSUS_HASH * 2)
-OP_BASE58CHECK_PATTERN = r'^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$'
+OP_BASE58CHECK_PATTERN = r'^({}+)$'.format(OP_BASE58CHECK_CLASS)
 OP_ADDRESS_PATTERN = OP_BASE58CHECK_PATTERN
 OP_PRIVKEY_PATTERN = OP_BASE58CHECK_PATTERN
 OP_P2PKH_PATTERN = r'^76[aA]914[0-9a-fA-F]{40}88[aA][cC]$'
@@ -56,22 +62,27 @@ OP_PUBKEY_PATTERN = OP_HEX_PATTERN
 OP_SCRIPT_PATTERN = OP_HEX_PATTERN
 OP_TXID_PATTERN = OP_HEX_PATTERN
 OP_ZONEFILE_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTH_VALUE_HASH * 2)
-OP_NAME_PATTERN = r'^([a-z0-9\-_.+]{{{},{}}})$'.format(3, LENGTH_MAX_NAME)
-OP_NAMESPACE_PATTERN = r'^([a-z0-9\-_+]{{{},{}}})$'.format(1, LENGTH_MAX_NAMESPACE_ID)
+OP_NAME_PATTERN = r'^({})$'.format(OP_NAME_CLASS)
+OP_SUBDOMAIN_NAME_PATTERN = r'^({})\.({})$'.format(OP_NAME_CLASS, OP_NAME_CLASS)
+OP_NAME_OR_SUBDOMAIN_FRAGMENT = r'({})|({})'.format(OP_NAME_PATTERN, OP_SUBDOMAIN_NAME_PATTERN)
+OP_NAME_OR_SUBDOMAIN_PATTERN = r'^{}$'.format(OP_NAME_OR_SUBDOMAIN_FRAGMENT)
+OP_NAMESPACE_PATTERN = r'^({})$'.format(OP_NAMESPACE_CLASS)
 OP_NAMESPACE_HASH_PATTERN = r'^([0-9a-fA-F]{16})$'
 OP_SUBDOMAIN_NAME_PATTERN = r'^([a-z0-9\-_.+]{{{},{}}})$'.format(5, LENGTH_MAX_NAME * 2)
 OP_BASE64_PATTERN_SECTION = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
 OP_BASE64_PATTERN = r'^({})$'.format(OP_BASE64_PATTERN_SECTION)
-OP_URLENCODED_NOSLASH_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'       # intentionally left out /
-OP_URLENCODED_NOSLASH_OR_EMPTY_PATTERN = r'^([a-zA-Z0-9\-_.~%]*)$'       # intentionally left out /, allow empty
-OP_URLENCODED_OR_EMPTY_PATTERN = r'^([a-zA-Z0-9\-_.~%/]*)$'
-OP_URLENCODED_PATTERN = r'^([a-zA-Z0-9\-_.~%/]+)$'
-OP_USER_ID_CLASS = r'[a-zA-Z0-9\-_.%]'
+OP_URLENCODED_NOSLASH_PATTERN = r'^({}+)$'.format(OP_URLENCODED_NOSLASH_CLASS)       # intentionally left out /
+OP_URLENCODED_NOSLASH_OR_EMPTY_PATTERN = r'^({}*)$'.format(OP_URLENCODED_NOSLASH_CLASS)       # intentionally left out /, allow empty
+OP_URLENCODED_OR_EMPTY_PATTERN = r'^({}*)$'.format(OP_URLENCODED_CLASS)
+OP_URLENCODED_PATTERN = r'^({}+)$'.format(OP_URLENCODED_CLASS)
 OP_DATASTORE_ID_CLASS = r'[a-zA-Z0-9\-_.~%]'
-OP_USER_ID_PATTERN = r'^({}+)$'.format(OP_USER_ID_CLASS)
 OP_DATASTORE_ID_PATTERN = r'^({}+)$'.format(OP_DATASTORE_ID_CLASS)
-OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/=@]+)$'
-OP_URI_TARGET_PATTERN_NOSCHEME = r'^([a-zA-Z0-9\-_.~%#?&\\:/=@]+)$'
+OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
+OP_URI_TARGET_PATTERN_NOSCHEME = r'^([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
+OP_TOMBSTONE_PATTERN = '^delete-([0-9]+):([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
+OP_SIGNED_TOMBSTONE_PATTERN = '^delete-([0-9]+):([a-zA-Z0-9\-_.~%#?&\\:/=]+):({})$'.format(OP_BASE64_PATTERN_SECTION)
+OP_DNS_NAME_PATTERN = r'([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])(\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]))*'
+OP_APP_NAME_PATTERN = r'^(^({})\.1(:[0-9]+){{0,1}}$)|(^({})\.x$)$'.format(OP_DNS_NAME_PATTERN, OP_NAME_OR_SUBDOMAIN_FRAGMENT)
 
 OP_ANY_TYPE_SCHEMA = [
     {
@@ -498,153 +509,205 @@ USER_ZONEFILE_SCHEMA = {
     ],
 }
 
-MUTABLE_DATUM_FILE_TYPE = 1
-MUTABLE_DATUM_DIR_TYPE = 2
+ROOT_DIRECTORY_LEAF = 1
+ROOT_DIRECTORY_PARENT = 2
 
-MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES = {
-    'type': {
-        # file, directory
-        'type': 'integer',
-        'minimum': MUTABLE_DATUM_FILE_TYPE,
-        'maximum': MUTABLE_DATUM_DIR_TYPE,
-    },
-    'owner': {
-        # hash of public key
-        'type': 'string',
-        'pattern': OP_ADDRESS_PATTERN
-    },
-    'uuid': {
-        # inode ID
-        'type': 'string',
-        'pattern': OP_UUID_PATTERN
-    },
-    'readers': {
-        # who can read this inode?
-        'type': 'array',
-        'items': {
-            # hash of public key
-            'type': 'string',
-            'pattern': OP_ADDRESS_PATTERN
-        },
-    },
-    'reader_pubkeys': {
-        # public keys (loaded at run-time, not stored)
-        'type': 'array',
-        'items': {
-            'type': 'string',
-            'pattern': OP_HEX_PATTERN
-        },
-    },
-    'version': {
-        # inode version
-        'type': 'integer',
-        'minimum': 1
-    },
-    'proto_version': {
-        # version of the protocol
-        'type': 'integer',
-        'minimum': 1,
-    },
-}
-
-# header contains hash of payload
-MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
-MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES.update({
-    'data_hash': {
-        # hash of associated inode data
-        'type': 'string',
-        'pattern': OP_HEX_PATTERN
-    },
-})
-
-MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
-MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
-
-MUTABLE_DATUM_INODE_HEADER_SCHEMA = {
-    'type': 'object',
-    'properties': MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES,
-    'additionalProperties': False,
-    'required': list(set(MUTABLE_DATUM_SCHEMA_HEADER_PROPERTIES.keys()) - set(['reader_pubkeys']))  # headers only include reader pubkey hashes
-}
-
-MUTABLE_DATUM_DIRENT_SCHEMA = {
+ROOT_DIRECTORY_ENTRY_SCHEMA = {
     'type': 'object',
     'properties': {
-        'type': {
+        'proto_version': {
+            # version of this protocol
             'type': 'integer',
-            'minimum': MUTABLE_DATUM_FILE_TYPE,
-            'maximum': MUTABLE_DATUM_DIR_TYPE,
+            'minimum': 1,
         },
-        'uuid': {
+        'urls': {
+            'type': 'array',
+            'values': {
+                'type': 'string',
+                'pattern': OP_URI_TARGET_PATTERN,
+            },
+        },
+        'data_hash': {
             'type': 'string',
-            'pattern': OP_UUID_PATTERN
+            'pattern': OP_HEX_PATTERN,
         },
-        'version': {
+        'timestamp': {
             'type': 'integer',
             'minimum': 1,
         },
     },
     'additionalProperties': False,
     'required': [
-        'type',
-        'uuid',
-        'version',
+        'proto_version',
+        'urls',
+        'data_hash'
     ],
 }
 
-# NOTE: *unserialized* idata
-MUTABLE_DATUM_DIR_IDATA_SCHEMA = {
+ROOT_DIRECTORY_SCHEMA = {
     'type': 'object',
     'properties': {
-        'children': {
-            'type': 'object',
-            'patternProperties': {
-                # maps name to UUID, links, and type
-                OP_URLENCODED_NOSLASH_PATTERN: MUTABLE_DATUM_DIRENT_SCHEMA
+        'proto_version': {
+            # version of the protocol
+            'type': 'integer',
+            'minimum': 2,
+        },
+        'type': {
+            # leaf, directory
+            'type': 'integer',
+            'minimum': ROOT_DIRECTORY_LEAF,
+            'maximum': ROOT_DIRECTORY_PARENT,
+        },
+        'owner': {
+            # hash of public key
+            'type': 'string',
+            'pattern': OP_ADDRESS_PATTERN
+        },
+        'readers': {
+            # who can read this inode?
+            'type': 'array',
+            'items': {
+                # hash of public key
+                'type': 'string',
+                'pattern': OP_ADDRESS_PATTERN
             },
         },
-        'header': MUTABLE_DATUM_INODE_HEADER_SCHEMA,
+        'timestamp': {
+            # millisecond timestamp
+            'type': 'integer',
+            'minimum': 1
+        },
+        'files': {
+            # name -> urls
+            'type': 'object',
+            'patternProperties': {
+                OP_URLENCODED_PATTERN: ROOT_DIRECTORY_ENTRY_SCHEMA
+            },
+        },
+        'tombstones': {
+            # name -> tombstone
+            'type': 'object',
+            'patternProperties': {
+                OP_URLENCODED_PATTERN: {
+                    'type': 'string',
+                    'pattern': OP_TOMBSTONE_PATTERN,
+                },
+            },
+        },
     },
     'required': [
-        'children',
-        'header',
+        'type',
+        'owner',
+        'readers',
+        'timestamp',
+        'proto_version',
+        'files',
+        'tombstones'
     ],
-    'additionalProperties': False,
 }
 
-MUTABLE_DATUM_FILE_IDATA_SCHEMA = {
-    'type': 'string',
-    'pattern': OP_BASE64_PATTERN
-}
-
-MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.update({
-    'idata': MUTABLE_DATUM_FILE_IDATA_SCHEMA
-})
-
-MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.update({
-    'idata': MUTABLE_DATUM_DIR_IDATA_SCHEMA
-})
-
-MUTABLE_DATUM_INODE_SCHEMA = {
+FILE_LOOKUP_RESPONSE = {
     'type': 'object',
-    'properties': MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES,
-    'additionalProperties': False,
-    'required': list(set(MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.keys()) - set(['reader_pubkeys']))    # public keys are loaded at runtime, not stored
+    'properties': {
+        'status': {
+            'type': 'boolean',
+        },
+        'file_info': ROOT_DIRECTORY_ENTRY_SCHEMA,
+    },
+    'required': [
+        'status',
+        'file_info'
+    ],
+}
+
+GET_DEVICE_ROOT_RESPONSE = {
+    'type': 'object',
+    'properties': {
+        'status': {
+            'type': 'boolean',
+        },
+        'device_root_page': ROOT_DIRECTORY_SCHEMA,
+    },
+    'required': [
+        'status',
+        'device_root_page'
+    ],
+}
+
+GET_ROOT_RESPONSE = {
+    'type': 'object',
+    'properties': {
+        'status': {
+            'type': 'boolean',
+        },
+        'root': {
+            'type': 'object',
+            'patternProperties': {
+                OP_URLENCODED_PATTERN: ROOT_DIRECTORY_ENTRY_SCHEMA
+            }
+        }
+    },
+    'required': [
+        'status',
+        'root'
+    ],
 }
 
 
-MUTABLE_DATUM_FILE_SCHEMA = {
+PUT_DATASTORE_RESPONSE = {
     'type': 'object',
-    'properties': MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES,
-    'additionalProperties': False,
-    'required': list(set(MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.keys()) - set(['reader_pubkeys']))    # public keys are loaded at runtime, not stored
+    'properties': {
+        'status': {
+            'type': 'boolean'
+        },
+        'datastore_urls': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': OP_URI_TARGET_PATTERN
+            },
+        },
+        'root_urls': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': OP_URI_TARGET_PATTERN
+            },
+        },
+    },
+    'required': [
+        'status',
+        'datastore_urls',
+        'root_urls',
+    ],
 }
 
-MUTABLE_DATUM_DIR_SCHEMA = {
+
+PUT_DATA_RESPONSE = {
     'type': 'object',
-    'properties': MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES,
-    'additionalProperties': False,
-    'required': list(set(MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.keys()) - set(['reader_pubkeys']))     # public keys are loaded at runtime, not stored
+    'properties': {
+        'status': {
+            'type': 'boolean',
+        },
+        'urls': {
+            'anyOf': [
+                {
+                    'type': 'array',
+                    'items': {
+                        'type': 'string',
+                        'pattern': OP_URI_TARGET_PATTERN,
+                    },
+                },
+                {
+                    'type': 'null',
+                },
+            ],
+        },
+    },
+    'required': [
+        'status', 
+        'urls'
+    ]
 }
 
 # replicated datastore
@@ -709,7 +772,7 @@ DATA_BLOB_SCHEMA = {
         # optional
         'blockchain_id': {
             'type': 'string',
-            'pattern': OP_NAME_PATTERN,
+            'pattern': OP_NAME_OR_SUBDOMAIN_PATTERN,
         },
     },
     'required': [
@@ -731,7 +794,7 @@ APP_INFO_PROPERTIES = {
         'anyOf': [
             {
                 'type': 'string',
-                'pattern': OP_NAME_PATTERN,
+                'pattern': OP_NAME_OR_SUBDOMAIN_PATTERN,
             },
             {
                 'type': 'null',
@@ -748,6 +811,10 @@ APP_INFO_PROPERTIES = {
                 'type': 'string',
                 'pattern': OP_URI_TARGET_PATTERN,
             },
+            {
+                'type': 'string',
+                'pattern': OP_APP_NAME_PATTERN,
+            }
         ]
     },
     'methods': {
@@ -906,7 +973,7 @@ APP_CONFIG_SCHEMA = {
     'properties': {
         'blockchain_id': {
             'type': 'string',
-            'pattern': OP_NAME_PATTERN,
+            'pattern': OP_NAME_OR_SUBDOMAIN_PATTERN,
         },
         'app_domain': {
             'type': 'string',
@@ -946,18 +1013,14 @@ CREATE_DATASTORE_INFO_SCHEMA = {
         'datastore_blob': {
             'type': 'string',
         },
-        'root_blob_header': {
-            'type': 'string',
-        },
-        'root_blob_idata': {
+        'root_blob': {
             'type': 'string',
         },
     },
     'additionalProperties': False,
     'required': [
         'datastore_blob',
-        'root_blob_header',
-        'root_blob_idata',
+        'root_blob',
     ],
 }
 
@@ -987,6 +1050,7 @@ CREATE_DATASTORE_REQUEST_SCHEMA = {
             'type': 'array',
             'items': {
                 'type': 'string',
+                'pattern': OP_SIGNED_TOMBSTONE_PATTERN
             },
         },
     },
@@ -1006,12 +1070,14 @@ DELETE_DATASTORE_REQUEST_SCHEMA = {
             'type': 'array',
             'items': {
                 'type': 'string',
+                'pattern': OP_SIGNED_TOMBSTONE_PATTERN,
             },
         },
         'root_tombstones': {
             'type': 'array',
             'items': {
                 'type': 'string',
+                'pattern': OP_SIGNED_TOMBSTONE_PATTERN,
             },
         },
     },
@@ -1022,110 +1088,6 @@ DELETE_DATASTORE_REQUEST_SCHEMA = {
     ],
 }
 
-
-DATASTORE_LOOKUP_PATH_ENTRY_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'name': {
-            'type': 'string',
-            'pattern': OP_URLENCODED_NOSLASH_OR_EMPTY_PATTERN,
-        },
-        'uuid': {
-            'type': 'string',
-            'pattern': OP_UUID_PATTERN,
-        },
-        'parent': {
-            'type': 'string',
-            'pattern': OP_URLENCODED_OR_EMPTY_PATTERN,
-        },
-        'inode': MUTABLE_DATUM_DIR_SCHEMA,
-    },
-    'required': [
-        'name',
-        'uuid',
-        'parent',
-        'inode',
-    ],
-    'additionalProperties': False,
-}
-
-
-DATASTORE_LOOKUP_INODE_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'name': {
-            'type': 'string',
-            'pattern': OP_URLENCODED_NOSLASH_OR_EMPTY_PATTERN,
-        },
-        'uuid': {
-            'type': 'string',
-            'pattern': OP_UUID_PATTERN,
-        },
-        'parent': {
-            'type': 'string',
-            'pattern': OP_URLENCODED_OR_EMPTY_PATTERN,
-        },
-        'inode': {
-            'anyOf': [
-                MUTABLE_DATUM_DIR_SCHEMA,
-                MUTABLE_DATUM_FILE_SCHEMA,
-                MUTABLE_DATUM_INODE_HEADER_SCHEMA,
-            ],
-        },
-    },
-    'required': [
-        'name',
-        'uuid',
-        'parent',
-        'inode',
-    ],
-    'additionalProperties': False,
-}
-
-
-DATASTORE_LOOKUP_RESPONSE_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'data': {
-            'anyOf': [
-                MUTABLE_DATUM_DIR_IDATA_SCHEMA,
-                MUTABLE_DATUM_FILE_IDATA_SCHEMA,
-                MUTABLE_DATUM_INODE_HEADER_SCHEMA,
-            ],
-        },
-        'status': {
-            'type': 'boolean',
-        },
-    },
-    'additionalProperties': False,
-    'required': [
-        'data',
-        'status',
-    ],
-}
-
-
-DATASTORE_LOOKUP_EXTENDED_RESPONSE_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'path_info': {
-            'type': 'object',
-            'patternProperties': {
-                OP_URLENCODED_OR_EMPTY_PATTERN: DATASTORE_LOOKUP_INODE_SCHEMA,
-            },
-        },
-        'inode_info': DATASTORE_LOOKUP_INODE_SCHEMA,
-        'status': {
-            'type': 'boolean',
-        },
-    },
-    'additionalProperties': False,
-    'required': [
-        'path_info',
-        'inode_info',
-        'status',
-    ],
-}
 
 OP_HISTORY_SCHEMA = {
     'type': 'object',
@@ -1141,6 +1103,10 @@ OP_HISTORY_SCHEMA = {
         },
         'buckets': {
             'anyOf': [
+                {
+                    'type': 'string',
+                    'pattern': r'^\[((0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15), ){15}(0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15)\]$'
+                },
                 {
                     'type': 'array',
                     'items': {
@@ -1474,10 +1440,6 @@ KEY_DELEGATION_SCHEMA = {
             'type': 'string',
             'pattern': '^1\.0$',
         },
-        'name': {
-            'type': 'string',
-            'pattern': OP_NAME_PATTERN,
-        },
         'devices': {
             'type': 'object',
             'patternProperties': {
@@ -1512,11 +1474,15 @@ KEY_DELEGATION_SCHEMA = {
                 },
             },
         },
+        'timestamp': {
+            'type': 'integer',
+            'minimum': 0,
+        },
     },
     'required': [
         'version',
-        'name',
         'devices',
+        'timestamp'
     ],
     'additionalProperties': False,
 }
@@ -1533,50 +1499,138 @@ APP_KEY_BUNDLE_SCHEMA = {
         'apps': {
             'type': 'object',
             'patternProperties': {
-                OP_NAME_PATTERN: {
-                    'type': 'string',
-                    'pattern': OP_PUBKEY_PATTERN,
+                OP_NAME_OR_SUBDOMAIN_PATTERN: {
+                    'type': 'object',
+                    'items': {
+                        'public_key': {
+                            'type': 'string',
+                            'pattern': OP_PUBKEY_PATTERN,
+                        },
+                        'fq_datastore_id': {
+                            'type': 'string',
+                        },
+                        'datastore_urls': {
+                            'type': 'array',
+                            'items': {
+                                'type': 'string',
+                                'pattern': OP_URI_TARGET_PATTERN,
+                            },
+                        },
+                        'root_urls': {
+                            'type': 'array',
+                            'items': {
+                                'type': 'string',
+                                'pattern': OP_URI_TARGET_PATTERN,
+                            },
+                        },
+                    },
+                    'required': [
+                        'public_key',
+                        'datastore_urls',
+                        'root_urls',
+                    ],
                 },
             },
+        },
+        'timestamp': {
+            'type': 'integer',
+            'minimum': 0,
         },
     },
     'required': [
         'version',
-        'apps'
+        'apps',
+        'timestamp'
     ],
     'additionalProperties': False,
 }
 
 
-# Blockstack token file 
-BLOCKSTACK_TOKEN_FILE_SCHEMA = {
+# Blockstack key file
+# resides as "keyfile" within a profile
+BLOCKSTACK_KEY_FILE_SCHEMA = {
     'type': 'object',
     'properties': {
         'version': {
             'type': 'string',
             'pattern': '^3\.0$',
         },
-        'profile': blockstack_profiles.person.PERSON_SCHEMA,
         'keys': {
-            'delegation': KEY_DELEGATION_SCHEMA,
-            'apps': {
-                'type': 'object',
-                'patternProperties': {
-                    '^.+$': APP_KEY_BUNDLE_SCHEMA
+            'type': 'object',
+            'properties': {
+                'name': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'string',
+                        'pattern': OP_PUBKEY_PATTERN,
+                    },
+                },
+                'delegation': {
+                    'type': 'string',
+                },
+                'apps': {
+                    'type': 'object',
+                    'patternProperties': {
+                        '^.+$': {
+                            'type': 'string',
+                        },
+                    },
                 },
             },
             'required': [
+                'name',
                 'delegation',
                 'apps',
             ],
             'additionalProperties': False,
         },
+        'timestamp': {
+            'type': 'integer',
+            'minimum': 0,
+        },
     },
     'required': [
         'version',
-        'profile',
         'keys',
+        'timestamp'
     ],
     'additionalProperties': False,
+}
+
+
+GET_PROFILE_RESPONSE = {
+    'type': 'object',
+    'properties': {
+        'status': {
+            'type': 'boolean',
+        },
+        'profile': {
+            'anyOf': [
+                {
+                    'type': 'string',
+                },
+                {
+                    'type': 'object',
+                },
+            ],
+        },
+        'zonefile': {
+            'type': 'string',
+        },
+        'zonefile_b64': {
+            'type': 'string',
+            'pattern': OP_BASE64_PATTERN,
+        },
+        'name_record': {
+            'type': 'object',
+            'properties': NAMEOP_SCHEMA_PROPERTIES,
+            'required': NAMEOP_SCHEMA_REQUIRED,
+        },
+    },
+    'required': [
+        'status',
+        'profile',
+        'name_record',
+    ],
 }
 

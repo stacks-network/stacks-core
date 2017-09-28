@@ -54,7 +54,7 @@ from .constants import (
     BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE, DEFAULT_API_PORT,
     DEFAULT_API_HOST, DEFAULT_QUEUE_PATH, DEFAULT_POLL_INTERVAL,
     DEFAULT_BLOCKCHAIN_READER, DEFAULT_BLOCKCHAIN_WRITER,
-    VERSION
+    VERSION, UNASSIGNED_DEVICE_ID_PREFIX
 )
 from .logger import get_logger
 
@@ -261,6 +261,12 @@ def get_local_device_id(config_dir=CONFIG_DIR):
     
     return get_or_set_uuid(config_dir=config_dir)
 
+
+def make_unassigned_device_id(idx):
+    """
+    Make an unassigned device ID
+    """
+    return '{}{}'.format(UNASSIGNED_DEVICE_ID_PREFIX, idx)
 
 
 def configure(config_file=CONFIG_PATH, force=False, interactive=True, set_migrate=False):
@@ -739,6 +745,7 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
         parser.set('blockstack-client', 'metadata', METADATA_DIRNAME)
         parser.set('blockstack-client', 'storage_drivers', BLOCKSTACK_DEFAULT_STORAGE_DRIVERS)
         parser.set('blockstack-client', 'storage_drivers_required_write', BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE)
+        parser.set('blockstack-client', 'storage_anonymous_write', 'True')
         parser.set('blockstack-client', 'api_endpoint_port', str(DEFAULT_API_PORT))
         parser.set('blockstack-client', 'api_endpoint_host', DEFAULT_API_HOST)
         parser.set('blockstack-client', 'api_endpoint_bind', DEFAULT_API_HOST)
@@ -793,6 +800,7 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
     bool_values = {
         'blockstack-client': [
             'anonymous_statistics',
+            'storage_anonymous_write',
         ]
     }
 
@@ -829,6 +837,15 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
     changed_fields_014_1 = {
         'blockstack-client': {
             'client_version': VERSION
+        }
+    }
+    
+    renamed_fields_014_5 = {}
+    dropped_fields_014_5 = {}
+    changed_fields_014_5 = {}
+    added_fields_014_5 = {
+        'blockstack-client': {
+            'storage_anonymous_write': True
         }
     }
 
@@ -868,10 +885,10 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
    }
 
     # grow this list with future releases...
-    renamed_fields = [renamed_fields_014_1, renamed_fields_014_4, renamed_fields_014_4_3]
-    removed_fields = [dropped_fields_014_1, dropped_fields_014_4, dropped_fields_014_4_3]
-    added_fields = [added_fields_014_1, added_fields_014_4, added_fields_014_4_3]
-    changed_fields = [changed_fields_014_1, changed_fields_014_4, changed_fields_014_4_3]
+    renamed_fields = [renamed_fields_014_1, renamed_fields_014_4, renamed_fields_014_4_3, renamed_fields_014_5]
+    removed_fields = [dropped_fields_014_1, dropped_fields_014_4, dropped_fields_014_4_3, dropped_fields_014_5]
+    added_fields = [added_fields_014_1, added_fields_014_4, added_fields_014_4_3, added_fields_014_5]
+    changed_fields = [changed_fields_014_1, changed_fields_014_4, changed_fields_014_4_3, changed_fields_014_5]
 
     migrated = False
 
@@ -1058,6 +1075,18 @@ def setup_config(config_path=CONFIG_PATH, interactive=False):
 
 def get_version_parts(whole, func):
     return [func(_.strip()) for _ in whole[0:3]]
+
+
+def semver_parse(v):
+    """
+    Parse a semver string as a tuple of integers
+    Return (major, minor, patch)
+    """
+    parts = v.split('.')
+    if len(parts) < 3:
+        return None, None, None
+
+    return get_version_parts(parts, int)
 
 
 def semver_match(v1, v2):

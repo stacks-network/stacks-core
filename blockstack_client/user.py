@@ -36,7 +36,7 @@ from .constants import BLOCKSTACK_TEST, CONFIG_PATH, BLOCKSTACK_DEBUG
 
 import scripts
 
-from .logger import get_logger
+from logger import get_logger
 
 log = get_logger()
 
@@ -551,7 +551,7 @@ def get_immutable_data_url(user_zonefile, data_hash):
     return None
 
 
-def list_immutable_data(user_zonefile):
+def list_immutable_data_zonefile(user_zonefile):
     """
     Get the IDs and hashes of all immutable data
     Return [(data ID, hash)]

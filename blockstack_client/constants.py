@@ -32,7 +32,7 @@ import subprocess
 import fcntl
 
 import virtualchain
-from .version import __version__, __version_major__, __version_minor__, __version_patch__
+from version import __version__, __version_major__, __version_minor__, __version_patch__
 
 BLOCKSTACK_TEST = os.environ.get('BLOCKSTACK_TEST', None)
 BLOCKSTACK_TEST_NODEBUG = os.environ.get('BLOCKSTACK_TEST_NODEBUG', None)
@@ -72,7 +72,8 @@ SERIES_VERSION = "{}.{}.{}".format(__version_major__, __version_minor__, __versi
 DEFAULT_BLOCKSTACKD_PORT = 6263  # blockstack indexer port
 DEFAULT_BLOCKSTACKD_SERVER = 'node.blockstack.org'
 
-DEFAULT_DEVICE_ID = '.default'
+DEFAULT_DEVICE_ID = '0'
+UNASSIGNED_DEVICE_ID_PREFIX = 'unassigned-'
 
 DEFAULT_API_HOST = 'localhost'
 DEFAULT_API_PORT = 6270  # API endpoint port
@@ -365,10 +366,11 @@ ACCOUNT_SIGNING_KEY_INDEX = 0
 DATASTORE_SIGNING_KEY_INDEX = 0
 
 # version of the storage protocol 
-BLOCKSTACK_STORAGE_PROTO_VERSION = 1
+BLOCKSTACK_STORAGE_PROTO_VERSION = 2
+BLOCKSTACK_WRITE_LOG_PAGE_LENGTH = 25
 
 # session lifetime
-DEFAULT_SESSION_LIFETIME = 3600 * 24 * 7    # 1 week
+DEFAULT_SESSION_LIFETIME = 3600 * 24 * 31    # 1 month
 
 # epoch dates
 EPOCH_1_END_BLOCK = 436650

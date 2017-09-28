@@ -39,8 +39,8 @@ from .proxy import (
 from blockstack_client import storage, subdomains
 from blockstack_client import user as user_db
 
-from .logger import get_logger
-from .constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
+from logger import get_logger
+from constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 
 from .zonefile import get_name_zonefile
 from .keys import get_data_privkey_info
@@ -152,16 +152,17 @@ def put_profile(name, new_profile, blockchain_id=None, user_data_privkey=None, u
             name, ','.join(required_storage_drivers), get_profile_timestamp(profile_payload), get_pubkey_hex(user_data_privkey))
         )
 
-    rc = storage.put_mutable_data(
+    storage_res = storage.put_mutable_data(
         name, profile_payload, data_privkey=user_data_privkey,
         required=required_storage_drivers,
-        profile=True, blockchain_id=blockchain_id
+        key_file=True, blockchain_id=blockchain_id
     )
 
-    if rc:
-        ret['status'] = True
-    else:
+    if 'error' in storage_res:
         ret['error'] = 'Failed to update profile'
+
+    else:
+        ret['status'] = True
 
     return ret
 
@@ -303,8 +304,8 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
             urls = user_db.user_zonefile_urls(user_zonefile)
 
         user_profile = storage.get_mutable_data(
-            name, user_data_pubkey, blockchain_id=name,
-            data_address=data_address, owner_address=owner_address,
+            name, [user_data_pubkey], blockchain_id=name,
+            data_addresses=[data_address, owner_address],
             urls=urls, drivers=profile_storage_drivers, decode=decode_profile,
         )
 

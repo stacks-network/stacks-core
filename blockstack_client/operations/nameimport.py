@@ -38,7 +38,6 @@ from ..scripts import (
     hash256_trunc128
 )
 
-
 import virtualchain
 log = get_logger("blockstack-client")
 

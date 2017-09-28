@@ -31,12 +31,18 @@ from keychain import PrivateKeychain
 import jsonschema
 from jsonschema.exceptions import ValidationError
 
-from .logger import get_logger
-from .constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
+from logger import get_logger
+from constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST, VERSION
 
 import virtualchain
 from virtualchain.lib.ecdsalib import (
     set_privkey_compressed, get_pubkey_hex, ecdsa_private_key)
+
+NAMES_PRIVKEY_NODE = 888
+NAMES_PRIVKEY_VERSION_NODE = 0
+APP_PRIVKEY_NODE = 0
+SIGNING_PRIVKEY_NODE = 1
+ENCRYPTION_PRIVKEY_NODE = 2
 
 # for compatibility
 log = get_logger()
@@ -67,7 +73,6 @@ class HDWallet(object):
         self.hex_privkey = hex_privkey
         self.priv_keychain = None
         self.master_address = None
-        self.child_addresses = None
 
         self.keychain_key = str(self.hex_privkey) + ":" + str(chaincode.encode('hex'))
 
@@ -149,9 +154,6 @@ class HDWallet(object):
         Returns:
         child address for given @index
         """
-
-        if self.child_addresses is not None:
-            return self.child_addresses[index]
 
         # force decompressed...
         hex_privkey = self.get_child_privkey(index)
@@ -321,13 +323,67 @@ def decrypt_multisig_info(enc_multisig_info, password):
     return multisig_info
 
 
+def get_compressed_and_decompressed_private_key_info(privkey_info):
+    """
+    Get the compressed and decompressed versions of private keys and addresses
+    Return {'compressed_addr': ..., 'compressed_private_key_info': ..., 'decompressed_addr': ..., 'decompressed_private_key_info': ...} on success
+    """
+    if virtualchain.is_multisig(privkey_info):
+
+        # get both compressed and decompressed addresses 
+        privkeys = privkey_info['private_keys']
+        m, _ = virtualchain.parse_multisig_redeemscript(privkey_info['redeem_script'])
+        privkeys_hex = [ecdsa_private_key(pk).to_hex() for pk in privkeys]
+
+        decompressed_privkeys = map(lambda pk: pk if len(pk) == 64 else pk[:-2], privkeys_hex)
+        compressed_privkeys = map(lambda pk: pk if len(pk) == 66 and pk[:-2] == '01' else pk, privkeys_hex)
+        
+        decompressed_multisig = virtualchain.make_multisig_info(m, decompressed_privkeys, compressed=True)
+        compressed_multisig = virtualchain.make_multisig_info(m, compressed_privkeys, compressed=False)
+
+        decompressed_addr = virtualchain.address_reencode(decompressed_multisig['address'])
+        compressed_addr = virtualchain.address_reencode(compressed_multisig['address'])
+        
+        return {'decompressed_private_key_info': decompressed_multisig,
+                'compressed_private_key_info': compressed_multisig,
+                'compressed_addr': compressed_addr, 'decompressed_addr': decompressed_addr}
+
+    elif virtualchain.is_singlesig(privkey_info):
+        
+        pk = privkey_info
+
+        # get both compressed and decompressed addresses
+        compressed_pk = None
+        decompressed_pk = None
+        if len(pk) == 66 and pk.endswith('01'):
+            compressed_pk = pk
+            decompressed_pk = pk[:-2]
+        else:
+            compressed_pk = pk
+            decompressed_pk = pk + '01'
+
+        compressed_pubk = ecdsa_private_key(compressed_pk).public_key().to_hex()
+        decompressed_pubk = ecdsa_private_key(decompressed_pk).public_key().to_hex()
+
+        compressed_addr = virtualchain.address_reencode(keylib.public_key_to_address(compressed_pubk))
+        decompressed_addr = virtualchain.address_reencode(keylib.public_key_to_address(decompressed_pubk))
+
+        return {'decompressed_private_key_info': decompressed_pk,
+                'compressed_private_key_info': compressed_pk,
+                'compressed_addr': compressed_addr, 'decompressed_addr': decompressed_addr}
+
+    else:
+        raise ValueError("Invalid key bundle")
+
+
 def decrypt_private_key_info(privkey_info, password):
     """
     LEGACY COMPATIBILITY CODE
 
     Decrypt a particular private key info bundle.
     It can be either a single-signature private key, or a multisig key bundle.
-    Return {'address': ..., 'private_key_info': ...} on success.
+    Return {'address': ..., 'private_key_info': ..., 'compressed_addr': ..., 'decompressed_addr': ...., 
+            'compressed_private_key_info': ..., 'decompressed_private_key_info': ...} on success.
     Return {'error': ...} on error.
     """
 
@@ -340,7 +396,12 @@ def decrypt_private_key_info(privkey_info, password):
             return {'error': 'Failed to decrypt multisig wallet: {}'.format(ret['error'])}
 
         address = virtualchain.get_privkey_address(ret)
-        return {'address': address, 'private_key_info': ret}
+        key_info = get_compressed_and_decompressed_private_key_info(ret)
+        
+        res = {'address': address, 'private_key_info': ret}
+        res.update(key_info)
+
+        return res
 
     if is_encrypted_singlesig(privkey_info):
         try:
@@ -354,7 +415,12 @@ def decrypt_private_key_info(privkey_info, password):
             return {'error': 'Invalid password'}
 
         address = virtualchain.get_privkey_address(pk)
-        return {'address': address, 'private_key_info': pk}
+        key_info = get_compressed_and_decompressed_private_key_info(ret)
+        
+        res = {'address': address, 'private_key_info': pk}
+        res.update(key_info)
+
+        return res
 
     return {'error': 'Invalid encrypted private key info'}
 
@@ -417,6 +483,7 @@ def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None
 
     ret['data_pubkey'] = ecdsa_private_key(ret['data_privkey']).public_key().to_hex()
     ret['data_pubkeys'] = [ret['data_pubkey']]
+    ret['version'] = VERSION
 
     return ret
 
@@ -549,4 +616,98 @@ def get_privkey_info_params(privkey_info, config_path=CONFIG_PATH):
         return m, len(pubs)
 
     return None, None
+
+
+def find_name_index(name_address, master_privkey_hex, max_tries=25, start=0):
+    """
+    Given a name's device-specific address and device-specific master key,
+    find index from which it was derived.
+
+    Return the index on success
+    Return None on failure.
+    """
+    
+    hdwallet = HDWallet(master_privkey_hex)
+    for i in xrange(start, max_tries):
+        child_privkey = hdwallet.get_child_privkey(index=i)
+        child_pubkey = get_pubkey_hex(child_privkey)
+
+        child_addresses = [
+            keylib.public_key_to_address(keylib.key_formatting.compress(child_pubkey)),
+            keylib.public_key_to_address(keylib.key_formatting.decompress(child_pubkey))
+        ]
+
+        if str(name_address) in child_addresses:
+            return i
+
+    return None
+
+
+def get_name_privkey(master_privkey_hex, name_index):
+    """
+    Make the device-specific private key that owns the name.
+    @master_privkey_hex is the wallet master key, e.g. from the Browser.
+    @name_index is the ith name to be created from this device.
+    """
+    hdwallet = HDWallet(master_privkey_hex)
+    names_privkey = hdwallet.get_child_privkey(index=NAMES_PRIVKEY_NODE, compressed=False)
+
+    hdwallet = HDWallet(names_privkey)
+    names_version_privkey = hdwallet.get_child_privkey(index=NAMES_PRIVKEY_VERSION_NODE, compressed=False)
+
+    hdwallet = HDWallet(names_version_privkey)
+    name_privkey = hdwallet.get_child_privkey(index=name_index, compressed=False)
+
+    return name_privkey
+
+
+def get_app_root_privkey(name_privkey):
+    """
+    Make the device-specific app private key from the device-specific name owner private key
+    """
+    hdwallet = HDWallet(name_privkey)
+    app_privkey = hdwallet.get_child_privkey(index=APP_PRIVKEY_NODE, compressed=False)
+    return app_privkey
+
+
+def get_app_privkey_index(full_application_name):
+    """
+    Get the full application private key index.
+    Application name must be full. i.e. must end in '.1', or '.x'
+    """
+    full_application_name = str(full_application_name)
+    hashcode = 0
+    for i in xrange(0, len(full_application_name)):
+        next_byte = ord(full_application_name[i])
+        hashcode = ((hashcode << 5) - hashcode) + next_byte
+    
+    return hashcode & 0x7fffffff
+
+
+def get_app_privkey(app_root_privkey, full_application_name):
+    """
+    Make the app-specific, device-specific private key from the app root private key
+    """
+    hdwallet = HDWallet(app_root_privkey)
+    app_index = get_app_privkey_index(full_application_name)
+    app_privkey = hdwallet.get_child_privkey(index=app_index, compressed=False)
+    return app_privkey
+
+
+def get_signing_privkey(name_privkey):
+    """
+    Make the device-specific signing private key from the device-specific name owner private key
+    """
+    hdwallet = HDWallet(name_privkey)
+    signing_privkey = hdwallet.get_child_privkey(index=SIGNING_PRIVKEY_NODE, compressed=False)
+    return signing_privkey
+
+
+def get_encryption_privkey(name_privkey):
+    """
+    Make the device-specific encryption private key from the device-specific name owner private key
+    """
+    hdwallet = HDWallet(name_privkey)
+    encryption_privkey = hdwallet.get_child_privkey(index=ENCRYPTION_PRIVKEY_NODE, compressed=False)
+    return encryption_privkey
 

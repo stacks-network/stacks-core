@@ -42,7 +42,7 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=0.14.3',
+        'virtualchain>=0.14.5',
         'keychain>=0.14.2.0',
         'protocoin>=0.2',
         'blockstack-profiles>=0.14.1',
@@ -52,7 +52,7 @@ setup(
         'mixpanel>=4.3.1',
         'simplejson>=3.8.2',
         'jsonschema>=2.5.1',
-        'jsontokens>=0.0.3',
+        'jsontokens>=0.0.4',
         'scrypt>=0.8.0',
         'pyparsing>=2.2.0',     # not required, but causes problems if not installed properly
         'basicrpc>=0.0.2',      # DHT storage driver

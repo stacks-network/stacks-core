@@ -345,7 +345,7 @@ def handles_url( url ):
         return False
 
     urlparts = urlparse.urlparse(url)
-    return urlparts.netlock.endswith("onedrive.live.com")
+    return urlparts.netloc.endswith("onedrive.live.com")
 
 
 def make_mutable_url( data_id ):

@@ -21,7 +21,6 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-
 from ..b40 import is_b40
 from ..constants import (
     DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,

@@ -352,7 +352,11 @@ def put_immutable_handler( key, data, txid, **kw ):
     """
 
     immutable_data_id = "immutable-%s" % key 
-    return write_chunk( immutable_data_id, data )
+    rc = write_chunk( immutable_data_id, data )
+    if rc:
+        return make_mutable_url( immutable_data_id )
+    else:
+        return None
 
 
 def put_mutable_handler( data_id, data_json, **kw ):
@@ -360,7 +364,11 @@ def put_mutable_handler( data_id, data_json, **kw ):
     S3 implementation of the put_mutable_handler API call.
     Return True on success; False on failure.
     """
-    return write_chunk( data_id, data_json )
+    rc = write_chunk( data_id, data_json )
+    if rc:
+        return make_mutable_url( data_id )
+    else:
+        return None
 
 
 def delete_immutable_handler( key, txid, sig_key_txid, **kw ):

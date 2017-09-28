@@ -1732,7 +1732,7 @@ def blockstack_cli_app_put_resource( blockchain_id, app_domain, res_path, res_fi
     return cli_app_put_resource( args, config_path=config_path, interactive=interactive, password=password, proxy=test_proxy )
 
 
-def blockstack_cli_app_signin( blockchain_id, app_privkey, app_domain, api_methods, device_ids=None, public_keys=None, config_path=None ):
+def blockstack_cli_app_signin( blockchain_id, app_privkey, app_domain, api_methods, device_ids=None, public_keys=None, config_path=None, this_device_id=None ):
     """
     sign in and get a token
     """
@@ -1749,18 +1749,26 @@ def blockstack_cli_app_signin( blockchain_id, app_privkey, app_domain, api_metho
     args.privkey = app_privkey
 
     if device_ids is None and public_keys is None:
-        device_ids = [blockstack_client.config.get_local_device_id()]
-        public_keys = [keylib.ECPrivateKey(app_privkey).public_key().to_hex()]
-
+        if blockchain_id is None:
+            device_ids = [blockstack_client.config.get_local_device_id()]
+            public_keys = [keylib.ECPrivateKey(app_privkey).public_key().to_hex()]
+        else:
+            # will load from token file 
+            device_ids = []
+            public_keys = []
+    
     device_ids = ','.join(device_ids)
     public_keys = ','.join(public_keys)
     args.device_ids = device_ids
     args.public_keys = public_keys
 
+    if this_device_id:
+        args.this_device_id = this_device_id
+
     return cli_app_signin( args, config_path=config_path )
 
 
-def blockstack_cli_create_datastore(blockchain_id, datastore_privkey, drivers, ses, device_ids=None, config_path=None):
+def blockstack_cli_create_datastore(datastore_privkey, drivers, ses, device_ids=None, this_device_id=None, config_path=None):
     """
     create_datastore
     """
@@ -1771,15 +1779,17 @@ def blockstack_cli_create_datastore(blockchain_id, datastore_privkey, drivers, s
 
     args = CLIArgs()
 
-    args.blockchain_id = blockchain_id
     args.privkey = datastore_privkey
     args.session = ses
     args.drivers = ",".join(drivers)
+    
+    if this_device_id:
+        args.this_device_id = this_device_id
 
     return cli_create_datastore( args, config_path=config_path)
 
 
-def blockstack_cli_delete_datastore(blockchain_id, datastore_privkey, ses, force=False, config_path=None):
+def blockstack_cli_delete_datastore(datastore_privkey, ses, force=False, config_path=None):
     """
     delete datastore
     """
@@ -1789,7 +1799,6 @@ def blockstack_cli_delete_datastore(blockchain_id, datastore_privkey, ses, force
         config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
-    args.blockchain_id = blockchain_id
     args.privkey = datastore_privkey
     args.session = ses
     args.force = '1' if force else '0'
@@ -1797,47 +1806,9 @@ def blockstack_cli_delete_datastore(blockchain_id, datastore_privkey, ses, force
     return cli_delete_datastore( args, config_path=config_path )
 
 
-def blockstack_cli_datastore_mkdir(blockchain_id, datastore_privkey, path, ses, config_path=None, interactive=False ):
+def blockstack_cli_datastore_listfiles(blockchain_id, app_name, ses=None, datastore_id=None, force=False, data_pubkeys=None, interactive=False, config_path=None):
     """
-    mkdir
-    """
-    if config_path is None:
-        test_proxy = make_proxy(config_path=config_path)
-        blockstack_client.set_default_proxy( test_proxy )
-        config_path = test_proxy.config_path if config_path is None else config_path
-
-    args = CLIArgs()
-    
-    args.blockchain_id = blockchain_id
-    args.path = path
-    args.privkey = datastore_privkey
-    args.session = ses
-    
-    return cli_datastore_mkdir( args, config_path=config_path, interactive=interactive )
-
-
-def blockstack_cli_datastore_rmdir( blockchain_id, datastore_privkey, path, ses, config_path=None, force=False, interactive=False ):
-    """
-    rmdir
-    """
-    if config_path is None:
-        test_proxy = make_proxy(config_path=config_path)
-        blockstack_client.set_default_proxy( test_proxy )
-        config_path = test_proxy.config_path if config_path is None else config_path
-
-    args = CLIArgs()
-    args.blockchain_id = blockchain_id
-    args.path = path
-    args.privkey = datastore_privkey
-    args.session = ses
-    args.force = '1' if force else '0'
-
-    return cli_datastore_rmdir( args, config_path=config_path, interactive=interactive )
-
-
-def blockstack_cli_datastore_rmtree( blockchain_id, datastore_privkey, path, ses, data_pubkeys=None, config_path=None, interactive=False ):
-    """
-    rmtree
+    listfiles
     """
     if config_path is None:
         test_proxy = make_proxy(config_path=config_path)
@@ -1847,27 +1818,8 @@ def blockstack_cli_datastore_rmtree( blockchain_id, datastore_privkey, path, ses
     args = CLIArgs()
     
     args.blockchain_id = blockchain_id
-    args.path = path
-    args.privkey = datastore_privkey
-    args.session = ses
-
-    return cli_datastore_rmtree( args, config_path=config_path, interactive=interactive )
-
-
-def blockstack_cli_datastore_listdir(blockchain_id, datastore_id, path, ses=None, data_pubkeys=None, config_path=None, force=False, interactive=False ):
-    """
-    listdir
-    """
-    if config_path is None:
-        test_proxy = make_proxy(config_path=config_path)
-        blockstack_client.set_default_proxy( test_proxy )
-        config_path = test_proxy.config_path if config_path is None else config_path
-
-    args = CLIArgs()
-    
-    args.blockchain_id = blockchain_id
+    args.app_name = app_name
     args.datastore_id = datastore_id
-    args.path = path 
     args.force = '1' if force else '0'
 
     if data_pubkeys is not None:
@@ -1887,10 +1839,56 @@ def blockstack_cli_datastore_listdir(blockchain_id, datastore_id, path, ses=None
         args.device_ids = ','.join(device_ids)
         args.device_pubkeys = ','.join(app_public_keys)
 
-    return cli_datastore_listdir( args, config_path=config_path, interactive=interactive )
+    return cli_datastore_listfiles(args, config_path=config_path, interactive=interactive)
 
 
-def blockstack_cli_datastore_stat( blockchain_id, datastore_id, path, ses=None, data_pubkeys=None, config_path=None, force=False, interactive=False ):
+
+def cli_datastore_device_listfiles(blockchain_id, app_name, device_id, ses=None, device_ids=None, force=False, data_pubkeys=None, interactive=False, config_path=None):
+    """
+    command: datastore_device_listfiles advanced
+    help: List all files in an application.
+    arg: blockchain_id (str) 'The ID of the datastore owner'
+    arg: app_name (str) 'The fully-qualified application name'
+    arg: device_id (str) 'The device to query'
+    opt: datastore_id (str) 'The ID of the application datastore'
+    opt: force (str) 'If True, then tolerate stale data faults.'
+    opt: device_ids (str) 'If given, a CSV of device IDs owned by the blockchain ID'
+    opt: device_pubkeys (str) 'If given, a CSV of device public keys owned by the blockchain ID'
+    """
+    if config_path is None:
+        test_proxy = make_proxy(config_path=config_path)
+        blockstack_client.set_default_proxy( test_proxy )
+        config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    
+    args.blockchain_id = blockchain_id
+    args.app_name = app_name
+    args.device_id = device_id
+    args.datastore_id = datastore_id
+    args.force = '1' if force else '0'
+
+    if data_pubkeys is not None:
+        
+        device_ids = [dk['device_id'] for dk in data_pubkeys]
+        app_public_keys = [dk['public_key'] for dk in data_pubkeys]
+        
+        args.device_ids = ','.join(device_ids)
+        args.device_pubkeys = ','.join(app_public_keys)
+
+    elif ses is not None:
+        session = jsontokens.decode_token(ses)['payload']
+
+        device_ids = [dk['device_id'] for dk in session['app_public_keys']]
+        app_public_keys = [dk['public_key'] for dk in session['app_public_keys']]
+        
+        args.device_ids = ','.join(device_ids)
+        args.device_pubkeys = ','.join(app_public_keys)
+
+    return cli_datastore_device_listfiles(args, config_path=config_path, interactive=interactive)
+
+
+def blockstack_cli_datastore_stat( blockchain_id, datastore_id, path, ses=None, app_name=None, data_pubkeys=None, config_path=None, force=False, interactive=False ):
     """
     stat
     """
@@ -1904,6 +1902,7 @@ def blockstack_cli_datastore_stat( blockchain_id, datastore_id, path, ses=None, 
     args.blockchain_id = blockchain_id
     args.datastore_id = datastore_id
     args.path = path 
+    args.app_name = app_name
     args.force = '1' if force else '0'
 
     if data_pubkeys is not None:
@@ -1926,7 +1925,7 @@ def blockstack_cli_datastore_stat( blockchain_id, datastore_id, path, ses=None, 
     return cli_datastore_stat( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_getfile( blockchain_id, datastore_id, path, ses=None, data_pubkeys=None, config_path=None, force=False, interactive=False ):
+def blockstack_cli_datastore_getfile( blockchain_id, datastore_id, path, ses=None, app_name=None, data_pubkeys=None, config_path=None, force=False, interactive=False ):
     """
     getfile
     """
@@ -1939,6 +1938,7 @@ def blockstack_cli_datastore_getfile( blockchain_id, datastore_id, path, ses=Non
     
     args.blockchain_id = blockchain_id
     args.datastore_id = datastore_id
+    args.app_name = app_name
     args.path = path
     args.force = '1' if force else '0'
 
@@ -1963,7 +1963,7 @@ def blockstack_cli_datastore_getfile( blockchain_id, datastore_id, path, ses=Non
     return data
 
 
-def blockstack_cli_datastore_putfile( blockchain_id, datastore_privkey, path, data, ses, data_path=None, interactive=False, force=False, proxy=None, config_path=None):
+def blockstack_cli_datastore_putfile( datastore_privkey, path, data, ses, datastore_id=None, data_path=None, interactive=False, force=False, proxy=None, config_path=None):
     """
     putfile
     """
@@ -1973,18 +1973,18 @@ def blockstack_cli_datastore_putfile( blockchain_id, datastore_privkey, path, da
 
     args = CLIArgs()
     
-    args.blockchain_id = blockchain_id
     args.privkey = datastore_privkey
     args.path = path 
     args.data = data
     args.data_path = data_path
     args.session = ses
     args.force = '1' if force else '0'
+    args.datastore_id = datastore_id
 
     return cli_datastore_putfile( args, config_path=config_path, interactive=interactive )
 
 
-def blockstack_cli_datastore_deletefile( blockchain_id, datastore_privkey, path, ses, interactive=False, force=False, proxy=None, config_path=None):
+def blockstack_cli_datastore_deletefile( datastore_privkey, path, ses, datastore_id=None, interactive=False, force=False, proxy=None, config_path=None):
     """
     deletefile
     """
@@ -1994,11 +1994,11 @@ def blockstack_cli_datastore_deletefile( blockchain_id, datastore_privkey, path,
 
     args = CLIArgs()
     
-    args.blockchain_id = blockchain_id
     args.privkey = datastore_privkey
     args.path = path 
     args.session = ses
     args.force = '1' if force else '0'
+    args.datastore_id = datastore_id
 
     return cli_datastore_deletefile( args, config_path=config_path, interactive=interactive )
 
@@ -2166,39 +2166,6 @@ def blockstack_get_profile( name, config_path=None ):
     return profile_result['profile']
 
 
-def blockstack_app_session( app_domain, methods, config_path=None ):
-    """
-    Make a session for the given application
-    Returns {'error': ...} on error
-    """
-    test_proxy = make_proxy(config_path=config_path)
-    blockstack_client.set_default_proxy( test_proxy )
-    config_path = test_proxy.config_path if config_path is None else config_path
-
-    api_pass = test_proxy.conf['api_password']
-    api_port = int(test_proxy.conf['api_endpoint_port'])
-
-    req = {
-        'app_domain': app_domain,
-        'methods': methods,
-    }
-    
-    privk = '0a324d66e9d23de40e5455c5d95507b4641cdbef08a473954586790cf78a80c701'
-
-    signer = jsontokens.TokenSigner()
-    token = signer.sign( req, privk )
-
-    url = 'http://localhost:{}/v1/auth?authRequest={}'.format(api_port, token)
-    resp = requests.get( url, headers={'Authorization': 'bearer {}'.format(api_pass)} )
-    if resp.status_code != 200:
-        log.error("GET {} status code {}".format(url, resp.status_code))
-        return {'error': 'Failed to get session'}
-
-    payload = resp.json()
-    ses = payload['token']
-    return {'ses': ses}
-
-
 def blockstack_REST_call( method, route, session, api_pass=None, app_fqu=None, appname=None, data=None, raw_data=None, config_path=None, **query_fields ):
     """
     Low-level call to an API route
@@ -2230,6 +2197,7 @@ def blockstack_REST_call( method, route, session, api_pass=None, app_fqu=None, a
         headers['authorization'] = 'bearer {}'.format(session)
         app_domain = jsontokens.decode_token(session)["payload"]["app_domain"]
         headers['origin'] = "http://{}".format(app_domain)
+
     elif api_pass:
         headers['authorization'] = 'bearer {}'.format(api_pass)
         headers['origin'] = 'http://localhost:3000'
@@ -2265,6 +2233,18 @@ def blockstack_test_setenv(key, value):
     Set an environment variable on a running API daemon via the test interface
     """
     res = blockstack_REST_call('POST', '/v1/test/envar?{}={}'.format(urllib.quote(key), urllib.quote(value)), None)
+    if res['http_status'] != 200:
+        res['error'] = 'Failed to issue test RPC call'
+        return res
+
+    return res
+
+
+def blockstack_clear_data_cache():
+    """
+    Clear the inode cache
+    """
+    res = blockstack_REST_call('POST', '/v1/test/clearcache', None)
     if res['http_status'] != 200:
         res['error'] = 'Failed to issue test RPC call'
         return res
@@ -3079,7 +3059,7 @@ def put_test_data( relpath, data, **kw ):
     return True
 
 
-def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=True, config_path=None ):
+def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=True, this_device_id=None, config_path=None ):
     """
     Migrate a user's profile from the legacy format to the profile/zonefile format.
     Broadcast an update transaction with the zonefile hash.
@@ -3156,14 +3136,17 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
 
     user_zonefile_hash = blockstack_client.hash_zonefile( user_zonefile )
     
-    # replicate the profile
-    # TODO: this is onename-specific
+    # make a key file 
+    res = blockstack_client.key_file.make_initial_key_file(user_profile, owner_privkey_info, this_device_id=this_device_id, config_path=proxy.config_path)
+    if 'error' in res:
+        log.error("Failed to make initial key file: {}".format(res['error']))
+        return res
 
-    rc = blockstack_client.profile.put_profile(name, user_profile, blockchain_id=name,
-                                              user_data_privkey=data_privkey_info, user_zonefile=user_zonefile,
-                                              proxy=proxy, wallet_keys=wallet_keys )
+    # store it
+    key_file = res['key_file']
+    res = blockstack_client.key_file.key_file_put(name, key_file, config_path=proxy.config_path)
 
-    if 'error' in rc:
+    if 'error' in res:
         log.error("Failed to put profile: {}".format(rc['error']))
         return {'error': 'Failed to move legacy profile to profile zonefile'}
 
@@ -3185,7 +3168,8 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
         'transaction_hash': res['transaction_hash'],
         'zonefile': user_zonefile,
         'zonefile_txt': user_zonefile_txt,
-        'profile': user_profile
+        'profile': user_profile,
+        'key_file': key_file
     }
 
     return result
@@ -3581,8 +3565,10 @@ def nodejs_copy_package( testdir, package_name ):
     if not os.path.exists(node_package_path):
         raise Exception("Missing node package {}: no directory {}".format(package_name, node_package_path))
 
-    rc = os.system('cp -a "{}"/. "{}"'.format(node_package_path, testdir))
+    cmd = 'cd "{}" && cp -a $(ls -a --color=none | grep -v node_modules | grep -v ".git" | egrep -v \'^\\.{{1,2}}$\') "{}"'.format(node_package_path, testdir)
+    rc = os.system(cmd)
     if rc != 0:
+        print 'failed command: {}'.format(cmd)
         raise Exception("Failed to copy {} to {}".format(node_package_path, testdir))
 
     return True
@@ -3599,14 +3585,34 @@ def nodejs_link_package( testdir, package_name ):
     return True
 
 
-def nodejs_run_test( testdir, test_name="core-test" ):
+def nodejs_run_test( testdir, build_cmd='build', test_name="core-test" ):
     """
     Run a nodejs test
     """
-    rc = os.system('cd "{}" && npm install && npm run {} 2>&1 | tee /dev/stderr | egrep "^npm ERR"'.format(testdir, test_name))
+    cmd = 'cd "{}" && npm install && npm run {}'.format(testdir, build_cmd)
+    rc = os.system(cmd)
+    if rc != 0:
+        print 'failed command: {}'.format(cmd)
+        raise Exception("Test {} failed".format(test_name))
+
+    cmd = 'cd "{}" && npm run {} 2>&1 | tee /dev/stderr | egrep "^npm ERROR"'.format(testdir, test_name)
+    rc = os.system(cmd)
     if rc == 0:
+        # found an error
+        print 'failed command: {}'.format(cmd)
         raise Exception("Test {} failed".format(test_name))
 
     return True
 
+
+def interactive_breakpoint(**kw):
+    """
+    Start an interactive breakpoint.
+    Wait for the user to hit 'enter'
+    """
+    if kw['interactive']:
+        while True:
+            i = raw_input('interactive breakpoint (type "go" to continue): ')
+            if i == 'go':
+                break
 

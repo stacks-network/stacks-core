@@ -374,8 +374,8 @@ def put_immutable_handler( data_hash, data_txt, txid, **kw ):
    Read-only data sources like HTTP servers would not implement this
    method, for example.
 
-   Returns True on successful storage
-   Returns False on failure.  Does not raise an exception
+   Returns the URL to the data on success (or a non-empty string)
+   Returns None on error
    """
    
    return False
@@ -389,15 +389,11 @@ def put_mutable_handler( data_id, data_txt, **kw ):
    the overall flow will be:
 
    # store data 
-   rc = put_mutable_handler( data_id, data_txt, **kw )
-   if not rc:
+   data_url = put_mutable_handler( data_id, data_txt, **kw )
+   if not data_url:
       # error path...
 
    # ... some time later ...
-   # get the data back
-   data_url = get_mutable_url( data_id )
-   assert data_url 
-
    data_txt_2 = get_mutable_handler( data_url, **kw )
    if data_txt_2 is None:
       # error path...
@@ -411,8 +407,8 @@ def put_mutable_handler( data_id, data_txt, **kw ):
    * zonefile (True/False): whether or not this is a zone file being stored
    * profile (True/False): whether or not this is a profile being stored
 
-   Returns True on successful store
-   Returns False on error.  Does not raise an exception
+   Returns the data URL on success
+   Returns None on error
    """
 
    return False

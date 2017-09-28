@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# launcher for browser/portal
+# launcher for browse/
 
-PORTAL_DIR='/tmp/blockstack-portal'
-if ! [ -d "$PORTAL_DIR" ]; then 
+BROWSER_DIR='/tmp/blockstack-browser-test'
+if ! [ -d "$BROWSER_DIR" ]; then 
    echo ""
-   echo "Missing $PORTAL_DIR"
+   echo "Missing $BROWSER_DIR"
    echo "Please make sure Blockstack Browser is available in that directory"
    echo "(https://github.com/blockstack/blockstack-browser)"
    echo ""
@@ -18,7 +18,7 @@ DEV_PROXY_PID=
 # start environment 
 export BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270
 
-blockstack-test-scenario --interactive-web 3001 blockstack_integration_tests.scenarios.portal_empty_namespace 2>&1 | tee portal_test.log &
+blockstack-test-scenario --interactive-web 3001 blockstack_integration_tests.scenarios.portal_empty_namespace 2>&1 | tee blockstack_browser_test.log &
 TEST_PID=$!
 
 # wait for it to begin serving 
@@ -31,12 +31,12 @@ while true; do
    fi
 done
 
-pushd "$PORTAL_DIR" >/dev/null
+pushd "$BROWSER_DIR" >/dev/null
 
 echo ""
 echo "Starting Browser CORS proxy"
 echo ""
-npm run dev-proxy 2>&1 | tee "$PORTAL_DIR/cors-proxy.log" &
+npm run dev-proxy 2>&1 | tee "$BROWSER_DIR/cors-proxy.log" &
 DEV_PROXY_PID=$!
 
 sleep 5

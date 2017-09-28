@@ -30,12 +30,13 @@ from keylib import ECPrivateKey
 
 from .proxy import (
     get_default_proxy, get_zonefiles, get_name_blockchain_record, put_zonefiles)
+
 import storage
 import user as user_db
 
-from .config import get_config
-from .logger import get_logger
-from .constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
+from config import get_config
+from logger import get_logger
+from constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 
 log = get_logger()
 
@@ -214,7 +215,7 @@ def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_z
         # fall back to storage drivers if atlas node didn't have it
         zonefile_txt = storage.get_immutable_data(
                 expected_zonefile_hash, hash_func=storage.get_zonefile_data_hash, 
-                fqu=name, zonefile=True, drivers=storage_drivers
+                blockchain_id=name, zonefile=True, drivers=storage_drivers
         )
 
         if zonefile_txt is None:

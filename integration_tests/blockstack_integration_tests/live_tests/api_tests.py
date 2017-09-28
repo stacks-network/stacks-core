@@ -144,7 +144,7 @@ class AuthInternal(APITestCase):
         request = {
             'app_domain': 'test.com',
             'app_public_key': blockstack_client.keys.get_pubkey_hex(privkey),
-            'methods': ['wallet_read'],
+            'methods': ['wallet_read', 'user_read'],
         }
 
         signer = jsontokens.TokenSigner()
@@ -167,8 +167,8 @@ class AuthInternal(APITestCase):
                                 headers = auth_header, status_code=200)
 
         data = self.get_request('/v1/users/muneeb.id',
-                                headers = auth_header, status_code=403)
-        self.assertIn('error', data)
+                                headers = auth_header, status_code=200)
+        # self.assertIn('error', data)
 
     def test_get_and_use_session_token_url(self):
         privkey = ("a28ea1a6f11fb1c755b1d102990d64d6" +
@@ -179,7 +179,7 @@ class AuthInternal(APITestCase):
         request = {
             'app_domain': 'http://test.com',
             'app_public_key': blockstack_client.keys.get_pubkey_hex(privkey),
-            'methods': ['wallet_read'],
+            'methods': ['wallet_read', 'user_read'],
         }
 
         signer = jsontokens.TokenSigner()
@@ -202,8 +202,7 @@ class AuthInternal(APITestCase):
                                 headers = auth_header, status_code=200)
 
         data = self.get_request('/v1/users/muneeb.id',
-                                headers = auth_header, status_code=403)
-        self.assertIn('error', data)
+                                headers = auth_header, status_code=200)
 
     def test_auth_token_no_username(self):
         auth_header = get_auth_header()

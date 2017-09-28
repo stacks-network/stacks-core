@@ -78,7 +78,7 @@ from .namespacereveal import snv_consensus_extras as namespace_reveal_consensus_
 from .namespaceready import snv_consensus_extras as namespace_ready_consensus_extras
 from .announce import snv_consensus_extras as announce_consensus_extras
 
-from ..constants import (NAME_IMPORT, NAME_PREORDER, OPFIELDS)
+from ..constants import (NAME_IMPORT, NAME_PREORDER, OPFIELDS, NAMESPACE_REVEAL, NAMESPACE_READY)
 from ..config import *
 
 # NOTE: these all have the same signatures
@@ -292,9 +292,15 @@ def nameop_snv_consensus_extra_quirks( extras, namerec, block_id ):
 
     log.debug("apply SNV QURIKS on %s at %s (created with %s)" % (namerec.get('name', "UNKNOWN"), block_id, last_creation_opcode))
 
+    # NAME_IMPORT requires a float for this
     if namerec.has_key('name') and last_creation_opcode == 'NAME_IMPORT':
         log.debug("apply SNV QUIRK on %s: %s --> %s"  % (namerec.get('name', "UNKNOWN"), namerec['op_fee'], float(namerec['op_fee'])))
         extras['op_fee'] = float(namerec['op_fee'])
+        
+    # restore namespace ID hash
+    elif namerec.has_key('namespace_id') and namerec['op'] in [NAMESPACE_REVEAL, NAMESPACE_READY]:
+        log.debug("apply SNV QUIRK on %s: %s --> %s" % (namerec['namespace_id'], 'preorder_hash', 'namespace_id_hash'))
+        extras['namespace_id_hash'] = namerec['preorder_hash']
 
     return extras
 

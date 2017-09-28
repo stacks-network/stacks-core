@@ -45,10 +45,7 @@ from keys import make_wallet_keys, get_owner_privkey_info, get_data_privkey_info
 from cli import get_cli_methods
 from client import session, get_default_proxy, set_default_proxy, register_storage, load_storage
 from snv import snv_lookup, lookup_snv
-from data import get_immutable, get_immutable_by_name, get_mutable, put_immutable, put_mutable, delete_immutable, \
-        delete_mutable, list_immutable_data, list_immutable_data_history, list_update_history, list_zonefile_history
 
-from data import set_data_pubkey
 from storage import get_announcement, put_announcement, verify_zonefile
 from profile import get_profile, put_profile, delete_profile
 
