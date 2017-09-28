@@ -550,10 +550,10 @@ def key_file_create(name_owner_privkeys, device_id, key_order=None, apps=None, p
     # store compact-form delegation JWT if there is one signature
     delegation_jwt_txt = None
     if len(name_owner_privkeys) == 1:
-        delegation_jwt = signer.sign(delegations, name_owner_privkeys.values()[0])
+        delegation_jwt = signer.sign(delegations, str(name_owner_privkeys.values()[0]))
         delegation_jwt_txt = delegation_jwt
     else:
-        delegation_jwt = signer.sign(delegations, name_owner_privkeys.values())
+        delegation_jwt = signer.sign(delegations, [str(nop) for nop in name_owner_privkeys.values()])
         delegation_jwt_txt = json.dumps(delegation_jwt)
 
     # make the app jwt 
