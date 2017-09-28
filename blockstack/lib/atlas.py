@@ -35,6 +35,7 @@ import socket
 import gc
 
 import virtualchain
+from nameset.virtualchain_hooks import get_last_block, get_snapshots
 
 from blockstack_client.config import semver_newer
 from blockstack_client.utils import url_to_host_port, atlas_inventory_to_string
@@ -53,7 +54,7 @@ log = virtualchain.get_logger("blockstack-server")
 from .config import *
 from .storage import *
 
-MIN_ATLAS_VERSION = "0.14.0"
+MIN_ATLAS_VERSION = "0.16.0"
 
 PEER_LIFETIME_INTERVAL = 3600  # 1 hour
 PEER_PING_INTERVAL = 600       # 10 minutes
@@ -2622,6 +2623,8 @@ class AtlasPeerCrawler( threading.Thread ):
         self.neighbors_timeout = None
         self.ping_timeout =  None
 
+        self.consensus_hashes = {}
+
 
     def canonical_peer( self, peer ):
         """
@@ -2706,12 +2709,24 @@ class AtlasPeerCrawler( threading.Thread ):
                 continue
 
             if semver_newer( res['server_version'], MIN_ATLAS_VERSION ):
-                # too old to be an atlas node
+                # too old to be a valid atlas node
                 filtered.append(peer)
                 log.debug("%s is too old to be an atlas node (version %s)" % (peer, res['version']))
                 continue
 
-            # TODO: check consensus hash as well
+            our_last_block = get_last_block()
+            if not self.consensus_hashes.has_key(our_last_block):
+                consensus_hashes = get_snapshots()
+                if consensus_hashes:
+                    self.consensus_hashes = consensus_hashes
+
+            if self.consensus_hashes.has_key(our_last_block):
+
+                their_last_block = res['last_block_processed']
+                if their_last_block <= our_last_block and res['consensus'] not in self.consensus_hashes.values():
+                    # on different consensus rules than us
+                    log.debug("Peer {} has ({},{}), but we have ({},{}). Ignoring.".format(peer, their_last_block, res['consensus'], our_last_block, self.consensus_hashes[our_last_block]))
+                    continue
 
             if res:
                 log.debug("Add newly-discovered peer %s" % peer)
