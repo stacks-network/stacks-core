@@ -159,7 +159,7 @@ def check_valid_namespace(nsid):
 
 def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
                             required_checks=[], min_confirmations=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH,
-                            transfer_address=None, owner_address=None, value_hash=None, burn_address=None, proxy=None):
+                            transfer_address=None, owner_address=None, zonefile_hash=None, burn_address=None, proxy=None):
     """
     Do a sanity check on carrying out a sequence of operations on a given name.
     Prime the given scatter/gather context with the set of necessary callbacks.
@@ -320,12 +320,12 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
 
         return {'status': True}
 
-    def _register_can_change_value_hash(value_hash):
+    def _register_can_change_zonefile_hash(zonefile_hash):
         """
         If we're registering, can we set the value hash?
         """
         import blockstack
-        if value_hash is not None:
+        if zonefile_hash is not None:
             indexer_info = getinfo()
             if 'error' in indexer_info:
                 return {'error': 'Failed to contact indexer'}
@@ -340,12 +340,12 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
 
         return {'status': True}
 
-    def _renewal_can_change_value_hash(value_hash):
+    def _renewal_can_change_zonefile_hash(zonefile_hash):
         """
         If we're renewing, can we set the value hash?
         """
         import blockstack
-        if value_hash is not None:
+        if zonefile_hash is not None:
             indexer_info = getinfo()
             if 'error' in indexer_info:
                 return {'error': 'Failed to contact indexer'}
@@ -527,8 +527,8 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         'is_namespace_revealer': lambda: _is_namespace_revealer(fqu_or_ns, owner_address),
         'is_namespace_reveal_address_valid': lambda: _is_namespace_reveal_address_valid(owner_address),
         'is_name_import_key': lambda: _is_name_import_key(fqu_or_ns, payment_privkey_info),
-        'register_can_change_value_hash': lambda: _register_can_change_value_hash(value_hash),
-        'renewal_can_change_value_hash': lambda: _renewal_can_change_value_hash(value_hash),
+        'register_can_change_zonefile_hash': lambda: _register_can_change_zonefile_hash(zonefile_hash),
+        'renewal_can_change_zonefile_hash': lambda: _renewal_can_change_zonefile_hash(zonefile_hash),
         'renewal_can_change_owner_address': lambda: _renewal_can_change_owner_address(transfer_address),
         'is_burn_address_correct': lambda: _is_burn_address_correct(fqu_or_ns, burn_address),
         'is_name_outside_grace_period': lambda: _is_name_outside_grace_period(fqu_or_ns),
@@ -551,7 +551,7 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
     # add tasks for fees
     res = get_operation_fees(fqu_or_ns, operations, sg, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
                              payment_address=payment_address, owner_address=owner_address, transfer_address=transfer_address,
-                             value_hash=value_hash, min_payment_confs=min_confirmations, config_path=config_path, proxy=proxy )
+                             zonefile_hash=zonefile_hash, min_payment_confs=min_confirmations, config_path=config_path, proxy=proxy )
 
     if 'error' in res:
         log.error("Failed to get operation fees: {}".format(res['error']))
@@ -637,7 +637,7 @@ def estimate_transaction_inputs(operations, inputs, owner_address=None, payment_
 
 
 def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
-                       proxy=None, config_path=CONFIG_PATH, payment_address=None, value_hash=None,
+                       proxy=None, config_path=CONFIG_PATH, payment_address=None, zonefile_hash=None,
                        min_payment_confs=TX_MIN_CONFIRMATIONS, owner_address=None, transfer_address=None):
     """
     Given a list of operations and a scatter/gather context,
@@ -816,7 +816,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
             insufficient_funds = False
             register_tx_fee = estimate_register_tx_fee(
                 name_or_ns, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client,
-                payment_utxos=estimated_payment_inputs[operation_index], value_hash=value_hash,
+                payment_utxos=estimated_payment_inputs[operation_index], zonefile_hash=zonefile_hash,
                 config_path=config_path, include_dust=True
             )
 
@@ -978,7 +978,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
             estimate = False
 
             tx_fee = estimate_renewal_tx_fee(
-                name_or_ns, name_cost, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, value_hash=value_hash,
+                name_or_ns, name_cost, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, zonefile_hash=zonefile_hash,
                 payment_utxos=estimated_payment_inputs[operation_index], owner_utxos=estimated_owner_inputs[operation_index],
                 config_path=config_path, include_dust=True
             )
@@ -1298,7 +1298,7 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
 
 
 def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey_info, required_checks=[], burn_address=None, 
-                      transfer_address=None, owner_address=None, value_hash=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+                      transfer_address=None, owner_address=None, zonefile_hash=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
     """
     Verify that an operation sequence can be performed, given the set of sanity checks that must pass.
     Return {'status': True, 'opchecks': {...}} if so
@@ -1320,7 +1320,7 @@ def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey
     sg = ScatterGather()
 
     res = operation_sanity_checks(fqu_or_ns, operations, sg, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
-                                  required_checks=required_checks, owner_address=owner_address, burn_address=burn_address, value_hash=value_hash,
+                                  required_checks=required_checks, owner_address=owner_address, burn_address=burn_address, zonefile_hash=zonefile_hash,
                                   min_confirmations=min_payment_confs, config_path=config_path,
                                   transfer_address=transfer_address, proxy=proxy )
 
@@ -1367,7 +1367,8 @@ def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey
     return {'status': True, 'opchecks': opchecks, 'tx_fee_per_byte': tx_fee_per_byte}
 
 
-def _check_op(fqu_or_ns, operation, required_checks, owner_privkey_info, payment_privkey_info, owner_address=None, transfer_address=None, value_hash=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+def _check_op(fqu_or_ns, operation, required_checks, owner_privkey_info, payment_privkey_info,
+              owner_address=None, transfer_address=None, zonefile_hash=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
     """
     Check an operation
     Return {'status': True, 'opchecks': {...}, 'tx_fee': ...} on success
@@ -1377,7 +1378,7 @@ def _check_op(fqu_or_ns, operation, required_checks, owner_privkey_info, payment
     assert payment_privkey_info
 
     res = check_operations( fqu_or_ns, [operation], owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs,
-                            transfer_address=transfer_address, owner_address=owner_address, value_hash=value_hash,
+                            transfer_address=transfer_address, owner_address=owner_address, zonefile_hash=zonefile_hash,
                             required_checks=required_checks, config_path=config_path, proxy=proxy )
 
     opchecks = res.get('opchecks', None)
@@ -1428,14 +1429,14 @@ def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info,
     return {'status': True, 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
 
 
-def check_register(fqu, owner_privkey_info, payment_privkey_info, value_hash=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None, force_it=False ):
+def check_register(fqu, owner_privkey_info, payment_privkey_info, zonefile_hash=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None, force_it=False ):
     """
     Verify that a register can go through
     """
-    required_checks = ['is_name_available', 'is_payment_address_usable', 'register_can_change_value_hash']
+    required_checks = ['is_name_available', 'is_payment_address_usable', 'register_can_change_zonefile_hash']
     if not force_it:
         required_checks += ['owner_can_receive']
-    return _check_op(fqu, 'register', required_checks, owner_privkey_info, payment_privkey_info, value_hash=value_hash, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy )
+    return _check_op(fqu, 'register', required_checks, owner_privkey_info, payment_privkey_info, zonefile_hash=zonefile_hash, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy )
 
 
 def check_update(fqu, owner_privkey_info, payment_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None, force_it=False ):
@@ -1456,7 +1457,7 @@ def check_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
     return _check_op(fqu, 'transfer', required_checks, owner_privkey_info, payment_privkey_info, transfer_address=transfer_address, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)
 
 
-def check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, value_hash=None, new_owner_address=None, burn_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+def check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, zonefile_hash=None, new_owner_address=None, burn_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
     """
     Verify that a renew can go through
     """ 
@@ -1468,10 +1469,10 @@ def check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, va
         new_owner_address = virtualchain.get_privkey_address(owner_privkey_info)
 
     required_checks = ['is_name_registered', 'is_name_owner', 'is_owner_address_usable', 'is_payment_address_usable', 
-                       'recipient_can_receive', 'renewal_can_change_value_hash', 'renewal_can_change_owner_address',
+                       'recipient_can_receive', 'renewal_can_change_zonefile_hash', 'renewal_can_change_owner_address',
                        'is_burn_address_correct']
 
-    res = check_operations( fqu, ['renewal'], owner_privkey_info, payment_privkey_info, value_hash=value_hash, transfer_address=new_owner_address, min_payment_confs=min_payment_confs, burn_address=burn_address,
+    res = check_operations( fqu, ['renewal'], owner_privkey_info, payment_privkey_info, zonefile_hash=zonefile_hash, transfer_address=new_owner_address, min_payment_confs=min_payment_confs, burn_address=burn_address,
                             required_checks=required_checks, config_path=config_path, proxy=proxy )
 
     opchecks = res.get('opchecks', None)
