@@ -68,6 +68,9 @@ def app_domain_to_app_name(app_domain):
         return app_domain
 
     urlinfo = urlparse.urlparse(app_domain)
+    if not urlinfo.netloc:
+        # try as URL:
+        urlinfo = urlparse.urlparse("http://{}/".format(app_domain))
     assert urlinfo.netloc, app_domain
 
     if ':' in urlinfo.netloc:
@@ -104,7 +107,7 @@ def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_p
     ses = {
         'version': 1,
         'blockchain_id': blockchain_id,
-        'app_domain': app_domain,
+        'app_domain': app_domain_to_app_name(app_domain),
         'methods': methods,
         'app_public_keys': app_public_keys,
         'app_user_id': app_user_id,

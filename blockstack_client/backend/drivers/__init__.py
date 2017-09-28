@@ -32,4 +32,4 @@ import gaia_hub
 
 from common import index_settings_get_index_manifest_url, ConcurrencyViolationException
 
-SUPPORTED_DRIVERS = ['dht', 'disk', 's3', 'blockstack_resolver', 'blockstack_server', 'http', 'dropbox', 'test', 'gaia_hub']
+SUPPORTED_DRIVERS = ['dht', 'disk', 's3', 'blockstack_resolver', 'blockstack_server', 'http', 'gaia_hub', 'dropbox', 'test']

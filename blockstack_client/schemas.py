@@ -814,6 +814,10 @@ APP_INFO_PROPERTIES = {
                 'type': 'string',
                 'pattern': OP_URI_TARGET_PATTERN,
             },
+            {
+                'type': 'string',
+                'pattern': OP_APP_NAME_PATTERN,
+            }
         ]
     },
     'methods': {
