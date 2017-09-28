@@ -395,6 +395,7 @@ def put_datastore_info( datastore_info, datastore_sigs, root_tombstones, config_
     datastore_id = datastore_get_id(datastore['pubkey'])
     
     # store root 
+    log.debug("Store datastore root {}/{}".format(datastore_id, datastore['root_uuid']))
     res = put_device_root_data(datastore_id, datastore_dev_id, datastore['root_uuid'], datastore_info['root_blob'], datastore['pubkey'], datastore_sigs['root_sig'], datastore['drivers'],
                                config_path=config_path, blockchain_id=blockchain_id)
 
@@ -405,6 +406,7 @@ def put_datastore_info( datastore_info, datastore_sigs, root_tombstones, config_
     root_urls = res['urls']
 
     # store datastore
+    log.debug("Store datastore control record {}".format(datastore_id))
     res = put_mutable(datastore_fqid, datastore_info['datastore_blob'], datastore['pubkey'], datastore_sigs['datastore_sig'],
                       blockchain_id=blockchain_id, storage_drivers=datastore['drivers'], storage_drivers_exclusive=True, config_path=config_path)
 
