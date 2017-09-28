@@ -198,6 +198,7 @@ class RegistrarWorker(threading.Thread):
                     log.debug("async_register({}, zonefile={}, keyfile={}, transfer_address={})".format(
                         name_data['fqu'], name_data.get('zonefile'), name_data.get('key_file'), 
                         name_data.get('transfer_address'))) 
+
                     res = async_register( name_data['fqu'], payment_privkey_info, owner_privkey_info, 
                                           name_data=name_data, proxy=proxy, config_path=config_path,
                                           queue_path=queue_path )
@@ -244,6 +245,15 @@ class RegistrarWorker(threading.Thread):
             else:
                 raise Exception("Queue inconsistency: name '%s' is and is not pending update" % up_result[0]['fqu'])
 
+        if name_data.has_key('is_regup') and name_data['is_regup']:
+            # already sent zone file hash 
+            regup_result = queuedb_find("register", name_data['fqu'], limit=1, path=queue_path)
+            if len(regup_result) == 1:
+                return {'status': True, 'transaction_hash': regup_result[0]['tx_hash'], 'zonefile_hash': regup_result[0].get('zonefile_hash', None)}
+
+            else:
+                raise Exception("Queue inconsistency: name '{}' is and is not pending update".format(regup_result[0]['fqu']))
+
         log.debug("update({}, zonefile={}, keyfile={}, transfer_address={})".format(name_data['fqu'], name_data.get('zonefile'), name_data.get('key_file'), name_data.get('transfer_address'))) 
         res = update( name_data['fqu'], name_data.get('zonefile'), name_data.get('zonefile_hash'), name_data.get('transfer_address'),
                       config_path=config_path, proxy=proxy, prior_name_data = name_data )
@@ -283,6 +293,11 @@ class RegistrarWorker(threading.Thread):
             if in_queue("update", register['fqu'], path=queue_path):
                 log.warn("Already initialized key file for name '%s'" % register['fqu'])
                 queue_removeall( [register], path=queue_path )
+                continue
+
+            # already sent zone file hash as part of a combined register/update?
+            if register.has_key('is_regup') and register['is_regup']:
+                log.warn("Skipping register/update on {}".format(register['fqu']))
                 continue
 
             log.debug("Register for '%s' (%s) is confirmed!" % (register['fqu'], register['tx_hash']))
@@ -560,6 +575,24 @@ class RegistrarWorker(threading.Thread):
 
 
     @classmethod
+    def replicate_register_data( cls, queue_path, wallet_data, storage_drivers, skip=[], config_path=CONFIG_PATH, proxy=None ):
+        """
+        Replicate all zone files and key files for each confirmed NAME_REGISTRATION that has a zone file hash (post F-day 2017)
+        @atlas_servers should be a list of (host, port)
+
+        Do NOT remove items from the queue.
+
+        Return {'status': True} on success
+        Return {'error': ..., 'names': [...]} on failure.  'names' refers to the list of names that failed
+        """
+        regups = cls.get_confirmed_registers( config_path, queue_path )
+        if len(regups) == 0:
+            return {'status': True}
+
+        return cls.replicate_names_data(queue_path, regups, wallet_data, storage_drivers, skip=skip, config_path=config_path, proxy=proxy)
+
+
+    @classmethod
     def replicate_name_import_data( cls, queue_path, wallet_data, storage_drivers, skip=[], config_path=CONFIG_PATH, proxy=None ):
         """
         Replicate all zone files and key files for each confirmed NAME_UPDATE
@@ -580,7 +613,7 @@ class RegistrarWorker(threading.Thread):
     @classmethod
     def transfer_names( cls, queue_path, skip=[], config_path=CONFIG_PATH, proxy=None ):
         """
-        Find all confirmed updates and if they have a transfer address, transfer them.
+        Find all confirmed updates and regups, and if they have a transfer address, transfer them.
         Otherwise, clear them from the update queue.
 
         Return {'status': True} on success
@@ -595,7 +628,10 @@ class RegistrarWorker(threading.Thread):
         assert conf
 
         updates = cls.get_confirmed_updates( config_path, queue_path )
-        for update in updates:
+        registers = cls.get_confirmed_registers(config_path, queue_path)
+        regups = filter(lambda reg: reg.has_key('is_regup') and reg['is_regup'], registers)
+
+        for update in updates + regups:
             if update['fqu'] in skip:
                 log.debug("Skipping {}".format(update['fqu']))
                 continue
@@ -862,7 +898,7 @@ class RegistrarWorker(threading.Thread):
                 failed = True
 
             try:
-                # see if we can put any zonefiles
+                # see if we can put any zonefiles via NAME_UPDATE
                 # clear out any confirmed registers
                 # log.debug("put zonefile hashes for registered names in %s" % (self.queue_path))
                 res = RegistrarWorker.set_zonefiles( self.queue_path, config_path=self.config_path, proxy=proxy )
@@ -876,7 +912,22 @@ class RegistrarWorker(threading.Thread):
                 failed = True
 
             try:
-                # see if we can replicate any zonefiles and key files
+                # see if we can replicate any zonefiles and key files for confirmed NAME_REGISTERs with zone file hashes (post F-day 2017)
+                # clear out any confirmed registers
+                # log.debug("replicate all pending zone files and key files for register/updates %s" % (self.queue_path))
+                res = RegistrarWorker.replicate_register_data( self.queue_path, wallet_data, self.required_storage_drivers, config_path=self.config_path, proxy=proxy )
+                if 'error' in res:
+                    log.warn("Zone file/key file replication failed for register: %s" % res['error'])
+
+                    failed = True
+                    failed_names += res['names']
+
+            except Exception, e:
+                log.exception(e)
+                failed = True
+
+            try:
+                # see if we can replicate any zonefiles and key files for confirmed NAME_UPDATEs
                 # clear out any confirmed updates
                 # log.debug("replicate all pending zone files and key files for updates %s" % (self.queue_path))
                 res = RegistrarWorker.replicate_update_data( self.queue_path, wallet_data, self.required_storage_drivers, config_path=self.config_path, proxy=proxy )
