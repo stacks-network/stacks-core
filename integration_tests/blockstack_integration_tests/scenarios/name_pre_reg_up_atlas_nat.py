@@ -123,7 +123,7 @@ def scenario( wallets, **kw ):
         if dest_hostport is None:
             return 0.0
         
-        host, port = blockstack_client.config.url_to_host_port( dest_hostport )
+        host, port = blockstack_client.utils.url_to_host_port( dest_hostport )
         if port in atlas_nodes:
             # connections to the above nodes will always fail, since they're NAT'ed
             return 1.0

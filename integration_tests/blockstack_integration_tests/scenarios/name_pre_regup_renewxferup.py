@@ -59,9 +59,9 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_preorder( "foo3.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
-    testlib.blockstack_name_register( "foo1.test", wallets[2].privkey, wallets[3].addr, value_hash='11' * 20 )
-    testlib.blockstack_name_register( "foo2.test", wallets[2].privkey, wallets[3].addr, value_hash='22' * 20 )
-    testlib.blockstack_name_register( "foo3.test", wallets[2].privkey, wallets[3].addr, value_hash='33' * 20 )
+    testlib.blockstack_name_register( "foo1.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11' * 20 )
+    testlib.blockstack_name_register( "foo2.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='22' * 20 )
+    testlib.blockstack_name_register( "foo3.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='33' * 20 )
     testlib.next_block( **kw )
 
     # whois
@@ -85,7 +85,7 @@ def scenario( wallets, **kw ):
     for i in xrange(1, 4):
         name = 'foo{}.test'.format(i)
 
-        resp = testlib.blockstack_name_renew( name, wallets[3].privkey, value_hash='{}a'.format(i) * 20, recipient_addr=wallets[0].addr )
+        resp = testlib.blockstack_name_renew( name, wallets[3].privkey, zonefile_hash='{}a'.format(i) * 20, recipient_addr=wallets[0].addr )
         if 'error' in resp:
             print resp
             return False

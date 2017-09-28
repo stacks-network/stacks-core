@@ -60,9 +60,9 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_preorder( "foo3.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
-    testlib.blockstack_name_register( "foo1.test", wallets[2].privkey, wallets[3].addr, value_hash='11' * 20 )
-    testlib.blockstack_name_register( "foo2.test", wallets[2].privkey, wallets[3].addr, value_hash='22' * 20 )
-    testlib.blockstack_name_register( "foo3.test", wallets[2].privkey, wallets[3].addr, value_hash='33' * 20 )
+    testlib.blockstack_name_register( "foo1.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11' * 20 )
+    testlib.blockstack_name_register( "foo2.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='22' * 20 )
+    testlib.blockstack_name_register( "foo3.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='33' * 20 )
     testlib.next_block( **kw )
 
     # whois
@@ -94,9 +94,9 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_preorder( "foo3.test", wallets[3].privkey, wallets[2].addr )
     testlib.next_block( **kw )
 
-    testlib.blockstack_name_register( "foo1.test", wallets[3].privkey, wallets[2].addr, value_hash='1a' * 20 )
-    testlib.blockstack_name_register( "foo2.test", wallets[3].privkey, wallets[2].addr, value_hash='2a' * 20 )
-    testlib.blockstack_name_register( "foo3.test", wallets[3].privkey, wallets[2].addr, value_hash='3a' * 20 )
+    testlib.blockstack_name_register( "foo1.test", wallets[3].privkey, wallets[2].addr, zonefile_hash='1a' * 20 )
+    testlib.blockstack_name_register( "foo2.test", wallets[3].privkey, wallets[2].addr, zonefile_hash='2a' * 20 )
+    testlib.blockstack_name_register( "foo3.test", wallets[3].privkey, wallets[2].addr, zonefile_hash='3a' * 20 )
     testlib.next_block( **kw )
 
     # whois

@@ -56,13 +56,13 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw ) # 692
 
     # should fail (safety checks stop it)
-    resp = testlib.blockstack_name_register('foo.test', wallets[2].privkey, wallets[3].addr, value_hash='22' * 20)
+    resp = testlib.blockstack_name_register('foo.test', wallets[2].privkey, wallets[3].addr, zonefile_hash='22' * 20)
     if 'error' not in resp:
         print resp
         return False
 
     # should succeed in being sent, but will be rejected
-    resp = testlib.blockstack_name_register('foo.test', wallets[2].privkey, wallets[3].addr, value_hash='22' * 20, safety_checks=False, tx_fee=300 * 5)
+    resp = testlib.blockstack_name_register('foo.test', wallets[2].privkey, wallets[3].addr, zonefile_hash='22' * 20, safety_checks=False, tx_fee=300 * 5)
     if 'error' in resp:
         print resp
         return False
@@ -78,7 +78,7 @@ def scenario( wallets, **kw ):
 
     # epoch 3 now active.
     # try again, and it should succeed
-    resp = testlib.blockstack_name_register('foo.test', wallets[2].privkey, wallets[3].addr, value_hash='22' * 20)
+    resp = testlib.blockstack_name_register('foo.test', wallets[2].privkey, wallets[3].addr, zonefile_hash='22' * 20)
     if 'error' in resp:
         print resp
         return False
