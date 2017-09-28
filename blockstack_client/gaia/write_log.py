@@ -345,7 +345,7 @@ def write_log_replicate_thread(config_path=CONFIG_PATH):
     while is_gaia_running():
         
         # wait for new data
-        log.debug("Waiting for new device root pages to replicate...")
+        log.debug("Waiting for new device root pages to replicate in {}...".format(write_log_path(config_path)))
         WRITE_LOG_THREAD_SEMAPHORE.acquire()
 
         next_entry = write_log_peek(config_path=config_path)
