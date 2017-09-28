@@ -436,25 +436,25 @@ def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None
         'payment_privkey': None,
     }
 
-    def _convert_key(given_privkey):
+    def _convert_key(given_privkey, key_type):
         if virtualchain.is_multisig(given_privkey):
             pks = given_privkey['private_keys']
             m, _ = virtualchain.parse_multisig_redeemscript(given_privkey['redeem_script'])
             assert m <= len(pks)
 
             multisig_info = virtualchain.make_multisig_info(m, pks)
-            ret['given_privkey'] = multisig_info
-            ret['owner_addresses'] = [virtualchain.get_privkey_address(multisig_info)]
+            ret['{}_privkey'.format(key_type)] = multisig_info
+            ret['{}_addresses'.format(key_type)] = [virtualchain.get_privkey_address(multisig_info)]
 
         elif virtualchain.is_singlesig(given_privkey):
             pk = ecdsa_private_key(given_privkey).to_hex()
-            ret['given_privkey'] = pk
-            ret['owner_addresses'] = [virtualchain.get_privkey_address(pk)]
+            ret['{}_privkey'.format(key_type)] = pk
+            ret['{}_addresses'.format(key_type)] = [virtualchain.get_privkey_address(pk)]
 
         elif virtualchain.btc_is_singlesig_segwit(given_privkey):
             pk = virtualchain.make_segwit_info( virtualchain.get_singlesig_privkey(given_privkey) )
-            ret['given_privkey'] = pk
-            ret['owner_addresses'] = [pk['address']]
+            ret['{}_privkey'.format(key_type)] = pk
+            ret['{}_addresses'.format(key_type)] = [pk['address']]
 
         elif virtualchain.btc_is_multisig_segwit(given_privkey):
             pks = given_privkey['private_keys']
@@ -462,8 +462,8 @@ def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None
             assert m <= len(pks)
 
             pk = virtualchain.make_multisig_segwit_info(m, pks)
-            ret['given_privkey'] = pk
-            ret['owner_addresses'] = [pk['address']]
+            ret['{}_privkey'.format(key_type)] = pk
+            ret['{}_addresses'.format(key_type)] = [pk['address']]
 
         else:
             raise ValueError('Invalid owner key info')
@@ -476,12 +476,12 @@ def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None
         ret['data_privkey'] = pk_data
 
     if owner_privkey is not None:
-        _convert_key(owner_privkey)
+        _convert_key(owner_privkey, 'owner')
 
     if payment_privkey is None:
         return ret
 
-    _convert_key(payment_privkey)
+    _convert_key(payment_privkey, 'payment')
 
     ret['data_pubkey'] = ecdsa_private_key(ret['data_privkey']).public_key().to_hex()
     ret['data_pubkeys'] = [ret['data_pubkey']]
