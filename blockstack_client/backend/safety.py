@@ -597,6 +597,25 @@ def interpret_operation_sanity_checks( operations, scatter_gather ):
     return reply
 
 
+def make_fake_input(addr, value=21 * 10**8):
+    """
+    Make a fake transaction input, based on the kind of input the given private key information
+    is expected to create.
+    """
+    fake_input = {
+        "transaction_hash": '00' * 32,
+        'outpoint': {
+            'index': 0,
+            'hash': '00' * 32,
+        },
+        "value": value,
+        "out_script": virtualchain.make_payment_script(addr),
+        "confirmations": 256,
+    }
+
+    return fake_input
+
+
 def estimate_transaction_inputs(operations, inputs, owner_address=None, payment_address=None):
     """
     Estimate the inputs that will be consumed by each
@@ -737,21 +756,28 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
     if len(owner_utxos) > 0:
         estimated_owner_inputs = estimate_transaction_inputs(operations, owner_utxos, owner_address=owner_address)['inputs']
     else:
-        estimated_owner_inputs = [[]] * len(operations)
+        # generate a fake owner input
+        log.warning("Using a fake owner input")
+        fake_owner_input = make_fake_input(owner_address)
+        estimated_owner_inputs = [[fake_owner_input]] * len(operations)
 
     if len(payment_utxos) > 0:
         estimated_payment_inputs = estimate_transaction_inputs(operations, payment_utxos, payment_address=payment_address)['inputs']
     else:
-        estimated_payment_inputs = [[]] * len(operations)
+        log.warning("Using a fake payment input")
+        fake_payment_input = make_fake_input(payment_address)
+        estimated_payment_inputs = [[fake_payment_input]] * len(operations)
 
     log.debug("Get total operation fees for running '{}' on {} owned by {} paid by {}".format(','.join(operations), name_or_ns, owner_address, payment_address))
 
     for i in xrange(0, len(operations)):
         if BLOCKSTACK_TEST:
-            log.debug("Operation {} may consume owner inputs\n{}".format(operations[i], json.dumps(estimated_owner_inputs[i], indent=4, sort_keys=True)))
-            log.debug("Operation {} may consume payment inputs\n{}".format(operations[i], json.dumps(estimated_payment_inputs[i], indent=4, sort_keys=True)))
+            log.debug("Operation {} may consume owner inputs of {}\n{}".format(operations[i], owner_address, json.dumps(estimated_owner_inputs[i], indent=4, sort_keys=True)))
+            log.debug("Operation {} may consume payment inputs of {}\n{}".format(operations[i], payment_address, json.dumps(estimated_payment_inputs[i], indent=4, sort_keys=True)))
         else:
-            log.debug("Operation {} may consume up to {} owner inputs and {} payment inputs".format(operations[i], len(estimated_owner_inputs[i]), len(estimated_payment_inputs[i])))
+            log.debug("Operation {} may consume up to {} owner inputs of {} and {} payment inputs of {}".format(
+                operations[i], len(estimated_owner_inputs[i]), owner_address, len(estimated_payment_inputs[i]), payment_address
+            ))
 
     def _get_balance():
         """
