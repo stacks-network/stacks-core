@@ -64,13 +64,13 @@ def scenario( wallets, **kw ):
         return False
 
     # should fail (safety checks stop it)
-    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, value_hash='22' * 20, recipient_addr=wallets[0].addr )
+    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, zonefile_hash='22' * 20, recipient_addr=wallets[0].addr )
     if 'error' not in resp:
         print resp
         return False
 
     # should succeed in being sent
-    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, value_hash='22' * 20, recipient_addr=wallets[0].addr, safety_checks=False, tx_fee=650 * 5 )
+    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, zonefile_hash='22' * 20, recipient_addr=wallets[0].addr, safety_checks=False, tx_fee=650 * 5 )
     if 'error' in resp:
         print resp
         return False
@@ -95,7 +95,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw ) # 695
 
     # should succeed
-    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, value_hash='22' * 20, recipient_addr=wallets[0].addr )
+    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, zonefile_hash='22' * 20, recipient_addr=wallets[0].addr )
     if 'error' in resp:
         print resp
         return False

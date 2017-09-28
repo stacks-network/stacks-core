@@ -195,7 +195,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block(**kw) # 702
 
-    resp = testlib.blockstack_name_register("foo.test", wallets[3].privkey, wallets[4].addr, value_hash='33' * 20)
+    resp = testlib.blockstack_name_register("foo.test", wallets[3].privkey, wallets[4].addr, zonefile_hash='33' * 20)
     if 'error' in resp:
         print resp
         return False

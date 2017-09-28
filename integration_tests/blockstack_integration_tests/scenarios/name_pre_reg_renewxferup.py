@@ -80,7 +80,7 @@ def scenario( wallets, **kw ):
         print res
         return False
     
-    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, value_hash='11' * 20 )
+    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, zonefile_hash='11' * 20 )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
@@ -102,7 +102,7 @@ def scenario( wallets, **kw ):
 
     # update/transfer
 
-    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, value_hash='22' * 20, recipient_addr=wallets[0].addr )
+    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, zonefile_hash='22' * 20, recipient_addr=wallets[0].addr )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
