@@ -89,6 +89,59 @@ def get_first_block_id():
    return start_block
 
 
+def get_last_block():
+    """
+    Get the last block processed
+    Return the integer on success
+    Return None on error
+    """
+ 
+    # make this usable even if we haven't explicitly configured virtualchain 
+    impl = virtualchain.get_implementation()
+    if impl is None:
+       impl = sys.modules[__name__]
+
+    lastblock_filename = virtualchain.get_lastblock_filename(impl=impl)
+    if os.path.exists( lastblock_filename ):
+       try:
+           with open(lastblock_filename, "r") as f:
+               lastblock = int( f.read().strip() )
+               return lastblock
+
+       except Exception, e:
+           # this can't ever happen
+           log.exception(e)
+           return None
+
+    return None
+
+
+def get_snapshots():
+    """
+    Read the virtualchain snapshots
+    Returns the dict of {snapshots: {$block_height: $consensus_hash}} on success
+    Returns None on error
+    """
+    # make this usable even if we haven't explicitly configured virtualchain 
+    impl = virtualchain.get_implementation()
+    if impl is None:
+       impl = sys.modules[__name__]
+
+    snapshots_filename = virtualchain.get_snapshots_filename(impl=impl)
+    if os.path.exists(snapshots_filename):
+        try:
+            with open(snapshots_filename, 'r') as f:
+                snapshots_bin = f.read()
+                snapshots = json.loads(snapshots_bin)
+                return snapshots
+
+        except Exception as e:
+            log.exception(e)
+            return None
+
+    return None
+
+
 def get_db_state( disposition=DISPOSITION_RO ):
    """
    (required by virtualchain state engine)
