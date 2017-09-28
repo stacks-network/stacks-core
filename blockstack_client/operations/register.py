@@ -101,8 +101,6 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
     [2] change address with the NAME_PREORDER or NAME_RENEWAL's subsidizer's sender's address
     [3] (OPTIONAL) renewal fee, sent to the burn address
 
-    If value_hash is given, it must be a hex string
-
     Raise ValueError if there are not enough inputs to make the transaction
     """
     
@@ -168,11 +166,11 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
     return outputs
     
 
-def make_transaction(name, preorder_or_owner_addr, register_or_new_owner_addr, blockchain_client, tx_fee=0, burn_address=BLOCKSTACK_BURN_ADDRESS, renewal_fee=None, value_hash=None, subsidize=False, safety=True):
+def make_transaction(name, preorder_or_owner_addr, register_or_new_owner_addr, blockchain_client, tx_fee=0, burn_address=BLOCKSTACK_BURN_ADDRESS, renewal_fee=None, zonefile_hash=None, subsidize=False, safety=True):
     # register_or_new_owner_addr is the address of the recipient in NAME_PREORDER
     # register_or_new_owner_addr is the address of the current name owner in standard NAME_RENEWAL (pre F-day 2017)
     # register_or_new_owner_addr is the address of the current or new name owner, in the post-F-day 2017 NAME_RENEWAL
-    # if value_hash is given, it must be a hex string (and will only be accepted post F-day 2017)
+    # if zonefile_hash is given, it must be a hex string (and will only be accepted post F-day 2017)
 
     preorder_or_owner_addr = str(preorder_or_owner_addr)
     register_or_new_owner_addr = str(register_or_new_owner_addr)
@@ -200,7 +198,7 @@ def make_transaction(name, preorder_or_owner_addr, register_or_new_owner_addr, b
     if subsidize:
         pay_fee = False
 
-    nulldata = build(name, value_hash=value_hash)
+    nulldata = build(name, value_hash=zonefile_hash)
     outputs = make_outputs(nulldata, change_inputs, register_or_new_owner_addr, preorder_or_owner_addr, tx_fee, burn_address=burn_address, renewal_fee=renewal_fee, pay_fee=pay_fee )
  
     return (change_inputs, outputs)
