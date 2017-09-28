@@ -336,7 +336,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
     return resp
 
 
-def blockstack_name_register( name, privatekey, register_addr, value_hash=None, wallet=None, safety_checks=True, config_path=None, tx_fee=None ):
+def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=None, wallet=None, safety_checks=True, config_path=None, tx_fee=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -352,7 +352,7 @@ def blockstack_name_register( name, privatekey, register_addr, value_hash=None, 
 
         kwargs = {'tx_fee' : tx_fee} # regtest shouldn't care about the tx_fee
 
-    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, value_hash=value_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
+    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, zonefile_hash=zonefile_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
     api_call_history.append( APICallRecord( "register", name, resp ) )
     return resp
 
@@ -387,7 +387,7 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_has
     return resp
 
 
-def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None, safety_checks=True, config_path=None, value_hash=None, tx_fee=0, tx_fee_per_byte=None ):
+def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None, safety_checks=True, config_path=None, zonefile_hash=None, tx_fee=0, tx_fee_per_byte=None ):
     
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
@@ -399,7 +399,7 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
 
     log.debug("Renew %s for %s satoshis" % (name, name_cost_info['satoshis']))
     resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['satoshis'], test_proxy, test_proxy, tx_fee=tx_fee, tx_fee_per_byte=tx_fee_per_byte,
-            burn_address=burn_addr, value_hash=value_hash, recipient_addr=recipient_addr, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+            burn_address=burn_addr, zonefile_hash=zonefile_hash, recipient_addr=recipient_addr, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     api_call_history.append( APICallRecord( "renew", name, resp ) )
     return resp
@@ -2952,6 +2952,10 @@ def snv_all_names( state_engine ):
                         return False 
 
                     if snv_rec['txid'] != txid:
+                        if name in snv_fail_at.get(block_id, []):
+                            log.debug("SNV lookup {} failed as expected".format(name))
+                            continue
+
                         print "mismatch txid at %s: expected %s, got %s" % (j, txid, snv_rec['txid'])
                         print json.dumps(snv_rec, indent=4, sort_keys=True)
                         return False
@@ -3210,8 +3214,11 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
 
     user_zonefile_hash = blockstack_client.hash_zonefile( user_zonefile )
     
-    # replicate the profile
-    # TODO: this is onename-specific
+    # make a key file
+    res = blockstack_client.key_file.make_initial_key_file(user_profile, owner_privkey_info, this_device_id=this_device_id, config_path=proxy.config_path)
+    if 'error' in res:
+        log.error("Failed to make initial key file: {}".format(res['error']))
+        return res
 
     rc = blockstack_client.profile.put_profile(name, user_profile, blockchain_id=name,
                                               user_data_privkey=data_privkey_info, user_zonefile=user_zonefile,
