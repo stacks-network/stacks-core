@@ -1792,6 +1792,8 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     arg: name (str) 'The blockchain ID to renew'
     opt: owner_key (str) 'A private key string to be used for the update.'
     opt: payment_key (str) 'Payers private key string'
+    opt: recipient_address (str) 'The new owner address'
+    opt: zonefile_data (str) 'The new zone file data'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1815,6 +1817,33 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
+
+    # inspect zonefile
+    zonefile_data = getattr(args, 'zonefile_data', None)
+    zonefile_hash = None
+
+    if zonefile_data:
+        zonefile_data = str(zonefile_data)
+        zonefile_info = analyze_zonefile_string(fqu, zonefile_data, force_data=True, check_current=False, proxy=proxy)
+        if 'error' in zonefile_info:
+            log.error("Failed to analyze zone file: {}".format(zonefile_info['error']))
+            return {'error': zonefile_info['error']}
+
+        if zonefile_info['nonstandard']:
+            if interactive:
+                proceed = prompt_invalid_zonefile()
+                if not proceed:
+                    return {'error': 'Aborting name import on invalid zone file'}
+
+            else:
+                log.warning("Using nonstandard zone file data")
+
+        zonefile_data = zonefile_info['zonefile_str']
+        zonefile_hash = get_zonefile_data_hash(zonefile_data)
+
+    new_owner_address = getattr(args, 'recipient_address', None)
+    if new_owner_address:
+        new_owner_address = str(new_owner_address)
 
     if interactive:
         print("Calculating total renewal costs for {}...".format(fqu))
@@ -1895,6 +1924,7 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
             additionals['owner_key'] = owner_key
         if payment_key:
             additionals['payment_key'] = payment_key
+
         resp = rpc.backend_renew(fqu, cost_satoshis, **additionals)
     except Exception as e:
         log.exception(e)
