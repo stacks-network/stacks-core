@@ -310,7 +310,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
             return False
 
         # fee borne by the renewal
-        if not 'op_fee' in nameop:
+        if not 'op_fee' in nameop or nameop['op_fee'] is None:
             log.debug("Renew: Name '%s' is registered but renewal did not pay the fee" % (name))
             return False
         
