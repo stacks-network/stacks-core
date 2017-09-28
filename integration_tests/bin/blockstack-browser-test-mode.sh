@@ -44,7 +44,7 @@ sleep 5
 echo ""
 echo "Starting Blockstack Browser"
 echo ""
-npm run dev
+node /tmp/blockstack-browser-test/native/blockstackProxy.js 8888 /tmp/blockstack-browser-test/build/
 
 echo ""
 echo "Test framework control panel at http://localhost:3001"
