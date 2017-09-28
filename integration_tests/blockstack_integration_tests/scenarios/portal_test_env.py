@@ -19,7 +19,7 @@
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-""" 
+"""
 
 import testlib
 import pybitcoin
@@ -28,6 +28,8 @@ import json
 import sys
 import os
 import blockstack_client
+
+os.environ["CLIENT_STORAGE_DRIVERS"] = "disk,http"
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -49,13 +51,13 @@ def scenario( wallets, **kw ):
 
     testlib.blockstack_namespace_ready( "id", wallets[1].privkey )
     testlib.next_block( **kw )
-    
+
     wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
     resp = testlib.blockstack_cli_register( "foo.id", "0123456789abcdef" )
     if 'error' in resp:
         print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
         return False
-   
+
     # wait for the preorder to get confirmed
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -64,14 +66,14 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to submit the register"
     time.sleep(10)
 
-    # wait for the register to get confirmed 
+    # wait for the register to get confirmed
     for i in xrange(0, 12):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
     time.sleep(10)
 
-    # wait for update to get confirmed 
+    # wait for update to get confirmed
     for i in xrange(0, 12):
         testlib.next_block( **kw )
 
@@ -83,25 +85,25 @@ def scenario( wallets, **kw ):
 
 def check( state_engine ):
 
-    # not revealed, but ready 
+    # not revealed, but ready
     ns = state_engine.get_namespace_reveal( "id" )
     if ns is not None:
         print "namespace reveal exists"
-        return False 
+        return False
 
     ns = state_engine.get_namespace( "id" )
     if ns is None:
         print "no namespace"
-        return False 
+        return False
 
     if ns['namespace_id'] != 'id':
         print "wrong namespace"
-        return False 
-    
-    # registered 
+        return False
+
+    # registered
     name_rec = state_engine.get_name( "foo.id" )
     if name_rec is None:
         print "name does not exist"
-        return False 
+        return False
 
     return True
