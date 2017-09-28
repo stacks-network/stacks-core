@@ -321,6 +321,7 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
                  zonefile_data=None, profile=None, zonefile_hash=None,
                  unsafe_reg = None, confirmations_needed = None,
                  owner_privkey=None, payment_privkey = None,
+                 is_regup=None,
                  min_payment_confs = None, path=DEFAULT_QUEUE_PATH):
 
     """
@@ -346,19 +347,26 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
 
     if unsafe_reg is not None:
         new_entry['unsafe_reg'] = unsafe_reg
+
     if confirmations_needed is not None:
         new_entry['confirmations_needed'] = confirmations_needed
+
     if min_payment_confs is not None:
         new_entry['min_payment_confs'] = min_payment_confs
+
     if owner_privkey is not None:
         new_entry['owner_privkey'] = owner_privkey
+
     if payment_privkey is not None:
         new_entry['payment_privkey'] = payment_privkey
 
     if zonefile_data is not None:
         new_entry['zonefile_b64'] = base64.b64encode(zonefile_data)
 
-    new_entry['profile'] = profile
+    if is_regup is not None:
+        new_entry['is_regup'] = is_regup
+
+    new_entry['key_file'] = key_file
     if zonefile_hash is None and zonefile_data is not None:
         zonefile_hash = get_zonefile_data_hash(zonefile_data)
 
