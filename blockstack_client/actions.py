@@ -3371,7 +3371,7 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     # proceed!
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
-    res = do_namespace_reveal(namespace_id, reveal_addr, namespace_params['lifetime'], namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
+    res = do_namespace_reveal(namespace_id, namespace_params['version'], reveal_addr, namespace_params['lifetime'], namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
                               namespace_params['nonalpha_discount'], namespace_params['no_vowel_discount'], privkey, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
 
     return res
