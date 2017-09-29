@@ -87,7 +87,7 @@ def scenario( wallets, **kw ):
     testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
-    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, safety_checks=False )
+    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, safety_checks=False, tx_fee=10000*5 )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
