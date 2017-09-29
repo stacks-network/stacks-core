@@ -405,6 +405,9 @@ def parse( bin_payload, sender_script, recipient_address ):
            raise Exception("Invalid namespace parameters")
 
    except Exception, e:
+       if os.environ.get("BLOCKSTACK_TEST") == '1':
+           log.exception(e)
+
        log.error("Invalid namespace parameters")
        return None 
 
