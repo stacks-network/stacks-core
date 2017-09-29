@@ -90,6 +90,20 @@ ops () {
     apt-get install python-certbot-nginx
   }
 
+  config-nginx () {
+    echo "Configuring nginx to serve core api from $2..."
+    sed -i "s/core.example.com/$2/g" deployment/nginx.cfg
+    echo "Configuring core api to serve from $2..."
+    sed -i "s/core.example.com/$2/g" config.py
+    echo "Replacing your /etc/nginx/sites-available folder with deployment/nginx.cfg..."
+    rm -rf /etc/nginx/sites-available
+    ln deployment/nginx.cfg /etc/nginx/sites-available
+    echo "Running certbot..."
+    certbot --nginx -d $2
+    echo "Reloading nginx..."
+    systemctl reload nginx
+  }
+
   commands () {
     cat <<-EOF
 ops commands:
@@ -117,21 +131,11 @@ EOF
       if [ -z "$2" ]; then
         echo "Need to input domain name that points to this server"
         echo "e.g. core.example.com"
-      else
+      fi
       init-api
       init-index
       init-core
-      echo "Configuring nginx to serve core api from $2..."
-      sed -i "s/core.example.com/$2/g" deployment/nginx.cfg
-      echo "Configuring core api to serve from $2..."
-      sed -i "s/core.example.com/$2/g" config.py
-      echo "Replacing your /etc/nginx/sites-available folder with deployment/nginx.cfg..."
-      rm -rf /etc/nginx/sites-available
-      ln deployment/nginx.cfg /etc/nginx/sites-available
-      echo "Running certbot..."
-      certbot --nginx -d $2
-      echo "Reloading nginx..."
-      systemctl reload nginx
+      config-nginx
       ;;
     install-docker)
       install-docker
