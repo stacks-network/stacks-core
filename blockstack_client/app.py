@@ -31,18 +31,21 @@ import time
 import virtualchain
 from virtualchain.lib.ecdsalib import get_pubkey_hex
 
+import re
 import jsontokens
 import storage
 import data
+import urlparse
 import user as user_db
 from .proxy import get_default_proxy
 
 from config import get_config, get_logger
 from .constants import CONFIG_PATH, BLOCKSTACK_TEST, LENGTH_MAX_NAME, DEFAULT_API_PORT, DEFAULT_API_HOST
-from .schemas import APP_CONFIG_SCHEMA, APP_SESSION_SCHEMA
+from .schemas import APP_CONFIG_SCHEMA, APP_SESSION_SCHEMA, OP_APP_NAME_PATTERN
 from .storage import classify_storage_drivers
 
 log = get_logger()
+
 
 def is_valid_app_name(app_name):
     """
