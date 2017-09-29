@@ -54,7 +54,7 @@ log = virtualchain.get_logger("blockstack-server")
 from .config import *
 from .storage import *
 
-MIN_ATLAS_VERSION = "0.16.0"
+MIN_ATLAS_VERSION = "0.17.0"
 
 PEER_LIFETIME_INTERVAL = 3600  # 1 hour
 PEER_PING_INTERVAL = 600       # 10 minutes
