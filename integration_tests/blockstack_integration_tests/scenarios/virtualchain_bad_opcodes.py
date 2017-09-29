@@ -61,7 +61,9 @@ def mktx( amt, tx_fee, recipient_addr, privkey, message=None ):
              "value": 0} ] + outputs
 
     serialized_tx = blockstack_client.tx.serialize_tx(inputs, outputs)
-    signed_tx = blockstack_client.tx.sign_tx(serialized_tx, privkey)
+    prev_outputs = [{'out_script': inp['out_script'], 'value': inp['value']} for inp in inputs]
+
+    signed_tx = blockstack_client.tx.sign_tx(serialized_tx, prev_outputs, privkey)
     return signed_tx
 
 
