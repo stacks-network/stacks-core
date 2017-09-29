@@ -93,7 +93,7 @@ import config
 from .config import configure_zonefile, configure, get_utxo_provider_client, get_tx_broadcaster, get_local_device_id
 from .constants import (
     CONFIG_PATH, CONFIG_DIR, WALLET_FILENAME,
-    FIRST_BLOCK_MAINNET, NAME_UPDATE,
+    FIRST_BLOCK_MAINNET, NAME_UPDATE, NAME_IMPORT, NAME_REGISTRATION,
     BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME,
     get_secret, set_secret, BLOCKSTACK_TEST, VERSION
 )
@@ -996,18 +996,17 @@ def cli_lookup(args, config_path=CONFIG_PATH):
 
     blockchain_record = None
     fqu = str(args.name)
+    subdomain = None
 
     error = check_valid_name(fqu)
     if error:
         res = subdomains.is_address_subdomain(fqu)
         if res:
             subdomain, domain = res[1]
-            try:
-                return subdomains.resolve_subdomain(subdomain, domain)
-            except subdomains.SubdomainNotFound as e:
-                log.exception(e)
-                return {'error' : "Failed to find name {}.{}".format(subdomain, domain)}
-        return {'error': error}
+            fqu = domain
+
+        else:
+            return {'error': error}
 
     try:
         blockchain_record = get_name_blockchain_record(fqu)
@@ -1021,9 +1020,22 @@ def cli_lookup(args, config_path=CONFIG_PATH):
         return {'error': '{} has no profile'.format(fqu)}
 
     if blockchain_record.get('revoked', False):
-        msg = 'Name is revoked. Use get_name_blockchain_record for details.'
+        msg = 'Name is revoked. Use `whois` or `get_name_blockchain_record` for details.'
         return {'error': msg}
 
+    if blockchain_record.get('expired', False):
+        msg = 'Name is expired. Use `whois` or `get_name_blockchain_record` for details. If you own this name, use `renew` to renew it.'
+        return {'error': msg}
+
+    # subdomain?
+    if subdomain:
+        try:
+            return subdomains.resolve_subdomain(subdomain, domain)
+        except subdomains.SubdomainNotFound as e:
+            log.exception(e)
+            return {'error' : "Failed to find name {}.{}".format(subdomain, domain)}
+
+    # regular domain
     try:
         res = get_profile(
             str(args.name), name_record=blockchain_record, include_raw_zonefile=True, use_legacy=True, use_legacy_zonefile=True
@@ -1333,7 +1345,7 @@ def analyze_zonefile_string(fqu, zonefile_data, force_data=False, check_current=
 
 def cli_register(args, config_path=CONFIG_PATH, force_data=False,
                  cost_satoshis=None, interactive=True, password=None, proxy=None,
-                 make_profile = None):
+                 make_key_file=False, keyfile_txt=None):
     """
     command: register
     help: Register a blockchain ID
@@ -1404,6 +1416,8 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
             return {'error': 'Not a valid address'}
 
     user_profile = None
+    user_key_file = keyfile_txt
+
     if user_zonefile:
         zonefile_info = analyze_zonefile_string(fqu, user_zonefile, force_data=force_data, proxy=proxy)
         if 'error' in zonefile_info:
@@ -1924,6 +1938,10 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
             additionals['owner_key'] = owner_key
         if payment_key:
             additionals['payment_key'] = payment_key
+        if zonefile_data:
+            additionals['zonefile_data'] = zonefile_data
+        if new_owner_address:
+            additionals['new_owner_address'] = new_owner_address
 
         resp = rpc.backend_renew(fqu, cost_satoshis, **additionals)
     except Exception as e:
@@ -4168,25 +4186,26 @@ def cli_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, interactive=Tru
             else:
                 name_history = name_rec['history']
                 for history_key in reversed(sorted(name_history)):
-                    name_history_item = name_history[history_key]
+                    name_history_items = name_history[history_key]
 
-                    op = name_history_item.get('op', None)
-                    if op is None:
-                        continue
+                    for name_history_item in name_history_items:
+                        op = name_history_item.get('op', None)
+                        if op is None:
+                            continue
 
-                    if op != NAME_UPDATE:
-                        continue
+                        if op not in [NAME_UPDATE, NAME_IMPORT, NAME_REGISTRATION]:
+                            continue
 
-                    value_hash = name_history_item.get('value_hash', None)
+                        value_hash = name_history_item.get('value_hash', None)
 
-                    if value_hash is None:
-                        continue
+                        if value_hash is None:
+                            continue
 
-                    if value_hash != zonefile_hash:
-                        continue
+                        if value_hash != zonefile_hash:
+                            continue
 
-                    txid = name_history_item.get('txid', None)
-                    break
+                        txid = name_history_item.get('txid', None)
+                        break
 
         if txid is None:
             log.error('Unable to lookup txid for update {}, {}'.format(name, zonefile_hash))
