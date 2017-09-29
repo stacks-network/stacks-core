@@ -14,9 +14,9 @@ To start the Blockstack API from this folder, first initialize the `blockstack-c
 
 ```bash
 # Install Dependancies
-$ sudo ./ops install-docker
-$ sudo ./ops install-nginx
-$ sudo ./ops install-certbot
+$ ./ops install-docker
+$ ./ops install-nginx
+$ ./ops install-certbot
 
 # Enable sudo-less docker commands
 $ usermod -aG docker ${USER}
@@ -24,10 +24,13 @@ $ exec bash
 
 # WARNING: This takes ~20 minutes to run
 # Set up the dummy wallet for the core api
+$ ./ops init-api
 # Fast sync the core node
+$ ./ops init-core
 # Pull down the current version of the index
+$ ./ops init-index
 # Configure core server and nginx to point to proper domain
-$ sudo ./ops init
+$ ./ops config-nginx
 
 
 # Now you are ready to deploy!

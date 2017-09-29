@@ -64,7 +64,7 @@ ops () {
       -v $(pwd)/$apiData:/root/.blockstack \
       $image:$tag \
       blockstack setup -y --password dummywalletpassword > /dev/null
-    cp deployment/client.ini $apiData/client.ini
+    sudo cp deployment/client.ini $apiData/client.ini
   }
 
   init-index () {
@@ -79,15 +79,15 @@ ops () {
 
   install-docker () {
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
-    add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-    apt-get update
-    apt-get install -y docker-ce docker-compose
+    sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+    sudo apt-get update
+    sudo apt-get install -y docker-ce docker-compose
   }
 
   install-certbot () {
-    add-apt-repository ppa:certbot/certbot
-    apt-get update
-    apt-get install python-certbot-nginx
+    sudo add-apt-repository ppa:certbot/certbot
+    sudo apt-get update
+    sudo apt-get install python-certbot-nginx
   }
 
   config-nginx () {
@@ -101,12 +101,12 @@ ops () {
     echo "Configuring core api to serve from $2..."
     sed -i "s/core.example.com/$2/g" config.py
     echo "Replacing your /etc/nginx/sites-available folder with deployment/nginx.cfg..."
-    rm -rf /etc/nginx/sites-available/*
-    ln deployment/nginx.cfg /etc/nginx/sites-available/nginx.cfg
+    sudo rm -rf /etc/nginx/sites-available/*
+    sudo ln deployment/nginx.cfg /etc/nginx/sites-available/nginx.cfg
     echo "Running certbot..."
-    certbot --nginx -d $2
+    sudo certbot --nginx -d $2
     echo "Reloading nginx..."
-    systemctl reload nginx
+    sudo systemctl reload nginx
   }
 
   commands () {
