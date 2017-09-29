@@ -2711,7 +2711,7 @@ class AtlasPeerCrawler( threading.Thread ):
             if semver_newer( res['server_version'], MIN_ATLAS_VERSION ):
                 # too old to be a valid atlas node
                 filtered.append(peer)
-                log.debug("%s is too old to be an atlas node (version %s)" % (peer, res['version']))
+                log.debug("%s is too old to be an atlas node (version %s)" % (peer, res['server_version']))
                 continue
 
             our_last_block = get_last_block()
