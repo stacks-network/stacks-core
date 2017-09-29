@@ -1715,8 +1715,9 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
             tx_fee = res['tx_fee']
 
         assert tx_fee_per_byte, "Missing tx-per-byte fee"
-        assert tx_fee, 'Missing tx fee'
-        assert renewal_fee, "Missing renewal fee"
+    
+    assert tx_fee, 'Missing tx fee'
+    assert renewal_fee, "Missing renewal fee"
 
     # get inputs
     try:
