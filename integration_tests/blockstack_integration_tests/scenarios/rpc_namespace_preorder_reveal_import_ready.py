@@ -122,7 +122,7 @@ def scenario( wallets, **kw ):
         print json.dumps(resp, indent=4, sort_keys=True)
         return False
 
-    for i in xrange(0, 10):
+    for i in xrange(0, 12):
         testlib.next_block(**kw)
 
     print "Waiting 10 seconds for registrar to replicate zone files"
