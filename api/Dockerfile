@@ -19,6 +19,10 @@ RUN pip install uwsgi
 # Create data dir
 RUN mkdir /var/blockstack-search
 
+WORKDIR /src/blockstack/api
+COPY . .
+WORKDIR /src/blockstack
+
 # Rebuild Python
 RUN pip install . --upgrade
 

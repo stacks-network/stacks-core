@@ -102,7 +102,7 @@ ops () {
     sed -i "s/core.example.com/$2/g" config.py
     echo "Replacing your /etc/nginx/sites-available folder with deployment/nginx.cfg..."
     sudo rm -rf /etc/nginx/sites-available/*
-    sudo ln deployment/nginx.cfg /etc/nginx/sites-available/nginx.cfg
+    sudo ln deployment/nginx.cfg /etc/nginx/sites-available/default
     echo "Running certbot..."
     sudo certbot --nginx -d $2
     echo "Reloading nginx..."
