@@ -619,7 +619,6 @@ def namedb_preorder_remove( cur, preorder_hash ):
 
     DO NOT CALL THIS DIRECTLY.
     """
-
     try:
         query, values = namedb_delete_prepare( cur, 'preorder_hash', preorder_hash, 'preorders' )
     except Exception, e:
@@ -627,6 +626,7 @@ def namedb_preorder_remove( cur, preorder_hash ):
         log.error("FATAL: Failed to delete preorder with hash '%s'" % preorder_hash )
         os.abort()
 
+    log.debug(namedb_format_query(query, values))
     namedb_query_execute( cur, query, values )
     return True
 
