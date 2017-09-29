@@ -369,7 +369,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         log.debug("Register/renew sends fee to {}, but namespace expects {}".format(burn_address, expected_burn_address))
         return False
     else:
-        log.debug("Sending renewal fee {} to {}".format(name_fee, burn_address))
+        log.debug("Sending register/renewal fee {} to {}".format(name_fee, burn_address))
 
     nameop['opcode'] = opcode
     nameop['op_fee'] = name_fee
