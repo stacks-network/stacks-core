@@ -2389,7 +2389,7 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
                          owner_address=owner_address,
                          transfer_address=name_data.get('transfer_address'),
                          zonefile_data=name_data.get('zonefile'),
-                         key_file=name_data.get('key_file'),
+                         profile=name_data.get('profile'),
                          is_regup=is_regup,
                          config_path=config_path,
                          path=queue_path, **additionals)
@@ -2571,7 +2571,7 @@ def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
     return resp
 
 
-def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee, new_owner_address=None, zonefile_txt=None, key_file_txt=None,
+def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee, new_owner_address=None, zonefile_txt=None, profile=None,
                 proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
     """
         Renew an already-registered name.
@@ -2618,7 +2618,7 @@ def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee, new_
                              transfer_address=new_owner_address,
                              zonefile_data = zonefile_txt,
                              zonefile_hash = zonefile_hash,
-                             key_file = key_file_txt,
+                             profile = profile,
                              config_path=config_path,
                              path=queue_path)
         return resp

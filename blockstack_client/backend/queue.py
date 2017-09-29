@@ -366,7 +366,7 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
     if is_regup is not None:
         new_entry['is_regup'] = is_regup
 
-    new_entry['key_file'] = key_file
+    new_entry['profile'] = profile
     if zonefile_hash is None and zonefile_data is not None:
         zonefile_hash = get_zonefile_data_hash(zonefile_data)
 

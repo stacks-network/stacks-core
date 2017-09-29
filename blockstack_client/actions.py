@@ -166,7 +166,7 @@ from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, put_dat
         make_mutable_data_info, data_blob_parse, data_blob_serialize, make_mutable_data_tombstones, sign_mutable_data_tombstones
 
 from .schemas import (
-    OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN,
+    OP_URLENCODED_PATTERN, OP_NAME_PATTERN,
     OP_BASE58CHECK_PATTERN, MUTABLE_DATUM_FILE_TYPE)
 
 import keylib
@@ -1343,9 +1343,8 @@ def analyze_zonefile_string(fqu, zonefile_data, force_data=False, check_current=
     return ret
 
 
-def cli_register(args, config_path=CONFIG_PATH, force_data=False,
-                 cost_satoshis=None, interactive=True, password=None, proxy=None,
-                 make_key_file=False, keyfile_txt=None):
+def cli_register(args, config_path=CONFIG_PATH, force_data=False, make_profile=False,
+              cost_satoshis=None, interactive=True, password=None, proxy=None):
     """
     command: register
     help: Register a blockchain ID
@@ -1416,7 +1415,6 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
             return {'error': 'Not a valid address'}
 
     user_profile = None
-    user_key_file = keyfile_txt
 
     if user_zonefile:
         zonefile_info = analyze_zonefile_string(fqu, user_zonefile, force_data=force_data, proxy=proxy)

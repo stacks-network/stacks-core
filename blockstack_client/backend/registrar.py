@@ -49,8 +49,6 @@ from .queue import queue_add_error_msg
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
 
 from ..keys import get_data_privkey_info, is_singlesig_hex
-from ..key_file import key_file_put, key_file_parse
-from ..gaia.cache import GLOBAL_CACHE
 from ..proxy import is_name_registered, is_zonefile_hash_current, get_default_proxy, get_name_blockchain_record, get_atlas_peers, json_is_error
 from ..zonefile import zonefile_data_replicate
 from ..user import is_user_zonefile
@@ -196,8 +194,8 @@ class RegistrarWorker(threading.Thread):
                 if not in_queue("register", name_data['fqu'], path=queue_path):
                     # was preordered but not registered
                     # send the registration
-                    log.debug("async_register({}, zonefile={}, keyfile={}, transfer_address={})".format(
-                        name_data['fqu'], name_data.get('zonefile'), name_data.get('key_file'), 
+                    log.debug("async_register({}, zonefile={}, profile={}, transfer_address={})".format(
+                        name_data['fqu'], name_data.get('zonefile'), name_data.get('profile'), 
                         name_data.get('transfer_address'))) 
 
                     res = async_register( name_data['fqu'], payment_privkey_info, owner_privkey_info, 
@@ -255,7 +253,7 @@ class RegistrarWorker(threading.Thread):
             else:
                 raise Exception("Queue inconsistency: name '{}' is and is not pending update".format(regup_result[0]['fqu']))
 
-        log.debug("update({}, zonefile={}, keyfile={}, transfer_address={})".format(name_data['fqu'], name_data.get('zonefile'), name_data.get('key_file'), name_data.get('transfer_address'))) 
+        log.debug("update({}, zonefile={}, profile={}, transfer_address={})".format(name_data['fqu'], name_data.get('zonefile'), name_data.get('profile'), name_data.get('transfer_address'))) 
         res = update( name_data['fqu'], name_data.get('zonefile'), name_data.get('zonefile_hash'), name_data.get('transfer_address'),
                       config_path=config_path, proxy=proxy, prior_name_data = name_data )
 
@@ -1462,7 +1460,7 @@ def transfer(fqu, transfer_address, prior_name_data = None, config_path=CONFIG_P
 
 # RPC method: backend_renew
 def renew(fqu, renewal_fee, config_path=CONFIG_PATH, proxy=None, owner_key = None,
-          payment_key = None, new_owner_address = None, zonefile_txt = None, key_file_txt = None):
+          payment_key = None, new_owner_address = None, zonefile_txt = None, profile = None):
     """
     Renew a name
 
@@ -1490,25 +1488,13 @@ def renew(fqu, renewal_fee, config_path=CONFIG_PATH, proxy=None, owner_key = Non
     if owner_key is None:
         owner_key = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
 
-    # make sure the keyfile is valid 
-    if key_file_txt:
-        owner_addr = None 
-        if new_owner_address is not None:
-            owner_addr = new_owner_address
-        else:
-            owner_addr = virtualchain.get_privkey_address(owner_key)
-
-        res = key_file_parse(key_file_txt, owner_addr)
-        if 'error' in res:
-            return {'succes': False, 'error': 'Failed to verify key file with {}'.format(owner_addr)}
-
     resp = async_renew(fqu, owner_key, payment_key, renewal_fee,
                        proxy=proxy,
                        config_path=config_path,
                        queue_path=state.queue_path,
                        new_owner_address=new_owner_address,
                        zonefile_txt=zonefile_txt,
-                       key_file_txt=key_file_txt)
+                       profile=profile)
 
     if 'error' not in resp:
 
