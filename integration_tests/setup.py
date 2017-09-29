@@ -28,7 +28,7 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'blockstack>=0.14.5',
+        'blockstack>=0.17.0',
         'xmlrunner>=1.7.7',
         'influxdb>=4.1.1'
     ],
