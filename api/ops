@@ -131,11 +131,12 @@ EOF
       if [ -z "$2" ]; then
         echo "Need to input domain name that points to this server"
         echo "e.g. core.example.com"
+        exit 1
       fi
       init-api
       init-index
       init-core
-      config-nginx
+      config-nginx $2
       ;;
     install-docker)
       install-docker
