@@ -8,29 +8,28 @@ Instructions for deploying your own (public) node are [here](https://github.com/
 
 ## Docker Instructions
 
-To start the Blockstack API from this folder, first initialize the `blockstack-core` database:
+These are instructions on how to run a core api node using docker! This is a production setup.
+
+To start the Blockstack API from this folder, first initialize the `blockstack-core` database and the `blockstack api` with the init command:
 
 ```bash
+# Install Dependancies
+$ sudo ./ops install-docker
+$ sudo ./ops install-nginx
+$ sudo ./ops install-certbot
 
-# Create Directory for blockstack-core config and blockstack api config
-$ mkdir -p data/blockstack-core/server/ data/blockstack-api/
+# Enable sudo-less docker commands
+$ usermod -aG docker ${USER}
+$ exec bash
 
-# Copy over the blockstack-core config
-$ cp deployment/blockstack-server.ini data/blockstack-core/server/blockstack-server.ini
-# $ cp deployment/client.ini data/blockstack-api/client.ini
+# WARNING: This takes ~20 minutes to run
+# Set up the dummy wallet for the core api
+# Fast sync the core node
+# Pull down the current version of the index
+# Configure core server and nginx to point to proper domain
+$ sudo ./ops init
 
-# Download the Atlas network
-$ docker run -d --rm\
-    -v $(pwd)/data/blockstack-core/server/:/root/.blockstack-server/ \
-    -v $(pwd)/data/blockstack-core/api/:/root/.blockstack \
-    quay.io/blockstack/blockstack-core:develop-configure-mongo \
-    blockstack-core --debug fast_sync http://fast-sync.blockstack.org/snapshot.bsk
 
-$ docker run -it --rm \
-    -v $(pwd)/data/blockstack-api/:/root/.blockstack \
-    quay.io/blockstack/blockstack-core:develop-configure-mongo \
-    blockstack setup -y --password dummywalletpassword
-
-$ sed -i 's/api_endpoint_bind = localhost/api_endpoint_bind = 0.0.0.0/'
-$ sed -i 's/api_endpoint_host = localhost/api_endpoint_host = 0.0.0.0/'
+# Now you are ready to deploy!
+$ docker-compose up
 ```

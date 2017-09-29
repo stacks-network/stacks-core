@@ -1,13 +1,32 @@
 FROM quay.io/blockstack/blockstack-core:develop-configure-mongo
 
-WORKDIR /src/blockstack/api
+WORKDIR /src/blockstack
 
-COPY deployment/config.py config.py
-COPY deployment/blockstack_api.ini deployment/blockstack_api.ini
+# Install Apt Dependancies
+RUN apt-get install -y curl
 
-RUN pip install -r requirements.txt
+# Install Node
+RUN curl -sL https://deb.nodesource.com/setup_6.x | bash -
+RUN apt-get install -y nodejs
+
+# Install aglio to build docs
+RUN npm -g install aglio --unsafe
+
+# Install pip requirements and uwsgi server
+RUN pip install -r api/requirements.txt
 RUN pip install uwsgi
 
+# Create data dir
 RUN mkdir /var/blockstack-search
 
+# Rebuild Python
+RUN pip install . --upgrade
+
+# Build Documentation
+RUN ./build_docs.sh public_api
+
+# Work out of the /api dir
+WORKDIR /src/blockstack/api
+
+# Start the uwsgi server
 CMD ["/usr/local/bin/uwsgi", "--ini", "deployment/blockstack_api.ini"]
