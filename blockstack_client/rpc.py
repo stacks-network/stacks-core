@@ -700,6 +700,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'make_key_file': {
                     'type' : 'boolean'
                 },
+                'key_file_txt': {
+                    'type': 'string',
+                },
                 'unsafe': {
                     'type': 'boolean'
                 },
@@ -727,6 +730,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         cost_satoshis = request.get('cost_satoshis', None)
         unsafe_reg = request.get('unsafe', False)
         make_key_file = request.get('make_key_file', False)
+        keyfile_txt = request.get('key_file_txt', None)
+
+        if keyfile_txt and make_key_file:
+            log.error("Invalid request: given key file and a request to make a key file")
+            return self._reply_json({'error': 'Invalid request: make_key_file=True and non-null keyfile are incompatible'}, status_code=401)
 
         owner_key = request.get('owner_key', None)
         payment_key = request.get('payment_key', None)
@@ -765,16 +773,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         op = None
         if name in res:
             # renew
+            '''
             for prop in request_schema['properties'].keys():
                 if prop in request.keys() and prop not in ['name', 'owner_key', 'payment_key']:
                     log.debug("Invalid renewal argument {}".format(prop))
                     return self._reply_json(
                         {'error': 'Name already owned by this wallet and ' +
                          '`{}` is an invalid argument for renewal'.format(prop)}, status_code=401)
-
+            '''
             op = 'renew'
             log.debug("renew {}".format(name))
-            res = internal.cli_renew(name, owner_key, payment_key, recipient_address, interactive=False,
+            res = internal.cli_renew(name, owner_key, payment_key, recipient_address, zonefile_txt, interactive=False,
                                      cost_satoshis=cost_satoshis)
 
         else:
@@ -783,7 +792,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("register {}".format(name))
             res = internal.cli_register(name, zonefile_txt, recipient_address, min_confs,
                                         unsafe_reg, owner_key, payment_key, interactive=False, force_data=True,
-                                        cost_satoshis=cost_satoshis, make_key_file=make_key_file)
+                                        cost_satoshis=cost_satoshis, make_key_file=make_key_file, keyfile_txt=keyfile_txt)
 
         if 'error' in res:
             log.error("Failed to {} {}".format(op, name))
@@ -4915,7 +4924,7 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_renew(self, fqu, renewal_fee, owner_key = None, payment_key = None, zonefile_data = None, new_owner_address = None):
+    def backend_renew(self, fqu, renewal_fee, owner_key = None, payment_key = None, zonefile_data = None, new_owner_address = None, keyfile_txt = None):
         """
         Queue a renewal
         """
@@ -4923,7 +4932,8 @@ class BlockstackAPIEndpointClient(object):
             # directly invoke the renew
             return backend.registrar.renew(fqu, renewal_fee, config_path=self.config_path,
                                            owner_key = owner_key, payment_key = payment_key,
-                                           zonefile_data = zonefile_data, new_owner_address = new_owner_address)
+                                           zonefile_txt = zonefile_data, new_owner_address = new_owner_address,
+                                           key_file_txt = keyfile_txt)
 
         else:
             res = self.check_version()
@@ -4943,6 +4953,11 @@ class BlockstackAPIEndpointClient(object):
                 data['zonefile'] = zonefile_data
             if new_owner_address is not None:
                 data['owner_address'] = new_owner_address
+            if keyfile_txt is not None:
+                data['key_file_txt'] = keyfile_txt
+                data['make_key_file'] = False
+            else:
+                data['make_key_file'] = True
 
             headers = self.make_request_headers()
             req = requests.post( 'http://{}:{}/v1/names'.format(self.server, self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)
@@ -5836,10 +5851,10 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     if password:
         set_secret("BLOCKSTACK_CLIENT_WALLET_PASSWORD", password)
 
-    p = subprocess.Popen("pip freeze", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p = subprocess.Popen("pip2 freeze", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = p.communicate()
     if p.returncode != 0:
-        raise Exception("Failed to run `pip freeze`")
+        log.warning("Unable to run `pip2 freeze`")
 
     log.info("API server version {} starting...".format(SERIES_VERSION))
     log.info("Machine:   {}".format(platform.machine()))
