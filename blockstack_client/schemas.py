@@ -1319,6 +1319,10 @@ NAMEOP_SCHEMA_PROPERTIES = {
     'address': OP_HISTORY_SCHEMA['properties']['address'],
     'block_number': OP_HISTORY_SCHEMA['properties']['block_number'],
     'consensus_hash': OP_HISTORY_SCHEMA['properties']['consensus_hash'],
+    'expired': {
+        # NOTE: filled in by the indexer
+        'type': 'boolean',
+    },
     'expire_block': {
         # NOTE: filled in by the indexer
         'type': 'integer',
