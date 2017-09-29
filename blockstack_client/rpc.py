@@ -3905,6 +3905,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             app_domain = session['app_domain']
             try:
                 session_verified = self.verify_origin([app_domain])
+                if session_verified:
+                    log.debug("App domain '{}' matches origin header".format(app_domain))
+
             except AssertionError as e:
                 session = None
                 err = {'error' : e.message}
