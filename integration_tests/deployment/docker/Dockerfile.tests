@@ -36,8 +36,8 @@ RUN pip install --upgrade pip && pip install pyparsing
 WORKDIR /src/blockstack
 
 # Install virtualchain 0.14.5
-ADD https://api.github.com/repos/blockstack/virtualchain/git/refs/heads/rc-0.14.5 vc-version.json
-RUN pip install git+https://github.com/blockstack/virtualchain.git@rc-0.14.5
+ADD https://api.github.com/repos/blockstack/virtualchain/git/refs/heads/rc-0.14.5-segwit vc-version.json
+RUN pip install git+https://github.com/blockstack/virtualchain.git@rc-0.14.5-segwit
 ADD https://api.github.com/repos/blockstack/jsontokens-py/git/refs/heads/develop jstokens-version.json
 RUN pip install git+https://github.com/blockstack/jsontokens-py.git@develop
 
