@@ -64,7 +64,7 @@ ops () {
       -v $(pwd)/$apiData:/root/.blockstack \
       $image:$tag \
       blockstack setup -y --password dummywalletpassword > /dev/null
-    cp deployment/client.ini $apiDataclient.ini
+    cp deployment/client.ini $apiData/client.ini
   }
 
   init-index () {
@@ -91,13 +91,18 @@ ops () {
   }
 
   config-nginx () {
+    if [ -z "$2" ]; then
+      echo "Need to input domain name that points to this server"
+      echo "e.g. core.example.com"
+      exit 1
+    fi
     echo "Configuring nginx to serve core api from $2..."
     sed -i "s/core.example.com/$2/g" deployment/nginx.cfg
     echo "Configuring core api to serve from $2..."
     sed -i "s/core.example.com/$2/g" config.py
     echo "Replacing your /etc/nginx/sites-available folder with deployment/nginx.cfg..."
-    rm -rf /etc/nginx/sites-available
-    ln deployment/nginx.cfg /etc/nginx/sites-available
+    rm -rf /etc/nginx/sites-available/*
+    ln deployment/nginx.cfg /etc/nginx/sites-available/nginx.cfg
     echo "Running certbot..."
     certbot --nginx -d $2
     echo "Reloading nginx..."
@@ -108,11 +113,10 @@ ops () {
     cat <<-EOF
 ops commands:
   Setup Commands:
-    init { deployment domain }
-     - Set up the dummy wallet for the core api
-     - Fast sync the core node
-     - Pull down the current version of the index
-     - Configure core server and nginx to point to proper domain
+    init-api -> Set up the dummy wallet for the core api
+    init-index -> Pull down the current version of the index
+    init-core -> Fast sync the core node
+    config-nginx -> Configure core server and nginx to point to proper domain
 
   Commands to be run in Docker Environment:
     search-reindex -> Once every 6 hours
@@ -127,16 +131,17 @@ EOF
     search-update)
       search-update
       ;;
-    init)
-      if [ -z "$2" ]; then
-        echo "Need to input domain name that points to this server"
-        echo "e.g. core.example.com"
-        exit 1
-      fi
-      init-api
-      init-index
-      init-core
+    config-nginx)
       config-nginx $2
+      ;;
+    init-api)
+      init-api
+      ;;
+    init-index)
+      init-index
+      ;;
+    init-core)
+      init-core
       ;;
     install-docker)
       install-docker
