@@ -396,16 +396,28 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
             namespace_id = get_namespace_from_name(name)
             namespace_record = db.get_namespace(namespace_id)
+            if namespace_record is None:
+                namespace_record = db.get_namespace_reveal(namespace_id)
 
             # when does this name expire (if it expires)?
             if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
                 deadlines = BlockstackDB.get_name_deadlines(name_record, namespace_record, db.lastblock)
-                name_record['expire_block'] = deadlines['expire_block']
-                name_record['renewal_deadline'] = deadlines['renewal_deadline']
+                if deadlines is not None:
+                    name_record['expire_block'] = deadlines['expire_block']
+                    name_record['renewal_deadline'] = deadlines['renewal_deadline']
+                else:
+                    # only possible if namespace is not yet ready
+                    name_record['expire_block'] = -1
+                    name_record['renewal_deadline'] = -1
 
             else:
                 name_record['expire_block'] = -1
                 name_record['renewal_deadline'] = -1
+
+            if name_record['expire_block'] > 0 and name_record['expire_block'] <= db.lastblock:
+                name_record['expired'] = True
+            else:
+                name_record['expired'] = False
 
             db.close()
             return self.success_response( {'record': name_record} )
