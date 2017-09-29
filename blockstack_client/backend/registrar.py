@@ -254,7 +254,7 @@ class RegistrarWorker(threading.Thread):
                 raise Exception("Queue inconsistency: name '{}' is and is not pending update".format(regup_result[0]['fqu']))
 
         log.debug("update({}, zonefile={}, profile={}, transfer_address={})".format(name_data['fqu'], name_data.get('zonefile'), name_data.get('profile'), name_data.get('transfer_address'))) 
-        res = update( name_data['fqu'], name_data.get('zonefile'), name_data.get('zonefile_hash'), name_data.get('transfer_address'),
+        res = update( name_data['fqu'], name_data.get('zonefile'), name_data.get('profile'), name_data.get('zonefile_hash'), name_data.get('transfer_address'),
                       config_path=config_path, proxy=proxy, prior_name_data = name_data )
 
         assert 'success' in res
