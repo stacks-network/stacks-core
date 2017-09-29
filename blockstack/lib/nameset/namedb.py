@@ -973,9 +973,26 @@ class BlockstackDB( virtualchain.StateEngine ):
         if name_rec is not None and not include_failed:
             return None
 
+        # what namespace are we in?
+        namespace_id = get_namespace_from_name(name)
+        namespace = self.get_namespace(namespace_id)
+        if namespace is None:
+            return None
+
         # isn't currently registered, or we don't care
         preorder_hash = hash_name(name, sender_script_pubkey, register_addr=register_addr)
         preorder = namedb_get_name_preorder( self.db, preorder_hash, self.lastblock )
+        if preorder is None:
+            # doesn't exist or expired
+            return None
+
+        # preorder must be younger than the namespace lifetime
+        # (otherwise we get into weird conditions where someone can preorder
+        # a name before someone else, and register it after it expires)
+        if preorder['block_number'] + namespace['lifetime'] <= self.lastblock:
+            log.debug("Preorder is too old (accepted at {}, namespace lifetime is {}, current block is {})".format(preorder['block_number'], namespace['lifetime'], self.lastblock))
+            return None
+
         return preorder 
 
     
