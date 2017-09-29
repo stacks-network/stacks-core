@@ -2571,7 +2571,7 @@ def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
     return resp
 
 
-def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee,
+def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee, new_owner_address=None, zonefile_txt=None, key_file_txt=None,
                 proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
     """
         Renew an already-registered name.
@@ -2589,6 +2589,10 @@ def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee,
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
+    zonefile_hash = None
+    if zonefile_txt:
+        zonefile_hash = get_zonefile_data_hash(zonefile_txt)
+
     # check renew queue first
     if in_queue("renew", fqu, path=queue_path):
         log.error("Already in renew queue: %s" % fqu)
@@ -2596,7 +2600,7 @@ def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee,
 
     try:
         resp = do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster,
-                           config_path=config_path, proxy=proxy )
+                           config_path=config_path, proxy=proxy, zonefile_hash=zonefile_hash, recipient_addr=new_owner_address )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast renewal transaction'}
@@ -2611,6 +2615,10 @@ def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee,
             if not BLOCKSTACK_DRY_RUN:
                 queue_append("renew", fqu, resp['transaction_hash'],
                              owner_address=owner_address,
+                             transfer_address=new_owner_address,
+                             zonefile_data = zonefile_txt,
+                             zonefile_hash = zonefile_hash,
+                             key_file = key_file_txt,
                              config_path=config_path,
                              path=queue_path)
         return resp
