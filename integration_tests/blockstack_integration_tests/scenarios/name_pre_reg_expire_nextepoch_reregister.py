@@ -70,7 +70,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     # epoch shifts here
-    # 266
+    # 698
 
     testlib.next_block( **kw )
 
@@ -90,7 +90,7 @@ def scenario( wallets, **kw ):
         print json.dumps(rec, indent=4, sort_keys=True)
         return False
 
-    if rec['first_registered'] != 261:
+    if rec['first_registered'] != 693:
         print "invalid first registered"
         print json.dumps(rec, indent=4, sort_keys=True)
         return False

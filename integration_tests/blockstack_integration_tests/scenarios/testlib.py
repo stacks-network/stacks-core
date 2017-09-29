@@ -2661,9 +2661,10 @@ def send_funds_tx( privkey, satoshis, payment_addr ):
         {"script": virtualchain.make_payment_script(send_addr),
          "value": virtualchain.calculate_change_amount(inputs, satoshis, 5500)},
     ]
+    prev_outputs = [{'out_script': inp['out_script'], 'value': inp['value']} for inp in inputs]
 
     serialized_tx = blockstack_client.tx.serialize_tx(inputs, outputs)
-    signed_tx = blockstack_client.tx.sign_tx(serialized_tx, privkey)
+    signed_tx = blockstack_client.tx.sign_tx(serialized_tx, prev_outputs, privkey)
     return signed_tx
 
 

@@ -70,7 +70,7 @@ def scenario( wallets, **kw ):
         return False
 
     # should succeed in being sent
-    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, zonefile_hash='22' * 20, recipient_addr=wallets[0].addr, safety_checks=False, tx_fee=650 * 5 )
+    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, zonefile_hash='22' * 20, recipient_addr=wallets[0].addr, safety_checks=False, tx_fee=10000 * 5 )
     if 'error' in resp:
         print resp
         return False

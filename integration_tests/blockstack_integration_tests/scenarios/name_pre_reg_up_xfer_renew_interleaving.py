@@ -60,7 +60,8 @@ def do_interleaving( name, namerecs, order ):
         if op == 'r':
             # renew
             print "\nrenew '%s' with %s\n" % (name, virtualchain.make_payment_script( namerecs[name][0].addr ))
-            resp = testlib.blockstack_name_renew( name, namerecs[name][0].privkey, register_addr=namerecs[name][0].addr, safety_checks=False )
+            # resp = testlib.blockstack_name_renew( name, namerecs[name][0].privkey, recipient_addr=namerecs[name][0].addr, safety_checks=False )
+            resp = testlib.blockstack_name_renew( name, namerecs[name][0].privkey, safety_checks=False, tx_fee=10000*5 )
             if 'error' in resp:
                 print json.dumps( resp, indent=4 )
 

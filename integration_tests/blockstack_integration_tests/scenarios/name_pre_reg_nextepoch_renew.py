@@ -119,9 +119,9 @@ def check( state_engine ):
         return False
 
     # original paid the epoch 1 fee
-    historic_name_rec = state_engine.get_name_at( "foo.test", 261 )
+    historic_name_rec = state_engine.get_name_at( "foo.test", 693 )
     if historic_name_rec is None or len(historic_name_rec) == 0:
-        print "no name at 261"
+        print "no name at 693"
         return False
 
     historic_name_rec = historic_name_rec[0]

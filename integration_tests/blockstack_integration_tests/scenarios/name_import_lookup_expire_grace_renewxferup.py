@@ -62,6 +62,7 @@ first_name_block = None
 def scenario( wallets, **kw ):
 
     global first_name_block
+    test_proxy = testlib.make_proxy()
 
     # make a test namespace
     resp = testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
@@ -84,13 +85,15 @@ def scenario( wallets, **kw ):
     zonefile_txt = blockstack_zones.make_zone_file( zonefile, origin='foo.test', ttl=4200 )
 
     # make a new keyfile as well 
-    profile = blockstack_client.user.make_empty_user_profile()
-    res = blockstack_client.key_file.make_initial_key_file(profile, wallets[3].privkey)
+    user_profile = blockstack_client.user.make_empty_user_profile()
+    '''
+    res = blockstack_client.key_file.make_initial_key_file(user_profile, wallets[3].privkey)
     if 'error' in res:
         print res
         return res
 
     keyfile_txt = res['key_file']
+    '''
     zonefile_hash = blockstack_client.get_zonefile_data_hash(zonefile_txt)
 
     resp = testlib.blockstack_name_import( "foo.test", wallets[3].addr, zonefile_hash, wallets[1].privkey )
@@ -106,10 +109,19 @@ def scenario( wallets, **kw ):
         print res
         return False
 
+    '''
     # upload keyfile
     res = blockstack_client.key_file.key_file_put('foo.test', keyfile_txt)
     if 'error' in res:
         print res
+        return False
+    '''
+ 
+    rc = blockstack_client.profile.put_profile('foo.test', user_profile, blockchain_id='foo.test',
+                                              user_data_privkey=wallets[4].privkey, user_zonefile=zonefile,
+                                              proxy=test_proxy)
+    if not rc:
+        print 'failed to put profile'
         return False
 
     # try lookup 
@@ -281,15 +293,25 @@ def scenario( wallets, **kw ):
     new_zonefile_txt = blockstack_zones.make_zone_file( new_zonefile, origin='foo.test', ttl=4200 )
 
     # make a new keyfile as well 
-    new_profile = blockstack_client.user.make_empty_user_profile()
-    new_profile['new_user'] = True
-    res = blockstack_client.key_file.make_initial_key_file(new_profile, wallets[0].privkey)
+    new_user_profile = blockstack_client.user.make_empty_user_profile()
+    new_user_profile['new_user'] = True
+    '''
+    res = blockstack_client.key_file.make_initial_key_file(new_user_profile, wallets[0].privkey)
     if 'error' in res:
         print res
         return res
 
     new_keyfile_txt = res['key_file']
+    '''
     new_zonefile_hash = blockstack_client.get_zonefile_data_hash(new_zonefile_txt)
+
+    rc = blockstack_client.profile.put_profile('foo.test', new_user_profile, blockchain_id='foo.test',
+                                              user_data_privkey=wallets[4].privkey, user_zonefile=new_zonefile,
+                                              proxy=test_proxy)
+    if not rc:
+        print 'failed to put profile'
+        return False
+
 
     # renew/xfer/update 
     resp = testlib.blockstack_name_renew('foo.test', wallets[3].privkey, zonefile_hash=new_zonefile_hash, recipient_addr=wallets[0].addr)
