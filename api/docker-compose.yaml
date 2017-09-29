@@ -1,11 +1,10 @@
-version: '3'
+version: '2'
 services:
   blockstack-core:
     image: 'quay.io/blockstack/blockstack-core:develop-configure-mongo'
     command: blockstack-core start --debug --foreground
     volumes:
       - './data/blockstack-core/server/:/root/.blockstack-server/'
-      - './data/blockstack-core/api/:/root/.blockstack'
     networks:
       - api
     restart: always
@@ -34,8 +33,12 @@ services:
 
   search-api:
     build: .
+    environment:
+      - BLOCKSTACK_DEBUG=1
     networks:
       - api
+    ports:
+      - 3000:3000
     restart: always
     links:
       - blockstack-core
