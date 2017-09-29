@@ -233,13 +233,8 @@ def scenario( wallets, **kw ):
         print 'accidentally registered'
         return False
 
-    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20)
-    if 'error' not in resp:
-        print resp
-        return False
-
-    # should go through, but be rejected
-    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, safety_checks=False, tx_fee=500*5)
+    # should go through, but be rejected (expired preorder)
+    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, safety_checks=False)
     if 'error' in resp:
         print resp
         return False
@@ -252,26 +247,22 @@ def scenario( wallets, **kw ):
         print whois
         return False
 
-    # should go through, and be accepted (consumes earlier preorder)
+    # should go through, and be rejected (expired preorder)
     resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20)
     if 'error' in resp:
         print resp
         return False
 
     testlib.next_block(**kw) # 702 (name can be registered again)
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     whois = testlib.blockstack_cli_whois('foo.test')
-    if 'error' in whois:
+    if 'error' not in whois:
         print whois
         return False
 
+    # should go through, but fail (expired preorder) 
     resp = testlib.blockstack_name_register("foo.test", wallets[3].privkey, wallets[0].addr, zonefile_hash='33' * 20)
-    if 'error' not in resp:
-        print resp
-        return False
-
-    # should go through, and be rejected (preorder will remain)
-    resp = testlib.blockstack_name_register("foo.test", wallets[3].privkey, wallets[0].addr, zonefile_hash='33' * 20, safety_checks=False, tx_fee=500*5)
     if 'error' in resp:
         print resp
         return False
@@ -280,12 +271,8 @@ def scenario( wallets, **kw ):
     testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
     
     whois = testlib.blockstack_cli_whois('foo.test')
-    if 'error' in whois:
+    if 'error' not in whois:
         print whois
-        return False
-
-    if whois['owner_address'] == wallets[0].addr:
-        print 'accidentally registered foo.test to {}'.format(wallets[0].addr)
         return False
 
 
@@ -318,22 +305,9 @@ def check( state_engine ):
         print 'not preordered'
         return False
 
-    # registered 
+    # not registered 
     name_rec = state_engine.get_name( "foo.test" )
-    if name_rec is None:
-        print "no name"
+    if name_rec is not None:
         return False 
-
-    # owned by new owner
-    if name_rec['address'] != wallets[2].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[2].addr):
-        print 'wrong owner'
-        print name_rec['address']
-        print name_rec['sender']
-        return False
-
-    namespace_rec = state_engine.get_namespace("test")
-    if namespace_rec is None:
-        print "missing namespace"
-        return False
 
     return True
