@@ -1,3 +1,4 @@
 integration_tests/blockstack-consensus-data/
 .venv
 .git
+api/data/
