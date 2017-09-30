@@ -148,7 +148,7 @@ def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_addres
         })
 
     try:
-        op = op_extract( opcode_name, payload, senders, inputs, outputs, 373601, 0, "00" * 64 )  
+        op = op_extract( opcode_name, payload, senders, inputs, outputs, 488501, 0, "00" * 64 )  
     except AssertionError, ae:
         # failed to parse
         return None
@@ -223,10 +223,15 @@ def check( state_engine ):
 
     all_tests["?"] = compile_test( "?", name_preorders )
 
-    # name register/renew wire format 
+    # name register/renew wire format (pre F-day 2017) 
     # 0    2  3                             39
     # |----|--|-----------------------------|
     # magic op   name.ns_id (37 bytes)
+
+    # name register/renew wire format (post F-day 2017)
+    # 0    2  3                                  39                  59
+    # |----|--|----------------------------------|-------------------|
+    # magic op   name.ns_id (37 bytes, 0-padded)       value hash
     
     name_registrations = {
         "valid":     binascii.hexlify("hello.test"),
@@ -236,7 +241,20 @@ def check( state_engine ):
         "null-namespace": binascii.hexlify("hello."),
         "2period":   binascii.hexlify("hello.tes.t"),
         "no-plus":   binascii.hexlify("hel+lo.test"),
-        "too-long":  binascii.hexlify("hellohellohellohellohellohellohel.test")
+        "too-long":  binascii.hexlify("hellohellohellohellohellohellohel.test"),
+
+        "valid_2":        binascii.hexlify("hello.test" + "\x00" * 27 + "\x11" * 20),
+        "null_name_2":    binascii.hexlify("\x00" * 37 + "\x11" * 20),
+        "non-b38_2":      binascii.hexlify("Hello.test" + "\x00" * 27 + "\x11" * 20),
+        "no-namespace_2": binascii.hexlify("hello" + "\x00" * 32 + "\x11" * 20),
+        "null-namespace_2":  binascii.hexlify("hello." + "\x00" * 31 + "\x11" * 20),
+        "2period_2":      binascii.hexlify("hello.tes.t" + "\x00" * 26 + "\x11" * 20),
+        "no-plus_2":      binascii.hexlify("hel+lo.test" + "\x00" * 26 + "\x11" * 20),
+        "too-long_2":     binascii.hexlify("hellohellohellohellohellohellohel.test" + "\x11" * 20),
+        "no_hash":      binascii.hexlify("hello.test" + "\x00" * 27),
+        "hash_too_long": binascii.hexlify("hello.test" + "\x00" * 27 + "\x11" * 21),
+        "padding_too_short": binascii.hexlify("hello.test" + "\x00" * 26 + "\x11" * 21),
+        "op_too_short": binascii.hexlify("hello.test" + "\x00" * 26 + "\x11" * 20),
     }
 
     all_tests[":"] = compile_test( ":", name_registrations )
@@ -357,7 +375,7 @@ def check( state_engine ):
             if testname.startswith("valid"):
                 # should work
                 if parsed_op is None:
-                    print >> sys.stderr, "Failed to parse valid id%s%s" % (opcode, bin_testscript)
+                    print >> sys.stderr, "Failed to parse %s id%s%s (%s)" % (testname, opcode, bin_testscript, binascii.hexlify(bin_testscript))
                     return False 
 
             else:
