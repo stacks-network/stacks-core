@@ -199,7 +199,7 @@ NAMEREC_FIELDS = [
 # these never change, so it's fine to duplicate them here
 NAMESPACE_FIELDS = [
     'namespace_id',            # human-readable namespace ID
-    'namespace_id_hash',       # hash(namespace_id,sender,reveal_addr) from the preorder (binds this namespace to its preorder)
+    'preorder_hash',           # hash(namespace_id,sender,reveal_addr) from the preorder (binds this namespace to its preorder)
     'version',                 # namespace rules version
     'sender',                  # the scriptPubKey hex script that identifies the preorderer
     'sender_pubkey',           # if sender is a p2pkh script, this is the public key
@@ -227,7 +227,7 @@ OPFIELDS = {
         'recipient_address'    # address of the recipient
     ],
     NAMESPACE_PREORDER: [
-        'namespace_id_hash',   # hash(namespace_id,sender,reveal_addr)
+        'preorder_hash',       # hash(namespace_id,sender,reveal_addr)
         'consensus_hash',      # consensus hash at the time issued
         'op',                  # bytecode describing the operation (not necessarily 1 byte)
         'op_fee',              # fee paid for the namespace to the burn address
