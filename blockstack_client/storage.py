@@ -1104,6 +1104,10 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
         return False
 
     # failed everywhere or succeeded somewhere
+    log.debug("put_mutable_data: successes = {}, required_successes = {}, |required - skip| = {}".format(
+        successes, required_successes, len(set(required) - set(skip))
+    ))
+
     return (successes > 0) and (required_successes >= len(set(required) - set(skip)))
 
 
