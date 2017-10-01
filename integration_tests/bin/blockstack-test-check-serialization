@@ -150,7 +150,7 @@ def find_ignore_serialization_fields( test_output_path ):
     return ret
 
 
-def serialization_eq( height, serialization_1, serialization_2, ignore=[] ):
+def serialization_eq( height, serialization_1, serialization_2, ignore=[], s2_height_offset=0 ):
     """
     Given two parsed serialization payloads, verify that they represent the same data
     (ignoring fields given in @ignore)
@@ -171,7 +171,12 @@ def serialization_eq( height, serialization_1, serialization_2, ignore=[] ):
         if key_1 in ignore or key_2 in ignore:
             continue
 
-        if serialization_1[key_1] != serialization_2[key_2]:
+        # deal with height offsets 
+        value_1 = serialization_1[key_1]
+        if key_1 in ['block_number', 'preorder_block_number', 'first_registered', 'last_renewed', 'reveal_block', 'ready_block']:
+            value_1 = str(int(value_1) + s2_height_offset)
+            
+        if value_1 != serialization_2[key_2]:
             mismatches_1.append( key_1 )
             mismatches_2.append( key_2 )
 
@@ -221,19 +226,23 @@ def compare_serializations( test_output_old, test_output_new ):
     block_serializations_old = group_by_block_height( serializations_old )
     block_serializations_new = group_by_block_height( serializations_new )
 
+    new_height_offset = 0
+    if os.environ.get('BLOCKSTACK_CHECK_HEIGHT_OFFSET') is not None:
+        new_height_offset = int(os.environ['BLOCKSTACK_CHECK_HEIGHT_OFFSET'])
+
     for height in sorted(block_serializations_old.keys()):
-        if not block_serializations_new.has_key(height):
-            print >> sys.stderr, "   Missing block height %s in second log" % height
+        if not block_serializations_new.has_key(height + new_height_offset):
+            print >> sys.stderr, "   Missing block height %s in second log" % (height + new_height_offset)
             return False
 
     for height in sorted(block_serializations_new.keys()):
-        if not block_serializations_old.has_key(height):
-            print >> sys.stderr, "   Missing block height %s in first log" % height
+        if not block_serializations_old.has_key(height - new_height_offset):
+            print >> sys.stderr, "   Missing block height %s in first log" % (height - new_height_offset)
             return False
 
     for height in sorted(block_serializations_old.keys()):
         s_old = block_serializations_old[height]
-        s_new = block_serializations_new[height]
+        s_new = block_serializations_new[height + new_height_offset]
 
         if len(s_old) != len(s_new):
             print >> sys.stderr, "   Mismatched number of serializations at block %s (%s != %s)" % (height, len(s_old), len(s_new))
@@ -250,7 +259,7 @@ def compare_serializations( test_output_old, test_output_new ):
                 ignore = serialization_ignore[:]
                 ignore += s2['__ignore_fields__']
 
-                res, err = serialization_eq( height, s1, s2, ignore=ignore )
+                res, err = serialization_eq( height, s1, s2, ignore=ignore, s2_height_offset=new_height_offset )
                 if res:
                     matched = True
                     s_new.remove(s2)
