@@ -30,6 +30,7 @@ import blockstack_client
 import blockstack_zones
 import virtualchain
 import json
+import time
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -131,6 +132,9 @@ def scenario( wallets, **kw ):
             return False
 
         value_hashes.append(value_hash)
+
+    print 'waiting for all zone files to replicate'
+    time.sleep(10)
 
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
     assert config_path
