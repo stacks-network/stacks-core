@@ -228,7 +228,7 @@ def sqlite3_backup( src_path, dest_path ):
     try:
         while True:
             log.debug("{}".format(" ".join(sqlite3_cmd)))
-            p = subprocess.Popen(sqlite3_cmd, shell=False, close_fds=True)
+            p = subprocess.Popen(sqlite3_cmd, shell=False, close_fds=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             out, err = p.communicate()
             rc = p.wait()
 
