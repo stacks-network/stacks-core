@@ -578,14 +578,10 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     # propagate new sender information
     nameop['sender'] = nameop['recipient']
     nameop['address'] = nameop['recipient_address']
+    nameop['sender_pubkey'] = prev_name_rec['sender_pubkey']
+
     del nameop['recipient']
     del nameop['recipient_address']
-
-    # pre F-day 2017: we don't change sender_pubkey
-    # post F-day 2017: we do, since the sender can have changed
-    #if EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE not in epoch_features:
-    #    del nameop['sender_pubkey']
-   
     del nameop['burn_address']
 
     # renewal!
