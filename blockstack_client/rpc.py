@@ -2175,7 +2175,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Handle GET /insight-api/addr/:address/balance
         """
         # step 0, convert address if needed
-        get_address = virtualchain.address_reencode(address)
+        try:
+            get_address = virtualchain.address_reencode(address)
+        except:
+            return self._reply_json( {'error' :
+                                      'Invalid address {}'.format(address) },
+                                     status_code = 400 )
         if get_address != address:
             log.debug("Re-encode {} to {}".format(address, get_address))
         return self._reply_json( self._get_confirmed_balance(get_address) )
@@ -2185,7 +2190,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Handle GET /insight-api/addr/:address/unconfirmedBalance
         """
         # step 0, convert address if needed
-        get_address = virtualchain.address_reencode(address)
+        try:
+            get_address = virtualchain.address_reencode(address)
+        except:
+            return self._reply_json( {'error' :
+                                      'Invalid address {}'.format(address) },
+                                     status_code = 400 )
         if get_address != address:
             log.debug("Re-encode {} to {}".format(address, get_address))
         # step 1, get the confirmed balance
@@ -3377,8 +3387,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'wallet_read',
                         'desc': 'get the node wallet\'s balance',
-                        'auth_session': True,
-                        'auth_pass': True,
+                        'auth_session': False,
+                        'auth_pass': False,
                         'need_data_key': False,
                     },
                 }
@@ -3391,8 +3401,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'wallet_read',
                         'desc': 'get the node wallet\'s balance',
-                        'auth_session': True,
-                        'auth_pass': True,
+                        'auth_session': False,
+                        'auth_pass': False,
                         'need_data_key': False,
                     },
                 }
@@ -3851,6 +3861,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'need_data_key': False,
                     },
                 },
+            },
+            r'^/insight-api/.*$': {
+                'routes': {
+                    'OPTIONS': self.OPTIONS_preflight,
+                },
+                'whitelist': {
+                    'OPTIONS': {
+                        'name': '',
+                        'desc': 'preflight check',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
+                    },
+                }
             },
         }
         
