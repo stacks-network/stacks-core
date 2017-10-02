@@ -60,7 +60,7 @@ log = virtualchain.get_logger("testlib")
 class Wallet(object):
     def __init__(self, pk_wif, ignored ):
 
-        pk = virtualchain.BitcoinPrivateKey( pk_wif )
+        pk = virtualchain.BitcoinPrivateKey( pk_wif, compressed=False )
 
         self._pk = pk
 
