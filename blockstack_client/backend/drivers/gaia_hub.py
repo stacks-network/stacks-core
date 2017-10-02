@@ -62,17 +62,17 @@ def put_mutable_handler( data_id, data_txt, **kw ):
         log.error(resp)
         msg = "Error putting to mutable storage. Tried store at {}".format(url)
         log.error(msg)
-        return None
+        return False
     log.debug(resp)
     resp_obj = resp.json()
     if 'publicURL' not in resp_obj:
         msg = "Expectin publicURL in JSON response"
-        return None
+        return False
     elif resp_obj['publicURL'] != make_mutable_url(data_id):
         msg = "Unexpected publicURL. Expected '{}', Actual '{}'".format(
             make_mutable_url(data_id), resp_obj['publicURL'])
-        return None
-    return resp_obj['publicURL']
+        return False
+    return True
 
 def get_mutable_handler( data_url, **kw):
     log.debug("get_mutable: {}".format(data_url))
