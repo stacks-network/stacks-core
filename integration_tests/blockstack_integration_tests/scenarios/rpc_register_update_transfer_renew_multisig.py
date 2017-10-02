@@ -228,8 +228,8 @@ def check( state_engine ):
 
     # replicated?
     zonefile = testlib.blockstack_get_zonefile( zonefile_hash )
-    if 'error' in zonefile:
-        print "zonefile error: %s" % zonefile['error']
+    if zonefile is None:
+        print "zonefile error: not found: %s" % zonefile_hash
         return False
 
     # right hash?
