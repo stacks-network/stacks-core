@@ -30,9 +30,14 @@ $ ./ops init-core
 # Pull down the current version of the index
 $ ./ops init-index
 # Configure core server and nginx to point to proper domain
+#
 $ ./ops config-nginx
 
+# double check your /etc/nginx/sites-available/default file to make sure its right
+$ sudo nginx -t
+# double check your config.py file to make sure its right, the following should return 2 lines
+$ cat config.py | grep my.domain.tld
 
 # Now you are ready to deploy!
-$ docker-compose up
+$ sudo docker-compose up -d
 ```

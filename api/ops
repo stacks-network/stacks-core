@@ -103,6 +103,8 @@ ops () {
     echo "Replacing your /etc/nginx/sites-available folder with deployment/nginx.cfg..."
     sudo rm -rf /etc/nginx/sites-available/*
     sudo ln deployment/nginx.cfg /etc/nginx/sites-available/default
+
+    # TODO: add checks here for nginx -t and grep config.py for the domain
     echo "Running certbot..."
     sudo certbot --nginx -d $2
     echo "Reloading nginx..."
