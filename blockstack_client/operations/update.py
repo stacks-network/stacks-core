@@ -35,7 +35,6 @@ from ..scripts import (
     add_magic_bytes,
     is_name_valid,
     tx_get_unspents,
-    hash256_trunc128
 )
 
 from ..logger import get_logger
