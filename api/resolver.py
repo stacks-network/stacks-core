@@ -267,15 +267,6 @@ def get_profile(fqa, refresh=False):
     return data
 
 
-def get_all_users():
-    """ Return all users in the .id namespace
-    """
-
-    # aaron: hardcode a non-response for the time being --
-    #  the previous code was trying to load a non-existent file
-    #  anyways.
-    return {}
-
 @resolver.route('/v1/users/<username>', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')
 @cache_control(MEMCACHED_TIMEOUT)
@@ -317,56 +308,3 @@ def get_users(username):
 def get_users_v2(username):
     return get_users(username)
 
-@resolver.route('/v2/namespace', strict_slashes=False)
-@crossdomain(origin='*')
-def get_namespace():
-    """ Get stats on registration and all names registered
-        (old endpoint, still here for compatibility)
-    """
-
-    reply = {}
-    total_users = get_all_users()
-    reply['stats'] = {'registrations': len(total_users)}
-    reply['usernames'] = total_users
-
-    return jsonify(reply)
-
-
-@resolver.route('/v2/namespaces', strict_slashes=False)
-@crossdomain(origin='*')
-def get_all_namespaces():
-    """ Get stats on registration and all names registered
-    """
-
-    json.encoder.c_make_encoder = None
-
-    reply = {}
-    all_namespaces = []
-    total_users = get_all_users()
-
-    id_namespace = collections.OrderedDict([("namespace", "id"),
-                                            ("registrations", len(total_users)),
-                                            ("names", total_users)])
-
-    all_namespaces.append(id_namespace)
-
-    reply['namespaces'] = all_namespaces
-
-    # disable Flask's JSON sorting
-    app.config["JSON_SORT_KEYS"] = False
-
-    return jsonify(reply)
-
-
-@resolver.route('/v2/users/', methods=['GET'], strict_slashes=False)
-@crossdomain(origin='*')
-def get_user_count():
-    """ Get stats on registered names
-    """
-
-    reply = {}
-
-    total_users = get_all_users()
-    reply['stats'] = {'registrations': len(total_users)}
-
-    return jsonify(reply)
