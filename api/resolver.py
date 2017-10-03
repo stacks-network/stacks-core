@@ -276,7 +276,7 @@ def get_all_users():
     #  anyways.
     return {}
 
-@resolver.route('/v2/users/<usernames>', methods=['GET'], strict_slashes=False)
+@resolver.route('/v1/users/<usernames>', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')
 @cache_control(MEMCACHED_TIMEOUT)
 def get_users(username):
@@ -311,6 +311,11 @@ def get_users(username):
     else:
         return jsonify(reply), 200
 
+@resolver.route('/v2/users/<usernames>', methods=['GET'], strict_slashes=False)
+@crossdomain(origin='*')
+@cache_control(MEMCACHED_TIMEOUT)
+def get_users_v2(username):
+    return get_users(username)
 
 @resolver.route('/v2/namespace', strict_slashes=False)
 @crossdomain(origin='*')
