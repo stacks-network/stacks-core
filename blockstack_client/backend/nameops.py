@@ -978,7 +978,7 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_privkey_info, tx_fee
 
         except AssertionError as ae:
             log.warning("Insufficient funds in {} for NAMESPACE_REVEAL; estimating instead".format(payment_address))
-            unsigned_tx = namespace_reveal_tx( namespace_id, fake_reveal_address, 1, 2, 3, [4,5,6,7,8,9,10,11,12,13,14,15,0,1,2,3], 4, 5, payment_address, utxo_client, safety=False )
+            unsigned_tx = namespace_reveal_tx( namespace_id, 1, fake_reveal_address, 1, 2, 3, [4,5,6,7,8,9,10,11,12,13,14,15,0,1,2,3], 4, 5, payment_address, utxo_client, safety=False )
             assert unsigned_tx
 
             # fake payer input
