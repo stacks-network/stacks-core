@@ -182,6 +182,9 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
 
     if sender_pubkey_hex is not None:
         ret['sender_pubkey'] = sender_pubkey_hex
+    
+    else:
+        ret['sender_pubkey'] = None
 
     return ret
 
