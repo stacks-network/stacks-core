@@ -1268,7 +1268,15 @@ def get_namespace_burn_address(fqu, proxy):
     """
     Determine the right burn address to use
     """
+    import blockstack
     burn_address = None
+    
+    indexer_info = blockstack_getinfo()
+    if 'error' in indexer_info:
+        return {'error': 'Failed to contact indexer'}
+
+    # +1, so we consider the next block to be formed 
+    block_height = indexer_info['last_block_seen'] + 1
 
     # look up burn address 
     namespace_id = get_namespace_from_name(fqu) 
@@ -1278,7 +1286,15 @@ def get_namespace_burn_address(fqu, proxy):
 
     # does this namespace support burn-to-namespace-creator?
     if (namespace_info['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR) != 0:
-        burn_address = namespace_info['address']
+        # are we still in its fee capture period?
+        receive_fees_period = blockstack.get_epoch_namespace_receive_fees_period(block_height, namespace_id)
+        if namespace_info['reveal_block'] + receive_fees_period >= block_height:
+            # use the namespace burn address
+            burn_address = str(namespace_info['address'])
+        else:
+            # use the null burn address
+            burn_address = blockstack.BLOCKSTACK_BURN_ADDRESS
+
     else:
         burn_address = BLOCKSTACK_BURN_ADDRESS
 
@@ -1320,9 +1336,9 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
 
     if burn_address is None:
         burn_address = get_namespace_burn_address(fqu, proxy)
+    else:
+        burn_address = str(burn_address)
    
-    log.debug("Will send name preorder fee to {}".format(burn_address))
-
     if not dry_run and (safety_checks or (cost_satoshis is None or tx_fee is None)):
         tx_fee = 0
         # find tx fee, and do sanity checks
@@ -1362,7 +1378,7 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     utxo_client = build_utxo_client( utxo_client, address=payment_address, utxos=payment_utxos )
     assert utxo_client, "Unable to build UTXO client"
 
-    log.debug("Preordering (%s, %s, %s), for %s, tx_fee = %s" % (fqu, payment_address, owner_address, cost_satoshis, tx_fee))
+    log.debug("Preordering (%s, %s, %s), for %s, tx_fee = %s, burn address = %s" % (fqu, payment_address, owner_address, cost_satoshis, tx_fee, burn_address))
 
     try:
         unsigned_tx, num_utxos = make_cheapest_name_preorder(fqu, payment_address, owner_address, burn_address, cost_satoshis, consensus_hash, utxo_client, payment_utxos, tx_fee=tx_fee)
@@ -1739,7 +1755,8 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     utxo_client = build_utxo_client( utxo_client, address=owner_address, utxos=owner_utxos )
     assert utxo_client, "Unable to build UTXO client"
 
-    log.debug("Renewing (%s, %s, %s), tx_fee_per_byte = %s, renewal_fee = %s, zonefile_hash = %s, recipient_addr = %s" % (fqu, payment_address, owner_address, tx_fee_per_byte, renewal_fee, zonefile_hash, recipient_addr))
+    log.debug("Renewing (%s, %s, %s), tx_fee_per_byte = %s, renewal_fee = %s, zonefile_hash = %s, recipient_addr = %s, burn_address = %s" % 
+            (fqu, payment_address, owner_address, tx_fee_per_byte, renewal_fee, zonefile_hash, recipient_addr, burn_address))
 
     # now send it
     subsidized_tx = None
