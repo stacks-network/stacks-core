@@ -1,7 +1,7 @@
 version: '2'
 services:
   blockstack-core:
-    image: 'quay.io/blockstack/blockstack-core:develop-configure-mongo'
+    image: 'quay.io/blockstack/blockstack-core:develop'
     command: blockstack-core start --debug --foreground
     volumes:
       - './data/blockstack-core/server/:/root/.blockstack-server/'
@@ -18,7 +18,7 @@ services:
     restart: always
 
   blockstack-api:
-    image: 'quay.io/blockstack/blockstack-core:develop-configure-mongo'
+    image: 'quay.io/blockstack/blockstack-core:develop'
     command: blockstack api start-foreground --debug --password dummywalletpassword
     volumes:
       - './data/blockstack-api/:/root/.blockstack'
@@ -32,7 +32,9 @@ services:
     restart: always
 
   search-api:
-    build: .
+    build:
+      context: ../
+      dockerfile: api/Dockerfile
     environment:
       - BLOCKSTACK_DEBUG=1
     networks:
