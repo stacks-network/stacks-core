@@ -79,6 +79,7 @@ def scenario( wallets, **kw ):
         print json.dumps(resp, indent=4)
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at('test', testlib.get_current_block(**kw))
 
     # try to re-preorder it 
     resp = testlib.blockstack_namespace_preorder( "test", wallets[3].addr, wallets[2].privkey )
