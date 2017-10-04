@@ -93,6 +93,10 @@ ops () {
     sudo apt-get install python-certbot-nginx
   }
 
+  init-cron () {
+    crontab deployment/crontab
+  }
+
   config-nginx () {
     if [ -z "$2" ]; then
       echo "Need to input domain name that points to this server"
@@ -122,6 +126,7 @@ ops commands:
     init-index -> Pull down the current version of the index
     init-core -> Fast sync the core node
     config-nginx -> Configure core server and nginx to point to proper domain
+    init-cron -> install cron jobs needed to reindex and update the index
 
   Commands to be run in Docker Environment:
     search-reindex -> Once every 6 hours
@@ -147,6 +152,9 @@ EOF
       ;;
     init-core)
       init-core
+      ;;
+    init-cron)
+      init-cron
       ;;
     install-docker)
       install-docker
