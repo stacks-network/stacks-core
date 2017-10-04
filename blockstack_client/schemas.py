@@ -68,7 +68,7 @@ OP_SUBDOMAIN_NAME_PATTERN = r'^({})\.({})$'.format(OP_NAME_CLASS, OP_NAME_CLASS)
 OP_NAME_OR_SUBDOMAIN_FRAGMENT = r'({})|({})'.format(OP_NAME_PATTERN, OP_SUBDOMAIN_NAME_PATTERN)
 OP_NAME_OR_SUBDOMAIN_PATTERN = r'^{}$'.format(OP_NAME_OR_SUBDOMAIN_FRAGMENT)
 OP_NAMESPACE_PATTERN = r'^({})$'.format(OP_NAMESPACE_CLASS)
-OP_NAMESPACE_HASH_PATTERN = r'^([0-9a-fA-F]{16})$'
+OP_NAMESPACE_ID_HASH_PATTERN = r'^([0-9a-fA-F]{40})$'
 OP_SUBDOMAIN_NAME_PATTERN = r'^([a-z0-9\-_.+]{{{},{}}})$'.format(5, LENGTH_MAX_NAME * 2)
 OP_BASE64_PATTERN_SECTION = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
 OP_BASE64_PATTERN = r'^({})$'.format(OP_BASE64_PATTERN_SECTION)
@@ -1161,6 +1161,10 @@ OP_HISTORY_SCHEMA = {
         'buckets': {
             'anyOf': [
                 {
+                    'type': 'string',
+                    'pattern': r'^\[((0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15), ){15}(0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15)\]$'
+                },
+                {
                     'type': 'array',
                     'items': {
                         'type': 'integer',
@@ -1401,9 +1405,10 @@ NAMESPACE_SCHEMA_PROPERTIES = {
         'type': 'string',
         'pattern': OP_NAMESPACE_PATTERN,
     },
+    # legacy field
     'namespace_id_hash': {
         'type': 'string',
-        'pattern': OP_NAMESPACE_HASH_PATTERN,
+        'pattern': OP_NAMESPACE_ID_HASH_PATTERN,
     },
     'no_vowel_discount': {
         'type': 'integer',
@@ -1416,6 +1421,10 @@ NAMESPACE_SCHEMA_PROPERTIES = {
         'maximum': 15,
     },
     'op': OP_HISTORY_SCHEMA['properties']['op'],
+    'preorder_hash': {
+        'type': 'string',
+        'pattern': OP_NAMESPACE_ID_HASH_PATTERN,
+    },
     'ready': {
         'type': 'boolean',
     },
