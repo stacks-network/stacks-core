@@ -2470,6 +2470,8 @@ def setup( working_dir=None, return_parser=False ):
     # set up our implementation
     virtualchain.setup_virtualchain( impl=blockstack_state_engine )
     working_dir = virtualchain.get_working_dir()
+    
+    log.debug("Working dir: {}".format(working_dir))
 
     if not os.path.exists( working_dir ):
         os.makedirs( working_dir, 0700 )
@@ -2481,9 +2483,9 @@ def setup( working_dir=None, return_parser=False ):
 
     # config file version check
     config_server_version = blockstack_opts.get('server_version', None)
-    if (config_server_version is None
-        or config.versions_need_upgrade(config_server_version, VERSION)):
-       print >> sys.stderr, "Obsolete config file (%s): '%s' != '%s'\nPlease move it out of the way, so Blockstack Server can generate a fresh one." % (virtualchain.get_config_filename(), config_server_version, VERSION)
+    if (config_server_version is None or config.versions_need_upgrade(config_server_version, VERSION)):
+       print >> sys.stderr, "Obsolete or unrecognizable config file ({}): '{}' != '{}'".format(virtualchain.get_config_filename(), config_server_version, VERSION)
+       print >> sys.stderr, 'Please see the release notes for version {} for instructions to upgrade (in the release-notes/ folder).'.format(VERSION) 
        return None
 
     log.debug("config:\n%s" % json.dumps(opts, sort_keys=True, indent=4))
@@ -2990,8 +2992,12 @@ def run_blockstackd():
           sys.exit(1)
 
    elif args.action == 'fast_sync':
-      # fetch the snapshot and verify it 
-      url = str(args.url)
+      # fetch the snapshot and verify it
+      if hasattr(args, 'url') and args.url:
+          url = str(args.url)
+      else:
+          url = str(config.FAST_SYNC_DEFAULT_URL)
+          
       public_keys = config.FAST_SYNC_PUBLIC_KEYS
 
       if args.public_keys is not None:
@@ -3007,7 +3013,7 @@ def run_blockstackd():
       if args.num_required:
           num_required = int(args.num_required)
 
-      print "Synchronizing from snapshot.  This will take about 10-15 minutes."
+      print "Synchronizing from snapshot from {}.  This will take about 10-15 minutes.".format(url)
 
       rc = fast_sync_import(working_dir, url, public_keys=public_keys, num_required=num_required)
       if not rc:
