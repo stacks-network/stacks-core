@@ -29,9 +29,9 @@ $ ./ops init-api
 $ ./ops init-core
 # Pull down the current version of the index
 $ ./ops init-index
+
 # Configure core server and nginx to point to proper domain
-#
-$ ./ops config-nginx
+$ ./ops config-nginx {{ domain_name }}
 
 # double check your /etc/nginx/sites-available/default file to make sure its right
 $ sudo nginx -t
