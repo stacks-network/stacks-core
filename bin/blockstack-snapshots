@@ -868,7 +868,8 @@ if __name__ == '__main__':
 
         os.execv(sys.argv[0], new_argv)
 
-    config_path = getattr(args, 'config_file', config_path)
+    if hasattr(args, 'config_file') and args.config_file:
+        config_path = args.config_file
 
     conf = read_config(config_path=config_path)
     conf = merge_config_args(conf, args)
