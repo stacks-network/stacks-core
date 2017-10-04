@@ -19,8 +19,8 @@ $ ./ops install-nginx
 $ ./ops install-certbot
 
 # Enable sudo-less docker commands
-$ usermod -aG docker ${USER}
-$ exec bash
+# Replace `ubuntu` with your username
+$ sudo usermod -aG docker ubuntu
 
 # WARNING: This takes ~20 minutes to run
 # Set up the dummy wallet for the core api

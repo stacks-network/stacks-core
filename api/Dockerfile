@@ -3,7 +3,7 @@ FROM quay.io/blockstack/blockstack-core:develop-configure-mongo
 WORKDIR /src/blockstack
 
 # Install Apt Dependancies
-RUN apt-get install -y curl
+RUN apt-get update && apt-get install -y curl
 
 # Install Node
 RUN curl -sL https://deb.nodesource.com/setup_6.x | bash -
