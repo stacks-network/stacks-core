@@ -156,6 +156,43 @@ def get_num_names_owned( state_engine, checked_ops, sender ):
     return count
 
 
+def check_burn_address(namespace, burn_address, block_id):
+    """
+    Verify that the burn fee went to the right address
+    """
+    # fee must be paid to the right address.
+    # pre F-day 2017: this *must* be the burn address, and the namespace *must* be version 1
+    # post F-day 2017: this *may* be the namespace creator's address
+    epoch_features = get_epoch_features(block_id)
+    receive_fees_period = get_epoch_namespace_receive_fees_period(block_id, namespace['namespace_id'])
+    expected_burn_address = None
+
+    if EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR in epoch_features:
+        if (namespace['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR):
+            # can only burn to namespace if the namespace is young enough (starts counting from NAMESPACE_REVEAL)
+            if namespace['reveal_block'] + receive_fees_period >= block_id:
+                log.debug("Register must pay to v2 namespace address {}".format(namespace['address']))
+                expected_burn_address = namespace['address']
+            else:
+                log.debug("Register must pay to burn address, since the namespace has passed its fee-capture period")
+                expected_burn_address = BLOCKSTACK_BURN_ADDRESS
+        else:
+            log.debug("Register must pay to burn address, since the namespace does not support pay-to-creator")
+            expected_burn_address = BLOCKSTACK_BURN_ADDRESS
+
+    else:
+        log.debug("Register must pay to burn address, since the pay-to-creator is not supported in this epoch")
+        expected_burn_address = BLOCKSTACK_BURN_ADDRESS
+
+    if expected_burn_address != burn_address:
+        log.debug("Register/renew sends fee to {}, but namespace expects {}".format(burn_address, expected_burn_address))
+        return False
+    else:
+        log.debug("Sending register/renewal fee to {}".format(burn_address))
+
+    return True
+
+
 @state_create( "name", "name_records", "check_name_collision" )
 def check_register( state_engine, nameop, block_id, checked_ops ):
     """
@@ -352,24 +389,12 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         log.debug("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace, block_id ), name_fee ))
         return False
  
-    # fee must be paid to the right address.
+    # fee must be paid to the right address, at the right time.
     # pre F-day 2017: this *must* be the burn address, and the namespace *must* be version 1
     # post F-day 2017: this *may* be the namespace creator's address
-    expected_burn_address = None
-    if EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR in epoch_features:
-        if (namespace['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR):
-            expected_burn_address = namespace['address']
-        else:
-            expected_burn_address = BLOCKSTACK_BURN_ADDRESS
-
-    else:
-        expected_burn_address = BLOCKSTACK_BURN_ADDRESS
-
-    if expected_burn_address != burn_address:
-        log.debug("Register/renew sends fee to {}, but namespace expects {}".format(burn_address, expected_burn_address))
+    if not check_burn_address(namespace, burn_address, fee_block_id):
+        log.debug("Invalid burn address {}".format(burn_address))
         return False
-    else:
-        log.debug("Sending register/renewal fee {} to {}".format(name_fee, burn_address))
 
     nameop['opcode'] = opcode
     nameop['op_fee'] = name_fee
@@ -541,18 +566,8 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     # fee must be paid to the right address.
     # pre F-day 2017: this *must* be the burn address, and the namespace *must* be version 1
     # post F-day 2017: this *may* be the namespace creator's address
-    expected_burn_address = None
-    if EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR in epoch_features:
-        if (namespace['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR):
-            expected_burn_address = namespace['address']
-        else:
-            expected_burn_address = BLOCKSTACK_BURN_ADDRESS
-
-    else:
-        expected_burn_address = BLOCKSTACK_BURN_ADDRESS
-
-    if expected_burn_address != burn_address:
-        log.debug("Register/renew sends fee to {}, but namespace expects {}".format(burn_address, expected_burn_address))
+    if not check_burn_address(namespace, burn_address, block_id):
+        log.debug("Invalid burn address {}".format(burn_address))
         return False
  
     # if we're in an epoch that allows us to include a value hash in the renewal, and one is given, then set it 
@@ -730,8 +745,10 @@ def restore_delta( name_rec, block_number, history_index, working_db, untrusted_
 
     from ..nameset import BlockstackDB
 
+    namespace_id = get_namespace_from_name(name_rec['name'])
     epoch_features = get_epoch_features(block_number)
     value_hash = None
+    receive_fees_period = get_epoch_namespace_receive_fees_period(block_number, namespace_id)
 
     # restore history to find previous sender, address, public key
     name_rec_prev = BlockstackDB.get_previous_name_version( name_rec, block_number, history_index, untrusted_db )
@@ -755,14 +772,16 @@ def restore_delta( name_rec, block_number, history_index, working_db, untrusted_
     address = name_rec_prev['address']
 
     sender_pubkey = None
+    opcode_name = None
     if op_get_opcode_name(name_rec['op']) == "NAME_RENEWAL":
+        opcode_name = 'NAME_RENEWAL'
         log.debug("NAME_RENEWAL: sender_pubkey = '%s'" % name_rec['sender_pubkey'])
         sender_pubkey = name_rec['sender_pubkey']
     else:
+        opcode_name = 'NAME_REGISTRATION'
         log.debug("NAME_REGISTRATION: sender_pubkey = '%s'" % name_rec_prev['sender_pubkey'])
         sender_pubkey = name_rec_prev['sender_pubkey']
     
-    namespace_id = get_namespace_from_name(name_rec['name'])
     namespace = untrusted_db.get_namespace(namespace_id)
     assert namespace
 
@@ -772,7 +791,17 @@ def restore_delta( name_rec, block_number, history_index, working_db, untrusted_
     ret_op['sender_pubkey'] = sender_pubkey
 
     if (namespace['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR):
-        ret_op['burn_address'] = namespace['address']
+        fee_block_number = None
+        if opcode_name == 'NAME_RENEWAL':
+            fee_block_number = block_number
+        else:
+            fee_block_number = name_rec['preorder_block_number']
+
+        if namespace['reveal_block'] + receive_fees_period >= fee_block_number:
+            # still in the fee capture interval
+            ret_op['burn_address'] = namespace['address']
+        else:
+            ret_op['burn_address'] = BLOCKSTACK_BURN_ADDRESS
     else:
         ret_op['burn_address'] = BLOCKSTACK_BURN_ADDRESS
 
