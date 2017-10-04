@@ -76,6 +76,10 @@ The API password for connecting from the browser is:
 blockstack_integration_test_api_password
 ```
 
+Note: To obtain regtest bitcoins in the browser's wallet during testing-mode,
+use the hidden browser page [http://localhost:8888/wallet/send-core] or
+[http://localhost:3000/wallet/send-core] to send bitcoins to the address.
+
 ## Using CLI commands from the docker container
 
 To use the CLI commands once your docker container has started, connect to the docker container:
@@ -183,6 +187,10 @@ To interact with this using the Blockstack Browser, you need to use the api_pass
 ```
 blockstack_integration_test_api_password
 ```
+
+Note: To obtain regtest bitcoins in the browser's wallet during testing-mode,
+use the hidden browser page [http://localhost:8888/wallet/send-core] or
+[http://localhost:3000/wallet/send-core] to send bitcoins to the address.
 
 ### Using the CLI
 
