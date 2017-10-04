@@ -25,6 +25,7 @@ ops () {
     local tmpFile=/var/blockstack-search/logs/search-update/$(date +%s).log
     local updateProfilesOut=/var/blockstack-search/logs/update-profiles/$(date +%s).log
     mkdir -p /var/blockstack-search/logs/search-update
+    mkdir -p /var/blockstack-search/logs/update-profiles
     touch $tmpFile $updateProfilesOut
 
     # Run update_profiles
