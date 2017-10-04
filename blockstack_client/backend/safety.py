@@ -391,10 +391,11 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
                 return {'error': 'Failed to contact indexer'}
 
             # +1, so we consider the next block to be formed 
-            epoch_features = blockstack.get_epoch_features(indexer_info['last_block_seen']+1)
+            block_height = indexer_info['last_block_seen'] + 1
+            epoch_features = blockstack.get_epoch_features(block_height)
             if blockstack.EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR not in epoch_features and virtualchain.address_reencode(burn_addr) != virtualchain.address_reencode(blockstack.BLOCKSTACK_BURN_ADDRESS):
                 # not active yet 
-                return {'error': 'NAME_PREORDER cannot burn to namespace burn address'}
+                return {'error': 'cannot burn to namespace burn address (not allowed in this epoch)'}
 
             # what's the namespace burn address?
             nsid = blockstack.get_namespace_from_name(fqu)
@@ -402,11 +403,27 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
             if 'error' in ns_info:
                 return {'error': 'Failed to get namespace info for {}'.format(nsid)}
 
-            if (ns_info['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR) != 0 and virtualchain.address_reencode(str(ns_info['address'])) != virtualchain.address_reencode(str(burn_addr)):
-                return {'error': 'wrong burn address: expected {}, got {}'.format(virtualchain.address_reencode(str(ns_info['address'])), virtualchain.address_reencode(str(burn_addr)))}
+            ns_burn_address = None
+            if (ns_info['version'] & NAMESPACE_VERSION_PAY_TO_BURN) != 0:
+                # version-1 namespace: pay to null burn address
+                ns_burn_address = blockstack.BLOCKSTACK_BURN_ADDRESS
 
-            if (ns_info['version'] & NAMESPACE_VERSION_PAY_TO_BURN) != 0 and virtualchain.address_reencode(burn_addr) != virtualchain.address_reencode(blockstack.BLOCKSTACK_BURN_ADDRESS):
-                return {'error': 'wrong burn address: expected {}, got {}'.format(virtualchain.address_reencode(blockstack.BLOCKSTACK_BURN_ADDRESS), virtualchain.address_reencode(str(burn_addr)))}
+            elif (ns_info['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR) != 0:
+                # version-2 namespace: pay to namespace creator if it's still in it's fee capture period
+                receive_fees_period = blockstack.get_epoch_namespace_receive_fees_period(block_height, nsid)
+                if ns_info['reveal_block'] + receive_fees_period >= block_height:
+                    # use the namespace burn address
+                    ns_burn_address = str(ns_info['address'])
+                else:
+                    # use the null burn address
+                    ns_burn_address = blockstack.BLOCKSTACK_BURN_ADDRESS
+            
+            log.debug("Burn address for {} is {}".format(nsid, ns_burn_address))
+            if virtualchain.address_reencode(str(burn_address)) != virtualchain.address_reencode(ns_burn_address):
+                return {'error': 'wrong burn address: expected {}, got {}'.format(
+                    virtualchain.address_reencode(ns_burn_address),
+                    virtualchain.address_reencode(str(burn_address))
+                )}
 
         return {'status': True}
 
