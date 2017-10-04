@@ -20,7 +20,7 @@ services:
   blockstack-api:
     image: 'quay.io/blockstack/blockstack-core:develop'
     command: blockstack api start-foreground --debug --password dummywalletpassword
-    volumes:
+    volumes: 
       - './data/blockstack-api/:/root/.blockstack'
       - '/tmp/:/data/blockstack-api/tmp/'
     links:
