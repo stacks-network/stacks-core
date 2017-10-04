@@ -2795,7 +2795,7 @@ def run_blockstackd():
       'fast_sync',
       help='fetch and verify a recent known-good name database')
    parser.add_argument(
-      'url',
+      'url', nargs='?',
       help='the URL to the name database snapshot')
    parser.add_argument(
       'public_keys', nargs='?',
