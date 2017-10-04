@@ -82,6 +82,12 @@ class Wallet(object):
         else:
             log.debug("Wallet %s (%s)" % (self.privkey, self.addr))
 
+            # for consensus history checker  
+            log.debug("BLOCKSTACK_SERIALIZATION_CHECK_WALLET: {}".format(json.dumps({
+                'type': 'singlesig',
+                'public_key': self.pubkey_hex
+            })))
+
 
 class MultisigWallet(object):
     def __init__(self, m, *pks ):
@@ -313,6 +319,13 @@ def make_proxy(password=None, config_path=None):
     return proxy
 
 
+def blockstack_get_name_cost(name, config_path=None):
+    test_proxy = make_proxy(config_path=config_path)
+    name_cost_info = test_proxy.get_name_cost( name )
+    assert 'satoshis' in name_cost_info, "error getting cost of %s: %s" % (name, name_cost_info)
+    return name_cost_info['satoshis']
+
+
 def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn_addr=None, consensus_hash=None, tx_fee=None, safety_checks=True, config_path=None ):
 
     global api_call_history 
@@ -338,6 +351,8 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
 
 def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=None, wallet=None, safety_checks=True, config_path=None, tx_fee=None ):
     
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -359,6 +374,8 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
 
 def blockstack_name_update( name, data_hash, privatekey, consensus_hash=None, test_api_proxy=True, safety_checks=True, config_path=None, tx_fee=None ):
     
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -374,6 +391,8 @@ def blockstack_name_update( name, data_hash, privatekey, consensus_hash=None, te
 
 def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_hash=None, safety_checks=True, config_path=None, tx_fee=None ):
      
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -389,6 +408,8 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_has
 
 def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None, safety_checks=True, config_path=None, zonefile_hash=None, tx_fee=0, tx_fee_per_byte=None ):
     
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -407,6 +428,8 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
 
 def blockstack_name_revoke( name, privatekey, tx_only=False, safety_checks=True, config_path=None, tx_fee=None ):
     
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -420,6 +443,8 @@ def blockstack_name_revoke( name, privatekey, tx_only=False, safety_checks=True,
 
 def blockstack_name_import( name, recipient_address, update_hash, privatekey, safety_checks=True, config_path=None ):
     
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -431,6 +456,8 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
 
 def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, consensus_hash=None, safety_checks=True, config_path=None ):
     
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -449,6 +476,8 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
 
 def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, version_bits=1, safety_checks=True, config_path=None ):
     
+    global api_call_history 
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -464,6 +493,8 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
 
 def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, config_path=None ):
     
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -475,6 +506,8 @@ def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, co
 
 def blockstack_announce( message, privatekey, safety_checks=True, config_path=None ):
     
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -2854,6 +2887,18 @@ def snv_all_names( state_engine ):
             name = api_call.name
             opcode = "NAME_REVOKE"
 
+        elif api_call.method == 'namespace_preorder':
+            name = api_call.name
+            opcode = "NAMESPACE_PREORDER"
+
+        elif api_call.method == 'namespace_reveal':
+            name = api_call.name
+            opcode = 'NAMESPACE_REVEAL'
+
+        elif api_call.method == 'namespace_ready':
+            name = api_call.name
+            opcode = 'NAMESPACE_READY'
+
         if name is not None:
             block_id = int(api_call.block_id)
             consensus_hash = all_consensus_hashes.get( block_id, None )
@@ -2947,11 +2992,17 @@ def snv_all_names( state_engine ):
                     assert len(snv_recs) <= 1, "Multiple SNV records returned"
                     snv_rec = snv_recs[0]
 
-                    if snv_rec['name'] != name:
-                        print "mismatch name"
+                    if snv_rec.has_key('name') and snv_rec['name'] != name:
+                        print "mismatch name: expected {}, got {}".format(name, snv_rec['name'])
                         print json.dumps(snv_rec, indent=4, sort_keys=True )
                         return False 
 
+                    # namespace operation?
+                    elif not snv_rec.has_key('name') and snv_rec.has_key('namespace_id') and snv_rec['namespace_id'] != name:
+                        print "mismatch namespace: expected {}, got {}".format(name, snv_rec['name'])
+                        print json.dumps(snv_rec, indent=4, sort_keys=True)
+                        return False
+                    
                     if snv_rec['txid'] != txid:
                         if name in snv_fail_at.get(block_id, []):
                             log.debug("SNV lookup {} failed as expected".format(name))
@@ -2974,8 +3025,9 @@ def snv_all_names( state_engine ):
                     if snv_rec['opcode'] == 'NAME_IMPORT' and type(snv_rec['op_fee']) != float:
                         print "QUIRK: NAME_IMPORT: fee isn't a float"
                         return False 
-
-                    elif type(snv_rec['op_fee']) not in [int,long]:
+ 
+                    # only NAMESPACE_REVEAL doesn't have an 'op_fee' member.  It must be an int or long.
+                    elif snv_rec['opcode'] != 'NAMESPACE_REVEAL' and type(snv_rec['op_fee']) not in [int,long]:
                         print "QUIRK: %s: fee isn't an int (but a %s: %s)" % (snv_rec['opcode'], type(snv_rec['op_fee']), snv_rec['op_fee'])
 
                     log.debug("SNV verified %s with (%s,%s) back to (%s,%s)" % (name, trusted_block_id, trusted_consensus_hash, block_id, consensus_hash ))
