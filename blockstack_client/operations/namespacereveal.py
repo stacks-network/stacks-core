@@ -239,8 +239,6 @@ def make_transaction( namespace_id, version, reveal_addr, lifetime, coeff, base_
    preorder_addr = str(preorder_addr)
    tx_fee = int(tx_fee)
 
-   assert keylib.b58check.b58check_version_byte( preorder_addr ) == virtualchain.version_byte, "Only p2pkh reveal addresses are supported"
-
    bexp = []
    for be in bucket_exponents:
        bexp.append(int(be))
