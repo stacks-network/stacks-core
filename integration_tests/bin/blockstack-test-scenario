@@ -66,7 +66,7 @@ regtest = True
 spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
 
 [blockstack]
-server_version = 0.14.4
+server_version = 0.17.0.0
 rpc_port = %s
 backup_frequency = 1
 backup_max_age = 30
