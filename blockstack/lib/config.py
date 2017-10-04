@@ -60,6 +60,8 @@ FAST_SYNC_PUBLIC_KEYS = [
     '02edbaa730f241960bcd1a50c718fac7f9d4874f460c1f6db0a3941094e7685ef9'
 ]
 
+FAST_SYNC_DEFAULT_URL = 'http://fast-sync.blockstack.org/snapshot.bsk'
+
 """ name price configs
 """
 
@@ -1354,8 +1356,8 @@ def configure( config_file=None, force=False, interactive=True ):
 
 def versions_need_upgrade(v_from, v_to):
     version_upgrades = [
-        # all semver mismatches before "0.14" require upgrade
-        (lambda v : v[:2] < (0,14))
+        # all semver mismatches before "0.17" require upgrade
+        (lambda v : v[:2] < (0,17))
     ]
 
     v1 = tuple( int(x) for x in str(v_from).split('.') )
