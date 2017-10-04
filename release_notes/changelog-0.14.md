@@ -3,6 +3,8 @@ What's New in 0.14
 
 Release 0.14 brings several major improvements.  It is a **consensus-breaking release.**  Users are encouraged to upgrade to 0.14 as soon as possible in order to stay on the same name set as everyone else.
 
+The hard fork block number is 436650.
+
 Release Highlights
 ------------------
 
