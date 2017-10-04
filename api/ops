@@ -129,8 +129,13 @@ ops commands:
     init-cron -> install cron jobs needed to reindex and update the index
 
   Commands to be run in Docker Environment:
-    search-reindex -> Once every 6 hours
-    search-update  -> Once every 15 min
+    search-reindex -> Once every 6 hours, run by cron
+    search-update  -> Once every 15 min, run by cron
+
+  Commands to install dependancies:
+    install-docker -> installs the docker daemon on ubuntu
+    install-nginx -> installs nginx on ubuntu
+    install-certbot -> installs certbot for fetching ssl certs
 EOF
   }
 
@@ -158,13 +163,14 @@ EOF
       ;;
     install-docker)
       install-docker
+      usermod -aG docker ${USER}
       ;;
     install-certbot)
       install-certbot
       ;;
     install-nginx)
-      apt-get update
-      apt-get install nginx
+      sudo apt-get update
+      sudo apt-get install nginx
       ;;
     *)
       commands
