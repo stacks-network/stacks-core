@@ -268,7 +268,7 @@ def expect_snv_fail_at( name, block_id ):
     """
     global snv_fail_at
 
-    if name not in snv_fail_at.keys():
+    if block_id not in snv_fail_at.keys():
         snv_fail_at[block_id] = [name]
     else:
         snv_fail_at[block_id].append(name)
@@ -2981,6 +2981,10 @@ def snv_all_names( state_engine ):
                             log.debug("SNV lookup %s failed at %s as expected" % (name, block_id))
                             continue 
 
+                        print 'SNV lookup on {} at {} with {} failed'.format(name, block_id, trusted_consensus_hash)
+                        print 'Expected SNV failures at {}: {}'.format(block_id, snv_fail_at.get(block_id, []))
+                        print 'All SNV failures expected:\n{}'.format(json.dumps(snv_fail_at, indent=4, sort_keys=True))
+                        print 'SNV lookup return value:'
                         print json.dumps(snv_recs, indent=4, sort_keys=True )
                         return False 
 

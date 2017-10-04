@@ -81,15 +81,14 @@ def scenario( wallets, **kw ):
         print 'accidentally succeeded to preorder test2'
         return False
 
-    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw)+1)
-
     # try to reveal; it should fail 
     res = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
     if 'error' not in res:
         print 'accidentally succeeded to reveal test'
         return False
 
-    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw)+1)
+    testlib.expect_snv_fail_at( "test2", testlib.get_current_block(**kw)+1)
+    testlib.expect_snv_fail_at( "test", testlib.get_current_block(**kw)+1)
 
     for i in xrange(0, 3):
         testlib.next_block( **kw )
@@ -109,7 +108,7 @@ def scenario( wallets, **kw ):
         print res
         return False
 
-    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw)+1)
+    testlib.expect_snv_fail_at( "test", testlib.get_current_block(**kw)+1)
 
     for i in xrange(0, 3):
         testlib.next_block( **kw )
