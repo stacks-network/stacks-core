@@ -11,6 +11,7 @@ ops () {
     # Setup logging
     local tmpFile=/var/blockstack-search/logs/search-reindex/$(date +%s).log
     mkdir -p /var/blockstack-search/logs/search-reindex
+    touch $tmpFile
 
     $python -m api.search.fetch_data --fetch_namespace 2>> $tmpFile
     $python -m api.search.fetch_data --fetch_profiles 2>> $tmpFile
@@ -22,8 +23,9 @@ ops () {
   search-update () {
     # Setup logging
     local tmpFile=/var/blockstack-search/logs/search-update/$(date +%s).log
-    local updateProfilesOut=/var/blockstack-search/logs/update-profiles/$(date +s).log
+    local updateProfilesOut=/var/blockstack-search/logs/update-profiles/$(date +%s).log
     mkdir -p /var/blockstack-search/logs/search-update
+    touch $tmpFile $updateProfilesOut
 
     # Run update_profiles
     echo "Starting indexing at $(date)" >> $tmpFile
