@@ -1613,7 +1613,6 @@ def get_nameops_affected_at(block_id, proxy=None):
 
     return all_nameops
 
-
 def get_nameops_at(block_id, proxy=None):
     """
     Get all the name operation that happened at a given block,
@@ -1621,7 +1620,7 @@ def get_nameops_at(block_id, proxy=None):
     Return the list of operations on success, ordered by transaction index.
     Return {'error': ...} on error.
     """
-
+    
     all_nameops = get_nameops_affected_at(block_id, proxy=proxy)
     if json_is_error(all_nameops):
         log.debug('Failed to get nameops affected at {}: {}'.format(block_id, all_nameops['error']))
@@ -1633,29 +1632,40 @@ def get_nameops_at(block_id, proxy=None):
     nameops = []
     nameop_histories = {}   # cache histories
     for nameop in all_nameops:
+
+        rec_id = None
+        rec_key = None
+        if 'name' in nameop:
+            rec_key = 'name'
+        elif 'namespace_id' in nameop:
+            rec_key = 'namespace_id'
+        
+        if rec_key:
+            rec_id = nameop[rec_key]
+        else:
+            rec_id = 'UNKNOWN'
+
         # get history (if not a preorder)
         history_rows = []
-        if nameop.has_key('name'):
-            # If the nameop has a 'name' field, then it's not an outstanding preorder.
-            # Outstanding preorders have no history, so we don't need to worry about 
-            # getting history for them.
-            history_rows = nameop_histories.get(nameop['name'])
+        if rec_key is not None:
+            # this isn't some kind of preorder.  We have history for it.
+            history_rows = nameop_histories.get(nameop[rec_key])
             if history_rows is None:
-                history_rows = get_op_history_rows( nameop['name'], proxy=proxy )
+                history_rows = get_op_history_rows( nameop[rec_key], proxy=proxy )
                 if json_is_error(history_rows):
                     return history_rows
 
-                nameop_histories[nameop['name']] = history_rows
+                nameop_histories[nameop[rec_key]] = history_rows
 
         # restore history
         history = nameop_history_extract(history_rows)
         historic_nameops = nameop_restore_from_history(nameop, history, block_id)
 
-        msg = '{} had {} operations ({} history rows, {} historic nameops, txids: {}) at {}'
+        msg = '{} had {} operations ({} history rows, {} historic nameops, txids: {})'
         log.debug(
             msg.format(
-                nameop.get('name', 'UNKNOWN'), len(history), len(history_rows),
-                len(historic_nameops), [op['txid'] for op in historic_nameops], block_id
+                rec_id, len(history), len(history_rows),
+                len(historic_nameops), [op['txid'] for op in historic_nameops]
             )
         )
 
