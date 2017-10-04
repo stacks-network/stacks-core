@@ -1,9 +1,20 @@
-FROM quay.io/blockstack/blockstack-core:develop-configure-mongo
+FROM ubuntu:xenial
 
 WORKDIR /src/blockstack
 
-# Install Apt Dependancies
-RUN apt-get update && apt-get install -y curl
+# Install dependancies from apt
+RUN apt-get -y update
+RUN apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools libgmp3-dev lsof curl
+
+# Copy all files from the repo into the container
+COPY . .
+
+# Upgrade pip and install pyparsing
+RUN pip install --upgrade pip && pip install pyparsing uwsgi
+RUN pip install -r api/requirements.txt
+
+# Install Blockstack from source
+RUN pip install .
 
 # Install Node
 RUN curl -sL https://deb.nodesource.com/setup_6.x | bash -
@@ -12,19 +23,8 @@ RUN apt-get install -y nodejs
 # Install aglio to build docs
 RUN npm -g install aglio --unsafe
 
-# Install pip requirements and uwsgi server
-RUN pip install -r api/requirements.txt
-RUN pip install uwsgi
-
 # Create data dir
 RUN mkdir /var/blockstack-search
-
-WORKDIR /src/blockstack/api
-COPY . .
-WORKDIR /src/blockstack
-
-# Rebuild Python
-RUN pip install . --upgrade
 
 # Build Documentation
 RUN ./build_docs.sh public_api
