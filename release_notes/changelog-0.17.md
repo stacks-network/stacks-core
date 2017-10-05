@@ -33,9 +33,11 @@ Upgrade Notes
 
 * Run `blockstack-core fast_sync` to get a recent 0.17 snapshot.
 
-* Run `blockstack-core start` to re-start your node.  Run `blockstack-core --debug start` for extra verbosity.  Logs will be written to `~/.blockstack-server/blockstack-server.log`.
+* Run `blockstack-core start` to re-start your node.
+   * Run `blockstack-core --debug start` for extra verbosity.
+   * Logs will be written to `~/.blockstack-server/blockstack-server.log`.
 
-**Full Re-index:**:  If you are running a Blockstack Core 0.14 node, and want to avoid fast-sync, you will need to re-index the Bitcoin blockchain from scratch.  To do so, follow these instructions:
+**Full Re-index:**  If you are running a Blockstack Core 0.14 node, and want to avoid fast-sync, you will need to re-index the Bitcoin blockchain from scratch.  To do so, follow these instructions:
 
 * Run `blockstack-core stop` to stop your currently-running node.
 
@@ -57,5 +59,12 @@ Upgrade Notes
 
 * Change the `server_version` field under `[blockstack]` in `~/.blockstack-server/blockstack-server.ini` to `0.17.0.0` once you have done all of the above.  **Your node will not start until you have done this.**
 
-* Run `blockstack-core start --expected-snapshots ~/.blockstack-server/blockstack-server.snapshots.bak.0.14` to re-start your node (note the `--expected-snapshots` argument; it should point to wherever you backed up your old `blockstack-server.snapshots` file).  Run with `--debug` for extra verbosity.  Logs will be written to `~/.blockstack-server/blockstack-server.log`.
+* Run the following to start your node.  Note the `--expected-snapshots` argument!
+
+```
+    $ `blockstack-core start --expected-snapshots ~/.blockstack-server/blockstack-server.snapshots.bak.0.14`
+```
+   * The `--expected-snapshots` argument should point to wherever you backed up your old `blockstack-server.snapshots` file.
+   * Run with `--debug` for extra verbosity.
+   * Logs will be written to `~/.blockstack-server/blockstack-server.log`.
 
