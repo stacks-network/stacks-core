@@ -635,7 +635,31 @@ def blockstack_client_queue_state(config_path=None):
     return queue_info
 
 
-def blockstack_cli_namespace_preorder( namespace_id, namespace_privkey, reveal_privkey, config_path=None ):
+def serialize_privkey_info(payment_privkey):
+    """
+    serialize a wallet private key into a CLI-parseable string
+    """
+    payment_privkey_str = None
+    if isinstance(payment_privkey, (str,unicode)):
+        payment_privkey_str = payment_privkey
+    else:
+        if payment_privkey['segwit']:
+            m = payment_privkey['m']
+            n = len(payment_privkey['private_keys'])
+
+            if n > 1:
+                payment_privkey_str = 'segwit:{},{},{}'.format(m, n, ','.join(payment_privkey['private_keys']))
+            else:
+                payment_privkey_str = 'segwit:{}'.format(payment_privkey['private_keys'][0])
+        else:
+            m, pubks = virtualchain.parse_multisig_redeemscript(payment_privkey['redeem_script'])
+            n = len(payment_privkey['private_keys'])
+            payment_privkey_str = '{},{},{}'.format(m, n, ','.join(payment_privkey['private_keys']))
+
+    return payment_privkey_str
+
+
+def blockstack_cli_namespace_preorder( namespace_id, payment_privkey, reveal_privkey, config_path=None ):
     """
     Preorder a namespace
     """
@@ -643,9 +667,11 @@ def blockstack_cli_namespace_preorder( namespace_id, namespace_privkey, reveal_p
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
+    payment_privkey_str = serialize_privkey_info(payment_privkey)
+
     args = CLIArgs()
     args.namespace_id = namespace_id
-    args.payment_privkey = namespace_privkey
+    args.payment_privkey = payment_privkey_str
     args.reveal_privkey = reveal_privkey
 
     resp = cli_namespace_preorder(args, config_path=config_path, interactive=False, proxy=test_proxy)
@@ -655,7 +681,7 @@ def blockstack_cli_namespace_preorder( namespace_id, namespace_privkey, reveal_p
     return resp
 
 
-def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privkey, lifetime, coeff, base, buckets, nonalpha_disc, no_vowel_disc, config_path=None ):
+def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privkey, lifetime, coeff, base, buckets, nonalpha_disc, no_vowel_disc, config_path=None, version_bits=None ):
     """
     reveal a namespace
     """
@@ -663,9 +689,11 @@ def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privk
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
+    payment_privkey_str = serialize_privkey_info(payment_privkey)
+
     args = CLIArgs()
     args.namespace_id = namespace_id
-    args.payment_privkey = payment_privkey
+    args.payment_privkey = payment_privkey_str
     args.reveal_privkey = reveal_privkey
     args.lifetime = lifetime
     args.coeff = coeff
@@ -674,7 +702,7 @@ def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privk
     args.nonalpha_discount = nonalpha_disc
     args.no_vowel_discount = no_vowel_disc
 
-    resp = cli_namespace_reveal(args, config_path=config_path, interactive=False, proxy=test_proxy)
+    resp = cli_namespace_reveal(args, config_path=config_path, interactive=False, proxy=test_proxy, version=version_bits)
     if 'error' not in resp:
         assert 'transaction_hash' in resp
 
