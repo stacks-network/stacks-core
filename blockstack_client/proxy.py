@@ -361,7 +361,7 @@ def json_response_schema( expected_object_schema ):
 
 
 
-def getinfo(proxy=None):
+def getinfo(proxy=None, hostport=None):
     """
     getinfo
     Returns server info on success
@@ -408,7 +408,20 @@ def getinfo(proxy=None):
 
     resp = {}
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    if proxy is None:
+        if hostport is None:
+            proxy = get_default_proxy()
+        else:
+            host, port = url_to_host_port(hostport)
+            assert host is not None and port is not None
+
+            protocol = None
+            if port == 6264:
+                protocol = 'http'
+            else:
+                protocol = 'https'
+
+            proxy = BlockstackRPCClient(host, port, protocol=protocol)
 
     try:
         resp = proxy.getinfo()
@@ -998,7 +1011,7 @@ def get_names_owned_by_address(address, proxy=None):
     return resp['names']
 
 
-def get_consensus_at(block_height, proxy=None):
+def get_consensus_at(block_height, proxy=None, hostport=None):
     """
     Get consensus at a block
     Returns the consensus hash on success
@@ -1026,7 +1039,20 @@ def get_consensus_at(block_height, proxy=None):
 
     resp_schema = json_response_schema( consensus_schema )
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    if proxy is None:
+        if hostport is None:
+            proxy = get_default_proxy()
+        else:
+            host, port = url_to_host_port(hostport)
+            assert host is not None and port is not None
+
+            protocol = None
+            if port == 6264:
+                protocol = 'http'
+            else:
+                protocol = 'https'
+
+            proxy = BlockstackRPCClient(host, port, protocol=protocol)
 
     resp = {}
     try:
