@@ -3013,9 +3013,9 @@ def run_blockstackd():
       if args.num_required:
           num_required = int(args.num_required)
 
-      print "Synchronizing from snapshot from {}.  This will take about 10-15 minutes.".format(url)
+      print "Synchronizing from snapshot from {}.  This may take up to 15 minutes.".format(url)
 
-      rc = fast_sync_import(working_dir, url, public_keys=public_keys, num_required=num_required)
+      rc = fast_sync_import(working_dir, url, public_keys=public_keys, num_required=num_required, verbose=True)
       if not rc:
           print 'fast_sync failed'
           sys.exit(1)
