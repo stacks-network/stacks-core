@@ -757,8 +757,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         op = None
         if name in res:
             # renew
+            renewal_allowed = ['name', 'owner_key', 'payment_key', 'owner_address', 'zonefile']
             for prop in request_schema['properties'].keys():
-                if prop in request.keys() and prop not in ['name', 'owner_key', 'payment_key']:
+                if prop in request.keys() and prop not in renewal_allowed:
                     log.debug("Invalid renewal argument {}".format(prop))
                     return self._reply_json(
                         {'error': 'Name already owned by this wallet and ' +
@@ -766,7 +767,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
             op = 'renew'
             log.debug("renew {}".format(name))
-            res = internal.cli_renew(name, owner_key, payment_key, interactive=False,
+            kwargs = {}
+            res = internal.cli_renew(name, owner_key, payment_key,
+                                     recipient_address, zonefile_txt,
+                                     interactive=False,
                                      cost_satoshis=cost_satoshis)
 
         else:
@@ -4457,14 +4461,17 @@ class BlockstackAPIEndpointClient(object):
             return self.get_response(req)
 
 
-    def backend_renew(self, fqu, renewal_fee, owner_key = None, payment_key = None):
+    def backend_renew(self, fqu, renewal_fee, owner_key = None, payment_key = None,
+                      new_owner_address = None, zonefile_data = None):
         """
         Queue a renewal
         """
         if is_api_server(self.config_dir):
             # directly invoke the renew
             return backend.registrar.renew(fqu, renewal_fee, config_path=self.config_path,
-                                           owner_key = owner_key, payment_key = payment_key)
+                                           owner_key = owner_key, payment_key = payment_key,
+                                           new_owner_address = new_owner_address,
+                                           zonefile_txt = zonefile_data)
 
         else:
             res = self.check_version()
