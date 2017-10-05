@@ -25,13 +25,37 @@ All of these changes are consensus-breaking.
 Upgrade Notes
 -------------
 
-If you are running a Blockstack Core 0.14 node, you will need to re-index the Bitcoin blockchain from scratch.
+**Quick start:**  You can get up and running in 15 minutes or less using these instructions:
 
-To upgrade your Blockstack Core node from 0.14 to 0.17, you will need to do the following:
+* Run `blockstack-core stop` to stop your currently-running node.
 
-* Remove your `~/.blockstack-server/atlas.db` and `~/.blockstack-server/blockstack-server.db` files, since the database schemas have changed.
+* If you have a `~/.blockstack-server` folder, you should move it out of the way.
+
+* Run `blockstack-core fast_sync` to get a recent 0.17 snapshot.
+
+* Run `blockstack-core start` to re-start your node.  Run `blockstack-core --debug start` for extra verbosity.  Logs will be written to `~/.blockstack-server/blockstack-server.log`.
+
+**Full Re-index:**:  If you are running a Blockstack Core 0.14 node, and want to avoid fast-sync, you will need to re-index the Bitcoin blockchain from scratch.  To do so, follow these instructions:
+
+* Run `blockstack-core stop` to stop your currently-running node.
+
+* Back up the `snapshots` file like so.  Remember the back up path; it will be used later.
+
+```
+    $ mv ~/.blockstack-server/blockstack-server.snapshots ~/.blockstack-server/blockstack-server.snapshots.bak.0.14
+```
+
+* Back up or remove the following files from your `~/.blockstack-server` directory: `blockstack-server.db`, `blockstack-server.lastblock`, and `atlas.db`.  Example:
+
+```
+    $ mv ~/.blockstack-server/atlas.db ~/.blockstack-server/atlas.db.bak.0.14`
+    $ mv ~/.blockstack-server/blockstack-server.db ~/.blockstack-server/blockstack-server.db.bak.0.14
+    $ mv ~/.blockstack-server/blockstack-server.lastblock ~/.blockstack-server/blockstack-server.lastblock.bak.0.14
+```
 
 * Remove the `blockstack-server.db.XXX` backups in `~/.blockstack-server/backups/`, since they will be unusable.
 
-* Change the `server_version` field under `[blockstack]` in `~/.blockstack-server/blockstack-server.ini` to `0.17.0.0` once you have done all of the above.
+* Change the `server_version` field under `[blockstack]` in `~/.blockstack-server/blockstack-server.ini` to `0.17.0.0` once you have done all of the above.  **Your node will not start until you have done this.**
+
+* Run `blockstack-core start --expected-snapshots ~/.blockstack-server/blockstack-server.snapshots.bak.0.14` to re-start your node (note the `--expected-snapshots` argument; it should point to wherever you backed up your old `blockstack-server.snapshots` file).  Run with `--debug` for extra verbosity.  Logs will be written to `~/.blockstack-server/blockstack-server.log`.
 
