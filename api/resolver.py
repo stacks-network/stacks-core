@@ -248,15 +248,13 @@ def get_profile(fqa, refresh=False):
             zonefile = res['zonefile']
         except Exception as e:
             log.exception(e)
-            abort(500, "Connection to blockstack-server %s:%s timed out" % 
+            abort(500, "Connection to blockstack-server %s:%s timed out" %
                   (BLOCKSTACKD_IP, BLOCKSTACKD_PORT))
 
         if profile is None or 'error' in zonefile:
             log.error("{}".format(zonefile))
             abort(404)
-            
         prof_data = {'response' : profile}
-     
         if MEMCACHED_ENABLED or refresh:
             log.debug("Memcache set DHT: %s" % fqa)
             mc.set("dht_" + str(fqa), json.dumps(data),
@@ -269,22 +267,10 @@ def get_profile(fqa, refresh=False):
     return data
 
 
-def get_all_users():
-    """ Return all users in the .id namespace
-    """
-
-    # aaron: hardcode a non-response for the time being -- 
-    #  the previous code was trying to load a non-existent file
-    #  anyways. 
-    return {}
-
-# aaron note: do we need to support multiple users in a query?
-#    this seems like a potential avenue for abuse.
-
-@resolver.route('/v2/users/<usernames>', methods=['GET'], strict_slashes=False)
+@resolver.route('/v1/users/<username>', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')
 @cache_control(MEMCACHED_TIMEOUT)
-def get_users(usernames):
+def get_users(username):
     """ Fetch data from username in .id namespace
     """
     reply = {}
@@ -295,86 +281,30 @@ def get_users(usernames):
     except:
         pass
 
-    if usernames is None:
-        reply['error'] = "No usernames given"
+    if username is None:
+        reply['error'] = "No username given"
         return jsonify(reply), 404
 
-    if ',' not in usernames:
-        usernames = [usernames]
+    if ',' in username:
+        reply['error'] = 'Multiple username queries are no longer supported.'
+        return jsonify(reply), 401
+
+
+    if "." not in username:
+        fqa = "{}.{}".format(username, 'id')
     else:
-        try:
-            usernames = usernames.rsplit(',')
-        except:
-            reply['error'] = "Invalid input format"
-            return jsonify(reply), 401
+        fqa = username
+    profile = get_profile(fqa, refresh=refresh)
 
-    for username in usernames:
-        if "." not in username:
-            fqa = "{}.{}".format(username, 'id')
-        else:
-            fqa = username
-        profile = get_profile(fqa, refresh=refresh)
+    reply[username] = profile
+    if 'error' in profile:
+        return jsonify(reply), 502
+    else:
+        return jsonify(reply), 200
 
-        if 'error' in profile:
-            if len(usernames) == 1:
-                reply[username] = profile
-                return jsonify(reply), 502
-        else:
-            reply[username] = profile
-
-    return jsonify(reply), 200
-
-
-@resolver.route('/v2/namespace', strict_slashes=False)
+@resolver.route('/v2/users/<username>', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')
-def get_namespace():
-    """ Get stats on registration and all names registered
-        (old endpoint, still here for compatibility)
-    """
+@cache_control(MEMCACHED_TIMEOUT)
+def get_users_v2(username):
+    return get_users(username)
 
-    reply = {}
-    total_users = get_all_users()
-    reply['stats'] = {'registrations': len(total_users)}
-    reply['usernames'] = total_users
-
-    return jsonify(reply)
-
-
-@resolver.route('/v2/namespaces', strict_slashes=False)
-@crossdomain(origin='*')
-def get_all_namespaces():
-    """ Get stats on registration and all names registered
-    """
-
-    json.encoder.c_make_encoder = None
-
-    reply = {}
-    all_namespaces = []
-    total_users = get_all_users()
-
-    id_namespace = collections.OrderedDict([("namespace", "id"),
-                                            ("registrations", len(total_users)),
-                                            ("names", total_users)])
-
-    all_namespaces.append(id_namespace)
-
-    reply['namespaces'] = all_namespaces
-
-    # disable Flask's JSON sorting
-    app.config["JSON_SORT_KEYS"] = False
-
-    return jsonify(reply)
-
-
-@resolver.route('/v2/users/', methods=['GET'], strict_slashes=False)
-@crossdomain(origin='*')
-def get_user_count():
-    """ Get stats on registered names
-    """
-
-    reply = {}
-
-    total_users = get_all_users()
-    reply['stats'] = {'registrations': len(total_users)}
-
-    return jsonify(reply)

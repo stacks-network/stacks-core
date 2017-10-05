@@ -2448,7 +2448,7 @@ Not implemented.
 + Parameters
   + tld: id (string) - the namespace to fetch names from
 # Group Resolver Endpoints
-## Lookup User [GET /v2/users/{username}]
+## Lookup User [GET /v1/users/{username}]
 Lookup and resolver a user's profile. Defaults to the `id` namespace.
 + Public Only Endpoint
 + Subdomain Aware
