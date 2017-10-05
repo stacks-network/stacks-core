@@ -179,6 +179,11 @@ def scenario( wallets, **kw ):
     time.sleep(10)
     '''
 
+    print 'Wait for zonefile to get picked up and confirmed?'
+    time.sleep(10)
+    time.sleep(10)
+    testlib.next_block(**kw)
+
     res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", ses)
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get name bar.test'
