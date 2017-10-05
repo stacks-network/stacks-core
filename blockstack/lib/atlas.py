@@ -1416,6 +1416,33 @@ def atlasdb_zonefile_find_missing( bit_offset, bit_count, con=None, path=None ):
     return ret
 
 
+def atlasdb_zonefile_find_present( bit_offset, bit_count, con=None, path=None ):
+    """
+    Find out which zonefiles we have.
+    offset and count are *bit* indexes
+    Return a list of zonefile rows, where present == 0.
+    """
+    if path is None:
+        path = atlasdb_path()
+
+    with AtlasDBOpen(con=con, path=path) as dbcon:
+
+        sql = "SELECT * FROM zonefiles WHERE present = 0 LIMIT ? OFFSET ?;"
+        args = (bit_count, bit_offset)
+
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
+
+        ret = []
+        for row in res:
+            tmp = {}
+            tmp.update(row)
+            ret.append(tmp)
+
+    return ret
+
+
 def atlas_make_zonefile_inventory( bit_offset, bit_length, con=None, path=None ):
     """
     Get a summary description of the list of zonefiles we have
