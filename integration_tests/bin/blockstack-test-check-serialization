@@ -3,6 +3,8 @@
 import os
 import sys
 import simplejson
+import keylib
+import virtualchain
 
 def parse_serialize_payload( line ):
     """
@@ -74,11 +76,16 @@ def find_serialization_outputs( test_output_path ):
     Find the SERIALIZE outputs from the given test log output.
     Parse them and return the parsed list.
     Add '__block_height__' to each item (the height at which the serialization was found)
+    Add '__addresses__' to each item to show equivalent addresses (since we changed from uncompressed to compressed by default)
     Add '__ignore_fields__' list to each item for fields we can ignore at that height (as well as the versions for which it applies)
     """
     ret = []
     curr_height = 0
     ignore_fields = {}
+    equivalent_addresses = {}
+    equivalent_pubkeys = {}
+    equivalent_p2pkh = {}
+    equivalent_addr_scriptpubkeys = {}
 
     with open(test_output_path, "r") as f:
         while True:
@@ -100,6 +107,37 @@ def find_serialization_outputs( test_output_path ):
                     # only other possible string
                     assert "consensus hash of " in line[i + len("Snapshotting block "):]
                     pass
+
+            # address, pubkey, and scriptpubkey equivalencies:
+            if "BLOCKSTACK_SERIALIZATION_CHECK_WALLET:" in line:
+                i = line.index("BLOCKSTACK_SERIALIZATION_CHECK_WALLET: ")
+
+                wallet_info_str = line[i + len("BLOCKSTACK_SERIALIZATION_CHECK_WALLET: "):].strip()
+                wallet_info = simplejson.loads(wallet_info_str)
+
+                if wallet_info['type'] == 'singlesig':
+                    pubkeys = [
+                        keylib.key_formatting.compress(wallet_info['public_key']),
+                        keylib.key_formatting.decompress(wallet_info['public_key'])
+                    ]
+                    
+                    addrs = [virtualchain.address_reencode(keylib.public_key_to_address(str(pk)), network='testnet') for pk in pubkeys]
+                    p2pkh = [virtualchain.make_payment_script(virtualchain.address_reencode(addr)) for addr in addrs]
+
+                    equivalent_addresses[addrs[0]] = addrs[1]
+                    equivalent_addresses[addrs[1]] = addrs[0]
+
+                    equivalent_pubkeys[pubkeys[0]] = pubkeys[1]
+                    equivalent_pubkeys[pubkeys[1]] = pubkeys[0]
+
+                    equivalent_p2pkh[p2pkh[0]] = p2pkh[1]
+                    equivalent_p2pkh[p2pkh[1]] = p2pkh[0]
+
+                    for addr in addrs:
+                        equivalent_addr_scriptpubkeys[addr] = [virtualchain.make_payment_script(virtualchain.address_reencode(addr)) for addr in addrs]
+
+                else:
+                    raise ValueError("Unsupported wallet type {}".format(wallet_info['type']))
 
             line = line.strip()
 
@@ -123,6 +161,16 @@ def find_serialization_outputs( test_output_path ):
 
                 payload['__block_height__'] = curr_height
                 payload['__ignore_fields__'] = ignore_fields.get(curr_height, [])[:]
+                payload['__equivalent_addresses__'] = equivalent_addresses
+                payload['__equivalent_pubkeys__'] = equivalent_pubkeys
+                payload['__equivalent_p2pkh__'] = equivalent_p2pkh
+
+                # generate equivalent name preorder hashes 
+                if 'name' in payload:
+                    equivalent_preorder_hashes = {}
+                    for addr in equivalent_addr_scriptpubkeys.keys():
+                        equivalent_preorder_hashes = blockstack.hash_name(name['payload'], equival
+
                 ret.append( payload )
 
     return ret
@@ -150,7 +198,7 @@ def find_ignore_serialization_fields( test_output_path ):
     return ret
 
 
-def serialization_eq( height, serialization_1, serialization_2, ignore=[], s2_height_offset=0 ):
+def serialization_eq( height, serialization_old, serialization_new, ignore=[], new_height_offset=0, allow_compressed_keys=False ):
     """
     Given two parsed serialization payloads, verify that they represent the same data
     (ignoring fields given in @ignore)
@@ -158,35 +206,58 @@ def serialization_eq( height, serialization_1, serialization_2, ignore=[], s2_he
     Return (True, None) on success
     Return (False, {'error': ...}) on failure
     """
-    if len(serialization_1['__order__']) != len(serialization_2['__order__']):
-        return False, {'error': "Order length mismatch (%s != %s)" % (len(serialization_1['__order__']), len(serialization_2['__order__']))}
+    if len(serialization_old['__order__']) != len(serialization_new['__order__']):
+        return False, {'error': "Order length mismatch (%s != %s)" % (len(serialization_old['__order__']), len(serialization_new['__order__']))}
 
     mismatches_1 = []
     mismatches_2 = []
 
-    for i in xrange(0, len(serialization_1['__order__'])):
-        key_1 = serialization_1['__order__'][i]
-        key_2 = serialization_2['__order__'][i]
+    for i in xrange(0, len(serialization_old['__order__'])):
+        key_1 = serialization_old['__order__'][i]
+        key_2 = serialization_new['__order__'][i]
 
         if key_1 in ignore or key_2 in ignore:
             continue
 
         # deal with height offsets 
-        value_1 = serialization_1[key_1]
+        value_1 = serialization_old[key_1]
         if key_1 in ['block_number', 'preorder_block_number', 'first_registered', 'last_renewed', 'reveal_block', 'ready_block']:
-            value_1 = str(int(value_1) + s2_height_offset)
+            value_1 = str(int(value_1) + new_height_offset)
             
-        if value_1 != serialization_2[key_2]:
+        # deal with compressed keys and their correspondingly-different addresses
+        if key_1 in ['address', 'importer_address', 'burn_address', 'recipient_address']:
+            equivalent_addresses_2 = serialization_new['__equivalent_addresses__']
+            if value_1 != serialization_new[key_2] and equivalent_addresses_2.get(value_1, None) != serialization_new[key_2]:
+                # different, even when compensating for compressed/decompressed
+                mismatches_1.append( key_1 )
+                mismatches_2.append( key_2 )
+
+        elif key_1 in ['sender', 'recipient', 'importer']:
+            equivalent_p2pkh_2 = serialization_new['__equivalent_p2pkh__']
+            if value_1 != serialization_new[key_2] and equivalent_p2pkh_2.get(value_1, None) != serialization_new[key_2]:
+                # different, even when compensating for compressed/decompressed
+                mismatches_1.append( key_1 )
+                mismatches_2.append( key_2 )
+
+        elif key_1 in ['sender_pubkey']:
+            equivalent_pubkeys_2 = serialization_new['__equivalent_pubkeys__']
+            if value_1 != serialization_new[key_2] and equivalent_pubkeys_2.get(value_1, None) != serialization_new[key_2]:
+                # different, even when compensating for compressed/decompressed
+                mismatches_1.append( key_1 )
+                mismatches_2.append( key_2 )
+                
+        # different?
+        elif value_1 != serialization_new[key_2]:
             mismatches_1.append( key_1 )
             mismatches_2.append( key_2 )
 
     if len(mismatches_1) > 0:
         errstr = ""
         for i in xrange(0, len(mismatches_1)):
-            errstr += "Key mismatch at %s: %s (%s) != %s (%s)\n" % (height, mismatches_1[i], serialization_1[mismatches_1[i]], mismatches_2[i], serialization_2[mismatches_2[i]])
+            errstr += "Key mismatch at %s: %s (%s) != %s (%s)\n" % (height, mismatches_1[i], serialization_old[mismatches_1[i]], mismatches_2[i], serialization_new[mismatches_2[i]])
 
-        errstr += "First serialization:\n%s\n" % simplejson.dumps(serialization_1, indent=4, sort_keys=True)
-        errstr += "Second serialization:\n%s\n" % simplejson.dumps(serialization_2, indent=4, sort_keys=True)
+        errstr += "First serialization:\n%s\n" % simplejson.dumps(serialization_old, indent=4, sort_keys=True)
+        errstr += "Second serialization:\n%s\n" % simplejson.dumps(serialization_new, indent=4, sort_keys=True)
 
         return False, {'error': errstr}
 
@@ -259,7 +330,7 @@ def compare_serializations( test_output_old, test_output_new ):
                 ignore = serialization_ignore[:]
                 ignore += s2['__ignore_fields__']
 
-                res, err = serialization_eq( height, s1, s2, ignore=ignore, s2_height_offset=new_height_offset )
+                res, err = serialization_eq( height, s1, s2, ignore=ignore, new_height_offset=new_height_offset )
                 if res:
                     matched = True
                     s_new.remove(s2)
