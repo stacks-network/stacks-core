@@ -2667,6 +2667,7 @@ def load_expected_snapshots( snapshots_path ):
     Return None on error
     """
     # use snapshots?
+    snapshots_path = os.path.expanduser(snapshots_path)
     expected_snapshots = {}
     try:
         with open(snapshots_path, "r") as f:
