@@ -25,7 +25,7 @@ All of these changes are consensus-breaking.
 Upgrade Notes
 -------------
 
-**Quick start:**  You can get up and running in 15 minutes or less using these instructions:
+**Quick start (recommended):**  You can get up and running in 15 minutes or less using these instructions:
 
 * Run `blockstack-core stop` to stop your currently-running node.
 
@@ -37,7 +37,9 @@ Upgrade Notes
    * Run `blockstack-core --debug start` for extra verbosity.
    * Logs will be written to `~/.blockstack-server/blockstack-server.log`.
 
-**Full Re-index:**  If you are running a Blockstack Core 0.14 node, and want to avoid fast-sync, you will need to re-index the Bitcoin blockchain from scratch.  To do so, follow these instructions:
+* If you have a 0.14 node, you can verify that the 0.17 node is consistent with it by comparing the 0.14 node's consensus hash with the 0.17 node's consensus hash at the same block (both can be obtained with `blockstack getinfo` and `blockstack consensus $BLOCK_HEIGHT`).
+
+**Full Re-index (experts only):**  If you are running a Blockstack Core 0.14 node, and want to avoid fast-sync, you will need to re-index the Bitcoin blockchain from scratch.  To do so, follow these instructions:
 
 * Run `blockstack-core stop` to stop your currently-running node.
 
