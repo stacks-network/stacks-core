@@ -60,11 +60,11 @@ Upgrade Notes
 * Change the `server_version` field under `[blockstack]` in `~/.blockstack-server/blockstack-server.ini` to `0.17.0.0` once you have done all of the above.  **Your node will not start until you have done this.**
 
 * Run the following to start your node.  Note the `--expected-snapshots` argument!
-
-```
-    $ `blockstack-core start --expected-snapshots ~/.blockstack-server/blockstack-server.snapshots.bak.0.14`
-```
    * The `--expected-snapshots` argument should point to wherever you backed up your old `blockstack-server.snapshots` file.
    * Run with `--debug` for extra verbosity.
    * Logs will be written to `~/.blockstack-server/blockstack-server.log`.
 
+```
+    $ blockstack-core start --expected-snapshots ~/.blockstack-server/blockstack-server.snapshots.bak.0.14
+```
+  
