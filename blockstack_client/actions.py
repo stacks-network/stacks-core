@@ -2384,6 +2384,84 @@ def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None
     return profile_delete_account(name, service, identifier, wallet_keys, config_path=config_path, proxy=proxy)
 
 
+def parse_multisig_csv(multisig_csv, segwit=False):
+    """
+    Helper to parse 'm,n,pk1,pk2.,,,' into a virtualchain private key bundle.
+    Parses 'm,n,pk1,pk2,...' as p2sh
+    Parses 'segwit:m,n,pk1,pk2,...' as p2sh-p2wsh
+    """
+    if multisig_csv.startswith("segwit:"):
+        segwit = True
+        multisig_csv = multisig_csv[len('segwit:'):]
+
+    parts = multisig_csv.split(',')
+    m = None
+    n = None
+    try:
+        m = int(parts[0])
+        n = int(parts[1])
+        assert m <= n
+        assert len(parts[2:]) == n
+    except ValueError as ve:
+        log.exception(ve)
+        log.debug("Invalid multisig CSV {}".format(multisig_csv))
+        log.error("Invalid m, n")
+        return {'error': 'Unparseable m or n'}
+    except AssertionError as ae:
+        log.exception(ae)
+        log.debug("Invalid multisig CSV {}".format(multisig_csv))
+        log.error("Invalid argument: n must not exceed m, and there must be n private keys")
+        return {'error': 'Invalid argument: invalid values for m or n'}
+
+    keys = parts[2:]
+    key_info = None
+    try:
+        if segwit:
+            # p2wsh
+            key_info = virtualchain.make_multisig_segwit_info(m, keys)
+        else:
+            # p2sh
+            key_info = virtualchain.make_multisig_info(m, keys)
+
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error("Failed to make multisig information from keys")
+        return {'error': 'Failed to make multisig information'}
+
+    return key_info
+
+
+def parse_privkey_info(privkey_str):
+    """
+    Parse a private key or a bundle of private keys.
+    Formats:
+        * "pk" --> p2pkh private key
+        * "segwit:pk" --> p2sh-p2wpkh private key bundle
+        * "m,n,pk1,pk2,..." --> p2sh multisig bundle
+        * "segwit:m,n,pk1,pk2,..." --> p2sh-p2wsh multisig bundle
+    """
+    segwit = False
+    if privkey_str.startswith('segwit:'):
+        segwit = True
+        privkey_str = privkey_str[len('segwit:'):]
+
+    privkey_info = None
+    try:
+        privkey_info = ecdsa_private_key(str(privkey_str)).to_hex()
+        if segwit:
+            privkey_info = virtualchain.make_segwit_info(privkey_info)
+
+    except:
+        log.debug("Private key string is not a valid Bitcoin private key")
+        privkey_info = parse_multisig_csv(str(privkey_str), segwit=segwit)
+        if 'error' in privkey_info:
+            return privkey_info
+
+    return privkey_info
+
+
 def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False):
     """
     command: import_wallet advanced
@@ -2433,68 +2511,25 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
             log.exception(e)
         return {'error': 'Invalid private keys'}
 
-    def parse_multisig_csv(multisig_csv):
-        """
-        Helper to parse 'm,n,pk1,pk2.,,,' into a virtualchain private key bundle.
-        """
-        parts = multisig_csv.split(',')
-        m = None
-        n = None
-        try:
-            m = int(parts[0])
-            n = int(parts[1])
-            assert m <= n
-            assert len(parts[2:]) == n
-        except ValueError as ve:
-            log.exception(ve)
-            log.debug("Invalid multisig CSV {}".format(multisig_csv))
-            log.error("Invalid m, n")
-            return {'error': 'Unparseable m or n'}
-        except AssertionError as ae:
-            log.exception(ae)
-            log.debug("Invalid multisig CSV {}".format(multisig_csv))
-            log.error("Invalid argument: n must not exceed m, and there must be n private keys")
-            return {'error': 'Invalid argument: invalid values for m or n'}
-
-        keys = parts[2:]
-        key_info = None
-        try:
-            key_info = virtualchain.make_multisig_info(m, keys)
-        except Exception as e:
-            if BLOCKSTACK_DEBUG:
-                log.exception(e)
-
-            log.error("Failed to make multisig information from keys")
-            return {'error': 'Failed to make multisig information'}
-
-        return key_info
-
     owner_privkey_info = None
     payment_privkey_info = None
     data_privkey_info = None
 
     # make absolutely certain that these are valid keys or multisig key strings
-    try:
-        owner_privkey_info = ecdsa_private_key(str(args.owner_privkey)).to_hex()
-    except:
-        log.debug("Owner private key string is not a valid Bitcoin private key")
-        owner_privkey_info = parse_multisig_csv(args.owner_privkey)
-        if 'error' in owner_privkey_info:
-            return owner_privkey_info
+    owner_privkey_info = parse_privkey_info(args.owner_privkey)
+    if 'error' in owner_privkey_info:
+        return owner_privkey_info
 
-    try:
-        payment_privkey_info = ecdsa_private_key(str(args.payment_privkey)).to_hex()
-    except:
-        log.debug("Payment private key string is not a valid Bitcoin private key")
-        payment_privkey_info = parse_multisig_csv(args.payment_privkey)
-        if 'error' in payment_privkey_info:
-            return payment_privkey_info
+    payment_privkey_info = parse_privkey_info(args.payment_privkey)
+    if 'error' in payment_privkey_info:
+        return payment_privkey_info
 
-    try:
-        data_privkey_info = ecdsa_private_key(str(args.data_privkey)).to_hex()
-    except:
-        log.error("Only single private keys are supported for data at this time")
-        return {'error': 'Invalid data private key'}
+    data_privkey_info = parse_privkey_info(args.data_privkey)
+    if 'error' in data_privkey_info:
+        return data_privkey_info
+    
+    if not isinstance(data_privkey_info, (str,unicode)):
+        return {'error': 'Invalid data private key: only single private keys are supported'}
 
     data = make_wallet(password,
             payment_privkey_info=payment_privkey_info,
@@ -2836,14 +2871,14 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
     reveal_addr = None
    
     try:
-        ns_privkey = keylib.ECPrivateKey(ns_privkey).to_hex()
+        ns_privkey = parse_privkey_info(ns_privkey)
         ns_reveal_privkey = keylib.ECPrivateKey(ns_reveal_privkey).to_hex()
 
-        # force compresssed 
-        ns_privkey = set_privkey_compressed(ns_privkey, compressed=True)
-        ns_reveal_privkey = set_privkey_compressed(ns_reveal_privkey, compressed=True)
+        # force compresssed
+        if virtualchain.is_singlesig(ns_privkey):
+            ns_privkey = set_privkey_compressed(ns_privkey, compressed=True)
 
-        keylib.ECPrivateKey(ns_privkey)
+        ns_reveal_privkey = set_privkey_compressed(ns_reveal_privkey, compressed=True)
         reveal_addr = virtualchain.get_privkey_address(ns_reveal_privkey)
     except Exception as e:
         if BLOCKSTACK_DEBUG:
@@ -2861,8 +2896,8 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
         "IMPORTANT:  PLEASE READ THESE INSTRUCTIONS CAREFULLY\n",
         "\n",
         "You are about to preorder the namespace '{}'.  It will cost about {} BTC ({} satoshi).\n".format(nsid, fees['total_estimated_cost']['btc'], fees['total_estimated_cost']['satoshis']),
-        'The address {} will be used to pay the fee'.format(virtualchain.get_privkey_address(ns_privkey)),
-        'The address {} will be used to reveal the namespace.'.format(reveal_addr),
+        'The address {} will be used to pay the fee, and will capture name fees (if revealed to do so).\n'.format(virtualchain.get_privkey_address(ns_privkey)),
+        'The address {} will be used to reveal the namespace.\n'.format(reveal_addr),
         'MAKE SURE YOU KEEP THE PRIVATE KEYS FOR BOTH ADDRESSES\n',
         "\n",
         "Before you preorder this namespace {}, there are some things you should know.\n".format(nsid),
@@ -3007,7 +3042,9 @@ def format_price_formula(namespace_id, block_height):
     divider_str =     "cost(name) = -----------------------------------------------------\n"
     denominator_str = "                   max(nonalpha_discount, no_vowel_discount)      \n"
 
-    formula_str = "(UNIT_COST = 100):\n" + \
+    unit_cost = blockstack.NAME_COST_UNIT * blockstack.get_epoch_price_multiplier(block_height, '*')
+    
+    formula_str = "(UNIT_COST = {}):\n".format(unit_cost) + \
                   exponent_str + \
                   numerator_str + \
                   divider_str + \
@@ -3095,12 +3132,12 @@ def format_price_formula_worksheet(name, namespace_id, base, coeff, bucket_expon
     return formula_str
 
 
-def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=None):
+def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=None, version=None):
     """
     command: namespace_reveal advanced
     help: Reveal a namespace and interactively set its pricing parameters
     arg: namespace_id (str) 'The namespace ID'
-    arg: payment_privkey (str) 'The private key that paid for the namespace'
+    arg: payment_privkey (str) 'The private key or keys that paid for the namespace'
     arg: reveal_privkey (str) 'The private key that will import names'
     """
     # NOTE: this will not use the RESTful API.
@@ -3109,6 +3146,7 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     
     namespace_id = str(args.namespace_id)
     privkey = str(args.payment_privkey)
+    ns_addr = None
     reveal_privkey = str(args.reveal_privkey)
     reveal_addr = None
 
@@ -3117,15 +3155,17 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         return {'error': 'Invalid namespace ID'}
 
     try:
-        privkey = keylib.ECPrivateKey(privkey).to_hex()
+        privkey = parse_privkey_info(privkey)
         reveal_privkey = keylib.ECPrivateKey(reveal_privkey).to_hex()
 
-        # force compresssed 
-        ns_privkey = set_privkey_compressed(privkey, compressed=True)
+        # force compresssed
+        if virtualchain.is_singlesig(privkey):
+            privkey = set_privkey_compressed(privkey, compressed=True)
+
         ns_reveal_privkey = set_privkey_compressed(reveal_privkey, compressed=True)
 
-        ecdsa_private_key(privkey)
         reveal_addr = virtualchain.get_privkey_address(reveal_privkey)
+        ns_addr = virtualchain.get_privkey_address(privkey)
     except Exception as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
@@ -3170,14 +3210,17 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         return bucket_exponents
 
     def print_namespace_configuration(params):
-        print("Namespace ID:           {}".format(namespace_id))
-        print("Name lifetimes:         {}".format(params['lifetime'] if params['lifetime'] != infinite_lifetime else "infinite"))
-        print("Price coefficient:      {}".format(params['coeff']))
-        print("Price base:             {}".format(params['base']))
-        print("Price bucket exponents: {}".format(params['buckets']))
-        print("Non-alpha discount:     {}".format(params['nonalpha_discount']))
-        print("No-vowel discount:      {}".format(params['no_vowel_discount']))
-        print("Burn or receive fees?   {}".format('Burn' if (params['version'] & blockstack.NAMESPACE_VERSION_PAY_TO_BURN) else 'Receive'))
+        
+        namespace_lifetime_multiplier = blockstack.get_epoch_namespace_lifetime_multiplier(block_height, '*')
+
+        print("Namespace ID:            {}".format(namespace_id))
+        print("Name lifetimes (blocks): {}".format(params['lifetime'] * namespace_lifetime_multiplier if params['lifetime'] != infinite_lifetime else "infinite"))
+        print("Price coefficient:       {}".format(params['coeff']))
+        print("Price base:              {}".format(params['base']))
+        print("Price bucket exponents:  {}".format(params['buckets']))
+        print("Non-alpha discount:      {}".format(params['nonalpha_discount']))
+        print("No-vowel discount:       {}".format(params['no_vowel_discount']))
+        print("Burn or receive fees?    {}".format('Burn' if (params['version'] & blockstack.NAMESPACE_VERSION_PAY_TO_BURN) else 'Receive to {}'.format(ns_addr)))
         print("")
 
         formula_str = format_price_formula(namespace_id, block_height)
@@ -3212,13 +3255,16 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         'version': blockstack.NAMESPACE_VERSION_PAY_TO_BURN,
     }
 
+    if version is not None:
+        namespace_params['version'] = version
+
     block_height = get_block_height(config_path=config_path)
 
     options = {
         '0': {
             'msg': 'Set name lifetime in blocks             (positive integer between 1 and {}, or "infinite")'.format(2**32 - 1),
             'var': 'lifetime',
-            'parse': lambda x: infinite_lifetime if x == "infinite" else int(x)
+            'parse': lambda x: infinite_lifetime if x == "infinite" else int(x)/namespace_lifetime_multiplier
         },
         '1': {
             'msg': 'Set price coefficient                   (positive integer between 1 and 255)',
@@ -3352,7 +3398,7 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     print_namespace_configuration(namespace_params)
     print("You will NOT be able to change this once it is set.")
     print("Reveal address:            {}".format(reveal_addr))
-    print("Payment address:           {}".format(virtualchain.get_privkey_address(privkey)))
+    print("Payment address:           {}".format(ns_addr))
     print("Burn or receive name fees? {}".format('Burn' if (namespace_params['version'] & blockstack.NAMESPACE_VERSION_PAY_TO_BURN) else 'Receive'))
     print("Transaction cost breakdown:\n{}".format(json.dumps(fees, indent=4, sort_keys=True)))
     print("")
