@@ -1984,7 +1984,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
 
         internal = self.server.get_internal_proxy()
-        res = internal.cli_price(name)
+
+        use_single_sig = path_info['qs_values'].get('single_sig', '0')
+
+        res = internal.cli_price(name, None, None, use_single_sig)
         if json_is_error(res):
             # error
             status_code = None

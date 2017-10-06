@@ -674,11 +674,12 @@ def estimate_transaction_inputs(operations, inputs, owner_address=None, payment_
 
 def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
                        proxy=None, config_path=CONFIG_PATH, payment_address=None, zonefile_hash=None,
-                       min_payment_confs=TX_MIN_CONFIRMATIONS, owner_address=None, transfer_address=None):
+                       min_payment_confs=TX_MIN_CONFIRMATIONS, owner_address=None, transfer_address=None,
+                       fake_utxos=False):
     """
     Given a list of operations and a scatter/gather context,
     go prime it to fetch the cost of each operation.
-    
+
     Operations must be a list containing 'preorder', 'register', 'update', 'transfer', 'revoke',
     'renewal', 'namespace_preorder', 'namespace_reveal', 'namespace_ready', or 'name_import'
 
@@ -689,7 +690,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
         * "tx_fee": the transaction fee (including dust)
         * "insufficient": whether or not we had sufficient funds to calculate the tx_fee
         * "estimate": whether or not this is a rough estimate (i.e. if we don't have the payment info on hand)
-    
+
         Preorder and Renewal will also have:
         * "name_cost": the cost of the name itself
 
@@ -709,7 +710,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
         estimate_namespace_preorder_tx_fee, estimate_namespace_reveal_tx_fee,
         estimate_namespace_ready_tx_fee, estimate_name_import_tx_fee
     )
-    
+
     name_operations = ['preorder', 'register', 'update', 'transfer', 'revoke', 'renewal']
     namespace_operations = ['namespace_preorder', 'namespace_reveal', 'namespace_ready', 'name_import']
 
@@ -742,7 +743,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
     assert payment_address, "Payment address or payment_privkey_info required"
     if ('transfer' in operations or 'name_import' in operations) and (transfer_address is None or len(transfer_address) == 0):
         return {'error': 'Transfer or name import requested, but no recipient address given'}
-    
+
     if len(set(operations).intersection(set(name_operations))) > 0 and len(set(operations).intersection(set(namespace_operations))) > 0:
         return {'error': 'Cannot mix name and namespace operations'}
 
@@ -751,25 +752,31 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
 
     # first things first: get UTXOs for owner and payment addresses
     utxo_client = get_utxo_provider_client(config_path=config_path, min_confirmations=min_payment_confs)
-    
-    log.debug("Getting UTXOs for {}".format(owner_address))
-    owner_utxos = get_utxos(owner_address, utxo_client=utxo_client, config_path=config_path, min_confirmations=min_payment_confs)
-    if 'error' in owner_utxos:
-        log.error("Failed to get UTXOs for {}: {}".format(owner_address, owner_utxos['error']))
-        return {'error': 'Failed to get UTXOs for {}'.format(owner_address)}
 
-    payment_utxos = get_utxos(payment_address, utxo_client=utxo_client, config_path=config_path, min_confirmations=min_payment_confs)
-    if 'error' in payment_utxos:
-        log.error("Failed to get UTXOs for {}: {}".format(payment_address, payment_utxos['error']))
-        return {'error': 'Failed to get UTXOs for {}'.format(payment_address)}
+    if not fake_utxos:
+        log.debug("Getting UTXOs for {}".format(owner_address))
+        owner_utxos = get_utxos(owner_address, utxo_client=utxo_client, config_path=config_path, min_confirmations=min_payment_confs)
+        if 'error' in owner_utxos:
+            log.error("Failed to get UTXOs for {}: {}".format(owner_address, owner_utxos['error']))
+            return {'error': 'Failed to get UTXOs for {}'.format(owner_address)}
 
-    balance = sum([utxo.get('value', None) for utxo in payment_utxos])
-    log.debug("Balance of {} is {} satoshis".format(payment_address, balance))
+        payment_utxos = get_utxos(payment_address, utxo_client=utxo_client, config_path=config_path, min_confirmations=min_payment_confs)
+        if 'error' in payment_utxos:
+            log.error("Failed to get UTXOs for {}: {}".format(payment_address, payment_utxos['error']))
+            return {'error': 'Failed to get UTXOs for {}'.format(payment_address)}
+
+        balance = sum([utxo.get('value', None) for utxo in payment_utxos])
+        log.debug("Balance of {} is {} satoshis".format(payment_address, balance))
+    else:
+        log.debug("Forcing fake UTXOs")
+        owner_utxos = []
+        payment_utxos = []
+        balance = 0
 
     estimated_owner_inputs = []
     estiamted_payment_inputs = []
 
-    # find out what our UTXOs will look like for each operation 
+    # find out what our UTXOs will look like for each operation
     if len(owner_utxos) > 0:
         estimated_owner_inputs = estimate_transaction_inputs(operations, owner_utxos, owner_address=owner_address)['inputs']
     else:
