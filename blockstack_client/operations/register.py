@@ -93,80 +93,78 @@ def build(name, value_hash=None):
     return packaged_script 
 
 
-def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renewal_fee=None, burn_address=BLOCKSTACK_BURN_ADDRESS, pay_fee=True):
+def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee,
+                  renewal_fee=None, burn_address=BLOCKSTACK_BURN_ADDRESS, pay_fee=True,
+                  dust_included = False ):
     """
     Make outputs for a register:
-    [0] OP_RETURN with the name, and possibly a value hash 
+    [0] OP_RETURN with the name, and possibly a value hash
     [1] pay-to-address with the *register_addr*, not the sender's address.  If renewing, this is the new owner address.
     [2] change address with the NAME_PREORDER or NAME_RENEWAL's subsidizer's sender's address
     [3] (OPTIONAL) renewal fee, sent to the burn address
 
     Raise ValueError if there are not enough inputs to make the transaction
     """
-    
+
     dust_fee = None
     dust_value = DEFAULT_DUST_FEE
     op_fee = None
-    bill = None 
-    
+    bill = None
+
     if pay_fee:
-        
         # sender pays
+        total_tx_fee = tx_fee
         if renewal_fee is not None:
             # renewing
-            dust_fee = (len(change_inputs) + 3) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE + tx_fee
+            dust_fee = (len(change_inputs) + 3) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
             op_fee = max(renewal_fee, DEFAULT_DUST_FEE)
             bill = op_fee
-            
         else:
             # registering
-            dust_fee = (len(change_inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE + tx_fee
+            dust_fee = (len(change_inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
             op_fee = 0
             bill = DEFAULT_DUST_FEE * 2
-            
+        if not dust_included:
+            total_tx_fee += dust_fee
     else:
-        
         # subsidized by another address
+        bill = 0
+        total_tx_fee = 0
         if renewal_fee is not None:
             # renewing
-            dust_fee = 0
             op_fee = max(renewal_fee, DEFAULT_DUST_FEE)
-            bill = 0
-            
         else:
             # registering
-            dust_fee = 0
             op_fee = 0
-            bill = 0
- 
+
     payload = str(data)
 
     outputs = [
         # main output
         {"script": virtualchain.make_data_script(payload),
          "value": 0},
-    
+
         # register/new-owner address
         {"script": virtualchain.make_payment_script(str(register_addr)),
          "value": dust_value},
-        
+
         # change address (can be the subsidy address)
         {"script": virtualchain.make_payment_script(str(change_addr)),
-         "value": virtualchain.calculate_change_amount(change_inputs, bill, dust_fee)},
+         "value": virtualchain.calculate_change_amount(change_inputs, bill, total_tx_fee)},
     ]
-    
+
     if renewal_fee is not None:
         outputs.append(
-            
             # burn address (when renewing)
             {"script": virtualchain.make_payment_script(str(burn_address)),
              "value": op_fee}
         )
 
     return outputs
-    
 
-def make_transaction(name, preorder_or_owner_addr, register_or_new_owner_addr, blockchain_client, tx_fee=0, burn_address=BLOCKSTACK_BURN_ADDRESS, renewal_fee=None, zonefile_hash=None, subsidize=False, safety=True):
+def make_transaction(name, preorder_or_owner_addr, register_or_new_owner_addr, blockchain_client,
+                     tx_fee=0, burn_address=BLOCKSTACK_BURN_ADDRESS, renewal_fee=None,
+                     zonefile_hash=None, subsidize=False, safety=True, dust_included=False):
     # register_or_new_owner_addr is the address of the recipient in NAME_PREORDER
     # register_or_new_owner_addr is the address of the current name owner in standard NAME_RENEWAL (pre F-day 2017)
     # register_or_new_owner_addr is the address of the current or new name owner, in the post-F-day 2017 NAME_RENEWAL
@@ -176,7 +174,7 @@ def make_transaction(name, preorder_or_owner_addr, register_or_new_owner_addr, b
     register_or_new_owner_addr = str(register_or_new_owner_addr)
     name = str(name)
     tx_fee = int(tx_fee)
-    
+
     assert is_name_valid(name)
 
     if renewal_fee is not None:
@@ -184,7 +182,7 @@ def make_transaction(name, preorder_or_owner_addr, register_or_new_owner_addr, b
 
     change_inputs = None
     pay_fee = True
-    
+
     change_inputs = tx_get_unspents( preorder_or_owner_addr, blockchain_client )
     if safety:
         assert len(change_inputs) > 0, "No UTXOs for {}".format(preorder_or_owner_addr)
@@ -199,8 +197,10 @@ def make_transaction(name, preorder_or_owner_addr, register_or_new_owner_addr, b
         pay_fee = False
 
     nulldata = build(name, value_hash=zonefile_hash)
-    outputs = make_outputs(nulldata, change_inputs, register_or_new_owner_addr, preorder_or_owner_addr, tx_fee, burn_address=burn_address, renewal_fee=renewal_fee, pay_fee=pay_fee )
- 
+    outputs = make_outputs(nulldata, change_inputs, register_or_new_owner_addr, preorder_or_owner_addr, tx_fee,
+                           burn_address=burn_address, renewal_fee=renewal_fee, pay_fee=pay_fee,
+                           dust_included = dust_included)
+
     return (change_inputs, outputs)
 
 
