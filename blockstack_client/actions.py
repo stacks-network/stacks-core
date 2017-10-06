@@ -603,15 +603,17 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
     return res
 
 
-def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_privkey_info, payment_address=None, owner_address=None, transfer_address=None, config_path=CONFIG_PATH, proxy=None ):
+def get_price_and_fees(name_or_ns, operations, payment_privkey_info, owner_privkey_info,
+                       payment_address=None, owner_address=None, transfer_address=None,
+                       config_path=CONFIG_PATH, proxy=None, fake_utxos=False):
     """
     Get the price and fees associated with a set of operations, using
     a given owner and payment key.
     Returns a dict with each operation as a key, and the prices in BTC and satoshis.
     Returns {'error': ...} on failure
     """
- 
-    # first things first: get fee per byte 
+
+    # first things first: get fee per byte
     tx_fee_per_byte = virtualchain.get_tx_fee_per_byte(config_path=config_path)
     if tx_fee_per_byte is None:
         log.error("Unable to calculate fee per byte")
@@ -622,7 +624,8 @@ def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_priv
     sg = ScatterGather()
     res = get_operation_fees( name_or_ns, operations, sg, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
                               proxy=proxy, config_path=config_path, payment_address=payment_address,
-                              owner_address=owner_address, transfer_address=transfer_address )
+                              owner_address=owner_address, transfer_address=transfer_address,
+                              fake_utxos = fake_utxos )
 
     if not res:
         return {'error': 'Failed to get the requisite operation fees'}
@@ -630,7 +633,7 @@ def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_priv
     if 'error' in res:
         return res
 
-    # do queries 
+    # do queries
     sg.run_tasks()
 
     # get results 
@@ -667,6 +670,7 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None, interact
     arg: name_or_namespace (str) 'Name or namespace ID to query'
     opt: recipient (str) 'Address of the recipient, if not this wallet.'
     opt: operations (str) 'A CSV of operations to check.'
+    opt: use_single_sig (str) 'Compute price assuming single sig addresses'
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
@@ -675,6 +679,9 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None, interact
     name_or_ns = str(args.name_or_namespace)
     transfer_address = getattr(args, 'recipient', None)
     operations = getattr(args, 'operations', None)
+
+    use_single_sig = getattr(args, 'use_single_sig', 'F')
+    use_single_sig = ( use_single_sig in ['1','T'] )
 
     if transfer_address is not None:
         transfer_address = str(transfer_address)
@@ -742,8 +749,17 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None, interact
         payment_privkey_info = wallet_keys['payment_privkey']
         owner_privkey_info = wallet_keys['owner_privkey']
 
-    fees = get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_privkey_info,
-                               payment_address=payment_address, owner_address=owner_address, transfer_address=transfer_address, config_path=config_path, proxy=proxy )
+    if use_single_sig:
+        dummy_ecpk = keylib.ECPrivateKey()
+        dummy_pk = dummy_ecpk.to_hex()
+        dummy_address = virtualchain.address_reencode(dummy_ecpk.public_key().address())
+        fees = get_price_and_fees( name_or_ns, operations, dummy_pk, dummy_pk,
+                                   payment_address=dummy_address, owner_address=dummy_address,
+                                   transfer_address=None, config_path=config_path, proxy=proxy,
+                                   fake_utxos = True )
+    else:
+        fees = get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_privkey_info,
+                                   payment_address=payment_address, owner_address=owner_address, transfer_address=transfer_address, config_path=config_path, proxy=proxy )
 
     return fees
 

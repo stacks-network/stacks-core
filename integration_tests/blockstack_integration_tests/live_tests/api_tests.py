@@ -349,7 +349,6 @@ class Prices(APITestCase):
         self.assertIn('register_tx_fee', json_keys)
         self.assertIn('total_estimated_cost', json_keys)
         self.assertIn('total_tx_fees', json_keys)
-        self.assertIn('update_tx_fee', json_keys)
 
     def test_ns_price(self):
         data = self.get_request("/v1/prices/namespaces/id",
