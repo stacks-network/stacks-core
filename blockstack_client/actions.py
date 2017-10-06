@@ -682,7 +682,7 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None, interact
     if operations is not None:
         operations = operations.split(',')
     else:
-        operations = ['preorder', 'register', 'update']
+        operations = ['preorder', 'register']
         if transfer_address:
             operations.append('transfer')
 
@@ -1471,10 +1471,9 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False, make_profile=F
         else:
             payment_privkey_info = wallet_keys['payment_privkey']
 
-        operations = ['preorder', 'register', 'update']
+        operations = ['preorder', 'register']
         required_checks = ['is_name_available', 'is_payment_address_usable', 'owner_can_receive']
         if transfer_address:
-            operations.append('transfer')
             required_checks.append('recipient_can_receive')
 
         res = check_operations( fqu, operations, owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs,

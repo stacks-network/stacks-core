@@ -1326,23 +1326,24 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
 
     fqu = str(fqu)
 
-    # wrap UTXO client so we remember UTXOs 
+    # wrap UTXO client so we remember UTXOs
     utxo_client = build_utxo_client(utxo_client)
 
     owner_address = virtualchain.get_privkey_address( owner_privkey_info )
     payment_address = virtualchain.get_privkey_address( payment_privkey_info )
-    
+
     min_confirmations = utxo_client.min_confirmations
 
     if burn_address is None:
         burn_address = get_namespace_burn_address(fqu, proxy)
     else:
         burn_address = str(burn_address)
-   
+
     if not dry_run and (safety_checks or (cost_satoshis is None or tx_fee is None)):
         tx_fee = 0
         # find tx fee, and do sanity checks
-        res = check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations, burn_address=burn_address)
+        res = check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, config_path=config_path,
+                             proxy=proxy, min_payment_confs=min_confirmations, burn_address=burn_address)
         if 'error' in res and safety_checks:
             log.error("Failed to check preorder: {}".format(res['error']))
             return res
@@ -1351,7 +1352,7 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
 
         if cost_satoshis is None:
             cost_satoshis = res['name_price']
-       
+
     assert tx_fee, 'Missing tx fee'
     assert cost_satoshis, "Missing name cost"
 
