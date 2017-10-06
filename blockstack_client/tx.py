@@ -63,10 +63,16 @@ def deserialize_tx(txstr):
     """
     Given a tx string, deserialize it into the inputs and outputs
     """
-    # TODO: expand beyond bitcoin 
+    # TODO: expand beyond bitcoin
     txobj = virtualchain.btc_tx_deserialize(txstr)
     return txobj['ins'], txobj['outs']
 
+
+## Aaron: preorder, register, update, and transfer accept
+##        a `dust_included` parameter, which allows the caller
+##        to tell the serializer that they already included the
+##        dust fee in the given tx_fee. this prevents double counting
+##        dust fees.
 
 def preorder_tx(*args, **kw):
     """

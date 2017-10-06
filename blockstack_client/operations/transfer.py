@@ -96,24 +96,26 @@ def build(name, keepdata, consensus_hash):
     return packaged_script
 
 
-def make_outputs( data, inputs, new_name_owner_address, change_address, tx_fee=0, pay_fee=True):
+def make_outputs( data, inputs, new_name_owner_address, change_address, tx_fee=0, pay_fee=True,
+                  dust_included = False):
     """
     Builds the outputs for a name transfer operation.
     Raise ValueError if there are not enough inputs to make the transaction
     """
-    
+
     dust_fee = None
     op_fee = None
     dust_value = DEFAULT_DUST_FEE
-    
+
     if pay_fee:
-        dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE + tx_fee
+        total_tx_fee = tx_fee
+        if not dust_included:
+            total_tx_fee += (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
         op_fee = DEFAULT_DUST_FEE
-    
     else:
-        dust_fee = 0
+        total_tx_fee = 0
         op_fee = 0
-    
+
     return [
         # main output
         {"script": virtualchain.make_data_script(str(data)),
@@ -123,35 +125,39 @@ def make_outputs( data, inputs, new_name_owner_address, change_address, tx_fee=0
          "value": dust_value},
         # change output
         {"script": virtualchain.make_payment_script(change_address),
-         "value": virtualchain.calculate_change_amount(inputs, op_fee, dust_fee)}
+         "value": virtualchain.calculate_change_amount(inputs, op_fee, total_tx_fee)}
     ]
 
 
-def make_transaction(name, destination_address, keepdata, consensus_hash, old_owner_addr, blockchain_client, tx_fee=0, subsidize=False, safety=True):
-   
+def make_transaction(name, destination_address, keepdata, consensus_hash,
+                     old_owner_addr, blockchain_client, tx_fee=0, subsidize=False, safety=True,
+                     dust_included = False):
+
     name = str(name)
     destination_address = str(destination_address)
     consensus_hash = str(consensus_hash)
     old_owner_addr = str(old_owner_addr)
     tx_fee = int(tx_fee)
 
-    assert len(consensus_hash) == LENGTH_CONSENSUS_HASH * 2 
+    assert len(consensus_hash) == LENGTH_CONSENSUS_HASH * 2
     assert is_name_valid(name)
 
     # sanity check
     pay_fee = True
     if subsidize:
         pay_fee = False
-    
+
     inputs = tx_get_unspents( old_owner_addr, blockchain_client )
     if safety:
         assert len(inputs) > 0, "No UTXOs for {}".format(old_owner_addr)
-    
+
     nulldata = build(name, keepdata, consensus_hash)
-    outputs = make_outputs(nulldata, inputs, destination_address, old_owner_addr, tx_fee, pay_fee=pay_fee)
+    outputs = make_outputs(nulldata, inputs, destination_address,
+                           old_owner_addr, tx_fee, pay_fee=pay_fee,
+                           dust_included = dust_included)
 
     return (inputs, outputs)
-  
+
 
 def get_fees( inputs, outputs ):
     """
