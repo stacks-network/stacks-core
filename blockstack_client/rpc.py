@@ -2300,10 +2300,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             address = new_addr
 
         internal = self.server.get_internal_proxy()
-        res = internal.cli_withdraw(
-            address, amount, message, min_confs, tx_only, payment_key,
-            config_path=self.server.config_path, interactive=False,
-            wallet_keys=self.server.wallet_keys)
+        try:
+            res = internal.cli_withdraw(
+                address, amount, message, min_confs, tx_only, payment_key,
+                config_path=self.server.config_path, interactive=False,
+                wallet_keys=self.server.wallet_keys)
+        except ValueError as ve:
+            log.error(ve)
+            return self._reply_json( {'error': ve.message}, status_code=400)
         if 'error' in res:
             log.debug("Failed to transfer balance: {}".format(res['error']))
             error_msg = {'error': 'Failed to transfer balance: {}'.format(res['error'])}
