@@ -2293,6 +2293,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if min_confs < 0:
             min_confs = 0
 
+        if amount == 0:
+            return self._reply_json( { 'error' : 'Refusing to send 0 bitcoin' }, 400 )
+
         # make sure we have the right encoding
         new_addr = virtualchain.address_reencode(str(address))
         if new_addr != address:
