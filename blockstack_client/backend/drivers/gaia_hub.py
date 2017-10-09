@@ -35,18 +35,25 @@ def storage_init(conf, **kwargs):
     return True
 
 def handles_url( url ):
+    if not HUB_URL_PREFIX:
+        return False
     return url.startswith(HUB_URL_PREFIX)
 
 def data_id_to_hex( data_id ):
     return "".join(x.encode('hex') for x in data_id)
 
 def make_mutable_url( data_id ):
+    if not HUB_URL_PREFIX:
+        return None
     path = data_id_to_hex(data_id)
     url = "{}{}/{}".format(HUB_URL_PREFIX, ACCESS_ADDRESS, path)
     log.debug( "make_mutable_url: {}".format(url))
     return url
 
 def put_mutable_handler( data_id, data_txt, **kw ):
+    if not HUB_SERVER:
+        return None
+
     url = "{}/store/{}/{}".format(
         HUB_SERVER,
         ACCESS_ADDRESS,
@@ -80,6 +87,8 @@ def put_mutable_handler( data_id, data_txt, **kw ):
     return resp_obj['publicURL']
 
 def get_mutable_handler( data_url, **kw):
+    if not HUB_URL_PREFIX:
+        return None
     log.debug("get_mutable: {}".format(data_url))
     resp = requests.get( data_url )
     if resp.status_code != 200:
