@@ -1049,12 +1049,14 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
         serialized_data = serialize_mutable_data(data_text_or_json, data_privkey=data_privkey, data_pubkey=data_pubkey, data_signature=data_signature, profile=profile)
     else:
         serialized_data = data_text_or_json
-    
+
     if BLOCKSTACK_TEST:
         log.debug("data ({}): {}".format(type(serialized_data), serialized_data))
 
     successes = 0
     required_successes = 0
+
+    skipped_optionals = []
 
     for handler in storage_handlers:
         if handler.__name__ in skip:
@@ -1070,7 +1072,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
             return False
 
         if required_exclusive and handler.__name__ not in required:
-            log.debug("Skipping {}: it is optional".format(handler.__name__))
+            skipped_optionals.append(handler.__name__)
             continue
 
         rc = False
@@ -1082,7 +1084,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
             log.exception(e)
             if handler.__name__ not in required:
                 continue
-            
+
             log.error("Failed to replicate data with '{}'".format(handler.__name__))
             return None
 
@@ -1098,11 +1100,13 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
         if handler.__name__ not in required:
             log.debug('Failed to replicate with "{}"'.format(handler.__name__))
             continue
-        
+
         # required driver failed
         log.error("Failed to replicate to required storage provider '{}'".format(handler.__name__))
         return False
 
+    if len(skipped_optionals) > 1:
+        log.debug("Skipped optional drivers: [{}]".format(",".join(skipped_optionals)))
     # failed everywhere or succeeded somewhere
     log.debug("put_mutable_data: successes = {}, required_successes = {}, |required - skip| = {}".format(
         successes, required_successes, len(set(required) - set(skip))
