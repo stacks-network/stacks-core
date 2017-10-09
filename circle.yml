@@ -1,6 +1,7 @@
 machine:
   pre:
     - sudo -H pip install --upgrade virtualenv
+    - brew update
     - brew install openssl
 dependencies:
   pre:
