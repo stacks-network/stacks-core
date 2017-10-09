@@ -7,7 +7,7 @@ ACCESS_ADDRESS = None
 HUB_SERVER = None
 HUB_URL_PREFIX = None
 
-log = get_logger()
+log = get_logger("blockstack-storage-driver-gaia_hub")
 
 def storage_init(conf, **kwargs):
     config_path = conf['path']
@@ -63,16 +63,21 @@ def put_mutable_handler( data_id, data_txt, **kw ):
         msg = "Error putting to mutable storage. Tried store at {}".format(url)
         log.error(msg)
         return False
+
     log.debug(resp)
     resp_obj = resp.json()
+
     if 'publicURL' not in resp_obj:
-        msg = "Expectin publicURL in JSON response"
+        log.error("Expecting publicURL in JSON response")
         return False
+
     elif resp_obj['publicURL'] != make_mutable_url(data_id):
         msg = "Unexpected publicURL. Expected '{}', Actual '{}'".format(
             make_mutable_url(data_id), resp_obj['publicURL'])
+        log.error(msg)
         return False
-    return True
+
+    return resp_obj['publicURL']
 
 def get_mutable_handler( data_url, **kw):
     log.debug("get_mutable: {}".format(data_url))
