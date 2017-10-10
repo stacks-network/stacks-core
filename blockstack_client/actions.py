@@ -2947,9 +2947,9 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
         "Full cost breakdown:\n",
         "{}".format(json.dumps(fees, indent=4, sort_keys=True))
     ])
-   
+
     print(msg)
-    
+
     prompts = [
         "I acknowledge that I have read and understood the above instructions (yes/no) ",
         "I acknowledge that this will cost {} BTC or more (yes/no) ".format(fees['total_estimated_cost']['btc']),
@@ -2961,7 +2961,7 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
     for prompt in prompts:
         while True:
             if interactive:
-                proceed = raw_input("I acknowledge that I have read the above instructions. (yes/No) ")
+                proceed = raw_input(prompt)
             else:
                 proceed = 'yes'
 
