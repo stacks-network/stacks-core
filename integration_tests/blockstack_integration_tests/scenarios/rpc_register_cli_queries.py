@@ -237,7 +237,7 @@ def check( state_engine ):
                     return False
 
     # check price
-    for k in ['preorder_tx_fee', 'register_tx_fee', 'update_tx_fee', 'total_estimated_cost', 'name_price']:
+    for k in ['preorder_tx_fee', 'register_tx_fee', 'total_estimated_cost', 'name_price']:
         if not price_info.has_key(k):
             print "bad price info (missing %s):\n%s" % (k, json.dumps(price_info, indent=4, sort_keys=True))
             return False
