@@ -166,7 +166,7 @@ class AuthInternal(APITestCase):
         data = self.get_request('/v1/wallet/payment_address',
                                 headers = auth_header, status_code=200)
 
-        data = self.get_request('/v1/users/muneeb.id',
+        data = self.get_request('/v1/users/ablankstein.id',
                                 headers = auth_header, status_code=200)
         # self.assertIn('error', data)
 
@@ -201,7 +201,7 @@ class AuthInternal(APITestCase):
         data = self.get_request('/v1/wallet/payment_address',
                                 headers = auth_header, status_code=200)
 
-        data = self.get_request('/v1/users/muneeb.id',
+        data = self.get_request('/v1/users/ablankstein.id',
                                 headers = auth_header, status_code=200)
 
     def test_auth_token_no_username(self):

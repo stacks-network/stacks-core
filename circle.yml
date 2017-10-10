@@ -27,7 +27,7 @@ test:
     - blockstack api stop -y
 deployment:
   tarball_venv:
-    branch: [master, osx-single-file-build, develop, hotfix/storage-errno]
+    branch: [master, osx-single-file-build, develop]
     commands:
       - cp -r ../virtualenvs/venv-system ./venv-copy
       - virtualenv --relocatable ../virtualenvs/venv-system
