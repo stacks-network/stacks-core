@@ -529,8 +529,9 @@ def get_data_privkey(user_zonefile, wallet_keys=None, config_path=CONFIG_PATH):
             owner_privkey = owner_privkey_info['private_keys'][0]
 
         owner_pubkey = keylib.key_formatting.decompress(get_pubkey_hex(str(owner_privkey)))
-        if owner_pubkey != wallet_data_pubkey:
+        if owner_pubkey != keylib.key_formatting.decompress(wallet_data_pubkey):
             # doesn't match. no data key 
+            log.error("No zone file data key, and data key does not match owner key ({} != {})".format(owner_pubkey, wallet_data_pubkey))
             return {'error': 'No zone file key, and data key does not match owner key ({} != {})'.format(owner_pubkey, wallet_data_pubkey)}
         
     return str(data_privkey)
