@@ -79,6 +79,9 @@ log = get_logger()
 
 MUTABLE_DATA_VERSION_LOCK = threading.Lock()
 
+# not defined on all platforms (looking at you, Mac OS)
+EREMOTEIO = 121
+
 class DataCache(object):
     """
     Write-coherent inode and datastore data cache
@@ -1869,7 +1872,7 @@ def put_datastore_info( datastore_info, datastore_sigs, root_tombstones, config_
     res = put_inode_data( datastore, datastore_info['root_blob_header'], datastore_sigs['root_sig'], datastore_info['root_blob_idata'], config_path=config_path, proxy=proxy)
     if 'error' in res:
         log.error("Failed to store root inode info for {}".format(datastore_id))
-        return {'error': res['error'], 'errno': errno.EREMOTEIO}
+        return {'error': res['error'], 'errno': EREMOTEIO}
 
     res = put_mutable( datastore_fqid, datastore_info['datastore_blob'], datastore['pubkey'], datastore_sigs['datastore_sig'], datastore_version,
                        proxy=proxy, config_path=config_path, storage_drivers_exclusive=True )
@@ -1882,7 +1885,7 @@ def put_datastore_info( datastore_info, datastore_sigs, root_tombstones, config_
         if 'error' in res:
             log.error("Failed to clean up root inode for {}".format(datastore_id))
 
-        return {'error': 'Failed to store datastore information', 'errno': errno.EREMOTEIO}
+        return {'error': 'Failed to store datastore information', 'errno': EREMOTEIO}
 
     # evict 
     GLOBAL_CACHE.evict_datastore_record(datastore_id)
@@ -1955,7 +1958,7 @@ def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, 
     if 'error' in res:
         if not force:
             log.error("Failed to list /")
-            return {'error': 'Failed to check if datastore is empty', 'errno': errno.EREMOTEIO}
+            return {'error': 'Failed to check if datastore is empty', 'errno': EREMOTEIO}
         else:
             log.warn("Failed to list /, but forced to remove it anyway")
 
@@ -1967,12 +1970,12 @@ def delete_datastore_info( datastore_id, datastore_tombstones, root_tombstones, 
     res = delete_mutable(data_id, datastore_tombstones, storage_drivers=drivers, storage_drivers_exclusive=True, proxy=proxy, config_path=config_path )
     if 'error' in res:
         log.error("Failed to delete datastore {}".format(datastore_id))
-        return {'error': 'Failed to delete datastore', 'errno': errno.EREMOTEIO}
+        return {'error': 'Failed to delete datastore', 'errno': EREMOTEIO}
 
     res = delete_inode_data( datastore, root_tombstones, proxy=proxy, config_path=config_path )
     if 'error' in res:
         log.error("Failed to delete root inode {}".format(root_uuid))
-        return {'error': 'Failed to delete root inode', 'errno': errno.EREMOTEIO}
+        return {'error': 'Failed to delete root inode', 'errno': EREMOTEIO}
 
     # evict 
     GLOBAL_CACHE.evict_datastore_record(datastore_id)
@@ -2117,7 +2120,7 @@ def get_inode_data(blockchain_id, datastore_id, inode_uuid, inode_type, drivers,
             break
 
     if not have_data:
-        err = {'error': 'Failed to find fresh inode', 'errno': errno.EREMOTEIO}
+        err = {'error': 'Failed to find fresh inode', 'errno': EREMOTEIO}
         if have_stale:
             err['errno'] = errno.ESTALE
 
@@ -2304,7 +2307,7 @@ def get_inode_header(blockchain_id, datastore_id, inode_uuid, drivers, data_pubk
             res = get_mutable(data_id, [device_id], blockchain_id=blockchain_id, ver_min=ver_min, force=force, data_pubkey=device_pubkey, storage_drivers=[driver], proxy=proxy, config_path=config_path)
             if 'error' in res:
                 log.error("Failed to get inode data {} (stale={}): {}".format(inode_uuid, res.get('stale', False), res['error']))
-                errcode = errno.EREMOTEIO
+                errcode = EREMOTEIO
                 if res.get('stale'):
                     errcode = errno.ESTALE
 
@@ -2668,7 +2671,7 @@ def put_inode_data( datastore, header_blob_str, header_blob_sig, idata_str, conf
         GLOBAL_CACHE.evict_inode(datastore_id, inode_hdr['uuid'])
 
     if driver_failed:
-        return {'error': 'Failed to replicate inode data to at least one driver', 'errno': errno.EREMOTEIO}
+        return {'error': 'Failed to replicate inode data to at least one driver', 'errno': EREMOTEIO}
 
     # save consistency info
     res = _put_inode_consistency_info(datastore_id, inode_uuid, version, datastore['device_ids'], config_path=config_path)
@@ -2766,7 +2769,7 @@ def delete_inode_data( datastore, signed_tombstones, proxy=None, config_path=CON
             failed_driver = True
 
     if failed_driver:
-        return {'error': 'Failed to delete inode data', 'errno': errno.EREMOTEIO}
+        return {'error': 'Failed to delete inode data', 'errno': EREMOTEIO}
 
     # delete inode headers once all idata is gone
     for inode_uuid in inode_tombstones.keys():
