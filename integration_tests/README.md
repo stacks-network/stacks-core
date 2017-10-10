@@ -383,3 +383,47 @@ and will be loaded from the pre-configured `disk` driver (the defualt driver use
     }
 ```
 
+Namespace Creation Example
+--------------------------
+
+You can test out the namespace creation functions once you've got a shell
+set up to connect to your regtest environment:
+
+First, get the private keys you'll use for the namespace:
+```bash
+$ blockstack wallet
+{
+    "data_privkey": "bb68eda988e768132bc6c7ca73a87fb9b0918e9a38d3618b74099be25f7cab7d01",
+    "data_pubkey": "04ea5d8c2a3ba84eb17625162320bb53440557c71f7977a57d61405e86be7bdcdab63a7f1eda1e6c1670c64a9f532b9f55458019d9b80fdf41748d06cd7f60d451", 
+    "owner_address": "myaPViveUWiiZQQTb51KXCDde4iLC3Rf3K",
+    "owner_privkey": "8f87d1ea26d03259371675ea3bd31231b67c5df0012c205c154764a124f5b8fe01",
+    "payment_address": "mvF2KY1UbdopoomiB371epM99GTnzjSUfj",
+    "payment_privkey": "f4c3907cb5769c28ff603c145db7fc39d7d26f69f726f8a7f995a40d3897bb5201"
+}
+```
+
+For testing, I use the `payment_privkey` above to fund the namespace creation and `owner_privkey`
+as the namespace reveal key.
+
+```bash
+$ PAYMENTKEY="f4c3907cb5769c28ff603c145db7fc39d7d26f69f726f8a7f995a40d3897bb5201"
+$ REVEALKEY="8f87d1ea26d03259371675ea3bd31231b67c5df0012c205c154764a124f5b8fe01"
+```
+
+Now, you can perform the preorder.
+```bash
+$ blockstack namespace_preorder blankstein $PAYMENTKEY $REVEALKEY
+```
+
+Wait for the transaction to confirm, and then issue a "reveal". During
+the reveal you configure the price function, expiration time of names,
+and whether or not you receive funds.
+```bash
+$ blockstack namespace_reveal blankstein $PAYMENTKEY $REVEALKEY
+```
+
+Once your reveal your namespace, you can issue a "ready", and then
+
+```bash
+$ blockstack namespace_ready blankstein $REVEALKEY
+```
