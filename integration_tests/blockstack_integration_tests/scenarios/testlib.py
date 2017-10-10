@@ -3356,7 +3356,7 @@ def peer_make_config( peer_port, dirp, seed_relations={}, blacklist_relations={}
     virtualchain_bitcoin_conf['bitcoind_spv_path'] = os.path.join( dirp, "spv_headers.dat" )
 
     blockstack_conf['rpc_port'] = peer_port
-    blockstack_conf['server_version'] = '0.14.1'
+    blockstack_conf['server_version'] = '0.17.0'
     blockstack_conf['zonefiles'] = os.path.join( dirp, 'zonefiles' )
     blockstack_conf['atlas_seeds'] = ",".join( ["localhost:%s" % p for p in seed_relations.get(peer_port, []) ] )
     blockstack_conf['atlas_blacklist'] = ",".join( ["localhost:%s" % p for p in blacklist_relations.get(peer_port, [])] )
