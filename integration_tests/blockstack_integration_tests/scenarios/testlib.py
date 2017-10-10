@@ -3293,14 +3293,22 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
     owner_privkey_info = blockstack_client.get_owner_privkey_info( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     data_privkey_info = blockstack_client.get_data_privkey_info( user_zonefile, wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
 
-    assert data_privkey_info is not None
-    assert 'error' not in data_privkey_info, str(data_privkey_info)
-    assert virtualchain.is_singlesig(data_privkey_info)
+    profile_signing_key = None
+
+    if zonefile_has_data_key:
+        assert data_privkey_info is not None
+        assert 'error' not in data_privkey_info, str(data_privkey_info)
+        assert virtualchain.is_singlesig(data_privkey_info)
+
+        profile_signing_key = data_privkey_info
+    else:
+        data_privkey_info = None
+        profile_signing_key = owner_privkey_info
 
     user_zonefile_hash = blockstack_client.hash_zonefile( user_zonefile )
     
     rc = blockstack_client.profile.put_profile(name, user_profile, blockchain_id=name,
-                                              user_data_privkey=data_privkey_info, user_zonefile=user_zonefile,
+                                              user_data_privkey=profile_signing_key, user_zonefile=user_zonefile,
                                               proxy=proxy, wallet_keys=wallet_keys )
 
     if 'error' in rc:
