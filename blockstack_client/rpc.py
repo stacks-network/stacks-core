@@ -757,7 +757,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         op = None
         if name in res:
             # renew
-            renewal_allowed = ['name', 'owner_key', 'payment_key', 'owner_address', 'zonefile']
+            renewal_allowed = ['name', 'owner_key', 'payment_key', 'owner_address', 'zonefile', 'min_confs']
             for prop in request_schema['properties'].keys():
                 if prop in request.keys() and prop not in renewal_allowed:
                     log.debug("Invalid renewal argument {}".format(prop))
