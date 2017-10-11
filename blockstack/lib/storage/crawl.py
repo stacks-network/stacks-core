@@ -212,6 +212,7 @@ def store_cached_zonefile_data( zonefile_data, zonefile_dir=None ):
             f.write(zonefile_data)
             f.flush()
             os.fsync(f.fileno())
+
     except Exception, e:
         log.exception(e)
         return False
