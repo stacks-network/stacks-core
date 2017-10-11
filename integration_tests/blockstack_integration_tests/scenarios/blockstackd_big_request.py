@@ -33,6 +33,8 @@ import binascii
 import socket
 import base64
 import xmlrpclib
+import StringIO
+import gzip
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -45,12 +47,21 @@ wallets = [
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 
-def make_xml_call(msg_len):
+def make_xml_call(msg_len, gzipped=False):
+    content_type = 'text/xml'
+
+    if gzipped:
+        content_type = 'application/gzip'
+    
+    content_encoding_str = ""
+    if gzipped:
+        content_encoding_str = "Content-Encoding: gzip\r\n"
+
     xml_part_http = ("POST /RPC2 HTTP/1.1\r\n"
                      "Host: localhost:" + str(blockstack.RPC_SERVER_PORT) + "\r\n"
                      "User-Agent: curl/7.56.0\r\n"
                      "Accept: */*\r\n"
-                     "Content-Type: application/x-url-form-encoded\r\n"
+                     "Content-Type: " + content_type + "\r\n" + content_encoding_str + \
                      "Content-Length: {}\r\n\r\n")
 
     xml_part_header = "<?xml version='1.0'?><methodCall><methodName>get_nameops_hash_at</methodName><params><param><value><integer>"
@@ -63,10 +74,21 @@ def make_xml_call(msg_len):
     i = 0
     while len(xml_part_body) > msg_len:
         xml_part_body = xml_part_header + xml_part_payload[i:] + xml_part_trailer
+        if gzipped:
+            out = StringIO.StringIO()
+            with gzip.GzipFile(fileobj=out, mode='w') as f:
+                f.write(xml_part_body)
+
+            xml_part_body = out.getvalue()
+
         xml_part_msg = xml_part_http.format(len(xml_part_body)) + xml_part_body
         i += 1
 
-    assert len(xml_part_body) == msg_len, len(xml_part_body)
+    if not gzipped:
+        assert len(xml_part_body) == msg_len, len(xml_part_body)
+    else:
+        assert len(xml_part_body) < msg_len, len(xml_part_body)
+
     return xml_part_msg
 
 
@@ -86,6 +108,20 @@ def scenario( wallets, **kw ):
         print buf
         return False
     
+    # valid 500kb + 1 XMLRPC gzipp'ed, should be rejected
+    xmlmsg = make_xml_call(512 * 1024 + 1, gzipped=True)
+
+    print '\ntest too big, gzipped\n'
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect(("localhost", blockstack.RPC_SERVER_PORT))
+    s.send(xmlmsg)
+    buf = s.recv(16384)
+
+    if 'HTTP/1.0 501' not in buf:
+        print buf
+        return False
+
     # valid 500kb XMLRPC, should be accepted
     xmlmsg = make_xml_call(512 * 1024)
 
@@ -97,6 +133,20 @@ def scenario( wallets, **kw ):
     buf = s.recv(16384)
 
     if 'HTTP/1.0 200' not in buf:
+        print buf
+        return False
+
+    # valid 500kb XMLRPC gzipped, should be rejected
+    xmlmsg = make_xml_call(512 * 1024, gzipped=True)
+
+    print '\ntest just big enough, gzipped\n'
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect(("localhost", blockstack.RPC_SERVER_PORT))
+    s.send(xmlmsg)
+    buf = s.recv(16384)
+
+    if 'HTTP/1.0 501' not in buf:
         print buf
         return False
 
