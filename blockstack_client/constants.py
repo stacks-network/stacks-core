@@ -294,10 +294,13 @@ BLOCKSTACK_BURN_ADDRESS = virtualchain.hex_hash160_to_address(BLOCKSTACK_BURN_PU
 # never changes, so safe to duplicate to avoid gratuitous imports
 MAXIMUM_NAMES_PER_ADDRESS = 25
 
-MAX_RPC_LEN = 1024 * 1024 * 1024
-
 RPC_MAX_ZONEFILE_LEN = 4096     # 4KB
 RPC_MAX_PROFILE_LEN = 1024000   # 1MB
+
+MAX_RPC_LEN = RPC_MAX_ZONEFILE_LEN * 110    # maximum blockstackd RPC length--100 zonefiles with overhead
+if os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"):
+    MAX_RPC_LEN = int(os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"))
+    print("Overriding MAX_RPC_LEN to {}".format(MAX_RPC_LEN))
 
 CONFIG_FILENAME = 'client.ini'
 WALLET_FILENAME = 'wallet.json'
