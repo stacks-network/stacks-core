@@ -771,6 +771,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             res = internal.cli_renew(name, owner_key, payment_key,
                                      recipient_address, zonefile_txt,
                                      interactive=False,
+                                     force_data=True,
                                      cost_satoshis=cost_satoshis)
 
         else:
@@ -4497,7 +4498,8 @@ class BlockstackAPIEndpointClient(object):
                 data['owner_key'] = owner_key
             if payment_key is not None:
                 data['payment_key'] = payment_key
-
+            if zonefile_data is not None:
+                data['zonefile'] = zonefile_data
 
             headers = self.make_request_headers()
             req = requests.post( 'http://{}:{}/v1/names'.format(self.server, self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)
