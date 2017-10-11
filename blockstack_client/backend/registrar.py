@@ -552,7 +552,7 @@ class RegistrarWorker(threading.Thread):
                 log.debug("Skipping name {}".format(update['fqu']))
                 continue
 
-            log.debug("Zone file update on '%s' (%s) is confirmed!  New hash is %s" % (update['fqu'], update['tx_hash'], update['zonefile_hash']))
+            log.debug("Zone file update on '%s' (%s) is confirmed!  New hash is %s" % (update['fqu'], update['tx_hash'], update.get('zonefile_hash', None)))
             res = cls.replicate_name_data( update, atlas_servers, wallet_data, storage_drivers, config_path, proxy=proxy )
             if 'error' in res:
                 log.error("Failed to update %s: %s" % (update['fqu'], res['error']))
@@ -560,7 +560,7 @@ class RegistrarWorker(threading.Thread):
                 ret = {'error': 'Failed to finish an update'}
                 failed_names.append( update['fqu'] )
 
-        if 'error' in ret:
+        if 'error' in ret or len(failed_names) > 0:
             ret['names'] = failed_names
 
         return ret
