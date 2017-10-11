@@ -92,6 +92,7 @@ def scenario( wallets, **kw ):
         return False
 
     testlib.next_block(**kw)
+    testlib.expect_snv_fail_at("fail.test", testlib.get_current_block(**kw))
    
     # 3 in one block (zero-conf)
     resp = testlib.blockstack_cli_name_import("bar.test", wallets[3].addr, "Hello bar.test!", private_keys[1])
@@ -122,7 +123,10 @@ def scenario( wallets, **kw ):
         print json.dumps(resp, indent=4, sort_keys=True)
         return False
 
-    for i in xrange(0, 12):
+    testlib.next_block(**kw)
+    testlib.expect_snv_fail_at("fail.test", testlib.get_current_block(**kw))
+
+    for i in xrange(0, 11):
         testlib.next_block(**kw)
 
     print "Waiting 10 seconds for registrar to replicate zone files"
