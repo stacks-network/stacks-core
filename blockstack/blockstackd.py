@@ -271,6 +271,8 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
     def do_POST(self):
         """
         Based on the original, available at https://github.com/python/cpython/blob/2.7/Lib/SimpleXMLRPCServer.py
+        
+        Only difference is that it denies requests bigger than a certain size.
 
         Handles the HTTP POST request.
         Attempts to interpret all HTTP POST requests as XML-RPC calls,
@@ -297,7 +299,7 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
                 log.debug("Message is small enough to parse ({} bytes)".format(size_remaining))
 
             # Get arguments by reading body of request.
-            # never read more than 500Kb
+            # never read more than our max size
             L = []
             while size_remaining:
                 chunk_size = min(size_remaining, self.MAX_REQUEST_SIZE)
@@ -472,8 +474,13 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if type(block_id) not in [int, long]:
             return False
 
-        if block_id < FIRST_BLOCK_MAINNET:
-            return False
+        if os.environ.get("BLOCKSTACK_TEST") == "1":
+            if block_id <= 0:
+                return False
+
+        else:
+            if block_id < FIRST_BLOCK_MAINNET:
+                return False
 
         if block_id > 1e7:
             # 1 million blocks? not in my lifetime
