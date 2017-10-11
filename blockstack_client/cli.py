@@ -515,7 +515,8 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         server_port=blockstack_port, set_global=True
     )
 
-    prompt_func = lambda help, name: raw_input('optional: {} ("{}"): '.format(help, name))
+    prompt_func_arg = lambda help, name: raw_input('required: {} ("{}"): '.format(help, name))
+    prompt_func_opt = lambda help, name: raw_input('optional: {} ("{}"): '.format(help, name))
 
     # dispatch to the apporpriate method
     for method_info in all_methods:
@@ -538,11 +539,11 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             print('Arguments: {} {} {}'.format(method_info['command'], arg_usage, opt_usage))
             print('')
 
-            required_args = prompt_args(method_info['args'], prompt_func)
+            required_args = prompt_args(method_info['args'], prompt_func_arg)
             if required_args is None:
                 return {'error': 'Failed to prompt for arguments'}
 
-            optional_args = prompt_args(method_info['opts'], prompt_func)
+            optional_args = prompt_args(method_info['opts'], prompt_func_opt)
             if optional_args is None:
                 return {'error': 'Failed to prompt for arguments'}
 
