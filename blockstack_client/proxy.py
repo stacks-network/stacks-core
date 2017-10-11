@@ -36,17 +36,17 @@ import jsonschema
 from jsonschema.exceptions import ValidationError
 from utils import url_to_host_port
 
-# prevent the usual XML attacks
-xmlrpc.MAX_DATA = 10 * 1024 * 1024  # 10MiB
-xmlrpc.monkey_patch()
-
-import storage
-import scripts
-
 from .constants import (
     MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST, DEFAULT_TIMEOUT,
     BLOCKSTACK_DEBUG
 )
+
+# prevent the usual XML attacks
+xmlrpc.MAX_DATA = MAX_RPC_LEN
+xmlrpc.monkey_patch()
+
+import storage
+import scripts
 
 from .logger import get_logger
 
@@ -82,6 +82,8 @@ class TimeoutHTTPConnection(httplib.HTTPConnection):
     def connect(self):
         httplib.HTTPConnection.connect(self)
         self.sock.settimeout(self.timeout)
+
+
 class TimeoutHTTPSConnection(httplib.HTTPSConnection):
     def connect(self):
         httplib.HTTPSConnection.connect(self)
@@ -96,6 +98,7 @@ class TimeoutHTTP(httplib.HTTP):
 
     def getresponse(self, **kw):
         return self._conn.getresponse(**kw)
+
 
 class TimeoutHTTPS(httplib.HTTP):
     _connection_class = TimeoutHTTPSConnection
@@ -120,8 +123,8 @@ class TimeoutTransport(Transport):
             conn = TimeoutHTTP(host)
         elif self.protocol == 'https':
             conn = TimeoutHTTPS(host)
-        conn.set_timeout(self.timeout)
 
+        conn.set_timeout(self.timeout)
         return conn
 
 
@@ -129,8 +132,7 @@ class TimeoutServerProxy(ServerProxy):
     def __init__(self, uri, protocol, *l, **kw):
         timeout = kw.pop('timeout', 10)
         use_datetime = kw.get('use_datetime', 0)
-        kw['transport'] = TimeoutTransport(
-            protocol, timeout=timeout, use_datetime=use_datetime)
+        kw['transport'] = TimeoutTransport(protocol, timeout=timeout, use_datetime=use_datetime)
         ServerProxy.__init__(self, uri, *l, **kw)
 
 
