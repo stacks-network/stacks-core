@@ -284,6 +284,13 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
             self.report_404()
             return
 
+        # reject gzip, so size-caps will work
+        encoding = self.headers.get("content-encoding", "identity").lower()
+        if encoding != 'identity':
+            log.error("Reject request with encoding '{}'".format(encoding))
+            self.send_response(501, "encoding %r not supported" % encoding)
+            return
+
         try:
             size_remaining = int(self.headers["content-length"])
             if size_remaining > self.MAX_REQUEST_SIZE:
