@@ -1007,12 +1007,18 @@ def cli_lookup(args, config_path=CONFIG_PATH):
     command: lookup
     help: Get the zone file and profile for a particular name
     arg: name (str) 'The name to look up'
+    opt: force (str) 'If true, then look up even if expired'
     """
     data = {}
 
     blockchain_record = None
     fqu = str(args.name)
     subdomain = None
+    force = getattr(args, 'force', 'False')
+    if force is None:
+        force = 'False'
+
+    force = force.lower() in ['1', 'true', 'force']
 
     error = check_valid_name(fqu)
     if error:
@@ -1035,11 +1041,11 @@ def cli_lookup(args, config_path=CONFIG_PATH):
     if 'value_hash' not in blockchain_record:
         return {'error': '{} has no profile'.format(fqu)}
 
-    if blockchain_record.get('revoked', False):
+    if not force and blockchain_record.get('revoked', False):
         msg = 'Name is revoked. Use `whois` or `get_name_blockchain_record` for details.'
         return {'error': msg}
 
-    if blockchain_record.get('expired', False):
+    if not force and blockchain_record.get('expired', False):
         msg = 'Name is expired. Use `whois` or `get_name_blockchain_record` for details. If you own this name, use `renew` to renew it.'
         return {'error': msg}
 
@@ -1812,7 +1818,7 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     return resp
 
 
-def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None, cost_satoshis=None):
+def cli_renew(args, config_path=CONFIG_PATH, force_data=False, interactive=True, password=None, proxy=None, cost_satoshis=None):
     """
     command: renew
     help: Renew a blockchain ID
@@ -1851,7 +1857,7 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
 
     if zonefile_data:
         zonefile_data = str(zonefile_data)
-        zonefile_info = analyze_zonefile_string(fqu, zonefile_data, force_data=True, check_current=False, proxy=proxy)
+        zonefile_info = analyze_zonefile_string(fqu, zonefile_data, force_data=force_data, check_current=False, proxy=proxy)
         if 'error' in zonefile_info:
             log.error("Failed to analyze zone file: {}".format(zonefile_info['error']))
             return {'error': zonefile_info['error']}
@@ -1940,11 +1946,16 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
             print('\nExiting.')
             exit(0)
 
-
     rpc = local_api_connect(config_path=config_path)
     assert rpc
 
     log.debug("Renew {} for {} BTC".format(fqu, cost_satoshis))
+    if zonefile_data:
+        log.debug('new zonefile:\n{}'.format(zonefile_data))
+
+    if new_owner_address:
+        log.debug("new owner address: {}".format(new_owner_address))
+
     try:
         additionals = {}
         if owner_key:
@@ -2939,13 +2950,23 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
         "\n",
         "  The command to do so is `blockstack name_import`.\n",
         "\n",
-        "If you want to test your namespace parameters before creating it, please consider trying it in our integration test\n",
-        "framework first.  Instructions are at https://github.com/blockstack/blockstack-core/tree/master/integration_tests\n",
+        "\n",
+        "To review, the sequence of steps you must take are:\n",
+        "\n",
+        "     $ blockstack namespace_preorder {} {} {}\n".format(nsid, ns_privkey, ns_reveal_privkey),
+        "     $ blockstack namespace_reveal {} {} {}    # within 144 blocks\n".format(nsid, ns_privkey, ns_reveal_privkey),
+        "     $ blockstack name_import .... # OPTIONAL\n",
+        "     $ blockstack namespace_ready {} {}        # within {} blocks\n".format(nsid, ns_reveal_privkey, blockstack.BLOCKS_PER_YEAR),
+        "\n",
+        "\n"
+        "You SHOULD test your namespace parameters before creating it using the integration test framework first.\n",
+        "Instructions are at https://github.com/blockstack/blockstack-core/tree/master/integration_tests\n",
         "\n",
         "If you have any questions, please contact us at support@blockstack.com or via https://blockstack.slack.com\n",
         "\n",
         "Full cost breakdown:\n",
-        "{}".format(json.dumps(fees, indent=4, sort_keys=True))
+        "{}".format(json.dumps(fees, indent=4, sort_keys=True)),
+        "\n",
     ])
 
     print(msg)
