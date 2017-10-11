@@ -232,7 +232,7 @@ def sqlite3_backup( src_path, dest_path ):
             out, err = p.communicate()
             rc = p.wait()
 
-            if os.WIFEXITED(rc) and os.WEXITSTATUS(rc) != 0 and ("database is locked" in out.lower() or "database is locked" in err.lower()):
+            if rc != 0 and ("database is locked" in out.lower() or "database is locked" in err.lower()):
                 # try again
                 log.error("Database {} is locked; trying again in {} seconds".format(src_path, backoff))
                 time.sleep(backoff)
