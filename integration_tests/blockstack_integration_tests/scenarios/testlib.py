@@ -844,7 +844,7 @@ def blockstack_cli_transfer( name, new_owner_address, password, config_path=None
     return resp
 
 
-def blockstack_cli_renew( name, password, config_path=None):
+def blockstack_cli_renew( name, password, new_zonefile_txt=None, owner_privkey=None, payment_privkey=None, recipient_addr=None, config_path=None):
     """
     Renew a name, using the backend RPC endpoint
     """
@@ -856,8 +856,12 @@ def blockstack_cli_renew( name, password, config_path=None):
 
     args = CLIArgs()
     args.name = name
+    args.owner_key = owner_privkey
+    args.payment_key = payment_privkey
+    args.recipient_address = recipient_addr
+    args.zonefile_data = new_zonefile_txt
 
-    resp = cli_renew( args, config_path=config_path, password=password, interactive=False, proxy=test_proxy )
+    resp = cli_renew( args, config_path=config_path, password=password, interactive=False, force_data=True, proxy=test_proxy )
     if 'error' not in resp:
         assert 'transaction_hash' in resp
 
