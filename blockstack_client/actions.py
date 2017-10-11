@@ -2976,6 +2976,8 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
         "I acknowledge that this will cost {} BTC or more (yes/no) ".format(fees['total_estimated_cost']['btc']),
         "I acknowledge that by not following these instructions, I may lose {} BTC (yes/no) ".format(fees['total_estimated_cost']['btc']),
         "I acknowledge that I have tested my namespace in Blockstack's test mode (yes/no) ",
+        "I have copied down the sequence of commands above, so I do not forget them (yes/no) ",
+        "I will issue these commands at the right times (yes/no) ",
         "I am ready to preorder this namespace (yes/no) "
     ]
 
@@ -3256,7 +3258,7 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         print("Price bucket exponents:  {}".format(params['buckets']))
         print("Non-alpha discount:      {}".format(params['nonalpha_discount']))
         print("No-vowel discount:       {}".format(params['no_vowel_discount']))
-        print("Burn or receive fees?    {}".format('Burn' if (params['version'] & blockstack.NAMESPACE_VERSION_PAY_TO_BURN) else 'Receive to {}'.format(ns_addr)))
+        print("Burn or receive fees?    {}".format('Receive to {}'.format(ns_addr) if params['receive_fees'] else 'Burn'))
         print("")
 
         formula_str = format_price_formula(namespace_id, block_height)
@@ -3288,13 +3290,14 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         'buckets': bbs,
         'nonalpha_discount': nonalpha_discount,
         'no_vowel_discount': no_vowel_discount,
-        'version': blockstack.NAMESPACE_VERSION_PAY_TO_BURN,
+        'receive_fees': True
     }
 
     if version is not None:
-        namespace_params['version'] = version
+        namespace_params['receive_fees'] = True if (version & blockstack.NAMESPACE_VERSION_PAY_TO_BURN) else False
 
     block_height = get_block_height(config_path=config_path)
+    log.debug("Block height is {}".format(block_height))
 
     options = {
         '0': {
@@ -3328,9 +3331,9 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
             'parse': lambda x: int(x)
         },
         '6': {
-            'msg': 'Toggle name fee burning                 (True: burn fees; False: receive fees)',
-            'var': 'version',
-            'parse': lambda x: blockstack.NAMESPACE_VERSION_PAY_TO_BURN if x.lower() in ['true', '1'] else blockstack.NAMESPACE_VERSION_PAY_TO_CREATOR
+            'msg': 'Toggle collecting name fees             (True: receive fees; False: burn fees)',
+            'var': 'receive_fees',
+            'parse': lambda x: False if x.lower() in ['false', '0'] else True
         },
         '7': {
             'msg': 'Show name price formula',
@@ -3378,7 +3381,9 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
             try:
                 value = options[selection]['parse'](value_str)
                 namespace_params[ options[selection]['var'] ] = value
-                assert blockstack.namespacereveal.namespacereveal_sanity_check( namespace_id, namespace_params['version'], namespace_params['lifetime'],
+                version = blockstack.NAMESPACE_VERSION_PAY_TO_CREATOR if namespace_params['receive_fees'] else blockstack.NAMESPACE_VERSION_PAY_TO_BURN
+
+                assert blockstack.namespacereveal.namespacereveal_sanity_check( namespace_id, version, namespace_params['lifetime'],
                                                                                 namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
                                                                                 namespace_params['nonalpha_discount'], namespace_params['no_vowel_discount'] )
 
@@ -3411,7 +3416,8 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     if not interactive:
         # still check this 
         try:
-            assert blockstack.namespacereveal.namespacereveal_sanity_check( namespace_id, namespace_params['version'], namespace_params['lifetime'],
+            version = blockstack.NAMESPACE_VERSION_PAY_TO_CREATOR if namespace_params['receive_fees'] else blockstack.NAMESPACE_VERSION_PAY_TO_BURN
+            assert blockstack.namespacereveal.namespacereveal_sanity_check( namespace_id, version, namespace_params['lifetime'],
                                                                             namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
                                                                             namespace_params['nonalpha_discount'], namespace_params['no_vowel_discount'] )
         except Exception as e:
@@ -3435,7 +3441,7 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     print("You will NOT be able to change this once it is set.")
     print("Reveal address:            {}".format(reveal_addr))
     print("Payment address:           {}".format(ns_addr))
-    print("Burn or receive name fees? {}".format('Burn' if (namespace_params['version'] & blockstack.NAMESPACE_VERSION_PAY_TO_BURN) else 'Receive'))
+    print("Burn or receive name fees? {}".format('Receive' if namespace_params['receive_fees'] else 'Burn'))
     print("Transaction cost breakdown:\n{}".format(json.dumps(fees, indent=4, sort_keys=True)))
     print("")
 
@@ -3453,7 +3459,9 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     # proceed!
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
-    res = do_namespace_reveal(namespace_id, namespace_params['version'], reveal_addr, namespace_params['lifetime'], namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
+    version = blockstack.NAMESPACE_VERSION_PAY_TO_CREATOR if namespace_params['receive_fees'] else blockstack.NAMESPACE_VERSION_PAY_TO_BURN
+
+    res = do_namespace_reveal(namespace_id, version, reveal_addr, namespace_params['lifetime'], namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
                               namespace_params['nonalpha_discount'], namespace_params['no_vowel_discount'], privkey, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
 
     return res
