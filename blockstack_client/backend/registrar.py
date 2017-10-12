@@ -810,7 +810,7 @@ class RegistrarWorker(threading.Thread):
         """
         Get the path to the lockfile
         """
-        return os.path.join( os.path.dirname(config_path), "registrar.lock" )
+        return os.path.join( "/tmp", "registrar.lock" )
 
 
     @classmethod
@@ -857,7 +857,7 @@ class RegistrarWorker(threading.Thread):
             return
 
         try:
-            fd, path = tempfile.mkstemp(prefix=".registrar.lock.", dir=os.path.dirname(self.config_path))
+            fd, path = tempfile.mkstemp(prefix=".registrar.lock.", dir=os.path.dirname(self.lockfile_path))
             os.link( path, self.lockfile_path )
 
             try:
