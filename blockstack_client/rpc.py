@@ -2785,7 +2785,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
             return
 
-        nameops = proxy.get_nameops_at(blockheight)
+        nameops = proxy.get_nameops_at(int(blockheight))
         if json_is_error(nameops):
             # error
             status_code = None
