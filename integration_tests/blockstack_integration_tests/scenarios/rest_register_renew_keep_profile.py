@@ -264,7 +264,7 @@ def scenario( wallets, **kw ):
     print ''
 
     # verify pushed back 
-    if old_expire_block + 12 != new_expire_block:
+    if old_expire_block + 12 > new_expire_block:
         # didn't go through
         print >> sys.stderr, "Renewal didn't work: %s --> %s" % (old_expire_block, new_expire_block)
         return False
