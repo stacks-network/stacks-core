@@ -2911,10 +2911,11 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
             log.exception(e)
 
         return {'error': 'Invalid namespace private key'}
-    
+   
     print("Calculating fees...")
-    fees = get_price_and_fees(nsid, ['namespace_preorder', 'namespace_reveal', 'namespace_ready'], ns_privkey, ns_reveal_privkey, config_path=config_path, proxy=proxy )
+    fees = get_price_and_fees(nsid, ['namespace_preorder'], ns_privkey, ns_privkey, config_path=config_path, proxy=proxy )
     if 'error' in fees or 'warnings' in fees:
+        print('You do not have enough money to order this namespace!')
         return fees
 
     msg = "".join([
@@ -2962,6 +2963,11 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
         "You SHOULD test your namespace parameters before creating it using the integration test framework first.\n",
         "Instructions are at https://github.com/blockstack/blockstack-core/tree/master/integration_tests\n",
         "\n",
+        "The addresses {} and {} SHOULD NOT have \n".format(reveal_addr, keylib.ECPrivateKey(ns_reveal_privkey, compressed=False).public_key().address()),
+        "been used at any point in the past ({} is used as a salt in the preorder).\n".format(reveal_addr),
+        "If either address was used before, then there is a chance that an attacker could deduce the namespace you\n",
+        "are preordering, and preorder/reveal it before you do.\n",
+        "\n",
         "If you have any questions, please contact us at support@blockstack.com or via https://blockstack.slack.com\n",
         "\n",
         "Full cost breakdown:\n",
@@ -2976,6 +2982,7 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
         "I acknowledge that this will cost {} BTC or more (yes/no) ".format(fees['total_estimated_cost']['btc']),
         "I acknowledge that by not following these instructions, I may lose {} BTC (yes/no) ".format(fees['total_estimated_cost']['btc']),
         "I acknowledge that I have tested my namespace in Blockstack's test mode (yes/no) ",
+        "I acknowledge that the addresses {} and {} have never been used before (yes/no) ".format(reveal_addr, keylib.ECPrivateKey(ns_reveal_privkey, compressed=False).public_key().address()),
         "I have copied down the sequence of commands above, so I do not forget them (yes/no) ",
         "I will issue these commands at the right times (yes/no) ",
         "I am ready to preorder this namespace (yes/no) "
