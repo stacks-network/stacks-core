@@ -312,12 +312,13 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         if not virtualchain.is_singlesig_address(reveal_address):
             return {'error': 'Invalid address; only p2pkh addresses are supported for namespace reveal'}
         
+        '''
         if not BLOCKSTACK_TEST:
             # if we're *NOT* testing, then we also require that the reveal key be absent from the blockchain.
             utxos = get_utxos(reveal_address, utxo_client=utxo_client, config_path=config_path, min_confirmations=0)
             if len(utxos) > 0:
                 return {'error': 'Reveal key must not have been used prior to namespace reveal'}
-
+        '''
         return {'status': True}
 
     def _register_can_change_zonefile_hash(zonefile_hash):
