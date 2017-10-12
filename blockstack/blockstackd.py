@@ -2274,8 +2274,10 @@ def stop_server( clean=False, kill=False ):
                 os.abort()
 
             # is it actually dead?
+            blockstack_opts = get_blockstack_opts()
+            srv = blockstack_client.proxy.BlockstackRPCClient('localhost', blockstack_opts['rpc_port'], timeout=5, protocol = 'http')
             try:
-                res = blockstack_client.ping()
+                res = blockstack_client.ping(proxy=srv)
             except socket.error as se:
                 # dead?
                 if se.errno == errno.ECONNREFUSED:
@@ -2982,10 +2984,11 @@ def run_blockstackd():
 
       if args.port is not None:
           log.info("Binding on port %s" % int(args.port))
+          args.port = int(args.port)
       else:
-          args.port = RPC_SERVER_PORT
+          args.port = None
 
-      exit_status = run_server( foreground=args.foreground, expected_snapshots=expected_snapshots, port=int(args.port) )
+      exit_status = run_server( foreground=args.foreground, expected_snapshots=expected_snapshots, port=args.port )
       if args.foreground:
           log.info("Service endpoint exited with status code %s" % exit_status )
 
