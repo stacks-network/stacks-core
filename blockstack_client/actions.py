@@ -3088,8 +3088,9 @@ def format_price_formula(namespace_id, block_height):
     denominator_str = "                   max(nonalpha_discount, no_vowel_discount)      \n"
 
     unit_cost = blockstack.NAME_COST_UNIT * blockstack.get_epoch_price_multiplier(block_height, '*')
+    currency_name = 'satoshi'
     
-    formula_str = "(UNIT_COST = {}):\n".format(unit_cost) + \
+    formula_str = "(UNIT_COST = {} {}):\n".format(unit_cost, currency_name) + \
                   exponent_str + \
                   numerator_str + \
                   divider_str + \
