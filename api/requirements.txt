@@ -15,6 +15,6 @@ urllib3>=1.20
 utilitybelt>=0.2.6
 blockstack>=0.14.1
 blockstack-profiles>=0.14.1
-blockstack-proofs>=0.0.8
+blockstack-proofs>=0.0.9
 blockstack-zones>=0.14.1
 pymongo>=3.4.0

@@ -28,7 +28,7 @@ import unittest
 
 import api
 
-PROFILE_URL = "/v2/users/{}"
+PROFILE_URL = "/v1/users/{}"
 
 class ResolverTestCase(unittest.TestCase):
 
@@ -39,7 +39,7 @@ class ResolverTestCase(unittest.TestCase):
         url = PROFILE_URL.format(username)
         r = self.client.get(url)
         return json.loads(r.data)
-        
+
 
     def test_valid_profiles(self):
         """ Check valid profiles
