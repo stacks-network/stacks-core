@@ -90,17 +90,11 @@ def site_data_to_fixed_proof_url(account, zonefile):
         account['proofUrl'] = proof
 
 
-def fetch_proofs(profile, username, profile_ver=2, zonefile = None, refresh=False):
+def fetch_proofs(profile, username, address, profile_ver=2, zonefile = None):
     """ Get proofs for a profile and:
         a) check cached entries
         b) check which version of profile we're using
     """
-
-    if MEMCACHED_ENABLED and not refresh:
-        log.debug("Memcache get proofs: %s" % username)
-        proofs_cache_reply = mc.get("proofs_" + str(username))
-    else:
-        proofs_cache_reply = None
 
     if 'account' not in profile:
         return []
@@ -110,20 +104,10 @@ def fetch_proofs(profile, username, profile_ver=2, zonefile = None, refresh=Fals
             and 'proofUrl' not in account):
             site_data_to_fixed_proof_url(account, zonefile)
 
-    if proofs_cache_reply is None:
-
-        if profile_ver == 3:
-            proofs = profile_v3_to_proofs(profile, username)
-        else:
-            proofs = profile_to_proofs(profile, username)
-
-        if MEMCACHED_ENABLED or refresh:
-            log.debug("Memcache set proofs: %s" % username)
-            mc.set("proofs_" + str(username), json.dumps(proofs),
-                   int(time() + MEMCACHED_TIMEOUT))
+    if profile_ver == 3:
+        proofs = profile_v3_to_proofs(profile, username, address = address)
     else:
-
-        proofs = json.loads(proofs_cache_reply)
+        proofs = profile_to_proofs(profile, username, address = address)
 
     return proofs
 
@@ -162,7 +146,7 @@ def is_profile_in_legacy_format(profile):
 
     return is_in_legacy_format
 
-def format_profile(profile, fqa, zone_file, refresh=False):
+def format_profile(profile, fqa, zone_file, address):
     """ Process profile data and
         1) Insert verifications
         2) Check if profile data is valid JSON
@@ -171,26 +155,19 @@ def format_profile(profile, fqa, zone_file, refresh=False):
     data = {'profile' : profile,
             'zone_file' : zone_file}
 
-    try:
-        username, ns = fqa.split(".")
-    except:
-        data = {'error' : "Failed to split fqa into name and namespace."}
-        return data
-    if ns != 'id':
+    if not fqa.endswith('.id'):
         data['verifications'] = ["No verifications for non-id namespaces."]
         return data
 
     profile_in_legacy_format = is_profile_in_legacy_format(profile)
 
     if not profile_in_legacy_format:
-        data['verifications'] = fetch_proofs(data['profile'], username,
-                                             profile_ver=3, zonefile=zone_file,
-                                             refresh=refresh)
+        data['verifications'] = fetch_proofs(data['profile'], fqa, address,
+                                             profile_ver=3, zonefile=zone_file)
     else:
         if type(profile) is not dict:
             data['profile'] = json.loads(profile)
-        data['verifications'] = fetch_proofs(data['profile'], username,
-                                             refresh=refresh)
+        data['verifications'] = fetch_proofs(data['profile'], fqa, address)
 
     return data
 
@@ -205,14 +182,11 @@ def is_valid_fqa(fqa):
         return False
     return (NS_PATTERN.match(ns) is not None)
 
-def get_profile(fqa, refresh=False):
+def get_profile(fqa):
     """ Given a fully-qualified username (username.namespace)
         get the data associated with that fqu.
         Return cached entries, if possible.
     """
-
-    global MEMCACHED_ENABLED
-    global mc
 
     fqa = fqa.lower()
     if not is_valid_fqa(fqa):
@@ -232,37 +206,28 @@ def get_profile(fqa, refresh=False):
 
         return {'error' : 'Malformed name {}'.format(fqa)}
 
-    if MEMCACHED_ENABLED and not refresh:
-        log.debug("Memcache get DHT: %s" % fqa)
-        dht_cache_reply = mc.get("dht_" + str(fqa))
-    else:
-        dht_cache_reply = None
 
-    if dht_cache_reply is None:
-        try:
-            res = blockstack_client.profile.get_profile(fqa, use_legacy = True)
-            if 'error' in res:
-                log.error('Error from profile.get_profile: {}'.format(res['error']))
-                return res
-            profile = res['profile']
-            zonefile = res['zonefile']
-        except Exception as e:
-            log.exception(e)
-            abort(500, "Connection to blockstack-server %s:%s timed out" %
-                  (BLOCKSTACKD_IP, BLOCKSTACKD_PORT))
+    try:
+        res = blockstack_client.profile.get_profile(
+            fqa, use_legacy = True, include_name_record = True)
+        if 'error' in res:
+            log.error('Error from profile.get_profile: {}'.format(res['error']))
+            return res
+        profile = res['profile']
+        zonefile = res['zonefile']
+        address = res['name_record']['address']
+    except Exception as e:
+        log.exception(e)
+        abort(500, "Connection to blockstack-server %s:%s timed out" %
+              (BLOCKSTACKD_IP, BLOCKSTACKD_PORT))
 
-        if profile is None or 'error' in zonefile:
-            log.error("{}".format(zonefile))
-            abort(404)
-        prof_data = {'response' : profile}
-        if MEMCACHED_ENABLED or refresh:
-            log.debug("Memcache set DHT: %s" % fqa)
-            mc.set("dht_" + str(fqa), json.dumps(data),
-                   int(time() + MEMCACHED_TIMEOUT))
-    else:
-        prof_data = json.loads(dht_cache_reply)
+    if profile is None or 'error' in zonefile:
+        log.error("{}".format(zonefile))
+        abort(404)
 
-    data = format_profile(prof_data['response'], fqa, zonefile)
+    prof_data = {'response' : profile}
+
+    data = format_profile(prof_data['response'], fqa, zonefile, address)
 
     return data
 
@@ -274,12 +239,7 @@ def get_users(username):
     """ Fetch data from username in .id namespace
     """
     reply = {}
-    refresh = False
 
-    try:
-        refresh = request.args.get('refresh')
-    except:
-        pass
 
     if username is None:
         reply['error'] = "No username given"
@@ -294,7 +254,8 @@ def get_users(username):
         fqa = "{}.{}".format(username, 'id')
     else:
         fqa = username
-    profile = get_profile(fqa, refresh=refresh)
+
+    profile = get_profile(fqa)
 
     reply[username] = profile
     if 'error' in profile:

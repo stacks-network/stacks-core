@@ -1637,9 +1637,23 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     if getattr(args, 'data', None) is not None:
         zonefile_data_path_or_string = str(args.data)
 
+    args_ownerkey = getattr(args, 'owner_key', None)
+    if args_ownerkey is None or len(args_ownerkey) == 0:
+        owner_key = None
+    else:
+        owner_key = args_ownerkey
+    args_paymentkey = getattr(args, 'payment_key', None)
+    if args_paymentkey is None or len(args_paymentkey) == 0:
+        payment_key = None
+    else:
+        payment_key = args_paymentkey
+
     if not local_rpc.is_api_server(config_dir=config_dir):
         # verify that we own the name before trying to edit its zonefile
-        _, owner_address, _ = get_addresses_from_file(config_dir=config_dir)
+        if owner_key:
+            owner_address = virtualchain.get_privkey_address(owner_key)
+        else:
+            _, owner_address, _ = get_addresses_from_file(config_dir=config_dir)
         assert owner_address
 
         res = get_names_owned_by_address( owner_address, proxy=proxy )
@@ -1721,17 +1735,6 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     assert rpc
 
     try:
-        args_ownerkey = getattr(args, 'owner_key', None)
-        if args_ownerkey is None or len(args_ownerkey) == 0:
-            owner_key = None
-        else:
-            owner_key = args_ownerkey
-        args_paymentkey = getattr(args, 'payment_key', None)
-        if args_paymentkey is None or len(args_paymentkey) == 0:
-            payment_key = None
-        else:
-            payment_key = args_paymentkey
-
         # NOTE: already did safety checks
         resp = rpc.backend_update(
             fqu, user_data_txt, None, None, owner_key = owner_key, payment_key = payment_key)
@@ -3118,8 +3121,9 @@ def format_price_formula(namespace_id, block_height):
     denominator_str = "                   max(nonalpha_discount, no_vowel_discount)      \n"
 
     unit_cost = blockstack.NAME_COST_UNIT * blockstack.get_epoch_price_multiplier(block_height, '*')
+    currency_name = 'satoshi'
     
-    formula_str = "(UNIT_COST = {}):\n".format(unit_cost) + \
+    formula_str = "(UNIT_COST = {} {}):\n".format(unit_cost, currency_name) + \
                   exponent_str + \
                   numerator_str + \
                   divider_str + \
