@@ -2488,6 +2488,30 @@ def parse_privkey_info(privkey_str):
     return privkey_info
 
 
+def serialize_privkey_info(payment_privkey):
+    """
+    Serialize a wallet private key into a CLI-parseable string
+    """
+    payment_privkey_str = None
+    if isinstance(payment_privkey, (str,unicode)):
+        payment_privkey_str = payment_privkey
+    else:
+        if payment_privkey['segwit']:
+            m = payment_privkey['m']
+            n = len(payment_privkey['private_keys'])
+
+            if n > 1:
+                payment_privkey_str = 'segwit:{},{},{}'.format(m, n, ','.join(payment_privkey['private_keys']))
+            else:
+                payment_privkey_str = 'segwit:{}'.format(payment_privkey['private_keys'][0])
+        else:
+            m, pubks = virtualchain.parse_multisig_redeemscript(payment_privkey['redeem_script'])
+            n = len(payment_privkey['private_keys'])
+            payment_privkey_str = '{},{},{}'.format(m, n, ','.join(payment_privkey['private_keys']))
+
+    return payment_privkey_str
+
+
 def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False):
     """
     command: import_wallet advanced
@@ -2916,15 +2940,15 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
     fees = get_price_and_fees(nsid, ['namespace_preorder'], ns_privkey, ns_privkey, config_path=config_path, proxy=proxy )
     if 'error' in fees or 'warnings' in fees:
         print('You do not have enough money to order this namespace!')
-        return fees
+        #return fees
 
     msg = "".join([
         "\n",
         "IMPORTANT:  PLEASE READ THESE INSTRUCTIONS CAREFULLY\n",
         "\n",
         "You are about to preorder the namespace '{}'.  It will cost about {} BTC ({} satoshi).\n".format(nsid, fees['total_estimated_cost']['btc'], fees['total_estimated_cost']['satoshis']),
-        'The address {} will be used to pay the fee, and will capture name fees (if revealed to do so).\n'.format(virtualchain.get_privkey_address(ns_privkey)),
-        'The address {} will be used to reveal the namespace.\n'.format(reveal_addr),
+        'The address {} will be used to pay the fee, and will capture name fees (if revealed to do so).\n'.format(virtualchain.address_reencode(virtualchain.get_privkey_address(ns_privkey))),
+        'The address {} will be used to reveal the namespace.\n'.format(virtualchain.address_reencode(reveal_addr)),
         'MAKE SURE YOU KEEP THE PRIVATE KEYS FOR BOTH ADDRESSES\n',
         "\n",
         "Before you preorder this namespace {}, there are some things you should know.\n".format(nsid),
@@ -2954,16 +2978,19 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
         "\n",
         "To review, the sequence of steps you must take are:\n",
         "\n",
-        "     $ blockstack namespace_preorder {} {} {}\n".format(nsid, ns_privkey, ns_reveal_privkey),
-        "     $ blockstack namespace_reveal {} {} {}    # within 144 blocks\n".format(nsid, ns_privkey, ns_reveal_privkey),
+        "     $ blockstack namespace_preorder '{}' '{}' '{}'\n".format(nsid, serialize_privkey_info(ns_privkey), serialize_privkey_info(ns_reveal_privkey)),
+        "     $ blockstack namespace_reveal '{}' '{}' '{}'    # within 144 blocks\n".format(nsid, serialize_privkey_info(ns_privkey), serialize_privkey_info(ns_reveal_privkey)),
         "     $ blockstack name_import .... # OPTIONAL\n",
-        "     $ blockstack namespace_ready {} {}        # within {} blocks\n".format(nsid, ns_reveal_privkey, blockstack.BLOCKS_PER_YEAR),
+        "     $ blockstack namespace_ready '{}' '{}'        # within {} blocks\n".format(nsid, serialize_privkey_info(ns_reveal_privkey), blockstack.BLOCKS_PER_YEAR),
         "\n",
         "\n"
         "You SHOULD test your namespace parameters before creating it using the integration test framework first.\n",
         "Instructions are at https://github.com/blockstack/blockstack-core/tree/master/integration_tests\n",
         "\n",
-        "The addresses {} and {} SHOULD NOT have \n".format(reveal_addr, keylib.ECPrivateKey(ns_reveal_privkey, compressed=False).public_key().address()),
+        "The addresses {} and {} SHOULD NOT have \n".format(
+            virtualchain.address_reencode(reveal_addr), 
+            virtualchain.address_reencode(keylib.ECPrivateKey(ns_reveal_privkey, compressed=False).public_key().address())
+        ),
         "been used at any point in the past ({} is used as a salt in the preorder).\n".format(reveal_addr),
         "If either address was used before, then there is a chance that an attacker could deduce the namespace you\n",
         "are preordering, and preorder/reveal it before you do.\n",
@@ -2982,7 +3009,10 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
         "I acknowledge that this will cost {} BTC or more (yes/no) ".format(fees['total_estimated_cost']['btc']),
         "I acknowledge that by not following these instructions, I may lose {} BTC (yes/no) ".format(fees['total_estimated_cost']['btc']),
         "I acknowledge that I have tested my namespace in Blockstack's test mode (yes/no) ",
-        "I acknowledge that the addresses {} and {} have never been used before (yes/no) ".format(reveal_addr, keylib.ECPrivateKey(ns_reveal_privkey, compressed=False).public_key().address()),
+        "I acknowledge that the addresses {} and {} have never been used before (yes/no) ".format(
+            virtualchain.address_reencode(reveal_addr),
+            virtualchain.address_reencode(keylib.ECPrivateKey(ns_reveal_privkey, compressed=False).public_key().address())
+        ),
         "I have copied down the sequence of commands above, so I do not forget them (yes/no) ",
         "I will issue these commands at the right times (yes/no) ",
         "I am ready to preorder this namespace (yes/no) "
@@ -3265,7 +3295,7 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         print("Price bucket exponents:  {}".format(params['buckets']))
         print("Non-alpha discount:      {}".format(params['nonalpha_discount']))
         print("No-vowel discount:       {}".format(params['no_vowel_discount']))
-        print("Burn or receive fees?    {}".format('Receive to {}'.format(ns_addr) if params['receive_fees'] else 'Burn'))
+        print("Burn or receive fees?    {}".format('Receive to {}'.format(virtualchain.address_reencode(ns_addr)) if params['receive_fees'] else 'Burn'))
         print("")
 
         formula_str = format_price_formula(namespace_id, block_height)
@@ -3446,8 +3476,8 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     print("This is the final configuration for your namespace:") 
     print_namespace_configuration(namespace_params)
     print("You will NOT be able to change this once it is set.")
-    print("Reveal address:            {}".format(reveal_addr))
-    print("Payment address:           {}".format(ns_addr))
+    print("Reveal address:            {}".format(virtualchain.address_reencode(reveal_addr)))
+    print("Payment address:           {}".format(virtualchain.address_reencode(ns_addr)))
     print("Burn or receive name fees? {}".format('Receive' if namespace_params['receive_fees'] else 'Burn'))
     print("Transaction cost breakdown:\n{}".format(json.dumps(fees, indent=4, sort_keys=True)))
     print("")
