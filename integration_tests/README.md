@@ -97,7 +97,19 @@ And from the container, set the test environment variables:
      $ export BLOCKSTACK_CLIENT_CONFIG=/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.portal_test_env/client/client.ini
 ```
 
-Now you can run `blockstack` commands from the container shell:
+You can also set these variables with an automated script included in the test
+framework:
+
+```bash
+    $ . $(which blockstack-test-env) portal_env_test
+    |blockstack-test portal_env_test| $
+```
+
+Your `$PS1` variable will be updated to show the name of the test if you take
+this option.  You can unset the environment variables with `. $(which
+blockstack-test-env) deactivate`.
+
+With these variables set, you can now run `blockstack` commands from the container shell:
 
 ```bash
      $ blockstack lookup foo.id

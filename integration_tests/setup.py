@@ -22,6 +22,7 @@ setup(
         'bin/blockstack-test-check-serialization',
         'bin/blockstack-test-all',
         'bin/blockstack-test-all-junit',
+        'bin/blockstack-test-env',
         'bin/blockstack-netlog-server',
     ],
     download_url='https://github.com/blockstack/blockstack-integration-tests/archive/master.zip',
