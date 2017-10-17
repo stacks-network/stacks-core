@@ -103,7 +103,7 @@ from .storage import get_driver_urls, get_storage_handlers, sign_data_payload, \
 
 from .backend.blockchain import (
     get_balance, get_utxos, broadcast_tx, select_utxos,
-    get_tx_confirmations, get_block_height
+    get_tx_confirmations, get_block_height, get_bitcoind_client
 )
 
 from .backend.registrar import get_wallet as registrar_get_wallet
@@ -143,7 +143,7 @@ from .wallet import (
     unlock_wallet
 )
 
-from .keys import privkey_to_string
+from .keys import privkey_to_string, get_data_privkey
 from .proxy import (
     is_zonefile_current, get_default_proxy, json_is_error,
     get_name_blockchain_history, get_all_namespaces, getinfo,
@@ -175,6 +175,9 @@ import virtualchain
 from virtualchain.lib.ecdsalib import (
     ecdsa_private_key, set_privkey_compressed,
     ECPrivateKey, get_pubkey_hex
+)
+from virtualchain.lib.hashing import (
+    bin_double_sha256
 )
 
 log = config.get_logger()
@@ -2943,14 +2946,23 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
     fees = get_price_and_fees(nsid, ['namespace_preorder'], ns_privkey, ns_privkey, config_path=config_path, proxy=proxy )
     if 'error' in fees or 'warnings' in fees:
         print('You do not have enough money to order this namespace!')
-        #return fees
+        return fees
 
+    print("Checking that the namespace does not exist...")
+    namespace_rec = get_namespace_blockchain_record(nsid, proxy=proxy)
+    if 'error' not in namespace_rec:
+        print("Namespace {} already exists!".format(nsid))
+        return namespace_rec
+
+    if 'failed to contact blockstack node' in namespace_rec['error'].lower():
+        return namespace_rec
+    
     msg = "".join([
         "\n",
         "IMPORTANT:  PLEASE READ THESE INSTRUCTIONS CAREFULLY\n",
         "\n",
         "You are about to preorder the namespace '{}'.  It will cost about {} BTC ({} satoshi).\n".format(nsid, fees['total_estimated_cost']['btc'], fees['total_estimated_cost']['satoshis']),
-        'The address {} will be used to pay the fee, and will capture name fees (if revealed to do so).\n'.format(virtualchain.address_reencode(virtualchain.get_privkey_address(ns_privkey))),
+        'The address {} will be used to pay the fee, and will capture name fees (if created to do so).\n'.format(virtualchain.address_reencode(virtualchain.get_privkey_address(ns_privkey))),
         'The address {} will be used to reveal the namespace.\n'.format(virtualchain.address_reencode(reveal_addr)),
         'MAKE SURE YOU KEEP THE PRIVATE KEYS FOR BOTH ADDRESSES\n',
         "\n",
@@ -2982,9 +2994,9 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
         "To review, the sequence of steps you must take are:\n",
         "\n",
         "     $ blockstack namespace_preorder '{}' '{}' '{}'\n".format(nsid, serialize_privkey_info(ns_privkey), serialize_privkey_info(ns_reveal_privkey)),
-        "     $ blockstack namespace_reveal '{}' '{}' '{}'    # within 144 blocks\n".format(nsid, serialize_privkey_info(ns_privkey), serialize_privkey_info(ns_reveal_privkey)),
+        "     $ blockstack namespace_reveal '{}' '{}' '{}' $TXID   # within 144 blocks\n".format(nsid, serialize_privkey_info(ns_privkey), serialize_privkey_info(ns_reveal_privkey)),
         "     $ blockstack name_import .... # OPTIONAL\n",
-        "     $ blockstack namespace_ready '{}' '{}'        # within {} blocks\n".format(nsid, serialize_privkey_info(ns_reveal_privkey), blockstack.BLOCKS_PER_YEAR),
+        "     $ blockstack namespace_ready '{}' '{}'               # within {} blocks\n".format(nsid, serialize_privkey_info(ns_reveal_privkey), blockstack.BLOCKS_PER_YEAR),
         "\n",
         "\n"
         "You SHOULD test your namespace parameters before creating it using the integration test framework first.\n",
@@ -3017,7 +3029,9 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
             virtualchain.address_reencode(keylib.ECPrivateKey(ns_reveal_privkey, compressed=False).public_key().address())
         ),
         "I have copied down the sequence of commands above, so I do not forget them (yes/no) ",
+        "I will remember to copy down the transaction ID, and wait for it to confirm before revealing the namespace (yes/no) ",
         "I will issue these commands at the right times (yes/no) ",
+        "If I do not understand any of the above, I will seek help first (yes/no) ",
         "I am ready to preorder this namespace (yes/no) "
     ]
 
@@ -3041,6 +3055,18 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
     res = do_namespace_preorder(nsid, int(fees['namespace_price']), ns_privkey, reveal_addr, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
+    if 'error' in res:
+        return res
+
+    print('')
+    print('Remember this transaction ID: {}'.format(res['transaction_hash']))
+    print('You will need it for `blockstack namespace_reveal`')
+    print('')
+    print('Wait until {} has six (6) confirmations.  Then, you can reveal `{}` with:'.format(res['transaction_hash'], nsid))
+    print('')
+    print('    $ blockstack namespace_reveal "{}" "{}" "{}" "{}"'.format(nsid, serialize_privkey_info(ns_privkey), serialize_privkey_info(ns_reveal_privkey), res['transaction_hash']))
+    print('')
+            
     return res
 
 
@@ -3211,6 +3237,133 @@ def format_price_formula_worksheet(name, namespace_id, base, coeff, bucket_expon
     return formula_str
 
 
+def verify_namespace_preorder(namespace_id, ns_preorder_txid, payment_privkey, ns_reveal_privkey, config_path=CONFIG_PATH):
+    """
+    Verify that the given txid corresponds to a well-formed namespace preorder transaction,
+    and that the given keys are valid.
+    Return {'status': True} on success
+    Return {'error': ...} on failure
+    """
+    import blockstack
+
+    # load config
+    conf = config.get_config(config_path)
+    assert conf
+
+    bitcoind_opts = virtualchain.get_bitcoind_config(config_file=config_path)
+    assert bitcoind_opts
+
+    # confirm that these are, in fact, the correct keys
+    print("Looking up NAMESPACE_PREORDER at {}...".format(ns_preorder_txid))
+
+    # TODO: this is messy, and exposes a need for a classmethod for fetching and parsing bulk transactions.
+    # Introduce this in the next version of virtualchain.
+    bdl = virtualchain.BlockchainDownloader(bitcoind_opts, conf['bitcoind_spv_path'], 0, 0, p2p_port=int(conf['bitcoind_port']))
+    tx = None
+    try:
+        txinfo = bdl.fetch_txs_rpc(bitcoind_opts, [ns_preorder_txid])
+
+        assert txinfo is not None and 'error' not in txinfo
+        assert ns_preorder_txid in txinfo
+
+        txinfo = txinfo[ns_preorder_txid]
+    except Exception as e:
+        log.exception(e)
+        return {'error': 'Failed to look up transaction {}'.format(ns_preorder_txid)}
+
+    # find OP_RETURN output
+    payload_hex = None
+    payload_idx = None
+    for i, out in enumerate(txinfo['vout']):
+        if out['scriptPubKey']['type'] == 'nulldata':
+            payload_hex = out['scriptPubKey']['hex']
+            payload_idx = i
+
+    if payload_hex is None:
+        # definitely not a NAMESPACE_PREORDER
+        return {'error': 'Transaction {} is not a NAMESPACE_PREORDER: no OP_RETURN output'.format(ns_preorder_txid)}
+
+    if payload_hex[4:10].decode('hex') != 'id*':
+        # (note: wire format is "OP_RETURN [1-byte-length] ord(i) ord(d) ord(*)")
+        # definitely NOT a NAMESPACE_PREORDER
+        return {'error': 'Transaction {} is not a NAMESPACE_PREORDER: invalid OP_RETURN output {}'.format(ns_preorder_txid, payload_hex)}
+
+    print("Lookup up NAMESPACE_PREORDER funding transactions...")
+
+    # go find the senders
+    bdl = virtualchain.BlockchainDownloader(bitcoind_opts, conf['bitcoind_spv_path'], 0, 0, p2p_port=int(conf['bitcoind_port']))
+    sender_txids = []
+    senders = {}
+    for inp in txinfo['vin']:
+        sender_txid = inp['txid']
+        sender_txids.append(sender_txid)
+
+    for i in xrange(0, len(sender_txids), 20):
+        txid_batch = sender_txids[i:i+20]
+        txs = bdl.fetch_txs_rpc(bitcoind_opts, txid_batch)
+        if txs is None or 'error' in txs:
+            if txs is None:
+                txs = {'error': 'Failed to fetch NAMESPACE_PREORDER funding transactions {}-{}'.format(i,i+20)}
+
+            log.error("Failed to fetch NAMESPACE_PREORDER funding transactions {}-{}".format(i,i+20))
+            return txs
+
+        senders.update(txs)
+
+    assert len(senders) == len(txinfo['vin']), "Failed to fetch all funding transactions for {}".format(ns_preorder_txid)
+
+    # senders maps sender txid to the transaction that created it.
+    # instead, put senders in 1-to-1 correspondance with the NAMESPACE_PREORDER inputs
+    # TODO: clean this up--this basically duplicates functionality in the blockchain downloader in virtualchain
+    sender_list = [None] * len(senders)
+    for i in xrange(0, len(txinfo['vin'])):
+        if txinfo['vin'][i]['txid'] in senders.keys():
+            sender_rec = senders[txinfo['vin'][i]['txid']]
+            sender_outpoint = txinfo['vin'][i]['vout']
+            sender_output = sender_rec['vout'][sender_outpoint]
+
+            sender_info = {
+                "amount": sender_output['value'],
+                "script_pubkey": sender_output['scriptPubKey']['hex'],
+                "script_type": sender_output['scriptPubKey']['type'],
+                "addresses": sender_output['scriptPubKey']['addresses'],
+                "nulldata_vin_outpoint": payload_idx,
+                "txid": txinfo['vin'][i]['txid']
+            }
+
+            sender_list[i] = sender_info
+           
+        else:
+            print("Failed to find funding transaction to input {} in {} (missing {})".format(i, ns_preorder_txid, txinfo['vin'][i]['txid']))
+            return {'error': 'Failed to find funding transactions for {}'.format(ns_preorder_txid)}
+
+    try:
+        ns_preorder_info = blockstack.lib.operations.extract_namespace_preorder(payload_hex[10:].decode('hex'), sender_list, txinfo['vin'], txinfo['vout'], 0, 0, ns_preorder_txid)
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        return {'error': 'Transaction {} could not be parsed as a NAMESPACE_PREORDER'.format(ns_preorder_txid)}
+
+    # this looks like a NAMESPACE_PREORDER
+    # but was it created with these keys?
+    if ns_preorder_info['address'] != virtualchain.get_privkey_address(payment_privkey):
+        return {'error': 'Private key does not match namespace preorder address: expected {}, got {}'.format(ns_preorder_info['address'], virtualchain.get_privkey_address(payment_privkey))}
+
+    # does the hash match?
+    ph = blockstack.hash_name(namespace_id, virtualchain.make_payment_script(virtualchain.get_privkey_address(payment_privkey)), virtualchain.get_privkey_address(ns_reveal_privkey))
+    if ns_preorder_info['preorder_hash'] != ph:
+        return {'error': 'Preorder hash {} does not match: hash({}, {}, {}) == {}'.format(
+            ns_preorder_info['preorder_hash'],
+            namespace_id, 
+            virtualchain.make_payment_script(virtualchain.get_privkey_address(payment_privkey)),
+            virtualchain.get_privkey_address(ns_reveal_privkey),
+            ph
+        )}
+
+    return {'status': True}
+
+
 def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=None, version=None):
     """
     command: namespace_reveal advanced
@@ -3218,6 +3371,7 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     arg: namespace_id (str) 'The namespace ID'
     arg: payment_privkey (str) 'The private key or keys that paid for the namespace'
     arg: reveal_privkey (str) 'The private key that will import names'
+    arg: preorder_txid (str) 'The TXID of the NAMESPACE_PREORDER transaction, from the `namespace_preorder` command'
     """
     # NOTE: this will not use the RESTful API.
     # it is too dangerous to expose this to web browsers.
@@ -3227,6 +3381,8 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     privkey = str(args.payment_privkey)
     ns_addr = None
     reveal_privkey = str(args.reveal_privkey)
+    ns_preorder_txid = str(args.preorder_txid)
+
     reveal_addr = None
 
     res = is_namespace_valid(namespace_id)
@@ -3250,6 +3406,10 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
             log.exception(e)
 
         return {'error': 'Invalid private keys'}
+           
+    res = verify_namespace_preorder(namespace_id, ns_preorder_txid, privkey, reveal_privkey, config_path=config_path)
+    if 'error' in res:
+        return res
 
     infinite_lifetime = 0xffffffff       # means "infinite" to blockstack-core
     
@@ -3529,7 +3689,6 @@ def cli_namespace_ready(args, interactive=True, config_path=CONFIG_PATH, proxy=N
 
         # force compresssed 
         reveal_privkey = set_privkey_compressed(reveal_privkey, compressed=True)
-
         reveal_addr = virtualchain.get_privkey_address(reveal_privkey)
     except:
         return {'error': 'Invalid private keys'}
@@ -3541,6 +3700,7 @@ def cli_namespace_ready(args, interactive=True, config_path=CONFIG_PATH, proxy=N
         return fees
 
     if 'warnings' in fees:
+        print('Insufficient balance in {}'.format(reveal_addr))
         return {'error': 'Not enough information for fee calculation: {}'.format( ", ".join(["'{}'".format(w) for w in fees['warnings']]) )}
 
     namespace_rec = get_namespace_blockchain_record(namespace_id, proxy=proxy)
@@ -3549,6 +3709,11 @@ def cli_namespace_ready(args, interactive=True, config_path=CONFIG_PATH, proxy=N
 
     if namespace_rec['ready']:
         return {'error': 'Namespace is already launched'}
+
+    if namespace_rec['recipient_address'] != reveal_addr:
+        msg = "Wrong reveal private key: given private key address {} does not match namespace address {}".format(reveal_addr, namespace_rec['recipient_address'])
+        print(msg)
+        return {'error': msg}
 
     launch_deadline = namespace_rec['reveal_block'] + blockstack.NAMESPACE_REVEAL_EXPIRE
 
@@ -4622,6 +4787,7 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
     """
     command: sign_profile advanced raw
     help: Sign a JSON file to be used as a profile.
+    arg: name (str) 'The name for whom to sign the profile.'
     arg: path (str) 'The path to the profile data on disk.'
     opt: privkey (str) 'The optional private key to sign it with (defaults to the data private key in your wallet)'
     """
@@ -4632,6 +4798,8 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
     password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
+
+    name = str(args.name)
     path = str(args.path)
     data_json = None
     try:
@@ -4653,12 +4821,22 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
         wallet_keys = get_wallet_keys( config_path, password )
         if 'error' in wallet_keys:
             return wallet_keys
-
-        if not wallet_keys.has_key('data_privkey'):
-            log.error("No data private key in the wallet.  You may need to explicitly select a private key.")
-            return {'error': 'No data private key set.\nTry passing your owner private key.'}
-
-        privkey = wallet_keys['data_privkey']
+        
+        zonefile_data = None
+        name_rec = None
+        zonefile_data_res = get_name_zonefile(
+            name, proxy=proxy, raw_zonefile=False, include_name_record=True
+        )
+        if 'error' not in zonefile_data_res:
+            zonefile_data = zonefile_data_res['zonefile']
+            name_rec = zonefile_data_res['name_record']
+        else:
+            return {'error': "Failed to get zonefile data: {}".format(zonefile_data_res['error'])}
+        
+        privkey = get_data_privkey(user_zonefile, wallet_keys=wallet_keys, config_path=config_path)
+        if privkey is None:
+            log.error("No data private key in the wallet, and cannot use owner private key.  You will need to either explicitly select a private key, or insert the data public key into your zone file.")
+            return {'error': 'No data private key found.  Try passing your owner private key, or adding your data public key to your zone file.'}
 
     privkey = ECPrivateKey(privkey).to_hex()
     pubkey = get_pubkey_hex(privkey)
@@ -4712,7 +4890,7 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
             zonefile_data = zonefile_data_res['zonefile']
             name_rec = zonefile_data_res['name_record']
         else:
-            return {'error': "Failed to get zonefile data: {}".format(name)}
+            return {'error': "Failed to get zonefile data: {}".format(zonefile_data_res['error'])}
 
         # parse 
         zonefile_dict = None
