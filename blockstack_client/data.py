@@ -1135,35 +1135,6 @@ def put_immutable(blockchain_id, data_id, data_text, data_url=None, txid=None, p
     return result
 
 
-def load_user_data_privkey( blockchain_id, storage_drivers=None, proxy=None, config_path=CONFIG_PATH, wallet_keys=None ):
-    """
-    Get the user's data private key from his/her wallet.
-    Verify it matches the zone file for this blockchain ID
-
-    Return {'privkey': ...} on success
-    Return {'error': ...} on error
-    """
-    conf = get_config(path=CONFIG_PATH)
-    user_zonefile = get_name_zonefile( blockchain_id, storage_drivers=storage_drivers, proxy=proxy)
-    if 'error' in user_zonefile:
-        log.debug("Unable to load zone file for '{}': {}".format(blockchain_id, user_zonefile['error']))
-        return {'error': 'Failed to load zonefile'}
-
-    # recover name record and zonefile
-    user_zonefile = user_zonefile['zonefile']
-
-    # get the data key
-    data_privkey = get_data_privkey_info(user_zonefile, wallet_keys=wallet_keys, config_path=config_path)
-    if json_is_error(data_privkey):
-        # error text
-        return {'error': data_privkey['error']}
-
-    else:
-        assert data_privkey is not None
-
-    return {'privkey': data_privkey}
-
-
 def make_mutable_data_tombstones( device_ids, data_id ):
     """
     Make tombstones for mutable data across devices
