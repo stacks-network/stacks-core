@@ -220,7 +220,7 @@ def get_profile(fqa):
         zonefile = res['zonefile']
         address = res['name_record']['address']
 
-        if 'expired' in res['name_record']:
+        if 'expired' in res['name_record'] and res['name_record']['expired']:
             profile_expired_grace = True
 
     except Exception as e:
