@@ -681,7 +681,7 @@ def blockstack_cli_namespace_preorder( namespace_id, payment_privkey, reveal_pri
     return resp
 
 
-def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privkey, lifetime, coeff, base, buckets, nonalpha_disc, no_vowel_disc, config_path=None, version_bits=None ):
+def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privkey, lifetime, coeff, base, buckets, nonalpha_disc, no_vowel_disc, preorder_txid=None, config_path=None, version_bits=None ):
     """
     reveal a namespace
     """
@@ -691,10 +691,20 @@ def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privk
 
     payment_privkey_str = serialize_privkey_info(payment_privkey)
 
+    if preorder_txid is None:
+        # go find it
+        addr = virtualchain.get_privkey_address(payment_privkey)
+        utxos = get_utxos(addr)
+        if len(utxos) != 1:
+            return {'error': 'Found {} UTXOs for {} ({})'.format(len(utxos), payment_privkey, addr)}
+
+        preorder_txid = utxos[0]['transaction_hash']
+
     args = CLIArgs()
     args.namespace_id = namespace_id
     args.payment_privkey = payment_privkey_str
     args.reveal_privkey = reveal_privkey
+    args.preorder_txid = preorder_txid
     args.lifetime = lifetime
     args.coeff = coeff
     args.base = base
