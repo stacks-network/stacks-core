@@ -24,6 +24,7 @@ This file is part of Blockstack Core.
 """
 
 import sys
+import re
 import os
 import requests
 import json
@@ -116,12 +117,26 @@ def search_people():
 
     return jsonify(data), 200
 
+NO_CACHE = [ re.compile(regex) for regex in
+             [r'^/v1/node/ping/?$',
+              r'^/v1/blockchains/bitcoin/consensus/?$',
+              r'^/v1/names/[\w\.]+/?$'] ]
+
 @app.route('/<path:path>', methods=['GET'])
 @crossdomain(origin='*')
 def catch_all_get(path):
     API_URL = BASE_API_URL + '/' + path
     params = dict(request.args)
-    return forwarded_get(API_URL, params = params)
+
+    inner_resp = forwarded_get(API_URL, params = params)
+    resp = make_response(inner_resp)
+
+    for matcher in NO_CACHE:
+        if matcher.match('/' + path):
+            return resp
+
+    resp.headers['Cache-Control'] = 'public, max-age={:d}'.format(30*60)
+    return resp
 
 @app.route('/<path:path>', methods=['POST'])
 def catch_all_post(path):
