@@ -1327,7 +1327,7 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
         insufficient_funds = True
 
     if insufficient_funds:
-        reply['warnings'] = ['Insufficient funds; fees are rough estimates.']
+        reply['warnings'] = ['Insufficient funds (need {}, have {}).  Fees are rough estimates.'.format(total_cost, balance)]
 
     if estimate:
         reply.setdefault('warnings', [])
