@@ -693,12 +693,16 @@ def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privk
 
     if preorder_txid is None:
         # go find it
-        addr = virtualchain.get_privkey_address(payment_privkey)
-        utxos = get_utxos(addr)
-        if len(utxos) != 1:
-            return {'error': 'Found {} UTXOs for {} ({})'.format(len(utxos), payment_privkey, addr)}
+        try:
+            addr = virtualchain.get_privkey_address(payment_privkey)
+            utxos = get_utxos(addr)
+            if len(utxos) != 1:
+                return {'error': 'Found {} UTXOs for {} ({})'.format(len(utxos), payment_privkey, addr)}
 
-        preorder_txid = utxos[0]['transaction_hash']
+            preorder_txid = utxos[0]['transaction_hash']
+        except Exception as e:
+            log.exception(e)
+            pass
 
     args = CLIArgs()
     args.namespace_id = namespace_id
