@@ -2214,9 +2214,11 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
                 'type': 'array',
                 'items': {
                     'type': 'integer',
-                    'minimum': len(zonefile_data_list),
-                    'maximum': len(zonefile_data_list)
+                    'minimum': 0,
+                    'maximum': 1,
                 },
+                'minItems': len(zonefile_data_list),
+                'maxItems': len(zonefile_data_list)
             },
         },
         'required': [

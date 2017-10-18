@@ -1458,6 +1458,40 @@ def blockstack_cli_verify_data(name, data_str, public_key=None, config_path=None
     return res
 
 
+def blockstack_cli_sign_profile(name, path, private_key=None, config_path=None):
+    """
+    sign profile
+    """
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    args.name = name
+    args.path = path
+    args.privkey = private_key
+
+    res = cli_sign_profile(args, config_path=config_path)
+    return res
+
+
+def blockstack_cli_verify_profile(name, path, pubkey=None, config_path=None):
+    """
+    Verify profile
+    """
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    args.name = name
+    args.path = path
+    args.pubkey = pubkey
+
+    res = cli_verify_profile(args, config_path=config_path)
+    return res
+
+
 def blockstack_cli_get_public_key(name, config_path=None):
     """
     get pubkey

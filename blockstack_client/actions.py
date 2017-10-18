@@ -4830,11 +4830,13 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
         if 'error' not in zonefile_data_res:
             zonefile_data = zonefile_data_res['zonefile']
             name_rec = zonefile_data_res['name_record']
-        else:
-            return {'error': "Failed to get zonefile data: {}".format(zonefile_data_res['error'])}
+
+            if 'error' in zonefile_data:
+                # zonefile itself is bad
+                zonefile_data = None
         
-        privkey = get_data_privkey(user_zonefile, wallet_keys=wallet_keys, config_path=config_path)
-        if privkey is None:
+        privkey = get_data_privkey(zonefile_data, wallet_keys=wallet_keys, config_path=config_path)
+        if privkey is None or 'error' in privkey:
             log.error("No data private key in the wallet, and cannot use owner private key.  You will need to either explicitly select a private key, or insert the data public key into your zone file.")
             return {'error': 'No data private key found.  Try passing your owner private key, or adding your data public key to your zone file.'}
 
@@ -4881,6 +4883,7 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
 
     if pubkey is None:
         zonefile_data = None
+        pubkey = None
         name_rec = None
         # get the pubkey 
         zonefile_data_res = get_name_zonefile(
@@ -4889,17 +4892,17 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
         if 'error' not in zonefile_data_res:
             zonefile_data = zonefile_data_res['zonefile']
             name_rec = zonefile_data_res['name_record']
-        else:
-            return {'error': "Failed to get zonefile data: {}".format(zonefile_data_res['error'])}
 
-        # parse 
-        zonefile_dict = None
-        try:
-            zonefile_dict = blockstack_zones.parse_zone_file(zonefile_data)
-        except:
-            return {'error': 'Nonstandard zone file'}
+            # parse 
+            zonefile_dict = None
+            try:
+                zonefile_dict = blockstack_zones.parse_zone_file(zonefile_data)
+            except:
+                log.warning("Nonstandard zone file")
 
-        pubkey = user_zonefile_data_pubkey(zonefile_dict)
+            if zonefile_dict is not None:
+                pubkey = user_zonefile_data_pubkey(zonefile_dict)
+
         if pubkey is None:
             # fall back to owner hash
             owner_address = str(name_rec['address'])
