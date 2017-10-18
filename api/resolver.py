@@ -188,6 +188,8 @@ def get_profile(fqa):
         Return cached entries, if possible.
     """
 
+    profile_expired_grace = False
+
     fqa = fqa.lower()
     if not is_valid_fqa(fqa):
         fqa = str(fqa)
@@ -213,9 +215,14 @@ def get_profile(fqa):
         if 'error' in res:
             log.error('Error from profile.get_profile: {}'.format(res['error']))
             return res
+        log.warn(json.dumps(res['name_record']))
         profile = res['profile']
         zonefile = res['zonefile']
         address = res['name_record']['address']
+
+        if 'expired' in res['name_record'] and res['name_record']['expired']:
+            profile_expired_grace = True
+
     except Exception as e:
         log.exception(e)
         abort(500, "Connection to blockstack-server %s:%s timed out" %
@@ -228,6 +235,12 @@ def get_profile(fqa):
     prof_data = {'response' : profile}
 
     data = format_profile(prof_data['response'], fqa, zonefile, address)
+
+    if profile_expired_grace:
+        data['expired'] = (
+            'This name has expired! It is still in the renewal grace period, ' +
+            'but must be renewed or it will eventually expire and be available' +
+            ' for others to register.')
 
     return data
 
