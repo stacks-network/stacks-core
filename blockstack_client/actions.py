@@ -60,6 +60,7 @@ import binascii
 from decimal import Decimal
 import string
 import jsontokens
+import keychain
 
 requests.packages.urllib3.disable_warnings()
 
@@ -2820,7 +2821,7 @@ def cli_name_import(args, interactive=True, config_path=CONFIG_PATH, proxy=None)
     help: Import a name to a revealed but not-yet-launched namespace
     arg: name (str) 'The name to import'
     arg: address (str) 'The address of the name recipient'
-    arg: zonefile (str) 'The path to the zone file'
+    arg: zonefile_path (str) 'The path to the zone file'
     arg: privatekey (str) 'An unhardened child private key derived from the namespace reveal key'
     """
 
@@ -2882,7 +2883,7 @@ def cli_name_import(args, interactive=True, config_path=CONFIG_PATH, proxy=None)
     zonefile_hash = get_zonefile_data_hash(zonefile_data)
 
     if interactive:
-        fees = get_price_and_fees(name, ['name_import'], privkey, privkey, config_path=config_path, proxy=proxy)
+        fees = get_price_and_fees(name, ['name_import'], privkey, privkey, transfer_address=address, config_path=config_path, proxy=proxy)
         if 'error' in fees:
             return fees
 
@@ -2903,6 +2904,46 @@ def cli_name_import(args, interactive=True, config_path=CONFIG_PATH, proxy=None)
 
     res['value_hash'] = zonefile_hash
     return res
+
+
+def cli_make_import_keys(args, config_path=CONFIG_PATH, proxy=None):
+    """
+    command: make_import_keys advanced
+    help: Generate private keys to import names into a revealed namespace
+    arg: namespace_id (str) 'The namespace ID'
+    arg: reveal_privkey (str) 'The private key that was used to reveal the namespace'
+    """
+    import blockstack
+
+    reveal_privkey = str(args.reveal_privkey)
+    namespace_id = str(args.namespace_id)
+    proxy = get_default_proxy() if proxy is None else proxy
+
+    namespace_rec = get_namespace_blockchain_record(namespace_id, proxy=proxy)
+    if 'error' in namespace_rec:
+        return namespace_rec
+
+    if namespace_rec['ready']:
+        return {'error': 'Namespace is already launched'}
+
+    try:
+        reveal_addr = virtualchain.get_privkey_address(reveal_privkey)
+    except:
+        return {'error': 'Unparseable private key'}
+
+    if namespace_rec['recipient_address'] != reveal_addr:
+        msg = "Wrong reveal private key: given private key address {} does not match namespace address {}".format(reveal_addr, namespace_rec['recipient_address'])
+        print(msg)
+        return {'error': msg}
+
+    private_keychain = keychain.PrivateKeychain.from_private_key(reveal_privkey)
+    
+    for i in xrange(0, blockstack.NAME_IMPORT_KEYRING_SIZE):
+        import_key = private_keychain.child(i).private_key()
+        import_addr = virtualchain.get_privkey_address(import_key)
+        print('{} ({})'.format(import_key, import_addr))
+
+    return {'status': True}
 
 
 def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, proxy=None):
@@ -3284,7 +3325,7 @@ def verify_namespace_preorder(namespace_id, ns_preorder_txid, payment_privkey, n
         return {'error': 'Transaction {} is not a NAMESPACE_PREORDER: no OP_RETURN output'.format(ns_preorder_txid)}
 
     if payload_hex[4:10].decode('hex') != 'id*':
-        # (note: wire format is "OP_RETURN [1-byte-length] ord(i) ord(d) ord(*)")
+        # (note: wire format is "OP_RETURN [1-byte-length] ord('i') ord('d') ord('*')")
         # definitely NOT a NAMESPACE_PREORDER
         return {'error': 'Transaction {} is not a NAMESPACE_PREORDER: invalid OP_RETURN output {}'.format(ns_preorder_txid, payload_hex)}
 
@@ -3665,6 +3706,30 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     res = do_namespace_reveal(namespace_id, version, reveal_addr, namespace_params['lifetime'], namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
                               namespace_params['nonalpha_discount'], namespace_params['no_vowel_discount'], privkey, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
 
+    if 'error' in res:
+        return res
+
+    print('')
+    print('Successfully sent transaction to reveal namespace `.{}`'.format(namespace_id))
+    print('Once it confirms, you will have the option to import names.')
+    print('To do so, you can use the following command:')
+    print('')
+    print('    $ blockstack name_import NAME.{} RECIPIENT_ADDRESS /path/to/name/zonefile {}'.format(namespace_id, reveal_privkey))
+    print('')
+    print('Example:')
+    print('')
+    print('    $ blockstack name_import helloworld.{} {} /var/blockstack/helloworld.{} {}'.format(namespace_id, ns_addr, namespace_id, reveal_privkey))
+    print('')
+    print('If you want to import many names (thousands or more), please see docs/namespace_creation.md for how to do so efficiently.')
+    print('')
+    print('Once you are satisfied with your namespace, you can launch it to the public with this command:')
+    print('')
+    print('    $ blockstack namespace_ready {} {}'.format(namespace_id, reveal_privkey))
+    print('')
+    print('(NOTE: you may need to fund the reveal private key address {} first)'.format(reveal_addr))
+    print('')
+    print('YOU MUST RUN THE ABOVE namespace_ready COMMAND BEFORE BLOCK {}'.format(block_height + blockstack.NAMESPACE_REVEAL_EXPIRE - 10))     # - 10 to give a buffer
+    print('')
     return res
 
 
