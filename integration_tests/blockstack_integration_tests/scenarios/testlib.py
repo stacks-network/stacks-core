@@ -2726,7 +2726,8 @@ def send_funds_tx( privkey, satoshis, payment_addr ):
         else:
             raise
 
-    send_addr = virtualchain.BitcoinPrivateKey(privkey).public_key().address()
+    # send_addr = virtualchain.BitcoinPrivateKey(privkey).public_key().address()
+    send_addr = virtualchain.get_privkey_address(privkey)
     
     inputs = blockstack_client.backend.blockchain.get_utxos(send_addr)
     outputs = [
