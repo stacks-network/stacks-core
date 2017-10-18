@@ -453,7 +453,7 @@ def get_queue_state(queue_ids=None, limit=None, path=DEFAULT_QUEUE_PATH):
     """
     state = []
     if queue_ids is None:
-        queue_ids = ["preorder", "register", "update", "transfer", "renew", "revoke"]
+        queue_ids = ["preorder", "register", "update", "transfer", "renew", "revoke", "name_import"]
 
     elif type(queue_ids) not in [list]:
         queue_ids = [queue_ids]
