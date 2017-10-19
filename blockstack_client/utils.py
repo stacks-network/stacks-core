@@ -126,6 +126,17 @@ def daemonize( logpath, child_wait=None ):
         sys.stdin.close()
         os.dup2(logfile.fileno(), sys.stdout.fileno())
         os.dup2(logfile.fileno(), sys.stderr.fileno())
+
+        # we don't have many other fds open yet
+        for i in xrange(3, 1024):
+            if i == logfile.fileno():
+                continue
+
+            try:
+                os.close(i)
+            except:
+                pass
+
         os.setsid()
 
         daemon_pid = os.fork()
