@@ -1107,6 +1107,7 @@ def state():
     data = get_queue_state(path=state.queue_path)
     return data
 
+
 # RPC method: backend_set_wallet
 def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, proxy=None):
     """

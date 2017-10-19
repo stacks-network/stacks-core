@@ -282,32 +282,255 @@ After sending the `reveal` transaction, you can populate your namespace with
 some initial names.  You can do so with the `name_import` command.
 
 Suppose we want to import the name `example.hello` and assign it to an owner
-whose public key address is `1CaajyWdX4ZSNxe2RKgjm2UAhuoFaMSTxg`.  Suppose also
+whose public key address is `ms6Y32bcL5zhA57e8tf7awgVZuPxV8Xg8N`.  Suppose also
 that you wanted to give `example.hello` an initial zone file stored at
 `/var/blockstack/zone_files/example.hello`.  To do so, you would issue the
 following command:
 
 ```
-    |blockstack-test namespace_check| $ blockstack name_import example.hello 1CaajyWdX4ZSNxe2RKgjm2UAhuoFaMSTxg /var/blockstack/zone_files/example.hello "$CREATOR_PKEY"
+    |blockstack-test namespace_check| $ blockstack name_import example.hello ms6Y32bcL5zhA57e8tf7awgVZuPxV8Xg8N /var/blockstack/zone_files/example.hello "$CREATOR_PKEY"
 ```
 
-Once a name is imported, it is public and resolvable.  You can re-import the
+By default, you **must** use the private key you used to reveal the namespace
+to import names (this is `$CREATOR_PKEY` in this example).
+
+You can check the progress of the transaction with `blockstack info`, as follows:
+
+```
+    |blockstack-test namespace_check| $ blockstack info
+    {
+        "cli_version": "0.17.0.8",
+        "consensus_hash": "b10fdd38a20a7e46555ce3a7f68cf95c",
+        "last_block_processed": 694,
+        "last_block_seen": 694,
+        "queues": {
+            "name_import": [
+                {
+                    "confirmations": 1,
+                    "name": "example.hello",
+                    "tx_hash": "10f7dcd9d6963ef5d20d010f731d5d2ddb76163a083b9d7a2b9fd4515c7fe58c"
+                }
+            ]
+        },
+        "server_alive": true,
+        "server_host": "localhost",
+        "server_port": 16264,
+        "server_version": "0.17.0.8"
+    }
+```
+
+**YOU SHOULD LEAVE YOUR COMPUTER RUNNING UNTIL THE `name_import` QUEUE IS EMPTY**.
+Blockstack's background API daemon will monitor the transactions and upload the
+name's zone file to the Blockstack Atlas network once it is confirmed.
+But to do so, your computer must remain online.  If you do not do this, then
+the name will not have a zone file and will be unusable in the higher layers of
+Blockstack-powered software (including Blockstack applications).  However,
+if your computer does go offline or reboots, you can recover by 
+restarting the Blockstack API daemon (with
+`blockstack api start`).  The daemon itself will pick up where it left off, and
+replicate all zone files that have confirmed transactions.
+
+After the zone file is uploaded, the name will be public and resolvable.  You can re-import the
 same name over and over, and give it a different address and/or zone file.  Like
 all other names, the Blockstack Atlas network will accept and propagate zone
 files for imported names.
 
-The owner of the address `1CaajyWdX4ZSNxe2RKgjm2UAhuoFaMSTxg` will **not** be
+The owner of the address `ms6Y32bcL5zhA57e8tf7awgVZuPxV8Xg8N` will **not** be
 able to issue any transactions for the name `example.hello` until the namespace
 creator has sent the `ready` transaction.
 
-#### Scaling Imports
+#### Using multiple private keys for NAME_IMPORT
 
-The namespace creator is able to import many names in parallel by using BIP32
-unhardened children.  The keys `$CREATOR_PKEY / 0` through
-`$CREATOR_PKEY / 299` can be used to import names.  However, the **first**
-`name_import` **must** use the `$CREATOR_PKEY`, since its associated public key
-will be used by the other Blockstack nodes to generate the list of valid public keys from which a valid
-`name_import` may originate.
+Bitcoin itself imposes limits on how fast you can send transactions from the
+same key (limited by a maximum UTXO-chain length).  To work around this,
+Blockstack lets you import names by using up to 300 private keys.  The private
+keys you can use are BIP32 unhardened children of the namespace reveal key (i.e.
+`$CREATOR_PKEY` in this example).
+
+The first name you import **must** use the namespace reveal private key
+(`$CREATOR_PKEY` in this example).  However, all future names you import in this
+namespace can use one of the 300 BIP32 keys.
+
+To get the list of keys you can use, you can use the `make_import_keys` command:
+
+```
+    |blockstack-test namespace_check| $ blockstack make_import_keys example hello "$CREATOR_PKEY"
+    aeda50305ada40aaf53f2d8921aa717f1ec71a0a3b9b4c6397b3877f6d45c46501 (n4DVTuLLv5J1Yc17AoRYY1GtxDAuLGAESr)
+    92ff179901819a1ec7d32997ce3bb0d9a913895d5850cc05146722847128549201 (mib2KNBGR4az8GiUmusBZexVBqb9YB2gm5)
+    cc5b6a454e2b614bfa18f4deb9a8e179ab985634d63b7fedfaa59573472d209b01 (mxE2iqV4jdpn4K349Gy424TvZp6MPqSXve)
+    9b0265e0ac8c3c24fe1d79a734b3661ec2b5c0c2619bb6342356572b8235910101 (n4rGz8hkXTscUGWCwZvahrkEh6LHZVQUoa)
+    e2585af250404b7918cf6c91c6fa67f3401c0d1ae66df2fafa8fa132f4b9350f01 (moGNpEpighqc6FnkqyNVJA9xtfTiStr5YU)
+    {
+        "status": true
+    }
+```
+
+(NOTE: in the test environment, you get only 5 keys in order to save time).
+
+You can use any of these keys to import names.
+
+#### Trying it out
+
+Here's an example walkthrough of how to try this out in the test framework:
+
+1. Import the first name, creating a zone file in the process:
+
+```
+    |blockstack-test namespace_check| $ cat > /var/blockstack/zone_files/example.hello <<EOF
+    > $ORIGIN example.hello
+    > $TTL 3600
+    > _file URI 10 1 "file:///home/blockstack-test/example.hello"
+    > EOF
+    |blockstack-test namespace_check| $ blockstack name_import example.hello ms6Y32bcL5zhA57e8tf7awgVZuPxV8Xg8N /var/blockstack/zone_files/example.hello "$CREATOR_PKEY"
+    Import cost breakdown:
+    {
+        "name_import_tx_fee": {
+            "btc": 0.0003342,
+            "satoshis": 33420
+        },
+        "total_estimated_cost": {
+            "btc": 0.0003342,
+            "satoshis": 33420
+        },
+        "total_tx_fees": 33420
+    }
+    Importing name 'example.hello' to be owned by 'ms6Y32bcL5zhA57e8tf7awgVZuPxV8Xg8N' with zone file hash '05c302430f4ed0a24470abf9df7e264d517fd389'
+    Proceed? (y/N) y
+    {   
+        "status": true,
+        "success": true,
+        "transaction_hash": "bd875f00f63bcb718bb22782c88c3edcbed79663f2f9152deab328c48746f103",
+        "value_hash": "05c302430f4ed0a24470abf9df7e264d517fd389"
+    }
+```
+
+2. Advance the testnet blockchain, so the indexer knows which import keys to expect:
+
+```
+    |blockstack-test namespace_check| $ curl -X POST http://localhost:3001/nextblock
+```
+
+3. Make import keys:
+
+```
+    |blockstack-test namespace_check| $ blocksatck make_import_keys hello "$CREATOR_PKEY"
+    aeda50305ada40aaf53f2d8921aa717f1ec71a0a3b9b4c6397b3877f6d45c46501 (n4DVTuLLv5J1Yc17AoRYY1GtxDAuLGAESr)
+    92ff179901819a1ec7d32997ce3bb0d9a913895d5850cc05146722847128549201 (mib2KNBGR4az8GiUmusBZexVBqb9YB2gm5)
+    cc5b6a454e2b614bfa18f4deb9a8e179ab985634d63b7fedfaa59573472d209b01 (mxE2iqV4jdpn4K349Gy424TvZp6MPqSXve)
+    9b0265e0ac8c3c24fe1d79a734b3661ec2b5c0c2619bb6342356572b8235910101 (n4rGz8hkXTscUGWCwZvahrkEh6LHZVQUoa)
+    e2585af250404b7918cf6c91c6fa67f3401c0d1ae66df2fafa8fa132f4b9350f01 (moGNpEpighqc6FnkqyNVJA9xtfTiStr5YU)
+    {
+        "status": true
+    }
+```
+
+4. Fill up one of the addresses in the test framework, so we can fund `NAME_IMPORT` transactions with it:
+
+```
+    |blockstack-test namespace_check| $ curl -X POST -F 'addr=n4DVTuLLv5J1Yc17AoRYY1GtxDAuLGAESr' -F 'value=100000000' 'http://localhost:3001/sendfunds'
+```
+
+5. Import another name, with the child private key we just funded:
+
+```
+    |blockstack-test namespace_check| $ cat > /tmp/example.hello.zonefile <<EOF
+    > $ORIGIN example2.hello
+    > $TTL 3600
+    > _file URI 10 1 "file:///home/blockstack-test/example2.hello"
+    > EOF
+    |blockstack-test namespace_check| $ blockstack name_import example2.hello n3sFkNfBQPWS25G12DqDEqHRPiqHotAkEb /tmp/example.hello.zonefile aeda50305ada40aaf53f2d8921aa717f1ec71a0a3b9b4c6397b3877f6d45c46501
+    Import cost breakdown:
+    {
+        "name_import_tx_fee": {
+            "btc": 0.0003342,
+            "satoshis": 33420
+        },
+        "total_estimated_cost": {
+            "btc": 0.0003342,
+            "satoshis": 33420
+        },
+        "total_tx_fees": 33420
+    }
+    Importing name 'example2.hello' to be owned by 'n3sFkNfBQPWS25G12DqDEqHRPiqHotAkEb' with zone file hash '0649bc0b457f54c564d054ce20dc3745a0c4f0c0'
+    Proceed? (y/N) y
+    {   
+        "status": true,
+        "success": true,
+        "transaction_hash": "496a6c2aaccedd98a8403c2e61ff3bdeff221a58bf0e9c362fcae981353f459f",
+        "value_hash": "0649bc0b457f54c564d054ce20dc3745a0c4f0c0"
+    }
+```
+
+6. Advance the blockchain again:
+
+```
+    |blockstack-test namespace_check| $ curl -X POST http://localhost:3001/nextblock
+```
+
+7. See that the names are processing:
+
+```
+    |blockstack-test namespace_check| $ blockstack info
+    {
+        "cli_version": "0.17.0.8",
+        "consensus_hash": "2a055beeaedcaa1365ab2671a0254a03",
+        "last_block_processed": 711,
+        "last_block_seen": 711,
+        "queues": {
+            "name_import": [
+                {
+                    "confirmations": 2,
+                    "name": "example.hello",
+                    "tx_hash": "bd875f00f63bcb718bb22782c88c3edcbed79663f2f9152deab328c48746f103",
+                },
+                {
+                    "confirmations": 1,
+                    "name": "example2.hello",
+                    "tx_hash": "496a6c2aaccedd98a8403c2e61ff3bdeff221a58bf0e9c362fcae981353f459f"
+                }
+            ]
+        },
+        "server_alive": true,
+        "server_host": "localhost",
+        "server_port": 16264,
+        "server_version": "0.17.0.8"
+    }
+```
+
+8. Confirm all the transactions:
+
+```
+    |blockstack-test namespace_check| $ for i in $(seq 1 10); do curl -X POST http://localhost:3001/nextblock
+```
+
+9. Look up name zone files to confirm they were replicated to the test framework's Atlas network:
+
+```
+    |blockstack-test namespace_check| $ blockstack info
+    {
+        "cli_version": "0.17.0.8",
+        "consensus_hash": "ad247c1d5ff239a65db0736951078f17",
+        "last_block_processed": 721,
+        "last_block_seen": 721,
+        "queues": {},
+        "server_alive": true,
+        "server_host": "localhost",
+        "server_port": 16264,
+        "server_version": "0.17.0.8"
+    }
+    |blockstack-test namespace_check| $ blockstack get_name_zonefile example.hello
+    $ORIGIN example.hello
+    $TTL 3600
+    _file URI 10 1 "file:///home/blockstack-test/example.hello"
+
+    |blockstack-test namespace_check| $ blockstack get_name_zonefile example2.hello
+    $ORIGIN example2.hello
+    $TTL 3600
+    _file URI 10 1 "file:///home/blockstack-test/example2.hello"
+```
+
+Now, these names are imported and once the `NAMESPACE_READY` transaction is
+sent, the name owners can proceed to issue name operations.
 
 ### Launching a Namespace
 

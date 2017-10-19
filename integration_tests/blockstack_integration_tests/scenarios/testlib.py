@@ -693,12 +693,16 @@ def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privk
 
     if preorder_txid is None:
         # go find it
-        addr = virtualchain.get_privkey_address(payment_privkey)
-        utxos = get_utxos(addr)
-        if len(utxos) != 1:
-            return {'error': 'Found {} UTXOs for {} ({})'.format(len(utxos), payment_privkey, addr)}
+        try:
+            addr = virtualchain.get_privkey_address(payment_privkey)
+            utxos = get_utxos(addr)
+            if len(utxos) != 1:
+                return {'error': 'Found {} UTXOs for {} ({})'.format(len(utxos), payment_privkey, addr)}
 
-        preorder_txid = utxos[0]['transaction_hash']
+            preorder_txid = utxos[0]['transaction_hash']
+        except Exception as e:
+            log.exception(e)
+            pass
 
     args = CLIArgs()
     args.namespace_id = namespace_id
@@ -1455,6 +1459,40 @@ def blockstack_cli_verify_data(name, data_str, public_key=None, config_path=None
     except:
         pass
 
+    return res
+
+
+def blockstack_cli_sign_profile(name, path, private_key=None, config_path=None):
+    """
+    sign profile
+    """
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    args.name = name
+    args.path = path
+    args.privkey = private_key
+
+    res = cli_sign_profile(args, config_path=config_path)
+    return res
+
+
+def blockstack_cli_verify_profile(name, path, pubkey=None, config_path=None):
+    """
+    Verify profile
+    """
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    args.name = name
+    args.path = path
+    args.pubkey = pubkey
+
+    res = cli_verify_profile(args, config_path=config_path)
     return res
 
 
@@ -2726,7 +2764,8 @@ def send_funds_tx( privkey, satoshis, payment_addr ):
         else:
             raise
 
-    send_addr = virtualchain.BitcoinPrivateKey(privkey).public_key().address()
+    # send_addr = virtualchain.BitcoinPrivateKey(privkey).public_key().address()
+    send_addr = virtualchain.get_privkey_address(privkey)
     
     inputs = blockstack_client.backend.blockchain.get_utxos(send_addr)
     outputs = [
