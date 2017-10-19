@@ -117,10 +117,16 @@ def search_people():
 
     return jsonify(data), 200
 
-NO_CACHE = [ re.compile(regex) for regex in
-             [r'^/v1/node/ping/?$',
-              r'^/v1/blockchains/bitcoin/consensus/?$',
-              r'^/v1/names/[\w\.]+/?$'] ]
+CACHE_SPECIFIC = [ re.compile(regex) for regex in
+                   [r'^/v1/node/ping/?$',
+                    r'^/v1/blockchains/bitcoin/consensus/?$',
+                    r'^/v1/names/[\w\.]+/?$'] ]
+
+SPECIFIED = {
+    0 : 'public, max-age=30',
+    1 : 'public, max-age=30',
+    2 : 'public, max-age=300' }
+
 
 @app.route('/<path:path>', methods=['GET'])
 @crossdomain(origin='*')
@@ -131,8 +137,10 @@ def catch_all_get(path):
     inner_resp = forwarded_get(API_URL, params = params)
     resp = make_response(inner_resp)
 
-    for matcher in NO_CACHE:
+    for ix, matcher in enumerate(CACHE_SPECIFIC):
         if matcher.match('/' + path):
+            if ix in SPECIFIED:
+                resp.headers['Cache-Control'] = SPECIFIED[ix]
             return resp
 
     resp.headers['Cache-Control'] = 'public, max-age={:d}'.format(30*60)
