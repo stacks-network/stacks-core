@@ -302,11 +302,15 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
         if use_zonefile_urls and user_zonefile is not None:
             urls = user_db.user_zonefile_urls(user_zonefile)
 
-        user_profile = storage.get_mutable_data(
-            name, user_data_pubkey, blockchain_id=name,
-            data_address=data_address, owner_address=owner_address,
-            urls=urls, drivers=profile_storage_drivers, decode=decode_profile,
-        )
+        try:
+            user_profile = storage.get_mutable_data(
+                name, user_data_pubkey, blockchain_id=name,
+                data_address=data_address, owner_address=owner_address,
+                urls=urls, drivers=profile_storage_drivers, decode=decode_profile,
+            )
+        except Exception as e:
+            log.exception(e)
+            return {'error' : 'Failure in parsing and fetching profile'}
 
         if user_profile is None or json_is_error(user_profile):
             if user_profile is None:

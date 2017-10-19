@@ -204,7 +204,7 @@ def get_profile(fqa):
                 return data
             except blockstack_client.subdomains.SubdomainNotFound as e:
                 log.exception(e)
-                abort(404, jsonify({'error' : 'Name {} not found'.format(fqa)}))
+                abort(404, json.dumps({'error' : 'Name {} not found'.format(fqa)}))
 
         return {'error' : 'Malformed name {}'.format(fqa)}
 
@@ -214,6 +214,10 @@ def get_profile(fqa):
             fqa, use_legacy = True, include_name_record = True)
         if 'error' in res:
             log.error('Error from profile.get_profile: {}'.format(res['error']))
+            if "no user record hash defined" in res['error']:
+                res['status_code'] = 404
+            if "Failed to load user profile" in res['error']:
+                res['status_code'] = 404
             return res
         log.warn(json.dumps(res['name_record']))
         profile = res['profile']
@@ -225,8 +229,7 @@ def get_profile(fqa):
 
     except Exception as e:
         log.exception(e)
-        abort(500, "Connection to blockstack-server %s:%s timed out" %
-              (BLOCKSTACKD_IP, BLOCKSTACKD_PORT))
+        abort(500, json.dumps({'error': 'Server error fetching profile'}))
 
     if profile is None or 'error' in zonefile:
         log.error("{}".format(zonefile))
@@ -272,7 +275,11 @@ def get_users(username):
 
     reply[username] = profile
     if 'error' in profile:
-        return jsonify(reply), 502
+        status_code = 502
+        if 'status_code' in profile:
+            status_code = profile['status_code']
+            del profile['status_code']
+        return jsonify(reply), status_code
     else:
         return jsonify(reply), 200
 
