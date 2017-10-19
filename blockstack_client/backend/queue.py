@@ -27,6 +27,7 @@ import json
 import base64
 import time
 import random
+import threading
 
 from ..constants import (
     DEFAULT_QUEUE_PATH, PREORDER_MAX_CONFIRMATIONS, CONFIG_PATH, MAX_TX_CONFIRMATIONS)
@@ -51,12 +52,14 @@ from ..logger import get_logger
 
 log = get_logger()
 
+DB_SERIALIZE_LOCK = threading.Lock()
+
 def queuedb_create( path ):
     """
     Create a sqlite3 db at the given path.
     Create all the tables and indexes we need.
     """
-
+    
     global QUEUE_SQL, ERROR_SQL
 
     if os.path.exists( path ):
@@ -69,8 +72,10 @@ def queuedb_create( path ):
     for line in lines:
         con.execute(line)
 
+    con.commit()
     con.row_factory = queuedb_row_factory
     return con
+
 
 def conditionally_create_err_table( sql_conn ):
     """
@@ -84,17 +89,20 @@ def conditionally_create_err_table( sql_conn ):
     assert len(lines) == 2
     sql_conn.execute(lines[0])
 
+
 def queuedb_open( path ):
     """
     Open a connection to our database 
     """
-    if not os.path.exists( path ):
-        con = queuedb_create( path )
-    else:
-        con = sqlite3.connect( path, isolation_level=None )
-        conditionally_create_err_table( con )
-        con.row_factory = queuedb_row_factory
-    return con
+
+    with DB_SERIALIZE_LOCK:
+        if not os.path.exists( path ):
+            con = queuedb_create( path )
+        else:
+            con = sqlite3.connect( path, isolation_level=None )
+            conditionally_create_err_table( con )
+            con.row_factory = queuedb_row_factory
+        return con
 
 
 def queuedb_row_factory( cursor, row ):
