@@ -90,18 +90,22 @@ Next you need to start the [`blockstack api`](https://blockstack.github.io/block
 Blockstack API and the Blockstack Browser run well in docker. There is a provided CLI to help you build and launch the `docker` images if you are not comfortable with `docker`: `launcher`.
 The CLI will pull down the images from our [Quay image repository](https://quay.io/organization/blockstack).
 
-First you need to download the launcher script and make it runnable:
+First you need to download the launcher script and make it runnable, You will also need to edit 2 variables in the script:
 
 ```bash
 $ wget -O launcher https://raw.githubusercontent.com/blockstack/packaging/master/browser-core-docker/launcher
 $ chmod +x launcher
+$ nano launcher
+# Set the two following variables:
+# TAG=v0.18.1
+# COREVERSION=0.17.0.9
 ```
 
 Then you can run the `./launcher` commands:
 
 ```bash
 # First run the pull command. This will fetch the latest docker images from our image repository.
-$ ./launcher pull
+$ ./launcher pull-core
 
 # The first time you run a core node you will need to sync it with the current state of the network
 # This process can take a long time. blockstack-core offers a fast_sync option. To use it with the docker install:
