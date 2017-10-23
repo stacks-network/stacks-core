@@ -944,7 +944,7 @@ def fill_wallet( bitcoind, wallet, value ):
         bitcoind.importprivkey(testnet_wif, "")
         bitcoind.sendtoaddress( addr, value )
 
-    
+
     elif wallet.segwit and len(wallet.privkey['private_keys']) == 1:
         # single private key, p2sh-p2wpkh
         testnet_wif = virtualchain.BitcoinPrivateKey(virtualchain.get_singlesig_privkey(wallet.privkey)).to_wif()
@@ -955,10 +955,10 @@ def fill_wallet( bitcoind, wallet, value ):
         segwit_wallet = virtualchain.make_segwit_info(testnet_wif)
         p2sh_p2wpkh_addr = bitcoind.addwitnessaddress(addr)
         assert p2sh_p2wpkh_addr == segwit_wallet['address'], 'bitcoind.addwitnessaddress({}) == {}, expected {}'.format(addr, p2sh_p2wpkh_addr, segwit_wallet['address'])
-        
+
         log.debug("Fill p2sh-p2wpkh %s (%s) with %s" % (segwit_wallet['address'], testnet_wif, value ))
         bitcoind.sendtoaddress( segwit_wallet['address'], value )
-   
+
     elif wallet.segwit and len(wallet.privkey['private_keys']) > 1:
         # multisig p2sh-p2wsh
         testnet_wifs = []
@@ -1138,7 +1138,10 @@ def parse_args( argv ):
     args, _ = parser.parse_known_args()
     return args
 
-def influx_write( influx_client, test_start, test_name, status ):
+    try:def
+    influx_write( influx_client, test_start, test_name, status ):
+except:
+    pass
     test_time = datetime.utcnow() - test_start
     git_commit = os.environ["GIT_COMMIT"]
     git_branch = os.environ["GIT_BRANCH"]
@@ -1261,7 +1264,10 @@ if __name__ == "__main__":
         print "Failed to load '%s'" % scenario_module
 
         if args.influx:
-            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-load")
+            try:
+                influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-load")
+            except:
+                pass
 
         sys.exit(1)
 
@@ -1321,7 +1327,10 @@ if __name__ == "__main__":
         log.error("failed to write config file: exit %s" % rc)
 
         if args.influx:
-            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-config")
+            try:
+                influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-config")
+            except:
+                pass
 
         sys.exit(1)
 
@@ -1341,7 +1350,10 @@ if __name__ == "__main__":
 
     if rc != 0:
         if args.influx:
-            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-config")
+            try:
+                influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-config")
+            except:
+                pass
 
         log.error("failed to write config file: exit %s" % rc)
         sys.exit(1)
@@ -1358,12 +1370,18 @@ if __name__ == "__main__":
         print "SUCCESS %s" % scenario.__name__
         # shutil.rmtree( working_dir )
         if args.influx:
-            influx_write(influx_client, test_start, scenario_module.split(".")[2], "success")
+            try:
+                influx_write(influx_client, test_start, scenario_module.split(".")[2], "success")
+            except:
+                pass
 
         sys.exit(0)
     else:
         if args.influx:
-            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure")
+            try:
+                influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure")
+            except:
+                pass
 
         print >> sys.stderr, "FAILURE %s" % scenario.__name__
         print >> sys.stderr, "Test output in %s" % working_dir
