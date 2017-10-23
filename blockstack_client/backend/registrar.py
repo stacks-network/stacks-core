@@ -147,19 +147,35 @@ class RegistrarWorker(threading.Thread):
     """
     Worker thread for waiting for transactions to go through.
     """
-    def __init__(self, config_path):
+    def __init__(self, config_path, queue_path=None, poll_interval=None, api_port=None, storage_drivers_required_write=None, storage_drivers=None):
         super(RegistrarWorker, self).__init__()
 
         self.config_path = config_path
         config = get_config(config_path)
-        self.queue_path = config['queue_path']
-        self.poll_interval = int(config['poll_interval'])
-        self.api_port = int(config['api_endpoint_port'])
+
+        if queue_path is None:
+            queue_path = config['queue_path']
+
+        if poll_interval is None:
+            poll_interval = int(config['poll_interval'])
+
+        if api_port is None:
+            api_port = int(config['api_endpoint_port'])
+
+        if storage_drivers_required_write is None:
+            storage_drivers_required_write = config.get('storage_drivers_required_write', None)
+
+        if storage_drivers is None:
+            storage_drivers = config.get('storage_drivers', '')
+
+        self.queue_path = queue_path
+        self.poll_interval = poll_interval
+        self.api_port = api_port
         self.running = True
         self.lockfile_path = None
-        self.required_storage_drivers = config.get('storage_drivers_required_write', None)
+        self.required_storage_drivers = storage_drivers_required_write
         if self.required_storage_drivers is None:
-            self.required_storage_drivers = config.get("storage_drivers", "").split(",")
+            self.required_storage_drivers = storage_drivers.split(",")
         else:
             self.required_storage_drivers = self.required_storage_drivers.split(",")
 
@@ -833,7 +849,7 @@ class RegistrarWorker(threading.Thread):
             return False
 
 
-    def run(self):
+    def run(self, once=False):
         """
         Watch the various queues:
         * if we find an accepted preorder, send the accompanying register
@@ -1051,6 +1067,9 @@ class RegistrarWorker(threading.Thread):
             except:
                 # interrupted
                 log.debug("Sleep interrupted")
+                break
+
+            if once:
                 break
 
         log.info("Registrar worker exited")
