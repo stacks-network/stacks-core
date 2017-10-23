@@ -1138,10 +1138,7 @@ def parse_args( argv ):
     args, _ = parser.parse_known_args()
     return args
 
-    try:def
-    influx_write( influx_client, test_start, test_name, status ):
-except:
-    pass
+def influx_write( influx_client, test_start, test_name, status ):
     test_time = datetime.utcnow() - test_start
     git_commit = os.environ["GIT_COMMIT"]
     git_branch = os.environ["GIT_BRANCH"]
