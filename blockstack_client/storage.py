@@ -954,7 +954,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
                 log.debug(msg.format(url, storage_handler.__name__))
 
                 if BLOCKSTACK_TEST:
-                    log.debug("loaded data: {}".format(data))
+                    log.debug("loaded data: {}".format(data_res))
 
             else:
                 if return_public_key:
