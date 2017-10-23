@@ -368,7 +368,9 @@ def get_estimated_signed_subsidized(unsigned_tx, op_fees, max_fee, payment_privk
     raise Exception("Failed to cover the tx_fee in getting estimated subsidized tx")
 
 
-def estimate_preorder_tx_fee( name, name_cost, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, payment_utxos=None, payment_privkey_params=(None, None), config_path=CONFIG_PATH, include_dust=False ):
+def estimate_preorder_tx_fee( name, name_cost, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, 
+        owner_address=None, payment_utxos=None, payment_privkey_params=(None, None), config_path=CONFIG_PATH, include_dust=False ):
+
     """
     Estimate the transaction fee of a preorder.
     Optionally include the dust fees as well.
@@ -376,7 +378,11 @@ def estimate_preorder_tx_fee( name, name_cost, payment_privkey_info, owner_privk
     Return None on error
     """
 
-    owner_address = virtualchain.get_privkey_address(owner_privkey_info)
+    if not owner_privkey_info:
+        assert owner_address, 'Need owner private key or address'
+    else:
+        owner_address = virtualchain.get_privkey_address(owner_privkey_info)
+
     payment_addr = virtualchain.get_privkey_address(payment_privkey_info)
 
     utxo_client = build_utxo_client(utxo_client, address=payment_addr, utxos=payment_utxos)
@@ -439,7 +445,7 @@ def estimate_preorder_tx_fee( name, name_cost, payment_privkey_info, owner_privk
     return tx_fee
 
 
-def estimate_register_tx_fee( name, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, zonefile_hash=None, payment_utxos=None, config_path=CONFIG_PATH, include_dust=False ):
+def estimate_register_tx_fee( name, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, owner_address=None, zonefile_hash=None, payment_utxos=None, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a register.
     Optionally include the dust fees as well.
@@ -447,7 +453,13 @@ def estimate_register_tx_fee( name, payment_privkey_info, owner_privkey_info, tx
     Return None on error
     """
 
-    owner_addr = virtualchain.get_privkey_address(owner_privkey_info)
+    owner_addr = owner_address
+    
+    if not owner_privkey_info:
+        assert owner_address, 'Need either owner address or owner privkey info'
+    else:
+        owner_addr = virtualchain.get_privkey_address(owner_privkey_info)
+
     payment_addr = virtualchain.get_privkey_address(payment_privkey_info)
 
     utxo_client = build_utxo_client(utxo_client, address=payment_addr, utxos=payment_utxos)
@@ -1323,7 +1335,7 @@ def get_namespace_burn_address(fqu, proxy):
     return burn_address
 
 
-def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, utxo_client, tx_broadcaster, burn_address=None, tx_fee=None,
+def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, utxo_client, tx_broadcaster, owner_address=None, burn_address=None, tx_fee=None,
                  config_path=CONFIG_PATH, proxy=None, consensus_hash=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
     Preorder a name.
@@ -1351,7 +1363,11 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     # wrap UTXO client so we remember UTXOs
     utxo_client = build_utxo_client(utxo_client)
 
-    owner_address = virtualchain.get_privkey_address( owner_privkey_info )
+    if owner_privkey_info is None:
+        assert owner_address, 'Need owner address or owner private key'
+    else:
+        owner_address = virtualchain.get_privkey_address( owner_privkey_info )
+
     payment_address = virtualchain.get_privkey_address( payment_privkey_info )
 
     min_confirmations = utxo_client.min_confirmations
@@ -1366,6 +1382,7 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
         # find tx fee, and do sanity checks
         res = check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, config_path=config_path,
                              proxy=proxy, min_payment_confs=min_confirmations, burn_address=burn_address)
+
         if 'error' in res and safety_checks:
             log.error("Failed to check preorder: {}".format(res['error']))
             return res
@@ -1407,6 +1424,7 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
         unsigned_tx, num_utxos = make_cheapest_name_preorder(
             fqu, payment_address, owner_address, burn_address, cost_satoshis, consensus_hash,
             utxo_client, payment_utxos, tx_fee=tx_fee, dust_included = True)
+
         assert unsigned_tx
     except (AssertionError, ValueError) as ve:
         if BLOCKSTACK_DEBUG:
@@ -1421,11 +1439,11 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
 
 def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster, zonefile_hash=None, tx_fee=None, 
                  config_path=CONFIG_PATH, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True,
-                 force_register = False ):
+                 force_register = False, owner_address=None ):
 
     """
     Register a name
-
+    
     payment_privkey_info or payment_address is required.
     utxo_client or payment_utxos is required.
     force_register still performs SOME safety checks (payment)
@@ -1448,7 +1466,11 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
     utxo_client = build_utxo_client(utxo_client)
 
     payment_address = virtualchain.get_privkey_address( payment_privkey_info )
-    owner_address = virtualchain.get_privkey_address( owner_privkey_info )
+
+    if owner_privkey_info is None:
+        assert owner_address, "Need either owner address or owner private key"
+    else:
+        owner_address = virtualchain.get_privkey_address( owner_privkey_info )
     
     min_confirmations = utxo_client.min_confirmations
 
@@ -1457,7 +1479,7 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
         # find tx fee, and do sanity checks
         res = check_register(fqu, owner_privkey_info, payment_privkey_info, zonefile_hash=zonefile_hash,
                              config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations,
-                             force_it = force_register)
+                             force_it = force_register, owner_address=owner_address)
 
         if 'error' in res and safety_checks:
             log.error("Failed to check register: {}".format(res['error']))
@@ -2224,7 +2246,8 @@ def do_announce( message_text, sender_privkey_info, utxo_client, tx_broadcaster,
 
 
 def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_data={}, min_payment_confs=TX_MIN_CONFIRMATIONS,
-                   proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH ):
+                   proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH,
+                   safety_checks=True, tx_fee=None, consensus_hash=None, owner_address=None, burn_address=None ):
     """
         Preorder a fqu (step #1)
 
@@ -2245,7 +2268,11 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
     utxo_client = get_utxo_provider_client( config_path=config_path, min_confirmations=min_payment_confs )
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
-    owner_address = virtualchain.get_privkey_address( owner_privkey_info )
+    if not owner_privkey_info:
+        assert owner_address, "need owner private key or address"
+    else:
+        owner_address = virtualchain.get_privkey_address( owner_privkey_info )
+
     payment_address = virtualchain.get_privkey_address( payment_privkey_info )
 
     # stale preorder will get removed from preorder_queue
@@ -2258,8 +2285,8 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
         return {'error': 'Already in preorder queue'}
 
     try:
-        resp = do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost, utxo_client, tx_broadcaster,
-                            config_path=CONFIG_PATH )
+        resp = do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost, utxo_client, tx_broadcaster, config_path=CONFIG_PATH,
+                safety_checks=safety_checks, tx_fee=tx_fee, consensus_hash=consensus_hash, owner_address=owner_address, burn_address=burn_address )
 
     except Exception, e:
         log.exception(e)
@@ -2267,13 +2294,16 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
 
     additionals = {}
     if 'unsafe_reg' in name_data:
-        log.debug("Adding an *aggressive* preorder for {}".format(fqu))
         additionals['unsafe_reg'] = name_data['unsafe_reg']
-        additionals['confirmations_needed'] = 4
+        additionals['confirmations_needed'] = name_data.get('confirmations_needed', 4)
+        log.debug("Adding an *aggressive* preorder for {}; only waiting {} confirmations".format(fqu, additionals['confirmations_needed']))
+
     if 'min_payment_confs' in name_data:
         additionals['min_payment_confs'] = name_data['min_payment_confs']
+
     if 'owner_privkey' in name_data:
         additionals['owner_privkey'] = name_data['owner_privkey']
+
     if 'payment_privkey' in name_data:
         additionals['payment_privkey'] = name_data['payment_privkey']
 
@@ -2296,33 +2326,60 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
 
     return resp
 
+
 def check_owner_privkey_info(owner_privkey_info, name_data):
+    """
+    Get the right owner private key and address, given the caller-given owner private key
+    and the name data.  The name data may stipulate that the registrar should use an encrypted
+    owner private key instead.  Determine if this is the case and return the owner private key
+    and address that we should use.
+
+    Return (owner_address, owner_privkey_info)
+    """
+
     owner_address = virtualchain.get_privkey_address(owner_privkey_info)
     if 'owner_address' in name_data and owner_address != name_data['owner_address']:
+
        log.debug("Registrar owner address changed since beginning registration : from {} to {}".format(
            name_data['owner_address'], owner_address))
+
        owner_address = name_data['owner_address']
        passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
-       owner_privkey_info = aes_decrypt(
-           str(name_data['owner_privkey']), hexlify( passwd ))
+       owner_privkey_info = aes_decrypt(str(name_data['owner_privkey']), hexlify( passwd ))
+
        if not virtualchain.get_privkey_address(owner_privkey_info) == owner_address:
            raise Exception("Attempting to correct registrar address to {}, but failed!".format(owner_address))
+
     return owner_address, owner_privkey_info
 
+
 def check_payment_privkey_info(payment_privkey_info, name_data):
+     """
+    Get the right payment private key and address, given the caller-given payment private key
+    and the name data.  The name data may stipulate that the registrar should use an encrypted
+    payment private key instead.  Determine if this is the case and return the payment private key
+    and address that we should use.
+
+    Return (payment_address, payment_privkey_info)
+    """
+
     payment_address = virtualchain.get_privkey_address(payment_privkey_info)
+
     if 'payment_address' in name_data and payment_address != name_data['payment_address']:
        log.debug("Registrar payment address changed since beginning registration : from {} to {}".format(
            name_data['payment_address'], payment_address))
+
        payment_address = name_data['payment_address']
        passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
-       payment_privkey_info = aes_decrypt(
-           str(name_data['payment_privkey']), hexlify( passwd ))
+       payment_privkey_info = aes_decrypt(str(name_data['payment_privkey']), hexlify( passwd ))
+
        if not virtualchain.get_privkey_address(payment_privkey_info) == payment_address:
            raise Exception("Attempting to correct registrar address to {}, but failed!".format(payment_address))
+
     return payment_address, payment_privkey_info
 
-def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
+
+def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={}, owner_address=None,
                    proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH, safety_checks=True):
     """
         Register a previously preordered fqu (step #2)
@@ -2363,7 +2420,9 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
         if len(zonefile_data) > RPC_MAX_ZONEFILE_LEN:
             return {'error': 'Zonefile is too big (%s bytes)' % len(zonefile_data)}
 
-    owner_address, owner_privkey_info = check_owner_privkey_info( owner_privkey_info, name_data )
+    if owner_address is None:
+        owner_address, owner_privkey_info = check_owner_privkey_info( owner_privkey_info, name_data )
+
     payment_address, payment_privkey_info = check_payment_privkey_info( payment_privkey_info, name_data )
 
     # check register_queue first
@@ -2421,7 +2480,7 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={},
         is_regup = True
 
     try:
-        resp = do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster,
+        resp = do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster, owner_address=owner_address,
                             zonefile_hash=regup_zonefile_hash, config_path=config_path, proxy=proxy, force_register = force_register )
     except Exception, e:
         log.exception(e)
