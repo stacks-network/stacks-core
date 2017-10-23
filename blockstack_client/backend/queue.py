@@ -204,6 +204,7 @@ def queue_add_error_msg( queue_id, fqu, error_msg, path=DEFAULT_QUEUE_PATH ):
     db.commit()
     db.close()
 
+
 def queue_clear_error_msg( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
     """
     Remove all error messages for an entry
@@ -218,6 +219,7 @@ def queue_clear_error_msg( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
     rows = queuedb_query_execute( cur, sql, args )
     db.commit()
     db.close()
+
 
 def queue_get_error_msgs( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
     """
@@ -237,6 +239,7 @@ def queue_get_error_msgs( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
     db.close()
 
     return ret
+
 
 def queuedb_findall( queue_id, limit=None, path=DEFAULT_QUEUE_PATH ):
     """
@@ -475,6 +478,7 @@ def get_queue_state(queue_ids=None, limit=None, path=DEFAULT_QUEUE_PATH):
         errors = queue_get_error_msgs(row['type'], row['fqu'], path=path)
         if len(errors) > 0:
             row['errors'] = errors
+
     return state
 
 
