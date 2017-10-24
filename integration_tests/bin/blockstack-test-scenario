@@ -66,7 +66,7 @@ regtest = True
 spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
 
 [blockstack]
-server_version = 0.17.0.0
+server_version = 0.17.0.9
 rpc_port = %s
 backup_frequency = 1
 backup_max_age = 30
@@ -88,10 +88,7 @@ atlas_hostname = localhost
 
 DEFAULT_CLIENT_INI_TEMPLATE = """
 [blockstack-client]
-accounts = @CLIENT_ACCOUNTS_PATH@
-users = @CLIENT_USERS_PATH@
-datastores = @CLIENT_DATASTORES_PATH@
-client_version = 0.14.4
+client_version = 0.17.0.9
 server = localhost
 port = %s
 protocol = http
@@ -658,6 +655,11 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     # shutdown procedure
     def shutdown_procedure(*args, **kw):
+        if os.getpid() != SCENARIO_PID:
+            # don't let the API daemon call this
+            log.info("API daemon exiting")
+            return
+
         log.info("Shutting down network")
         network_stop()
 

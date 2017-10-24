@@ -2637,7 +2637,7 @@ def start_api(password):
     return {'status': True}
 
 
-def stop_api():
+def stop_api(hard_stop=True):
     """
     Stop API server
     """
@@ -2650,9 +2650,15 @@ def stop_api():
     port = int(conf['api_endpoint_port'])
     api_pass = conf['api_password']
 
-    res = hard_local_api_stop(config_dir)
-    if not res:
-        return {'error': 'Failed to stop API server'}
+    if hard_stop:
+        res = hard_local_api_stop(config_dir)
+        if not res:
+            return {'error': 'Failed to hard-stop API server'}
+
+    else:
+        res = blockstack_client.rpc.local_api_stop(config_dir=config_dir)
+        if not res:
+            return {'error': 'Failed to stop API server'}
 
     return {'status': True}
 
