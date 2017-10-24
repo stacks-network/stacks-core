@@ -1072,6 +1072,7 @@ def cli_lookup(args, config_path=CONFIG_PATH):
 
         data['profile'] = res['profile']
         data['zonefile'] = res['raw_zonefile']
+        data['public_key'] = res['public_key']
     except Exception as e:
         log.exception(e)
         msg = 'Failed to look up name\n{}'
