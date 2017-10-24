@@ -146,14 +146,15 @@ def is_profile_in_legacy_format(profile):
 
     return is_in_legacy_format
 
-def format_profile(profile, fqa, zone_file, address):
+def format_profile(profile, fqa, zone_file, address, public_key):
     """ Process profile data and
         1) Insert verifications
         2) Check if profile data is valid JSON
     """
 
     data = {'profile' : profile,
-            'zone_file' : zone_file}
+            'zone_file' : zone_file,
+            'public_key': public_key}
 
     if not fqa.endswith('.id'):
         data['verifications'] = ["No verifications for non-id namespaces."]
@@ -200,11 +201,12 @@ def get_profile(fqa):
                 resp = blockstack_client.subdomains.resolve_subdomain(subdomain, domain)
                 data = { 'profile' : resp['profile'],
                          'zone_file': resp['zonefile'],
+                         'public_key': resp.get('public_key', None),
                          'verifications' : [] }
                 return data
             except blockstack_client.subdomains.SubdomainNotFound as e:
                 log.exception(e)
-                abort(404, jsonify({'error' : 'Name {} not found'.format(fqa)}))
+                abort(404, json.dumps({'error' : 'Name {} not found'.format(fqa)}))
 
         return {'error' : 'Malformed name {}'.format(fqa)}
 
@@ -214,10 +216,16 @@ def get_profile(fqa):
             fqa, use_legacy = True, include_name_record = True)
         if 'error' in res:
             log.error('Error from profile.get_profile: {}'.format(res['error']))
+            if "no user record hash defined" in res['error']:
+                res['status_code'] = 404
+            if "Failed to load user profile" in res['error']:
+                res['status_code'] = 404
             return res
         log.warn(json.dumps(res['name_record']))
+
         profile = res['profile']
         zonefile = res['zonefile']
+        public_key = res.get('public_key', None)
         address = res['name_record']['address']
 
         if 'expired' in res['name_record'] and res['name_record']['expired']:
@@ -225,8 +233,7 @@ def get_profile(fqa):
 
     except Exception as e:
         log.exception(e)
-        abort(500, "Connection to blockstack-server %s:%s timed out" %
-              (BLOCKSTACKD_IP, BLOCKSTACKD_PORT))
+        abort(500, json.dumps({'error': 'Server error fetching profile'}))
 
     if profile is None or 'error' in zonefile:
         log.error("{}".format(zonefile))
@@ -234,7 +241,7 @@ def get_profile(fqa):
 
     prof_data = {'response' : profile}
 
-    data = format_profile(prof_data['response'], fqa, zonefile, address)
+    data = format_profile(prof_data['response'], fqa, zonefile, address, public_key)
 
     if profile_expired_grace:
         data['expired'] = (
@@ -272,7 +279,11 @@ def get_users(username):
 
     reply[username] = profile
     if 'error' in profile:
-        return jsonify(reply), 502
+        status_code = 502
+        if 'status_code' in profile:
+            status_code = profile['status_code']
+            del profile['status_code']
+        return jsonify(reply), status_code
     else:
         return jsonify(reply), 200
 

@@ -512,6 +512,7 @@ def subdomain_record_to_profile(my_rec):
 
     # try to get pubkey from zonefile, or default to ``owner`` pubkey
     user_data_pubkey = None
+    profile_pubkey = None
     try:
         user_data_pubkey = user_db.user_zonefile_data_pubkey(parsed_zf)
         if user_data_pubkey is not None:
@@ -520,11 +521,14 @@ def subdomain_record_to_profile(my_rec):
         pass # no pubkey defined in zonefile
 
     try:
-        user_profile = storage.get_mutable_data(
+        user_profile_res = storage.get_mutable_data(
             None, user_data_pubkey, blockchain_id=None,
             data_address=owner_addr, owner_address=None,
-            urls=urls, drivers=None, decode=True,
+            urls=urls, drivers=None, decode=True, return_public_key=True
         )
+
+        user_profile = user_profile_res['data']
+        profile_pubkey = user_profile_res['public_key']
     except:
         user_profile = None
 
@@ -533,7 +537,9 @@ def subdomain_record_to_profile(my_rec):
                         'Error fetching the data for subdomain {}'.format(my_rec.get_fqn())}
 
     data = { 'profile' : user_profile,
-             'zonefile' : parsed_zf }
+             'zonefile' : parsed_zf,
+             'public_key': profile_pubkey }
+
     return data
 
 def get_subdomains_owned_by_address(address):

@@ -466,6 +466,20 @@ def test_main(args = []):
             print(testname)
         return
 
+
+    if "--url" in args:
+        ainx = args.index("--url")
+        del args[ainx]
+        url = args[ainx]
+        client = api.app.test_client()
+        r = client.get(url)
+        print "Response Status: {}".format(r.status)
+        print "Response Data"
+        print "-------------"
+        print r.data
+        return
+
+
     if "--remote" in args:
         ainx = args.index("--remote")
         del args[ainx]
