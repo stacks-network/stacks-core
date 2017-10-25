@@ -415,10 +415,8 @@ def is_entry_accepted( entry, config_path=CONFIG_PATH ):
     Return False on error.
     """
     if 'confirmations_needed' in entry:
-        log.debug('Custom confirmations check on {} with {}'.format(
-            entry['tx_hash'], entry['confirmations_needed']))
-        return is_tx_accepted( entry['tx_hash'], num_needed = entry['confirmations_needed'],
-                               config_path=config_path )
+        log.debug('Custom confirmations check on {} with {}'.format(entry['tx_hash'], entry['confirmations_needed']))
+        return is_tx_accepted( entry['tx_hash'], num_needed=entry['confirmations_needed'], config_path=config_path )
     else:
         return is_tx_accepted( entry['tx_hash'], config_path=config_path )
 
