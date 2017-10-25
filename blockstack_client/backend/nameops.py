@@ -1324,7 +1324,7 @@ def get_namespace_burn_address(fqu, proxy):
         receive_fees_period = blockstack.get_epoch_namespace_receive_fees_period(block_height, namespace_id)
         if namespace_info['reveal_block'] + receive_fees_period >= block_height:
             # use the namespace burn address
-            burn_address = str(namespace_info['address'])
+            burn_address = virtualchain.address_reencode(str(namespace_info['address']))
         else:
             # use the null burn address
             burn_address = blockstack.BLOCKSTACK_BURN_ADDRESS
@@ -1351,7 +1351,7 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     """
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     if dry_run:
         assert tx_fee, "invalid argument: tx_fee is required on dry-run"
@@ -1365,6 +1365,7 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
 
     if owner_privkey_info is None:
         assert owner_address, 'Need owner address or owner private key'
+        owner_address = virtualchain.address_reencode(str(owner_address))
     else:
         owner_address = virtualchain.get_privkey_address( owner_privkey_info )
 
@@ -1375,7 +1376,7 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     if burn_address is None:
         burn_address = get_namespace_burn_address(fqu, proxy)
     else:
-        burn_address = str(burn_address)
+        burn_address = virtualchain.address_reencode(str(burn_address))
 
     if not dry_run and (safety_checks or (cost_satoshis is None or tx_fee is None)):
         tx_fee = 0
@@ -1453,7 +1454,7 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
     Return {'error': ...} on failure
     """
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     fqu = str(fqu)
     resp = {}
@@ -1469,6 +1470,7 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
 
     if owner_privkey_info is None:
         assert owner_address, "Need either owner address or owner private key"
+        owner_address = virtualchain.address_reencode(str(owner_address))
     else:
         owner_address = virtualchain.get_privkey_address( owner_privkey_info )
     
@@ -1539,7 +1541,7 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
     """
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     if dry_run:
         assert tx_fee, 'dry run needs tx fee'
@@ -1642,7 +1644,7 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
     """
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     if dry_run:
         assert tx_fee is not None, 'Need tx fee for dry run'
@@ -1736,7 +1738,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     Return {'error': ...} on failure
     """
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     if dry_run:
         assert tx_fee_per_byte, 'Need tx fee for dry run'
@@ -1754,7 +1756,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     if burn_address is None:
         burn_address = get_namespace_burn_address(fqu, proxy)
     else:
-        burn_address = str(burn_address)
+        burn_address = virtualchain.addresss_reencode(str(burn_address))
 
     if zonefile_hash is not None:
         zonefile_hash = str(zonefile_hash)
@@ -1838,7 +1840,7 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
     Return {'error': ...} on failure
     """
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     if dry_run:
         assert tx_fee_per_byte, "need tx fee for dry run"
@@ -1918,7 +1920,7 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
     Return {'error': ...} on failure
     """
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     fqu = str(fqu)
     
@@ -1985,7 +1987,7 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
     Return {'error': ...} on failure
     """
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     # wrap UTXO client so we remember UTXOs 
     utxo_client = build_utxo_client(utxo_client)
@@ -2057,7 +2059,7 @@ def do_namespace_reveal( namespace_id, version_bits, reveal_address, lifetime, c
     Return {'error': ...} on failure
     """
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     # wrap UTXO client so we remember UTXOs 
     utxo_client = build_utxo_client(utxo_client)
@@ -2118,7 +2120,7 @@ def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broad
     """
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     # wrap UTXO client so we remember UTXOs 
     utxo_client = build_utxo_client(utxo_client)
@@ -2177,7 +2179,7 @@ def do_announce( message_text, sender_privkey_info, utxo_client, tx_broadcaster,
     """
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     # wrap UTXO client so we remember UTXOs 
     utxo_client = build_utxo_client(utxo_client)
@@ -2336,25 +2338,32 @@ def check_owner_privkey_info(owner_privkey_info, name_data):
 
     Return (owner_address, owner_privkey_info)
     """
+    
+    owner_address = None
+    if owner_privkey_info is not None:
+        owner_address = virtualchain.get_privkey_address(owner_privkey_info)
+    elif 'owner_address' in name_data:
+        owner_address = virtualchain.address_reencode(str(name_data['owner_address']))
 
-    owner_address = virtualchain.get_privkey_address(owner_privkey_info)
     if 'owner_address' in name_data and owner_address != name_data['owner_address']:
 
-       log.debug("Registrar owner address changed since beginning registration : from {} to {}".format(
-           name_data['owner_address'], owner_address))
+       if owner_address is not None:
+           log.debug("Registrar owner address changed since beginning registration : from {} to {}".format(
+               name_data['owner_address'], owner_address))
 
-       owner_address = name_data['owner_address']
        passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
        owner_privkey_info = aes_decrypt(str(name_data['owner_privkey']), hexlify( passwd ))
 
-       if not virtualchain.get_privkey_address(owner_privkey_info) == owner_address:
-           raise Exception("Attempting to correct registrar address to {}, but failed!".format(owner_address))
+       if owner_address is not None and virtualchain.get_privkey_address(owner_privkey_info) != name_data['owner_address']:
+           raise Exception("Attempting to correct registrar address to {}, but failed!".format(name_data['owner_address']))
+        
+       owner_address = virtualchain.get_privkey_address(owner_privkey_info)
 
-    return owner_address, owner_privkey_info
+    return virtualchain.address_reencode(str(owner_address)), owner_privkey_info
 
 
 def check_payment_privkey_info(payment_privkey_info, name_data):
-     """
+    """
     Get the right payment private key and address, given the caller-given payment private key
     and the name data.  The name data may stipulate that the registrar should use an encrypted
     payment private key instead.  Determine if this is the case and return the payment private key
@@ -2363,20 +2372,26 @@ def check_payment_privkey_info(payment_privkey_info, name_data):
     Return (payment_address, payment_privkey_info)
     """
 
-    payment_address = virtualchain.get_privkey_address(payment_privkey_info)
+    payment_address = None
+
+    if payment_privkey_info is not None:
+        payment_address = virtualchain.get_privkey_address(payment_privkey_info)
 
     if 'payment_address' in name_data and payment_address != name_data['payment_address']:
-       log.debug("Registrar payment address changed since beginning registration : from {} to {}".format(
-           name_data['payment_address'], payment_address))
 
-       payment_address = name_data['payment_address']
+       if payment_address is not None:
+           log.debug("Registrar payment address changed since beginning registration : from {} to {}".format(
+               name_data['payment_address'], payment_address))
+
        passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
-       payment_privkey_info = aes_decrypt(str(name_data['payment_privkey']), hexlify( passwd ))
+       payment_privkey_info = aes_decrypt(str(name_data['payment_privkey']), hexlify(passwd))
 
-       if not virtualchain.get_privkey_address(payment_privkey_info) == payment_address:
+       if payment_address is not None and virtualchain.get_privkey_address(payment_privkey_info) != payment_address:
            raise Exception("Attempting to correct registrar address to {}, but failed!".format(payment_address))
 
-    return payment_address, payment_privkey_info
+       payment_address = virtualchain.get_privkey_address(payment_privkey_info)
+
+    return virtualchain.address_reencode(str(payment_address)), payment_privkey_info
 
 
 def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={}, owner_address=None,
@@ -2423,7 +2438,16 @@ def async_register(fqu, payment_privkey_info, owner_privkey_info, name_data={}, 
     if owner_address is None:
         owner_address, owner_privkey_info = check_owner_privkey_info( owner_privkey_info, name_data )
 
+        # only owner address is strictly needed
+        assert owner_address
+
     payment_address, payment_privkey_info = check_payment_privkey_info( payment_privkey_info, name_data )
+
+    assert payment_address
+    assert payment_privkey_info
+
+    owner_address = virtualchain.address_reencode(str(owner_address))
+    payment_address = virtualchain.address_reencode(str(payment_address))
 
     # check register_queue first
     # stale preorder will get removed from preorder_queue
@@ -2566,6 +2590,14 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
 
     owner_address, owner_privkey_info = check_owner_privkey_info( owner_privkey_info, name_data )
     payment_address, payment_privkey_info = check_payment_privkey_info( payment_privkey_info, name_data )
+    
+    assert owner_address
+    assert owner_privkey_info
+    assert payment_address
+    assert payment_privkey_info
+
+    owner_address = virtualchain.address_reencode(str(owner_address))
+    payment_address = virtualchain.address_reencode(str(payment_address))
 
     if in_queue("update", fqu, path=queue_path):
         log.error("Already in update queue: %s" % fqu)
@@ -2641,6 +2673,14 @@ def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
 
     owner_address, owner_privkey_info = check_owner_privkey_info( owner_privkey_info, name_data )
     payment_address, payment_privkey_info = check_payment_privkey_info( payment_privkey_info, name_data )
+
+    assert owner_address
+    assert owner_privkey_info
+    assert payment_address
+    assert payment_privkey_info
+
+    owner_address = virtualchain.address_reencode(str(owner_address))
+    payment_address = virtualchain.address_reencode(str(payment_address))
 
     if in_queue("transfer", fqu, path=queue_path):
         log.error("Already in transfer queue: %s" % fqu)
