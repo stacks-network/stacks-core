@@ -2272,6 +2272,7 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
 
     if not owner_privkey_info:
         assert owner_address, "need owner private key or address"
+        owner_address = virtualchain.address_reencode(str(owner_address))
     else:
         owner_address = virtualchain.get_privkey_address( owner_privkey_info )
 
@@ -2317,6 +2318,7 @@ def async_preorder(fqu, payment_privkey_info, owner_privkey_info, cost, name_dat
                          owner_address=owner_address,
                          transfer_address=name_data.get('transfer_address'),
                          zonefile_data=name_data.get('zonefile'),
+                         zonefile_hash=name_data.get('zonefile_hash'),
                          profile=name_data.get('profile'),
                          config_path=config_path,
                          path=queue_path, **additionals)
@@ -2348,11 +2350,10 @@ def check_owner_privkey_info(owner_privkey_info, name_data):
     if 'owner_address' in name_data and owner_address != name_data['owner_address']:
 
        if owner_address is not None:
-           log.debug("Registrar owner address changed since beginning registration : from {} to {}".format(
-               name_data['owner_address'], owner_address))
+           log.debug("Registrar owner address changed since beginning registration : from {} to {}".format(name_data['owner_address'], owner_address))
 
        passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
-       owner_privkey_info = aes_decrypt(str(name_data['owner_privkey']), hexlify( passwd ))
+       owner_privkey_info = json.loads(aes_decrypt(str(name_data['owner_privkey']), hexlify( passwd )))
 
        if owner_address is not None and virtualchain.get_privkey_address(owner_privkey_info) != name_data['owner_address']:
            raise Exception("Attempting to correct registrar address to {}, but failed!".format(name_data['owner_address']))
@@ -2384,7 +2385,7 @@ def check_payment_privkey_info(payment_privkey_info, name_data):
                name_data['payment_address'], payment_address))
 
        passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
-       payment_privkey_info = aes_decrypt(str(name_data['payment_privkey']), hexlify(passwd))
+       payment_privkey_info = json.loads(aes_decrypt(str(name_data['payment_privkey']), hexlify(passwd)))
 
        if payment_address is not None and virtualchain.get_privkey_address(payment_privkey_info) != payment_address:
            raise Exception("Attempting to correct registrar address to {}, but failed!".format(payment_address))
