@@ -727,11 +727,13 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
     # cost of registration transaction + cost of update transaction + cost of transfer transaction
 
     if owner_address:
-        owner_address = str(owner_address)
+        owner_address = virtualchain.address_reencode(str(owner_address))
+
     if payment_address:
-        payment_address = str(payment_address)
+        payment_address = virtualchain.address_reencode(str(payment_address))
+
     if transfer_address:
-        transfer_address = str(transfer_address)
+        transfer_address = virtualchain.address_reencode(str(transfer_address))
 
     assert owner_address, "Owner address or owner_privkey_info required"
     assert payment_address, "Payment address or payment_privkey_info required"
