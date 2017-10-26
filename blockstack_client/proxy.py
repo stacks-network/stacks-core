@@ -2232,7 +2232,18 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
     }
 
     schema = json_response_schema( saved_schema )
-    proxy = get_default_proxy() if proxy is None else proxy
+    
+    if proxy is None:
+        host, port = url_to_host_port(hostport)
+        assert host is not None and port is not None
+
+        protocol = None
+        if port == 6264:
+            protocol = 'http'
+        else:
+            protocol = 'https'
+
+        proxy = BlockstackRPCClient(host, port, protocol=protocol)
 
     push_info = None
     try:
