@@ -67,6 +67,7 @@ from .schemas import (
     ENCRYPTED_WALLET_SCHEMA_LEGACY_014
 )
 
+import virtualchain
 from virtualchain.lib.ecdsalib import ecdsa_private_key, get_pubkey_hex
 import keylib
 
@@ -407,7 +408,7 @@ def decrypt_wallet_legacy(data, key_defaults, password):
             default_privkey = key_defaults[keyname]
             new_wallet[keyname_privkey] = default_privkey
             new_wallet[keyname_addresses] = [
-                virtualchain.address_reencode( ecdsa_private_key(default_privkey, compressed=False).public_key().address() )
+                virtualchain.address_reencode( keylib.ECPrivateKey(default_privkey, compressed=False).public_key().address() )
             ]
 
     return {'status': True, 'wallet': new_wallet}

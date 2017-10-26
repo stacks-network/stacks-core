@@ -1756,7 +1756,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     if burn_address is None:
         burn_address = get_namespace_burn_address(fqu, proxy)
     else:
-        burn_address = virtualchain.addresss_reencode(str(burn_address))
+        burn_address = virtualchain.address_reencode(str(burn_address))
 
     if zonefile_hash is not None:
         zonefile_hash = str(zonefile_hash)
