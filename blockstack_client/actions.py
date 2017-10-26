@@ -175,7 +175,7 @@ import keylib
 import virtualchain
 from virtualchain.lib.ecdsalib import (
     ecdsa_private_key, set_privkey_compressed,
-    ECPrivateKey, get_pubkey_hex
+    get_pubkey_hex
 )
 from virtualchain.lib.hashing import (
     bin_double_sha256
