@@ -415,7 +415,7 @@ def estimate_preorder_tx_fee( name, name_cost, payment_privkey_info, owner_privk
         except AssertionError as e:
             # unfunded payment addr
             log.warning("Insufficient funds in {} for NAME_PREORDER; estimating instead".format(payment_addr))
-            unsigned_tx = preorder_tx( name, payment_addr, owner_address, name_cost, fake_consensus_hash, utxo_client, safety=False, subsidize=True )
+            unsigned_tx = preorder_tx( name, payment_addr, owner_address, BLOCKSTACK_BURN_ADDRESS, name_cost, fake_consensus_hash, utxo_client, safety=False, subsidize=True )
             assert unsigned_tx
 
             pad_len = estimate_input_length(payment_privkey_info)
@@ -2342,23 +2342,35 @@ def check_owner_privkey_info(owner_privkey_info, name_data):
     """
     
     owner_address = None
+
     if owner_privkey_info is not None:
         owner_address = virtualchain.get_privkey_address(owner_privkey_info)
-    elif 'owner_address' in name_data:
-        owner_address = virtualchain.address_reencode(str(name_data['owner_address']))
 
-    if 'owner_address' in name_data and owner_address != name_data['owner_address']:
+    if 'owner_address' in name_data and owner_address != name_data['owner_address'] and 'owner_privkey' in name_data:
 
        if owner_address is not None:
            log.debug("Registrar owner address changed since beginning registration : from {} to {}".format(name_data['owner_address'], owner_address))
 
        passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
-       owner_privkey_info = json.loads(aes_decrypt(str(name_data['owner_privkey']), hexlify( passwd )))
+       owner_privkey_info = aes_decrypt(str(name_data['owner_privkey']), hexlify( passwd ))
+       possible_addresses = []
+       if owner_privkey_info is not None:
+           try:
+               owner_privkey_info = json.loads(owner_privkey_info)
+               possible_addresses = [virtualchain.get_privkey_address(owner_privkey_info)]
+           except Exception as e:
+               possible_addresses = [
+                    virtualchain.address_reencode(keylib.ECPrivateKey(owner_privkey_info, compressed=True).public_key().address()), 
+                    virtualchain.address_reencode(keylib.ECPrivateKey(owner_privkey_info, compressed=False).public_key().address()),
+               ]
 
-       if owner_address is not None and virtualchain.get_privkey_address(owner_privkey_info) != name_data['owner_address']:
-           raise Exception("Attempting to correct registrar address to {}, but failed!".format(name_data['owner_address']))
-        
-       owner_address = virtualchain.get_privkey_address(owner_privkey_info)
+       if name_data['owner_address'] not in possible_addresses:
+           raise Exception("Attempting to correct registrar owner address to {}, but failed! Got {}".format(owner_address, ','.join(possible_addresses)))
+       
+       if owner_privkey_info is not None:
+           owner_address = virtualchain.get_privkey_address(owner_privkey_info)
+       else:
+           owner_address = name_data['owner_address']
 
     return virtualchain.address_reencode(str(owner_address)), owner_privkey_info
 
@@ -2385,12 +2397,25 @@ def check_payment_privkey_info(payment_privkey_info, name_data):
                name_data['payment_address'], payment_address))
 
        passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
-       payment_privkey_info = json.loads(aes_decrypt(str(name_data['payment_privkey']), hexlify(passwd)))
+       payment_privkey_info = aes_decrypt(str(name_data['payment_privkey']), hexlify(passwd))
+       possible_addresses = []
+       if payment_privkey_info is not None:
+           try:
+               payment_privkey_info = json.loads(payment_privkey_info)
+               possible_addresses = [virtualchain.get_privkey_address(payment_privkey_info)]
+           except Exception as e:
+               possible_addresses = [
+                    virtualchain.address_reencode(keylib.ECPrivateKey(payment_privkey_info, compressed=True).public_key().address()), 
+                    virtualchain.address_reencode(keylib.ECPrivateKey(payment_privkey_info, compressed=False).public_key().address()),
+               ]
 
-       if payment_address is not None and virtualchain.get_privkey_address(payment_privkey_info) != payment_address:
-           raise Exception("Attempting to correct registrar address to {}, but failed!".format(payment_address))
-
-       payment_address = virtualchain.get_privkey_address(payment_privkey_info)
+       if name_data['payment_address'] not in possible_addresses:
+           raise Exception("Attempting to correct registrar payment address to {}, but failed! Got {}".format(payment_address, ','.join(possible_addresses)))
+        
+       if payment_privkey_info is not None:
+           payment_address = virtualchain.get_privkey_address(payment_privkey_info)
+       else:
+           payment_address = name_data['payment_address']
 
     return virtualchain.address_reencode(str(payment_address)), payment_privkey_info
 
