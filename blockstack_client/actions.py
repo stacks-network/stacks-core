@@ -94,7 +94,7 @@ import config
 from .config import configure_zonefile, configure, get_utxo_provider_client, get_tx_broadcaster, get_local_device_id
 from .constants import (
     CONFIG_PATH, CONFIG_DIR, WALLET_FILENAME,
-    FIRST_BLOCK_MAINNET, NAME_UPDATE, NAME_IMPORT, NAME_REGISTRATION,
+    FIRST_BLOCK_MAINNET, NAME_UPDATE, NAME_IMPORT, NAME_REGISTRATION, NAME_RENEWAL,
     BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME,
     get_secret, set_secret, BLOCKSTACK_TEST, VERSION
 )
@@ -4540,7 +4540,7 @@ def cli_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, interactive=Tru
                 return {'error': msg}
 
             # find the tx hash that corresponds to this zonefile
-            if name_rec['op'] == NAME_UPDATE:
+            if name_rec['op'] in [NAME_UPDATE, NAME_REGISTRATION, NAME_REGISTRATION + ":", NAME_IMPORT]:
                 if name_rec['value_hash'] == zonefile_hash:
                     txid = name_rec['txid']
             else:
