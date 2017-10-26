@@ -146,14 +146,15 @@ def is_profile_in_legacy_format(profile):
 
     return is_in_legacy_format
 
-def format_profile(profile, fqa, zone_file, address):
+def format_profile(profile, fqa, zone_file, address, public_key):
     """ Process profile data and
         1) Insert verifications
         2) Check if profile data is valid JSON
     """
 
     data = {'profile' : profile,
-            'zone_file' : zone_file}
+            'zone_file' : zone_file,
+            'public_key': public_key}
 
     if not fqa.endswith('.id'):
         data['verifications'] = ["No verifications for non-id namespaces."]
@@ -200,6 +201,7 @@ def get_profile(fqa):
                 resp = blockstack_client.subdomains.resolve_subdomain(subdomain, domain)
                 data = { 'profile' : resp['profile'],
                          'zone_file': resp['zonefile'],
+                         'public_key': resp.get('public_key', None),
                          'verifications' : [] }
                 return data
             except blockstack_client.subdomains.SubdomainNotFound as e:
@@ -220,8 +222,10 @@ def get_profile(fqa):
                 res['status_code'] = 404
             return res
         log.warn(json.dumps(res['name_record']))
+
         profile = res['profile']
         zonefile = res['zonefile']
+        public_key = res.get('public_key', None)
         address = res['name_record']['address']
 
         if 'expired' in res['name_record'] and res['name_record']['expired']:
@@ -237,7 +241,7 @@ def get_profile(fqa):
 
     prof_data = {'response' : profile}
 
-    data = format_profile(prof_data['response'], fqa, zonefile, address)
+    data = format_profile(prof_data['response'], fqa, zonefile, address, public_key)
 
     if profile_expired_grace:
         data['expired'] = (

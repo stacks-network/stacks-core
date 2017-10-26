@@ -5293,7 +5293,8 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     p = subprocess.Popen("pip freeze", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = p.communicate()
     if p.returncode != 0:
-        raise Exception("Failed to run `pip freeze`")
+        log.warning("Failed to run `pip freeze`")
+        out = "Failed to run `pip freeze`"
 
     log.info("API server version {} starting...".format(SERIES_VERSION))
     log.info("Machine:   {}".format(platform.machine()))
@@ -5386,14 +5387,9 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
         if BLOCKSTACK_DEBUG is not None:
             log.exception(se)
 
-        if not foreground:
-            msg = 'Failed to open socket (socket errno {}); aborting...'
-            log.error(msg.format(se.errno))
-            os.abort()
-        else:
-            msg = 'Failed to open socket (socket errno {})'
-            log.error(msg.format(se.errno))
-            return {'error': 'Failed to open socket (errno {})'.format(se.errno)}
+        msg = 'Failed to open socket (socket errno {}); aborting...'
+        log.error(msg.format(se.errno))
+        return {'error': 'Failed to open socket (errno {})'.format(se.errno)}
 
     assert wallet.has_key('owner_addresses')
     assert wallet.has_key('owner_privkey')
