@@ -5401,8 +5401,8 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     log.debug("Initializing registrar...")
     state = backend.registrar.set_registrar_state(config_path=config_path, wallet_keys=wallet)
     if state is None:
-        log.error("Failed to initialize registrar: {}".format(res['error']))
-        return {'error': 'Failed to initialize registrar: {}'.format(res['error'])}
+        log.error("Failed to initialize registrar: failed to set registrar state")
+        return {'error': 'Failed to initialize registrar: failed to set registrar state'}
 
     log.debug("Setup finished")
 
