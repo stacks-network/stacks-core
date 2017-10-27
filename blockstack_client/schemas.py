@@ -881,7 +881,9 @@ APP_SESSION_SCHEMA = {
 APP_SESSION_REQUEST_SCHEMA = {
     'type': 'object',
     'properties': APP_SESSION_REQUEST_PROPERTIES,
-    'required': APP_SESSION_REQUEST_PROPERTIES.keys(),
+    'required': [
+        [ 'app_public_keys', 'app_domain', 'version', 'methods',
+          'blockchain_id', 'device_id' ],
 }
 
 # old session request schema
