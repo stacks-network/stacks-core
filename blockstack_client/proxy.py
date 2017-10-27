@@ -28,6 +28,7 @@ import json
 import traceback
 import os
 import random
+import re
 from xmlrpclib import ServerProxy, Transport
 from defusedxml import xmlrpc
 import httplib
@@ -38,7 +39,7 @@ from utils import url_to_host_port
 
 from .constants import (
     MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST, DEFAULT_TIMEOUT,
-    BLOCKSTACK_DEBUG
+    BLOCKSTACK_DEBUG, NAME_REVOKE
 )
 
 # prevent the usual XML attacks
@@ -57,6 +58,8 @@ from .operations import (
 
 from .schemas import (
     OP_NAMESPACE_PATTERN,
+    OP_BASE58CHECK_CLASS,
+    OP_NAME_OR_SUBDOMAIN_PATTERN,
     OP_CONSENSUS_HASH_PATTERN,
     OP_CONSENSUS_HASH_PATTERN,
     NAMEOP_SCHEMA_PROPERTIES,
@@ -1013,6 +1016,224 @@ def get_names_owned_by_address(address, proxy=None):
     return resp['names']
 
 
+def get_num_historic_names_by_address(address, proxy=None):
+    """
+    Get the number of names historically created by an address
+    Returns the number of names on success
+    Returns {'error': ...} on error
+    """
+    num_names_schema = {
+        'type': 'object',
+        'properties': {
+            'count': {
+                'type': 'integer',
+                'minimum': 0,
+            },
+        },
+        'required': [
+            'count',
+        ],
+    }
+
+    schema = json_response_schema( num_names_schema )
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    resp = {}
+    try:
+        resp = proxy.get_num_historic_names_by_address(address)
+        resp = json_validate(schema, resp)
+        if json_is_error(resp):
+            return resp
+
+    except ValidationError as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    return resp['count']
+
+
+def get_historic_names_by_address_page(address, offset, count, proxy=None):
+    """
+    Get the list of names historically created by an address
+    Returns the list of names on success
+    Returns {'error': ...} on error
+    """
+
+    names_schema = {
+        'type': 'object',
+        'properties': {
+            'names': {
+                'type': 'array',
+                'items': {
+                    'type': 'object',
+                    'properties': {
+                        'name': {
+                            'type': 'string',
+                            'pattern': OP_NAME_OR_SUBDOMAIN_PATTERN,
+                        },
+                        'block_id': {
+                            'type': 'integer',
+                            'minimum': 0,
+                        },
+                        'vtxindex': {
+                            'type': 'integer',
+                            'minimum': 0,
+                        },
+                    },
+                    'required': [
+                        'name',
+                        'block_id',
+                        'vtxindex',
+                    ],
+                },
+            },
+        },
+        'required': [
+            'names'
+        ],
+    }
+
+    schema = json_response_schema( names_schema )
+    
+    proxy = get_default_proxy() if proxy is None else proxy
+    
+    assert count <= 100, "Page too big"
+
+    resp = {}
+    try:
+        resp = proxy.get_historic_names_by_address(address, offset, count)
+        resp = json_validate(schema, resp)
+        if json_is_error(resp):
+            return resp
+
+        # names must be valid
+        for n in resp['names']:
+            assert scripts.is_name_valid(str(n['name'])), ('Invalid name "{}"'.format(str(n['name'])))
+
+    except (ValidationError, AssertionError) as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(e))
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    return resp['names']
+
+
+def get_historic_names_by_address(address, offset=None, count=None, proxy=None):
+    """
+    Get the list of names created by an address throughout history
+    Returns the list of names on success
+    Returns {'error': ...} on failure
+    """
+    proxy = get_default_proxy() if proxy is None else proxy
+
+    offset = 0 if offset is None else offset
+    if count is None:
+        # get all names owned by this address
+        count = get_num_historic_names_by_address(address, proxy=proxy)
+        if json_is_error(count):
+            return count
+
+        count -= offset
+
+    page_size = 100
+    all_names = []
+    while len(all_names) < count:
+        request_size = page_size
+        if count - len(all_names) < request_size:
+            request_size = count - len(all_names)
+
+        page = get_historic_names_by_address_page(address, offset + len(all_names), request_size, proxy=proxy)
+        if json_is_error(page):
+            # error
+            return page
+
+        if len(page) > request_size:
+            # error
+            error_str = 'server replied too much data'
+            return {'error': error_str}
+
+        elif len(page) == 0:
+            # end-of-table
+            break
+
+        all_names += page
+
+    return all_names[:count]
+
+
+def get_DID_blockchain_record(did, proxy=None):
+    """
+    Resolve a Blockstack decentralized identifier (DID) to its blockchain record.
+    DID format: did:stack:v0:${address}-${name_index}, where:
+    * address is the address that created the name this DID references
+    * name_index is the nth name ever created by this address.
+
+    Follow the sequence of NAME_TRANSFERs and NAME_RENEWALs to find the current
+    address, and then look up the public key.
+    """
+    proxy = get_default_proxy() if proxy is None else proxy
+    did_pattern = '^did:stack:v0:({}{{25,34}})-([0-9]+)$'.format(OP_BASE58CHECK_CLASS)
+
+    m = re.match(did_pattern, did)
+    assert m, 'Invalid DID: {}'.format(did)
+
+    address = m.groups()[0]
+    name_index = int(m.groups()[1])
+
+    addr_names = get_historic_names_by_address(address, proxy=proxy)
+    if json_is_error(addr_names):
+        return addr_names
+
+    if len(addr_names) <= name_index:
+        return {'error': 'Invalid DID: index {} exceeds number of names ({}) created by {}'.format(name_index, len(addr_names), address)}
+
+    # order by blockchain and tx
+    addr_names.sort(lambda n1,n2: -1 if n1['block_id'] < n2['block_id'] or (n1['block_id'] == n2['block_id'] and n1['vtxindex'] < n2['vtxindex']) else 1)
+    name = addr_names[name_index]['name']
+    start_block = addr_names[name_index]['block_id']
+    end_block = 100000000       # TODO: update if this gets too small
+
+    # verify that the name hasn't been revoked since this DID was created.
+    # however, it can have expired, transferred, or been re-registered.
+    name_history = get_name_blockchain_history(name, start_block, end_block)
+    final_name_state = None
+
+    for history_block in sorted(name_history.keys()):
+        for history_state in name_history[history_block]:
+            if history_state['op'] == NAME_REVOKE:
+                # end of the line
+                return {'error': 'The name for this DID has been revoked'}
+    
+            final_name_state = history_state
+
+    return final_name_state
+
+
 def get_consensus_at(block_height, proxy=None, hostport=None):
     """
     Get consensus at a block
@@ -1486,6 +1707,7 @@ def get_op_history_rows(name, proxy=None):
 
     return history_rows
 
+
 def get_zonefiles_by_block(from_block, to_block, proxy=None):
     """
     Get zonefile information for zonefiles announced in [@from_block, @to_block]
@@ -1537,6 +1759,7 @@ def get_zonefiles_by_block(from_block, to_block, proxy=None):
 
     return { 'last_block' : last_server_block,
              'zonefile_info' : output_zonefiles }
+
 
 def get_nameops_affected_at(block_id, proxy=None):
     """
@@ -1640,6 +1863,7 @@ def get_nameops_affected_at(block_id, proxy=None):
             return resp
 
     return all_nameops
+
 
 def get_nameops_at(block_id, proxy=None):
     """
