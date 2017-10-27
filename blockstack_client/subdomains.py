@@ -208,6 +208,10 @@ class SubdomainDB(object):
         return self.update(full_refresh=True)
 
     def update(self, full_refresh=False):
+        if not is_resolving_subdomains():
+            log.warn('Configured not to resolve subdomains, but tried to update subdomain cache anyways...')
+            return
+
         if full_refresh:
             self._drop_tables()
             self._create_tables()
@@ -362,6 +366,8 @@ class SubdomainDB(object):
         cursor.execute(create_cmd)
         cursor.execute(create_status_cmd)
 
+def is_resolving_subdomains():
+    return config.get_is_resolving_subdomains()
 
 def parse_zonefile_subdomains(domain, zonefile_json):
     registrar_urls = []
@@ -482,6 +488,10 @@ def add_subdomains(subdomains, domain_fqa):
     return issue_zonefile(domain_fqa, zf_txt)
 
 def get_subdomain_info(subdomain, domain_fqa, use_cache = True):
+    if not is_resolving_subdomains():
+        log.error('Tried to resolve subdomain, but subdomain resolution is turned off in this client.')
+        raise SubdomainNotFound(subdomain)
+
     if not use_cache:
         from blockstack_client import data
         zonefiles = data.list_zonefile_history(domain_fqa)
@@ -499,6 +509,9 @@ def get_subdomain_info(subdomain, domain_fqa, use_cache = True):
     return subdomain_obj
 
 def resolve_subdomain(subdomain, domain_fqa, use_cache = True):
+    if not is_resolving_subdomains():
+        log.error('Tried to resolve subdomain, but subdomain resolution is turned off in this client.')
+        raise SubdomainNotFound(subdomain)
     subdomain_obj = get_subdomain_info(subdomain, domain_fqa, use_cache = use_cache)
     return subdomain_record_to_profile(subdomain_obj)
 
@@ -543,6 +556,9 @@ def subdomain_record_to_profile(my_rec):
     return data
 
 def get_subdomains_owned_by_address(address):
+    if not is_resolving_subdomains():
+        return []
+
     db = SubdomainDB()
     db.update()
     return db.get_subdomains_owned_by_address(address)
