@@ -49,9 +49,11 @@ BLOCKSTACK_DB_SCRIPT = ""
 
 BLOCKSTACK_DB_SCRIPT += """
 -- NOTE: history_id is a fully-qualified name or namespace ID.
+-- NOTE: address is the address that owned the name or namespace ID at the time of insertion
 -- NOTE: history_data is a JSON-serialized dict of changed fields.
 CREATE TABLE history( txid TEXT NOT NULL,
                       history_id STRING NOT NULL,
+                      creator_address STRING,
                       block_id INT NOT NULL,
                       vtxindex INT NOT NULL,
                       op TEXT NOT NULL,
@@ -822,6 +824,8 @@ def namedb_op_sanity_check( opcode, op_data, record ):
     * the given opcode must be reachable from it.
     """
 
+    assert 'address' in record, "BUG: current record has no 'address' field"
+
     assert op_data.has_key('op'), "BUG: operation data is missing its 'op'"
     op_data_opcode = op_get_opcode_name( op_data['op'] )
 
@@ -930,8 +934,8 @@ def namedb_state_transition( cur, opcode, op_data, block_id, vtxindex, txid, his
         log.error("FATAL: state transition sanity checks failed")
         os.abort()
 
-    # back these fields up... 
-    rc = namedb_history_save( cur, opcode, history_id, block_id, vtxindex, txid, cur_record )
+    # back these fields up.
+    rc = namedb_history_save( cur, opcode, history_id, None, block_id, vtxindex, txid, cur_record )
     if not rc:
         log.error("FATAL: failed to save history for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
         os.abort()
@@ -1032,8 +1036,8 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
         log.error("FATAL: state-creation sanity check failed")
         os.abort()
 
-    # save the preorder as history 
-    rc = namedb_history_save( cur, opcode, history_id, block_id, vtxindex, txid, preorder_record )
+    # save the preorder as history.
+    rc = namedb_history_save( cur, opcode, history_id, new_record['address'], block_id, vtxindex, txid, preorder_record )
     if not rc:
         log.error("FATAL: failed to save history for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
         os.abort()
@@ -1135,10 +1139,10 @@ def namedb_state_create_as_import( db, opcode, new_record, block_id, vtxindex, t
     cur = db.cursor()
 
     if prior_import is None:
-        # duplicate as history
+        # duplicate as history (no prior record of this import)
         rec_dup = copy.deepcopy(new_record)
         rec_dup['history_snapshot'] = True
-        rc = namedb_history_save( cur, opcode, history_id, block_id, vtxindex, txid, rec_dup )
+        rc = namedb_history_save( cur, opcode, history_id, rec_dup['address'], block_id, vtxindex, txid, rec_dup )
         if not rc:
             log.error("FATAL: failed to save history snapshot for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
             os.abort()
@@ -1150,7 +1154,8 @@ def namedb_state_create_as_import( db, opcode, new_record, block_id, vtxindex, t
 
     else:
         # save the prior import
-        rc = namedb_history_save( cur, opcode, history_id, block_id, vtxindex, txid, prior_import )
+        # only save address if address changed
+        rc = namedb_history_save( cur, opcode, history_id, None, block_id, vtxindex, txid, prior_import )
         if not rc:
             log.error("FATAL: failed to save history snapshot for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
             os.abort()
@@ -1248,13 +1253,13 @@ def namedb_state_create_from_prior_history( cur, opcode, new_record, block_id, v
         os.abort()
 
     # save the history snapshot at the preorder block/txindex/txid
-    rc = namedb_history_save( cur, opcode, history_id, preorder_block_id, preorder_vtxindex, preorder_txid, history_snapshot[preorder_block_id][-1], history_snapshot=True )
+    rc = namedb_history_save( cur, opcode, history_id, None, preorder_block_id, preorder_vtxindex, preorder_txid, history_snapshot[preorder_block_id][-1], history_snapshot=True )
     if not rc:
         log.error("FATAL: failed to save history snapshot for '%s' at (%s, %s)" % (history_id, preorder_block_id, preorder_vtxindex))
         os.abort()
 
     # save the preorder as history at the current time
-    rc = namedb_history_save( cur, opcode, history_id, block_id, vtxindex, txid, preorder_record )
+    rc = namedb_history_save( cur, opcode, history_id, new_record['address'], block_id, vtxindex, txid, preorder_record )
     if not rc:
         log.error("FATAL: failed to save history for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
         os.abort()
@@ -1281,7 +1286,7 @@ def namedb_state_create_from_prior_history( cur, opcode, new_record, block_id, v
     return True
 
 
-def namedb_history_save( cur, opcode, history_id, block_id, vtxindex, txid, input_rec, history_snapshot=False ):
+def namedb_history_save( cur, opcode, history_id, creator_address, block_id, vtxindex, txid, input_rec, history_snapshot=False ):
     """
     Given a current record and an operation to perform on it,
     calculate and save its history diff (i.e. all the fields that
@@ -1294,7 +1299,7 @@ def namedb_history_save( cur, opcode, history_id, block_id, vtxindex, txid, inpu
 
     history_diff = None 
 
-    log.debug("SAVE HISTORY %s AT (%s, %s)" % (history_id, block_id, vtxindex))
+    log.debug("SAVE HISTORY %s[creator:%s] AT (%s, %s)" % (history_id, creator_address if creator_address else '(none)', block_id, vtxindex))
 
     # special case: if the given record was created by an operation
     # whose mutate fields are "__all__", then *everything* must be
@@ -1337,14 +1342,14 @@ def namedb_history_save( cur, opcode, history_id, block_id, vtxindex, txid, inpu
         log.debug("Backup (%s, %s) from %s: %s" % (block_id, vtxindex, prev_opcode, ",".join(sorted(history_diff_fields))))
         history_diff = dict( [(field, input_rec.get(field, None)) for field in history_diff_fields] )
 
-    rc = namedb_history_append( cur, history_id, block_id, vtxindex, txid, history_diff )
+    rc = namedb_history_append( cur, history_id, creator_address, block_id, vtxindex, txid, history_diff )
     if not rc:
         raise Exception("Failed to save history for '%s' at %s" % (history_rec, block_id))
 
     return True
 
 
-def namedb_history_append( cur, history_id, block_id, vtxindex, txid, history_rec ):
+def namedb_history_append( cur, history_id, creator_address, block_id, vtxindex, txid, history_rec ):
     """
     Append a history record at the given (block_id, vtxindex) point in time, for a
     record with the primary key @history_id.
@@ -1361,6 +1366,7 @@ def namedb_history_append( cur, history_id, block_id, vtxindex, txid, history_re
     history_insert = {
         "txid": txid,
         "history_id": history_id,
+        "creator_address": creator_address,
         "block_id": block_id,
         "vtxindex": vtxindex,
         "op": history_rec['op'],
@@ -1721,6 +1727,53 @@ def namedb_get_names_owned_by_address( cur, address, current_block ):
     names = []
     for name_row in name_rows:
         names.append( name_row['name'] )
+
+    if len(names) == 0:
+        return None 
+    else:
+        return names
+
+
+def namedb_get_num_historic_names_by_address( cur, address ):
+    """
+    Get the number of names owned by an address throughout history
+    """
+
+    select_query = "SELECT COUNT(*) FROM name_records JOIN history ON name_records.name = history.history_id " + \
+                   "WHERE history.creator_address = ?;"
+
+    args = (address,)
+
+    count = namedb_select_count_rows( cur, select_query, args )
+    return count
+    
+
+def namedb_get_historic_names_by_address( cur, address, offset=None, count=None ):
+    """
+    Get the list of all names ever owned by this address (except the current one), ordered by creation date.
+    Return a list of {'name': ..., 'block_id': ..., 'vtxindex': ...}}
+    """
+
+    query = "SELECT * FROM name_records JOIN history ON name_records.name = history.history_id " + \
+            "WHERE history.creator_address = ? ORDER BY history.block_id, history.vtxindex "
+
+    args = (address,)
+
+    offset_count_query, offset_count_args = namedb_offset_count_predicate( offset=offset, count=count )
+    query += offset_count_query + ";"
+    args += offset_count_args
+
+    name_rows = namedb_query_execute( cur, query, args )
+
+    names = []
+    for name_row in name_rows:
+        info = {
+            'name': name_row['name'], 
+            'block_id': name_row['block_id'], 
+            'vtxindex': name_row['vtxindex']
+        }
+
+        names.append( info )
 
     if len(names) == 0:
         return None 
