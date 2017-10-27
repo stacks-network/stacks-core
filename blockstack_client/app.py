@@ -36,6 +36,7 @@ import jsontokens
 import storage
 import data
 import urlparse
+import keylib
 import user as user_db
 from .proxy import get_default_proxy
 
@@ -82,7 +83,7 @@ def app_domain_to_app_name(app_domain):
         return '{}.1'.format(urlinfo.netloc)
 
 
-def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_public_keys, requester_device_id, master_data_privkey, session_lifetime=None, config_path=CONFIG_PATH ):
+def app_make_session( blockchain_id, app_public_key, app_domain, methods, app_public_keys, requester_device_id, master_data_privkey, session_lifetime=None, config_path=CONFIG_PATH ):
     """
     Make a session JWT for this application.
     Verify with user private key
@@ -97,8 +98,12 @@ def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_p
     if session_lifetime is None:
         session_lifetime = conf.get('default_session_lifetime', 1e80)
 
-    app_public_key = get_pubkey_hex(app_private_key)
-    app_user_id = data.datastore_get_id(app_public_key)
+    # blockstack-storage.js assumes it needs to use an
+    #  uncompressed address. let's do that if we need to
+
+    app_datastore_public_key = keylib.key_formatting.decompress(app_public_key)
+
+    app_user_id = data.datastore_get_id(app_datastore_public_key)
 
     api_endpoint_host = conf.get('api_endpoint_host', DEFAULT_API_HOST)
     api_endpoint_port = conf.get('api_endpoint_port', DEFAULT_API_PORT)
