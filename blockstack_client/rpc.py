@@ -1783,6 +1783,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
 
         if datastore_id != ses['app_user_id']:
+            log.debug("Invalid datastore ID : {} != {}".format(
+                ses['app_user_id'], datastore_id))
             return self._reply_json({'error': 'Invalid datastore ID'}, status_code=403)
 
         if inode_type not in ['files', 'directories']:
