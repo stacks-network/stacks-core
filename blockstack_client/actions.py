@@ -79,7 +79,8 @@ from blockstack_client import (
     get_name_zonefile, get_nameops_at, get_names_in_namespace, get_names_owned_by_address,
     get_namespace_blockchain_record, get_namespace_cost,
     is_user_zonefile, list_immutable_data_history, list_update_history,
-    list_zonefile_history, lookup_snv, put_immutable, put_mutable, zonefile_data_replicate
+    list_zonefile_history, lookup_snv, put_immutable, put_mutable, zonefile_data_replicate,
+    get_historic_names_by_address
 )
 
 from blockstack_client import subdomains
@@ -4214,6 +4215,22 @@ def cli_get_names_owned_by_address(args, config_path=CONFIG_PATH):
     arg: address (str) 'The address to query'
     """
     result = get_names_owned_by_address(str(args.address))
+    return result
+
+
+def cli_get_historic_names_by_address(args, config_path=CONFIG_PATH):
+    """
+    command: get_historic_names_by_address advanced
+    help: Get all of the names historically owned by an address
+    arg: address (str) 'The address that owns names'
+    arg: page (int) 'The page of names to fetch (groups of 100)'
+    """
+
+    offset = int(args.page) * 100
+    count = 100
+
+    result = get_historic_names_by_address(str(args.address), offset, count)
+
     return result
 
 
