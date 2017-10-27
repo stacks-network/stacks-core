@@ -543,25 +543,18 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         else:
             # current
             blockchain_id = decoded_token['payload']['blockchain_id']
-            app_private_key = str(decoded_token['payload']['app_private_key'])
-            app_public_key = get_pubkey_hex(app_private_key)
             app_public_keys = decoded_token['payload']['app_public_keys']
             requester_device_id = decoded_token['payload']['device_id']
 
             # must be listed in app_public_keys
-            requester_public_key = None
+            app_public_key = None
             for apk in app_public_keys:
                 if apk['device_id'] == requester_device_id:
-                    requester_public_key = apk['public_key']
+                    app_public_key = apk['public_key']
                     break
 
-            if requester_public_key is None:
+            if app_public_key is None:
                 return self._reply_json({'error': 'Invalid authRequest token: requesting device does not have a public key listed'}, status_code=401)
-
-            # must match the app private key
-            if keylib.key_formatting.decompress(requester_public_key) != keylib.key_formatting.decompress(app_public_key):
-                log.error("Device public key mismatch: {} != {}".format(requester_public_key, app_public_key))
-                return self._reply_json({'error': 'Invalid authRequest token: app private key does not match the device\'s listed public key'}, status_code=401)
 
         session_lifetime = DEFAULT_SESSION_LIFETIME
         log.debug("app_public_key: {}".format(app_public_key))
@@ -580,8 +573,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Invalid authRequest token: invalid signature'}, status_code=401)
 
         # make the token
-        res = app.app_make_session( blockchain_id, app_private_key, app_domain, methods, app_public_keys, requester_device_id, self.server.master_data_privkey,
-                                    session_lifetime=session_lifetime, config_path=self.server.config_path)
+        res = app.app_make_session( blockchain_id, app_public_key, app_domain, methods, app_public_keys, requester_device_id, self.server.master_data_privkey,
+                                    session_lifetime=session_lifetime, config_path=self.server.config_path )
 
         if 'error' in res:
             return self._reply_json({'error': 'Failed to create session: {}'.format(res['error'])}, status_code=500)
@@ -1790,6 +1783,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
 
         if datastore_id != ses['app_user_id']:
+            log.debug("Invalid datastore ID : {} != {}".format(
+                ses['app_user_id'], datastore_id))
             return self._reply_json({'error': 'Invalid datastore ID'}, status_code=403)
 
         if inode_type not in ['files', 'directories']:
