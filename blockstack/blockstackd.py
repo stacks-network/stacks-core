@@ -548,6 +548,13 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return True
 
 
+    def check_address(self, address):
+        """
+        verify that a string is an address
+        """
+        return self.check_string(address, min_length=26, max_length=35, pattern=blockstack_client.schemas.OP_ADDRESS_PATTERN)
+
+
     def rpc_ping(self, **con_info):
         reply = {}
         reply['status'] = "alive"
@@ -825,7 +832,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_indexer():
             return {'error': 'Method not supported'}
 
-        if not self.check_string(address, min_length=26, max_length=35, pattern=blockstack_client.schemas.OP_ADDRESS_PATTERN):
+        if not self.check_address(address):
             return {'error': 'Invalid address'}
 
         db = get_db_state()
@@ -836,6 +843,51 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             names = []
 
         return self.success_response( {'names': names} )
+
+
+    def rpc_get_historic_names_by_address(self, address, offset, count, **con_info):
+        """
+        Get the list of names owned by an address throughout history
+        Return {'status': True, 'names': [{'name': ..., 'block_id': ..., 'vtxindex': ...}]} on success
+        Return {'error': ...} on error
+        """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
+        if not self.check_address(address):
+            return {'error': 'Invalid address'}
+
+        db = get_db_state()
+        names = db.get_historic_names_by_address(address, offset, count)
+        db.close()
+
+        if names is None:
+            names = []
+
+        return self.success_response( {'names': names} )
+
+    
+    def rpc_get_num_historic_names_by_address(self, address, **con_info):
+        """
+        Get the number of names owned by an address throughout history
+        Return {'status': True, 'count': ...} on success
+        Return {'error': ...} on failure
+        """
+
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
+        if not self.check_address(address):
+            return {'error': 'Invalid address'}
+
+        db = get_db_state()
+        ret = db.get_num_historic_names_by_address(address)
+        db.close()
+
+        if ret is None:
+            ret = 0
+
+        return self.success_response( {'count': ret} )
 
 
     def rpc_get_name_cost( self, name, **con_info ):
