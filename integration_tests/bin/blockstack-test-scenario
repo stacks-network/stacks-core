@@ -835,6 +835,14 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
         log.info("Atlas zonefile checks pass!")
 
+    # verify historic name ownership 
+    rc = testlib.check_historic_names_by_address(db)
+    if not rc:
+        shutdown_procedure()
+        return rc
+
+    log.info("Historic name test passes!")
+
     shutdown_procedure()
     return True
 
