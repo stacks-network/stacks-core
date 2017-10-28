@@ -423,7 +423,7 @@ def getinfo(proxy=None, hostport=None):
             assert host is not None and port is not None
 
             protocol = None
-            if port == 6264:
+            if port == 6264 or port == 16264:
                 protocol = 'http'
             else:
                 protocol = 'https'
@@ -1054,7 +1054,7 @@ def get_consensus_at(block_height, proxy=None, hostport=None):
             assert host is not None and port is not None
 
             protocol = None
-            if port == 6264:
+            if port == 6264 or port == 16264:
                 protocol = 'http'
             else:
                 protocol = 'https'
@@ -2238,7 +2238,7 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
         assert host is not None and port is not None
 
         protocol = None
-        if port == 6264:
+        if port == 6264 or port == 16264:
             protocol = 'http'
         else:
             protocol = 'https'
