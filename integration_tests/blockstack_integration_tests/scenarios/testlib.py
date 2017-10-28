@@ -139,11 +139,12 @@ class MultisigSegwitWallet(object):
        
 
 class APICallRecord(object):
-    def __init__(self, method, name, result ):
+    def __init__(self, method, name, address, result ):
         self.block_id = max(all_consensus_hashes.keys()) + 1
         self.name = name
         self.method = method
         self.result = result
+        self.address = address
 
         assert 'transaction_hash' in result.keys() or 'error' in result.keys()
 
@@ -345,7 +346,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
     resp = blockstack_client.do_preorder( name, privatekey, owner_privkey_info, name_cost_info['satoshis'], test_proxy, test_proxy, tx_fee=tx_fee,
             burn_address=burn_addr, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    api_call_history.append( APICallRecord( "preorder", name, resp ) )
+    api_call_history.append( APICallRecord( "preorder", name, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
     return resp
 
 
@@ -368,7 +369,7 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
         kwargs = {'tx_fee' : tx_fee} # regtest shouldn't care about the tx_fee
 
     resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, zonefile_hash=zonefile_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
-    api_call_history.append( APICallRecord( "register", name, resp ) )
+    api_call_history.append( APICallRecord( "register", name, register_addr, resp ) )
     return resp
 
 
@@ -385,7 +386,7 @@ def blockstack_name_update( name, data_hash, privatekey, consensus_hash=None, te
     resp = blockstack_client.do_update( name, data_hash, privatekey, payment_key, test_proxy, test_proxy,
             consensus_hash=consensus_hash, tx_fee=tx_fee, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    api_call_history.append( APICallRecord( "update", name, resp ) )
+    api_call_history.append( APICallRecord( "update", name, None, resp ) )
     return resp
 
 
@@ -402,7 +403,7 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_has
     resp = blockstack_client.do_transfer( name, address, keepdata, privatekey, payment_key, test_proxy, test_proxy,
             tx_fee=tx_fee, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    api_call_history.append( APICallRecord( "transfer", name, resp ) )
+    api_call_history.append( APICallRecord( "transfer", name, address, resp ) )
     return resp
 
 
@@ -422,7 +423,7 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
     resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['satoshis'], test_proxy, test_proxy, tx_fee=tx_fee, tx_fee_per_byte=tx_fee_per_byte,
             burn_address=burn_addr, zonefile_hash=zonefile_hash, recipient_addr=recipient_addr, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    api_call_history.append( APICallRecord( "renew", name, resp ) )
+    api_call_history.append( APICallRecord( "renew", name, virtualchain.address_reencode(recipient_addr) if recipient_addr is not None else None, resp ) )
     return resp
 
 
@@ -437,7 +438,7 @@ def blockstack_name_revoke( name, privatekey, tx_only=False, safety_checks=True,
     payment_key = get_default_payment_wallet().privkey
 
     resp = blockstack_client.do_revoke( name, privatekey, payment_key, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, tx_fee=tx_fee )
-    api_call_history.append( APICallRecord( "revoke", name, resp ) )
+    api_call_history.append( APICallRecord( "revoke", name, None, resp ) )
     return resp
 
 
@@ -450,7 +451,7 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
     config_path = test_proxy.config_path if config_path is None else config_path
     
     resp = blockstack_client.do_name_import( name, privatekey, recipient_address, update_hash, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
-    api_call_history.append( APICallRecord( "name_import", name, resp ) )
+    api_call_history.append( APICallRecord( "name_import", name, virtualchain.address_reencode(recipient_address), resp ) )
     return resp
 
 
@@ -470,7 +471,9 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
         return {'error': 'Failed to get namespace costs'}
 
     resp = blockstack_client.do_namespace_preorder( namespace_id, namespace_cost['satoshis'], privatekey, register_addr, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
-    api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, resp ) )
+
+    print privatekey
+    api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
     return resp
 
 
@@ -487,7 +490,7 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
     resp = blockstack_client.do_namespace_reveal( namespace_id, version_bits, register_addr, lifetime, coeff, base, bucket_exponents,
             nonalpha_discount, no_vowel_discount, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy)
 
-    api_call_history.append( APICallRecord( "namespace_reveal", namespace_id, resp ) )
+    api_call_history.append( APICallRecord( "namespace_reveal", namespace_id, virtualchain.address_reencode(register_addr), resp ) )
     return resp
 
 
@@ -500,7 +503,7 @@ def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, co
     config_path = test_proxy.config_path if config_path is None else config_path
     
     resp = blockstack_client.do_namespace_ready( namespace_id, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks ) 
-    api_call_history.append( APICallRecord( "namespace_ready", namespace_id, resp ) )
+    api_call_history.append( APICallRecord( "namespace_ready", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
     return resp
 
 
@@ -513,7 +516,7 @@ def blockstack_announce( message, privatekey, safety_checks=True, config_path=No
     config_path = test_proxy.config_path if config_path is None else config_path
 
     resp = blockstack_client.do_announce( message, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
-    api_call_history.append( APICallRecord( "announce", message, resp ) )
+    api_call_history.append( APICallRecord( "announce", message, None, resp ) )
     return resp
 
 
@@ -2662,6 +2665,7 @@ def stop_api(hard_stop=True):
 
     return {'status': True}
 
+
 def hard_local_api_stop(config_dir):
     pidpath = blockstack_client.rpc.local_api_pidfile_path(
         config_dir=config_dir)
@@ -3181,7 +3185,92 @@ def check_atlas_zonefiles( state_engine, atlasdb_path ):
             return False
 
     return True 
-       
+    
+
+def check_historic_names_by_address( state_engine ):
+    """
+    Verify that we can look up all names owned by a given address.
+    Do so by creating DIDs for all of the names we've registered or imported,
+    and verifying that we can resolve them to the names' current form
+    """
+
+    global api_call_history
+    global snv_fail_at
+    global snv_fail
+
+    ret = True
+
+    addrs_checked = []  # for logging
+    addr_names = {}     # map address to list of names
+    revoked_names = {}  # map name to block height
+    final_name_states = {}
+
+    for api_call in api_call_history:
+        if api_call.method not in ['register', 'name_import', 'revoke']:
+            continue
+
+        name = api_call.name
+        address = api_call.address
+        block_id = api_call.block_id
+
+        if name in snv_fail_at.get(block_id, []):
+            continue
+
+        if name in snv_fail:
+            continue
+
+        if api_call.method in ['register', 'name_import']:
+            assert address is not None
+            
+            add = True
+            if api_call.method == 'name_import':
+                # don't allow dups of names added via name_import; the db won't allow it anyway
+                if address in addr_names:
+                    for (n, bid, calltype) in addr_names[address]:
+                        if n == name and calltype == 'name_import':
+                            # duplicate
+                            add = False
+
+            if add:
+                if not address in addr_names:
+                    addr_names[address] = []
+            
+                addr_names[address].append((name, block_id, api_call.method))
+
+        if api_call.method == 'revoke':
+            revoked_names[name] = block_id
+
+        final_name_states[name] = state_engine.get_name(name, include_expired=True)
+
+    log.debug('addr names: {}'.format(addr_names))
+    log.debug('revoked names: {}'.format(revoked_names))
+    
+    for address in addr_names.keys():
+        for i, (name, block_id, _) in enumerate(addr_names[address]):
+            did = 'did:stack:v0:{}-{}'.format(address, i)
+            name_rec = blockstack_client.proxy.get_DID_blockchain_record(did)
+
+            if name in revoked_names.keys() and revoked_names[name] >= block_id:
+                # name was revoked. expect failure
+                if 'error' not in name_rec:
+                    log.error("Accidentally resolved {} on revoked name".format(did))
+                    ret = False 
+
+            else:
+                if 'error' in name_rec:
+                    log.error("Failed to resolve {}: {}".format(did, name_rec['error']))
+                    ret = False
+
+                else:
+                    for k in name_rec.keys():
+                        if name_rec[k] != final_name_states[name].get(k, None):
+                            log.error("Name rec for {} does not equal final name state from db".format(name))
+                            log.error("Expected:\n{}".format(json.dumps(final_name_states[name], indent=4, sort_keys=True)))
+                            log.error("Got:\n{}".format(name_rec, indent=4, sort_keys=True))
+                            ret = False
+
+    return ret
+
 
 def get_unspents( addr ):
     """
@@ -3376,7 +3465,7 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
 
     # do the update 
     res = blockstack_client.do_update( name, user_zonefile_hash, owner_privkey_info, payment_privkey_info, proxy, proxy, config_path=proxy.config_path, proxy=proxy )
-    api_call_history.append( APICallRecord( "update", name, res ) )
+    api_call_history.append( APICallRecord( "update", name, None, res ) )
 
     if 'error' in res:
         return {'error': 'Failed to send update transaction: %s' % res['error']}
