@@ -28,6 +28,7 @@ import urllib2
 import hashlib
 import threading
 import traceback
+import gc
 
 from .config import get_config
 from .logger import get_logger
@@ -123,6 +124,11 @@ def daemonize( logpath, child_wait=None ):
 
     if child_pid == 0:
         # child!
+        # stop bothering with garbage-collection
+        # (in the test framework, sometimes this can lead to deadlocks
+        # due to lingering sqlite3 handles)
+        gc.disable()
+
         sys.stdin.close()
         os.dup2(logfile.fileno(), sys.stdout.fileno())
         os.dup2(logfile.fileno(), sys.stderr.fileno())
