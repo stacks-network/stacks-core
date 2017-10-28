@@ -91,6 +91,7 @@ def scenario( wallets, **kw ):
     put_result = testlib.blockstack_cli_put_immutable( "foo.test", "hello_world_1", json.dumps(datasets[0], sort_keys=True), password="0123456789abcdef" )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
 
     testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
     immutable_data_hashes.append( put_result['immutable_data_hash'] )
@@ -102,12 +103,14 @@ def scenario( wallets, **kw ):
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
+
     print "waiting for confirmation"
     time.sleep(10)
 
     put_result = testlib.blockstack_cli_put_immutable( "foo.test", "hello_world_2", json.dumps(datasets[1], sort_keys=True), password='0123456789abcdef')
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
 
     testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
     immutable_data_hashes.append( put_result['immutable_data_hash'] )
@@ -119,6 +122,7 @@ def scenario( wallets, **kw ):
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
+
     print "waiting for confirmation"
     time.sleep(10)
 
@@ -137,6 +141,7 @@ def scenario( wallets, **kw ):
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
+
     print "waiting for confirmation"
     time.sleep(10)
 
@@ -159,6 +164,7 @@ def scenario( wallets, **kw ):
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
+        
     print "waiting for confirmation"
     time.sleep(10)
 
