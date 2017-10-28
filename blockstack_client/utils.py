@@ -149,6 +149,7 @@ def daemonize( logpath, child_wait=None ):
         if daemon_pid == 0:
             # daemon! chdir and return
             os.chdir('/')
+            gc.enable()
             return 0
 
         elif daemon_pid > 0:
