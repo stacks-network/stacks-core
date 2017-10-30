@@ -2565,8 +2565,8 @@ def make_legacy_014_wallet( owner_privkey, payment_privkey, data_privkey, passwo
 
     decrypted_legacy_wallet = blockstack_client.keys.make_wallet_keys(data_privkey=data_privkey, owner_privkey=owner_privkey, payment_privkey=payment_privkey)
     encrypted_legacy_wallet = {
-        'data_pubkey': ECPrivateKey(data_privkey).public_key().to_hex(),
-        'data_pubkeys': [ECPrivateKey(data_privkey).public_key().to_hex()],
+        'data_pubkey': keylib.ECPrivateKey(data_privkey).public_key().to_hex(),
+        'data_pubkeys': [keylib.ECPrivateKey(data_privkey).public_key().to_hex()],
         'data_privkey': encrypt_private_key_info(data_privkey, password)['encrypted_private_key_info']['private_key_info'],
         'owner_addresses': decrypted_legacy_wallet['owner_addresses'],
         'encrypted_owner_privkey': encrypt_private_key_info(owner_privkey, password)['encrypted_private_key_info']['private_key_info'],
