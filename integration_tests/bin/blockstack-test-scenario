@@ -27,6 +27,7 @@ import threading
 import argparse
 import BaseHTTPServer
 import cgi
+import random
 from datetime import datetime
 from influxdb import InfluxDBClient
 
@@ -39,6 +40,8 @@ import virtualchain
 log = virtualchain.get_logger("blockstack-test-scenario")
 
 from virtualchain.lib.blockchain.bitcoin_blockchain import JSONRPCException
+
+MAX_TEST_LIFETIME = 3600 * 2    # max test run is 2 hours
 
 TEST_RPC_PORT = 16264
 TEST_CLIENT_RPC_PORT = int(os.environ.get("BLOCKSTACK_TEST_CLIENT_RPC_PORT", 16268))
@@ -155,6 +158,31 @@ class Pinger(threading.Thread):
                 time.sleep(0.25)
             except socket.error:
                 bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts() )
+
+    def ask_join(self):
+        self.running = False
+
+
+class TestTimeout(threading.Thread):
+    """
+    In the event that a test deadlocks, force it to abort after a set amount of time
+    """
+    def __init__(self, timeout):
+        threading.Thread.__init__(self)
+        self.timeout = timeout
+        self.running = False
+
+    def run(self):
+        self.running = True
+        deadline = time.time() + self.timeout
+        while self.running:
+            time.sleep(1)
+            if time.time() > deadline:
+                # out of time
+                log.error("Out of time")
+                sys.stdout.flush()
+                sys.stderr.flush()
+                os.abort()
 
     def ask_join(self):
         self.running = False
@@ -653,6 +681,10 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     pinger = Pinger()
     pinger.start()
 
+    # forced timoeut
+    timeout_watchdog = TestTimeout(MAX_TEST_LIFETIME)
+    timeout_watchdog.start()
+
     # shutdown procedure
     def shutdown_procedure(*args, **kw):
         if os.getpid() != SCENARIO_PID:
@@ -679,6 +711,11 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
             log.info("Shutting down pinger")
             pinger.ask_join()
             pinger.join()
+
+        if timeout_watchdog:
+            log.info("Shutting down timeout watchdog")
+            timeout_watchdog.ask_join()
+            timeout_watchdog.join()
 
 
     def signal_shutdown_procedure(*args, **kw):
@@ -834,7 +871,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
             return rc
 
         log.info("Atlas zonefile checks pass!")
-
+    
     shutdown_procedure()
     return True
 
@@ -1140,6 +1177,7 @@ def parse_args( argv ):
     args, _ = parser.parse_known_args()
     return args
 
+
 def influx_write( influx_client, test_start, test_name, status ):
     test_time = datetime.utcnow() - test_start
     git_commit = os.environ["GIT_COMMIT"]
@@ -1162,7 +1200,21 @@ def influx_write( influx_client, test_start, test_name, status ):
             }
         }
     ]
-    influx_client.write_points(point)
+
+    final_exception = None
+    for i in xrange(0, 10):
+        try:
+            influx_client.write_points(point)
+            return
+        except Exception as e:
+            # this can sometimes fail due to network timeouts
+            # do jittery back-off, up to 5 minutes
+            log.exception(e)
+            log.debug("Will sleep for a bit and try to context Influx again")
+            time.sleep(min(300, (2**i) * (1 + random.random())))
+            final_exception = e
+
+    raise final_exception
 
 
 if __name__ == "__main__":
@@ -1263,10 +1315,7 @@ if __name__ == "__main__":
         print "Failed to load '%s'" % scenario_module
 
         if args.influx:
-            try:
-                influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-load")
-            except:
-                pass
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-load")
 
         sys.exit(1)
 
@@ -1326,10 +1375,7 @@ if __name__ == "__main__":
         log.error("failed to write config file: exit %s" % rc)
 
         if args.influx:
-            try:
-                influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-config")
-            except:
-                pass
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-config")
 
         sys.exit(1)
 
@@ -1349,10 +1395,7 @@ if __name__ == "__main__":
 
     if rc != 0:
         if args.influx:
-            try:
-                influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-config")
-            except:
-                pass
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-config")
 
         log.error("failed to write config file: exit %s" % rc)
         sys.exit(1)
@@ -1369,18 +1412,12 @@ if __name__ == "__main__":
         print "SUCCESS %s" % scenario.__name__
         # shutil.rmtree( working_dir )
         if args.influx:
-            try:
-                influx_write(influx_client, test_start, scenario_module.split(".")[2], "success")
-            except:
-                pass
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "success")
 
         sys.exit(0)
     else:
         if args.influx:
-            try:
-                influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure")
-            except:
-                pass
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure")
 
         print >> sys.stderr, "FAILURE %s" % scenario.__name__
         print >> sys.stderr, "Test output in %s" % working_dir
