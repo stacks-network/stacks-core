@@ -2225,6 +2225,41 @@ def atlas_stop( atlas_state ):
         atlas_state = None
 
 
+def read_pid_file(pidfile_path):
+    """
+    Read the PID from the PID file
+    """
+
+    try:
+        fin = open(pidfile_path, "r")
+    except Exception, e:
+        return None
+
+    else:
+        pid_data = fin.read().strip()
+        fin.close()
+
+        try:
+            pid = int(pid_data)
+            return pid
+        except:
+            return None
+
+
+def check_server_running(pid):
+    """
+    Determine if the given process is running
+    """
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError as oe:
+        if oe.errno == errno.ESRCH:
+            return False
+        else:
+            raise
+
+
 def stop_server( clean=False, kill=False ):
     """
     Stop the blockstackd server.
@@ -2240,62 +2275,52 @@ def stop_server( clean=False, kill=False ):
             dead = True
             break
 
-        try:
-            fin = open(pid_file, "r")
-        except Exception, e:
-            pass
-
-        else:
-            pid_data = fin.read().strip()
-            fin.close()
-
+        pid = read_pid_file(pid_file)
+        if pid is not None:
             try:
-                pid = int(pid_data)
+               os.kill(pid, signal.SIGTERM)
+            except OSError, oe:
+               if oe.errno == errno.ESRCH:
+                  # already dead
+                  log.info("Process %s is not running" % pid)
+                  try:
+                      os.unlink(pid_file)
+                  except:
+                      pass
 
-                try:
-                   os.kill(pid, signal.SIGTERM)
-                except OSError, oe:
-                   if oe.errno == errno.ESRCH:
-                      # already dead
-                      log.info("Process %s is not running" % pid)
-                      try:
-                          os.unlink(pid_file)
-                      except:
-                          pass
+                  return
 
-                      return
-
-                except Exception, e:
-                    log.exception(e)
-                    os.abort()
-
-            except:
-                log.info("Corrupt PID file.  Please make sure all instances of this program have stopped and remove {}".format(pid_file))
+            except Exception, e:
+                log.exception(e)
                 os.abort()
 
-            # is it actually dead?
-            blockstack_opts = get_blockstack_opts()
-            srv = blockstack_client.proxy.BlockstackRPCClient('localhost', blockstack_opts['rpc_port'], timeout=5, protocol = 'http')
-            try:
-                res = blockstack_client.ping(proxy=srv)
-            except socket.error as se:
-                # dead?
-                if se.errno == errno.ECONNREFUSED:
-                    # couldn't connect, so infer dead
-                    try:
-                        os.kill(pid, 0)
-                        log.info("Server %s is not dead yet..." % pid)
+        else:
+            log.info("Corrupt PID file.  Please make sure all instances of this program have stopped and remove {}".format(pid_file))
+            os.abort()
 
-                    except OSError, oe:
-                        log.info("Server %s is dead to us" % pid)
-                        dead = True
-                        break
-                else:
-                    continue
+        # is it actually dead?
+        blockstack_opts = get_blockstack_opts()
+        srv = blockstack_client.proxy.BlockstackRPCClient('localhost', blockstack_opts['rpc_port'], timeout=5, protocol = 'http')
+        try:
+            res = blockstack_client.ping(proxy=srv)
+        except socket.error as se:
+            # dead?
+            if se.errno == errno.ECONNREFUSED:
+                # couldn't connect, so infer dead
+                try:
+                    os.kill(pid, 0)
+                    log.info("Server %s is not dead yet..." % pid)
 
-            log.info("Server %s is still running; trying again in %s seconds" % (pid, timeout))
-            time.sleep(timeout)
-            timeout *= 2
+                except OSError, oe:
+                    log.info("Server %s is dead to us" % pid)
+                    dead = True
+                    break
+            else:
+                continue
+
+        log.info("Server %s is still running; trying again in %s seconds" % (pid, timeout))
+        time.sleep(timeout)
+        timeout *= 2
 
     if not dead and kill:
         # be sure to clean up the pidfile
@@ -2938,34 +2963,46 @@ def run_blockstackd():
    if args.action == 'start':
       global has_indexer
       has_indexer = (not args.no_indexer)
-
       expected_snapshots = {}
 
+      pid = read_pid_file(get_pidfile_path())
+      still_running = False
+      
+      if pid is not None:
+          try:
+              still_running = check_server_running(pid)
+          except:
+              log.error("Could not contact process {}".format(pid))
+              sys.exit(1)
+      
+      if still_running:
+          log.error("Blockstackd appears to be running already.  If not, please run '{} stop'".format(sys.argv[0]))
+          sys.exit(1)
+
       if is_indexer():
-          if config.is_indexing():
-              # The server didn't shut down properly.
-              # restore from back-up before running
-              log.warning("Server did not shut down properly.  Restoring state from last known-good backup.")
+          # The server didn't shut down properly.
+          # restore from back-up before running
+          log.warning("Server did not shut down properly.  Restoring state from last known-good backup.")
 
-              # move any existing db information out of the way so we can start fresh.
-              state_paths = BlockstackDB.get_state_paths()
-              need_backup = reduce( lambda x, y: x or y, map(lambda sp: os.path.exists(sp), state_paths), False )
-              if need_backup:
+          # move any existing db information out of the way so we can start fresh.
+          state_paths = BlockstackDB.get_state_paths()
+          need_backup = reduce( lambda x, y: x or y, map(lambda sp: os.path.exists(sp), state_paths), False )
+          if need_backup:
 
-                  # have old state.  keep it around for later inspection
-                  target_dir = os.path.join( working_dir, 'crash.{}'.format(time.time()))
-                  os.makedirs(target_dir)
-                  for sp in state_paths:
-                      if os.path.exists(sp):
-                         target = os.path.join( target_dir, os.path.basename(sp) )
-                         shutil.move( sp, target )
+              # have old state.  keep it around for later inspection
+              target_dir = os.path.join( working_dir, 'crash.{}'.format(time.time()))
+              os.makedirs(target_dir)
+              for sp in state_paths:
+                  if os.path.exists(sp):
+                     target = os.path.join( target_dir, os.path.basename(sp) )
+                     shutil.move( sp, target )
 
-                  log.warning("State from crash stored to '{}'".format(target_dir))
+              log.warning("State from crash stored to '{}'".format(target_dir))
 
-              blockstack_backup_restore( working_dir, None )
-              config.set_indexing(False)
+          blockstack_backup_restore( working_dir, None )
 
-              log.warning("State reverted")
+          # make sure we "stop"
+          config.set_indexing(False)
 
           # use snapshots?
           if args.expected_snapshots is not None:
@@ -2973,9 +3010,10 @@ def run_blockstackd():
               if expected_snapshots is None:
                   sys.exit(1)
 
-      if os.path.exists( get_pidfile_path() ):
-          log.error("Blockstackd appears to be running already.  If not, please run '%s stop'" % (sys.argv[0]))
-          sys.exit(1)
+      try:
+          os.unlink(get_pidfile_path())
+      except:
+          pass
 
       if args.foreground:
           log.info('Initializing blockstackd server in foreground (working dir = \'%s\')...' % (working_dir))
