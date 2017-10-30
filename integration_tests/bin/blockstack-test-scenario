@@ -41,7 +41,7 @@ log = virtualchain.get_logger("blockstack-test-scenario")
 
 from virtualchain.lib.blockchain.bitcoin_blockchain import JSONRPCException
 
-MAX_TEST_LIFETIME = 89 * 60 * 60    # max test run is 89 minutes
+MAX_TEST_LIFETIME = 75 * 60 * 60    # max test run is 75 minutes
 
 TEST_RPC_PORT = 16264
 TEST_CLIENT_RPC_PORT = int(os.environ.get("BLOCKSTACK_TEST_CLIENT_RPC_PORT", 16268))
