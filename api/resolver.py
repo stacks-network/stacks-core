@@ -154,7 +154,8 @@ def format_profile(profile, fqa, zone_file, address, public_key):
 
     data = {'profile' : profile,
             'zone_file' : zone_file,
-            'public_key': public_key}
+            'public_key': public_key,
+            'owner_address' : address}
 
     if not fqa.endswith('.id'):
         data['verifications'] = ["No verifications for non-id namespaces."]
