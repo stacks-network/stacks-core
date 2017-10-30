@@ -37,10 +37,10 @@ import time
 import tempfile
 import hashlib
 import keylib
-from keylib import ECPrivateKey
 
 import blockstack_zones
 import virtualchain
+from virtualchain.lib.ecdsalib import ecdsa_private_key
 
 from .queue import get_queue_state, in_queue, cleanup_preorder_queue, queue_removeall
 from .queue import queue_find_accepted, queuedb_find
@@ -147,19 +147,35 @@ class RegistrarWorker(threading.Thread):
     """
     Worker thread for waiting for transactions to go through.
     """
-    def __init__(self, config_path):
+    def __init__(self, config_path, queue_path=None, poll_interval=None, api_port=None, storage_drivers_required_write=None, storage_drivers=None):
         super(RegistrarWorker, self).__init__()
 
         self.config_path = config_path
         config = get_config(config_path)
-        self.queue_path = config['queue_path']
-        self.poll_interval = int(config['poll_interval'])
-        self.api_port = int(config['api_endpoint_port'])
+
+        if queue_path is None:
+            queue_path = config['queue_path']
+
+        if poll_interval is None:
+            poll_interval = int(config['poll_interval'])
+
+        if api_port is None:
+            api_port = int(config['api_endpoint_port'])
+
+        if storage_drivers_required_write is None:
+            storage_drivers_required_write = config.get('storage_drivers_required_write', None)
+
+        if storage_drivers is None:
+            storage_drivers = config.get('storage_drivers', '')
+
+        self.queue_path = queue_path
+        self.poll_interval = poll_interval
+        self.api_port = api_port
         self.running = True
         self.lockfile_path = None
-        self.required_storage_drivers = config.get('storage_drivers_required_write', None)
+        self.required_storage_drivers = storage_drivers_required_write
         if self.required_storage_drivers is None:
-            self.required_storage_drivers = config.get("storage_drivers", "").split(",")
+            self.required_storage_drivers = storage_drivers.split(",")
         else:
             self.required_storage_drivers = self.required_storage_drivers.split(",")
 
@@ -182,6 +198,7 @@ class RegistrarWorker(threading.Thread):
         """
         Given a preordered name, go register it.
         Return the result of broadcasting the registration operation on success (idempotent--if already broadcasted, then return the broadcast information).
+        * {'status': True, 'transaction_hash': ...}
         Return {'error': ...} on error
         Return {'error': ..., 'already_registered': True} if the name is already registered
         Return {'error': ..., 'not_preordered': True} if the name was not preordered
@@ -189,19 +206,21 @@ class RegistrarWorker(threading.Thread):
         if proxy is None:
             proxy = get_default_proxy(config_path=config_path)
 
-        if not is_name_registered( name_data['fqu'], proxy=proxy ):
+        # ignore grace period, since we can send a register just as a name expires
+        if not is_name_registered( name_data['fqu'], proxy=proxy, config_path=config_path, include_grace=False ):
             if in_queue( "preorder", name_data['fqu'], path=queue_path ):
                 if not in_queue("register", name_data['fqu'], path=queue_path):
                     # was preordered but not registered
                     # send the registration
-                    log.debug("async_register({}, zonefile={}, profile={}, transfer_address={})".format(
-                        name_data['fqu'], name_data.get('zonefile'), name_data.get('profile'), 
+                    log.debug("async_register({}, zonefile={}, zonefile_hash={}, profile={}, transfer_address={})".format(
+                        name_data['fqu'], name_data.get('zonefile'), name_data.get('zonefile_hash'), name_data.get('profile'), 
                         name_data.get('transfer_address'))) 
 
                     res = async_register( name_data['fqu'], payment_privkey_info, owner_privkey_info, 
                                           name_data=name_data, proxy=proxy, config_path=config_path,
                                           queue_path=queue_path )
                     return res
+
                 else:
                     # already queued
                     reg_result = queuedb_find( "register", name_data['fqu'], limit=1, path=queue_path )
@@ -374,8 +393,9 @@ class RegistrarWorker(threading.Thread):
         """
         Find all confirmed preorders, and register them.
         Return {'status': True} on success
-        Return {'error': ...} on error
+        Return {'error': ..., 'names': ..., 'failed': ...} on error
         'names' maps to the list of queued name data for names that were registered
+        'failed' maps to the list of queued name data for names that were not registered
         """
 
         if proxy is None:
@@ -383,6 +403,10 @@ class RegistrarWorker(threading.Thread):
 
         ret = {'status': True}
         preorders = cls.get_confirmed_preorders( config_path, queue_path )
+        
+        failed_names = []
+        succeeded_names = []
+
         for preorder in preorders:
 
             log.debug("Preorder for '%s' (%s) is confirmed!" % (preorder['fqu'], preorder['tx_hash']))
@@ -403,12 +427,19 @@ class RegistrarWorker(threading.Thread):
                 else:
                     log.error("Failed to register preordered name %s: %s" % (preorder['fqu'], res['error']))
                     queue_add_error_msg('preorder', preorder['fqu'], res['error'], path=queue_path)
-                    ret = {'error': 'Failed to preorder a name'} 
 
+                    ret = {'error': 'Failed to preorder a name'} 
+                    failed_names.append(preorder['fqu'])
             else:
                 # clear 
                 log.debug("Sent register for %s" % preorder['fqu'] )
                 queue_removeall( [preorder], path=queue_path )
+                succeeded_names.append(preorder['fqu'])
+
+        ret['names'] = succeeded_names
+
+        if 'error' in ret:
+            ret['failed'] = failed_names
 
         return ret
 
@@ -718,7 +749,7 @@ class RegistrarWorker(threading.Thread):
 
         atlas_peers_res = {}
         try:
-            atlas_peers_res = get_atlas_peers( server_hostport, proxy = get_default_proxy() )
+            atlas_peers_res = get_atlas_peers( server_hostport, proxy = get_default_proxy(config_path) )
             assert 'error' not in atlas_peers_res
 
             servers += atlas_peers_res['peers']
@@ -833,7 +864,7 @@ class RegistrarWorker(threading.Thread):
             return False
 
 
-    def run(self):
+    def run(self, once=False):
         """
         Watch the various queues:
         * if we find an accepted preorder, send the accompanying register
@@ -1053,6 +1084,9 @@ class RegistrarWorker(threading.Thread):
                 log.debug("Sleep interrupted")
                 break
 
+            if once:
+                break
+
         log.info("Registrar worker exited")
         self.cleanup_lockfile( self.lockfile_path )
 
@@ -1150,7 +1184,7 @@ def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, p
 
     state.payment_address = payment_keypair[0]
     state.owner_address = owner_keypair[0]
-    state.data_pubkey = ECPrivateKey(data_keypair[1]).public_key().to_hex()
+    state.data_pubkey = ecdsa_private_key(data_keypair[1]).public_key().to_hex()
 
     if keylib.key_formatting.get_pubkey_format(state.data_pubkey) == 'hex_compressed':
         state.data_pubkey = keylib.key_formatting.decompress(state.data_pubkey)
@@ -1290,10 +1324,21 @@ def preorder(fqu, cost_satoshis, zonefile_data, profile, transfer_address, min_p
     # save the current privkey_info, scrypted with our password
     passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
     if passwd:
-        name_data['owner_privkey'] = aes_encrypt(
-            str(owner_key), hexlify( passwd ))
-        name_data['payment_privkey'] = aes_encrypt(
-            str(payment_key), hexlify( passwd ))
+        # if this module is being used by a library, it may want to set its own scrypt params since the performance/security
+        # trade-off may be worth it.  These would be set as a JSON dict in BLOCKSTACK_CLIENT_SCRYPT_PARAMS
+        scrypt_params = {}
+        if os.environ.get('BLOCKSTACK_CLIENT_CRYPTO_PARAMS') is not None:
+            scrypt_params = os.environ['BLOCKSTACK_CLIENT_CRYPTO_PARAMS']
+            log.warning("Using custom crypt parameters: {}".format(scrypt_params))
+            scrypt_params = json.loads(scrypt_params)
+
+            # sanity check: must be numerics!
+            for (k, v) in scrypt_params.items():
+                assert isinstance(v, (int,long,float)), 'Only numeric kwargs are allwed'
+
+        name_data['owner_privkey'] = aes_encrypt(str(owner_key), hexlify(passwd), **scrypt_params)
+        name_data['payment_privkey'] = aes_encrypt(str(payment_key), hexlify(passwd), **scrypt_params)
+
     else:
         log.warn("Registrar couldn't access wallet password to encrypt privkey," +
                  " sheepishly refusing to store the private key unencrypted.")

@@ -165,6 +165,7 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
 
     return wallet
 
+
 def save_modified_wallet(decrypted_wallet, password, config_path = CONFIG_PATH):
     """
     Encrypt and save a given @decrypted_wallet using @password at the
@@ -180,6 +181,7 @@ def save_modified_wallet(decrypted_wallet, password, config_path = CONFIG_PATH):
     encrypted_wallet = encrypt_wallet(decrypted_wallet, password)
     if 'error' in encrypted_wallet:
         return encrypted_wallet
+
     # sanity check
     jsonschema.validate(encrypted_wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
 

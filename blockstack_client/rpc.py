@@ -103,7 +103,7 @@ import storage
 from utils import daemonize, streq_constant
 
 import virtualchain
-from virtualchain.lib.ecdsalib import get_pubkey_hex, verify_raw_data
+from virtualchain.lib.ecdsalib import get_pubkey_hex, verify_raw_data, ecdsa_private_key
 
 import blockstack_profiles
 
@@ -4172,8 +4172,8 @@ class BlockstackAPIEndpoint(SocketServer.ThreadingMixIn, SocketServer.TCPServer)
         if wallet_keys is not None:
             assert wallet_keys.has_key('data_privkey')
 
-            self.master_data_privkey = ECPrivateKey(wallet_keys['data_privkey']).to_hex()
-            self.master_data_pubkey = ECPrivateKey(self.master_data_privkey).public_key().to_hex()
+            self.master_data_privkey = ecdsa_private_key(wallet_keys['data_privkey']).to_hex()
+            self.master_data_pubkey = ecdsa_private_key(self.master_data_privkey).public_key().to_hex()
 
             if keylib.key_formatting.get_pubkey_format(self.master_data_pubkey) == 'hex_compressed':
                 self.master_data_pubkey = keylib.key_formatting.decompress(self.master_data_pubkey)
@@ -5396,8 +5396,8 @@ def local_api_start( port=None, host=None, config_dir=blockstack_constants.CONFI
     log.debug("Initializing registrar...")
     state = backend.registrar.set_registrar_state(config_path=config_path, wallet_keys=wallet)
     if state is None:
-        log.error("Failed to initialize registrar: {}".format(res['error']))
-        return {'error': 'Failed to initialize registrar: {}'.format(res['error'])}
+        log.error("Failed to initialize registrar: failed to set registrar state")
+        return {'error': 'Failed to initialize registrar: failed to set registrar state'}
 
     log.debug("Setup finished")
 

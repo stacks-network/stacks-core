@@ -224,6 +224,11 @@ def get_default_proxy(config_path=CONFIG_PATH):
     blockstack_server, blockstack_port = conf['server'], conf['port']
     protocol = conf['protocol']
 
+    if os.environ.get("BLOCKSTACK_TEST") == "1":
+        # we'd better be using the test port
+        if blockstack_port != 16264:
+            log.warning("Invalid port {} loaded from {}, at\n{}".format(blockstack_port, config_path, ''.join(traceback.format_stack())))
+
     log.debug('Default proxy to {}://{}:{}'.format(protocol, blockstack_server, blockstack_port))
 
     proxy = client.session(conf=conf, server_host=blockstack_server, server_port=blockstack_port,
@@ -421,7 +426,7 @@ def getinfo(proxy=None, hostport=None):
             assert host is not None and port is not None
 
             protocol = None
-            if port == 6264:
+            if port == 6264 or port == 16264:
                 protocol = 'http'
             else:
                 protocol = 'https'
@@ -1270,7 +1275,7 @@ def get_consensus_at(block_height, proxy=None, hostport=None):
             assert host is not None and port is not None
 
             protocol = None
-            if port == 6264:
+            if port == 6264 or port == 16264:
                 protocol = 'http'
             else:
                 protocol = 'https'
@@ -2109,15 +2114,15 @@ def get_namespace_blockchain_record(namespace_id, proxy=None):
     return ret
 
 
-def is_name_registered(fqu, proxy=None):
+def is_name_registered(fqu, config_path=CONFIG_PATH, proxy=None, include_grace=True):
     """
     Return True if @fqu is a registered name on the blockchain.
     Must not be revoked, and must not be expired.
     """
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
 
-    blockchain_record = get_name_blockchain_record(fqu, include_expired=False, include_grace=True, proxy=proxy)
+    blockchain_record = get_name_blockchain_record(fqu, include_expired=False, include_grace=include_grace, proxy=proxy)
     if 'error' in blockchain_record:
         log.debug('Failed to read blockchain record for {}'.format(fqu))
         return False
@@ -2451,7 +2456,18 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
     }
 
     schema = json_response_schema( saved_schema )
-    proxy = get_default_proxy() if proxy is None else proxy
+    
+    if proxy is None:
+        host, port = url_to_host_port(hostport)
+        assert host is not None and port is not None
+
+        protocol = None
+        if port == 6264 or port == 16264:
+            protocol = 'http'
+        else:
+            protocol = 'https'
+
+        proxy = BlockstackRPCClient(host, port, protocol=protocol)
 
     push_info = None
     try:

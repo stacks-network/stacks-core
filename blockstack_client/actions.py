@@ -95,7 +95,7 @@ import config
 from .config import configure_zonefile, configure, get_utxo_provider_client, get_tx_broadcaster, get_local_device_id
 from .constants import (
     CONFIG_PATH, CONFIG_DIR, WALLET_FILENAME,
-    FIRST_BLOCK_MAINNET, NAME_UPDATE, NAME_IMPORT, NAME_REGISTRATION,
+    FIRST_BLOCK_MAINNET, NAME_UPDATE, NAME_IMPORT, NAME_REGISTRATION, NAME_RENEWAL,
     BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME,
     get_secret, set_secret, BLOCKSTACK_TEST, VERSION
 )
@@ -176,7 +176,7 @@ import keylib
 import virtualchain
 from virtualchain.lib.ecdsalib import (
     ecdsa_private_key, set_privkey_compressed,
-    ECPrivateKey, get_pubkey_hex
+    get_pubkey_hex
 )
 from virtualchain.lib.hashing import (
     bin_double_sha256
@@ -678,7 +678,7 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None, interact
     opt: use_single_sig (str) 'Compute price assuming single sig addresses'
     """
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
     password = get_default_password(password)
 
     name_or_ns = str(args.name_or_namespace)
@@ -755,7 +755,7 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None, interact
         owner_privkey_info = wallet_keys['owner_privkey']
 
     if use_single_sig:
-        dummy_ecpk = keylib.ECPrivateKey()
+        dummy_ecpk = virtualchain.lib.ecdsalib.ecdsa_private_key()
         dummy_pk = dummy_ecpk.to_hex()
         dummy_address = virtualchain.address_reencode(dummy_ecpk.public_key().address())
         fees = get_price_and_fees( name_or_ns, operations, dummy_pk, dummy_pk,
@@ -1105,7 +1105,7 @@ def cli_whois(args, config_path=CONFIG_PATH):
                 return {'error': 'Not found.'}
 
             ret = {
-                'satus' : 'registered_subdomain',
+                'status' : 'registered_subdomain',
                 'zonefile_txt' : subdomain_obj.zonefile_str,
                 'zonefile_hash' : storage.get_zonefile_data_hash(subdomain_obj.zonefile_str),
                 'address' : subdomain_obj.address,
@@ -1619,7 +1619,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     if not interactive and getattr(args, 'data', None) is None:
         return {'error': 'Zone file data required in non-interactive mode'}
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
     password = get_default_password(password)
 
     if hasattr(args, 'nonstandard') and not nonstandard:
@@ -1773,7 +1773,7 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     if not local_api_status(config_dir=config_dir):
         return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
     password = get_default_password(password)
     conf = config.get_config(config_path)
     assert conf
@@ -2829,7 +2829,7 @@ def cli_name_import(args, interactive=True, config_path=CONFIG_PATH, proxy=None)
 
     import blockstack
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
     config_dir = os.path.dirname(config_path)
     conf = config.get_config(config_path)
     assert conf
@@ -2919,7 +2919,7 @@ def cli_make_import_keys(args, config_path=CONFIG_PATH, proxy=None):
 
     reveal_privkey = str(args.reveal_privkey)
     namespace_id = str(args.namespace_id)
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
 
     namespace_rec = get_namespace_blockchain_record(namespace_id, proxy=proxy)
     if 'error' in namespace_rec:
@@ -2961,7 +2961,7 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
 
     # NOTE: this does *not* go through the API.
     # exposing this through the API is dangerous.
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
 
     config_dir = os.path.dirname(config_path)
     nsid = str(args.namespace_id)
@@ -3870,7 +3870,7 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None, st
         privkey = str(args.privkey)
 
     try:
-        pubkey = ECPrivateKey(privkey).public_key().to_hex()
+        pubkey = ecdsa_private_key(privkey).public_key().to_hex()
     except:
         if BLOCKSTACK_TEST:
             log.error("Invalid private key {}".format(privkey))
@@ -3916,7 +3916,7 @@ def cli_put_immutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     if 'error' in wallet_keys:
         return wallet_keys
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
 
     result = put_immutable(
         fqu, str(args.data_id), data,
@@ -3964,7 +3964,7 @@ def cli_get_immutable(args, config_path=CONFIG_PATH, proxy=None):
     arg: name (str) 'The name that points to the zone file with the data hash'
     arg: data_id_or_hash (str) 'Either the name or the SHA256 of the data to obtain'
     """
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
 
     if is_valid_hash( args.data_id_or_hash ):
         result = get_immutable(str(args.name), str(args.data_id_or_hash), proxy=proxy)
@@ -4035,7 +4035,7 @@ def cli_delete_immutable(args, config_path=CONFIG_PATH, proxy=None, password=Non
         return wallet_keys
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     result = None
     if is_valid_hash(str(args.data_id)):
@@ -4400,7 +4400,7 @@ def cli_put_profile(args, config_path=CONFIG_PATH, password=None, proxy=None, fo
     name = str(args.blockchain_id)
     profile_json_str = str(args.data)
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
 
     profile = None
     if not force_data and is_valid_path(profile_json_str) and os.path.exists(profile_json_str):
@@ -4455,7 +4455,7 @@ def cli_delete_profile(args, config_path=CONFIG_PATH, password=None, proxy=None,
     arg: blockchain_id (str) 'The blockchain ID.'
     """
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
     password = get_default_password(password)
     
     name = str(args.blockchain_id)
@@ -4557,7 +4557,7 @@ def cli_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, interactive=Tru
                 return {'error': msg}
 
             # find the tx hash that corresponds to this zonefile
-            if name_rec['op'] == NAME_UPDATE:
+            if name_rec['op'] in [NAME_UPDATE, NAME_REGISTRATION, NAME_REGISTRATION + ":", NAME_IMPORT]:
                 if name_rec['value_hash'] == zonefile_hash:
                     txid = name_rec['txid']
             else:
@@ -4923,7 +4923,7 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
             log.error("No data private key in the wallet, and cannot use owner private key.  You will need to either explicitly select a private key, or insert the data public key into your zone file.")
             return {'error': 'No data private key found.  Try passing your owner private key, or adding your data public key to your zone file.'}
 
-    privkey = ECPrivateKey(privkey).to_hex()
+    privkey = ecdsa_private_key(privkey).to_hex()
     pubkey = get_pubkey_hex(privkey)
 
     res = storage.serialize_mutable_data(data_json, privkey, pubkey, profile=True)
@@ -5052,7 +5052,7 @@ def cli_sign_data( args, config_path=CONFIG_PATH, proxy=None, password=None, int
 
         privkey = wallet_keys['data_privkey']
 
-    privkey = ECPrivateKey(privkey).to_hex()
+    privkey = ecdsa_private_key(privkey).to_hex()
     pubkey = get_pubkey_hex(privkey)
 
     res = storage.serialize_mutable_data(data, privkey, pubkey)
@@ -5517,7 +5517,7 @@ def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None ):
     """
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     blockchain_id = str(args.blockchain_id)
     privkey = str(args.privkey)

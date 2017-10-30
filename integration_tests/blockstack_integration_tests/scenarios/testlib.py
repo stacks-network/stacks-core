@@ -346,7 +346,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
     resp = blockstack_client.do_preorder( name, privatekey, owner_privkey_info, name_cost_info['satoshis'], test_proxy, test_proxy, tx_fee=tx_fee,
             burn_address=burn_addr, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    api_call_history.append( APICallRecord( "preorder", name, virtualchain.address_reencode(virtualchain.lib.ecdsalib.ecdsa_private_key(privatekey).public_key().address()), resp ) )
+    api_call_history.append( APICallRecord( "preorder", name, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
     return resp
 
 
@@ -471,7 +471,7 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
         return {'error': 'Failed to get namespace costs'}
 
     resp = blockstack_client.do_namespace_preorder( namespace_id, namespace_cost['satoshis'], privatekey, register_addr, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
-    api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, virtualchain.address_reencode(virtualchain.lib.ecdsalib.ecdsa_private_key(privatekey).public_key().address()), resp ) )
+    api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
     return resp
 
 
@@ -501,7 +501,7 @@ def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, co
     config_path = test_proxy.config_path if config_path is None else config_path
     
     resp = blockstack_client.do_namespace_ready( namespace_id, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks ) 
-    api_call_history.append( APICallRecord( "namespace_ready", namespace_id, virtualchain.address_reencode(virtualchain.lib.ecdsalib.ecdsa_private_key(privatekey).public_key().address()), resp ) )
+    api_call_history.append( APICallRecord( "namespace_ready", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
     return resp
 
 
@@ -2563,8 +2563,8 @@ def make_legacy_014_wallet( owner_privkey, payment_privkey, data_privkey, passwo
 
     decrypted_legacy_wallet = blockstack_client.keys.make_wallet_keys(data_privkey=data_privkey, owner_privkey=owner_privkey, payment_privkey=payment_privkey)
     encrypted_legacy_wallet = {
-        'data_pubkey': ECPrivateKey(data_privkey).public_key().to_hex(),
-        'data_pubkeys': [ECPrivateKey(data_privkey).public_key().to_hex()],
+        'data_pubkey': keylib.ECPrivateKey(data_privkey).public_key().to_hex(),
+        'data_pubkeys': [keylib.ECPrivateKey(data_privkey).public_key().to_hex()],
         'data_privkey': encrypt_private_key_info(data_privkey, password)['encrypted_private_key_info']['private_key_info'],
         'owner_addresses': decrypted_legacy_wallet['owner_addresses'],
         'encrypted_owner_privkey': encrypt_private_key_info(owner_privkey, password)['encrypted_private_key_info']['private_key_info'],
@@ -3219,11 +3219,21 @@ def check_historic_names_by_address( state_engine ):
 
         if api_call.method in ['register', 'name_import']:
             assert address is not None
+            
+            add = True
+            if api_call.method == 'name_import':
+                # don't allow dups of names added via name_import; the db won't allow it anyway
+                if address in addr_names:
+                    for (n, bid, calltype) in addr_names[address]:
+                        if n == name and calltype == 'name_import':
+                            # duplicate
+                            add = False
 
-            if not address in addr_names:
-                addr_names[address] = []
-
-            addr_names[address].append((name, block_id))
+            if add:
+                if not address in addr_names:
+                    addr_names[address] = []
+            
+                addr_names[address].append((name, block_id, api_call.method))
 
         if api_call.method == 'revoke':
             revoked_names[name] = block_id
@@ -3234,7 +3244,7 @@ def check_historic_names_by_address( state_engine ):
     log.debug('revoked names: {}'.format(revoked_names))
     
     for address in addr_names.keys():
-        for i, (name, block_id) in enumerate(addr_names[address]):
+        for i, (name, block_id, _) in enumerate(addr_names[address]):
             did = 'did:stack:v0:{}-{}'.format(address, i)
             name_rec = blockstack_client.proxy.get_DID_blockchain_record(did)
 

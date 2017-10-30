@@ -64,10 +64,14 @@ def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None):
         # expect inputs to the hash
         if not is_b40( name ) or "+" in name or name.count(".") > 1:
            raise Exception("Name '%s' has non-base-38 characters" % name)
-        
+       
+        '''
         # name itself cannot exceed maximum name length
         if len(NAME_SCHEME) + len(name) > LENGTH_MAX_NAME:
            raise Exception("Name '%s' is too long; exceeds %s bytes" % (name, LENGTH_MAX_NAME - len(NAME_SCHEME)))
+        '''
+        if not is_name_valid(name):
+            raise Exception("Name {} is not valid".format(name))
     
         name_hash = hash_name(name, script_pubkey, register_addr=register_addr)
 

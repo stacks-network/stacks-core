@@ -29,12 +29,12 @@ from cryptography.hazmat.backends import default_backend
 
 from binascii import hexlify, unhexlify
 
-def aes_encrypt(payload, secret):
+def aes_encrypt(payload, secret, **scrypt_params):
     """
     Encrypt payload with (hexlified) secret
     Return base64-encoded ciphertext
     """
-    return base64.b64encode(scrypt.encrypt(payload, unhexlify(secret)))
+    return base64.b64encode(scrypt.encrypt(payload, unhexlify(secret), **scrypt_params))
 
 
 def aes_decrypt_legacy(payload, secret):

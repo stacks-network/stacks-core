@@ -130,7 +130,7 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw)
     testlib.expect_snv_fail_at("fail.test", testlib.get_current_block(**kw))
 
-    for i in xrange(0, 11):
+    for i in xrange(0, 12):
         testlib.next_block(**kw)
 
     print "Waiting 10 seconds for registrar to replicate zone files"
