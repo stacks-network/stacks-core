@@ -29,6 +29,8 @@ import hashlib
 import threading
 import traceback
 import gc
+import signal
+import time
 
 from .config import get_config
 from .logger import get_logger
@@ -170,13 +172,27 @@ def daemonize( logpath, child_wait=None ):
 
     elif child_pid > 0:
         # grand-parent (caller)
-        # wait for intermediate child
-        pid, status = os.waitpid(child_pid, 0)
-        if os.WEXITSTATUS(status) == 0:
-            return child_pid
-        else:
-            log.error("Child exit status {}".format(status))
-            return -1
+        # wait for intermediate child.
+        # panic if we don't hear back after 1 minute
+        for i in xrange(0, 60):
+            pid, status = os.waitpid(child_pid, os.WNOHANG)
+            if pid == 0:
+                # still waiting
+                time.sleep(1)
+                log.debug("Still waiting on {}".format(child_pid))
+                continue
+
+            # child has exited!
+            if os.WEXITSTATUS(status) == 0:
+                return child_pid
+            else:
+                log.error("Child exit status {}".format(status))
+                return -1
+
+        # child has not exited yet.  This is not okay.
+        log.error("Child PID={} did not exit.  Killing it instead and failing...")
+        os.kill(child_pid, signal.SIGKILL)
+        return -1
     
     else:
         # failed to fork 
