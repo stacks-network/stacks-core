@@ -3031,7 +3031,7 @@ def run_blockstackd():
           log.error("Blockstackd appears to be running already.  If not, please run '{} stop'".format(sys.argv[0]))
           sys.exit(1)
 
-      if is_indexer():
+      if is_indexer() and pid is not None:
           # The server didn't shut down properly.
           # restore from back-up before running
           log.warning("Server did not shut down properly.  Restoring state from last known-good backup.")
@@ -3056,12 +3056,15 @@ def run_blockstackd():
           # make sure we "stop"
           config.set_indexing(False)
 
-          # use snapshots?
-          if args.expected_snapshots is not None:
-              expected_snapshots = load_expected_snapshots( args.expected_snapshots )
-              if expected_snapshots is None:
-                  sys.exit(1)
+      # use snapshots?
+      if args.expected_snapshots is not None:
+          expected_snapshots = load_expected_snapshots( args.expected_snapshots )
+          if expected_snapshots is None:
+              sys.exit(1)
 
+          log.debug("Load expected snapshots from {}".format(args.expected_snapshots))
+
+      # we're definitely not running, so make sure this path is clear
       try:
           os.unlink(get_pidfile_path())
       except:
