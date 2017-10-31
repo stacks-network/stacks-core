@@ -188,6 +188,7 @@ def queuedb_find( queue_id, fqu, limit=None, path=DEFAULT_QUEUE_PATH ):
     db.close()
     return ret
 
+
 def queue_add_error_msg( queue_id, fqu, error_msg, path=DEFAULT_QUEUE_PATH ):
     """
     Add an error message for an entry
@@ -384,7 +385,39 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
     if zonefile_hash is not None:
         new_entry['zonefile_hash'] = zonefile_hash
 
+    new_entry['replicated_zonefile'] = False
+
     queuedb_insert( queue_id, fqu, tx_hash, new_entry, path=path )
+    return True
+
+
+def queue_set_data(queue_id, fqu, new_data, path=DEFAULT_QUEUE_PATH):
+    """
+    Update a name's data in the queue
+    """
+    entry_data = {}
+    entry_data.update(new_data)
+    
+    for k in ['tx_hash', 'type', 'queue_id', 'fqu']:
+        if k in entry_data:
+            del entry_data[k]
+
+    if entry_data.has_key('zonefile'):
+        entry_data['zonefile_b64'] = base64.b64encode(entry_data['zonefile'])
+        del entry_data['zonefile']
+
+    sql = "UPDATE entries SET data = ? WHERE fqu = ? AND queue_id = ?;"
+    args = (json.dumps(entry_data,sort_keys=True), fqu, queue_id)
+
+    db = queuedb_open(path)
+    if db is None:
+        raise Exception("Failed to open %s" % path)
+
+    cur = db.cursor()
+    res = queuedb_query_execute( cur, sql, args )
+
+    db.commit()
+    db.close()
     return True
 
 

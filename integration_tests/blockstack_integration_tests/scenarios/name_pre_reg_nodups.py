@@ -58,6 +58,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[0].privkey, wallets[1].addr, safety_checks=False )
     testlib.blockstack_name_register( "foo.test", wallets[5].privkey, wallets[2].addr, safety_checks=False )
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at("foo.test", testlib.get_current_block(**kw))
 
 def check( state_engine ):
 

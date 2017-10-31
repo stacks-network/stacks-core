@@ -2354,7 +2354,7 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node {}.  Try again with `--debug`.'.format(hostport)}
         return resp
 
     return peers
