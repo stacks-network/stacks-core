@@ -486,6 +486,7 @@ def queue_findall( queue_id, limit=None, path=DEFAULT_QUEUE_PATH ):
     """
     return get_queue_state( queue_id, limit=limit, path=path )
 
+
 def queue_removeall( entries, path=DEFAULT_QUEUE_PATH ):
     """
     Remove all given entries form their given queues
