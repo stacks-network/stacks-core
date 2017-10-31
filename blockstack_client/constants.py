@@ -378,9 +378,10 @@ DEFAULT_SESSION_LIFETIME = 3600 * 24 * 7    # 1 week
 
 # epoch dates
 EPOCH_1_END_BLOCK = 436650
+EPOCH_2_END_BLOCK = 488500 
 
 # epoch dates for the test environment
-NUM_EPOCHS = 2
+NUM_EPOCHS = 3
 for i in range(1, NUM_EPOCHS + 1):
     # epoch lengths can be altered by the test framework, for ease of tests
     blockstack_epoch_end_block = os.environ.get('BLOCKSTACK_EPOCH_{}_END_BLOCK'.format(i), None)
@@ -391,7 +392,7 @@ for i in range(1, NUM_EPOCHS + 1):
 
 del i
 
-EPOCH_HEIGHT_MINIMUM = EPOCH_1_END_BLOCK + 1
+EPOCH_HEIGHT_MINIMUM = EPOCH_2_END_BLOCK + 1
 
 DEFAULT_BLOCKCHAIN_READER = 'blockstack_utxo'
 DEFAULT_BLOCKCHAIN_WRITER = 'blockstack_utxo'
