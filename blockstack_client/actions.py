@@ -4151,20 +4151,96 @@ def cli_get_namespace_blockchain_record(args, config_path=CONFIG_PATH):
     return result
 
 
+def cli_get_snv_blockchain_record(args, config_path=CONFIG_PATH):
+    """
+    command: get_snv_blockchain_record advanced
+    help: Use SNV to look up a name or namespace blockchain record at a particular block height
+    arg: name (str) 'The name or namespace to query'
+    arg: block_id (str) 'The block height at which the name or namespace was last altered'
+    arg: trust_anchor (str) 'A trusted consensus hash, Blockstack transaction ID with a consensus hash, or a serial number from a higher block height than `block_id`'
+    """
+
+    blockchain_records = lookup_snv(
+        str(args.name),
+        int(args.block_id),
+        str(args.trust_anchor)
+    )
+    
+    if 'error' in blockchain_records:
+        return blockchain_records
+
+    return blockchain_records[-1]
+
+
 def cli_lookup_snv(args, config_path=CONFIG_PATH):
     """
     command: lookup_snv advanced
     help: Use SNV to look up a name at a particular block height
     arg: name (str) 'The name to query'
-    arg: block_id (int) 'The block height at which to query the name'
-    arg: trust_anchor (str) 'The trusted consensus hash, transaction ID, or serial number from a higher block height than `block_id`'
+    arg: block_id (int) 'The block height at which the name was last altered'
+    arg: trust_anchor (str) 'A trusted consensus hash, Blockstack transaction ID with a consensus hash, or serial number from a higher block height than `block_id`'
+    opt: force (str) 'If True, then resolve the name even if it is expired'
     """
-    result = lookup_snv(
-        str(args.name),
+    
+    force = False
+    if hasattr(args, 'force') and args.force and args.force.lower() in ['true', '1', 'force']:
+        force = True
+
+    name = str(args.name)
+    error = check_valid_name(name)
+    if error:
+        res = subdomains.is_address_subdomain(name)
+        if res:
+            subdomain, domain = res[1]
+            if subdomain:
+                return {'error': 'SNV lookup on subdomains is not yet supported'}
+
+            name = domain
+
+        else:
+            return {'error': error}
+
+    blockchain_records = lookup_snv(
+        name,
         int(args.block_id),
         str(args.trust_anchor)
     )
 
+    if 'error' in blockchain_records:
+        return blockchain_records
+    
+    # use latest record
+    blockchain_record = blockchain_records[-1]
+
+    if 'value_hash' not in blockchain_record:
+        return {'error': '{} has no profile'.format(name)}
+
+    if not force and blockchain_record.get('revoked', False):
+        msg = 'Name is revoked. Use `whois` or `get_name_blockchain_record` for details.'
+        return {'error': msg}
+
+    if not force and blockchain_record.get('expired', False):
+        msg = 'Name is expired. Use `whois` or `get_name_blockchain_record` for details. If you own this name, use `renew` to renew it.'
+        return {'error': msg}
+
+    data = {}
+    try:
+        res = get_profile(
+            name, name_record=blockchain_record, include_raw_zonefile=True, use_legacy=True, use_legacy_zonefile=True
+        )
+
+        if 'error' in res:
+            return res
+
+        data['profile'] = res['profile']
+        data['zonefile'] = res['raw_zonefile']
+        data['public_key'] = res['public_key']
+    except Exception as e:
+        log.exception(e)
+        msg = 'Failed to look up name\n{}'
+        return {'error': msg.format(traceback.format_exc())}
+
+    result = data
     return result
 
 
