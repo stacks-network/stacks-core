@@ -313,13 +313,17 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
                 urls=urls, drivers=profile_storage_drivers, decode=decode_profile,
                 return_public_key=True
             )
+           
+            if user_profile_res is None:
+                log.error("Failed to get profile for {}".format(name))
+                return {'error': 'Failed in parsing and fetching profile for {}'.format(name)}
 
             user_profile = user_profile_res['data']
             user_profile_pubkey = user_profile_res['public_key']
 
         except Exception as e:
             log.exception(e)
-            return {'error' : 'Failure in parsing and fetching profile'}
+            return {'error' : 'Failure in parsing and fetching profile for {}'.format(name)}
 
         if user_profile is None or json_is_error(user_profile):
             if user_profile is None:
