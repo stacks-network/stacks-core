@@ -3676,6 +3676,26 @@ def make_client_device( index ):
     return {'status': True}
 
 
+def get_queue( ses, queue_name, api_pass=None):
+    """
+    Get a registrar queue
+    """
+    res = blockstack_REST_call('GET', '/v1/blockchains/bitcoin/pending', ses, api_pass = api_pass )
+    if 'error' in res:
+        res['test'] = 'Failed to get queues'
+        print json.dumps(res)
+        error = True
+        return False
+
+    res = res['response']
+    assert res.has_key('queues')
+    
+    if not res['queues'].has_key(queue_name):
+        return {'error': 'No queue {}'.format(queue_name)}
+
+    return res['queues'][queue_name]
+        
+
 def verify_in_queue( ses, name, queue_name, tx_hash, expected_length=1, api_pass=None ):
     """
     Verify that a name (optionally with the given tx hash) is in the given queue
@@ -3746,7 +3766,6 @@ def verify_in_queue( ses, name, queue_name, tx_hash, expected_length=1, api_pass
     # should be in the preorder queue at some point
     if res['response']['operation'] != queue_name:
         return False
-
 
     return True
 
