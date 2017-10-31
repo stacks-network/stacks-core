@@ -857,6 +857,12 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not self.check_address(address):
             return {'error': 'Invalid address'}
 
+        if not self.check_offset(offset):
+            return {'error': 'invalid offset'}
+
+        if not self.check_count(count, 10):
+            return {'error': 'invalid count'}
+
         db = get_db_state()
         names = db.get_historic_names_by_address(address, offset, count)
         db.close()
