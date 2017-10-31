@@ -3223,10 +3223,10 @@ def check_historic_names_by_address( state_engine ):
             add = True
             if api_call.method == 'name_import':
                 # don't allow dups of names added via name_import; the db won't allow it anyway
-                if address in addr_names:
-                    for (n, bid, calltype) in addr_names[address]:
+                for addr in addr_names.keys():
+                    for (n, _, calltype) in addr_names[addr]:
                         if n == name and calltype == 'name_import':
-                            # duplicate
+                            # another import on this name
                             add = False
 
             if add:
