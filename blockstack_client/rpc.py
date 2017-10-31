@@ -4253,13 +4253,78 @@ class BlockstackAPIEndpointClient(object):
         return resp
 
 
+    def requests_dispatch(self, rtype, *args, **kw):
+        """
+        Wrapper for requests that does timeouts with exponential jittery backoff
+        """
+        timeout = 0
+        e = None
+        for i in xrange(0, 3):
+            try:
+                req = None
+                if rtype == 'get':
+                    req = requests.get(*args, **kw)
+
+                elif rtype == 'post':
+                    req = requests.post(*args, **kw)
+
+                elif rtype == 'put':
+                    req = requests.put(*args, **kw)
+
+                elif rtype == 'delete':
+                    req = requests.delete(*args, **kw)
+
+                else:
+                    raise ValueError("Invalid request type {}".format(rtype))
+
+                return req
+
+            except requests.ReadTimeout as rt:
+                e = rt
+                timeout = 2**(i+1) + (i * random.random())
+                log.debug("{} request timed out (attempt {}).  Try again in {} seconds...".format(rtype.upper(), i+1, timeout))
+                time.sleep(timeout)
+                continue
+        
+        # timed out for good
+        raise e
+
+
+    def requests_get(self, *args, **kw):
+        """
+        Wrapper for requests.get that does timeout with exponential jittery backoff
+        """
+        return self.requests_dispatch('get', *args, **kw)
+
+
+    def requests_post(self, *args, **kw):
+        """
+        Wrapper for requests.post that does timeout with exponential jittery backoff
+        """
+        return self.requests_dispatch('post', *args, **kw)
+
+
+    def requests_put(self, *args, **kw):
+        """
+        Wrapper for requests.pust that does timeout with exponential jittery backoff
+        """
+        return self.requests_dispatch('put', *args, **kw)
+
+
+    def requests_delete(self, *args, **kw):
+        """
+        Wrapper for requests.delete that does timeout with exponential jittery backoff
+        """
+        return self.requests_dispatch('delete', *args, **kw)
+
+
     def ping(self):
         """
         Ping the endpoint
         """
         assert not is_api_server(self.config_dir), 'API server should not call this method'
         headers = self.make_request_headers()
-        req = requests.get( 'http://{}:{}/v1/node/ping'.format(self.server, self.port), timeout=self.timeout, headers=headers)
+        req = self.requests_get( 'http://{}:{}/v1/node/ping'.format(self.server, self.port), timeout=self.timeout, headers=headers)
         return self.get_response(req)
 
 
@@ -4297,7 +4362,7 @@ class BlockstackAPIEndpointClient(object):
             return res
 
         headers = self.make_request_headers()
-        req = requests.put( 'http://{}:{}/v1/wallet/keys'.format(self.server, self.port), timeout=self.timeout, data=json.dumps(wallet_keys), headers=headers )
+        req = self.requests_put( 'http://{}:{}/v1/wallet/keys'.format(self.server, self.port), timeout=self.timeout, data=json.dumps(wallet_keys), headers=headers )
         return self.get_response(req)
 
 
@@ -4314,7 +4379,7 @@ class BlockstackAPIEndpointClient(object):
             return res
 
         headers = self.make_request_headers()
-        req = requests.get( 'http://{}:{}/v1/wallet/keys'.format(self.server, self.port), timeout=self.timeout, headers=headers )
+        req = self.requests_get( 'http://{}:{}/v1/wallet/keys'.format(self.server, self.port), timeout=self.timeout, headers=headers )
         return self.get_response(req)
 
 
@@ -4335,7 +4400,7 @@ class BlockstackAPIEndpointClient(object):
 
             # ask API server
             headers = self.make_request_headers()
-            req = requests.get( 'http://{}:{}/v1/node/registrar/state'.format(self.server, self.port), timeout=self.timeout, headers=headers)
+            req = self.requests_get( 'http://{}:{}/v1/node/registrar/state'.format(self.server, self.port), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
@@ -4390,7 +4455,7 @@ class BlockstackAPIEndpointClient(object):
                 data['unsafe'] = True
 
             headers = self.make_request_headers()
-            req = requests.post( 'http://{}:{}/v1/names'.format(self.server, self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)
+            req = self.requests_post( 'http://{}:{}/v1/names'.format(self.server, self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
@@ -4432,7 +4497,7 @@ class BlockstackAPIEndpointClient(object):
                 data['payment_key'] = payment_key
 
             headers = self.make_request_headers()
-            req = requests.put( 'http://{}:{}/v1/names/{}/zonefile'.format(self.server, self.port, fqu), data=json.dumps(data), timeout=self.timeout, headers=headers)
+            req = self.requests_put( 'http://{}:{}/v1/names/{}/zonefile'.format(self.server, self.port, fqu), data=json.dumps(data), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
@@ -4462,8 +4527,9 @@ class BlockstackAPIEndpointClient(object):
                 data['payment_key'] = payment_key
 
             headers = self.make_request_headers()
-            req = requests.put('http://{}:{}/v1/names/{}/owner'.format(self.server, self.port, fqu),
-                               data=json.dumps(data), timeout=self.timeout, headers=headers)
+            req = self.requests_put('http://{}:{}/v1/names/{}/owner'.format(self.server, self.port, fqu),
+                                    data=json.dumps(data), timeout=self.timeout, headers=headers)
+
             return self.get_response(req)
 
 
@@ -4497,7 +4563,7 @@ class BlockstackAPIEndpointClient(object):
                 data['zonefile'] = zonefile_data
 
             headers = self.make_request_headers()
-            req = requests.post( 'http://{}:{}/v1/names'.format(self.server, self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)
+            req = self.requests_post( 'http://{}:{}/v1/names'.format(self.server, self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
@@ -4516,7 +4582,7 @@ class BlockstackAPIEndpointClient(object):
 
             # ask the API server
             headers = self.make_request_headers()
-            req = requests.delete( 'http://{}:{}/v1/names/{}'.format(self.server, self.port, fqu), timeout=self.timeout, headers=headers)
+            req = self.requests_delete( 'http://{}:{}/v1/names/{}'.format(self.server, self.port, fqu), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
@@ -4553,7 +4619,7 @@ class BlockstackAPIEndpointClient(object):
         signer = jsontokens.TokenSigner()
         authreq = signer.sign(request, app_privkey)
 
-        req = requests.get('http://{}:{}/v1/auth?authRequest={}'.format(self.server, self.port, authreq), timeout=self.timeout, headers=headers)
+        req = self.requests_get('http://{}:{}/v1/auth?authRequest={}'.format(self.server, self.port, authreq), timeout=self.timeout, headers=headers)
         res = self.get_response(req)
         if 'error' in res:
             return res
@@ -4584,7 +4650,7 @@ class BlockstackAPIEndpointClient(object):
                 'datastore_sigs': datastore_sigs,
                 'root_tombstones': root_tombstones,
             }
-            req = requests.post( 'http://{}:{}/v1/stores'.format(self.server, self.port), timeout=self.timeout, data=json.dumps(request), headers=headers)
+            req = self.requests_post( 'http://{}:{}/v1/stores'.format(self.server, self.port), timeout=self.timeout, data=json.dumps(request), headers=headers)
             return self.get_response(req)
 
 
@@ -4611,7 +4677,7 @@ class BlockstackAPIEndpointClient(object):
             if blockchain_id:
                 url += '&blockchain_id={}'.format(urllib.quote(blockchain_id))
 
-            req = requests.get( url, timeout=self.timeout, headers=headers)
+            req = self.requests_get( url, timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
@@ -4637,7 +4703,7 @@ class BlockstackAPIEndpointClient(object):
                 'datastore_tombstones': datastore_tombstones,
                 'root_tombstones': root_tombstones,
             }
-            req = requests.delete( 'http://{}:{}/v1/stores'.format(self.server, self.port), data=json.dumps(request), timeout=self.timeout, headers=headers)
+            req = self.requests_delete( 'http://{}:{}/v1/stores'.format(self.server, self.port), data=json.dumps(request), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
@@ -4677,7 +4743,7 @@ class BlockstackAPIEndpointClient(object):
                 url += '&device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
 
             log.debug("lookup: {}".format(url))
-            req = requests.get( url, timeout=self.timeout, headers=headers)
+            req = self.requests_get( url, timeout=self.timeout, headers=headers)
             res = self.get_response(req)
 
             if not json_is_error(res):
@@ -4747,7 +4813,7 @@ class BlockstackAPIEndpointClient(object):
 
                 url += '&device_ids={}&device_pubkeys={}'.format(device_ids_str, device_pubkeys_str)
 
-            req = requests.get(url, timeout=self.timeout, headers=headers)
+            req = self.requests_get(url, timeout=self.timeout, headers=headers)
             resp = self.get_response(req)
             if not resp.has_key('error') and idata and resp['inode']['type'] == MUTABLE_DATUM_FILE_TYPE:
                 # decode
@@ -4782,7 +4848,7 @@ class BlockstackAPIEndpointClient(object):
                 'tombstones': tombstones,
             }
             datastore_id = data.datastore_get_id(json.loads(datastore_str)['pubkey'])
-            req = requests.post( 'http://{}:{}/v1/stores/{}/directories?path={}'.format(self.server, self.port, datastore_id, urllib.quote(path)), data=json.dumps(request), timeout=self.timeout, headers=headers)
+            req = self.requests_post( 'http://{}:{}/v1/stores/{}/directories?path={}'.format(self.server, self.port, datastore_id, urllib.quote(path)), data=json.dumps(request), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
@@ -4818,7 +4884,7 @@ class BlockstackAPIEndpointClient(object):
             url = 'http://{}:{}/v1/stores/{}/files?path={}&create={}&exist={}'.format(
                     self.server, self.port, datastore_id, urllib.quote(path), '1' if create else '0', '1' if exist else '0',
             )
-            req = requests.put( url, data=json.dumps(request), timeout=self.timeout, headers=headers )
+            req = self.requests_put( url, data=json.dumps(request), timeout=self.timeout, headers=headers )
             return self.get_response(req)
 
 
@@ -4848,7 +4914,7 @@ class BlockstackAPIEndpointClient(object):
                 'tombstones': tombstones
             }
             datastore_id = data.datastore_get_id(json.loads(datastore_str)['pubkey'])
-            req = requests.delete( 'http://{}:{}/v1/stores/{}/directories?path={}'.format(self.server, self.port, datastore_id, urllib.quote(path)), data=json.dumps(request), timeout=self.timeout, headers=headers)
+            req = self.requests_delete( 'http://{}:{}/v1/stores/{}/directories?path={}'.format(self.server, self.port, datastore_id, urllib.quote(path)), data=json.dumps(request), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
@@ -4878,7 +4944,7 @@ class BlockstackAPIEndpointClient(object):
                 'tombstones': signed_tombstones,
             }
             datastore_id = data.datastore_get_id(json.loads(datastore_str)['pubkey'])
-            req = requests.delete( 'http://{}:{}/v1/stores/{}/files?path={}'.format(self.server, self.port, datastore_id, urllib.quote(path)), data=json.dumps(request), timeout=self.timeout, headers=headers)
+            req = self.requests_delete( 'http://{}:{}/v1/stores/{}/files?path={}'.format(self.server, self.port, datastore_id, urllib.quote(path)), data=json.dumps(request), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
@@ -4909,7 +4975,7 @@ class BlockstackAPIEndpointClient(object):
             }
 
             datastore_id = data.datastore_get_id(json.loads(datastore_str)['pubkey'])
-            req = requests.delete('http://{}:{}/v1/stores/{}/inodes?rmtree=1'.format(self.server, self.port, datastore_id), data=json.dumps(request), timeout=self.timeout, headers=headers)
+            req = self.requests_delete('http://{}:{}/v1/stores/{}/inodes?rmtree=1'.format(self.server, self.port, datastore_id), data=json.dumps(request), timeout=self.timeout, headers=headers)
             return self.get_response(req)
 
 
