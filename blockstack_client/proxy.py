@@ -1200,6 +1200,9 @@ def get_DID_blockchain_record(did, proxy=None):
 
     Follow the sequence of NAME_TRANSFERs and NAME_RENEWALs to find the current
     address, and then look up the public key.
+
+    Returns the blockchain record on success
+    Returns {'error': ...} on failure
     """
     proxy = get_default_proxy() if proxy is None else proxy
     did_pattern = '^did:stack:v0:({}{{25,34}})-([0-9]+)$'.format(OP_BASE58CHECK_CLASS)
@@ -1221,10 +1224,9 @@ def get_DID_blockchain_record(did, proxy=None):
     addr_names.sort(lambda n1,n2: -1 if n1['block_id'] < n2['block_id'] or (n1['block_id'] == n2['block_id'] and n1['vtxindex'] < n2['vtxindex']) else 1)
     name = addr_names[name_index]['name']
     start_block = addr_names[name_index]['block_id']
-    end_block = 100000000       # TODO: update if this gets too small
+    end_block = 100000000       # TODO: update if this gets too small (not likely in my lifetime)
 
     # verify that the name hasn't been revoked since this DID was created.
-    # however, it can have expired, transferred, or been re-registered.
     name_history = get_name_blockchain_history(name, start_block, end_block)
     final_name_state = None
 
@@ -1232,8 +1234,8 @@ def get_DID_blockchain_record(did, proxy=None):
         for history_state in name_history[history_block]:
             if history_state['op'] == NAME_REVOKE:
                 # end of the line
-                return {'error': 'The name for this DID has been revoked'}
-    
+                return {'error': 'The name for this DID has been deleted'}
+
             final_name_state = history_state
 
     return final_name_state
@@ -1529,6 +1531,8 @@ def get_name_at(name, block_id, proxy=None):
     resp = {}
     try:
         resp = proxy.get_name_at(name, block_id)
+        assert resp, "No such name {} at block {}".format(name, block_id)
+
         resp = json_validate(resp_schema, resp)
         if json_is_error(resp):
             return resp
