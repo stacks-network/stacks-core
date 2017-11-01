@@ -129,6 +129,9 @@ def daemonize( logpath, child_wait=None ):
         # stop bothering with garbage-collection
         # (in the test framework, sometimes this can lead to deadlocks
         # due to lingering sqlite3 handles)
+        gc.collect(2)
+        gc.collect(1)
+        gc.collect(0)
         gc.disable()
 
         sys.stdin.close()
@@ -152,6 +155,9 @@ def daemonize( logpath, child_wait=None ):
             # daemon! chdir and return
             os.chdir('/')
             gc.enable()
+            gc.collect(2)
+            gc.collect(1)
+            gc.collect(0)
             return 0
 
         elif daemon_pid > 0:
@@ -174,7 +180,12 @@ def daemonize( logpath, child_wait=None ):
         # grand-parent (caller)
         # wait for intermediate child.
         # panic if we don't hear back after 1 minute
-        for i in xrange(0, 60):
+        timeout = 60
+        if os.environ.get("BLOCKSTACK_TEST") == "1":
+            # wait around so we can attach gdb or whatever
+            timeout = 60000
+
+        for i in xrange(0, timeout):
             pid, status = os.waitpid(child_pid, os.WNOHANG)
             if pid == 0:
                 # still waiting
@@ -190,7 +201,7 @@ def daemonize( logpath, child_wait=None ):
                 return -1
 
         # child has not exited yet.  This is not okay.
-        log.error("Child PID={} did not exit.  Killing it instead and failing...")
+        log.error("Child PID={} did not exit.  Killing it instead and failing...".format(child_pid))
         os.kill(child_pid, signal.SIGKILL)
         return -1
     
