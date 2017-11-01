@@ -3871,9 +3871,11 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None, st
 
     try:
         pubkey = ecdsa_private_key(privkey).public_key().to_hex()
-    except:
+    except Exception as e:
         if BLOCKSTACK_TEST:
+            log.exception(e)
             log.error("Invalid private key {}".format(privkey))
+
         return {'error': 'Failed to parse private key'}
 
     mutable_data_info = make_mutable_data_info(data_id, data, blockchain_id=fqu, config_path=config_path)
