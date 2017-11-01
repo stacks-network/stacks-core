@@ -126,6 +126,10 @@ server = localhost
 port = 18332
 use_https = False
 
+[subdomain-resolution]
+resolving_subdomains = True
+subdomains_db = @CLIENT_SUBDOMAINS_DB@
+
 [bitcoind]
 passwd = blockstacksystem
 server = localhost
@@ -439,6 +443,7 @@ def generate_config_file( scenario, path, template, extra_fields):
     serve_data = extra_fields.get("SERVE_DATA", "True")
     redirect_data = extra_fields.get("REDIRECT_DATA", "False")
     data_servers = extra_fields.get("DATA_SERVERS", "True")
+    subdomains_db = extra_fields.get("SUBDOMAINS_DB", os.path.join(os.path.dirname(path), 'subdomains.db'))
 
     if zonefiles_dir is None:
         zonefiles_dir = "/tmp/blockstack-test-zonefiles"
@@ -451,7 +456,7 @@ def generate_config_file( scenario, path, template, extra_fields):
         raise Exception("No config template")
 
     spv_headers_path = os.path.join( os.environ.get("VIRTUALCHAIN_WORKING_DIR", None), "spv_headers.dat")
-
+    
     config_txt = config_txt.replace( "@CLIENT_BLOCKCHAIN_HEADERS@", spv_headers_path )
     config_txt = config_txt.replace( "@CLIENT_METADATA@", client_metadata )
     config_txt = config_txt.replace( "@CLIENT_ACCOUNTS_PATH@", accounts_dir )
@@ -464,6 +469,7 @@ def generate_config_file( scenario, path, template, extra_fields):
     config_txt = config_txt.replace( "@SERVE_DATA@", serve_data )
     config_txt = config_txt.replace( "@REDIRECT_DATA@", redirect_data )
     config_txt = config_txt.replace( "@DATA_SERVERS@", data_servers )
+    config_txt = config_txt.replace( "@CLIENT_SUBDOMAINS_DB@", subdomains_db)
 
     with open( path, "w" ) as f:
         f.write( config_txt )
