@@ -121,19 +121,17 @@ def daemonize( logpath, child_wait=None ):
     Return >0 if we're the parent
     """
     logfile = open(logpath, 'a+')
-
+    
+    # turn off GC across the fork
+    gc.collect(2)
+    gc.collect(1)
+    gc.collect(0)
+    gc.disable()
+    
     child_pid = os.fork()
 
     if child_pid == 0:
         # child!
-        # stop bothering with garbage-collection
-        # (in the test framework, sometimes this can lead to deadlocks
-        # due to lingering sqlite3 handles)
-        gc.collect(2)
-        gc.collect(1)
-        gc.collect(0)
-        gc.disable()
-
         sys.stdin.close()
         os.dup2(logfile.fileno(), sys.stdout.fileno())
         os.dup2(logfile.fileno(), sys.stderr.fileno())
@@ -178,6 +176,12 @@ def daemonize( logpath, child_wait=None ):
 
     elif child_pid > 0:
         # grand-parent (caller)
+        # re-activate gc
+        gc.enable()
+        gc.collect(2)
+        gc.collect(1)
+        gc.collect(0)
+
         # wait for intermediate child.
         # panic if we don't hear back after 1 minute
         timeout = 60
