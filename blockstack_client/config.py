@@ -657,6 +657,11 @@ def get_subdomains_db_path(config_path=CONFIG_PATH):
     subdomain_opts = opts['subdomain-resolution']
     return subdomain_opts['subdomains_db']
 
+def get_is_resolving_subdomains(config_path=CONFIG_PATH):
+    opts = configure(interactive=False, config_file=config_path)
+    subdomain_opts = opts['subdomain-resolution']
+    return subdomain_opts.get('resolving_subdomains', False)
+
 def get_tx_broadcaster(config_path=CONFIG_PATH):
     """
     Get or instantiate our blockchain UTXO provider's transaction broadcaster.
