@@ -97,7 +97,7 @@ def test_get_mutable_handler( driver_mod, dataset ):
     data_id = dataset['data_id']
     kw = dataset['kwargs']
 
-    url = driver_mod.make_mutable_url(data_id)
+    url = driver_mod.make_mutable_url(data_id, **kw)
     assert url
     assert driver_mod.handles_url(url)
 
