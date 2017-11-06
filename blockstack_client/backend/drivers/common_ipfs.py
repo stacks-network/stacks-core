@@ -358,14 +358,14 @@ def get_url_type(url):
         return ('http', url)
 
 
-def index_make_mutable_url(host, data_id, scheme='https'):
+def index_make_mutable_url(dvconf, host, data_id, scheme='ipfs'):
     """
     Make a faux-mutable URL that will be identified
     by the indexer as referring to indexed data.
     """
     data_id = urllib.quote( data_id.replace('/', '-2f') )
     #url = "{}://{}/blockstack/{}".format(scheme, host, data_id)
-    url = "{}://{}".format(scheme, data_id)
+    url = "{}://blockstack/{}/{}".format(scheme, dvconf['driver_info']['blockstack_id'], data_id)
     return url
 
 
@@ -657,15 +657,21 @@ def index_get_page(dvconf, blockchain_id=None, path=None, url=None):
         assert blockchain_id
 
     serialized_index_page = None
-    if url and blockchain_id:
-        log.debug("Fetch index page {} via HTTP".format(url))
-        serialized_index_page = get_chunk_via_http(url, blockchain_id=blockchain_id)
-    else:
-        assert path
-        log.debug("Fetch index page {} via driver".format(path))
-        assert dvconf
-        get_chunk = dvconf['get_chunk']
-        serialized_index_page = get_chunk(dvconf, path)
+    # if url and blockchain_id:
+    #     log.debug("Fetch index page {} via HTTP".format(url))
+    #     serialized_index_page = get_chunk_via_http(url, blockchain_id=blockchain_id)
+    # else:
+    #     assert path
+    #     log.debug("Fetch index page {} via driver".format(path))
+    #     assert dvconf
+    #     get_chunk = dvconf['get_chunk']
+    #     serialized_index_page = get_chunk(dvconf, path)
+
+    assert path
+    log.debug("Fetch index page {} via driver".format(path))
+    assert dvconf
+    get_chunk = dvconf['get_chunk']
+    serialized_index_page = get_chunk(dvconf, path)
 
     if serialized_index_page is None:
         # failed to get index
@@ -1047,10 +1053,10 @@ def _get_indexed_data_impl( dvconf, blockchain_id, name, raw=False, index_manife
 
             return False, {}
 
-    log.debug("Fetch {} via HTTP at {} (cached url: {})".format(name, data_url, cache_hit))
-    data = get_chunk_via_http(data_url, blockchain_id=blockchain_id)
+    log.debug("Fetch {} via driver at {} (cached url: {})".format(name, data_url, cache_hit))
+    data = dvconf['get_chunk'](dvconf, data_url[len('ipfs://'):])    #data = get_chunk_via_http(data_url, blockchain_id=blockchain_id)
     if data is None:
-        log.error("Failed to load {} from {}".format(name, data_url))
+        log.error("Failed to load {} from {}".format(name, data_url[len]))
 
         if cache_hit:
             # might be due to stale cached index data
@@ -1093,6 +1099,7 @@ def get_indexed_data(dvconf, blockchain_id, name, raw=False, index_manifest_url=
 
     # try cache path first
     data, pages = _get_indexed_data_impl(dvconf, blockchain_id, name, raw=raw, index_manifest_url=index_manifest_url)
+
     if data == False:
         if blockchain_id:
             # reading someone else's datastore
@@ -1224,7 +1231,10 @@ def index_get_immutable_handler( dvconf, key, **kw ):
     name = 'immutable-{}'.format(key)
     name = name.replace('/', r'-2f')
    
-    path = '/{}'.format(name)
+    path = '/blockstack/{}/{}'.format(
+            dvconf['driver_info']['blockstack_id'],
+            name
+            )
     return get_indexed_data(dvconf, blockchain_id, path, index_manifest_url=index_manifest_url)
 
 
@@ -1250,7 +1260,8 @@ def index_get_mutable_handler( dvconf, url, default_get_data=http_get_data, **kw
 
     if urltype == 'blockstack':
         # get via index
-        data_id = '/' + urlres.replace('/', r'-2f')
+        urlres = '/' + urlres
+        data_id = os.path.dirname(urlres) + '/' + os.path.basename(urlres).replace('/', r'-2f')
         return get_indexed_data(dvconf, blockchain_id, data_id, index_manifest_url=index_manifest_url)
 
     else:
@@ -1269,7 +1280,10 @@ def index_put_immutable_handler( dvconf, key, data, txid, **kw ):
     name = 'immutable-{}'.format(key)
     name = name.replace('/', r'-2f')
 
-    path = '/{}'.format(name)
+    path = '/blockstack/{}/{}'.format(
+                dvconf['driver_info']['blockstack_id'],
+                name
+                )
     return put_indexed_data(dvconf, path, data)
 
 
@@ -1282,7 +1296,10 @@ def index_put_mutable_handler( dvconf, data_id, data_bin, **kw ):
     Return None on error
     """
     data_id = urllib.quote( data_id.replace('/', '-2f') )
-    path = '/{}'.format(data_id)
+    path = '/blockstack/{}/{}'.format(
+                dvconf['driver_info']['blockstack_id'],
+                data_id,
+                )
 
     return put_indexed_data(dvconf, path, data_bin)
 
@@ -1297,7 +1314,10 @@ def index_delete_immutable_handler( dvconf, key, txid, sig_key_txid, **kw ):
     """
     name = 'immutable-{}'.format(key)
     name = name.replace('/', r'-2f')
-    path = '/{}'.format(name)
+    path = '/blockstack/{}/{}'.format(
+                dvconf['driver_info']['blockstack_id'],
+                name
+                )
 
     return delete_indexed_data(dvconf, path)
 
@@ -1306,8 +1326,8 @@ def index_delete_mutable_handler( dvconf, data_id, signature, **kw ):
     """
     Delete by data ID
     """
-    data_id = data_id.replace('/', r'-2f')
-    path = '/{}'.format(data_id)
+    data_id = '/' + data_id[len('ipfs://'):]
+    path = os.path.dirname(data_id) + '/' + os.path.basename(data_id).replace('/', r'-2f')
 
     return delete_indexed_data(dvconf, path)
 
