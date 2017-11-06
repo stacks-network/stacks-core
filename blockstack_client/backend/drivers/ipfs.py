@@ -28,33 +28,40 @@ import re
 import zlib
 import json
 import logging
+
+import requests
 import ipfsapi
-from common import get_logger, DEBUG, compress_chunk, decompress_chunk
+
+from common_ipfs import get_logger, driver_config, DEBUG, \
+    index_setup, compress_chunk, decompress_chunk, \
+    index_get_manifest_page_path, index_insert, put_indexed_data, \
+    get_indexed_data, index_put_mutable_handler, \
+    index_get_immutable_handler, index_get_mutable_handler, \
+    index_put_immutable_handler, index_make_mutable_url, \
+    index_delete_immutable_handler, index_delete_mutable_handler
 from ConfigParser import SafeConfigParser
 
-log = get_logger("blockstack-storage-skel")
+log = get_logger("blockstack-storage-driver-ipfs")
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
-IPFS_SERVER   = 'localhost'
-IPFS_PORT     = '5001'
-IPFS_COMPRESS = True
+IPFS_DEFAULT_SERVER = 'localhost'
+IPFS_DEFAULT_PORT = '5001'
+IPFS_DEFAULT_COMPRESS = False
 
-ipfs_api = None
+IPFS_DEFAULT_GATEWAY = 'https://gateway.ipfs.io'
 
-def ipfs_key_gen(key):
-    """ 
-    We need a custom wraper for this API endpoint, because the ipfsapi does not provide it, yet
-    Instead of checking whether a key exists before creating it,
-    We create it, and ignore the error that throws if it exists already.
+INDEX_DIRNAME = 'index'
+DVCONF        = None
+
+
+def ipfs_default_gw( hash_ ):
     """
+    Return the default gateway url for a given hash
+    """
+    return '{}/ipfs/{}'.format(IPFS_DEFAULT_GATEWAY, hash_)
 
-    try:
-      r = ipfs_api._client.request('/key/gen', (key,), decoder='json', opts={'type':'rsa','size':'2048'})
-    except ipfsapi.exceptions.ErrorResponse:
-      # An exception is thrown when the key already exists, we ignore it
-      pass
 
-def write_chunk( chunk_path, chunk_buf, is_mutable ):
+def ipfs_put_chunk( dvconf, chunk_buf, chunk_path ):
     """
     Write a chunk of data to IPFS.
     
@@ -62,72 +69,100 @@ def write_chunk( chunk_path, chunk_buf, is_mutable ):
     Return False on error, and log an exception
     """
 
-    rc = True
+    chunk_buf = str(chunk_buf)
 
-    if IPFS_COMPRESS:            
-      compressed_data = compress_chunk( chunk_buf )
-    else:
-      compressed_data = chunk_buf
-
-    if is_mutable:
-      try:
-        r = ipfs_api.files_write( chunk_path, io.BytesIO(compressed_data), create = True )
-      except Exception, e:
-        log.error("Failed to write (mutable) '%s'" % chunk_path)
+    try:
+        dvconf['driver_info']['api'].files_mkdir(os.path.dirname(chunk_path), parents = True)
+    except Exception, e:
+        log.error('Failed to create {}'.format(chunk_path))
         log.exception(e)
         rc = False
     else:
-      try:
-        h = ipfs_api.add_str( compressed_data )        
-      except Exception, e:
-        log.error("Failed to write '%s'" % chunk_path)
-        log.exception(e)
-        rc = False
+        try:
+            r = dvconf['driver_info']['api'].files_write( chunk_path, 
+                                      io.BytesIO(str(chunk_buf)), 
+                                      create = True )
+            h = dvconf['driver_info']['api'].files_stat (chunk_path)['Hash']
+            rc = 'ipfs://{}'.format(h)
+            log.debug("{} available at {}".format(chunk_path, rc))
+        except Exception, e:
+            log.error("Failed to write '%s'" % chunk_path)
+            log.exception(e)
+            rc = False
 
     return rc
 
-#-------------------------
-def read_chunk( chunk_path, is_mutable ):
+
+def ipfs_get_chunk(dvconf, chunk_path):
     """
     Get a chunk of data from IPFS.
-    
+  
     Return the data on success
     Return None on error, and log an exception.
     """
-    
+
     data = None
     compressed_data = None
 
-    if is_mutable:
-      try:
-        compressed_data = ipfs_api.files_read( chunk_path )
-      except Exception, e:
-        log.error("Failed to read file '%s'" % chunk_path)
-        log.exception(e)
+    log.debug('Getting chunk at {}'.format(chunk_path))
+
+    if dvconf['driver_info']['api'] is None:
+        url = ipfs_default_gw(chunk_path)
+        log.debug('Fetching {}'.format(url))
+        r = requests.get(url)
+        if r.status_code != 200:
+            log.error("Failed to fetch {}, error code: {}".format(url,r.status_code))
+        else:
+            compressed_data = r.text
     else:
-      try:
-        compressed_data = ipfs_api.cat( chunk_path )
-      except Exception, e:
-        log.error("Failed to read '%s'" % chunk_path)
-        log.exception(e)
+        try:
+            compressed_data = dvconf['driver_info']['api'].files_read(chunk_path)
+        except:
+            try:
+                compressed_data = dvconf['driver_info']['api'].cat(chunk_path)
+            except Exception, e:
+                log.error("Failed to read file '%s'" % chunk_path)
+                log.exception(e)
 
     try:
-      data = decompress_chunk( compressed_data )
+        data = decompress_chunk( compressed_data )
     except:
-      data = compressed_data
-        
+        data = compressed_data
+      
     return data
 
 
-def storage_init(conf, **kwargs):
-   """
-   Initialize IPFS storage driver
-   """
-   global IPFS_SERVER, IPFS_PORT, IPFS_COMPRESS, ipfs_api
+def ipfs_delete_chunk(dvconf, chunk_path):
+    """
+      Delete a chunk of data from IPFS.
+    """
+    try:
+        dvconf['driver_info']['api'].files_rm(chunk_path)
+    except Exception, e:
+        try:
+            dvconf['driver_info']['api'].pin_rm(chunk_path)
+        except Exception, e:
+            log.error('Failed to delete {}'.format(chunk_path) )
+            log.exception(e)
+            return False 
+    return True
 
-   # path to the CLI's configuration file (where you can stash driver-specific configuration)
-   config_path = conf['path']
-   if os.path.exists( config_path ):
+
+def storage_init(conf, index=False, force_index=False, **kwargs):
+    """
+    Initialize IPFS storage driver
+    """
+    global DVCONF
+
+    ipfs_server = IPFS_DEFAULT_SERVER
+    ipfs_port = IPFS_DEFAULT_PORT
+    ipfs_compress = IPFS_DEFAULT_COMPRESS
+    blockstack_id = None
+
+    # path to the CLI's configuration file (where you can stash 
+    # driver-specific configuration)
+    config_path = conf['path']
+    if os.path.exists( config_path ):
 
        parser = SafeConfigParser()
         
@@ -140,31 +175,59 @@ def storage_init(conf, **kwargs):
        if parser.has_section('ipfs'):
             
             if parser.has_option('ipfs', 'server'):
-                IPFS_SERVER = parser.get('ipfs', 'server')
+                ipfs_server = parser.get('ipfs', 'server')
                 
             if parser.has_option('ipfs', 'port'):
-                IPFS_PORT = parser.get('ipfs', 'port')
+                ipfs_port = parser.get('ipfs', 'port')
             
             if parser.has_option('ipfs', 'compress'):
-                IPFS_COMPRESS = (parser.get('ipfs', 'compress', 'false').lower() in ['true', '1'])
+                ipfs_compress = (parser.get(
+                                    'ipfs', 
+                                    'compress', 
+                                    'false'
+                                    ).lower() in ['true', '1', 'yes'])
 
-   ipfs_api = ipfsapi.connect( IPFS_SERVER, IPFS_PORT )
+    blockstack_id = kwargs.get('fqu', None)
 
-   # need the blockstack_id
-   blockstack_id = kwargs.get('fqu', None)
-   if blockstack_id is None:
-      log.error("Blockstack.id is missing to initalize IPFS storage driver'")
-      return False
+    if blockstack_id is None:
+        log.error("IPFS driver is READ-ONLY: blockstack_id not provided through 'fqu' parameter")
+        ipfs_api = None
+    else:
+        ipfs_api = ipfsapi.connect( ipfs_server, ipfs_port )
 
-   d = '/blockstack/'+blockstack_id
+        d = '/blockstack/'+blockstack_id
 
-   try:
-    ipfs_api.files_mkdir( d, parents = True)
-   except Exception, e:
-      log.error("Failed to create directory '%s' within the MFS" % d)
-      log.exception(e)
+        try:
+            ipfs_api.files_mkdir( d, parents = True)
+        except Exception, e:
+            log.error("Failed to create directory '%s' within the MFS" % d)
+            log.exception(e)
 
-   return True 
+    DVCONF = driver_config(
+                driver_name = 'ipfs',
+                config_path = config_path, 
+                get_chunk = ipfs_get_chunk,
+                put_chunk = ipfs_put_chunk,
+                delete_chunk = ipfs_delete_chunk,
+                driver_info={
+                    'blockstack_id': blockstack_id,
+                    'api': ipfs_api,
+                    },
+                #index_stem='/blockstack/{}/{}'.format(blockstack_id,INDEX_DIRNAME),
+                index_stem=INDEX_DIRNAME,
+                compress=ipfs_compress,
+                )
+
+
+    
+
+    if index:
+        url = index_setup(DVCONF,force_index)
+        if not url:
+            log.error("Failed to set up index")
+            return False
+
+    return True 
 
 
 def handles_url( url ):
@@ -179,153 +242,123 @@ def handles_url( url ):
     matches what your driver does.  Another common strategy
     is to check if the URL matches a particular regex.
     """
-    if url.startswith("/ipfs/") or url.startswith("/ipns/"):
-      return True
+    if url.startswith("/ipfs/") or url.startswith("/ipns/") or url.startswith("ipfs://"):
+        return True
     else:
-      # if it starts with a valid CID: https://github.com/ipld/cid
-      #   return True
-      # else
-      return False
+        # if it starts with a valid CID: https://github.com/ipld/cid
+        #   return True
+        # else
+        return False
 
 
 def make_mutable_url( data_id, **kw ):
     """
     Get data by URL
     """
-    blockstack_id = kw.get('fqu', None)
-    if blockstack_id is None:
-      return '/blockstack/' + data_id.replace( "/", r"\x2f" )
-    else:
-      return '/blockstack/' + blockstack_id + '/' + data_id.replace( "/", r"\x2f" )
-   
-def get_immutable_handler( data_hash, **kw ):
+    return index_make_mutable_url(DVCONF, None, data_id, scheme='ipfs', **kw)
+
+
+def get_immutable_handler( key, **kw ):
     """
     Get data by hash
     """
-    return read_chunk( data_hash, False )
+    return index_get_immutable_handler(DVCONF, key, **kw)
+
 
 def get_mutable_handler( url, **kw ):
     """
     Get data by dynamic hash
     """
-    return read_chunk( url, True )
+    return index_get_mutable_handler(DVCONF, url, **kw)
 
-def put_immutable_handler( data_hash, data, txid, **kw ):
+
+def put_immutable_handler( key, data, txid, **kw ):
     """
     Put data by hash
     """
-    return write_chunk( data_hash, data, False )
+    return index_put_immutable_handler(DVCONF, key, data, txid, **kw)
+
 
 def put_mutable_handler( data_id, data_txt, **kw ):
     """
     Put data by dynamic hash
     """
-    blockchain_id = kw.get('fqu', None)
-    if blockchain_id is None:
-      return False
-    else:
-      mutable_data_id = "/blockstack/" + blockchain_id + "/" + data_id.replace( "/", r"\x2f" )
-      return write_chunk( mutable_data_id, data_txt, True )
+    return index_put_mutable_handler(DVCONF, data_id, data_txt, **kw)
+
    
-def delete_immutable_handler( data_hash, txid, tombstone, **kw ):
+def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
     """
     Delete by hash
     """
-    try:
-        ipfs_api.pin_rm( data_hash )
-    except Exception, e:
-        log.error("Failed to delete '%s'" % data_hash )
-        log.exception(e)
-        return False
-    return True
+    return index_delete_immutable_handler(DVCONF, key, txid, sig_key_txid, **kw)
+
     
-def delete_mutable_handler( data_id, tombstone, **kw ):
+def delete_mutable_handler( data_id, signature, **kw ):
     """
     Delete by dynamic hash
     """
-    try:
-      ipfs_api.files_rm( data_id )
-    except Exception, e:
-      log.error("Failed to delete file '%s'" % data_id )
-      log.exception(e)
-      return False
-    return True
+    return index_delete_mutable_handler(DVCONF, data_id, signature, **kw)
 
-
-def hash_data( d ):
-
-  h = None
-
-  if IPFS_COMPRESS:
-    try:            
-      h = ipfs_api.add_str(compress_chunk(d), opts={'only-hash':True})
-    except Exception, e:
-      log.error("Failed to get hash for '%s'" % d )
-      log.exception(e)
-  else:
-    try:
-      h = ipfs_api.add_str(d, opts={'only-hash':True})
-    except Exception, e:
-      log.error("Failed to get hash for '%s'" % d )
-      log.exception(e)
-        
-  return h
    
 if __name__ == "__main__":
-   """
-   Unit tests.
-   """
+    """
+    Unit tests.
+    """
+    import keylib
+    import json 
+    import virtualchain
+    from virtualchain.lib.hashing import hex_hash160
 
-   import keylib
-   import json 
-   import virtualchain
-   from virtualchain.lib.hashing import hex_hash160
-   
-   # hack around absolute paths
-   current_dir =  os.path.abspath(os.path.dirname(__file__))
-   sys.path.insert(0, current_dir)
-   
-   current_dir =  os.path.abspath(os.path.join( os.path.dirname(__file__), "..") )
-   sys.path.insert(0, current_dir)
-   
-   from blockstack_client.storage import parse_mutable_data, serialize_mutable_data
-   from blockstack_client.config import log, get_config
-   
-   CONFIG_PATH = os.environ.get('BLOCKSTACK_CONFIG_PATH', None)
-   assert CONFIG_PATH, "Missing BLOCKSTACK_CONFIG_PATH from environment"
+    from blockstack_client.storage import parse_mutable_data, \
+        serialize_mutable_data
+    from blockstack_client.config import get_config
+    from blockstack_client.constants import CONFIG_PATH
 
-   conf = get_config(CONFIG_PATH)
-   print json.dumps(conf, indent=4, sort_keys=True)
+    # hack around absolute paths
+    current_dir =  os.path.abspath(os.path.dirname(__file__))
+    sys.path.insert(0, current_dir)
 
-   pk = keylib.ECPrivateKey()
-   data_privkey = pk.to_hex()
-   data_pubkey = pk.public_key().to_hex()
+    current_dir =  os.path.abspath(os.path.join( os.path.dirname(__file__), "..") )
+    sys.path.insert(0, current_dir)
 
-   test_data = [
-      ["my_first_datum",        "hello world",                              1, "unused", None],
-      ["/my/second/datum",      "hello world 2",                            2, "unused", None],
-      ["user\"_profile",        '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
-      ["empty_string",          "",                                         4, "unused", None],
-   ]
-   
-   rc = storage_init(conf, fqu = 'test.id')
-   if not rc:
+    conf = get_config(CONFIG_PATH)
+    #print json.dumps(conf, indent=4, sort_keys=True)
+
+    pk = keylib.ECPrivateKey()
+    data_privkey = pk.to_hex()
+    data_pubkey = pk.public_key().to_hex()
+
+    test_data = [
+      ["my_first_datum",   "hello world",                             1, "unused", None],
+      ["/my/second/datum", "hello world 2",                           2, "unused", None],
+      ["user\"_profile",   '{"name":{"formatted":"judecn"},"v":"2"}', 3, "unused", None],
+      ["empty_string",     "",                                        4, "unused", None],
+    ]
+
+    def hash_data( d ):
+      return hex_hash160( d )
+
+    rc = storage_init(conf, fqu = 'test.id')
+    if not rc:
       raise Exception("Failed to initialize")
-  
-   if len(sys.argv) > 1:
+
+    index_manifest_url = index_setup(DVCONF)
+    assert index_manifest_url
+
+    if len(sys.argv) > 1:
        # try to get these profiles 
        for name in sys.argv[1:]:
-           prof = get_mutable_handler( make_mutable_url( name ) )
+           prof = get_mutable_handler( make_mutable_url( name ), index_manifest_url=index_manifest_url, blockchain_id='test.id' )
            if prof is None:
                raise Exception("Failed to get %s" % name)
 
            print json.dumps(prof, indent=4, sort_keys=True)
-  
+
        sys.exit(0)
 
-   # put_immutable_handler
-   print "put_immutable_handler"
-   for i in xrange(0, len(test_data)):
+    # put_immutable_handler
+    print "put_immutable_handler"
+    for i in xrange(0, len(test_data)):
       
       d_id, d, n, s, url = test_data[i]
       
@@ -333,9 +366,9 @@ if __name__ == "__main__":
       if not rc:
          raise Exception("put_immutable_handler('%s') failed" % d)
            
-   # put_mutable_handler
-   print "put_mutable_handler"
-   for i in xrange(0, len(test_data)):
+    # put_mutable_handler
+    print "put_mutable_handler"
+    for i in xrange(0, len(test_data)):
 
       d_id, d, n, s, url = test_data[i]
       
@@ -349,9 +382,9 @@ if __name__ == "__main__":
      
       test_data[i][4] = data_url
 
-   # get_immutable_handler
-   print "get_immutable_handler"
-   for i in xrange(0, len(test_data)):
+    # get_immutable_handler
+    print "get_immutable_handler"
+    for i in xrange(0, len(test_data)):
       
       d_id, d, n, s, url = test_data[i]
 
@@ -359,9 +392,9 @@ if __name__ == "__main__":
       if rd != d:
          raise Exception("get_immutable_handler('%s'): '%s' != '%s'" % (hash_data(d), d, rd))
       
-   # get_mutable_handler
-   print "get_mutable_handler"
-   for i in xrange(0, len(test_data)):
+    # get_mutable_handler
+    print "get_mutable_handler"
+    for i in xrange(0, len(test_data)):
 
       d_id, d, n, s, url = test_data[i]
 
@@ -381,10 +414,10 @@ if __name__ == "__main__":
       
       if rd['data'] != d:
          raise Exception("Data mismatch: '%s' != '%s'" % (rd['data'], d))
-   
-   # delete_immutable_handler
-   print "delete_immutable_handler"
-   for i in xrange(0, len(test_data)):
+
+    # delete_immutable_handler
+    print "delete_immutable_handler"
+    for i in xrange(0, len(test_data)):
       
       d_id, d, n, s, url = test_data[i]
       
@@ -392,9 +425,9 @@ if __name__ == "__main__":
       if not rc:
          raise Exception("delete_immutable_handler('%s' (%s)) failed" % (hash_data(d), d))
       
-   # delete_mutable_handler
-   print "delete_mutable_handler"
-   for i in xrange(0, len(test_data)):
+    # delete_mutable_handler
+    print "delete_mutable_handler"
+    for i in xrange(0, len(test_data)):
       
       d_id, d, n, s, url = test_data[i]
       

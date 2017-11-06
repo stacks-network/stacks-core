@@ -97,7 +97,7 @@ def test_get_mutable_handler( driver_mod, dataset ):
     data_id = dataset['data_id']
     kw = dataset['kwargs']
 
-    url = driver_mod.make_mutable_url(data_id)
+    url = driver_mod.make_mutable_url(data_id, **kw)
     assert url
     assert driver_mod.handles_url(url)
 
@@ -357,6 +357,7 @@ def main(argv):
     parser.add_argument("--debug", dest='debug', action='store_true', help='Activate verbose output from Blockstack libraries', required=False)
     parser.add_argument("driver_module", type=str, help="Blockstack storage driver module to run (e.g. 'disk', 'blockstack_client.backend.drivers.s3', etc.)")
     parser.add_argument("operation", type=str, help="Family of operations to test ('get', 'put', 'delete', 'all')")
+    parser.add_argument("--fqu", type=str, help="blockchain ID to access user-specific index manifest URI", required=False)
 
     args, _ = parser.parse_known_args(argv[1:])
     
@@ -388,7 +389,7 @@ def main(argv):
     conf = blockstack_client.get_config(config_path)
     assert conf
 
-    res = driver_mod.storage_init(conf, index=index, force_index=force_index)
+    res = driver_mod.storage_init(conf, index=index, force_index=force_index, fqu=args.fqu)
     assert res
     
     if operations == 'get': 
