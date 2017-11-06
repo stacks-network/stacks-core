@@ -29,11 +29,12 @@ import zlib
 import json
 import logging
 import ipfsapi
-from common import get_logger, driver_config, DEBUG, \
+from common_ipfs import get_logger, driver_config, DEBUG, \
     index_setup, compress_chunk, decompress_chunk, \
     index_get_manifest_page_path, index_insert, put_indexed_data, \
     get_indexed_data, index_put_mutable_handler, \
-    index_get_immutable_handler, index_get_mutable_handler
+    index_get_immutable_handler, index_get_mutable_handler, \
+    index_put_immutable_handler, index_make_mutable_url
 from ConfigParser import SafeConfigParser
 
 log = get_logger("blockstack-storage-driver-ipfs")
@@ -74,14 +75,14 @@ def ipfs_put_chunk( dvconf, chunk_buf, chunk_path ):
     """
 
     chunk_buf = str(chunk_buf)
-    base_path = '/blockstack/{}{}'.format(
-                      dvconf['driver_info']['blockstack_id'],
-                      os.path.dirname(chunk_path),
-                      )
-    chunk_path = os.path.join(base_path, os.path.basename(chunk_path))
+    # base_path = '/blockstack/{}{}'.format(
+    #                   dvconf['driver_info']['blockstack_id'],
+    #                   os.path.dirname(chunk_path),
+    #                   )
+    # chunk_path = os.path.join(base_path, os.path.basename(chunk_path))
 
     try:
-        ipfs_api.files_mkdir(base_path, parents = True)
+        ipfs_api.files_mkdir(os.path.dirname(chunk_path), parents = True)
     except Exception, e:
         log.error('Failed to create {}'.format(base_path))
         log.exception(e)
@@ -93,36 +94,39 @@ def ipfs_put_chunk( dvconf, chunk_buf, chunk_path ):
                                       create = True )
             h = ipfs_api.files_stat (chunk_path)['Hash']
             rc = 'ipfs://{}'.format(h)
+            log.debug("{} available at {}".format(chunk_path, rc))
             #rc = 'ipfs:/{}'.format(chunk_path)
         except Exception, e:
-            log.error("Failed to write mutable '%s'" % chunk_path)
+            log.error("Failed to write '%s'" % chunk_path)
             log.exception(e)
             rc = False
 
     return rc
 
-def ipfs_put_chunk_immutable( dvconf, chunk_buf, chunk_path):
-    """
-    Write a chunk of data to IPFS.
+#def ipfs_put_chunk_immutable( dvconf, chunk_buf, chunk_path):
+# def ipfs_put_chunk( dvconf, chunk_buf, chunk_path):
+#     """
+#     Write a chunk of data to IPFS.
     
-    Return True on success 
-    Return False on error, and log an exception
-    """
+#     Return True on success 
+#     Return False on error, and log an exception
+#     """
 
-    chunk_buf = str(chunk_buf)
+#     chunk_buf = str(chunk_buf)
 
-    try:
-        if chunk_buf: 
-            h = ipfs_api.add_str( chunk_buf )
-            h = 'ipfs://{}'.format(h) 
-        else:
-            h = False       
-    except Exception, e:
-        log.error("Failed to write '%s'" % chunk_path)
-        log.exception(e)
-        h = False
+#     try:
+#         if chunk_buf: 
+#             h = ipfs_api.add_str( chunk_buf )
+#             h = 'ipfs://{}'.format(h) 
+#             log.debug("{} available at {}".format(chunk_path, h))
+#         else:
+#             h = False       
+#     except Exception, e:
+#         log.error("Failed to write '%s'" % chunk_path)
+#         log.exception(e)
+#         h = False
 
-    return h
+#     return h
 
 
 def ipfs_put_indexed_data_immutable( dvconf, name, chunk_buf, raw=False, index=True, **kw ):
@@ -163,50 +167,53 @@ def ipfs_put_indexed_data_immutable( dvconf, name, chunk_buf, raw=False, index=T
 def ipfs_get_chunk(dvconf, chunk_path):
     """
     Get a chunk of data from IPFS.
-    
+  
     Return the data on success
     Return None on error, and log an exception.
     """
-    
+
     data = None
     compressed_data = None
 
     try:
-      compressed_data = ipfs_api.files_read( chunk_path )
-    except Exception, e:
-      log.error("Failed to read file '%s'" % chunk_path)
-      log.exception(e)
+      compressed_data = ipfs_api.files_read(chunk_path)
+    except:
+      try:
+          compressed_data = ipfs_api.cat(chunk_path)
+      except Exception, e:
+          log.error("Failed to read file '%s'" % chunk_path)
+          log.exception(e)
 
     try:
       data = decompress_chunk( compressed_data )
     except:
       data = compressed_data
-        
+      
     return data
 
-def ipfs_get_chunk_immutable(dvconf, chunk_path):
-    """
-    Get a chunk of data from IPFS.
+# def ipfs_get_chunk(dvconf, chunk_path):
+#     """
+#     Get a chunk of data from IPFS.
     
-    Return the data on success
-    Return None on error, and log an exception.
-    """
+#     Return the data on success
+#     Return None on error, and log an exception.
+#     """
     
-    data = None
-    compressed_data = None
+#     data = None
+#     compressed_data = None
 
-    try:
-      compressed_data = ipfs_api.cat( chunk_path )
-    except Exception, e:
-      log.error("Failed to read '%s'" % chunk_path)
-      log.exception(e)
+#     try:
+#       compressed_data = ipfs_api.cat( chunk_path )
+#     except Exception, e:
+#       log.error("Failed to read '%s'" % chunk_path)
+#       log.exception(e)
 
-    try:
-      data = decompress_chunk( compressed_data )
-    except:
-      data = compressed_data
+#     try:
+#       data = decompress_chunk( compressed_data )
+#     except:
+#       data = compressed_data
         
-    return data
+#     return data
 
 
 def ipfs_delete_chunk( chunk_path, is_mutable ):
@@ -231,23 +238,23 @@ def ipfs_delete_chunk( chunk_path, is_mutable ):
     return True
 
 
-def ipfs_index_get_immutable_handler( dvconf, key, **kw ):
-    """
-    Default method to get data by hash using the index.
-    Meant for HTTP-based cloud providers.
+# def ipfs_index_get_immutable_handler( dvconf, key, **kw ):
+#     """
+#     Default method to get data by hash using the index.
+#     Meant for HTTP-based cloud providers.
 
-    Return the data on success
-    Return None on error
-    """
-    #blockchain_id = kw.get('fqu', None)
-    index_manifest_url = kw.get('index_manifest_url', None)
+#     Return the data on success
+#     Return None on error
+#     """
+#     #blockchain_id = kw.get('fqu', None)
+#     index_manifest_url = kw.get('index_manifest_url', None)
 
-    name = 'immutable-{}'.format(key)
-    name = name.replace('/', r'-2f')
+#     name = 'immutable-{}'.format(key)
+#     name = name.replace('/', r'-2f')
    
-    path = '/{}'.format(name)
+#     path = '/{}'.format(name)
 
-    return get_indexed_data(dvconf, None, path, index_manifest_url=index_manifest_url)
+#     return get_indexed_data(dvconf, None, path, index_manifest_url=index_manifest_url)
 
 
 def storage_init(conf, index=False, force_index=False, **kwargs):
@@ -353,12 +360,13 @@ def make_mutable_url( data_id, **kw ):
     """
     Get data by URL
     """
-    blockstack_id = kw.get('fqu', None)
-    if blockstack_id is None:
-        return 'ipfs://blockstack/' + data_id.replace( "/", r"\x2f" )
-    else:
-        return ('ipfs://blockstack/' + blockstack_id + '/'
-               + data_id.replace('/', r"\x2f"))
+    return index_make_mutable_url(None, data_id, scheme='ipfs')
+    # blockstack_id = kw.get('fqu', None)
+    # if blockstack_id is None:
+    #     return 'ipfs://blockstack/' + data_id.replace( "/", r"\x2f" )
+    # else:
+    #     return ('ipfs://blockstack/' + blockstack_id + '/'
+    #            + data_id.replace('/', r"\x2f"))
 
 
 def get_immutable_handler( key, **kw ):
@@ -377,6 +385,8 @@ def get_mutable_handler( url, **kw ):
     Get data by dynamic hash
     """
     #url = url.replace('/', r'-2f')
+    kw.pop('fqu')
+    log.debug(url)
     return index_get_mutable_handler(DVCONF, url, **kw)
     #return ipfs_get_chunk(DVCONF, url)
 
@@ -385,39 +395,14 @@ def put_immutable_handler( key, data, txid, **kw ):
     """
     Put data by hash
     """
-    name = 'immutable-{}'.format(key)
-    name = name.replace('/', r'-2f')
-
-    path = '/{}'.format(name)
-
-    return ipfs_put_indexed_data_immutable(DVCONF, path, data, txid, **kw)
-
-#def put_immutable_handler( key, data, txid, **kw ):
-    """
-    Put data by hash and txid
-    """
-#    return index_put_immutable_handler(DVCONF, key, data, txid, **kw)
+    return index_put_immutable_handler(DVCONF, key, data, txid, **kw)
 
 
 def put_mutable_handler( data_id, data_txt, **kw ):
     """
     Put data by dynamic hash
     """
-    # blockchain_id = DVCONF['driver_info']['blockstack_id']
-    # mutable_data_id = ('/blockstack/' + blockchain_id + '/' 
-    #                   + data_id.replace('/', r"\x2f"))
-
-
-    # data_id = data_id.replace('/', r'-2f')
-    # path = '/blockstack/{}/{}'.format(
-    #           DVCONF['driver_info']['blockstack_id'],
-    #           data_id
-    #           )
-
-    #return put_indexed_data(DVCONF, path, data_txt)
     return index_put_mutable_handler(DVCONF, data_id, data_txt, **kw)
-    #return put_indexed_data(DVCONF, mutable_data_id, data_txt)
-    #return ipfs_put_chunk(DVCONF, data_txt, mutable_data_id)
 
    
 def delete_immutable_handler( data_hash, txid, tombstone, **kw ):
