@@ -657,6 +657,20 @@ def index_get_page(dvconf, blockchain_id=None, path=None, url=None):
         assert blockchain_id
 
     serialized_index_page = None
+    if url is None:
+        assert path
+        log.debug("Fetch index page {} via driver".format(path))
+        assert dvconf
+        get_chunk = dvconf['get_chunk']
+        serialized_index_page = get_chunk(dvconf, path)
+    else:
+        assert url
+        log.debug("Fetch index page {} via driver".format(url))
+        assert dvconf
+        get_chunk = dvconf['get_chunk']
+        serialized_index_page = get_chunk(dvconf, url[len('ipfs://'):])
+
+
     # if url and blockchain_id:
     #     log.debug("Fetch index page {} via HTTP".format(url))
     #     serialized_index_page = get_chunk_via_http(url, blockchain_id=blockchain_id)
@@ -667,11 +681,7 @@ def index_get_page(dvconf, blockchain_id=None, path=None, url=None):
     #     get_chunk = dvconf['get_chunk']
     #     serialized_index_page = get_chunk(dvconf, path)
 
-    assert path
-    log.debug("Fetch index page {} via driver".format(path))
-    assert dvconf
-    get_chunk = dvconf['get_chunk']
-    serialized_index_page = get_chunk(dvconf, path)
+
 
     if serialized_index_page is None:
         # failed to get index
