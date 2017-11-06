@@ -358,14 +358,22 @@ def get_url_type(url):
         return ('http', url)
 
 
-def index_make_mutable_url(dvconf, host, data_id, scheme='ipfs'):
+def index_make_mutable_url(dvconf, host, data_id, scheme='ipfs', **kw):
     """
     Make a faux-mutable URL that will be identified
     by the indexer as referring to indexed data.
     """
+
+    blockchain_id = kw.get('fqu', None)
+
     data_id = urllib.quote( data_id.replace('/', '-2f') )
     #url = "{}://{}/blockstack/{}".format(scheme, host, data_id)
-    url = "{}://blockstack/{}/{}".format(scheme, dvconf['driver_info']['blockstack_id'], data_id)
+    url = "{}://blockstack/{}/{}".format(
+                scheme, 
+                blockchain_id if blockchain_id 
+                              else dvconf['driver_info']['blockstack_id'],
+                data_id
+                )
     return url
 
 
@@ -1242,9 +1250,10 @@ def index_get_immutable_handler( dvconf, key, **kw ):
     name = name.replace('/', r'-2f')
    
     path = '/blockstack/{}/{}'.format(
-            dvconf['driver_info']['blockstack_id'],
+            blockchain_id if blockchain_id else dvconf['driver_info']['blockstack_id'],
             name
             )
+
     return get_indexed_data(dvconf, blockchain_id, path, index_manifest_url=index_manifest_url)
 
 

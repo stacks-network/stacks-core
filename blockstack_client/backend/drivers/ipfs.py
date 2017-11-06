@@ -49,22 +49,6 @@ INDEX_DIRNAME = 'index'
 DVCONF        = None
 
 
-# def ipfs_key_gen(key):
-#     """ 
-#     We need a custom wraper for this API endpoint, because the ipfsapi 
-#     does not provide it, yet. Instead of checking whether a key exists 
-#     before creating it, we create it, and ignore the error that throws 
-#     if it exists already.
-#     """
-
-#     try:
-#       r = ipfs_api._client.request('/key/gen', (key,), decoder='json', 
-#                                    opts={'type':'rsa','size':'2048'})
-#     except ipfsapi.exceptions.ErrorResponse:
-#       # An exception is thrown when the key already exists, we ignore it
-#       pass
-
-
 def ipfs_put_chunk( dvconf, chunk_buf, chunk_path ):
     """
     Write a chunk of data to IPFS.
@@ -74,13 +58,6 @@ def ipfs_put_chunk( dvconf, chunk_buf, chunk_path ):
     """
 
     chunk_buf = str(chunk_buf)
-    # base_path = '/blockstack/{}{}'.format(
-    #                   dvconf['driver_info']['blockstack_id'],
-    #                   os.path.dirname(chunk_path),
-    #                   )
-    # chunk_path = os.path.join(base_path, os.path.basename(chunk_path))
-
-
 
     try:
         dvconf['driver_info']['api'].files_mkdir(os.path.dirname(chunk_path), parents = True)
@@ -96,7 +73,6 @@ def ipfs_put_chunk( dvconf, chunk_buf, chunk_path ):
             h = dvconf['driver_info']['api'].files_stat (chunk_path)['Hash']
             rc = 'ipfs://{}'.format(h)
             log.debug("{} available at {}".format(chunk_path, rc))
-            #rc = 'ipfs:/{}'.format(chunk_path)
         except Exception, e:
             log.error("Failed to write '%s'" % chunk_path)
             log.exception(e)
@@ -104,66 +80,6 @@ def ipfs_put_chunk( dvconf, chunk_buf, chunk_path ):
 
     return rc
 
-#def ipfs_put_chunk_immutable( dvconf, chunk_buf, chunk_path):
-# def ipfs_put_chunk( dvconf, chunk_buf, chunk_path):
-#     """
-#     Write a chunk of data to IPFS.
-    
-#     Return True on success 
-#     Return False on error, and log an exception
-#     """
-
-#     chunk_buf = str(chunk_buf)
-
-#     try:
-#         if chunk_buf: 
-#             h = ipfs_api.add_str( chunk_buf )
-#             h = 'ipfs://{}'.format(h) 
-#             log.debug("{} available at {}".format(chunk_path, h))
-#         else:
-#             h = False       
-#     except Exception, e:
-#         log.error("Failed to write '%s'" % chunk_path)
-#         log.exception(e)
-#         h = False
-
-#     return h
-
-
-def ipfs_put_indexed_data_immutable( dvconf, name, chunk_buf, raw=False, index=True, **kw ):
-    """
-    Put data into the storage system.
-    Compress it (if configured to do so), save it, and then update the index.
-
-    If @raw is True, then do not compress
-    If @index is False, then do not update the index
-
-    Return True on success
-    Return False on error
-    """
-    if dvconf['compress'] and not raw:
-        compressed_chunk = compress_chunk(chunk_buf)
-    else:
-        compressed_chunk = chunk_buf
-
-    put_chunk = dvconf['put_chunk']
-    log.debug("Store {} bytes to {}".format(len(chunk_buf), name))
-
-    # store data
-    new_url = ipfs_put_chunk_immutable(dvconf, compressed_chunk, name)
-    if new_url is None:
-        log.error("Failed to save {}".format(name))
-        return False
-
-    # update index
-    if index:
-        log.debug("Insert ({}, {}) into index".format(name, new_url))
-        rc = index_insert( dvconf, name, new_url )
-        if not rc:
-            log.error("Failed to insert ({}, {}) into index".format(name, new_url))
-            return False
-
-    return True
 
 def ipfs_get_chunk(dvconf, chunk_path):
     """
@@ -194,30 +110,6 @@ def ipfs_get_chunk(dvconf, chunk_path):
       
     return data
 
-# def ipfs_get_chunk(dvconf, chunk_path):
-#     """
-#     Get a chunk of data from IPFS.
-    
-#     Return the data on success
-#     Return None on error, and log an exception.
-#     """
-    
-#     data = None
-#     compressed_data = None
-
-#     try:
-#       compressed_data = ipfs_api.cat( chunk_path )
-#     except Exception, e:
-#       log.error("Failed to read '%s'" % chunk_path)
-#       log.exception(e)
-
-#     try:
-#       data = decompress_chunk( compressed_data )
-#     except:
-#       data = compressed_data
-        
-#     return data
-
 
 def ipfs_delete_chunk(dvconf, chunk_path):
     """
@@ -233,25 +125,6 @@ def ipfs_delete_chunk(dvconf, chunk_path):
             log.exception(e)
             return False 
     return True
-
-
-# def ipfs_index_get_immutable_handler( dvconf, key, **kw ):
-#     """
-#     Default method to get data by hash using the index.
-#     Meant for HTTP-based cloud providers.
-
-#     Return the data on success
-#     Return None on error
-#     """
-#     #blockchain_id = kw.get('fqu', None)
-#     index_manifest_url = kw.get('index_manifest_url', None)
-
-#     name = 'immutable-{}'.format(key)
-#     name = name.replace('/', r'-2f')
-   
-#     path = '/{}'.format(name)
-
-#     return get_indexed_data(dvconf, None, path, index_manifest_url=index_manifest_url)
 
 
 def storage_init(conf, index=False, force_index=False, **kwargs):
@@ -311,7 +184,8 @@ def storage_init(conf, index=False, force_index=False, **kwargs):
                     'blockstack_id': blockstack_id,
                     'api': ipfs_api,
                     },
-                index_stem='/blockstack/{}/{}'.format(blockstack_id,INDEX_DIRNAME),
+                #index_stem='/blockstack/{}/{}'.format(blockstack_id,INDEX_DIRNAME),
+                index_stem=INDEX_DIRNAME,
                 compress=ipfs_compress,
                 )
 
@@ -357,42 +231,21 @@ def make_mutable_url( data_id, **kw ):
     """
     Get data by URL
     """
-    return index_make_mutable_url(DVCONF, None, data_id, scheme='ipfs')
-    # blockstack_id = kw.get('fqu', None)
-    # if blockstack_id is None:
-    #     return 'ipfs://blockstack/' + data_id.replace( "/", r"\x2f" )
-    # else:
-    #     return ('ipfs://blockstack/' + blockstack_id + '/'
-    #            + data_id.replace('/', r"\x2f"))
+    return index_make_mutable_url(DVCONF, None, data_id, scheme='ipfs', **kw)
 
 
 def get_immutable_handler( key, **kw ):
     """
     Get data by hash
     """
-    #return ipfs_get_chunk_immutable(DVCONF, key)
-    try:
-      kw.pop('fqu')
-    except:
-      pass
-
     return index_get_immutable_handler(DVCONF, key, **kw)
-
-    #return ipfs_index_get_immutable_handler(DVCONF, key, **kw)
 
 
 def get_mutable_handler( url, **kw ):
     """
     Get data by dynamic hash
     """
-    #url = url.replace('/', r'-2f')
-    try:
-      kw.pop('fqu')
-    except:
-      pass
-    log.debug(url)
     return index_get_mutable_handler(DVCONF, url, **kw)
-    #return ipfs_get_chunk(DVCONF, url)
 
 
 def put_immutable_handler( key, data, txid, **kw ):
@@ -414,7 +267,6 @@ def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
     Delete by hash
     """
     return index_delete_immutable_handler(DVCONF, key, txid, sig_key_txid, **kw)
-    #return ipfs_delete_chunk( data_hash, False )
 
     
 def delete_mutable_handler( data_id, signature, **kw ):
@@ -422,27 +274,6 @@ def delete_mutable_handler( data_id, signature, **kw ):
     Delete by dynamic hash
     """
     return index_delete_mutable_handler(DVCONF, data_id, signature, **kw)
-    #return ipfs_delete_chunk( data_id, True )
-
-
-# def hash_data( d ):
-
-#     h = None
-
-#     if DVCONF['compress']:
-#       try:            
-#         h = ipfs_api.add_str(compress_chunk(d), opts={'only-hash':True})
-#       except Exception, e:
-#         log.error("Failed to get hash for '%s'" % d )
-#         log.exception(e)
-#     else:
-#       try:
-#         h = ipfs_api.add_str(d, opts={'only-hash':True})
-#       except Exception, e:
-#         log.error("Failed to get hash for '%s'" % d )
-#         log.exception(e)
-          
-#     return h
 
    
 if __name__ == "__main__":
