@@ -28,7 +28,10 @@ import re
 import zlib
 import json
 import logging
+
+import requests
 import ipfsapi
+
 from common_ipfs import get_logger, driver_config, DEBUG, \
     index_setup, compress_chunk, decompress_chunk, \
     index_get_manifest_page_path, index_insert, put_indexed_data, \
@@ -45,8 +48,17 @@ IPFS_DEFAULT_SERVER = 'localhost'
 IPFS_DEFAULT_PORT = '5001'
 IPFS_DEFAULT_COMPRESS = False
 
+IPFS_DEFAULT_GATEWAY = 'https://gateway.ipfs.io'
+
 INDEX_DIRNAME = 'index'
 DVCONF        = None
+
+
+def ipfs_default_gw( hash_ ):
+    """
+    Return the default gateway url for a given hash
+    """
+    return '{}/ipfs/{}'.format(IPFS_DEFAULT_GATEWAY, hash_)
 
 
 def ipfs_put_chunk( dvconf, chunk_buf, chunk_path ):
@@ -94,19 +106,28 @@ def ipfs_get_chunk(dvconf, chunk_path):
 
     log.debug('Getting chunk at {}'.format(chunk_path))
 
-    try:
-      compressed_data = dvconf['driver_info']['api'].files_read(chunk_path)
-    except:
-      try:
-          compressed_data = dvconf['driver_info']['api'].cat(chunk_path)
-      except Exception, e:
-          log.error("Failed to read file '%s'" % chunk_path)
-          log.exception(e)
+    if dvconf['driver_info']['api'] is None:
+        url = ipfs_default_gw(chunk_path)
+        log.debug('Fetching {}'.format(url))
+        r = requests.get(url)
+        if r.status_code != 200:
+            log.error("Failed to fetch {}, error code: {}".format(url,r.status_code))
+        else:
+            compressed_data = r.text
+    else:
+        try:
+            compressed_data = dvconf['driver_info']['api'].files_read(chunk_path)
+        except:
+            try:
+                compressed_data = dvconf['driver_info']['api'].cat(chunk_path)
+            except Exception, e:
+                log.error("Failed to read file '%s'" % chunk_path)
+                log.exception(e)
 
     try:
-      data = decompress_chunk( compressed_data )
+        data = decompress_chunk( compressed_data )
     except:
-      data = compressed_data
+        data = compressed_data
       
     return data
 
@@ -169,10 +190,18 @@ def storage_init(conf, index=False, force_index=False, **kwargs):
     blockstack_id = kwargs.get('fqu', None)
 
     if blockstack_id is None:
-        log.error("Blockstack.id is missing to initalize IPFS storage driver")
-        return False
+        log.error("IPFS driver is READ-ONLY: blockstack_id not provided through 'fqu' parameter")
+        ipfs_api = None
+    else:
+        ipfs_api = ipfsapi.connect( ipfs_server, ipfs_port )
 
-    ipfs_api = ipfsapi.connect( ipfs_server, ipfs_port )
+        d = '/blockstack/'+blockstack_id
+
+        try:
+            ipfs_api.files_mkdir( d, parents = True)
+        except Exception, e:
+            log.error("Failed to create directory '%s' within the MFS" % d)
+            log.exception(e)
 
     DVCONF = driver_config(
                 driver_name = 'ipfs',
@@ -189,13 +218,8 @@ def storage_init(conf, index=False, force_index=False, **kwargs):
                 compress=ipfs_compress,
                 )
 
-    d = '/blockstack/'+blockstack_id
 
-    try:
-        ipfs_api.files_mkdir( d, parents = True)
-    except Exception, e:
-        log.error("Failed to create directory '%s' within the MFS" % d)
-        log.exception(e)
+    
 
     if index:
         url = index_setup(DVCONF,force_index)
