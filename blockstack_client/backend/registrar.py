@@ -507,6 +507,7 @@ class RegistrarWorker(threading.Thread):
             if 'error' in name_rec:
                 if name_rec['error'] == 'Not found.':
                     return {'error' : 'Name has not appeared on the resolver, cannot issue zonefile until it does.'}
+
                 return name_rec
 
             if BLOCKSTACK_TEST:
