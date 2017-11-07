@@ -52,7 +52,7 @@ BLOCKSTACK_STORAGE_DRIVERS = "disk"
 if os.environ.get("BLOCKSTACK_STORAGE_DRIVERS", None) is not None:
     BLOCKSTACK_STORAGE_DRIVERS = os.environ.get("BLOCKSTACK_STORAGE_DRIVERS")
 
-BITCOIN_DIR = "/tmp/bitcoin-regtest"
+BITCOIN_DIR = None      # set at runtime
 SCENARIO_PID = os.getpid()
 
 NET_LOG_PATH = "/tmp/blockstack-test-netlog.log"
@@ -533,6 +533,7 @@ def bitcoin_stop():
     Stop bitcoin
     """
     global BITCOIN_DIR
+    assert BITCOIN_DIR
     bitcoin_conf = os.path.join(BITCOIN_DIR, "bitcoin.conf")
     rc = os.system("bitcoin-cli -regtest -conf=%s stop" % bitcoin_conf)
     assert rc == 0, "Failed to stop bitcoind"
@@ -543,6 +544,7 @@ def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
     Clean up a scenario
     """
     global BITCOIN_DIR, SCENARIO_PID
+    assert BITCOIN_DIR
     if os.getpid() != SCENARIO_PID:
         # don't let the API daemon call this by mistake
         return
@@ -911,6 +913,7 @@ def bitcoin_regtest_reset():
     Reset bitcoind regtest to a clean state
     """
     global BITCOIN_DIR
+    assert BITCOIN_DIR
 
     bitcoin_dir = BITCOIN_DIR[:]
     bitcoin_pidpath = os.path.join(bitcoin_dir, "bitcoind.pid")
@@ -1186,6 +1189,7 @@ def parse_args( argv ):
     parser.add_argument("--working-dir", dest='working_dir', type=str, help="Working directory to use to store database state", required=False)
     parser.add_argument("--influx", dest='influx', action='store_true', help="Write test output to monitoring in additon to stdout", required=False)
     parser.add_argument('--force-segwit', dest='force_segwit', action='store_true', help="Forcibly convert all wallets to support segwit transactions", required=False)
+    parser.add_argument("--output", dest="output_path", action='store', help='Redirect all output to a given file', required=False)
     parser.add_argument("scenario_module", type=str, help="Python module to run")
 
     args, _ = parser.parse_known_args()
@@ -1237,7 +1241,7 @@ if __name__ == "__main__":
     test_end = None
 
     if len(sys.argv) < 2:
-        print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [--interactive-web port] [--influx] [--force-segwit] [scenario.import.path] [OPTIONAL: working dir]"
+        print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [--interactive-web port] [--influx] [--force-segwit] [--output PATH] [scenario.import.path] [OPTIONAL: working dir]"
         sys.exit(1)
 
     args = parse_args(sys.argv)
@@ -1249,6 +1253,49 @@ if __name__ == "__main__":
     scenario_module = args.scenario_module
     influx_client = None
     force_segwit = False
+    output_path = None
+    output_f = None
+    output_fd = None
+
+    if hasattr(args, 'output_path') and args.output_path:
+        output_path = args.output_path
+        
+        if os.path.exists(output_path):
+            os.unlink(output_path)
+
+        # redirect 
+        if output_path != '-':
+            # just send stderr to stdout
+            output_f = open(output_path, 'w')
+            output_fd = output_f.fileno()
+
+            stdout_fileno = sys.stdout.fileno()
+            os.close(sys.stdout.fileno())
+            os.dup2(output_fd, stdout_fileno)
+
+        else:
+            output_f = sys.stdout
+            output_fd = sys.stdout.fileno()
+
+        stderr_fileno = sys.stderr.fileno()
+        os.close(stderr_fileno)
+        os.dup2(output_fd, stderr_fileno)
+
+        # make stdout unbufferred 
+        class Unbuffered(object):
+           def __init__(self, stream):
+               self.stream = stream
+           def write(self, data):
+               self.stream.write(data)
+               self.stream.flush()
+           def writelines(self, datas):
+               self.stream.writelines(datas)
+               self.stream.flush()
+           def __getattr__(self, attr):
+               return getattr(self.stream, attr)
+
+        sys.stdout = Unbuffered(sys.stdout)
+        log.debug("Sending all output to {}".format(output_path))
 
     if hasattr(args, "influx") and args.influx is not False:
         # TODO: pull config from ENV
@@ -1312,6 +1359,11 @@ if __name__ == "__main__":
     os.environ["BLOCKSTACK_SERVER_CONFIG"] = config_file
     os.environ['VIRTUALCHAIN_WORKING_DIR'] = working_dir
     os.environ['BLOCKSTACK_SEGWIT_TEST'] = '1'
+    os.environ['BLOCKSTACK_TEST_NAME'] = scenario_module
+    
+    BITCOIN_DIR = os.path.join(working_dir, 'bitcoin-regtest')
+    if not os.path.exists(BITCOIN_DIR):
+        os.makedirs(BITCOIN_DIR)
 
     if force_segwit:
         # test framework flag
