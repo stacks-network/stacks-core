@@ -936,13 +936,21 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
                     prior_default, new_default = changed_field_value
                     old_value = ret[sec][changed_field_name]
                     if old_value == prior_default and old_value != new_default:
-                        log.debug("Change {}.{} to {}".format(sec, changed_field_name, new_default))
+
+                        # don't go overboard
+                        if not (sec == 'blockstack-client' and changed_field_name == 'client_version'):
+                            log.debug("Change {}.{} to {}".format(sec, changed_field_name, new_default))
+
                         ret[sec][changed_field_name] = new_default
                         migrated = True
-                elif ret[sec][changed_field_name] != changed_field_value:
-                    log.debug("Change {}.{} to {}".format(sec, changed_field_name, changed_field_value))
-                    ret[sec][changed_field_name] = changed_field_value
 
+                elif ret[sec][changed_field_name] != changed_field_value:
+
+                    # don't go overboard
+                    if not (sec == 'blockstack-client' and changed_field_name == 'client_version'):
+                        log.debug("Change {}.{} to {}".format(sec, changed_field_name, changed_field_value))
+
+                    ret[sec][changed_field_name] = changed_field_value
                     migrated = True
 
     # overrides from the environment
