@@ -2389,7 +2389,11 @@ def get_zonefiles(hostport, zonefile_hashes, timeout=30, my_hostport=None, proxy
     }
 
     schema = json_response_schema( zonefiles_schema )
-    proxy = get_default_proxy() if proxy is None else proxy
+
+    if proxy is None:
+        host, port = url_to_host_port(hostport)
+        assert host is not None and port is not None
+        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport, protocol = 'http')
 
     zonefiles = None
     try:
