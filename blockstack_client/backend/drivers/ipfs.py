@@ -68,11 +68,11 @@ def ipfs_put_chunk( dvconf, chunk_buf, chunk_path ):
     Return True on success 
     Return False on error, and log an exception
     """
-
     chunk_buf = str(chunk_buf)
 
     try:
-        dvconf['driver_info']['api'].files_mkdir(os.path.dirname(chunk_path), parents = True)
+        dvconf['driver_info']['api'].files_mkdir(os.path.dirname(chunk_path), 
+                                                 parents = True)
     except Exception, e:
         log.error('Failed to create {}'.format(chunk_path))
         log.exception(e)
@@ -86,7 +86,7 @@ def ipfs_put_chunk( dvconf, chunk_buf, chunk_path ):
             rc = 'ipfs://{}'.format(h)
             log.debug("{} available at {}".format(chunk_path, rc))
         except Exception, e:
-            log.error("Failed to write '%s'" % chunk_path)
+            log.error("Failed to write '{}'".format(chunk_path))
             log.exception(e)
             rc = False
 
@@ -100,7 +100,6 @@ def ipfs_get_chunk(dvconf, chunk_path):
     Return the data on success
     Return None on error, and log an exception.
     """
-
     data = None
     compressed_data = None
 
@@ -111,7 +110,11 @@ def ipfs_get_chunk(dvconf, chunk_path):
         log.debug('Fetching {}'.format(url))
         r = requests.get(url)
         if r.status_code != 200:
-            log.error("Failed to fetch {}, error code: {}".format(url,r.status_code))
+            log.error("Failed to fetch {url}, error code: {error}".format(
+                        url=url,
+                        error=r.status_code
+                        )
+                     )
         else:
             compressed_data = r.text
     else:
@@ -121,7 +124,7 @@ def ipfs_get_chunk(dvconf, chunk_path):
             try:
                 compressed_data = dvconf['driver_info']['api'].cat(chunk_path)
             except Exception, e:
-                log.error("Failed to read file '%s'" % chunk_path)
+                log.error("Failed to read file '{}'".format(chunk_path))
                 log.exception(e)
 
     try:
@@ -164,15 +167,15 @@ def storage_init(conf, index=False, force_index=False, **kwargs):
     config_path = conf['path']
     if os.path.exists( config_path ):
 
-       parser = SafeConfigParser()
+        parser = SafeConfigParser()
         
-       try:
-           parser.read(config_path)
-       except Exception, e:
-           log.exception(e)
-           return False
+        try:
+            parser.read(config_path)
+        except Exception, e:
+            log.exception(e)
+            return False
 
-       if parser.has_section('ipfs'):
+        if parser.has_section('ipfs'):
             
             if parser.has_option('ipfs', 'server'):
                 ipfs_server = parser.get('ipfs', 'server')
@@ -190,17 +193,18 @@ def storage_init(conf, index=False, force_index=False, **kwargs):
     blockstack_id = kwargs.get('fqu', None)
 
     if blockstack_id is None:
-        log.error("IPFS driver is READ-ONLY: blockstack_id not provided through 'fqu' parameter")
+        log.error("IPFS driver is READ-ONLY: blockstack_id not "
+                  "provided through 'fqu' parameter")
         ipfs_api = None
     else:
         ipfs_api = ipfsapi.connect( ipfs_server, ipfs_port )
 
-        d = '/blockstack/'+blockstack_id
+        d = '/blockstack/{}'.format(blockstack_id)
 
         try:
             ipfs_api.files_mkdir( d, parents = True)
         except Exception, e:
-            log.error("Failed to create directory '%s' within the MFS" % d)
+            log.error("Failed to create directory '{}' within the MFS".format(d))
             log.exception(e)
 
     DVCONF = driver_config(
@@ -213,13 +217,9 @@ def storage_init(conf, index=False, force_index=False, **kwargs):
                     'blockstack_id': blockstack_id,
                     'api': ipfs_api,
                     },
-                #index_stem='/blockstack/{}/{}'.format(blockstack_id,INDEX_DIRNAME),
                 index_stem=INDEX_DIRNAME,
                 compress=ipfs_compress,
                 )
-
-
-    
 
     if index:
         url = index_setup(DVCONF,force_index)
@@ -242,7 +242,9 @@ def handles_url( url ):
     matches what your driver does.  Another common strategy
     is to check if the URL matches a particular regex.
     """
-    if url.startswith("/ipfs/") or url.startswith("/ipns/") or url.startswith("ipfs://"):
+    if url.startswith("/ipfs/") 
+       or url.startswith("/ipns/") 
+       or url.startswith("ipfs://"):
         return True
     else:
         # if it starts with a valid CID: https://github.com/ipld/cid
@@ -336,21 +338,25 @@ if __name__ == "__main__":
     ]
 
     def hash_data( d ):
-      return hex_hash160( d )
+        return hex_hash160( d )
 
     rc = storage_init(conf, fqu = 'test.id')
     if not rc:
-      raise Exception("Failed to initialize")
+        raise Exception("Failed to initialize")
 
     index_manifest_url = index_setup(DVCONF)
     assert index_manifest_url
 
     if len(sys.argv) > 1:
-       # try to get these profiles 
-       for name in sys.argv[1:]:
-           prof = get_mutable_handler( make_mutable_url( name ), index_manifest_url=index_manifest_url, blockchain_id='test.id' )
-           if prof is None:
-               raise Exception("Failed to get %s" % name)
+        # try to get these profiles 
+        for name in sys.argv[1:]:
+            prof = get_mutable_handler( 
+                        url = make_mutable_url( name ), 
+                        index_manifest_url=index_manifest_url, 
+                        blockchain_id='test.id' 
+                        )
+            if prof is None:
+                raise Exception("Failed to get {}".format(name))
 
            print json.dumps(prof, indent=4, sort_keys=True)
 
@@ -360,78 +366,83 @@ if __name__ == "__main__":
     print "put_immutable_handler"
     for i in xrange(0, len(test_data)):
       
-      d_id, d, n, s, url = test_data[i]
-      
-      rc = put_immutable_handler( hash_data( d ), d, "unused" )
-      if not rc:
-         raise Exception("put_immutable_handler('%s') failed" % d)
+        d_id, d, n, s, url = test_data[i]
+
+        rc = put_immutable_handler( hash_data( d ), d, "unused" )
+        if not rc:
+            raise Exception("put_immutable_handler('{}') failed".format(d))
            
     # put_mutable_handler
     print "put_mutable_handler"
     for i in xrange(0, len(test_data)):
 
-      d_id, d, n, s, url = test_data[i]
-      
-      data_url = make_mutable_url( d_id, fqu = 'test.id' )
-       
-      data_json = serialize_mutable_data( json.dumps({"id": d_id, "nonce": n, "data": d}), data_privkey )
-      
-      rc = put_mutable_handler( d_id, data_json, fqu = 'test.id' )
-      if not rc:
-         raise Exception("put_mutable_handler('%s', '%s') failed" % (d_id, d))
-     
-      test_data[i][4] = data_url
+        d_id, d, n, s, url = test_data[i]
+
+        data_url = make_mutable_url( d_id, fqu = 'test.id' )
+
+        data_json = serialize_mutable_data( 
+                        json.dumps({
+                            "id": d_id, 
+                            "nonce": n, 
+                            "data": d
+                            }), data_privkey )
+
+        rc = put_mutable_handler( d_id, data_json, fqu = 'test.id' )
+        if not rc:
+            raise Exception("put_mutable_handler('{}', '{}') failed".format(d_id, d))
+
+        test_data[i][4] = data_url
 
     # get_immutable_handler
     print "get_immutable_handler"
     for i in xrange(0, len(test_data)):
       
-      d_id, d, n, s, url = test_data[i]
+        d_id, d, n, s, url = test_data[i]
 
-      rd = get_immutable_handler( hash_data( d ) )
-      if rd != d:
-         raise Exception("get_immutable_handler('%s'): '%s' != '%s'" % (hash_data(d), d, rd))
-      
+        rd = get_immutable_handler( hash_data( d ) )
+        if rd != d:
+            raise Exception("get_immutable_handler('{}'): '{}' != '{}'".format(hash_data(d), d, rd))
+        
     # get_mutable_handler
     print "get_mutable_handler"
     for i in xrange(0, len(test_data)):
 
-      d_id, d, n, s, url = test_data[i]
+        d_id, d, n, s, url = test_data[i]
 
-      rd_json = get_mutable_handler( url )
+        rd_json = get_mutable_handler( url )
 
-      rd = parse_mutable_data( rd_json, data_pubkey )
-      if rd is None:
-         raise Exception("Failed to parse mutable data '%s'" % rd_json)
-      
-      rd = json.loads(rd)
-      
-      if rd['id'] != d_id:
-         raise Exception("Data ID mismatch: '%s' != '%s'" % (rd['id'], d_id))
-      
-      if rd['nonce'] != n:
-         raise Exception("Nonce mismatch: '%s' != '%s'" % (rd['nonce'], n))
-      
-      if rd['data'] != d:
-         raise Exception("Data mismatch: '%s' != '%s'" % (rd['data'], d))
+        rd = parse_mutable_data( rd_json, data_pubkey )
+        if rd is None:
+            raise Exception("Failed to parse mutable data '{}'".format(rd_json_))
+
+        rd = json.loads(rd)
+
+        if rd['id'] != d_id:
+            raise Exception("Data ID mismatch: '{}' != '{}'".format(rd['id'], d_id))
+
+        if rd['nonce'] != n:
+            raise Exception("Nonce mismatch: '{}' != '{}'".format(rd['nonce'], n))
+
+        if rd['data'] != d:
+            raise Exception("Data mismatch: '{}' != '{}'".format(rd['data'], d))
 
     # delete_immutable_handler
     print "delete_immutable_handler"
     for i in xrange(0, len(test_data)):
       
-      d_id, d, n, s, url = test_data[i]
-      
-      rc = delete_immutable_handler( hash_data(d), "unused", "unused" )
-      if not rc:
-         raise Exception("delete_immutable_handler('%s' (%s)) failed" % (hash_data(d), d))
+        d_id, d, n, s, url = test_data[i]
+
+        rc = delete_immutable_handler( hash_data(d), "unused", "unused" )
+        if not rc:
+            raise Exception("delete_immutable_handler('{}' ({})) failed".format(hash_data(d), d))
       
     # delete_mutable_handler
     print "delete_mutable_handler"
     for i in xrange(0, len(test_data)):
       
-      d_id, d, n, s, url = test_data[i]
-      
-      rc = delete_mutable_handler( url, "unused" )
-      if not rc:
-         raise Exception("delete_mutable_handler('%s') failed" % d_id)
+        d_id, d, n, s, url = test_data[i]
+
+        rc = delete_mutable_handler( url, "unused" )
+        if not rc:
+            raise Exception("delete_mutable_handler('{}') failed".format(d_id))
 
