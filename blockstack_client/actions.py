@@ -1957,7 +1957,7 @@ def cli_renew(args, config_path=CONFIG_PATH, force_data=False, interactive=True,
     rpc = local_api_connect(config_path=config_path)
     assert rpc
 
-    log.debug("Renew {} for {} BTC".format(fqu, cost_satoshis))
+    log.debug("Renew {} for {} BTC".format(fqu, cost['btc']))
     if zonefile_data:
         log.debug('new zonefile:\n{}'.format(zonefile_data))
 
