@@ -598,7 +598,7 @@ def get_namespace_cost(namespace_id, proxy=None):
     return resp
 
 
-def get_all_names_page(offset, count, proxy=None):
+def get_all_names_page(offset, count, include_expired=False, proxy=None):
     """
     get a page of all the names
     Returns the list of names on success
@@ -635,7 +635,11 @@ def get_all_names_page(offset, count, proxy=None):
 
     resp = {}
     try:
-        resp = proxy.get_all_names(offset, count)
+        if include_expired:
+            resp = proxy.get_all_names_cumulative(offset, count)
+        else:
+            resp = proxy.get_all_names(offset, count)
+
         resp = json_validate(schema, resp)
         if json_is_error(resp):
             return resp
@@ -666,9 +670,9 @@ def get_all_names_page(offset, count, proxy=None):
     return resp['names']
 
 
-def get_num_names(proxy=None):
+def get_num_names(proxy=None, include_expired=False):
     """
-    Get the number of names
+    Get the number of names, optionally counting the expired ones
     Return {'error': ...} on failure
     """
 
@@ -679,8 +683,7 @@ def get_num_names(proxy=None):
                 'type': 'integer',
                 'minimum': 0,
             },
-        
-            },
+        },
         'required': [
             'count',
         ],
@@ -692,7 +695,11 @@ def get_num_names(proxy=None):
 
     resp = {}
     try:
-        resp = proxy.get_num_names()
+        if include_expired:
+            resp = proxy.get_num_names_cumulative()
+        else:
+            resp = proxy.get_num_names()
+
         resp = json_validate(count_schema, resp)
         if json_is_error(resp):
             return resp
@@ -715,7 +722,7 @@ def get_num_names(proxy=None):
     return resp['count']
 
 
-def get_all_names(offset=None, count=None, proxy=None):
+def get_all_names(offset=None, count=None, include_expired=False, proxy=None):
     """
     Get all names within the given range.
     Return the list of names on success
@@ -740,7 +747,7 @@ def get_all_names(offset=None, count=None, proxy=None):
         if count - len(all_names) < request_size:
             request_size = count - len(all_names)
 
-        page = get_all_names_page(offset + len(all_names), request_size, proxy=proxy)
+        page = get_all_names_page(offset + len(all_names), request_size, include_expired=include_expired, proxy=proxy)
         if json_is_error(page):
             # error
             return page
