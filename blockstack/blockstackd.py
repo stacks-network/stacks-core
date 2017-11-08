@@ -978,7 +978,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
     def rpc_get_num_names( self, **con_info ):
         """
-        Get the number of names that exist
+        Get the number of names that exist and are not expired
         Return {'status': True, 'count': count} on success
         Return {'error': ...} on error
         """
@@ -993,9 +993,26 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return self.success_response( {'count': num_names} )
 
 
+    def rpc_get_num_names_cumulative( self, **con_info ):
+        """
+        Get the number of names that have ever existed
+        Return {'status': True, 'count': count} on success
+        Return {'error': ...} on error
+        """
+
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
+        db = get_db_state()
+        num_names = db.get_num_names(include_expired=True)
+        db.close()
+
+        return self.success_response( {'count': num_names} )
+
+
     def rpc_get_all_names( self, offset, count, **con_info ):
         """
-        Get all names, paginated
+        Get all unexpired names, paginated
         Return {'status': true, 'names': [...]} on success
         Return {'error': ...} on error
         """
@@ -1010,6 +1027,28 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         db = get_db_state()
         all_names = db.get_all_names( offset=offset, count=count )
+        db.close()
+
+        return self.success_response( {'names': all_names} )
+
+
+    def rpc_get_all_names_cumulative( self, offset, count, **con_info ):
+        """
+        Get all names that have ever existed, paginated
+        Return {'status': true, 'names': [...]} on success
+        Return {'error': ...} on error
+        """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
+        if not self.check_offset(offset):
+            return {'error': 'invalid offset'}
+
+        if not self.check_count(count, 100):
+            return {'error': 'invalid count'}
+
+        db = get_db_state()
+        all_names = db.get_all_names( offset=offset, count=count, include_expired=True )
         db.close()
 
         return self.success_response( {'names': all_names} )
