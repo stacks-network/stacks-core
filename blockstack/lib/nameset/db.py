@@ -2324,28 +2324,40 @@ def namedb_get_last_nameops( db, offset=None, count=None ):
     return ret
    
 
-def namedb_get_num_names( cur, current_block ):
+def namedb_get_num_names( cur, current_block, include_expired=False ):
     """
     Get the number of names that exist at the current block
     """
-    unexpired_query, unexpired_args = namedb_select_where_unexpired_names( current_block )
+    unexpired_query = ""
+    unexpired_args = ()
 
-    query = "SELECT COUNT(name_records.name) FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id WHERE " + unexpired_query + ";"
+    if not include_expired:
+        # count all names, including expired ones
+        unexpired_query, unexpired_args = namedb_select_where_unexpired_names( current_block )
+        unexpired_query = 'WHERE {}'.format(unexpired_query)
+
+    query = "SELECT COUNT(name_records.name) FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id " + unexpired_query + ";"
     args = unexpired_args
 
     num_rows = namedb_select_count_rows( cur, query, args, count_column='COUNT(name_records.name)' )
     return num_rows
 
 
-def namedb_get_all_names( cur, current_block, offset=None, count=None ):
+def namedb_get_all_names( cur, current_block, offset=None, count=None, include_expired=False ):
     """
     Get a list of all names in the database, optionally
     paginated with offset and count.  Exclude expired names.  Include revoked names.
     """
 
-    unexpired_query, unexpired_args = namedb_select_where_unexpired_names( current_block )
+    unexpired_query = ""
+    unexpired_args = ()
 
-    query = "SELECT name FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id WHERE " + unexpired_query
+    if not include_expired:
+        # all names, including expired ones
+        unexpired_query, unexpired_args = namedb_select_where_unexpired_names( current_block )
+        unexpired_query = 'WHERE {}'.format(unexpired_query)
+
+    query = "SELECT name FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id " + unexpired_query
     args = unexpired_args
 
     offset_count_query, offset_count_args = namedb_offset_count_predicate( offset=offset, count=count )
