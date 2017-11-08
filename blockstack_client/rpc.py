@@ -618,10 +618,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
     def GET_names( self, ses, path_info ):
         """
         Get all names in existence
+        If `all=true` is set, then include expired names.
         Returns the list on success
         Returns 401 on invalid arguments
         Returns 500 on failure to get names
         """
+
+        include_expired = False
 
         qs_values = path_info['qs_values']
         page = qs_values.get('page', None)
@@ -635,10 +638,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.error("Invalid page")
             return self._reply_json({'error': 'Invalid page= value'}, status_code=401)
 
+        if qs_values.get('all', '').lower() in ['1', 'true']:
+            include_expired = True
+
         offset = page * 100
         count = 100
 
-        res = proxy.get_all_names(offset, count)
+        res = proxy.get_all_names(offset, count, include_expired=include_expired)
         if json_is_error(res):
             log.error("Failed to list all names (offset={}, count={}): {}".format(offset, count, res['error']))
             self._reply_json({'error': 'Failed to list all names'}, status_code=500)
@@ -2822,16 +2828,25 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         self._reply_json({'error' : 'Unimplemented'}, status_code = 405)
 
+
     def GET_blockchain_num_names( self, ses, path_info, blockchain_name ):
         """
         Handle GET /blockchains/:blockchainID/name_count
+        Takes `all=true` to include expired names
         Reply with the number of names on this blockchain
         """
         if blockchain_name != 'bitcoin':
             # not supported
             self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
             return
-        num_names = proxy.get_num_names()
+
+        include_expired = False
+        
+        qs_values = path_info['qs_values']
+        if qs_values.get('all', '').lower() in ['1', 'true']:
+            include_expired = True
+
+        num_names = proxy.get_num_names(include_expired=include_expired)
         if json_is_error(num_names):
             if json_is_exception(info):
                 status_code = 500
@@ -2843,6 +2858,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         self._reply_json({'names_count': num_names})
         return
+
 
     def GET_blockchain_consensus( self, ses, path_info, blockchain_name ):
         """
