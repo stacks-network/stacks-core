@@ -845,15 +845,15 @@ class BlockstackDB( virtualchain.StateEngine ):
         return names
 
     
-    def get_num_names( self ):
+    def get_num_names( self, include_expired=False ):
         """
         Get the number of names that exist.
         """
         cur = self.db.cursor()
-        return namedb_get_num_names( cur, self.lastblock )
+        return namedb_get_num_names( cur, self.lastblock, include_expired=include_expired )
 
 
-    def get_all_names( self, offset=None, count=None ):
+    def get_all_names( self, offset=None, count=None, include_expired=False ):
         """
         Get the set of all registered names, with optional pagination
         Returns the list of names.
@@ -866,7 +866,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             count = None 
 
         cur = self.db.cursor()
-        names = namedb_get_all_names( cur, self.lastblock, offset=offset, count=count )
+        names = namedb_get_all_names( cur, self.lastblock, offset=offset, count=count, include_expired=include_expired )
         return names
 
 
