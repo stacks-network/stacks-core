@@ -149,7 +149,7 @@ from .keys import privkey_to_string, get_data_privkey
 from .proxy import (
     is_zonefile_current, get_default_proxy, json_is_error,
     get_name_blockchain_history, get_all_namespaces, getinfo,
-    storage, is_zonefile_data_current
+    storage, is_zonefile_data_current, get_num_names
 )
 from .scripts import UTXOException, is_name_valid, is_valid_hash, is_namespace_valid
 from .user import make_empty_user_profile, user_zonefile_data_pubkey
@@ -4334,12 +4334,31 @@ def cli_get_all_names(args, config_path=CONFIG_PATH):
     command: get_all_names advanced
     help: Get all names in existence, optionally paginating through them
     arg: page (int) 'The page of names to fetch (groups of 100)'
+    opt: include_expired (int) 'If True, then count expired names as well'
     """
 
     offset = int(args.page) * 100
     count = 100
+    include_expired = False
+    if getattr(args, 'include_expired', None) is not None and args.include_expired.lower() in ['true', '1']:
+        include_expired = True
 
-    result = get_all_names(offset=offset, count=count)
+    result = get_all_names(offset=offset, count=count, include_expired=include_expired)
+
+    return result
+
+
+def cli_get_num_names(args, config_path=CONFIG_PATH):
+    """
+    command: get_num_names advanced
+    help: Get the number of names in existence
+    opt: include_expired (str) 'If True, then count expired names as well'
+    """
+    include_expired = False
+    if getattr(args, 'include_expired', None) is not None and args.include_expired.lower() in ['true', '1']:
+        include_expired = True
+
+    result = get_num_names(include_expired=include_expired)
 
     return result
 
