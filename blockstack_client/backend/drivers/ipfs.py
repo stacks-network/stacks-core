@@ -32,20 +32,16 @@ import logging
 import requests
 import ipfsapi
 
-from common_ipfs import get_logger, driver_config, DEBUG, \
-    index_setup, compress_chunk, decompress_chunk, \
-    index_get_manifest_page_path, index_insert, put_indexed_data, \
-    get_indexed_data, index_put_mutable_handler, \
-    index_get_immutable_handler, index_get_mutable_handler, \
-    index_put_immutable_handler, index_make_mutable_url, \
-    index_delete_immutable_handler, index_delete_mutable_handler
+from common import get_logger, driver_config, DEBUG, \
+    index_setup, decompress_chunk, index_make_mutable_url, \
+    index_put_mutable_handler, index_put_immutable_handler, \
+    index_get_mutable_handler, index_get_immutable_handler, \
+    index_delete_mutable_handler, index_delete_immutable_handler
 from ConfigParser import SafeConfigParser
 
 log = get_logger("blockstack-storage-driver-ipfs")
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
-IPFS_DEFAULT_SERVER = 'localhost'
-IPFS_DEFAULT_PORT = '5001'
 IPFS_DEFAULT_COMPRESS = False
 
 IPFS_DEFAULT_GATEWAY = 'https://gateway.ipfs.io'
@@ -68,8 +64,6 @@ def ipfs_put_chunk( dvconf, chunk_buf, chunk_path ):
     Return True on success 
     Return False on error, and log an exception
     """
-    chunk_buf = str(chunk_buf)
-
     try:
         dvconf['driver_info']['api'].files_mkdir(os.path.dirname(chunk_path), 
                                                  parents = True)
@@ -78,10 +72,28 @@ def ipfs_put_chunk( dvconf, chunk_buf, chunk_path ):
         log.exception(e)
         rc = False
     else:
+        """ 
+        There is a bug with the ipfsapi implementation in which
+        the 'truncate' option in files_write() has no effect, as reported
+        here: https://github.com/ipfs/py-ipfs-api/issues/112
+        Until that is fixed, we try to delete the file first, to account  
+        for those cases in which len(chunk_buf) is shorter than the 
+        contents of the file. When the bug is fixed, we can safely 
+        remove the call to ipfs_delete_chunk()
+        """
+        try:
+            dvconf['driver_info']['api'].files_rm(chunk_path)
+        except:
+            try:
+                dvconf['driver_info']['api'].pin_rm(chunk_path)
+            except:
+                pass
+
         try:
             r = dvconf['driver_info']['api'].files_write( chunk_path, 
                                       io.BytesIO(str(chunk_buf)), 
-                                      create = True )
+                                      create = True,
+                                      truncate = True )
             h = dvconf['driver_info']['api'].files_stat (chunk_path)['Hash']
             rc = 'ipfs://{}'.format(h)
             log.debug("{} available at {}".format(chunk_path, rc))
@@ -105,7 +117,7 @@ def ipfs_get_chunk(dvconf, chunk_path):
 
     log.debug('Getting chunk at {}'.format(chunk_path))
 
-    if dvconf['driver_info']['api'] is None:
+    if (dvconf is None) or (dvconf is not None and not dvconf['driver_info'].get('api', None)):
         url = ipfs_default_gw(chunk_path)
         log.debug('Fetching {}'.format(url))
         r = requests.get(url)
@@ -157,10 +169,9 @@ def storage_init(conf, index=False, force_index=False, **kwargs):
     """
     global DVCONF
 
-    ipfs_server = IPFS_DEFAULT_SERVER
-    ipfs_port = IPFS_DEFAULT_PORT
+    ipfs_server = None
+    ipfs_port = None
     ipfs_compress = IPFS_DEFAULT_COMPRESS
-    blockstack_id = None
 
     # path to the CLI's configuration file (where you can stash 
     # driver-specific configuration)
@@ -190,22 +201,12 @@ def storage_init(conf, index=False, force_index=False, **kwargs):
                                     'false'
                                     ).lower() in ['true', '1', 'yes'])
 
-    blockstack_id = kwargs.get('fqu', None)
-
-    if blockstack_id is None:
-        log.error("IPFS driver is READ-ONLY: blockstack_id not "
-                  "provided through 'fqu' parameter")
+    if ipfs_server is None:
+        log.error("IPFS driver is READ-ONLY: no IPFS server "
+                  "configuration found in {}".format(config_path))
         ipfs_api = None
     else:
-        ipfs_api = ipfsapi.connect( ipfs_server, ipfs_port )
-
-        d = '/blockstack/{}'.format(blockstack_id)
-
-        try:
-            ipfs_api.files_mkdir( d, parents = True)
-        except Exception, e:
-            log.error("Failed to create directory '{}' within the MFS".format(d))
-            log.exception(e)
+        ipfs_api = ipfsapi.connect(ipfs_server, ipfs_port)
 
     DVCONF = driver_config(
                 driver_name = 'ipfs',
@@ -214,8 +215,8 @@ def storage_init(conf, index=False, force_index=False, **kwargs):
                 put_chunk = ipfs_put_chunk,
                 delete_chunk = ipfs_delete_chunk,
                 driver_info={
-                    'blockstack_id': blockstack_id,
                     'api': ipfs_api,
+                    'dynamic_index': True,
                     },
                 index_stem=INDEX_DIRNAME,
                 compress=ipfs_compress,
@@ -242,22 +243,16 @@ def handles_url( url ):
     matches what your driver does.  Another common strategy
     is to check if the URL matches a particular regex.
     """
-    if url.startswith("/ipfs/") 
-       or url.startswith("/ipns/") 
-       or url.startswith("ipfs://"):
+    if url.startswith("ipfs://"):
         return True
-    else:
-        # if it starts with a valid CID: https://github.com/ipld/cid
-        #   return True
-        # else
-        return False
+    return False
 
 
 def make_mutable_url( data_id, **kw ):
     """
     Get data by URL
     """
-    return index_make_mutable_url(DVCONF, None, data_id, scheme='ipfs', **kw)
+    return index_make_mutable_url( 'ipfs', data_id, scheme='ipfs' )
 
 
 def get_immutable_handler( key, **kw ):
@@ -358,9 +353,9 @@ if __name__ == "__main__":
             if prof is None:
                 raise Exception("Failed to get {}".format(name))
 
-           print json.dumps(prof, indent=4, sort_keys=True)
+            print json.dumps(prof, indent=4, sort_keys=True)
 
-       sys.exit(0)
+        sys.exit(0)
 
     # put_immutable_handler
     print "put_immutable_handler"
@@ -433,6 +428,7 @@ if __name__ == "__main__":
         d_id, d, n, s, url = test_data[i]
 
         rc = delete_immutable_handler( hash_data(d), "unused", "unused" )
+
         if not rc:
             raise Exception("delete_immutable_handler('{}' ({})) failed".format(hash_data(d), d))
       
@@ -442,7 +438,7 @@ if __name__ == "__main__":
       
         d_id, d, n, s, url = test_data[i]
 
-        rc = delete_mutable_handler( url, "unused" )
+        rc = delete_mutable_handler( d_id, "unused" )
         if not rc:
             raise Exception("delete_mutable_handler('{}') failed".format(d_id))
 

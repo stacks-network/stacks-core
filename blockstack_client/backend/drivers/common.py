@@ -396,7 +396,6 @@ def index_settings_get_index_manifest_url(driver_name, config_path):
     Return the URL if present
     Return None if not present.
     """
-    print driver_name, config_path
     settings_dir = get_driver_settings_dir(config_path, driver_name)
     if not os.path.exists(settings_dir):
         return None
@@ -1108,13 +1107,6 @@ def get_chunk_via_http(url, blockchain_id=None):
         if url.startswith("test://"):
             import blockstack_client.backend.drivers.test
             return blockstack_client.backend.drivers.test.test_get_chunk(blockstack_client.backend.drivers.test.DVCONF, url[len('test://'):])
-        elif url.startswith('ipfs://'):
-            import blockstack_client.backend.drivers.ipfs
-            if url.startswith('ipfs://blockstack'):
-                url = url.replace('\\x2f',r'-2f')
-                return blockstack_client.backend.drivers.ipfs.ipfs_get_chunk(blockstack_client.backend.drivers.ipfs.DVCONF, url[len('ipfs:/'):])
-            else:
-                return blockstack_client.backend.drivers.ipfs.ipfs_get_chunk_immutable(blockstack_client.backend.drivers.ipfs.DVCONF, url[len('ipfs://'):])
 
         if DEBUG:
             log.exception(e)
