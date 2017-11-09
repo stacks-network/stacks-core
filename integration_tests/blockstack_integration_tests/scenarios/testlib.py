@@ -3261,11 +3261,12 @@ def check_historic_names_by_address( state_engine ):
 
                 else:
                     for k in name_rec.keys():
-                        if name_rec[k] != final_name_states[name].get(k, None):
-                            log.error("Name rec for {} does not equal final name state from db".format(name))
-                            log.error("Expected:\n{}".format(json.dumps(final_name_states[name], indent=4, sort_keys=True)))
-                            log.error("Got:\n{}".format(name_rec, indent=4, sort_keys=True))
-                            ret = False
+                        if final_name_states[name] is not None:
+                            if name_rec[k] != final_name_states[name].get(k, None):
+                                log.error("Name rec for {} does not equal final name state from db".format(name))
+                                log.error("Expected:\n{}".format(json.dumps(final_name_states[name], indent=4, sort_keys=True)))
+                                log.error("Got:\n{}".format(name_rec, indent=4, sort_keys=True))
+                                ret = False
 
     return ret
 
