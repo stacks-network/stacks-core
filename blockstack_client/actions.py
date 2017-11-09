@@ -4070,6 +4070,8 @@ def cli_delete_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None)
     if error:
         return {'error': error}
 
+    device_ids = [get_local_device_id(os.path.dirname(config_path))]
+
     config_dir = os.path.dirname(config_path)
 
     # this should only succeed if the zone file is well-formed,
