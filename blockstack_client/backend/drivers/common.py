@@ -327,7 +327,7 @@ def driver_config_set_info(dvconf, driver_info):
     """
     Set driver-specific information
     """
-    dvconf['driver_info'] = driver_invo
+    dvconf['driver_info'] = driver_info
 
 
 def get_url_type(url):
