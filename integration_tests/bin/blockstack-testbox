@@ -17,9 +17,44 @@ import gzip
 import signal
 import SimpleHTTPServer
 import re
+import tempfile
 from SimpleHTTPServer import BaseHTTPServer, SimpleHTTPRequestHandler
 
 DEBUG = True
+DEFAULT_TEST_RUNNER_PORT = 8086
+
+COLORS = {
+    "default": "",
+    "blue":   "\x1b[0;34m",
+    "green":  "\x1b[0;32m",
+    "red":    "\x1b[0;31m",
+    "reset":  "\x1b[0m",
+}
+
+#following from Python cookbook, #475186
+def has_colors(stream):
+    """
+    Does the given file-like object support colors?
+    """
+    if not hasattr(stream, "isatty"):
+        return False
+
+    if not stream.isatty():
+        return False # auto color only on TTYs
+
+    try:
+        import curses
+        curses.setupterm()
+        return curses.tigetnum("colors") > 2
+    except:
+        # guess false in case of error
+        return False
+
+if not has_colors(sys.stdout):
+    # unset all colors
+    for c in COLORS:
+        COLORS[c] = ""
+
 
 DEFAULT_DEPS = [
     {
@@ -59,7 +94,7 @@ DEFAULT_DEPS = [
 ]
 
 
-DEFAULT_BOOTSTRAP_SCRIPT = "sudo apt-get -y install curl software-properties-common && sudo apt-add-repository -y ppa:bitcoin/bitcoin && echo \"deb https://deb.nodesource.com/node_6.x xenial main\" > /tmp/nodesource.list && sudo mv /tmp/nodesource.list /etc/apt/sources.list.d/ && curl -s https://deb.nodesource.com/gpgkey/nodesource.gpg.key | sudo apt-key add - && sudo apt-get update && sudo apt-get -y install python python-virtualenv python-pip libssl-dev libffi-dev build-essential git bitcoind nodejs lsof"
+DEFAULT_BOOTSTRAP_SCRIPT = "sudo apt-get -y install curl software-properties-common && sudo apt-add-repository -y ppa:bitcoin/bitcoin && echo \"deb https://deb.nodesource.com/node_6.x xenial main\" > /tmp/nodesource.list && sudo mv /tmp/nodesource.list /etc/apt/sources.list.d/ && curl -s https://deb.nodesource.com/gpgkey/nodesource.gpg.key | sudo apt-key add - && sudo apt-get update && sudo apt-get -y install python python-virtualenv python-pip libssl-dev libffi-dev build-essential git bitcoind nodejs lsof sqlite3; sudo npm install -g babel babel-cli browserify"
 
 def get_logger(name=None):
     """
@@ -71,7 +106,7 @@ def get_logger(name=None):
         level = logging.DEBUG
 
     if name is None:
-        name = "blockstack-testctl"
+        name = "blockstack-testbox"
 
     log = logging.getLogger(name=name)
     log.setLevel( level )
@@ -134,6 +169,13 @@ def enter_venv(venv_dir):
 
     os.environ['NPM_CONFIG_PREFIX'] = virtual_npm_config_prefix
     os.environ['npm_config_prefix'] = virtual_npm_config_prefix
+    
+    http_port_path = '{}/http.port'.format(venv_dir)
+    if os.path.exists(http_port_path):
+        with open(http_port_path, 'r') as f:
+            d = f.read()
+            http_port = int(d)
+            os.environ['VIRTUAL_ENV_HTTP_PORT'] = str(http_port)
 
     return True
 
@@ -211,7 +253,7 @@ def bootstrap_host(user, host, host_venv_dir, test_root, port, deps_path=None, s
         id_opt = '-i "{}"'.format(ssh_id_path)
 
     # copy this program over 
-    cmd = 'scp {} "{}" "{}@{}:/tmp/blockstack-testctl"'.format(id_opt, sys.argv[0], user, host)
+    cmd = 'scp {} "{}" "{}@{}:/tmp/blockstack-testbox"'.format(id_opt, sys.argv[0], user, host)
     log.debug("$ {}".format(cmd))
 
     res = run_proc(cmd, 'scp {} over'.format(sys.argv[0]))
@@ -220,7 +262,7 @@ def bootstrap_host(user, host, host_venv_dir, test_root, port, deps_path=None, s
 
     # if given, copy deps JSON file over
     if deps_path is not None:
-        cmd = 'scp {} "{}" "{}@{}:/tmp/dependencies.json"'.format(id_opts, deps_path, user, hoset)
+        cmd = 'scp {} "{}" "{}@{}:/tmp/dependencies.json"'.format(id_opt, deps_path, user, host)
         log.debug("$ {}".format(cmd))
 
         res = run_proc(cmd, 'scp {} over'.format(host_venv_dir))
@@ -228,7 +270,7 @@ def bootstrap_host(user, host, host_venv_dir, test_root, port, deps_path=None, s
             return False
 
     # run bootstrap script
-    cmd = 'ssh {} -t -t "{}@{}" \'{}\''.format(id_opt, user, host, bootstrap_script)
+    cmd = 'ssh {} -t "{}@{}" \'{}\''.format(id_opt, user, host, bootstrap_script)
     log.debug("$ {}".format(cmd))
 
     res = run_proc(cmd, 'run bootstrap script')
@@ -240,15 +282,16 @@ def bootstrap_host(user, host, host_venv_dir, test_root, port, deps_path=None, s
     if deps_path:
         deps_opt = '--dependencies=/tmp/dependencies.json'
 
-    cmd = 'ssh {} -t -t "{}@{}" \'test -d "{}" && rm -rf "{}"; python /tmp/blockstack-testctl setup "{}" {}\''.format(id_opt, user, host, host_venv_dir, host_venv_dir, host_venv_dir, deps_opt)
+    cmd = 'ssh {} -t "{}@{}" \'test -d "{}" && rm -rf "{}"; python /tmp/blockstack-testbox setup "{}" {}\''.format(id_opt, user, host, host_venv_dir, host_venv_dir, host_venv_dir, deps_opt)
+    # cmd = 'ssh {} -t "{}@{}" \'python /tmp/blockstack-testbox setup "{}" {}\''.format(id_opt, user, host, host_venv_dir, host_venv_dir, host_venv_dir, deps_opt)
     log.debug("$ {}".format(cmd))
 
     res = run_proc(cmd, 'run setup script')
     if not res:
         return False
 
-    # start an HTTP server, if there isn't one already 
-    cmd = 'ssh {} -t -t "{}@{}" \'test -d "{}" || mkdir -p "{}"; python /tmp/blockstack-testctl httpd-stop {}; nohup python /tmp/blockstack-testctl httpd "{}" {} >/dev/null 2>&1 & sleep 5\''.format(id_opt, user, host, test_root, test_root, port, test_root, port)
+    # start an HTTP server, if there isn't one already.  record the port to the host's venv 
+    cmd = 'ssh {} -t "{}@{}" \'test -d "{}" || mkdir -p "{}"; python /tmp/blockstack-testbox httpd-stop {}; echo "{}" > "{}/http.port"; nohup python /tmp/blockstack-testbox httpd "{}" {} >/dev/null 2>&1 & sleep 5\''.format(id_opt, user, host, test_root, test_root, port, port, host_venv_dir, test_root, port)
     log.debug("$ {}".format(cmd))
 
     res = run_proc(cmd, 'start HTTP server')
@@ -496,7 +539,7 @@ def main_test(test_package_name, test_dir, test_user=None):
     return retval
 
 
-def main_watchdog(venv_dir, test_package_name, test_root, timeout=(60 * 75), test_user=None):
+def main_watchdog(venv_dir, test_package_name, test_root, timeout=(3600 * 75), test_user=None):
     """
     Privileged operation.  Start up the test in its own private environment, and collect the output.
     Kill the process and all of its children after a given timeout.
@@ -531,6 +574,9 @@ def main_watchdog(venv_dir, test_package_name, test_root, timeout=(60 * 75), tes
 
 
     assert os.getuid() == 0, "must be called as a root user"
+
+    http_port = os.environ.get('VIRTUAL_ENV_HTTP_PORT', None)
+    assert http_port, 'Test environment is not properly set up: no HTTP port'
 
     if not os.path.exists(test_root):
         os.makedirs(test_root)
@@ -600,11 +646,12 @@ def main_watchdog(venv_dir, test_package_name, test_root, timeout=(60 * 75), tes
     else:
         log.error("No test results in {}".format(test_out_path))
         logs_path = None
-
-    return {'status': test_result, 'logs': logs_path}
+    
+    # let the caller know where and how to get at the test result
+    return {'status': test_result, 'logs': logs_path, 'port': http_port}
   
 
-def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(60 * 75), test_user=None, ssh_id_path=None):
+def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(3600 * 75), test_user=None, ssh_id_path=None):
     """
     Run a test on the remote host.
     Determine whether it succeeded or failed.
@@ -622,10 +669,14 @@ def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(6
     if timeout:
         timeout_opt = '--timeout "{}"'.format(int(timeout))
 
-    cmd = 'ssh {} -t -t "{}@{}" \'sudo /tmp/blockstack-testctl watchdog "{}" "{}" "{}" {} {}\''.format(id_opt, user, host, venv_dir, test_package_name, test_root, test_user_opt, timeout_opt)
-    log.debug("$ {}".format(cmd))
+    cmd = ['/usr/bin/ssh'] + ([id_opt] if id_opt else []) + ['{}@{}'.format(user, host), 'sudo /tmp/blockstack-testbox watchdog "{}" "{}" "{}" {} {}'.format(venv_dir, test_package_name, test_root, test_user_opt, timeout_opt)]
+    log.debug("$ {}".format(" ".join(cmd)))
 
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+    # cmd = 'ssh {} "{}@{}" \'sudo /tmp/blockstack-testbox watchdog "{}" "{}" "{}" {} {}\''.format(id_opt, user, host, venv_dir, test_package_name, test_root, test_user_opt, timeout_opt)
+    # log.debug("$ {}".format(cmd))
+
+    # p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = p.communicate()
     retval = p.returncode
 
@@ -639,8 +690,23 @@ def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(6
         log.error("Stdout:\n{}".format('   \n'.join(out.strip().split('\n'))))
         log.error("Stderr:\n{}".format('   \n'.join(err.strip().split('\n'))))
         return {'error': 'Failed to parse test output'}
+    
+    assert test_result.has_key('status')
+    assert test_result.has_key('port')
+    assert test_result.has_key('logs')
 
-    return test_result
+    logs_path = None
+    if test_result['logs']:
+        logs_path = test_result['logs']
+
+    res = {
+        'status': test_result['status'],
+    }
+
+    if logs_path:
+        res['logs'] = 'http://{}:{}/{}'.format(host, test_result['port'], os.path.basename(logs_path))
+
+    return res
 
 
 def main_http_server(test_root, portnum):
@@ -737,6 +803,304 @@ def main_http_server_stop(portnum):
     return True
 
 
+def main_test_runner(testname, hostinfo, testinfo, ssh_id_path=None, dependencies=None):
+    """
+    Run a set of tests across a set of hosts.
+    * bootstrap each host with the given dependencies
+    * start an HTTP server for reporting test status
+    * schedule tests across hosts as need be
+    
+    Calling conventions:
+    * hostinfo entries are "test slots."  duplicate entries in hostinfo will cause multiple tests to be run on that host.
+
+    Keep serving forever
+    """
+    test_queue = testinfo[:]
+    remote_test_port = 8086
+    test_timeout = 3600 * 75
+
+    bootstrap_logs_dir = tempfile.mkdtemp(prefix='blockstack-test-bootstrap-')
+    
+    run_queue = []
+    host_slots = {}     # map user@host to number of slots
+
+    bootstrap_results = {}  # map user@host to True/False
+    test_results = {}       # map test name to test result
+
+    for hi in hostinfo:
+        userhost = '{}@{}'.format(hi['user'], hi['host'])
+        if not host_slots.has_key(userhost):
+            host_slots[userhost] = 1
+        else:
+            host_slots[userhost] += 1
+
+        bootstrap_results[userhost] = False
+    
+    def host_config(username, testname):
+        """
+        Get host-local config parameters
+        """
+        host_venv_dir = '/home/{}/blockstack-test-venv-{}'.format(username, testname)
+        host_testout_dir = '/home/{}/blockstack-test-output-{}'.format(username, testname)
+        return {'host_venv_dir': host_venv_dir, 'host_testout_dir': host_testout_dir}
+
+
+    def host_bootstrap(username, hostname):
+        """
+        Bootstrap the host (runs in a separate thread)
+        """
+        res = host_config(username, testname)
+        host_venv_dir = res['host_venv_dir']
+        host_testout_dir = res['host_testout_dir']
+        
+        cmd = '{} bootstrap "{}" "{}" {} --username "{}" --host "{}" --logs_dir "{}"'.format(sys.argv[0], host_venv_dir, host_testout_dir, remote_test_port, username, hostname, bootstrap_logs_dir)
+        if ssh_id_path:
+            cmd += ' --ssh_identity "{}"'.format(ssh_id_path)
+
+        if dependencies:
+            cmd += ' --dependencies "{}"'.format(dependencies)
+        
+        log.debug("$ {}".format(cmd))
+        
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        out, err = p.communicate()
+        retval = p.returncode
+
+        if retval != 0:
+            log.error("Failed to bootstrap {}@{}. Logs at {}".format(username, hostname, bootstrap_logs_dir))
+            return False
+        
+        # success!
+        bootstrap_results['{}@{}'.format(username, hostname)] = True
+        return True
+
+
+    def host_run_test(username, hostname, test_module):
+        """
+        Run the test on the given host
+        """
+        res = host_config(username, testname)
+        host_venv_dir = res['host_venv_dir']
+        host_testout_dir = res['host_testout_dir']
+
+        cmd = '{} run-test "{}" "{}" "{}" "{}@{}" --test_user "{}" --timeout {}'.format(sys.argv[0], host_venv_dir, test_module, host_testout_dir, username, hostname, username, test_timeout)
+        if ssh_id_path:
+            cmd += ' --ssh_identity "{}"'.format(ssh_id_path)
+
+        log.debug("$ {}".format(cmd))
+
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        out, err = p.communicate()
+        retval = p.returncode
+
+        if retval != 0:
+            log.error("Failed to run test {} on {}@{}".format(test_module, username, hostname))
+            ret = {'error': 'Failed to run test {}'.format(test_module), 'exitcode': retval}
+            test_results[test_module] = ret
+            return ret
+
+        # try to parse stdout as a JSON blob
+        test_result = None
+        try:
+            test_out, test_result_str = re.split('-----END TEST OUTPUT-----', out)
+            test_result = json.loads(test_result_str.strip())
+        except:
+            log.error("Failed to parse test output from {} on {}@{}".format(test_module, username, hostname))
+            log.error("Stdout:\n{}".format('   \n'.join(out.strip().split('\n'))))
+            log.error("Stderr:\n{}".format('   \n'.join(err.strip().split('\n'))))
+
+            ret = {'error': 'Failed to parse test output from {}'.format(test_module)}
+            test_results[test_module] = ret
+            return ret
+        
+        test_results[test_module] = test_result
+        return test_result
+        
+
+    def count_running():
+        """
+        Get a count of how many tests are running, grouped by user@host
+        """
+        ret = {}
+        for hi in hostinfo:
+            userhost = '{}@{}'.format(hi['user'], hi['host'])
+            ret[userhost] = 0
+
+        for res in run_queue:
+            userhost = res['userhost']
+            ret[userhost] += 1
+
+        return ret
+
+
+    def test_sched(test):
+        """
+        Test scheduler (runs in a separate thread)
+        Schedule a test to a host
+        Return {'userhost': ..., 'test': ...} on success
+        Return None if all slots are taken
+        """
+
+        # find a free host
+        userhost = None
+        found = False
+        node = None
+
+        run_counts = count_running()
+
+        for node in hostinfo:
+            userhost = '{}@{}'.format(node['user'], node['host'])
+            if run_counts[userhost] < host_slots[userhost]:
+                # can schedule here
+                found = True
+                break
+
+        if not found:
+            # no free hosts
+            return None
+
+        # allocate this test
+        t = threading.Thread(target=host_run_test, args=(node['user'], node['host'], test))
+        t_state = {
+            'thread': t,
+            'test': test,
+        }
+
+        return {'userhost': userhost, 'test': t_state}
+        
+
+    # bootstrap all nodes
+    all_nodes = []
+    for hi in hostinfo:
+        userhost = '{}@{}'.format(hi['user'], hi['host'])
+        all_nodes.append(userhost)
+
+    all_nodes = [{'user': user, 'host': host} for (user, host) in [u.split('@', 1) for u in set(all_nodes)]]
+
+    bootstrap_threads = []
+
+    for nodeinfo in all_nodes:
+        t = threading.Thread(target=host_bootstrap, args=(nodeinfo['user'], nodeinfo['host']))
+        t.start()
+        bootstrap_threads.append(t)
+
+    for t in bootstrap_threads:
+        t.join()
+    
+    log.debug("All nodes bootstrapped; running tests")
+
+    # run all tests
+    while True:
+        # try to start a new test
+        if len(test_queue) > 0:
+            next_test = test_queue[0]
+            res = test_sched(next_test)
+            if res is not None:
+                # scheduled! start it up 
+                userhost = res['userhost']
+                state = res['test']
+
+                log.debug("Scheduled {} on {}".format(next_test, userhost))
+                state['thread'].start()
+
+                test_queue.pop(0)
+                run_queue.append(res)
+
+        # try to join
+        joined = []
+        i = 0
+        for (i, res) in enumerate(run_queue):
+
+            userhost = res['userhost']
+            state = res['test']
+
+            state['thread'].join(0.1)
+
+            if not state['thread'].is_alive():
+                # joined!
+                log.debug("Joined {} on {}".format(state['test'], userhost))
+
+                # what was the result
+                test_res = test_results.get(state['test'], None)
+                assert test_res, 'BUG: no test result for {}'.format(state['test'])
+
+                test_res['test'] = state['test']
+                joined.append((i, test_res))
+ 
+        sys.stdout.flush()
+        sys.stderr.flush()
+
+        # clean out run queue
+        for (j, test_res) in joined:
+            run_queue.pop(j)
+
+            if 'error' in test_res:
+                print COLORS['red'] + 'FAILURE {} test error: {}'.format(test_res['test'], test_res['error']) + COLORS['reset']
+
+            elif test_res['status']:
+                print COLORS['green'] + 'SUCCESS {}'.format(test_res['test']) + COLORS['reset']
+
+            else:
+                print COLORS['red'] + 'FAILURE {}'.format(test_res['test']) + COLORS['reset'] + ' ({})'.format(test_res['test'], test_res['logs'])
+
+            sys.stdout.flush()
+            sys.stderr.flush()
+
+            os.system('stty sane')
+
+        # are we done?
+        running = count_running()
+        num_running = sum([x for (_, x) in running.items()])
+        if num_running == 0 and len(test_queue) == 0:
+            break
+
+    return True
+
+
+def read_host_list(hostlist):
+    """
+    Read a file of user@host lines.
+    blank lines and lines where the first non-whitespace character is # will be ignored.
+
+    Return [{'user': ..., 'host': ...}]
+    """
+    hostinfo = []
+
+    if not os.path.exists(hostlist):
+        print >> sys.stderr, 'No such file or directory: {}'.format(hostlist)
+        return None
+
+    with open(hostlist) as f:
+        d = f.read()
+
+    lines = filter(lambda x: len(x) > 0 and not x.startswith('#'), [l.strip() for l in d.strip().split('\n')])
+    for line in lines:
+        user, host = line.split('@', 1)
+        hostinfo.append({'user': user, 'host': host})
+
+    return hostinfo
+
+
+def read_test_list(testlist):
+    """
+    Read a file of test packages
+    blank lines and lines where the first non-whitespace character is # will be ignored.
+
+    Return ['test']
+    """
+    testinfo = []
+
+    if not os.path.exists(testlist):
+        print >> sys.stderr, 'No such file or directory: {}'.format(testlist)
+        return None
+
+    with open(testlist) as f:
+        d = f.read()
+
+    lines = filter(lambda x: len(x) > 0 and not x.startswith('#'), [l.strip() for l in d.strip().split('\n')])
+    return lines
+
+
 def main(argv):
     """
     main method
@@ -768,13 +1132,21 @@ def main(argv):
     parser = subparsers.add_parser("httpd-stop", help='Stop the test HTTP server')
     parser.add_argument('port', action='store', type=int, help='The port that any running HTTP servers would be listening on')
    
-    parser = subparsers.add_parser('run_test', help='Run a test on a remote host')
+    parser = subparsers.add_parser('run-test', help='Run a test on a remote host')
     parser.add_argument('venv_dir', action='store', help='Virtualenv directory on the remote host')
     parser.add_argument('test_module', action='store', help='Test module to run')
     parser.add_argument('tests_root', action='store', help='Directory on the remote host that stores the test state and output')
     parser.add_argument('login', action='store', help='user@host to SSH in as')
     parser.add_argument('--test_user', action='store', help='The user to run the test as')
     parser.add_argument('--timeout', action='store', help='Timeout for the test, in seconds')
+    parser.add_argument('--ssh_identity', action='store', help='The path to the SSH identity file to use')
+
+    parser = subparsers.add_parser('run', help='Run a suite of tests across a set of hosts')
+    parser.add_argument('hostlist', action='store', help='Path to a file of newline-separated `username@host` entries')
+    parser.add_argument('testlist', action='store', help='Path to a file of newline-separated test package names')
+    parser.add_argument('--test_name', action='store', help='Name of the test run')
+    parser.add_argument('--dependencies', action='store', help='Path to a file that encodes the list of packages to install.')
+    parser.add_argument('--port', action='store', type=int, help='Port to serve test results on')
     parser.add_argument('--ssh_identity', action='store', help='The path to the SSH identity file to use')
 
     parser = subparsers.add_parser('bootstrap', help='Bootstrap a remote host for testing')
@@ -787,6 +1159,7 @@ def main(argv):
     parser.add_argument('--ssh_identity', action='store', help='The path to the SSH identity file to use')
     parser.add_argument('--logs_dir', action='store', help='The path to a directory in which to log the bootstrapping')
     parser.add_argument('--bootstrap_command', action='store', help='The shell command to use to bootstrap the host')
+    parser.add_argument('--dependencies', action='store', help='Path to a file that encodes the list of packages to install.')
 
     if len(argv) == 2 and argv[1] in ['-h', '--help', 'help']:
         argparser.print_usage()
@@ -804,7 +1177,7 @@ def main(argv):
         if test_timeout is not None:
             test_timeout = int(test_timeout)
         else:
-            test_timeout = 75 * 60  # 75 min
+            test_timeout = 75 * 3600  # 75 min
 
         if os.getuid() != 0:
             print >> sys.stderr, 'You must be root to start a test'
@@ -860,7 +1233,7 @@ def main(argv):
 
     elif args.action == 'setup':
         venv_dir = args.venv_dir
-        deps_path = getattr(args, 'depenencies', None)
+        deps_path = getattr(args, 'dependencies', None)
         deps = None
         if deps_path is None:
             deps = DEFAULT_DEPS
@@ -925,18 +1298,10 @@ def main(argv):
             # bootstrap single host 
             hostinfo = [{'user': username, 'host': host}]
 
-        elif hostlist:
-            if not os.path.exists(hostlist):
-                print >> sys.stderr, 'No such file or directory: {}'.format(hostlist)
+        else:
+            hostinfo = read_host_list(hostlist)
+            if hostinfo is None:
                 sys.exit(1)
-
-            with open(hostlist) as f:
-                d = f.read()
-
-            lines = filter(lambda x: len(x) > 0, [l.strip() for l in d.strip().split('\n')])
-            for line in lines:
-                user, host = line.split('@', 1)
-                hostinfo.append({'user': user, 'host': host})
 
         if logsdir:
             if not os.path.exists(logsdir):
@@ -965,7 +1330,7 @@ def main(argv):
         else:
             sys.exit(0)
 
-    elif args.action == 'run_test':
+    elif args.action == 'run-test':
         venv_dir = args.venv_dir
         test_package = args.test_module
         tests_dir = args.tests_root
@@ -976,13 +1341,44 @@ def main(argv):
         test_user = getattr(args, 'test_user', None)
 
         if timeout is None:
-            timeout = 60 * 75
+            timeout = 3600 * 75
 
         user, host = login.split('@', 1)
         
         res = main_run_test(user, host, venv_dir, test_package, tests_dir, timeout=timeout, test_user=test_user, ssh_id_path=ssh_id_path)
-        print res
 
+        sys.stderr.flush()
+        sys.stdout.flush()
+        print "-----END TEST OUTPUT-----"      # don't change this line! it demarkates the end of the stdout from the test, and the beginning of the test status
+        sys.stdout.flush()
+        
+        print json.dumps(res, indent=4, sort_keys=True)
+        sys.exit(0)
+    
+    elif args.action == 'run':
+        hostlist = args.hostlist
+        testlist = args.testlist
+        test_name = getattr(args, 'test_name', None)
+        ssh_id_path = getattr(args, 'ssh_identity', None)
+        dependencies = getattr(args, 'dependencies', None)
+        port = getattr(args, 'port', None)
+
+        if test_name is None:
+            test_name = os.urandom(16).encode('hex')
+
+        if port is None:
+            port = DEFAULT_TEST_RUNNER_PORT
+
+        hostinfo = read_host_list(hostlist)
+        if hostinfo is None:
+            sys.exit(1)
+
+        testinfo = read_test_list(testlist)
+        if testinfo is None:
+            sys.exit(1)
+
+        res = main_test_runner(test_name, hostinfo, testinfo, ssh_id_path=ssh_id_path, dependencies=dependencies)
+        
     else:
         print >> sys.stderr, 'Unrecognized directive.  Try -h for help'
         sys.exit(1)
