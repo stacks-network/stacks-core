@@ -1212,7 +1212,7 @@ def get_DID_blockchain_record(did, proxy=None):
     Returns {'error': ...} on failure
     """
     proxy = get_default_proxy() if proxy is None else proxy
-    did_pattern = '^did:stack:v0:({}{{25,34}})-([0-9]+)$'.format(OP_BASE58CHECK_CLASS)
+    did_pattern = '^did:stack:v0:({}{{25,35}})-([0-9]+)$'.format(OP_BASE58CHECK_CLASS)
 
     m = re.match(did_pattern, did)
     assert m, 'Invalid DID: {}'.format(did)
