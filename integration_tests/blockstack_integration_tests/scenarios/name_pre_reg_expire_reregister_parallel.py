@@ -71,6 +71,7 @@ def scenario( wallets, **kw ):
     # should fail
     testlib.blockstack_name_register( "foo.test", wallets[3].privkey, wallets[4].addr )
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at('foo.test', testlib.get_current_block(**kw))
 
     last_first_block = testlib.get_current_block( **kw )
 
