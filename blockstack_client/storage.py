@@ -440,10 +440,11 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
         else:
             log.debug("Hash mismatch: expected {}, got {}\noriginal_data_text ({}): '{}'\nlen(original_data_text): {}\nparsed payload: '{}'\nhash_data_payload: {}".format(
                 data_hash, dh, type(original_data_txt), original_data_txt, len(original_data_txt), parse_data_payload(original_data_txt), hash_data_payload(data_txt)))
-
+    
     # validate 
-    if keylib.key_formatting.get_pubkey_format(pubk_hex) == 'hex_compressed':
-        pubk_hex = keylib.key_formatting.decompress(pubk_hex)
+    if pubk_hex is not None:
+        if keylib.key_formatting.get_pubkey_format(pubk_hex) == 'hex_compressed':
+            pubk_hex = keylib.key_formatting.decompress(pubk_hex)
 
     if public_key_hex is not None:
         # make sure uncompressed
@@ -451,9 +452,9 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
         if keylib.key_formatting.get_pubkey_format(given_pubkey_hex) == 'hex_compressed':
             given_pubkey_hex = keylib.key_formatting.decompress(given_pubkey_hex)
 
-        log.debug("Try verify with {}".format(pubk_hex))
+        log.debug("Try verify with {}".format(given_pubkey_hex))
 
-        if given_pubkey_hex == pubk_hex:
+        if pubk_hex is not None and given_pubkey_hex == pubk_hex:
             if verify_data_payload( data_txt, pubk_hex, sig_b64 ):
                 log.debug("Verified payload with public key {}".format(pubk_hex))
 
@@ -467,7 +468,7 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
         else:
             log.debug("Public key mismatch: {} != {}".format(given_pubkey_hex, pubk_hex))
 
-    if public_key_hash is not None:
+    if public_key_hash is not None and pubk_hex is not None:
         pubkey_hash = keylib.address_formatting.bin_hash160_to_address(
                 keylib.address_formatting.address_to_bin_hash160(
                     str(public_key_hash),
