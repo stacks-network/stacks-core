@@ -22,6 +22,7 @@
 """
 
 import os
+import json
 
 """
 TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 689
@@ -29,6 +30,7 @@ TEST ENV BLOCKSTACK_EPOCH_2_END_BLOCK 690
 TEST ENV BLOCKSTACK_EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER 2
 TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER 2
 TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_LIFETIME_GRACE_PERIOD 5
+TEST ENV BLOCKSTACK_CLIENT_WALLET_CRYPTO_PARAMS {"maxtime":0,"maxmemfrac":0,"maxmem":0}
 """
 
 import testlib
@@ -51,12 +53,18 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 def scenario( wallets, **kw ):
 
     wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
-    for i in xrange(1, 100):
+    for i in xrange(1, 1000):
         print 'stopping API daemon'
-        testlib.stop_api(hard_stop=False)
+        res = testlib.stop_api(hard_stop=False)
+        if 'error' in res:
+            print res
+            return False
 
         print 'starting API daemon'
-        testlib.start_api('0123456789abcdef')
+        res = testlib.start_api('0123456789abcdef')
+        if 'error' in res:
+            print res
+            return False
 
 
 def check( state_engine ):
