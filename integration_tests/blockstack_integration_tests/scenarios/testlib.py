@@ -1129,7 +1129,7 @@ def blockstack_cli_lookup( name, config_path=None):
     return cli_lookup( args, config_path=config_path )
 
 
-def blockstack_cli_migrate( name, password, force=False, config_path=None):
+def blockstack_cli_migrate( name, password, force=False, config_path=None, interactive=False):
     """
     Migrate from legacy zonefile to new zonefile
     """
@@ -1140,6 +1140,7 @@ def blockstack_cli_migrate( name, password, force=False, config_path=None):
     args = CLIArgs()
    
     args.name = name
+    args.force = 'True' if force else 'False'
 
     return cli_migrate( args, config_path=config_path, proxy=test_proxy, password=password, interactive=False, force=force )
     
@@ -1657,7 +1658,7 @@ def blockstack_cli_lookup_snv( name, block_id, trust_anchor, config_path=CONFIG_
     return cli_lookup_snv( args, config_path=config_path )
 
 
-def blockstack_cli_get_name_zonefile( name, config_path=CONFIG_PATH, json=False):
+def blockstack_cli_get_name_zonefile( name, config_path=CONFIG_PATH, json=False, raw=True):
     """
     get name zonefile
     """
@@ -1670,7 +1671,7 @@ def blockstack_cli_get_name_zonefile( name, config_path=CONFIG_PATH, json=False)
     args.name = name
     args.json = "True" if json else "False"
 
-    return cli_get_name_zonefile( args, config_path=config_path )
+    return cli_get_name_zonefile( args, config_path=config_path, raw=raw )
 
 
 def blockstack_cli_get_names_owned_by_address( address, config_path=CONFIG_PATH):
