@@ -1225,7 +1225,9 @@ def get_DID_blockchain_record(did, proxy=None):
         return addr_names
 
     if len(addr_names) <= name_index:
-        return {'error': 'Invalid DID: index {} exceeds number of names ({}: {}) created by {}'.format(name_index, len(addr_names), ", ".join(addr_names), address)}
+        errormsg = 'Invalid DID: index {} exceeds number of names ({}: {}) created by {}'.format(name_index, len(addr_names), ", ".join([an['name'] for an in addr_names]), address)
+        log.error(errormsg)
+        return {'error': errormsg}
 
     # order by blockchain and tx
     addr_names.sort(lambda n1,n2: -1 if n1['block_id'] < n2['block_id'] or (n1['block_id'] == n2['block_id'] and n1['vtxindex'] < n2['vtxindex']) else 1)
