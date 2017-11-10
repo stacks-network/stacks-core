@@ -500,7 +500,7 @@ class RegistrarWorker(threading.Thread):
         if zonefile_hash is None:
             zonefile_hash = get_zonefile_data_hash( zonefile_data )
 
-        if zonefile_hash not in replicated_zonefiles:
+        if zonefile_hash not in replicated_zonefiles or BLOCKSTACK_TEST:
             # NOTE: replicated_zonefiles is static but scoped to this method
             # use it to remember what we've replicated, so we don't needlessly retry
             name_rec = get_name_blockchain_record( name_data['fqu'], proxy=proxy )
