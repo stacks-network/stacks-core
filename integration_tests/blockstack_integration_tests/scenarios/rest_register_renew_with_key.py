@@ -55,7 +55,8 @@ index_file_data = "<html><head></head><body>foo.test hello world</body></html>"
 resource_data = "hello world"
 
 owner_key = "cPo24qGYz76xSbUCug6e8LzmzLGJPZoowQC7fCVPLN2tzCUJgfcW"
-owner_addr = "mqnupoveYRrSHmrxFT9nQQEZt3RLsetbBQ"
+owner_addr = virtualchain.get_privkey_hex(owner_key)
+# "mqnupoveYRrSHmrxFT9nQQEZt3RLsetbBQ"
 
 payment_key = wallets[1].privkey
 

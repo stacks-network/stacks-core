@@ -56,7 +56,8 @@ index_file_data = "<html><head></head><body>foo.test hello world</body></html>"
 resource_data = "hello world"
 
 new_key = "cPo24qGYz76xSbUCug6e8LzmzLGJPZoowQC7fCVPLN2tzCUJgfcW"
-new_addr = "mqnupoveYRrSHmrxFT9nQQEZt3RLsetbBQ"
+new_addr = virtualchain.get_privkey_address(new_key)
+# "mqnupoveYRrSHmrxFT9nQQEZt3RLsetbBQ"
 
 insanity_key = "cSCyE5Q1AFVyDAL8LkHo1sFMVqmwdvFcCbGJ71xEvto2Nrtzjm67"
 

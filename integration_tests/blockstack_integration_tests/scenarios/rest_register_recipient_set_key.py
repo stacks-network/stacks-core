@@ -56,7 +56,8 @@ index_file_data = "<html><head></head><body>foo.test hello world</body></html>"
 resource_data = "hello world"
 
 new_key = "cPo24qGYz76xSbUCug6e8LzmzLGJPZoowQC7fCVPLN2tzCUJgfcW"
-new_addr = "mqnupoveYRrSHmrxFT9nQQEZt3RLsetbBQ"
+new_addr = virtualchain.get_privkey_address(new_key)
+# "mqnupoveYRrSHmrxFT9nQQEZt3RLsetbBQ"
 
 insanity_key = "cSCyE5Q1AFVyDAL8LkHo1sFMVqmwdvFcCbGJ71xEvto2Nrtzjm67"
 
@@ -140,6 +141,7 @@ def scenario( wallets, **kw ):
 
     res = testlib.blockstack_REST_call('PUT', '/v1/wallet/keys/owner', None, api_pass=api_pass,
                                        data=new_key)
+
     if res['http_status'] != 200 or 'error' in res:
         print 'failed to set owner key'
         print res
