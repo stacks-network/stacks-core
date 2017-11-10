@@ -1506,7 +1506,7 @@ def get_name_history_blocks(name, proxy=None):
     return resp['history_blocks']
 
 
-def get_name_at(name, block_id, proxy=None):
+def get_name_at(name, block_id, include_expired=False, proxy=None):
     """
     Get the name as it was at a particular height.
     Returns the name record states on success (an array)
@@ -1522,8 +1522,15 @@ def get_name_at(name, block_id, proxy=None):
         'type': 'object',
         'properties': {
             'records': {
-                'type': 'array',
-                'items': namerec_schema
+                'anyOf': [
+                    {
+                        'type': 'array',
+                        'items': namerec_schema
+                    },
+                    {
+                        'type': 'null',
+                    },
+                ],
             },
         },
         'required': [
@@ -1537,7 +1544,11 @@ def get_name_at(name, block_id, proxy=None):
 
     resp = {}
     try:
-        resp = proxy.get_name_at(name, block_id)
+        if include_expired:
+            resp = proxy.get_historic_name_at(name, block_id)
+        else:
+            resp = proxy.get_name_at(name, block_id)
+
         assert resp, "No such name {} at block {}".format(name, block_id)
 
         resp = json_validate(resp_schema, resp)
@@ -1581,7 +1592,7 @@ def get_name_blockchain_history(name, start_block, end_block, proxy=None):
 
     ret = {}
     for qb in query_blocks:
-        name_at = get_name_at(name, qb)
+        name_at = get_name_at(name, qb, include_expired=True)
         if json_is_error(name_at):
             # error
             return name_at
