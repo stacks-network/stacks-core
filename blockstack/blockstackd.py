@@ -658,6 +658,27 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return self.success_response( {'records': name_at} )
 
 
+    def rpc_get_historic_name_at( self, name, block_height, **con_info ):
+        """
+        Get all the states the name was in at a particular block height.
+        Return {'status': true, 'record': ...}
+        """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
+        if not self.check_name(name):
+            return {'error': 'invalid name'}
+
+        if not self.check_block(block_height):
+            return {'status': True, 'record': None}
+
+        db = get_db_state()
+        name_at = db.get_name_at( name, block_height, include_expired=True )
+        db.close()
+
+        return self.success_response( {'records': name_at} )
+
+
     def rpc_get_op_history_rows( self, history_id, offset, count, **con_info ):
         """
         Get a page of history rows for a name or namespace
