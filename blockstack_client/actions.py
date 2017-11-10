@@ -2138,7 +2138,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
                 user_zonefile = make_empty_zonefile(fqu, data_pubkey)
 
             else:
-                if os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
+                if interactive or os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
                     # prompt
                     msg = (
                         ''
@@ -4261,7 +4261,7 @@ def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True, proxy=None):
     parse_json = getattr(args, 'json', 'false')
     parse_json = parse_json is not None and parse_json.lower() in ['true', '1']
 
-    result = get_name_zonefile(str(args.name), raw_zonefile=True)
+    result = get_name_zonefile(str(args.name), raw_zonefile=True, allow_legacy=True)
     if 'error' in result:
         log.error("get_name_zonefile failed: %s" % result['error'])
         return result
