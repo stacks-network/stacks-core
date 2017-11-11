@@ -180,7 +180,7 @@ def scenario( wallets, **kw ):
         return False
 
     # wait for the preorder to get confirmed
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
 
     # wait for register to go through
@@ -195,7 +195,7 @@ def scenario( wallets, **kw ):
     if not res:
         return False
 
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
 
     print 'Wait for update to be submitted'
@@ -209,7 +209,7 @@ def scenario( wallets, **kw ):
     if not res:
         return False
 
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
 
     print 'Wait for transfer to be submitted'
@@ -224,7 +224,7 @@ def scenario( wallets, **kw ):
         print "Wrongly issued a TRANSFER"
         return False
 
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
 
     print 'Wait for transfer to be confirmed'

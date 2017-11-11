@@ -811,6 +811,27 @@ class BlockstackDB( virtualchain.StateEngine ):
         return names
 
     
+    def get_historic_names_by_address( self, address, offset=None, count=None ):
+        """
+        Get the list of names owned by an address throughout history (used for DIDs)
+        Return a list of {'name': ..., 'block_id': ..., 'vtxindex': ...}
+        """
+
+        cur = self.db.cursor()
+        names = namedb_get_historic_names_by_address( cur, address, offset=offset, count=count )
+        return names
+
+
+    def get_num_historic_names_by_address( self, address ):
+        """
+        Get the number of names historically owned by an address
+        """
+
+        cur = self.db.cursor()
+        count = namedb_get_num_historic_names_by_address( cur, address )
+        return count
+
+
     def get_names_owned_by_sender( self, sender_pubkey, lastblock=None ):
         """
         Get the set of names owned by a particular script-pubkey.
@@ -824,15 +845,15 @@ class BlockstackDB( virtualchain.StateEngine ):
         return names
 
     
-    def get_num_names( self ):
+    def get_num_names( self, include_expired=False ):
         """
         Get the number of names that exist.
         """
         cur = self.db.cursor()
-        return namedb_get_num_names( cur, self.lastblock )
+        return namedb_get_num_names( cur, self.lastblock, include_expired=include_expired )
 
 
-    def get_all_names( self, offset=None, count=None ):
+    def get_all_names( self, offset=None, count=None, include_expired=False ):
         """
         Get the set of all registered names, with optional pagination
         Returns the list of names.
@@ -845,7 +866,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             count = None 
 
         cur = self.db.cursor()
-        names = namedb_get_all_names( cur, self.lastblock, offset=offset, count=count )
+        names = namedb_get_all_names( cur, self.lastblock, offset=offset, count=count, include_expired=include_expired )
         return names
 
 

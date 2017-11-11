@@ -56,7 +56,7 @@ index_file_data = "<html><head></head><body>foo.test hello world</body></html>"
 resource_data = "hello world"
 
 new_key = "cPo24qGYz76xSbUCug6e8LzmzLGJPZoowQC7fCVPLN2tzCUJgfcW"
-new_addr = "mqnupoveYRrSHmrxFT9nQQEZt3RLsetbBQ"
+new_addr = virtualchain.get_privkey_address(new_key) # "mqnupoveYRrSHmrxFT9nQQEZt3RLsetbBQ"
 
 insanity_key = "cSCyE5Q1AFVyDAL8LkHo1sFMVqmwdvFcCbGJ71xEvto2Nrtzjm67"
 
@@ -132,7 +132,7 @@ def scenario( wallets, **kw ):
         return False
 
     # wait for the preorder to get confirmed
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
 
     # wait for register to go through
@@ -147,7 +147,7 @@ def scenario( wallets, **kw ):
     if not res:
         return False
 
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
 
     print 'Wait for update to be submitted'
@@ -163,7 +163,7 @@ def scenario( wallets, **kw ):
         print "update error in first update"
         return False
 
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
 
     print 'Wait for transfer to be submitted'
@@ -280,7 +280,7 @@ def scenario( wallets, **kw ):
         print res
         return False
 
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
 
     # wait for zonefile to propagate

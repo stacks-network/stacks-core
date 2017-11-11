@@ -74,7 +74,7 @@ def scenario( wallets, **kw ):
             print json.dumps( resp, indent=4 )
     
         if i == 3:
-            testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
+            testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw)+1)
 
         testlib.next_block( **kw )
 
@@ -86,7 +86,7 @@ def scenario( wallets, **kw ):
             print json.dumps( resp, indent=4 )
         
         if i == 3:
-            testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
+            testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw)+1)
 
         testlib.next_block( **kw )
 

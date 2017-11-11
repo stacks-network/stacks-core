@@ -156,12 +156,14 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
+    testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
+    testlib.next_block(**kw)
 
 
 def check( state_engine ):
 
     # not revealed, but ready 
-    ns = state_engine.get_namespace_reveal( "test" )
+    ns = state_engine.get_namespace( "test" )
     if ns is None:
         print "not revealed"
         return False 

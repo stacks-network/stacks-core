@@ -20,10 +20,9 @@
     You should have received a copy of the GNU General Public License
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
-# activate epoch 3
 """
-TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 689
-TEST ENV BLOCKSTACK_EPOCH_2_END_BLOCK 690
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 680
+TEST ENV BLOCKSTACK_EPOCH_2_END_BLOCK 681
 TEST ENV BLOCKSTACK_EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER 2
 TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER 2
 TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_LIFETIME_GRACE_PERIOD 5
@@ -36,10 +35,10 @@ import urllib2
 import json
 import blockstack_client
 import blockstack_profiles
+import blockstack_zones
 import sys
 import keylib
 import time
-import virtualchain
 
 from keylib import ECPrivateKey, ECPublicKey
 
@@ -63,12 +62,13 @@ error = False
 
 index_file_data = "<html><head></head><body>foo.test hello world</body></html>"
 resource_data = "hello world"
+    
 
 def scenario( wallets, **kw ):
 
     global wallet_keys, wallet_keys_2, error, index_file_data, resource_data
 
-    wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[4].privkey )
+    wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[5].privkey, wallets[3].privkey, wallets[3].privkey )
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
 
@@ -87,8 +87,8 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
     
-    # migrate profiles 
-    res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
+    # migrate profiles, but no data key in the zone file 
+    res = testlib.migrate_profile( "foo.test", zonefile_has_data_key=False, proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
         res['test'] = 'Failed to initialize foo.test profile'
         print json.dumps(res, indent=4, sort_keys=True)
@@ -101,23 +101,23 @@ def scenario( wallets, **kw ):
     
     testlib.next_block( **kw )
 
-    data_pk = wallets[-1].privkey
-    data_pub = wallets[-1].pubkey_hex
-    
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
 
     # make a session 
     datastore_pk = keylib.ECPrivateKey(wallets[-1].privkey).to_hex()
-    res = testlib.blockstack_cli_app_signin("foo.test", datastore_pk, 'register.app', ['names', 'register', 'transfer', 'prices', 'zonefiles', 'blockchain', 'node_read'])
+    res = testlib.blockstack_cli_app_signin("foo.test", datastore_pk, 'register.app', ['names', 'register', 'prices', 'zonefiles', 'blockchain', 'node_read', 'user_read'])
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
         return 
 
     ses = res['token']
-    
-    # register the name bar.test 
-    res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test'})
+
+    # register the name bar.test. autogenerate the rest 
+    old_user_zonefile = blockstack_client.zonefile.make_empty_zonefile('bar.test', None)
+    old_user_zonefile_txt = blockstack_zones.make_zone_file(old_user_zonefile)
+
+    res = testlib.blockstack_REST_call('POST', '/v1/names', ses, data={'name': 'bar.test', 'zonefile': old_user_zonefile_txt, 'make_profile': True} )
     if 'error' in res:
         res['test'] = 'Failed to register user'
         print json.dumps(res)
@@ -143,7 +143,7 @@ def scenario( wallets, **kw ):
     print 'Wait for register to be submitted'
     time.sleep(10)
 
-    # wait for the register to get confirmed 
+    # wait for the register/update to get confirmed 
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
@@ -151,27 +151,62 @@ def scenario( wallets, **kw ):
     if not res:
         return False
 
-    for i in xrange(0, 4):
+    for i in xrange(0, 3):
         testlib.next_block( **kw )
 
-    '''
-    print 'Wait for update to be submitted'
-    time.sleep(10)
-
-    # wait for update to get confirmed 
-    for i in xrange(0, 6):
-        testlib.next_block( **kw )
-
-    res = testlib.verify_in_queue(ses, 'bar.test', 'update', None )
-    if not res:
+    # should have nine confirmations now
+    res = testlib.get_queue(ses, 'register')
+    if 'error' in res:
+        print res
+        return False
+    
+    if len(res) != 1:
+        print res
         return False
 
-    for i in xrange(0, 6):
-        testlib.next_block( **kw )
-  
-    print 'Wait for update to be confirmed'
+    reg = res[0]
+    confs = blockstack_client.get_tx_confirmations(reg['tx_hash'])
+    if confs != 9:
+        print 'wrong number of confs for {} (expected 9): {}'.format(reg['tx_hash'], confs)
+        return False
+
+    # stop the API server
+    testlib.stop_api()
+
+    # advance blockchain 
+    testlib.next_block(**kw)
+    testlib.next_block(**kw)
+
+    confs = blockstack_client.get_tx_confirmations(reg['tx_hash'])
+    if confs != 11:
+        print 'wrong number of confs for {} (expected 11): {}'.format(reg['tx_hash'], confs)
+        return False
+
+    # make sure the registrar does not process reg/up zonefile replication
+    # (i.e. we want to make sure that the zonefile gets processed even if the blockchain goes too fast)
+    os.environ['BLOCKSTACK_TEST_REGISTRAR_FAULT_INJECTION_SKIP_REGUP_REPLICATION'] = '1'
+    testlib.start_api("0123456789abcdef")
+
+    print 'Wait to verify that we do not remove the zone file just because the tx is confirmed'
     time.sleep(10)
-    '''
+
+    # verify that this is still in the queue
+    res = testlib.get_queue(ses, 'register')
+    if 'error' in res:
+        print res
+        return False
+    
+    if len(res) != 1:
+        print res
+        return False
+    
+    # clear the fault
+    print 'Clearing regup replication fault'
+    testlib.blockstack_test_setenv("BLOCKSTACK_TEST_REGISTRAR_FAULT_INJECTION_SKIP_REGUP_REPLICATION", "0")
+
+    # wait for register to go through 
+    print 'Wait for zonefile to replicate'
+    time.sleep(10)
 
     res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", ses)
     if 'error' in res or res['http_status'] != 200:
@@ -179,54 +214,114 @@ def scenario( wallets, **kw ):
         print json.dumps(res)
         return False
 
-    zonefile_hash = res['response']['zonefile_hash']
+    old_expire_block = res['response']['expire_block']
 
-    # transfer it
-    res = testlib.blockstack_REST_call("PUT", "/v1/names/bar.test/owner", ses, data={'owner': wallets[7].addr})
-    if 'error' in res or res['http_status'] != 202:
-        res['test'] = 'Failed to transfer name'
+    # get the zonefile
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile", ses )
+    if 'error' in res or res['http_status'] != 200:
+        res['test'] = 'Failed to get name zonefile'
         print json.dumps(res)
         return False
 
-    # wait for transfer to get confirmed 
+    # zonefile must not have a public key listed
+    zonefile_txt = res['response']['zonefile']
+    print zonefile_txt
+
+    parsed_zonefile = blockstack_zones.parse_zone_file(zonefile_txt)
+    if parsed_zonefile.has_key('txt'):
+        print 'have txt records'
+        print parsed_zonefile
+        return False
+
+    # renew it, but put the *current* owner key as the zonefile's *new* public key
+    new_user_zonefile = blockstack_client.zonefile.make_empty_zonefile('bar.test', wallets[3].pubkey_hex )
+    new_user_zonefile_txt = blockstack_zones.make_zone_file(new_user_zonefile)
+
+    res = testlib.blockstack_REST_call("POST", "/v1/names", ses, data={'name': 'bar.test', 'zonefile': new_user_zonefile_txt} )
+    if 'error' in res or res['http_status'] != 202:
+        res['test'] = 'Failed to renew name'
+        print json.dumps(res)
+        return False
+
+    # verify in renew queue
     for i in xrange(0, 6):
         testlib.next_block( **kw )
 
-    res = testlib.verify_in_queue(ses, 'bar.test', 'transfer', None )
+    res = testlib.verify_in_queue(ses, 'bar.test', 'renew', None )
     if not res:
         return False
 
-    for i in xrange(0, 4):
+    for i in xrange(0, 3):
         testlib.next_block( **kw )
+ 
+    # should have nine confirmations now
+    res = testlib.get_queue(ses, 'renew')
+    if 'error' in res:
+        print res
+        return False
+    
+    if len(res) != 1:
+        print res
+        return False
 
-    print 'waiting for transfer to get confirmed'
+    reg = res[0]
+    confs = blockstack_client.get_tx_confirmations(reg['tx_hash'])
+    if confs != 9:
+        print 'wrong number of confs for {} (expected 9): {}'.format(reg['tx_hash'], confs)
+        return False
+
+    # stop the API server
+    testlib.stop_api()
+
+    # advance blockchain 
+    testlib.next_block(**kw)
+    testlib.next_block(**kw)
+
+    confs = blockstack_client.get_tx_confirmations(reg['tx_hash'])
+    if confs != 11:
+        print 'wrong number of confs for {} (expected 11): {}'.format(reg['tx_hash'], confs)
+        return False
+
+    # make the registrar skip the first few steps, so the only thing it does is clear out confirmed updates
+    # (i.e. we want to make sure that the renewal's zonefile gets processed even if the blockchain goes too fast)
+    os.environ['BLOCKSTACK_TEST_REGISTRAR_FAULT_INJECTION_SKIP_RENEWAL_REPLICATION'] = '1'
+    testlib.start_api("0123456789abcdef")
+
+    # wait a while
+    print 'Wait to verify that clearing out confirmed transactions does NOT remove zonefiles'
     time.sleep(10)
 
-    # poll 
-    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", ses )
+    # verify that this is still in the queue
+    res = testlib.get_queue(ses, 'renew')
+    if 'error' in res:
+        print res
+        return False
+    
+    if len(res) != 1:
+        print res
+        return False
+
+    # clear the fault
+    print 'Clearing renewal replication fault'
+    testlib.blockstack_test_setenv("BLOCKSTACK_TEST_REGISTRAR_FAULT_INJECTION_SKIP_RENEWAL_REPLICATION", "0")
+
+    # now the renewal zonefile should replicate
+    print 'Wait for renewal zonefile to replicate'
+    time.sleep(10)
+
+    # new expire block
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test", ses)
     if 'error' in res or res['http_status'] != 200:
-        res['test'] = 'Failed to query name'
-        print json.dumps(res)
-        error = True
-        return False
-
-    # new owner?
-    if not res['response'].has_key('address'):
-        res['test'] = 'No address given'
+        res['test'] = 'Failed to get name bar.test'
         print json.dumps(res)
         return False
 
-    address_testnet = virtualchain.address_reencode(str(res['response']['address']), network='testnet')
-    if address_testnet != wallets[7].addr:
-        res['test'] = 'Failed to transfer name to new address {}'.format(wallets[7].addr)
-        res['owner_address_testnet'] = address_testnet
-        print json.dumps(res)
-        return False
+    new_expire_block = res['response']['expire_block']
 
     # do we have the history for the name?
     res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/history", ses )
     if 'error' in res or res['http_status'] != 200:
-        res['test'] = "Failed to get name history for foo.test"
+        res['test'] = "Failed to get name history for bar.test"
         print json.dumps(res)
         return False
 
@@ -239,11 +334,46 @@ def scenario( wallets, **kw ):
         return False
 
     # get the zonefile
-    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile/{}".format(zonefile_hash), ses )
+    res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test/zonefile", ses )
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get name zonefile'
         print json.dumps(res)
         return False
+
+    # zonefile must have old owner key
+    zonefile_txt = res['response']['zonefile']
+    parsed_zonefile = blockstack_zones.parse_zone_file(zonefile_txt)
+    if not parsed_zonefile.has_key('txt'):
+        print 'missing txt'
+        print parsed_zonefile
+        return False
+
+    found = False
+    for txtrec in parsed_zonefile['txt']:
+        if txtrec['name'] == 'pubkey' and txtrec['txt'] == 'pubkey:data:{}'.format(wallets[3].pubkey_hex):
+            found = True
+
+    if not found:
+        print 'missing public key {}'.format(wallets[3].pubkey_hex)
+        return False
+
+    # profile lookup must work 
+    res = testlib.blockstack_REST_call("GET", "/v1/users/bar.test", ses)
+    if 'error' in res or res['http_status'] != 200:
+        res['text'] = 'failed to get profile for bar.test'
+        print json.dumps(res)
+        return False
+
+    print ''
+    print json.dumps(res['response'], indent=4, sort_keys=True)
+    print ''
+
+    # verify pushed back 
+    if old_expire_block + 10 > new_expire_block:
+        # didn't go through
+        print >> sys.stderr, "Renewal didn't work: %s --> %s" % (old_expire_block, new_expire_block)
+        return False
+
 
 def check( state_engine ):
 
@@ -278,7 +408,7 @@ def check( state_engine ):
     for i in xrange(0, len(names)):
         name = names[i]
         wallet_payer = 5
-        wallet_owner = (3 if i == 0 else 7)
+        wallet_owner = 3
         wallet_data_pubkey = 4
 
         # not preordered
@@ -297,5 +427,5 @@ def check( state_engine ):
         if name_rec['address'] != wallets[wallet_owner].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[wallet_owner].addr):
             print "name {} has wrong owner".format(name)
             return False 
-        
+
     return True

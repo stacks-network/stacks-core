@@ -52,8 +52,10 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
+    # should fail; not the owner
     resp = testlib.blockstack_name_revoke( "foo.test", wallets[4].privkey, safety_checks=False )
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at("foo.test", testlib.get_current_block(**kw))
 
 
 def check( state_engine ):

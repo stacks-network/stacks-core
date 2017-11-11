@@ -307,7 +307,7 @@ def is_address_usable(address, config_path=CONFIG_PATH, utxo_client=None, min_co
     return True
 
 
-def can_receive_name( address, proxy=None ):
+def can_receive_name( address, proxy=None, config_path=CONFIG_PATH ):
     """
     Can an address receive a name?
     It must have no more than MAXIMUM_NAMES_PER_ADDRESS.
@@ -319,7 +319,7 @@ def can_receive_name( address, proxy=None ):
     from ..proxy import get_names_owned_by_address as blockstack_get_names_owned_by_address
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     resp = blockstack_get_names_owned_by_address(address, proxy=proxy)
     names_owned = resp

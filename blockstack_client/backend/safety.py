@@ -727,11 +727,13 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
     # cost of registration transaction + cost of update transaction + cost of transfer transaction
 
     if owner_address:
-        owner_address = str(owner_address)
+        owner_address = virtualchain.address_reencode(str(owner_address))
+
     if payment_address:
-        payment_address = str(payment_address)
+        payment_address = virtualchain.address_reencode(str(payment_address))
+
     if transfer_address:
-        transfer_address = str(transfer_address)
+        transfer_address = virtualchain.address_reencode(str(transfer_address))
 
     assert owner_address, "Owner address or owner_privkey_info required"
     assert payment_address, "Payment address or payment_privkey_info required"
@@ -826,7 +828,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
             insufficient_funds = False
             preorder_tx_fee = estimate_preorder_tx_fee(
                 name_or_ns, name_cost, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client,
-                payment_utxos=estimated_payment_inputs[operation_index],
+                payment_utxos=estimated_payment_inputs[operation_index], owner_address=owner_address,
                 config_path=config_path, include_dust=True
             )
 
@@ -860,7 +862,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
             insufficient_funds = False
             register_tx_fee = estimate_register_tx_fee(
                 name_or_ns, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client,
-                payment_utxos=estimated_payment_inputs[operation_index], zonefile_hash=zonefile_hash,
+                payment_utxos=estimated_payment_inputs[operation_index], owner_address=owner_address, zonefile_hash=zonefile_hash,
                 config_path=config_path, include_dust=True
             )
 
@@ -1439,7 +1441,7 @@ def _check_op(fqu_or_ns, operation, required_checks, owner_privkey_info, payment
         return {'status': True, 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
 
 
-def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, burn_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, owner_address=None, burn_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
     """
     Verify that a preorder can go through.
 
@@ -1452,7 +1454,7 @@ def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info,
 
     required_checks = ['is_name_available', 'is_payment_address_usable', 'is_burn_address_correct']
 
-    res = check_operations( fqu, ['preorder'], owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs, burn_address=burn_address,
+    res = check_operations( fqu, ['preorder'], owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs, burn_address=burn_address, owner_address=owner_address,
                             required_checks=required_checks, config_path=config_path, proxy=proxy )
 
     opchecks = res.get('opchecks', None)
@@ -1473,14 +1475,15 @@ def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info,
     return {'status': True, 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
 
 
-def check_register(fqu, owner_privkey_info, payment_privkey_info, zonefile_hash=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None, force_it=False ):
+def check_register(fqu, owner_privkey_info, payment_privkey_info, owner_address=None, zonefile_hash=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None, force_it=False ):
     """
     Verify that a register can go through
     """
     required_checks = ['is_name_available', 'is_payment_address_usable', 'register_can_change_zonefile_hash']
     if not force_it:
         required_checks += ['owner_can_receive']
-    return _check_op(fqu, 'register', required_checks, owner_privkey_info, payment_privkey_info, zonefile_hash=zonefile_hash, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy )
+    return _check_op(fqu, 'register', required_checks, owner_privkey_info, payment_privkey_info,
+            owner_address=owner_address, zonefile_hash=zonefile_hash, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy )
 
 
 def check_update(fqu, owner_privkey_info, payment_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None, force_it=False ):
@@ -1490,6 +1493,7 @@ def check_update(fqu, owner_privkey_info, payment_privkey_info, min_payment_conf
     required_checks = ['is_payment_address_usable']
     if not force_it:
         required_checks += ['is_name_registered', 'is_owner_address_usable', 'is_name_owner', 'is_name_outside_grace_period']
+
     return _check_op(fqu, 'update', required_checks, owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)
 
 
@@ -1498,6 +1502,7 @@ def check_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
     Verify that a transfer can go through
     """
     required_checks = ['is_name_registered', 'is_owner_address_usable', 'is_payment_address_usable', 'is_name_owner', 'recipient_can_receive', 'is_name_outside_grace_period']
+
     return _check_op(fqu, 'transfer', required_checks, owner_privkey_info, payment_privkey_info, transfer_address=transfer_address, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)
 
 

@@ -429,6 +429,12 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
         }
 
     log.debug('{} nameops at {}'.format(len(historic_nameops), block_id))
+
+    # strip history
+    for hn in historic_nameops:
+        if 'history' in hn.keys():
+            del hn['history']
+
     return historic_nameops
 
 

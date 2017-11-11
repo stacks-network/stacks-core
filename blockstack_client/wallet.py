@@ -149,7 +149,12 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
     # encrypt secrets
     wallet_secret_str = json.dumps(wallet_enc, sort_keys=True)
     password_hex = hexlify(password)
-    encrypted_secret_str = aes_encrypt(wallet_secret_str, password_hex)
+
+    scrypt_kwargs = {}
+    if os.environ.get("BLOCKSTACK_TEST") == "1" and os.environ.get('BLOCKSTACK_CLIENT_WALLET_CRYPTO_PARAMS') is not None:
+        scrypt_kwargs = json.loads(os.environ["BLOCKSTACK_CLIENT_WALLET_CRYPTO_PARAMS"])
+
+    encrypted_secret_str = aes_encrypt(wallet_secret_str, password_hex, **scrypt_kwargs)
 
     # fulfill wallet
     wallet['enc'] = encrypted_secret_str
@@ -164,6 +169,7 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
             raise
 
     return wallet
+
 
 def save_modified_wallet(decrypted_wallet, password, config_path = CONFIG_PATH):
     """
@@ -180,6 +186,7 @@ def save_modified_wallet(decrypted_wallet, password, config_path = CONFIG_PATH):
     encrypted_wallet = encrypt_wallet(decrypted_wallet, password)
     if 'error' in encrypted_wallet:
         return encrypted_wallet
+
     # sanity check
     jsonschema.validate(encrypted_wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
 

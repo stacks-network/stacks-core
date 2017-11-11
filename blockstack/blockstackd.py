@@ -548,6 +548,13 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return True
 
 
+    def check_address(self, address):
+        """
+        verify that a string is an address
+        """
+        return self.check_string(address, min_length=26, max_length=35, pattern=blockstack_client.schemas.OP_ADDRESS_PATTERN)
+
+
     def rpc_ping(self, **con_info):
         reply = {}
         reply['status'] = "alive"
@@ -646,6 +653,27 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         db = get_db_state()
         name_at = db.get_name_at( name, block_height )
+        db.close()
+
+        return self.success_response( {'records': name_at} )
+
+
+    def rpc_get_historic_name_at( self, name, block_height, **con_info ):
+        """
+        Get all the states the name was in at a particular block height.
+        Return {'status': true, 'record': ...}
+        """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
+        if not self.check_name(name):
+            return {'error': 'invalid name'}
+
+        if not self.check_block(block_height):
+            return {'status': True, 'record': None}
+
+        db = get_db_state()
+        name_at = db.get_name_at( name, block_height, include_expired=True )
         db.close()
 
         return self.success_response( {'records': name_at} )
@@ -825,7 +853,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_indexer():
             return {'error': 'Method not supported'}
 
-        if not self.check_string(address, min_length=26, max_length=35, pattern=blockstack_client.schemas.OP_ADDRESS_PATTERN):
+        if not self.check_address(address):
             return {'error': 'Invalid address'}
 
         db = get_db_state()
@@ -836,6 +864,57 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             names = []
 
         return self.success_response( {'names': names} )
+
+
+    def rpc_get_historic_names_by_address(self, address, offset, count, **con_info):
+        """
+        Get the list of names owned by an address throughout history
+        Return {'status': True, 'names': [{'name': ..., 'block_id': ..., 'vtxindex': ...}]} on success
+        Return {'error': ...} on error
+        """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
+        if not self.check_address(address):
+            return {'error': 'Invalid address'}
+
+        if not self.check_offset(offset):
+            return {'error': 'invalid offset'}
+
+        if not self.check_count(count, 10):
+            return {'error': 'invalid count'}
+
+        db = get_db_state()
+        names = db.get_historic_names_by_address(address, offset, count)
+        db.close()
+
+        if names is None:
+            names = []
+
+        return self.success_response( {'names': names} )
+
+    
+    def rpc_get_num_historic_names_by_address(self, address, **con_info):
+        """
+        Get the number of names owned by an address throughout history
+        Return {'status': True, 'count': ...} on success
+        Return {'error': ...} on failure
+        """
+
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
+        if not self.check_address(address):
+            return {'error': 'Invalid address'}
+
+        db = get_db_state()
+        ret = db.get_num_historic_names_by_address(address)
+        db.close()
+
+        if ret is None:
+            ret = 0
+
+        return self.success_response( {'count': ret} )
 
 
     def rpc_get_name_cost( self, name, **con_info ):
@@ -920,7 +999,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
     def rpc_get_num_names( self, **con_info ):
         """
-        Get the number of names that exist
+        Get the number of names that exist and are not expired
         Return {'status': True, 'count': count} on success
         Return {'error': ...} on error
         """
@@ -935,9 +1014,26 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return self.success_response( {'count': num_names} )
 
 
+    def rpc_get_num_names_cumulative( self, **con_info ):
+        """
+        Get the number of names that have ever existed
+        Return {'status': True, 'count': count} on success
+        Return {'error': ...} on error
+        """
+
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
+        db = get_db_state()
+        num_names = db.get_num_names(include_expired=True)
+        db.close()
+
+        return self.success_response( {'count': num_names} )
+
+
     def rpc_get_all_names( self, offset, count, **con_info ):
         """
-        Get all names, paginated
+        Get all unexpired names, paginated
         Return {'status': true, 'names': [...]} on success
         Return {'error': ...} on error
         """
@@ -952,6 +1048,28 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         db = get_db_state()
         all_names = db.get_all_names( offset=offset, count=count )
+        db.close()
+
+        return self.success_response( {'names': all_names} )
+
+
+    def rpc_get_all_names_cumulative( self, offset, count, **con_info ):
+        """
+        Get all names that have ever existed, paginated
+        Return {'status': true, 'names': [...]} on success
+        Return {'error': ...} on error
+        """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
+        if not self.check_offset(offset):
+            return {'error': 'invalid offset'}
+
+        if not self.check_count(count, 100):
+            return {'error': 'invalid count'}
+
+        db = get_db_state()
+        all_names = db.get_all_names( offset=offset, count=count, include_expired=True )
         db.close()
 
         return self.success_response( {'names': all_names} )
@@ -2225,6 +2343,41 @@ def atlas_stop( atlas_state ):
         atlas_state = None
 
 
+def read_pid_file(pidfile_path):
+    """
+    Read the PID from the PID file
+    """
+
+    try:
+        fin = open(pidfile_path, "r")
+    except Exception, e:
+        return None
+
+    else:
+        pid_data = fin.read().strip()
+        fin.close()
+
+        try:
+            pid = int(pid_data)
+            return pid
+        except:
+            return None
+
+
+def check_server_running(pid):
+    """
+    Determine if the given process is running
+    """
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError as oe:
+        if oe.errno == errno.ESRCH:
+            return False
+        else:
+            raise
+
+
 def stop_server( clean=False, kill=False ):
     """
     Stop the blockstackd server.
@@ -2240,62 +2393,52 @@ def stop_server( clean=False, kill=False ):
             dead = True
             break
 
-        try:
-            fin = open(pid_file, "r")
-        except Exception, e:
-            pass
-
-        else:
-            pid_data = fin.read().strip()
-            fin.close()
-
+        pid = read_pid_file(pid_file)
+        if pid is not None:
             try:
-                pid = int(pid_data)
+               os.kill(pid, signal.SIGTERM)
+            except OSError, oe:
+               if oe.errno == errno.ESRCH:
+                  # already dead
+                  log.info("Process %s is not running" % pid)
+                  try:
+                      os.unlink(pid_file)
+                  except:
+                      pass
 
-                try:
-                   os.kill(pid, signal.SIGTERM)
-                except OSError, oe:
-                   if oe.errno == errno.ESRCH:
-                      # already dead
-                      log.info("Process %s is not running" % pid)
-                      try:
-                          os.unlink(pid_file)
-                      except:
-                          pass
+                  return
 
-                      return
-
-                except Exception, e:
-                    log.exception(e)
-                    os.abort()
-
-            except:
-                log.info("Corrupt PID file.  Please make sure all instances of this program have stopped and remove {}".format(pid_file))
+            except Exception, e:
+                log.exception(e)
                 os.abort()
 
-            # is it actually dead?
-            blockstack_opts = get_blockstack_opts()
-            srv = blockstack_client.proxy.BlockstackRPCClient('localhost', blockstack_opts['rpc_port'], timeout=5, protocol = 'http')
-            try:
-                res = blockstack_client.ping(proxy=srv)
-            except socket.error as se:
-                # dead?
-                if se.errno == errno.ECONNREFUSED:
-                    # couldn't connect, so infer dead
-                    try:
-                        os.kill(pid, 0)
-                        log.info("Server %s is not dead yet..." % pid)
+        else:
+            log.info("Corrupt PID file.  Please make sure all instances of this program have stopped and remove {}".format(pid_file))
+            os.abort()
 
-                    except OSError, oe:
-                        log.info("Server %s is dead to us" % pid)
-                        dead = True
-                        break
-                else:
-                    continue
+        # is it actually dead?
+        blockstack_opts = get_blockstack_opts()
+        srv = blockstack_client.proxy.BlockstackRPCClient('localhost', blockstack_opts['rpc_port'], timeout=5, protocol = 'http')
+        try:
+            res = blockstack_client.ping(proxy=srv)
+        except socket.error as se:
+            # dead?
+            if se.errno == errno.ECONNREFUSED:
+                # couldn't connect, so infer dead
+                try:
+                    os.kill(pid, 0)
+                    log.info("Server %s is not dead yet..." % pid)
 
-            log.info("Server %s is still running; trying again in %s seconds" % (pid, timeout))
-            time.sleep(timeout)
-            timeout *= 2
+                except OSError, oe:
+                    log.info("Server %s is dead to us" % pid)
+                    dead = True
+                    break
+            else:
+                continue
+
+        log.info("Server %s is still running; trying again in %s seconds" % (pid, timeout))
+        time.sleep(timeout)
+        timeout *= 2
 
     if not dead and kill:
         # be sure to clean up the pidfile
@@ -2938,44 +3081,60 @@ def run_blockstackd():
    if args.action == 'start':
       global has_indexer
       has_indexer = (not args.no_indexer)
-
       expected_snapshots = {}
 
-      if is_indexer():
-          if config.is_indexing():
-              # The server didn't shut down properly.
-              # restore from back-up before running
-              log.warning("Server did not shut down properly.  Restoring state from last known-good backup.")
-
-              # move any existing db information out of the way so we can start fresh.
-              state_paths = BlockstackDB.get_state_paths()
-              need_backup = reduce( lambda x, y: x or y, map(lambda sp: os.path.exists(sp), state_paths), False )
-              if need_backup:
-
-                  # have old state.  keep it around for later inspection
-                  target_dir = os.path.join( working_dir, 'crash.{}'.format(time.time()))
-                  os.makedirs(target_dir)
-                  for sp in state_paths:
-                      if os.path.exists(sp):
-                         target = os.path.join( target_dir, os.path.basename(sp) )
-                         shutil.move( sp, target )
-
-                  log.warning("State from crash stored to '{}'".format(target_dir))
-
-              blockstack_backup_restore( working_dir, None )
-              config.set_indexing(False)
-
-              log.warning("State reverted")
-
-          # use snapshots?
-          if args.expected_snapshots is not None:
-              expected_snapshots = load_expected_snapshots( args.expected_snapshots )
-              if expected_snapshots is None:
-                  sys.exit(1)
-
-      if os.path.exists( get_pidfile_path() ):
-          log.error("Blockstackd appears to be running already.  If not, please run '%s stop'" % (sys.argv[0]))
+      pid = read_pid_file(get_pidfile_path())
+      still_running = False
+      
+      if pid is not None:
+          try:
+              still_running = check_server_running(pid)
+          except:
+              log.error("Could not contact process {}".format(pid))
+              sys.exit(1)
+      
+      if still_running:
+          log.error("Blockstackd appears to be running already.  If not, please run '{} stop'".format(sys.argv[0]))
           sys.exit(1)
+
+      if is_indexer() and pid is not None:
+          # The server didn't shut down properly.
+          # restore from back-up before running
+          log.warning("Server did not shut down properly.  Restoring state from last known-good backup.")
+
+          # move any existing db information out of the way so we can start fresh.
+          state_paths = BlockstackDB.get_state_paths()
+          need_backup = reduce( lambda x, y: x or y, map(lambda sp: os.path.exists(sp), state_paths), False )
+          if need_backup:
+
+              # have old state.  keep it around for later inspection
+              target_dir = os.path.join( working_dir, 'crash.{}'.format(time.time()))
+              os.makedirs(target_dir)
+              for sp in state_paths:
+                  if os.path.exists(sp):
+                     target = os.path.join( target_dir, os.path.basename(sp) )
+                     shutil.move( sp, target )
+
+              log.warning("State from crash stored to '{}'".format(target_dir))
+
+          blockstack_backup_restore( working_dir, None )
+
+          # make sure we "stop"
+          config.set_indexing(False)
+
+      # use snapshots?
+      if args.expected_snapshots is not None:
+          expected_snapshots = load_expected_snapshots( args.expected_snapshots )
+          if expected_snapshots is None:
+              sys.exit(1)
+
+          log.debug("Load expected snapshots from {}".format(args.expected_snapshots))
+
+      # we're definitely not running, so make sure this path is clear
+      try:
+          os.unlink(get_pidfile_path())
+      except:
+          pass
 
       if args.foreground:
           log.info('Initializing blockstackd server in foreground (working dir = \'%s\')...' % (working_dir))

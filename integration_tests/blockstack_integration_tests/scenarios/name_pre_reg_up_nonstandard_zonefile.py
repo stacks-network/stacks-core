@@ -167,18 +167,14 @@ def scenario( wallets, **kw ):
         for i in xrange(0, 12):
             testlib.next_block( **kw )
 
-        time.sleep(3)
+        time.sleep(10)
 
         # getting zonefile should still work...
-        resp = testlib.blockstack_cli_get_name_zonefile( "foo.test", json=True )
+        resp = testlib.blockstack_cli_get_name_zonefile( "foo.test", json=True, raw=False)
         if 'error' in resp:
             print "failed to get zonefile %s" % zi
             print json.dumps(resp, indent=4, sort_keys=True)
             return False 
-
-        if 'warning' not in resp:
-            print "no non-standard warning:\n%s" % json.dumps(resp, indent=4, sort_keys=True)
-            return False
 
         if resp['zonefile'] != nonstandard_zonefile:
             print "failed to load nonstandard zonefile json"
@@ -199,8 +195,12 @@ def scenario( wallets, **kw ):
         for data_func_name, data_func in dataplane_funcs:
             resp = data_func()
             if 'error' not in resp:
-                print "%s succeeded when it should not have:\n%s" % (data_func_name, json.dumps(resp, indent=4, sort_keys=True))
-                return False
+                if data_func_name != 'lookup':
+                    print "%s succeeded when it should not have:\n%s" % (data_func_name, json.dumps(resp, indent=4, sort_keys=True))
+                    return False
+                elif 'error' not in resp['profile']:
+                    print "%s succeeded when it should not have:\n%s" % (data_func_name, json.dumps(resp, indent=4, sort_keys=True))
+                    return False
       
         # this should succeed
         zf_hist = testlib.blockstack_cli_list_zonefile_history( "foo.test" )
@@ -230,7 +230,7 @@ def scenario( wallets, **kw ):
             return False 
 
         # verify that we can migrate it back
-        resp = testlib.blockstack_cli_migrate( "foo.test", "0123456789abcdef", force=True )
+        resp = testlib.blockstack_cli_migrate( "foo.test", "0123456789abcdef", force=True, interactive=False )
         if 'error' in resp:
             print "failed to migrate"
             print json.dumps(resp, indent=4, sort_keys=True)
@@ -242,7 +242,7 @@ def scenario( wallets, **kw ):
         for i in xrange(0, 12):
             testlib.next_block( **kw )
 
-        time.sleep(3)
+        time.sleep(10)
 
     # see that put_immutable works
     put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_immutable", json.dumps({'hello': 'world'}), password='0123456789abcdef')
@@ -261,7 +261,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     print "waiting for confirmation"
-    time.sleep(3)
+    time.sleep(10)
 
     # see that put_mutable works
     put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_mutable", json.dumps({'hello': 'world'}), password='0123456789abcdef')

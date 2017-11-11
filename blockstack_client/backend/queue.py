@@ -188,6 +188,7 @@ def queuedb_find( queue_id, fqu, limit=None, path=DEFAULT_QUEUE_PATH ):
     db.close()
     return ret
 
+
 def queue_add_error_msg( queue_id, fqu, error_msg, path=DEFAULT_QUEUE_PATH ):
     """
     Add an error message for an entry
@@ -204,6 +205,7 @@ def queue_add_error_msg( queue_id, fqu, error_msg, path=DEFAULT_QUEUE_PATH ):
     db.commit()
     db.close()
 
+
 def queue_clear_error_msg( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
     """
     Remove all error messages for an entry
@@ -218,6 +220,7 @@ def queue_clear_error_msg( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
     rows = queuedb_query_execute( cur, sql, args )
     db.commit()
     db.close()
+
 
 def queue_get_error_msgs( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
     """
@@ -237,6 +240,7 @@ def queue_get_error_msgs( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
     db.close()
 
     return ret
+
 
 def queuedb_findall( queue_id, limit=None, path=DEFAULT_QUEUE_PATH ):
     """
@@ -381,7 +385,39 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
     if zonefile_hash is not None:
         new_entry['zonefile_hash'] = zonefile_hash
 
+    new_entry['replicated_zonefile'] = False
+
     queuedb_insert( queue_id, fqu, tx_hash, new_entry, path=path )
+    return True
+
+
+def queue_set_data(queue_id, fqu, new_data, path=DEFAULT_QUEUE_PATH):
+    """
+    Update a name's data in the queue
+    """
+    entry_data = {}
+    entry_data.update(new_data)
+    
+    for k in ['tx_hash', 'type', 'queue_id', 'fqu']:
+        if k in entry_data:
+            del entry_data[k]
+
+    if entry_data.has_key('zonefile'):
+        entry_data['zonefile_b64'] = base64.b64encode(entry_data['zonefile'])
+        del entry_data['zonefile']
+
+    sql = "UPDATE entries SET data = ? WHERE fqu = ? AND queue_id = ?;"
+    args = (json.dumps(entry_data,sort_keys=True), fqu, queue_id)
+
+    db = queuedb_open(path)
+    if db is None:
+        raise Exception("Failed to open %s" % path)
+
+    cur = db.cursor()
+    res = queuedb_query_execute( cur, sql, args )
+
+    db.commit()
+    db.close()
     return True
 
 
@@ -412,10 +448,8 @@ def is_entry_accepted( entry, config_path=CONFIG_PATH ):
     Return False on error.
     """
     if 'confirmations_needed' in entry:
-        log.debug('Custom confirmations check on {} with {}'.format(
-            entry['tx_hash'], entry['confirmations_needed']))
-        return is_tx_accepted( entry['tx_hash'], num_needed = entry['confirmations_needed'],
-                               config_path=config_path )
+        log.debug('Custom confirmations check on {} with {}'.format(entry['tx_hash'], entry['confirmations_needed']))
+        return is_tx_accepted( entry['tx_hash'], num_needed=entry['confirmations_needed'], config_path=config_path )
     else:
         return is_tx_accepted( entry['tx_hash'], config_path=config_path )
 
@@ -475,6 +509,7 @@ def get_queue_state(queue_ids=None, limit=None, path=DEFAULT_QUEUE_PATH):
         errors = queue_get_error_msgs(row['type'], row['fqu'], path=path)
         if len(errors) > 0:
             row['errors'] = errors
+
     return state
 
 
@@ -483,6 +518,7 @@ def queue_findall( queue_id, limit=None, path=DEFAULT_QUEUE_PATH ):
     Load a single queue into RAM
     """
     return get_queue_state( queue_id, limit=limit, path=path )
+
 
 def queue_removeall( entries, path=DEFAULT_QUEUE_PATH ):
     """

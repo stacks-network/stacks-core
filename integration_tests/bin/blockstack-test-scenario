@@ -27,6 +27,7 @@ import threading
 import argparse
 import BaseHTTPServer
 import cgi
+import random
 from datetime import datetime
 from influxdb import InfluxDBClient
 
@@ -40,6 +41,8 @@ log = virtualchain.get_logger("blockstack-test-scenario")
 
 from virtualchain.lib.blockchain.bitcoin_blockchain import JSONRPCException
 
+MAX_TEST_LIFETIME = 75 * 60 * 60    # max test run is 75 minutes
+
 TEST_RPC_PORT = 16264
 TEST_CLIENT_RPC_PORT = int(os.environ.get("BLOCKSTACK_TEST_CLIENT_RPC_PORT", 16268))
 TEST_CLIENT_BIND = os.environ.get("BLOCKSTACK_TEST_CLIENT_BIND", "localhost")
@@ -49,7 +52,7 @@ BLOCKSTACK_STORAGE_DRIVERS = "disk"
 if os.environ.get("BLOCKSTACK_STORAGE_DRIVERS", None) is not None:
     BLOCKSTACK_STORAGE_DRIVERS = os.environ.get("BLOCKSTACK_STORAGE_DRIVERS")
 
-BITCOIN_DIR = "/tmp/bitcoin-regtest"
+BITCOIN_DIR = None      # set at runtime
 SCENARIO_PID = os.getpid()
 
 NET_LOG_PATH = "/tmp/blockstack-test-netlog.log"
@@ -123,6 +126,10 @@ server = localhost
 port = 18332
 use_https = False
 
+[subdomain-resolution]
+resolving_subdomains = True
+subdomains_db = @CLIENT_SUBDOMAINS_DB@
+
 [bitcoind]
 passwd = blockstacksystem
 server = localhost
@@ -155,6 +162,31 @@ class Pinger(threading.Thread):
                 time.sleep(0.25)
             except socket.error:
                 bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts() )
+
+    def ask_join(self):
+        self.running = False
+
+
+class TestTimeout(threading.Thread):
+    """
+    In the event that a test deadlocks, force it to abort after a set amount of time
+    """
+    def __init__(self, timeout):
+        threading.Thread.__init__(self)
+        self.timeout = timeout
+        self.running = False
+
+    def run(self):
+        self.running = True
+        deadline = time.time() + self.timeout
+        while self.running:
+            time.sleep(1)
+            if time.time() > deadline:
+                # out of time
+                log.error("Out of time")
+                sys.stdout.flush()
+                sys.stderr.flush()
+                os.abort()
 
     def ask_join(self):
         self.running = False
@@ -411,6 +443,7 @@ def generate_config_file( scenario, path, template, extra_fields):
     serve_data = extra_fields.get("SERVE_DATA", "True")
     redirect_data = extra_fields.get("REDIRECT_DATA", "False")
     data_servers = extra_fields.get("DATA_SERVERS", "True")
+    subdomains_db = extra_fields.get("SUBDOMAINS_DB", os.path.join(os.path.dirname(path), 'subdomains.db'))
 
     if zonefiles_dir is None:
         zonefiles_dir = "/tmp/blockstack-test-zonefiles"
@@ -423,7 +456,7 @@ def generate_config_file( scenario, path, template, extra_fields):
         raise Exception("No config template")
 
     spv_headers_path = os.path.join( os.environ.get("VIRTUALCHAIN_WORKING_DIR", None), "spv_headers.dat")
-
+    
     config_txt = config_txt.replace( "@CLIENT_BLOCKCHAIN_HEADERS@", spv_headers_path )
     config_txt = config_txt.replace( "@CLIENT_METADATA@", client_metadata )
     config_txt = config_txt.replace( "@CLIENT_ACCOUNTS_PATH@", accounts_dir )
@@ -436,6 +469,7 @@ def generate_config_file( scenario, path, template, extra_fields):
     config_txt = config_txt.replace( "@SERVE_DATA@", serve_data )
     config_txt = config_txt.replace( "@REDIRECT_DATA@", redirect_data )
     config_txt = config_txt.replace( "@DATA_SERVERS@", data_servers )
+    config_txt = config_txt.replace( "@CLIENT_SUBDOMAINS_DB@", subdomains_db)
 
     with open( path, "w" ) as f:
         f.write( config_txt )
@@ -499,6 +533,7 @@ def bitcoin_stop():
     Stop bitcoin
     """
     global BITCOIN_DIR
+    assert BITCOIN_DIR
     bitcoin_conf = os.path.join(BITCOIN_DIR, "bitcoin.conf")
     rc = os.system("bitcoin-cli -regtest -conf=%s stop" % bitcoin_conf)
     assert rc == 0, "Failed to stop bitcoind"
@@ -509,6 +544,7 @@ def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
     Clean up a scenario
     """
     global BITCOIN_DIR, SCENARIO_PID
+    assert BITCOIN_DIR
     if os.getpid() != SCENARIO_PID:
         # don't let the API daemon call this by mistake
         return
@@ -653,6 +689,10 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     pinger = Pinger()
     pinger.start()
 
+    # forced timoeut
+    timeout_watchdog = TestTimeout(MAX_TEST_LIFETIME)
+    timeout_watchdog.start()
+
     # shutdown procedure
     def shutdown_procedure(*args, **kw):
         if os.getpid() != SCENARIO_PID:
@@ -679,6 +719,11 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
             log.info("Shutting down pinger")
             pinger.ask_join()
             pinger.join()
+
+        if timeout_watchdog:
+            log.info("Shutting down timeout watchdog")
+            timeout_watchdog.ask_join()
+            timeout_watchdog.join()
 
 
     def signal_shutdown_procedure(*args, **kw):
@@ -835,6 +880,14 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
         log.info("Atlas zonefile checks pass!")
 
+    # verify historic name ownership 
+    rc = testlib.check_historic_names_by_address(db)
+    if not rc:
+        shutdown_procedure()
+        return rc
+
+    log.info("Historic name test passes!")
+
     shutdown_procedure()
     return True
 
@@ -860,6 +913,7 @@ def bitcoin_regtest_reset():
     Reset bitcoind regtest to a clean state
     """
     global BITCOIN_DIR
+    assert BITCOIN_DIR
 
     bitcoin_dir = BITCOIN_DIR[:]
     bitcoin_pidpath = os.path.join(bitcoin_dir, "bitcoind.pid")
@@ -1135,10 +1189,12 @@ def parse_args( argv ):
     parser.add_argument("--working-dir", dest='working_dir', type=str, help="Working directory to use to store database state", required=False)
     parser.add_argument("--influx", dest='influx', action='store_true', help="Write test output to monitoring in additon to stdout", required=False)
     parser.add_argument('--force-segwit', dest='force_segwit', action='store_true', help="Forcibly convert all wallets to support segwit transactions", required=False)
+    parser.add_argument("--output", dest="output_path", action='store', help='Redirect all output to a given file', required=False)
     parser.add_argument("scenario_module", type=str, help="Python module to run")
 
     args, _ = parser.parse_known_args()
     return args
+
 
 def influx_write( influx_client, test_start, test_name, status ):
     test_time = datetime.utcnow() - test_start
@@ -1162,7 +1218,21 @@ def influx_write( influx_client, test_start, test_name, status ):
             }
         }
     ]
-    influx_client.write_points(point)
+
+    final_exception = None
+    for i in xrange(0, 10):
+        try:
+            influx_client.write_points(point)
+            return
+        except Exception as e:
+            # this can sometimes fail due to network timeouts
+            # do jittery back-off, up to 5 minutes
+            log.exception(e)
+            log.debug("Will sleep for a bit and try to context Influx again")
+            time.sleep(min(300, (2**i) * (1 + random.random())))
+            final_exception = e
+
+    raise final_exception
 
 
 if __name__ == "__main__":
@@ -1171,7 +1241,7 @@ if __name__ == "__main__":
     test_end = None
 
     if len(sys.argv) < 2:
-        print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [--interactive-web port] [--influx] [--force-segwit] [scenario.import.path] [OPTIONAL: working dir]"
+        print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [--interactive-web port] [--influx] [--force-segwit] [--output PATH] [scenario.import.path] [OPTIONAL: working dir]"
         sys.exit(1)
 
     args = parse_args(sys.argv)
@@ -1183,6 +1253,49 @@ if __name__ == "__main__":
     scenario_module = args.scenario_module
     influx_client = None
     force_segwit = False
+    output_path = None
+    output_f = None
+    output_fd = None
+
+    if hasattr(args, 'output_path') and args.output_path:
+        output_path = args.output_path
+        
+        if os.path.exists(output_path):
+            os.unlink(output_path)
+
+        # redirect 
+        if output_path != '-':
+            # just send stderr to stdout
+            output_f = open(output_path, 'w')
+            output_fd = output_f.fileno()
+
+            stdout_fileno = sys.stdout.fileno()
+            os.close(sys.stdout.fileno())
+            os.dup2(output_fd, stdout_fileno)
+
+        else:
+            output_f = sys.stdout
+            output_fd = sys.stdout.fileno()
+
+        stderr_fileno = sys.stderr.fileno()
+        os.close(stderr_fileno)
+        os.dup2(output_fd, stderr_fileno)
+
+        # make stdout unbufferred 
+        class Unbuffered(object):
+           def __init__(self, stream):
+               self.stream = stream
+           def write(self, data):
+               self.stream.write(data)
+               self.stream.flush()
+           def writelines(self, datas):
+               self.stream.writelines(datas)
+               self.stream.flush()
+           def __getattr__(self, attr):
+               return getattr(self.stream, attr)
+
+        sys.stdout = Unbuffered(sys.stdout)
+        log.debug("Sending all output to {}".format(output_path))
 
     if hasattr(args, "influx") and args.influx is not False:
         # TODO: pull config from ENV
@@ -1246,6 +1359,11 @@ if __name__ == "__main__":
     os.environ["BLOCKSTACK_SERVER_CONFIG"] = config_file
     os.environ['VIRTUALCHAIN_WORKING_DIR'] = working_dir
     os.environ['BLOCKSTACK_SEGWIT_TEST'] = '1'
+    os.environ['BLOCKSTACK_TEST_NAME'] = scenario_module
+    
+    BITCOIN_DIR = os.path.join(working_dir, 'bitcoin-regtest')
+    if not os.path.exists(BITCOIN_DIR):
+        os.makedirs(BITCOIN_DIR)
 
     if force_segwit:
         # test framework flag
@@ -1263,10 +1381,7 @@ if __name__ == "__main__":
         print "Failed to load '%s'" % scenario_module
 
         if args.influx:
-            try:
-                influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-load")
-            except:
-                pass
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-load")
 
         sys.exit(1)
 
@@ -1326,10 +1441,7 @@ if __name__ == "__main__":
         log.error("failed to write config file: exit %s" % rc)
 
         if args.influx:
-            try:
-                influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-config")
-            except:
-                pass
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-config")
 
         sys.exit(1)
 
@@ -1349,10 +1461,7 @@ if __name__ == "__main__":
 
     if rc != 0:
         if args.influx:
-            try:
-                influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-config")
-            except:
-                pass
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-config")
 
         log.error("failed to write config file: exit %s" % rc)
         sys.exit(1)
@@ -1369,18 +1478,12 @@ if __name__ == "__main__":
         print "SUCCESS %s" % scenario.__name__
         # shutil.rmtree( working_dir )
         if args.influx:
-            try:
-                influx_write(influx_client, test_start, scenario_module.split(".")[2], "success")
-            except:
-                pass
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "success")
 
         sys.exit(0)
     else:
         if args.influx:
-            try:
-                influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure")
-            except:
-                pass
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure")
 
         print >> sys.stderr, "FAILURE %s" % scenario.__name__
         print >> sys.stderr, "Test output in %s" % working_dir
