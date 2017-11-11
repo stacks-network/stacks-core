@@ -225,6 +225,8 @@ def exit_venv():
 def bootstrap_host(user, host, host_venv_dir, test_root, port, deps_path=None, ssh_id_path=None, bootstrap_script=DEFAULT_BOOTSTRAP_SCRIPT, logfile=None):
     """
     Bootstrap a host
+    Return True on success
+    Return False on error
     """
     def run_proc(cmd, step_name):
 
@@ -282,7 +284,7 @@ def bootstrap_host(user, host, host_venv_dir, test_root, port, deps_path=None, s
     if deps_path:
         deps_opt = '--dependencies=/tmp/dependencies.json'
 
-    cmd = 'ssh {} -t "{}@{}" \'test -d "{}" && rm -rf "{}"; python /tmp/blockstack-testbox setup "{}" {}\''.format(id_opt, user, host, host_venv_dir, host_venv_dir, host_venv_dir, deps_opt)
+    cmd = 'ssh {} -t "{}@{}" \'test -d "{}" && rm -rf "{}"; test -d "{}" && rm -rf "{}"; python /tmp/blockstack-testbox setup "{}" {}\''.format(id_opt, user, host, host_venv_dir, host_venv_dir, test_root, test_root, host_venv_dir, deps_opt)
     # cmd = 'ssh {} -t "{}@{}" \'python /tmp/blockstack-testbox setup "{}" {}\''.format(id_opt, user, host, host_venv_dir, host_venv_dir, host_venv_dir, deps_opt)
     log.debug("$ {}".format(cmd))
 
@@ -291,7 +293,7 @@ def bootstrap_host(user, host, host_venv_dir, test_root, port, deps_path=None, s
         return False
 
     # start an HTTP server, if there isn't one already.  record the port to the host's venv 
-    cmd = 'ssh {} -t "{}@{}" \'test -d "{}" || mkdir -p "{}"; python /tmp/blockstack-testbox httpd-stop {}; echo "{}" > "{}/http.port"; nohup python /tmp/blockstack-testbox httpd "{}" {} >/dev/null 2>&1 & sleep 5\''.format(id_opt, user, host, test_root, test_root, port, port, host_venv_dir, test_root, port)
+    cmd = 'ssh {} -t "{}@{}" \'test -d "{}" || mkdir -p "{}"; sudo killall -9 blockstack-testbox; python /tmp/blockstack-testbox httpd-stop {}; echo "{}" > "{}/http.port"; nohup python /tmp/blockstack-testbox httpd "{}" {} >/dev/null 2>&1 & sleep 5\''.format(id_opt, user, host, test_root, test_root, port, port, host_venv_dir, test_root, port)
     log.debug("$ {}".format(cmd))
 
     res = run_proc(cmd, 'start HTTP server')
@@ -679,34 +681,24 @@ def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(3
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = p.communicate()
     retval = p.returncode
+    if retval != 0:
+        # failed to run
+        log.error("Failed to run {} on {}@{}: exit code {}".format(test_package_name, user, host, retval))
+        return {'error': 'Failed to run {} on {}@{}: exit code {}'.format(test_package_name, user, host, retval)}
 
-    # try to parse stdout as a JSON blob
-    test_result = None
-    try:
-        test_out, test_result_str = re.split('-----END TEST OUTPUT-----', out)
-        test_result = json.loads(test_result_str.strip())
-    except:
-        log.error("Failed to parse test output")
-        log.error("Stdout:\n{}".format('   \n'.join(out.strip().split('\n'))))
-        log.error("Stderr:\n{}".format('   \n'.join(err.strip().split('\n'))))
-        return {'error': 'Failed to parse test output'}
-    
-    assert test_result.has_key('status')
-    assert test_result.has_key('port')
-    assert test_result.has_key('logs')
+    # ssh back in and get the test results
+    cmd = ['/usr/bin/ssh'] + ([id_opt] if id_opt else []) + ['{}@{}'.format(user, host), 'zcat "{}/{}.out.gz" | tail -n 100 | grep "SUCCESS {}"'.format(test_root, test_package_name, test_package_name)]
+    log.debug("$ {}".format(" ".join(cmd)))
 
-    logs_path = None
-    if test_result['logs']:
-        logs_path = test_result['logs']
-
-    res = {
-        'status': test_result['status'],
-    }
-
-    if logs_path:
-        res['logs'] = 'http://{}:{}/{}'.format(host, test_result['port'], os.path.basename(logs_path))
-
-    return res
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = p.communicate()
+    retval = p.returncode
+    if retval != 0:
+        # failure
+        return {'status': False}
+    else:
+        # success!
+        return {'status': True}
 
 
 def main_http_server(test_root, portnum):
@@ -853,26 +845,10 @@ def main_test_runner(testname, hostinfo, testinfo, ssh_id_path=None, dependencie
         host_venv_dir = res['host_venv_dir']
         host_testout_dir = res['host_testout_dir']
         
-        cmd = '{} bootstrap "{}" "{}" {} --username "{}" --host "{}" --logs_dir "{}"'.format(sys.argv[0], host_venv_dir, host_testout_dir, remote_test_port, username, hostname, bootstrap_logs_dir)
-        if ssh_id_path:
-            cmd += ' --ssh_identity "{}"'.format(ssh_id_path)
-
-        if dependencies:
-            cmd += ' --dependencies "{}"'.format(dependencies)
+        res = bootstrap_host(username, hostname, host_venv_dir, host_testout_dir, remote_test_port, deps_path=dependencies, ssh_id_path=ssh_id_path, logfile=os.path.join(bootstrap_logs_dir, '{}@{}.log'.format(username,hostname)))
         
-        log.debug("$ {}".format(cmd))
-        
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-        out, err = p.communicate()
-        retval = p.returncode
-
-        if retval != 0:
-            log.error("Failed to bootstrap {}@{}. Logs at {}".format(username, hostname, bootstrap_logs_dir))
-            return False
-        
-        # success!
-        bootstrap_results['{}@{}'.format(username, hostname)] = True
-        return True
+        bootstrap_results['{}@{}'.format(username, hostname)] = res
+        return res
 
 
     def host_run_test(username, hostname, test_module):
@@ -883,38 +859,10 @@ def main_test_runner(testname, hostinfo, testinfo, ssh_id_path=None, dependencie
         host_venv_dir = res['host_venv_dir']
         host_testout_dir = res['host_testout_dir']
 
-        cmd = '{} run-test "{}" "{}" "{}" "{}@{}" --test_user "{}" --timeout {}'.format(sys.argv[0], host_venv_dir, test_module, host_testout_dir, username, hostname, username, test_timeout)
-        if ssh_id_path:
-            cmd += ' --ssh_identity "{}"'.format(ssh_id_path)
+        res = main_run_test(username, hostname, host_venv_dir, test_module, host_testout_dir, timeout=test_timeout, test_user=username, ssh_id_path=ssh_id_path)
+        test_results[test_module] = res
 
-        log.debug("$ {}".format(cmd))
-
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-        out, err = p.communicate()
-        retval = p.returncode
-
-        if retval != 0:
-            log.error("Failed to run test {} on {}@{}".format(test_module, username, hostname))
-            ret = {'error': 'Failed to run test {}'.format(test_module), 'exitcode': retval}
-            test_results[test_module] = ret
-            return ret
-
-        # try to parse stdout as a JSON blob
-        test_result = None
-        try:
-            test_out, test_result_str = re.split('-----END TEST OUTPUT-----', out)
-            test_result = json.loads(test_result_str.strip())
-        except:
-            log.error("Failed to parse test output from {} on {}@{}".format(test_module, username, hostname))
-            log.error("Stdout:\n{}".format('   \n'.join(out.strip().split('\n'))))
-            log.error("Stderr:\n{}".format('   \n'.join(err.strip().split('\n'))))
-
-            ret = {'error': 'Failed to parse test output from {}'.format(test_module)}
-            test_results[test_module] = ret
-            return ret
-        
-        test_results[test_module] = test_result
-        return test_result
+        return res
         
 
     def count_running():
@@ -987,6 +935,7 @@ def main_test_runner(testname, hostinfo, testinfo, ssh_id_path=None, dependencie
     for t in bootstrap_threads:
         t.join()
     
+    os.system('stty sane')
     log.debug("All nodes bootstrapped; running tests")
 
     # run all tests
@@ -1008,7 +957,6 @@ def main_test_runner(testname, hostinfo, testinfo, ssh_id_path=None, dependencie
 
         # try to join
         joined = []
-        i = 0
         for (i, res) in enumerate(run_queue):
 
             userhost = res['userhost']
@@ -1024,29 +972,36 @@ def main_test_runner(testname, hostinfo, testinfo, ssh_id_path=None, dependencie
                 test_res = test_results.get(state['test'], None)
                 assert test_res, 'BUG: no test result for {}'.format(state['test'])
 
-                test_res['test'] = state['test']
-                joined.append((i, test_res))
+                joined.append((i, test_res, res))
  
         sys.stdout.flush()
         sys.stderr.flush()
 
-        # clean out run queue
-        for (j, test_res) in joined:
-            run_queue.pop(j)
+        # clean out run queue, in reverse order so we don't pop running tests
+        for (j, test_res, res) in joined:
+            
+            run_queue[j] = None
+
+            userhost = res['userhost']
+            state = res['test']
+
+            test = state['test']
 
             if 'error' in test_res:
-                print COLORS['red'] + 'FAILURE {} test error: {}'.format(test_res['test'], test_res['error']) + COLORS['reset']
+                print COLORS['red'] + 'FAILURE {} test error: {}'.format(test, test_res['error']) + COLORS['reset']
 
             elif test_res['status']:
-                print COLORS['green'] + 'SUCCESS {}'.format(test_res['test']) + COLORS['reset']
+                print COLORS['green'] + 'SUCCESS {}'.format(test) + COLORS['reset']
 
             else:
-                print COLORS['red'] + 'FAILURE {}'.format(test_res['test']) + COLORS['reset'] + ' ({})'.format(test_res['test'], test_res['logs'])
+                print COLORS['red'] + 'FAILURE {}'.format(test) + COLORS['reset'] + ' ({})'.format('http://{}:{}/{}.out.gz'.format(userhost.split('@',1)[1], remote_test_port, test))
 
             sys.stdout.flush()
             sys.stderr.flush()
 
             os.system('stty sane')
+        
+        run_queue = filter(lambda r: r is not None, run_queue)
 
         # are we done?
         running = count_running()
