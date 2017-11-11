@@ -720,7 +720,7 @@ class RegistrarWorker(threading.Thread):
                     log.debug("{} updated, current owner : {}, transfer owner : {}".format(
                         update['fqu'], name_rec['address'], update['transfer_address']))
 
-                if 'address' in name_rec and virtualchain.address_reencode(name_rec['address']) == virtualchain.address_reencode(update['transfer_address']):
+                if 'address' in name_rec and update['transfer_address'] and virtualchain.address_reencode(name_rec['address']) == virtualchain.address_reencode(update['transfer_address']):
                     log.debug("Requested Transfer {} to {} is owned by {} already. Declaring victory.".format(
                         update['fqu'], update['transfer_address'], name_rec['address']))
 
