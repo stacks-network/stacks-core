@@ -1,16 +1,14 @@
 # registrar
 
-[![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
+For registering and updating [Blockstack IDs](https://explorer.blockstack.org). 
 
-For registering and updating [blockchain IDs](https://github.com/blockstack/blockstack/wiki/Blockchain-ID). 
+Blockstack IDs are registered on the Bitcoin blockchain, using [Blockstack](https://blockstack.org), and associated data is stored in Blockstack's Atlas peer network.
 
-Blockchain IDs are registered on the Bitcoin blockchain, using [Blockstore](https://github.com/blockstack/blockstore), and associated data is stored on external data stores like a DHT. 
+A registrar is a service that registers Blockstack IDs and then transfers them to the respective users, along with writing/updating any associated data. Just like GoDaddy helps you manage domain names, a Blockstack ID registrar helps you register/manage your Blockstack ID. However, the end-users have complete control over the Blockstack IDs registered (after a transfer is complete), and anyone can decide to run a registrar.
 
-A registrar is a service that registers blockchain IDs and then transfers them to the respective users, along with writing/updating any associated data. Just like GoDaddy helps you manage domain names, a blockchain ID registrar helps you register/manage your blockchain ID. However, the end-users have complete control over the blockchain IDs registered (after a transfer is complete), and anyone can decide to run a registrar.
+## Blockstack IDs
 
-## Blockchain IDs
-
-Usernames may be up to 60 characters long and contain lowercase letters, numbers, and underscores.
+Usernames may be up to 40 characters long and contain lowercase letters, numbers, and underscores.
 
 **Note:** usernames with ANY uppercase letters will be ignored by crawlers, so make sure to only use lowercase letters when you register a name.
 
@@ -18,11 +16,11 @@ Regex: ^[a-z0-9_]{1,60}$
 
 ## Registration
 
-To register a blockchain ID:
+To register a Blockstack ID:
 
 1. choose an available username
 2. construct a valid JSON object that adheres to the [profile schema specifications](https://github.com/blockstack/blockstack/wiki/Blockchain-ID-Schema-v2)
-3. register the username and profile as an entry in the key-value store
+3. register the username and profile
 
 ## HD Wallet
 
