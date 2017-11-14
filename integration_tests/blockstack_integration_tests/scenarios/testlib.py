@@ -334,8 +334,14 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
+    
+    owner_privkey_info = None
+    try:
+        owner_privkey_info = find_wallet(register_addr).privkey
+    except:
+        if safety_checks:
+            raise
 
-    owner_privkey_info = find_wallet(register_addr).privkey
     register_addr = virtualchain.address_reencode(register_addr)
 
     name_cost_info = test_proxy.get_name_cost( name )
@@ -344,7 +350,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
     log.debug("Preorder '%s' for %s satoshis" % (name, name_cost_info['satoshis']))
 
     resp = blockstack_client.do_preorder( name, privatekey, owner_privkey_info, name_cost_info['satoshis'], test_proxy, test_proxy, tx_fee=tx_fee,
-            burn_address=burn_addr, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+            burn_address=burn_addr, owner_address=register_addr, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     api_call_history.append( APICallRecord( "preorder", name, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
     return resp
@@ -358,7 +364,13 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
-    owner_privkey_info = find_wallet(register_addr).privkey
+    owner_privkey_info = None
+    try:
+        owner_privkey_info = find_wallet(register_addr).privkey
+    except:
+        if safety_checks:
+            raise
+
     register_addr = virtualchain.address_reencode(register_addr)
 
     kwargs = {}
@@ -368,7 +380,9 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
 
         kwargs = {'tx_fee' : tx_fee} # regtest shouldn't care about the tx_fee
 
-    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, zonefile_hash=zonefile_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
+    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, 
+            zonefile_hash=zonefile_hash, owner_address=register_addr, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
+
     api_call_history.append( APICallRecord( "register", name, register_addr, resp ) )
     return resp
 
