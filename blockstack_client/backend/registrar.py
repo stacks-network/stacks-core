@@ -437,6 +437,7 @@ class RegistrarWorker(threading.Thread):
                 succeeded_names.append(preorder['fqu'])
 
         ret['names'] = succeeded_names
+        ret['failed'] = failed_names
 
         if 'error' in ret:
             ret['failed'] = failed_names
