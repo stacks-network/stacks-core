@@ -18,6 +18,7 @@ import signal
 import SimpleHTTPServer
 import re
 import tempfile
+import random
 from SimpleHTTPServer import BaseHTTPServer, SimpleHTTPRequestHandler
 
 DEBUG = True
@@ -28,6 +29,7 @@ COLORS = {
     "blue":   "\x1b[0;34m",
     "green":  "\x1b[0;32m",
     "red":    "\x1b[0;31m",
+    "yellow": "\x1b[0;93m",
     "reset":  "\x1b[0m",
 }
 
@@ -66,7 +68,7 @@ DEFAULT_DEPS = [
     {
         'name': 'blockstack-core',
         'git': 'https://github.com/blockstack/blockstack-core',
-        'branch': 'hotfix/did-support',
+        'branch': 'hotfix/ipfs-support',
         'type': 'python',
         'subpackages': ['integration_tests'],
     },
@@ -671,8 +673,13 @@ def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(3
     if timeout:
         timeout_opt = '--timeout "{}"'.format(int(timeout))
 
-    cmd = ['/usr/bin/ssh'] + ([id_opt] if id_opt else []) + ['{}@{}'.format(user, host), 'sudo /tmp/blockstack-testbox watchdog "{}" "{}" "{}" {} {}'.format(venv_dir, test_package_name, test_root, test_user_opt, timeout_opt)]
+    cmd = ['/usr/bin/ssh'] + ([id_opt] if id_opt else []) + [
+            '{}@{}'.format(user, host), 'sudo /tmp/blockstack-testbox watchdog "{}" "{}" "{}" {} {}'.format(venv_dir, test_package_name, test_root, test_user_opt, timeout_opt)
+    ]
+
     log.debug("$ {}".format(" ".join(cmd)))
+
+    deadline = time.time() + timeout
 
     # cmd = 'ssh {} "{}@{}" \'sudo /tmp/blockstack-testbox watchdog "{}" "{}" "{}" {} {}\''.format(id_opt, user, host, venv_dir, test_package_name, test_root, test_user_opt, timeout_opt)
     # log.debug("$ {}".format(cmd))
@@ -681,10 +688,39 @@ def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(3
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = p.communicate()
     retval = p.returncode
-    if retval != 0:
+    if retval != 0 and retval != 255:
         # failed to run
         log.error("Failed to run {} on {}@{}: exit code {}".format(test_package_name, user, host, retval))
         return {'error': 'Failed to run {} on {}@{}: exit code {}'.format(test_package_name, user, host, retval)}
+
+    elif retval == 255:
+        # ssh had an error
+        log.error("SSH error running {} on {}@{}".format(test_package_name, user, host))
+        
+        completed = False
+
+        # wait for the test to finish running
+        # poll every few minutes, but be mindful of the time
+        while time.time() < deadline:
+            cmd = ['/usr/bin/ssh'] + ([id_opt] if id_opt else []) + [
+                '{}@{}'.format(user, host), 'zcat "{}/{}.out.gz" | tail -n 100 | egrep "(SUCCESS {})|(FAILURE {})"'.format(test_root, test_package_name, test_package_name, test_package_name)
+            ]
+            log.debug("$ {}".format(" ".join(cmd)))
+
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            out, err = p.communicate()
+            retval = p.returncode
+            
+            if retval == 0:
+                completed = True
+                break
+
+            time.sleep(60 + random.random() * 60)   # jittery
+
+        if not completed:
+            print COLORS['yellow'] + "Test {} timed out on {}@{}".format(test_package_name, user, host) + COLORS['reset']
+            sys.stdout.flush()
+            return {'status': False}
 
     # ssh back in and get the test results
     cmd = ['/usr/bin/ssh'] + ([id_opt] if id_opt else []) + ['{}@{}'.format(user, host), 'zcat "{}/{}.out.gz" | tail -n 100 | grep "SUCCESS {}"'.format(test_root, test_package_name, test_package_name)]
@@ -845,7 +881,8 @@ def main_test_runner(testname, hostinfo, testinfo, ssh_id_path=None, dependencie
         host_venv_dir = res['host_venv_dir']
         host_testout_dir = res['host_testout_dir']
         
-        res = bootstrap_host(username, hostname, host_venv_dir, host_testout_dir, remote_test_port, deps_path=dependencies, ssh_id_path=ssh_id_path, logfile=os.path.join(bootstrap_logs_dir, '{}@{}.log'.format(username,hostname)))
+        res = bootstrap_host(username, hostname, host_venv_dir, host_testout_dir, remote_test_port,
+                deps_path=dependencies, ssh_id_path=ssh_id_path, logfile=os.path.join(bootstrap_logs_dir, '{}@{}.log'.format(username,hostname)))
         
         bootstrap_results['{}@{}'.format(username, hostname)] = res
         return res
