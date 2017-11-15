@@ -543,7 +543,7 @@ def main_test(test_package_name, test_dir, test_user=None):
     return retval
 
 
-def main_watchdog(venv_dir, test_package_name, test_root, timeout=(3600 * 75), test_user=None):
+def main_watchdog(venv_dir, test_package_name, test_root, timeout=(60 * 75), test_user=None):
     """
     Privileged operation.  Start up the test in its own private environment, and collect the output.
     Kill the process and all of its children after a given timeout.
@@ -655,7 +655,7 @@ def main_watchdog(venv_dir, test_package_name, test_root, timeout=(3600 * 75), t
     return {'status': test_result, 'logs': logs_path, 'port': http_port}
   
 
-def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(3600 * 75), test_user=None, ssh_id_path=None):
+def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(60 * 75), test_user=None, ssh_id_path=None):
     """
     Run a test on the remote host.
     Determine whether it succeeded or failed.
@@ -703,7 +703,9 @@ def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(3
         # poll every few minutes, but be mindful of the time
         while time.time() < deadline:
             cmd = ['/usr/bin/ssh'] + ([id_opt] if id_opt else []) + [
-                '{}@{}'.format(user, host), 'zcat "{}/{}.out.gz" | tail -n 100 | egrep "(SUCCESS {})|(FAILURE {})"'.format(test_root, test_package_name, test_package_name, test_package_name)
+                '{}@{}'.format(user, host),
+                'test -f "{}/{}.out.gz" || exit 10; zcat "{}/{}.out.gz" | egrep "(SUCCESS {})|(FAILURE {})"'.format(
+                    test_root, test_package_name, test_root, test_package_name, test_package_name, test_package_name)
             ]
             log.debug("$ {}".format(" ".join(cmd)))
 
@@ -714,6 +716,16 @@ def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(3
             if retval == 0:
                 completed = True
                 break
+
+            elif retval == 10:
+                # not done yet
+                log.debug("Test {} is still running on {}@{}".format(test_package_name, user, host))
+
+            elif retval != 0 and retval != 255:
+                # test output is corrupt
+                log.error("Test {} output on {}@{} is corrupt, aborting...".format(test_package_name, user, host))
+                print COLORS['yellow'] + "Test {} is corrupt on {}@{}".format(test_package_name, user, host) + COLORS['reset']
+                return {'status': False}
 
             time.sleep(60 + random.random() * 60)   # jittery
 
@@ -845,7 +857,7 @@ def main_test_runner(testname, hostinfo, testinfo, ssh_id_path=None, dependencie
     """
     test_queue = testinfo[:]
     remote_test_port = 8086
-    test_timeout = 3600 * 75
+    test_timeout = 60 * 75
 
     bootstrap_logs_dir = tempfile.mkdtemp(prefix='blockstack-test-bootstrap-')
     
@@ -1169,7 +1181,7 @@ def main(argv):
         if test_timeout is not None:
             test_timeout = int(test_timeout)
         else:
-            test_timeout = 75 * 3600  # 75 min
+            test_timeout = 75 * 60  # 75 min
 
         if os.getuid() != 0:
             print >> sys.stderr, 'You must be root to start a test'
@@ -1333,7 +1345,7 @@ def main(argv):
         test_user = getattr(args, 'test_user', None)
 
         if timeout is None:
-            timeout = 3600 * 75
+            timeout = 60 * 75
 
         user, host = login.split('@', 1)
         
