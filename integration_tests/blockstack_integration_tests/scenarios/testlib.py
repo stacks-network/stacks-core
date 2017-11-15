@@ -3253,7 +3253,7 @@ def check_historic_names_by_address( state_engine ):
         if api_call.method == 'revoke':
             revoked_names[name] = block_id
 
-        final_name_states[name] = state_engine.get_name(name, include_expired=True)
+        final_name_states[name] = json.loads(json.dumps(state_engine.get_name(name, include_expired=True)))
 
     log.debug('addr names: {}'.format(addr_names))
     log.debug('revoked names: {}'.format(revoked_names))
@@ -3270,7 +3270,11 @@ def check_historic_names_by_address( state_engine ):
                     ret = False 
 
             else:
-                if 'error' in name_rec:
+                if name_rec is None:
+                    log.error("No such name {} at {}".format(name, did))
+                    ret = False
+
+                elif 'error' in name_rec:
                     log.error("Failed to resolve {}: {}".format(did, name_rec['error']))
                     ret = False
 
@@ -3278,9 +3282,9 @@ def check_historic_names_by_address( state_engine ):
                     for k in name_rec.keys():
                         if final_name_states[name] is not None:
                             if name_rec[k] != final_name_states[name].get(k, None):
-                                log.error("Name rec for {} does not equal final name state from db".format(name))
-                                log.error("Expected:\n{}".format(json.dumps(final_name_states[name], indent=4, sort_keys=True)))
-                                log.error("Got:\n{}".format(name_rec, indent=4, sort_keys=True))
+                                log.error("Name rec for {} does not equal final name state from db on '{}'".format(name, k))
+                                log.error("Expected:\n{}".format(final_name_states[name].get(k, None)))
+                                log.error("Got:\n{}".format(name_rec[k]))
                                 ret = False
 
     return ret
