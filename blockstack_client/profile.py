@@ -285,7 +285,7 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
             user_data_pubkey = None
 
         if not use_legacy_zonefile and user_data_pubkey is None:
-            # legacy zonefile without a data public key 
+            # legacy zonefile without a data public key
             return {'error': 'Name zonefile is missing a public key'}
 
         # find owner address
@@ -313,7 +313,7 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
                 urls=urls, drivers=profile_storage_drivers, decode=decode_profile,
                 return_public_key=True
             )
-           
+
             if user_profile_res is None:
                 log.error("Failed to get profile for {}".format(name))
                 return {'error': 'Failed in parsing and fetching profile for {}'.format(name)}
