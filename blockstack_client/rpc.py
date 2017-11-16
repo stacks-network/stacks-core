@@ -752,12 +752,19 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         # who owns this name now?
         name_info = proxy.get_name_blockchain_record(name)
-        cur_owner_addr = name_info['address']
+        cur_owner_addr = None
+
+        if 'address' in name_info:
+            cur_owner_addr = name_info['address']
 
         # do we own this name already?
         # i.e. do we need to renew?
         if owner_key is None:
             check_already_owned_by = [self.server.wallet_keys['owner_addresses'][0]]
+        
+        elif virtualchain.is_multisig(owner_key):
+            check_already_owned_by = [virtualchain.get_privkey_address(owner_key)]
+
         else:
             check_already_owned_by = [
                 virtualchain.address_reencode(keylib.public_key_to_address(keylib.key_formatting.compress(keylib.ECPrivateKey(owner_key).public_key().to_hex()))),
@@ -767,7 +774,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         op = None
         if cur_owner_addr in check_already_owned_by:
             # select the right key
-            if owner_key:
+            if owner_key and not virtualchain.is_multisig(owner_key):
                 if cur_owner_addr == check_already_owned_by[0]:
                     # compressed
                     owner_key = virtualchain.lib.ecdsalib.ecdsa_private_key(owner_key, compressed=True).to_hex()
