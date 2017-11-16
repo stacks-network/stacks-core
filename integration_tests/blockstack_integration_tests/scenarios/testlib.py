@@ -3910,14 +3910,26 @@ def nodejs_copy_package( testdir, package_name ):
     """
     Copy the contents of a package into the test directory
     """
-    node_package_path = '/usr/lib/node_modules/{}'.format(package_name)
-    if not os.path.exists(node_package_path):
-        raise Exception("Missing node package {}: no directory {}".format(package_name, node_package_path))
+    prefixes = filter(lambda x: len(x) > 0, os.environ.get("NODE_PATH", "/usr/lib/node_modules:/usr/local/lib/node_modules").split(":"))
+    node_package_path = None
+    for prefix in prefixes:
+        node_package_path = '{}/{}'.format(prefix, package_name)
+        if os.path.exists(node_package_path):
+            break
+        else:
+            node_package_path = None
 
-    rc = os.system('cp -a "{}"/. "{}"'.format(node_package_path, testdir))
+    if node_package_path is None:
+        raise Exception("Missing node package {}: no directories in NODE_PATH {}".format(package_name, ':'.join(prefixes)))
+
+    cmd = 'test -f "{}/{}" || cp -a "{}/." "{}/"'.format(testdir, package_name, node_package_path, testdir)
+    log.debug("$ {}".format(cmd))
+    
+    rc = os.system(cmd)
+    '''
     if rc != 0:
         raise Exception("Failed to copy {} to {}".format(node_package_path, testdir))
-
+    '''
     return True
 
 
