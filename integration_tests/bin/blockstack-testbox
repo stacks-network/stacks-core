@@ -696,12 +696,10 @@ def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(6
     elif retval == 255:
         # ssh had an error
         log.error("SSH error running {} on {}@{}".format(test_package_name, user, host))
-        
-        completed = False
 
         # wait for the test to finish running
         # poll every few minutes, but be mindful of the time
-        while time.time() < deadline:
+        while True:
             cmd = ['/usr/bin/ssh'] + ([id_opt] if id_opt else []) + [
                 '{}@{}'.format(user, host),
                 'test -f "{}/{}.out.gz" || exit 10; zcat "{}/{}.out.gz" | egrep "(SUCCESS {})|(FAILURE {})"'.format(
@@ -714,7 +712,6 @@ def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(6
             retval = p.returncode
             
             if retval == 0:
-                completed = True
                 break
 
             elif retval == 10:
@@ -727,12 +724,12 @@ def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(6
                 print COLORS['yellow'] + "Test {} is corrupt on {}@{}".format(test_package_name, user, host) + COLORS['reset']
                 return {'status': False}
 
-            time.sleep(60 + random.random() * 60)   # jittery
+            if time.time() >= deadline:
+                print COLORS['yellow'] + "Test {} timed out on {}@{}".format(test_package_name, user, host) + COLORS['reset']
+                sys.stdout.flush()
+                return {'status': False}
 
-        if not completed:
-            print COLORS['yellow'] + "Test {} timed out on {}@{}".format(test_package_name, user, host) + COLORS['reset']
-            sys.stdout.flush()
-            return {'status': False}
+            time.sleep(60 + random.random() * 60)   # jittery
 
     # ssh back in and get the test results
     cmd = ['/usr/bin/ssh'] + ([id_opt] if id_opt else []) + ['{}@{}'.format(user, host), 'zcat "{}/{}.out.gz" | tail -n 100 | grep "SUCCESS {}"'.format(test_root, test_package_name, test_package_name)]
