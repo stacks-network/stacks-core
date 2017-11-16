@@ -84,6 +84,7 @@ import subdomains
 
 DEFAULT_UI_PORT = 8888
 DEVELOPMENT_UI_PORT = 3000
+TEST_UI_PORT = None
 
 from .constants import (
     CONFIG_FILENAME, serialize_secrets, WALLET_FILENAME,
@@ -111,6 +112,8 @@ log = blockstack_config.get_logger()
 
 running = False
 
+if BLOCKSTACK_TEST:
+    TEST_UI_PORT = 16268
 
 class CLIRPCArgs(object):
     """
@@ -336,15 +339,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 # try to see if we got a domainname (legacy path)
                 parsed = urlparse.urlparse("http://{}".format(a))
                 assert parsed.netloc, "Invalid origin {}".format(a)
+
             allowed_origins[parsed.netloc] = parsed
 
         origin_header = self.headers.get('origin', None)
         if origin_header is not None:
+            log.debug("Got `origin: {}`".format(origin_header))
             origin_info = urlparse.urlparse(origin_header)
             if origin_info.netloc in allowed_origins.keys():
                 allowed_origin = allowed_origins[origin_info.netloc]
                 if origin_info.scheme == allowed_origin.scheme and origin_info.netloc == allowed_origin.netloc:
                     return True
+            
+            if BLOCKSTACK_TEST:
+                log.debug("Origin `{}` not in allowed origins `{}`".format(origin_header, ', '.join(allowed)))
 
         return False
 
@@ -3905,7 +3913,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         }
         
         LOCALHOST = []
-        for port in [DEFAULT_UI_PORT, DEVELOPMENT_UI_PORT]:
+        for port in filter(lambda x: x is not None, [DEFAULT_UI_PORT, DEVELOPMENT_UI_PORT, TEST_UI_PORT]):
             LOCALHOST += [
                 'http://localhost:{}'.format(port),
                 'http://{}:{}'.format(socket.gethostname(), port),
@@ -3965,7 +3973,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
             if not session_verified:
                 # invalid session
-                log.warning("Invalid session: app domain '{}' does not match Origin '{}'".format(app_domain, self.headers.get('origin', '')))
+                log.warning("Invalid session: app domain '{}' does not match Origin '{}'".format(app_domain, self.headers.get('origin', '<none given>')))
                 session = None
 
         authorized = False
