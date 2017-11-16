@@ -299,6 +299,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 request_str[:15]))
             if ve.validator == "maxLength":
                 return {"error" : "maxLength"}
+
         except (TypeError, ValueError) as ve:
             if BLOCKSTACK_DEBUG:
                 log.exception(ve)
@@ -705,7 +706,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'type': 'boolean'
                 },
                 'owner_key': PRIVKEY_INFO_SCHEMA,
-                'payment_key': PRIVKEY_INFO_SCHEMA
+                'payment_key': PRIVKEY_INFO_SCHEMA,
             },
             'required': [
                 'name'
@@ -749,20 +750,33 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 log.debug("Re-encode {} to {}".format(new_addr, recipient_address))
                 recipient_address = new_addr
 
+        # who owns this name now?
+        name_info = proxy.get_name_blockchain_record(name)
+        cur_owner_addr = name_info['address']
+
         # do we own this name already?
         # i.e. do we need to renew?
         if owner_key is None:
-            check_already_owned_by = self.server.wallet_keys['owner_addresses'][0]
+            check_already_owned_by = [self.server.wallet_keys['owner_addresses'][0]]
         else:
-            check_already_owned_by = virtualchain.get_privkey_address(owner_key)
-        res = proxy.get_names_owned_by_address(check_already_owned_by)
-        if json_is_error(res):
-            log.error("Failed to get names owned by address")
-            self._reply_json({'error': 'Failed to list names by address'}, status_code=500)
-            return
+            check_already_owned_by = [
+                virtualchain.address_reencode(keylib.public_key_to_address(keylib.key_formatting.compress(keylib.ECPrivateKey(owner_key).public_key().to_hex()))),
+                virtualchain.address_reencode(keylib.public_key_to_address(keylib.key_formatting.decompress(keylib.ECPrivateKey(owner_key).public_key().to_hex())))
+            ]
 
         op = None
-        if name in res:
+        if cur_owner_addr in check_already_owned_by:
+            # select the right key
+            if owner_key:
+                if cur_owner_addr == check_already_owned_by[0]:
+                    # compressed
+                    owner_key = virtualchain.lib.ecdsalib.ecdsa_private_key(owner_key, compressed=True).to_hex()
+                    log.debug("Compress owner key to {}".format(virtualchain.get_privkey_address(owner_key)))
+                else:
+                    # uncompressed
+                    owner_key = virtualchain.lib.ecdsalib.ecdsa_private_key(owner_key, compressed=False).to_hex()
+                    log.debug("Decompress owner key to {}".format(virtualchain.get_privkey_address(owner_key)))
+
             # renew
             renewal_allowed = ['name', 'owner_key', 'payment_key', 'owner_address', 'zonefile', 'min_confs']
             for prop in request_schema['properties'].keys():
@@ -4585,6 +4599,8 @@ class BlockstackAPIEndpointClient(object):
                 data['payment_key'] = payment_key
             if zonefile_data is not None:
                 data['zonefile'] = zonefile_data
+            if new_owner_address is not None:
+                data['owner_address'] = new_owner_address
 
             headers = self.make_request_headers()
             req = self.requests_post( 'http://{}:{}/v1/names'.format(self.server, self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)
