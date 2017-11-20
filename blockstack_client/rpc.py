@@ -4577,6 +4577,8 @@ class BlockstackAPIEndpointClient(object):
                 data['payment_key'] = payment_key
             if zonefile_data is not None:
                 data['zonefile'] = zonefile_data
+            if new_owner_address is not None:
+                data['owner_address'] = new_owner_address
 
             headers = self.make_request_headers()
             req = self.requests_post( 'http://{}:{}/v1/names'.format(self.server, self.port), data=json.dumps(data), timeout=self.timeout, headers=headers)
