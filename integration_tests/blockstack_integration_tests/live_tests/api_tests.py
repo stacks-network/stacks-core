@@ -296,9 +296,8 @@ class NamesOwnedTest(APITestCase):
     def build_url(self, addr):
         return '/v1/addresses/bitcoin/{}'.format(addr)
     def test_check_names(self):
-        addrs_to_check = ["1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP",
-                          "16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg"]
-        names_to_check = ["muneeb.id", "judecn.id"]
+        addrs_to_check = ["1J3PUxY5uDShUnHRrMyU6yKtoHEUPhKULs"]
+        names_to_check = ["muneeb.id"]
         for addr, name in zip(addrs_to_check, names_to_check):
             data = self.get_request(self.build_url(addr),
                                     headers = {}, status_code = 200)
