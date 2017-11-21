@@ -19,6 +19,7 @@ import SimpleHTTPServer
 import re
 import tempfile
 import random
+import errno
 from SimpleHTTPServer import BaseHTTPServer, SimpleHTTPRequestHandler
 
 DEBUG = True
@@ -82,7 +83,7 @@ DEFAULT_DEPS = [
     {
         'name': 'blockstack-storage.js',
         'git': 'https://github.com/blockstack/blockstack-storage-js',
-        'branch': 'master',
+        'branch': 'hotfix/integration-test-origin-header',
         'type': 'node.js',
         'npm_build_commands': ['dev-build'],
         'npm_deps': ['bigi', 'jsonify', 'promise'],     # TODO: add these to package.json
@@ -90,7 +91,7 @@ DEFAULT_DEPS = [
     {
         'name': 'blockstack.js',
         'git': 'https://github.com/blockstack/blockstack.js',
-        'branch': 'master',
+        'branch': 'hotfix/integration-test-origin-header',
         'type': 'node.js',
     },
 ]
@@ -501,7 +502,30 @@ def main_test(test_package_name, test_dir, test_user=None):
 
     Test output will be put into
     """
+
+    def signal_reap_children(*args, **kw):
+        """
+        If we're PID 1, then adopt orphan children
+        """
+        while True:
+            try:
+                os.waitpid(-1, os.WNOHANG)
+                time.sleep(0.25)
+            except OSError, oe:
+                if oe.errno == errno.ECHILD:
+                    break
+                else:
+                    raise
+
     assert os.getuid() == 0, "must be called as a root user"
+
+    if os.getpid() == 1:
+        # we're running the show
+        # bring up the local network 
+        os.system("ifconfig lo up")
+
+        # reap children
+        signal.signal(signal.SIGCHLD, signal_reap_children)
 
     test_uid = None
     test_gid = None
@@ -598,7 +622,7 @@ def main_watchdog(venv_dir, test_package_name, test_root, timeout=(60 * 75), tes
     if test_user:
         worker_cmd += ' --test_user {}'.format(test_user)
  
-    cmd = 'unshare --net --mount --pid --fork --mount-proc /bin/sh -c \'ifconfig lo up; {}\''.format(worker_cmd)
+    cmd = 'unshare --net --mount --pid --fork --mount-proc /usr/bin/python2 {}'.format(worker_cmd)
 
     # TEST TEST TEST 
     # cmd = '/bin/sh -c "{}"'.format(worker_cmd)
