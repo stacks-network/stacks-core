@@ -729,10 +729,27 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     def signal_shutdown_procedure(*args, **kw):
         shutdown_procedure()
         exit(1)
+    
+
+    def signal_reap_children(*args, **kw):
+        """
+        If we're PID 1, then adopt orphan children
+        """
+        while True:
+            try:
+                os.waitpid(-1, os.WNOHANG)
+            except OSError, oe:
+                if oe.errno == errno.ECHILD:
+                    break
+                else:
+                    raise
 
     signal.signal(signal.SIGINT, signal_shutdown_procedure)
     signal.signal(signal.SIGQUIT, signal_shutdown_procedure)
     signal.signal(signal.SIGTERM, signal_shutdown_procedure)
+    
+    if SCENARIO_PID == 1:
+        signal.signal(signal.SIGCHLD, signal_reap_children)
 
     rpcclient = None
     res = None
