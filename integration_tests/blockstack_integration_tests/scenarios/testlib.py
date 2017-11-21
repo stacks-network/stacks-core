@@ -3900,8 +3900,23 @@ def nodejs_setup():
 
     tmpdir = tempfile.mkdtemp()
     atexit.register(nodejs_cleanup, tmpdir)
-    
-    os.system("cd '{}' && npm install babel-cli babel-preset-es2015".format(tmpdir))
+   
+    cwd = os.getcwd()
+
+    try:
+        os.chdir(tmpdir)
+        p = subprocess.Popen(["/usr/bin/npm", "install", "babel-cli", "babel-preset-es2015"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False, close_fds=True)
+        out, err = p.communicate()
+        retval = p.returncode
+        os.chdir(cwd)
+    except:
+        os.chdir(cwd)
+        raise
+
+    if retval != 0:
+        print >> sys.stderr, err
+        raise Exception("Failed to set up npm: exit code {}".format(retval))
+
     print "Node install at {}".format(tmpdir)
     return tmpdir
 
@@ -3921,15 +3936,16 @@ def nodejs_copy_package( testdir, package_name ):
 
     if node_package_path is None:
         raise Exception("Missing node package {}: no directories in NODE_PATH {}".format(package_name, ':'.join(prefixes)))
-
-    cmd = 'test -f "{}/{}" || cp -a "{}/." "{}/"'.format(testdir, package_name, node_package_path, testdir)
-    log.debug("$ {}".format(cmd))
     
-    rc = os.system(cmd)
-    '''
-    if rc != 0:
-        raise Exception("Failed to copy {} to {}".format(node_package_path, testdir))
-    '''
+    for name in os.listdir(node_package_path):
+        src_path = os.path.join(node_package_path, name)
+        dest_path = os.path.join(testdir, name)
+
+        if os.path.isdir(src_path):
+            shutil.copytree(src_path, dest_path, symlinks=True)
+        else:
+            shutil.copy(src_path, dest_path)
+
     return True
 
 
@@ -3937,10 +3953,23 @@ def nodejs_link_package( testdir, package_name ):
     """
     Link a dependency to a package
     """
-    rc = os.system('cd "{}" && npm link "{}"'.format(testdir, package_name))
-    if rc != 0:
-        raise Exception("Failed to link {} to {}".format(package_name, testdir))
-    
+
+    cwd = os.getcwd()
+
+    try:
+        os.chdir(testdir)
+        p = subprocess.Popen(["/usr/bin/npm", "link", package_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False, close_fds=True)
+        out, err = p.communicate()
+        retval = p.returncode
+        os.chdir(cwd)
+    except:
+        os.chdir(cwd)
+        raise
+
+    if retval != 0:
+        print >> sys.stderr, err
+        raise Exception("Failed to npm link: exit code {}".format(retval))
+
     return True
 
 
@@ -3948,9 +3977,43 @@ def nodejs_run_test( testdir, test_name="core-test" ):
     """
     Run a nodejs test
     """
-    rc = os.system('cd "{}" && npm install && npm run {} 2>&1 | tee /dev/stderr | egrep "^npm ERR"'.format(testdir, test_name))
-    if rc == 0:
-        raise Exception("Test {} failed".format(test_name))
+    cwd = os.getcwd()
+
+    try:
+        os.chdir(testdir)
+        p = subprocess.Popen(["/usr/bin/npm", "install"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False, close_fds=True)
+        out, err = p.communicate()
+        retval = p.returncode
+    except:
+        os.chdir(cwd)
+        raise
+
+    if retval != 0:
+        print >> sys.stderr, err
+        raise Exception("Failed to npm link: exit code {}".format(retval))
+
+    try:
+        p = subprocess.Popen(["/usr/bin/npm", "run", test_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False, close_fds=True)
+        out, err = p.communicate()
+        retval = p.returncode
+        os.chdir(cwd)
+    except:
+        os.chdir(cwd)
+        raise
+    
+    print ''
+    print 'output'
+    print out
+    print ''
+
+    print 'stderr'
+    print err
+    print ''
+
+    lines = out.split('\n') + err.split('\n')
+    for line in lines:
+        if line.startswith('npm ERR'):
+            raise Exception("Test {} failed".format(test_name))
 
     return True
 
