@@ -738,6 +738,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         while True:
             try:
                 os.waitpid(-1, os.WNOHANG)
+                time.sleep(0.25)
             except OSError, oe:
                 if oe.errno == errno.ECHILD:
                     break
