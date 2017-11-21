@@ -1562,7 +1562,7 @@ def get_name_at(name, block_id, include_expired=False, proxy=None):
     try:
         if include_expired:
             resp = proxy.get_historic_name_at(name, block_id)
-        else:
+        if not include_expired or 'KeyError' in resp.get('error', ''):
             resp = proxy.get_name_at(name, block_id)
 
         assert resp, "No such name {} at block {}".format(name, block_id)
@@ -2427,7 +2427,11 @@ def get_zonefiles(hostport, zonefile_hashes, timeout=30, my_hostport=None, proxy
     if proxy is None:
         host, port = url_to_host_port(hostport)
         assert host is not None and port is not None
-        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport, protocol = 'http')
+        if int(port) == 6263:
+            protocol = 'https'
+        else:
+            protocol = 'http'
+        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport, protocol = protocol)
 
     zonefiles = None
     try:
