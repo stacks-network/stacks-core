@@ -208,12 +208,16 @@ def make_wallet(password, payment_privkey_info=None, owner_privkey_info=None, da
     if segwit is None:
         # no preference given.
         # safe to use by default post-F-day 2017 (Dec 1 2017)
+        '''
         if time.time() >= 1512086400:
             segwit = True
 
         else:
             # defer to virtualchain
             segwit = virtualchain.get_features('segwit')
+        '''
+        # disable for now
+        segwit = False
 
     # default to 2-of-3 multisig key info if data isn't given
     if segwit:
