@@ -940,7 +940,7 @@ def bitcoin_regtest_reset():
     with open(bitcoin_conf, "w") as f:
         f.write("rpcuser=%s\nrpcpassword=%s\nregtest=1\ntxindex=1\nlisten=1\nserver=1\ndatadir=%s\ndebug=1\nrpcserialversion=0" % (opts['bitcoind_user'], opts['bitcoind_passwd'], bitcoin_dir))
         if BITCOIND_RPC_BIND:
-            f.write("rpcbind=%s\n" % BITCOIND_RPC_BIND)
+            f.write("\nrpcbind=%s" % BITCOIND_RPC_BIND)
         f.flush()
         os.fsync(f.fileno())
 
