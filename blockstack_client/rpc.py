@@ -3308,7 +3308,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
-            r'^/v1/zonefile/': {
+            r'^/v1/zonefile$': {
                 'routes': {
                     'POST' : self.POST_raw_zonefile
                 },
