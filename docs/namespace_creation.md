@@ -276,6 +276,10 @@ After the year has passed, all future name registrations and renewal fees
 will be sent to the unspendable burn address.  This is to disincentivize
 namespace squatters.
 
+**Warnings**
+
+* You must issue this command **within 144 blocks** of the `NAMESPACE_PREORDER` transaction.  Otherwise, the preorder will expire and you will need to start over from scratch.
+
 ### Importing names
 
 After sending the `reveal` transaction, you can populate your namespace with
@@ -532,6 +536,12 @@ Here's an example walkthrough of how to try this out in the test framework:
 Now, these names are imported and once the `NAMESPACE_READY` transaction is
 sent, the name owners can proceed to issue name operations.
 
+**Warnings**
+
+* The first private key you use must be the same one you used to *create* the namespace (`$CREATOR_KEY`).
+* You may only use the 300 private keys described above to import names.
+* You must complete all `NAME_IMPORT` transactions within 52595 blocks of the `NAMESPACE_REVEAL` transaction (about 1 year).
+
 ### Launching a Namespace
 
 Once you have pre-populated your namespace with all of the initial names, you
@@ -545,3 +555,6 @@ To make a namespace `ready`, you use the creator private key as follows:
      |blockstack-test namespace_check| $ blockstack namespace_ready hello "$CREATOR_PKEY"
 ```
 
+**Warnings**
+
+* You must send the `NAMESPACE_READY` transaction within 52595 blocks (about 1 year) of the `NAMESPACE_REVEAL` transaction.
