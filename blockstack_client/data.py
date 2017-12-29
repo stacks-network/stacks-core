@@ -1293,7 +1293,7 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, versi
 
     if storage_drivers is None:
         storage_drivers = get_required_write_storage_drivers(config_path)
-        log.debug("Storage drivers equired write defaults: {}".format(','.join(storage_drivers)))
+        log.debug("Storage drivers required write defaults: {}".format(','.join(storage_drivers)))
 
     result = {}
 
