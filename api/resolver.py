@@ -280,7 +280,7 @@ def get_users(username):
 
     reply[username] = profile
     if 'error' in profile:
-        status_code = 502
+        status_code = 200
         if 'status_code' in profile:
             status_code = profile['status_code']
             del profile['status_code']
