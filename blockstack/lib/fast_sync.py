@@ -292,9 +292,9 @@ def fast_sync_snapshot( export_path, private_key, block_number ):
         return True
 
 
-    # ugly hack to work around the lack of a `nonlocal` keyword in Python 2.x
-    def _zonefile_copy_progress_outer():
+    def _zonefile_copy_progress():
         def inner(src, names):
+            # ugly hack to work around the lack of a `nonlocal` keyword in Python 2.x
             for name in names:
                 if name == 'zonefile.txt':
                     inner.zonefile_count += 1
@@ -306,7 +306,7 @@ def fast_sync_snapshot( export_path, private_key, block_number ):
         inner.zonefile_count = 0
         return inner
 
-    _zonefile_copy_progress = _zonefile_copy_progress_outer()
+    _zonefile_copy_progress = _zonefile_copy_progress()
 
     # make sure we have the apppriate tools
     tools = ['sqlite3']
@@ -335,6 +335,12 @@ def fast_sync_snapshot( export_path, private_key, block_number ):
     # use a backup database 
     db_paths = BlockstackDB.get_backup_paths( block_number, virtualchain_hooks )
 
+    # include namespace keychains 
+    db = virtualchain_hooks.get_db_state()
+    namespace_ids = db.get_all_namespace_ids()
+    all_namespace_keychain_paths = [os.path.join(working_dir, '{}.keychain'.format(nsid)) for nsid in namespace_ids]
+    namespace_keychain_paths = filter(lambda nsp: os.path.exists(nsp), all_namespace_keychain_paths)
+    
     for p in db_paths:
         if not os.path.exists(p):
             log.error("Missing file: '%s'" % p)
@@ -381,6 +387,14 @@ def fast_sync_snapshot( export_path, private_key, block_number ):
     except Exception, e:
         log.exception(e)
         log.error('Failed to copy {} to {}'.format(zonefiles_path, dest_path))
+        _cleanup(tmpdir)
+        return False
+
+    # copy over namespace keychains 
+    rc = _copy_paths(namespace_keychain_paths, tmpdir)
+    if not rc:
+        log.error("Failed to copy namespace keychain paths")
+        _cleanup(tmpdir)
         return False
 
     # compress
