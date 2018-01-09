@@ -1482,6 +1482,7 @@ def check_register(fqu, owner_privkey_info, payment_privkey_info, owner_address=
     required_checks = ['is_name_available', 'is_payment_address_usable', 'register_can_change_zonefile_hash']
     if not force_it:
         required_checks += ['owner_can_receive']
+
     return _check_op(fqu, 'register', required_checks, owner_privkey_info, payment_privkey_info,
             owner_address=owner_address, zonefile_hash=zonefile_hash, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy )
 
