@@ -327,7 +327,7 @@ def driver_config_set_info(dvconf, driver_info):
     """
     Set driver-specific information
     """
-    dvconf['driver_info'] = driver_info
+    dvconf['driver_info'] = driver_invo
 
 
 def get_url_type(url):
@@ -655,7 +655,7 @@ def index_get_page(dvconf, blockchain_id=None, path=None, url=None):
     serialized_index_page = None
     if url and blockchain_id:
         log.debug("Fetch index page {} via HTTP".format(url))
-        serialized_index_page = get_chunk_via_http(url, blockchain_id=blockchain_id, dvconf=dvconf)
+        serialized_index_page = get_chunk_via_http(url, blockchain_id=blockchain_id)
     else:
         assert path
         log.debug("Fetch index page {} via driver".format(path))
@@ -699,50 +699,7 @@ def index_set_page(dvconf, bucket_id, path, index_page):
         log.error("Failed to store index page {}".format(path))
         return False
 
-    if dvconf['driver_info'].get('dynamic_index', False):
-        r = index_update_manifest(dvconf, bucket_id, rc)
-        if not r:
-            log.error("Failed to update manifest")
-            return False
-
     return True  
-
-def index_update_manifest(dvconf, bucket_id, bucket_url):
-    driver_name = dvconf['driver_name']
-    config_path = dvconf['config_path']
-    index_stem = dvconf['index_stem']
-
-    index_manifest_path = index_get_manifest_page_path(index_stem)
-    index_manifest_url = index_settings_get_index_manifest_url(driver_name, config_path)
-
-    index_manifest = index_get_page(dvconf, None, path=index_manifest_path, url=index_manifest_url)
-    if index_manifest is None:
-        # failed to get index
-        log.error("Failed to get index page {}".format(index_manifest_url))
-        return None
-
-    fq_index_bucket_name = normpath('/' + os.path.join(index_stem.strip('/'), bucket_id))
-
-    index_manifest[fq_index_bucket_name] = bucket_url
-    index_manifest_data = serialize_index_page(index_manifest)
-    index_manifest_url = None
-    try:
-        index_path = index_get_manifest_page_path(index_stem)
-        index_manifest_url = dvconf['put_chunk'](dvconf, index_manifest_data, index_path)
-        assert index_manifest_url
-    except Exception as e:
-        if DEBUG:
-            log.exception(e)
-
-        log.error("Failed to update index manifest")
-        return False
-
-    rc = index_settings_set_index_manifest_url(driver_name, config_path, index_manifest_url)
-    if not rc:
-        # failed 
-        return False
-
-    return index_manifest_url
 
 
 def index_locks_setup(driver_name):
@@ -1029,7 +986,7 @@ def _get_indexed_data_impl( dvconf, blockchain_id, name, raw=False, index_manife
             return False, {}
 
     log.debug("Fetch {} via HTTP at {} (cached url: {})".format(name, data_url, cache_hit))
-    data = get_chunk_via_http(data_url, blockchain_id=blockchain_id, dvconf=dvconf)
+    data = get_chunk_via_http(data_url, blockchain_id=blockchain_id)
     if data is None:
         log.error("Failed to load {} from {}".format(name, data_url))
 
@@ -1130,7 +1087,7 @@ def delete_indexed_data( dvconf, name ):
     return True
     
 
-def get_chunk_via_http(url, blockchain_id=None, dvconf=None):
+def get_chunk_via_http(url, blockchain_id=None):
     """
     Get a URL's data.
     Do not do any pre or post processing.
@@ -1150,9 +1107,6 @@ def get_chunk_via_http(url, blockchain_id=None, dvconf=None):
         if url.startswith("test://"):
             import blockstack_client.backend.drivers.test
             return blockstack_client.backend.drivers.test.test_get_chunk(blockstack_client.backend.drivers.test.DVCONF, url[len('test://'):])
-        elif url.startswith('ipfs://'):
-            import blockstack_client.backend.drivers.ipfs
-            return blockstack_client.backend.drivers.ipfs.ipfs_get_chunk(dvconf, url[len('ipfs://'):])
 
         if DEBUG:
             log.exception(e)

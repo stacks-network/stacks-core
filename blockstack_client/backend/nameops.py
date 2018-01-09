@@ -2344,15 +2344,12 @@ def check_owner_privkey_info(owner_privkey_info, name_data):
     owner_address = None
 
     if owner_privkey_info is not None:
-        log.debug("Load owner address from given owner private key")
         owner_address = virtualchain.get_privkey_address(owner_privkey_info)
-    
-    if 'owner_address' in name_data and (owner_address is None or owner_address != name_data['owner_address']) and 'owner_privkey' in name_data:
+
+    if 'owner_address' in name_data and owner_address != name_data['owner_address'] and 'owner_privkey' in name_data:
 
        if owner_address is not None:
            log.debug("Registrar owner address changed since beginning registration : from {} to {}".format(name_data['owner_address'], owner_address))
-
-       log.debug('Load owner address from queued private key')
 
        passwd = get_secret('BLOCKSTACK_CLIENT_WALLET_PASSWORD')
        owner_privkey_info = aes_decrypt(str(name_data['owner_privkey']), hexlify( passwd ))
@@ -2374,11 +2371,7 @@ def check_owner_privkey_info(owner_privkey_info, name_data):
            owner_address = virtualchain.get_privkey_address(owner_privkey_info)
        else:
            owner_address = name_data['owner_address']
-    
-    elif 'owner_address' in name_data and owner_address is None:
-        owner_address = name_data['owner_address']
 
-    log.debug("Using owner address {}".format(owner_address))
     return virtualchain.address_reencode(str(owner_address)), owner_privkey_info
 
 
@@ -2748,7 +2741,7 @@ def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
     return resp
 
 
-def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee, new_owner_address=None, zonefile_txt=None, profile=None, min_payment_confs=TX_MIN_CONFIRMATIONS,
+def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee, new_owner_address=None, zonefile_txt=None, profile=None,
                 proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
     """
         Renew an already-registered name.
@@ -2763,7 +2756,7 @@ def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee, new_
         proxy = get_default_proxy(config_path=config_path)
 
     owner_address = virtualchain.get_privkey_address( owner_privkey_info )
-    utxo_client = get_utxo_provider_client( config_path=config_path, min_confirmations=min_payment_confs )
+    utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
     zonefile_hash = None

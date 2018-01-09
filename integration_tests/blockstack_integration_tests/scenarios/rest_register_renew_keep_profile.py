@@ -210,8 +210,7 @@ def scenario( wallets, **kw ):
         res['test'] = 'Failed to get name bar.test'
         print json.dumps(res)
         return False
-    
-    print res
+
     new_expire_block = res['response']['expire_block']
 
     # do we have the history for the name?
@@ -265,7 +264,7 @@ def scenario( wallets, **kw ):
     print ''
 
     # verify pushed back 
-    if old_expire_block + 10 > new_expire_block:
+    if old_expire_block + 12 > new_expire_block:
         # didn't go through
         print >> sys.stderr, "Renewal didn't work: %s --> %s" % (old_expire_block, new_expire_block)
         return False

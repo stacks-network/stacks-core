@@ -169,7 +169,6 @@ def scenario( wallets, **kw ):
         return False
 
     testlib.next_block( **kw )
-    testlib.expect_snv_fail_at('foo_fail.test', testlib.get_current_block(**kw))
 
     # should have been rejected due to wrong burn address
     whois = testlib.blockstack_cli_whois('foo_fail.test')

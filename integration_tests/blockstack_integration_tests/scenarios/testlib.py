@@ -334,14 +334,8 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
-    
-    owner_privkey_info = None
-    try:
-        owner_privkey_info = find_wallet(register_addr).privkey
-    except:
-        if safety_checks:
-            raise
 
+    owner_privkey_info = find_wallet(register_addr).privkey
     register_addr = virtualchain.address_reencode(register_addr)
 
     name_cost_info = test_proxy.get_name_cost( name )
@@ -350,7 +344,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
     log.debug("Preorder '%s' for %s satoshis" % (name, name_cost_info['satoshis']))
 
     resp = blockstack_client.do_preorder( name, privatekey, owner_privkey_info, name_cost_info['satoshis'], test_proxy, test_proxy, tx_fee=tx_fee,
-            burn_address=burn_addr, owner_address=register_addr, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+            burn_address=burn_addr, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     api_call_history.append( APICallRecord( "preorder", name, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
     return resp
@@ -364,13 +358,7 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
-    owner_privkey_info = None
-    try:
-        owner_privkey_info = find_wallet(register_addr).privkey
-    except:
-        if safety_checks:
-            raise
-
+    owner_privkey_info = find_wallet(register_addr).privkey
     register_addr = virtualchain.address_reencode(register_addr)
 
     kwargs = {}
@@ -380,9 +368,7 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
 
         kwargs = {'tx_fee' : tx_fee} # regtest shouldn't care about the tx_fee
 
-    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, 
-            zonefile_hash=zonefile_hash, owner_address=register_addr, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
-
+    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, zonefile_hash=zonefile_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
     api_call_history.append( APICallRecord( "register", name, register_addr, resp ) )
     return resp
 
@@ -3253,7 +3239,7 @@ def check_historic_names_by_address( state_engine ):
         if api_call.method == 'revoke':
             revoked_names[name] = block_id
 
-        final_name_states[name] = json.loads(json.dumps(state_engine.get_name(name, include_expired=True)))
+        final_name_states[name] = state_engine.get_name(name, include_expired=True)
 
     log.debug('addr names: {}'.format(addr_names))
     log.debug('revoked names: {}'.format(revoked_names))
@@ -3270,11 +3256,7 @@ def check_historic_names_by_address( state_engine ):
                     ret = False 
 
             else:
-                if name_rec is None:
-                    log.error("No such name {} at {}".format(name, did))
-                    ret = False
-
-                elif 'error' in name_rec:
+                if 'error' in name_rec:
                     log.error("Failed to resolve {}: {}".format(did, name_rec['error']))
                     ret = False
 
@@ -3282,9 +3264,9 @@ def check_historic_names_by_address( state_engine ):
                     for k in name_rec.keys():
                         if final_name_states[name] is not None:
                             if name_rec[k] != final_name_states[name].get(k, None):
-                                log.error("Name rec for {} does not equal final name state from db on '{}'".format(name, k))
-                                log.error("Expected:\n{}".format(final_name_states[name].get(k, None)))
-                                log.error("Got:\n{}".format(name_rec[k]))
+                                log.error("Name rec for {} does not equal final name state from db".format(name))
+                                log.error("Expected:\n{}".format(json.dumps(final_name_states[name], indent=4, sort_keys=True)))
+                                log.error("Got:\n{}".format(name_rec, indent=4, sort_keys=True))
                                 ret = False
 
     return ret
@@ -3900,23 +3882,8 @@ def nodejs_setup():
 
     tmpdir = tempfile.mkdtemp()
     atexit.register(nodejs_cleanup, tmpdir)
-   
-    cwd = os.getcwd()
-
-    try:
-        os.chdir(tmpdir)
-        p = subprocess.Popen(["/usr/bin/npm", "install", "babel-cli", "babel-preset-es2015"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False, close_fds=True)
-        out, err = p.communicate()
-        retval = p.returncode
-        os.chdir(cwd)
-    except:
-        os.chdir(cwd)
-        raise
-
-    if retval != 0:
-        print >> sys.stderr, err
-        raise Exception("Failed to set up npm: exit code {}".format(retval))
-
+    
+    os.system("cd '{}' && npm install babel-cli babel-preset-es2015".format(tmpdir))
     print "Node install at {}".format(tmpdir)
     return tmpdir
 
@@ -3925,26 +3892,13 @@ def nodejs_copy_package( testdir, package_name ):
     """
     Copy the contents of a package into the test directory
     """
-    prefixes = filter(lambda x: len(x) > 0, os.environ.get("NODE_PATH", "/usr/lib/node_modules:/usr/local/lib/node_modules").split(":"))
-    node_package_path = None
-    for prefix in prefixes:
-        node_package_path = '{}/{}'.format(prefix, package_name)
-        if os.path.exists(node_package_path):
-            break
-        else:
-            node_package_path = None
+    node_package_path = '/usr/lib/node_modules/{}'.format(package_name)
+    if not os.path.exists(node_package_path):
+        raise Exception("Missing node package {}: no directory {}".format(package_name, node_package_path))
 
-    if node_package_path is None:
-        raise Exception("Missing node package {}: no directories in NODE_PATH {}".format(package_name, ':'.join(prefixes)))
-    
-    for name in os.listdir(node_package_path):
-        src_path = os.path.join(node_package_path, name)
-        dest_path = os.path.join(testdir, name)
-
-        if os.path.isdir(src_path):
-            shutil.copytree(src_path, dest_path, symlinks=True)
-        else:
-            shutil.copy(src_path, dest_path)
+    rc = os.system('cp -a "{}"/. "{}"'.format(node_package_path, testdir))
+    if rc != 0:
+        raise Exception("Failed to copy {} to {}".format(node_package_path, testdir))
 
     return True
 
@@ -3953,23 +3907,10 @@ def nodejs_link_package( testdir, package_name ):
     """
     Link a dependency to a package
     """
-
-    cwd = os.getcwd()
-
-    try:
-        os.chdir(testdir)
-        p = subprocess.Popen(["/usr/bin/npm", "link", package_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False, close_fds=True)
-        out, err = p.communicate()
-        retval = p.returncode
-        os.chdir(cwd)
-    except:
-        os.chdir(cwd)
-        raise
-
-    if retval != 0:
-        print >> sys.stderr, err
-        raise Exception("Failed to npm link: exit code {}".format(retval))
-
+    rc = os.system('cd "{}" && npm link "{}"'.format(testdir, package_name))
+    if rc != 0:
+        raise Exception("Failed to link {} to {}".format(package_name, testdir))
+    
     return True
 
 
@@ -3977,43 +3918,9 @@ def nodejs_run_test( testdir, test_name="core-test" ):
     """
     Run a nodejs test
     """
-    cwd = os.getcwd()
-
-    try:
-        os.chdir(testdir)
-        p = subprocess.Popen(["/usr/bin/npm", "install"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False, close_fds=True)
-        out, err = p.communicate()
-        retval = p.returncode
-    except:
-        os.chdir(cwd)
-        raise
-
-    if retval != 0:
-        print >> sys.stderr, err
-        raise Exception("Failed to npm link: exit code {}".format(retval))
-
-    try:
-        p = subprocess.Popen(["/usr/bin/npm", "run", test_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False, close_fds=True)
-        out, err = p.communicate()
-        retval = p.returncode
-        os.chdir(cwd)
-    except:
-        os.chdir(cwd)
-        raise
-    
-    print ''
-    print 'output'
-    print out
-    print ''
-
-    print 'stderr'
-    print err
-    print ''
-
-    lines = out.split('\n') + err.split('\n')
-    for line in lines:
-        if line.startswith('npm ERR'):
-            raise Exception("Test {} failed".format(test_name))
+    rc = os.system('cd "{}" && npm install && npm run {} 2>&1 | tee /dev/stderr | egrep "^npm ERR"'.format(testdir, test_name))
+    if rc == 0:
+        raise Exception("Test {} failed".format(test_name))
 
     return True
 

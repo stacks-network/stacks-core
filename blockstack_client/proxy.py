@@ -1222,7 +1222,6 @@ def get_DID_blockchain_record(did, proxy=None):
 
     addr_names = get_historic_names_by_address(address, proxy=proxy)
     if json_is_error(addr_names):
-        log.error("get_historic_names_by_address({}): {}".format(address, addr_names['error']))
         return addr_names
 
     if len(addr_names) <= name_index:
@@ -1237,11 +1236,7 @@ def get_DID_blockchain_record(did, proxy=None):
     end_block = 100000000       # TODO: update if this gets too small (not likely in my lifetime)
 
     # verify that the name hasn't been revoked since this DID was created.
-    name_history = get_name_blockchain_history(name, start_block, end_block, proxy=proxy)
-    if json_is_error(name_history):
-        log.error("Failed to get name history for '{}' between {} and {}".format(name, start_block, end_block))
-        return name_history
-
+    name_history = get_name_blockchain_history(name, start_block, end_block)
     final_name_state = None
 
     for history_block in sorted(name_history.keys()):
@@ -1249,17 +1244,8 @@ def get_DID_blockchain_record(did, proxy=None):
             if history_state['op'] == NAME_REVOKE:
                 # end of the line
                 return {'error': 'The name for this DID has been deleted'}
-            
-            assert history_state is not None
-            final_name_state = history_state
 
-    if final_name_state is None:
-        final_name_state = get_name_blockchain_record(name, proxy=proxy)
-        if not json_is_error(final_name_state):
-            # remove extra fields that shouldn't be present
-            for extra_field in ['expired', 'expire_block', 'renewal_deadline']:
-                if extra_field in final_name_state:
-                    del final_name_state[extra_field]
+            final_name_state = history_state
 
     return final_name_state
 
@@ -1608,7 +1594,7 @@ def get_name_blockchain_history(name, start_block, end_block, proxy=None):
 
     ret = {}
     for qb in query_blocks:
-        name_at = get_name_at(name, qb, include_expired=True, proxy=proxy)
+        name_at = get_name_at(name, qb, include_expired=True)
         if json_is_error(name_at):
             # error
             return name_at
