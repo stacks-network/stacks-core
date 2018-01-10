@@ -731,7 +731,6 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     def signal_shutdown_procedure(*args, **kw):
         shutdown_procedure()
         exit(1)
-    
 
     def signal_reap_children(*args, **kw):
         """
@@ -747,11 +746,19 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
                 else:
                     raise
 
+    def running_in_docker():
+        try:
+            with open('/proc/1/cpuset') as cpuset:
+                content = [l for l in cpuset][0]
+                return content.startswith('/docker/')
+        except:
+            return False
+
     signal.signal(signal.SIGINT, signal_shutdown_procedure)
     signal.signal(signal.SIGQUIT, signal_shutdown_procedure)
     signal.signal(signal.SIGTERM, signal_shutdown_procedure)
-    
-    if SCENARIO_PID == 1:
+
+    if SCENARIO_PID == 1 and not running_in_docker():
         signal.signal(signal.SIGCHLD, signal_reap_children)
 
     rpcclient = None
