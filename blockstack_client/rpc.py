@@ -1052,6 +1052,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'zonefile': {
                     'type': 'string',
                     'maxLength': RPC_MAX_ZONEFILE_LEN
+                },
+                'zonefile_b64': {
+                    'type': 'string',
+                    'maxLength': (RPC_MAX_ZONEFILE_LEN * 4) / 3 + 1,
                 }
             }
         }
@@ -1068,9 +1072,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({"error": request["error"]}, status_code=401)
             return
 
-        zonefile_str = request.get('zonefile')
+        zonefile_str = request.get('zonefile', False)
+        b64encoded = False
+        if not zonefile_str:
+            zonefile_str = request.get('zonefile_b64')
+            b64encoded = True
 
-        resp = zonefile.zonefile_data_publish(None, zonefile_str, [ server ])
+        resp = zonefile.zonefile_data_publish(None, zonefile_str, [ server ],
+                                              b64encoded = b64encoded)
         status_code = 200
         if 'error' in resp:
             status_code = 401
