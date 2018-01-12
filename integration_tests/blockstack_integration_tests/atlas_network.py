@@ -693,7 +693,7 @@ def atlas_network_get_peer_conf( network_dir, portnum ):
     hostport = "localhost:%s" % portnum
     dirp = os.path.join( network_dir, hostport )
     conf_path = os.path.join(dirp, "blockstack-server.ini" )
-    conf = blockstack.config.configure( config_file=conf_path, interactive=False )
+    conf = blockstack.config.configure( dirp, config_file=conf_path, interactive=False )
     return conf
 
 
@@ -952,7 +952,7 @@ class MockDB(object):
 
             if new_zf is not None:
                 log.debug("store zonefile %s" % new_zf['$origin'])
-                blockstack.lib.storage.store_cached_zonefile( new_zf, zonefile_dir=self.zonefile_dir )
+                blockstack.lib.storage.add_atlas_zonefile_data( blockstack_zones.make_zone_file(new_zf), self.zonefile_dir)
 
             self.num_zonefiles += 1
 
@@ -1035,15 +1035,15 @@ class AtlasNode(object):
         self.zonefile_dir = zonefile_dir
 
         self.peer_crawler = AtlasPeerCrawler( host, port )
-        self.health_checker = AtlasHealthChecker( host, port, path=db_path )
-        self.zonefile_crawler = AtlasZonefileCrawler( host, port, zonefile_storage_drivers=["disk"], path=db_path, zonefile_dir=zonefile_dir )
-        self.zonefile_pusher = AtlasZonefilePusher( host, port )
+        self.health_checker = AtlasHealthChecker( host, port, db_path )
+        self.zonefile_crawler = AtlasZonefileCrawler( host, port, db_path, zonefile_dir, zonefile_storage_drivers=["disk"] )
+        # self.zonefile_pusher = AtlasZonefilePusher( host, port )
 
         subprocs = [
             "AtlasPeerCrawler",
             "AtlasHealthChecker",
             "AtlasZonefileCrawler",
-            "AtlasZonefilePusher"
+            # "AtlasZonefilePusher"
         ]
 
         self.sleep_deadlines = dict( [(subp, 0) for subp in subprocs] )
@@ -1060,7 +1060,7 @@ class AtlasNode(object):
                     self.db.mock_add_zonefile_hashes( 1, present=True )
 
         if not no_db:
-            self.peer_table = atlasdb_init( self.db_path, self.db, peer_seeds, peer_blacklist, zonefile_dir=zonefile_dir )
+            self.peer_table = atlasdb_init( self.db_path, zonefile_dir, self.db, peer_seeds, peer_blacklist )
 
         self.peer_queue = []
         self.zonefile_queue = []
@@ -1136,7 +1136,7 @@ class AtlasNode(object):
 
         if zf is not None:
             log.debug("store zonefile %s" % zf['$origin'])
-            blockstack.lib.storage.store_cached_zonefile( zf, zonefile_dir=self.zonefile_dir )
+            blockstack.lib.storage.store_atlas_zonefile_data( blockstack_zones.make_zone_file(zf), zonefile_dir )
 
         atlasdb_add_zonefile_info( zfhash, (zf is not None), self.db.lastblock, path=self.db_path)
 
@@ -1380,13 +1380,13 @@ class AtlasStaticNetwork( SocketServer.ThreadingMixin, SimpleXMLRPCServer ):
         for zfh in zonefile_hashes:
             if db.get_zonefile( zfh ) is None:
                 # maybe stored
-                zf = get_cached_zonefile( zfh, zonefile_dir=db.zonefile_dir )
+                zf = get_atlas_zonefile_data( zfh, db.zonefile_dir )
                 if zf is None:
                     log.debug("Node %s does not have zonefile %s in %s" % (dest_hostport, zfh, db.zonefile_dir))
                     continue
 
                 else:
-                    ret.append( {zfh: blockstack_zones.make_zone_file(zf)} )
+                    ret.append( {zfh: zf} )
 
             else:
                 ret.append({zfh: blockstack_zones.make_zone_file(db.get_zonefile(zfh))})
@@ -1839,7 +1839,7 @@ if __name__ == "__main__":
 
     virtualchain.setup_virtualchain( impl=blockstack.lib.virtualchain_hooks )
 
-    PEER_TABLE = atlasdb_init( test_db_path, db, test_peer_seeds, [], zonefile_dir=zonefile_dir )
+    PEER_TABLE = atlasdb_init( test_db_path, zonefile_dir, db, test_peer_seeds, [] )
 
     """
     Zonefile methods
