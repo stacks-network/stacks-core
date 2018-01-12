@@ -491,7 +491,7 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
 
             return
 
-        child_addrs = blockstack.BlockstackDB.build_import_keychain( nsid, ecdsa_private_key(import_privkey).public_key().to_hex(), keychain_dir=keychain_dir )
+        child_addrs = blockstack.BlockstackDB.build_import_keychain( keychain_dir, nsid, ecdsa_private_key(import_privkey).public_key().to_hex() )
         import_addr = virtualchain.get_privkey_address(import_privkey)
 
         if import_addr not in child_addrs:
