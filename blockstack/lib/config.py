@@ -27,9 +27,8 @@ import copy
 import socket
 from ConfigParser import SafeConfigParser
 
-import blockstack_client
-from blockstack_client.version import __version__
-from blockstack_client.utils import url_to_host_port
+from ..version import __version__
+
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
@@ -84,9 +83,18 @@ NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after
 
 """ blockstack configs
 """
+BLOCKSTACK_TEST = os.environ.get('BLOCKSTACK_TEST', None)
+BLOCKSTACK_TEST_NODEBUG = os.environ.get('BLOCKSTACK_TEST_NODEBUG', None)
+BLOCKSTACK_DEBUG = os.environ.get('BLOCKSTACK_DEBUG', None)
+BLOCKSTACK_TEST_FIRST_BLOCK = os.environ.get('BLOCKSTACK_TEST_FIRST_BLOCK', None)
+BLOCKSTACK_TESTNET = os.environ.get("BLOCKSTACK_TESTNET", None)
+BLOCKSTACK_TESTNET3 = os.environ.get("BLOCKSTACK_TESTNET3", None)
+BLOCKSTACK_TESTNET_FIRST_BLOCK = os.environ.get("BLOCKSTACK_TESTNET_FIRST_BLOCK", None)
+BLOCKSTACK_DRY_RUN = os.environ.get('BLOCKSTACK_DRY_RUN', None)
+
 MAX_NAMES_PER_SENDER = 25                # a single sender script can own up to this many names
 
-if os.environ.get("BLOCKSTACK_TEST", None) is not None:
+if BLOCKSTACK_TEST is not None:
     # testing 
     log.warning("(%s): in test environment" % os.getpid())
 
@@ -107,7 +115,7 @@ else:
 
 
 NUM_CONFIRMATIONS = 6                         # number of blocks to wait for before accepting names
-if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+if BLOCKSTACK_TEST is not None:
     NUM_CONFIRMATIONS = 0
     log.warning("NUM_CONFIRMATIONS = %s" % NUM_CONFIRMATIONS)
 
@@ -118,28 +126,36 @@ if os.environ.get("BLOCKSTACK_CORE_NUM_CONFS", None) is not None:
 
 """ RPC server configs
 """
-if os.getenv("BLOCKSTACK_TEST") is not None:
+RPC_SERVER_PORT = None      # non-HTTPS port
+if BLOCKSTACK_TEST is not None:
     RPC_SERVER_PORT = 16264
 else:
     RPC_SERVER_PORT = 6264
 
+RPC_DEFAULT_TIMEOUT = 30  # in secs
 RPC_MAX_ZONEFILE_LEN = 4096     # 4KB
 RPC_MAX_PROFILE_LEN = 1024000   # 1MB
 RPC_MAX_DATA_LEN = 10240000     # 10MB
 
+MAX_RPC_LEN = RPC_MAX_ZONEFILE_LEN * 110    # maximum blockstackd RPC length--100 zonefiles with overhead
+if os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"):
+    MAX_RPC_LEN = int(os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"))
+    print("Overriding MAX_RPC_LEN to {}".format(MAX_RPC_LEN))
+
+
 """ block indexing configs
 """
 REINDEX_FREQUENCY = 300 # seconds
-if os.environ.get("BLOCKSTACK_TEST") == "1":
+if BLOCKSTACK_TEST is not None:
     REINDEX_FREQUENCY = 1
 
 FIRST_BLOCK_MAINNET = 373601
 
-if os.environ.get("BLOCKSTACK_TEST", None) == "1" and os.environ.get("BLOCKSTACK_TEST_FIRST_BLOCK", None) is not None:
-    FIRST_BLOCK_MAINNET = int(os.environ.get("BLOCKSTACK_TEST_FIRST_BLOCK"))
+if BLOCKSTACK_TEST and BLOCKSTACK_TEST_FIRST_BLOCK:
+    FIRST_BLOCK_MAINNET = int(BLOCKSTACK_TEST_FIRST_BLOCK)
 
-elif os.environ.get("BLOCKSTACK_TESTNET", None) == "1" and os.environ.get("BLOCKSTACK_TESTNET_FIRST_BLOCK", None) is not None:
-    FIRST_BLOCK_MAINNET = int(os.environ.get("BLOCKSTACK_TESTNET_FIRST_BLOCK"))
+elif BLOCKSTACK_TEST and BLOCKSTACK_TESTNET_FIRST_BLOCK:
+    FIRST_BLOCK_MAINNET = int(BLOCKSTACK_TESTNET_FIRST_BLOCK)
 
 GENESIS_SNAPSHOT = {
     str(FIRST_BLOCK_MAINNET-4): "17ac43c1d8549c3181b200f1bf97eb7d",
@@ -206,23 +222,23 @@ EPOCH_MINIMUM = EPOCH_1_END_BLOCK + 1
 NUM_EPOCHS = 3
 for i in xrange(1, NUM_EPOCHS+1):
     # epoch lengths can be altered by the test framework, for ease of tests
-    if os.environ.get("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
+    if os.environ.get("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i, None) is not None and BLOCKSTACK_TEST:
         exec("EPOCH_%s_END_BLOCK = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i)))
         log.warn("EPOCH_%s_END_BLOCK = %s" % (i, eval("EPOCH_%s_END_BLOCK" % i)))
 
-    if os.environ.get("BLOCKSTACK_EPOCH_%s_PRICE_MULTIPLIER" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
+    if os.environ.get("BLOCKSTACK_EPOCH_%s_PRICE_MULTIPLIER" % i, None) is not None and BLOCKSTACK_TEST:
         exec("EPOCH_%s_PRICE_MULTIPLIER_id = float(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_PRICE_MULTIPLIER" % i)))
         log.warn("EPOCH_%s_PRICE_MULTIPLIER_id = %s" % (i, eval("EPOCH_%s_PRICE_MULTIPLIER_id" % i)))
 
-    if os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
+    if os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER" % i, None) is not None and BLOCKSTACK_TEST:
         exec("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER" % i)))
         log.warn("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id = %s" % (i, eval("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id" % i)))
 
-    if os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_GRACE_PERIOD" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
+    if os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_GRACE_PERIOD" % i, None) is not None and BLOCKSTACK_TEST:
         exec("EPOCH_%s_NAMESPACE_LIFETIME_GRACE_PERIOD_id = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_GRACE_PERIOD" % i)))
         log.warn("EPOCH_%s_NAMESPACE_LIFETIME_GRACE_PERIOD_id = %s" % (i, eval("EPOCH_%s_NAMESPACE_LIFETIME_GRACE_PERIOD_id" % i)))
 
-    if os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_RECEIVE_FEES_PERIOD" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
+    if os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_RECEIVE_FEES_PERIOD" % i, None) is not None and BLOCKSTACK_TEST:
         exec("EPOCH_%s_NAMESPACE_RECEIVE_FEES_PERIOD_id = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_RECEIVE_FEES_PERIOD" % i)))
         log.warn("EPOCH_%s_NAMESPACE_RECEIVE_FEES_PERIOD_id = %s" % (i, eval("EPOCH_%s_NAMESPACE_RECEIVE_FEES_PERIOD_id" % i)))
 
@@ -358,7 +374,7 @@ EPOCHS = [
 ]
 
 # if we're testing, then add the same rules for the 'test' namespace
-if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+if BLOCKSTACK_TEST:
     for i in xrange(0, len(EPOCHS)):
         EPOCHS[i]['namespaces']['test'] = EPOCHS[i]['namespaces']['id']
 
@@ -732,15 +748,21 @@ incorporated into the codebase.
 """
 ANNOUNCEMENTS = []
 
-
-blockstack_client_session = None
-blockstack_client_session_opts = None
-
-def op_get_opcode_name( op_string ):
+def op_get_opcode_name(op_string):
     """
-    Get the name of an opcode, given the operation's 'op' byte sequence.
+    Get the name of an opcode, given the 'op' byte sequence of the operation.
     """
-    return blockstack_client.config.op_get_opcode_name( op_string )
+    global OPCODE_NAMES
+
+    # special case...
+    if op_string == '{}:'.format(NAME_REGISTRATION):
+        return 'NAME_RENEWAL'
+
+    op = op_string[0]
+    if op not in OPCODE_NAMES:
+        raise Exception('No such operation "{}"'.format(op))
+
+    return OPCODE_NAMES[op]
 
 
 def get_default_virtualchain_impl():
@@ -753,64 +775,15 @@ def get_default_virtualchain_impl():
    library).
    """
    import nameset.virtualchain_hooks as virtualchain_hooks
-   blockstack_impl = virtualchain.get_implementation()
-   if blockstack_impl is None:
-       blockstack_impl = virtualchain_hooks 
-
-   return blockstack_impl
+   return virtualchain_hooks
 
 
-def get_announce_filename( working_dir=None ):
+def get_announce_filename( working_dir ):
    """
    Get the path to the file that stores all of the announcements.
    """
-
-   if working_dir is None:
-       working_dir = virtualchain.get_working_dir()
-
-   announce_filepath = os.path.join( working_dir, virtualchain.get_implementation().get_virtual_chain_name() ) + ".announce"
+   announce_filepath = os.path.join( working_dir, get_default_virtualchain_impl().get_virtual_chain_name() ) + '.announce'
    return announce_filepath
-
-
-def get_zonefile_dir( working_dir=None ):
-    """
-    Get the path to the directory to hold any zonefiles we download.
-    """
-
-    if working_dir is None:
-       working_dir = virtualchain.get_working_dir()
-
-    zonefile_dir = os.path.join( working_dir, "zonefiles" )
-    return zonefile_dir
-
-
-def get_blockstack_client_session( new_blockstack_client_session_opts=None ):
-    """
-    Get or instantiate our storage API session.
-    """
-    global blockstack_client_session
-    global blockstack_client_session_opts
-
-    # do we have storage?
-    if blockstack_client is None:
-        return None
-
-    opts = None
-    if new_blockstack_client_session_opts is not None:
-        opts = new_blockstack_client_session_opts
-    else:
-        opts = blockstack_client.get_config()
-
-    if opts is None:
-        return None
-
-    blockstack_client_session = blockstack_client.session( conf=opts )
-    if blockstack_client_session is not None:
-
-        if new_blockstack_client_session_opts is not None:
-            blockstack_client_session_opts = new_blockstack_client_session_opts
-
-    return blockstack_client_session
 
 
 def get_bitcoin_opts():
@@ -846,29 +819,29 @@ def set_blockstack_opts( new_opts ):
     blockstack_opts = new_opts
 
 
-def get_indexing_lockfile(impl=None):
+def get_indexing_lockfile(working_dir):
     """
     Return path to the indexing lockfile
     """
-    return os.path.join( virtualchain.get_working_dir(impl=impl), "blockstack-server.indexing" )
+    return os.path.join(working_dir, "blockstack-server.indexing" )
 
 
-def is_indexing(impl=None):
+def is_indexing(working_dir):
     """
     Is the blockstack daemon synchronizing with the blockchain?
     """
-    indexing_path = get_indexing_lockfile(impl=impl)
+    indexing_path = get_indexing_lockfile(working_dir)
     if os.path.exists( indexing_path ):
         return True
     else:
         return False
 
 
-def set_indexing( flag, impl=None ):
+def set_indexing(working_dir, flag):
     """
     Set a flag in the filesystem as to whether or not we're indexing.
     """
-    indexing_path = get_indexing_lockfile(impl=impl)
+    indexing_path = get_indexing_lockfile(working_dir)
     if flag:
         try:
             fd = open( indexing_path, "w+" )
@@ -901,29 +874,10 @@ def is_running():
     return running
 
 
-def fast_getlastblock( impl=None ):
-    """
-    Fast way to get the last block processed,
-    without loading the db.
-    """
-    lastblock_path = virtualchain.get_lastblock_filename( impl=impl )
-    try:
-        with open(lastblock_path, "r") as f:
-            data = f.read().strip()
-            return int(data)
-
-    except:
-        log.exception("Failed to read: %s" % lastblock_path)
-        return None
-
-
-def store_announcement( announcement_hash, announcement_text, working_dir=None, force=False ):
+def store_announcement( working_dir, announcement_hash, announcement_text, force=False ):
    """
    Store a new announcement locally, atomically.
    """
-
-   if working_dir is None:
-       working_dir = virtualchain.get_working_dir()
 
    if not force:
        # don't store unless we haven't seen it before
@@ -1018,16 +972,19 @@ def store_announcement( announcement_hash, announcement_text, working_dir=None, 
    log.debug("Stored announcement to %s" % (announcement_text_path))
 
 
-def default_blockstack_opts( config_file=None, virtualchain_impl=None ):
+def default_blockstack_opts( working_dir, config_file=None ):
    """
    Get our default blockstack opts from a config file
    or from sane defaults.
    """
 
-   if config_file is None:
-      config_file = virtualchain.get_config_filename()
+   from .util import url_to_host_port
+   from .scripts import is_name_valid
 
-   announce_path = get_announce_filename( virtualchain.get_working_dir(impl=virtualchain_impl) )
+   if config_file is None:
+      config_file = virtualchain.get_config_filename(get_default_virtualchain_impl(), working_dir)
+
+   announce_path = get_announce_filename(working_dir)
 
    parser = SafeConfigParser()
    parser.read( config_file )
@@ -1137,12 +1094,10 @@ def default_blockstack_opts( config_file=None, virtualchain_impl=None ):
          announcer_list_str = parser.get('blockstack', 'announcers')
          announcer_list = filter( lambda x: len(x) > 0, announcer_list_str.split(",") )
 
-         import scripts
-
          # validate each one
          valid = True
          for bid in announcer_list:
-             if not scripts.is_name_valid( bid ):
+             if not is_name_valid( bid ):
                  log.error("Invalid blockchain ID '%s'" % bid)
                  valid = False
 
@@ -1244,7 +1199,122 @@ def default_blockstack_opts( config_file=None, virtualchain_impl=None ):
    return blockstack_opts
 
 
-def configure( config_file=None, force=False, interactive=True ):
+def interactive_prompt(message, parameters, default_opts):
+    """
+    Prompt the user for a series of parameters
+    Return a dict mapping the parameter name to the
+    user-given value.
+    """
+
+    # pretty-print the message
+    lines = message.split('\n')
+    max_line_len = max([len(l) for l in lines])
+
+    print('-' * max_line_len)
+    print(message)
+    print('-' * max_line_len)
+
+    ret = {}
+    for param in parameters:
+        formatted_param = param
+        prompt_str = '{}: '.format(formatted_param)
+        if param in default_opts:
+            prompt_str = '{} (default: "{}"): '.format(formatted_param, default_opts[param])
+
+        try:
+            value = raw_input(prompt_str)
+        except KeyboardInterrupt:
+            log.debug('Exiting on keyboard interrupt')
+            sys.exit(0)
+
+        if len(value) > 0:
+            ret[param] = value
+        elif param in default_opts:
+            ret[param] = default_opts[param]
+        else:
+            ret[param] = None
+
+    return ret
+
+
+def find_missing(message, all_params, given_opts, default_opts, header=None, prompt_missing=True):
+    """
+    Find and interactively prompt the user for missing parameters,
+    given the list of all valid parameters and a dict of known options.
+
+    Return the (updated dict of known options, missing, num_prompted), with the user's input.
+    """
+
+    # are we missing anything?
+    missing_params = list(set(all_params) - set(given_opts))
+
+    num_prompted = 0
+
+    if not missing_params:
+        return given_opts, missing_params, num_prompted
+
+    if not prompt_missing:
+        # count the number missing, and go with defaults
+        missing_values = set(default_opts) - set(given_opts)
+        num_prompted = len(missing_values)
+        given_opts.update(default_opts)
+
+    else:
+        if header is not None:
+            print('-' * len(header))
+            print(header)
+
+        missing_values = interactive_prompt(message, missing_params, default_opts)
+        num_prompted = len(missing_values)
+        given_opts.update(missing_values)
+
+    return given_opts, missing_params, num_prompted
+
+
+def opt_strip(prefix, opts):
+    """
+    Given a dict of opts that start with prefix,
+    remove the prefix from each of them.
+    """
+
+    ret = {}
+    for opt_name, opt_value in opts.items():
+        # remove prefix
+        if opt_name.startswith(prefix):
+            opt_name = opt_name[len(prefix):]
+
+        ret[opt_name] = opt_value
+
+    return ret
+
+
+def opt_restore(prefix, opts):
+    """
+    Given a dict of opts, add the given prefix to each key
+    """
+
+    return {prefix + name: value for name, value in opts.items()}
+
+
+def default_bitcoind_opts(config_file=None, prefix=False):
+    """
+    Get our default bitcoind options, such as from a config file,
+    or from sane defaults
+    """
+
+    default_bitcoin_opts = virtualchain.get_bitcoind_config(config_file=config_file)
+
+    # drop dict values that are None
+    default_bitcoin_opts = {k: v for k, v in default_bitcoin_opts.items() if v is not None}
+
+    # strip 'bitcoind_'
+    if not prefix:
+        default_bitcoin_opts = opt_strip('bitcoind_', default_bitcoin_opts)
+
+    return default_bitcoin_opts
+
+
+def configure( working_dir, config_file=None, force=False, interactive=True ):
    """
    Configure blockstack:  find and store configuration parameters to the config file.
 
@@ -1259,7 +1329,7 @@ def configure( config_file=None, force=False, interactive=True ):
    if config_file is None:
       try:
          # get input for everything
-         config_file = virtualchain.get_config_filename()
+         config_file = virtualchain.get_config_filename(get_default_virtualchain_impl(), working_dir)
       except:
          raise
 
@@ -1271,48 +1341,49 @@ def configure( config_file=None, force=False, interactive=True ):
 
    # get blockstack opts
    blockstack_opts = {}
-   blockstack_opts_defaults = default_blockstack_opts( config_file=config_file )
+   blockstack_opts_defaults = default_blockstack_opts(working_dir, config_file=config_file )
    blockstack_params = blockstack_opts_defaults.keys()
 
    if not force:
 
        # default blockstack options
-       blockstack_opts = default_blockstack_opts( config_file=config_file )
+       blockstack_opts = default_blockstack_opts(working_dir, config_file=config_file )
 
    blockstack_msg = "ADVANCED USERS ONLY.\nPlease enter blockstack configuration hints."
 
    # NOTE: disabled
-   blockstack_opts, missing_blockstack_opts, num_blockstack_opts_prompted = blockstack_client.config.find_missing( blockstack_msg, \
-                                                                                                                   blockstack_params, \
-                                                                                                                   blockstack_opts, \
-                                                                                                                   blockstack_opts_defaults, \
-                                                                                                                   prompt_missing=False )
+   blockstack_opts, missing_blockstack_opts, num_blockstack_opts_prompted = find_missing( blockstack_msg, \
+                                                                                          blockstack_params, \
+                                                                                          blockstack_opts, \
+                                                                                          blockstack_opts_defaults, \
+                                                                                          prompt_missing=False )
 
    bitcoind_message  = "Blockstack does not have enough information to connect\n"
    bitcoind_message += "to bitcoind.  Please supply the following parameters, or\n"
    bitcoind_message += "press [ENTER] to select the default value."
 
    bitcoind_opts = {}
-   bitcoind_opts_defaults = blockstack_client.config.default_bitcoind_opts( config_file=config_file )
+   bitcoind_opts_defaults = default_bitcoind_opts( config_file=config_file )
    bitcoind_params = bitcoind_opts_defaults.keys()
 
    if not force:
 
       # get default set of bitcoind opts
-      bitcoind_opts = blockstack_client.config.default_bitcoind_opts( config_file=config_file )
+      bitcoind_opts = default_bitcoind_opts( config_file=config_file )
 
 
    # get any missing bitcoind fields
-   bitcoind_opts, missing_bitcoin_opts, num_bitcoind_prompted = blockstack_client.config.find_missing( bitcoind_message, \
-                                                                                                       bitcoind_params, \
-                                                                                                       bitcoind_opts, \
-                                                                                                       bitcoind_opts_defaults, \
-                                                                                                       prompt_missing=interactive )
+   bitcoind_opts, missing_bitcoin_opts, num_bitcoind_prompted = find_missing( bitcoind_message, \
+                                                                              bitcoind_params, \
+                                                                              bitcoind_opts, \
+                                                                              bitcoind_opts_defaults, \
+                                                                              prompt_missing=interactive )
 
    if not interactive and (len(missing_bitcoin_opts) > 0 or len(missing_blockstack_opts) > 0):
        # cannot continue
        raise Exception("Missing configuration fields: %s" % (",".join( missing_blockstack_opts + missing_bitcoin_opts )) )
 
+   '''
    # ask for contact info, so we can send out notifications for bugfixes and upgrades
    if blockstack_opts.get('email', None) is None:
        email_msg = "Would you like to receive notifications\n"
@@ -1322,11 +1393,13 @@ def configure( config_file=None, force=False, interactive=True ):
        email_msg+= "If not, leave this field blank.\n\n"
        email_msg+= "Your email address will be used solely\n"
        email_msg+= "for this purpose.\n"
-       email_opts, _, email_prompted = blockstack_client.config.find_missing( email_msg, ['email'], {}, {'email': ''}, prompt_missing=interactive )
+       email_opts, _, email_prompted = find_missing( email_msg, ['email'], {}, {'email': ''}, prompt_missing=interactive )
 
        # merge with blockstack section
        num_blockstack_opts_prompted += 1
        blockstack_opts['email'] = email_opts['email']
+   '''
+   blockstack_opts['email'] = 'none'
 
    ret = {
       'blockstack': blockstack_opts,
@@ -1347,11 +1420,70 @@ def configure( config_file=None, force=False, interactive=True ):
        if not os.path.exists(config_file):
            ret['blockstack']['server_version'] = VERSION
 
-       blockstack_client.config.write_config_file( config_opts, config_file )
+       write_config_file( config_opts, config_file )
 
    # prefix our bitcoind options, so they work with virtualchain
-   ret['bitcoind'] = blockstack_client.config.opt_restore("bitcoind_", ret['bitcoind'])
+   ret['bitcoind'] = opt_restore("bitcoind_", ret['bitcoind'])
    return ret 
+
+
+def write_config_file(opts, config_file):
+    """
+    Write our config file with the given options dict.
+    Each key is a section name, and each value is the list of options.
+
+    If the file exists, do not remove unaffected sections.  Instead,
+    merge the sections in opts into the file.
+
+    Return True on success
+    Raise on error
+    """
+    parser = SafeConfigParser()
+
+    if os.path.exists(config_file):
+        parser.read(config_file)
+
+    for sec_name in opts:
+        sec_opts = opts[sec_name]
+
+        if parser.has_section(sec_name):
+            parser.remove_section(sec_name)
+
+        parser.add_section(sec_name)
+        for opt_name, opt_value in sec_opts.items():
+            if opt_value is None:
+                opt_value = ''
+
+            parser.set(sec_name, opt_name, '{}'.format(opt_value))
+
+    with open(config_file, 'w') as fout:
+        os.fchmod(fout.fileno(), 0600)
+        parser.write(fout)
+
+    return True
+
+
+def semver_newer(v1, v2):
+    """
+    Verify (as semantic versions) if v1 < v2
+    Patch versions can be different
+    """
+    v1_parts = v1.split('.')
+    v2_parts = v2.split('.')
+    if len(v1_parts) < 3 or len(v2_parts) < 3:
+        # one isn't a semantic version
+        return False
+
+    v1_major, v1_minor, v1_patch = get_version_parts(v1_parts, int)
+    v2_major, v2_minor, v2_patch = get_version_parts(v2_parts, int)
+
+    if v1_major > v2_major:
+        return False
+
+    if v1_major == v2_major and v1_minor >= v2_minor:
+        return False
+
+    return True
 
 
 def versions_need_upgrade(v_from, v_to):
