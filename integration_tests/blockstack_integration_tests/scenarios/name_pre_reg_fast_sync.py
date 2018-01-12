@@ -72,7 +72,7 @@ def restore( snapshot_path, restore_dir, pubkeys, num_required ):
     
     # all zone files must be present
     for vh in value_hashes:
-        zfdata = blockstack.get_cached_zonefile_data(vh, zonefile_dir=os.path.join(restore_dir, 'zonefiles'))
+        zfdata = blockstack.get_atlas_zonefile_data(vh, os.path.join(restore_dir, 'zonefiles'))
         if zfdata is None:
             print 'Missing {} in {}'.format(vh, os.path.join(restore_dir, 'zonefiles'))
             return False

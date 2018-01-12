@@ -206,17 +206,21 @@ def check( state_engine ):
                 print "didn't get zonefile from storage: test node: %s, atlas peer: %s" % (zfinfo, zfinfo2)
                 return False
 
+        '''
         # zonefile stored to disk?
         zfdata = blockstack_client.zonefile.load_name_zonefile(name, value_hash, storage_drivers=['disk'])
         if zfdata is None:
             print "failed to load zonefile %s from disk" % value_hash
             return False
+        '''
 
         # zonefile cached?
-        cached_zonefile = blockstack.lib.storage.get_cached_zonefile( value_hash, zonefile_dir=zonefile_dir )
-        if cached_zonefile is None:
+        cached_zonefile_txt = blockstack.lib.storage.get_atlas_zonefile_data( value_hash, zonefile_dir )
+        if cached_zonefile_txt is None:
             print "no cached zonefile %s in %s" % (value_hash, zonefile_dir)
             return False
+
+        cached_zonefile = blockstack_zones.parse_zone_file(cached_zonefile)
         
         if cached_zonefile != zfdata:
             print "zonefile mismatch"
