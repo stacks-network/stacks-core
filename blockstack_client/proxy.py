@@ -145,9 +145,8 @@ default_proxy = None
 
 class BlockstackRPCClient(object):
     """
-    RPC client for the blockstack server
+    RPC client for the blockstackd
     """
-
     def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN,
                  timeout=DEFAULT_TIMEOUT, debug_timeline=False, protocol=None, **kw):
 
@@ -155,6 +154,7 @@ class BlockstackRPCClient(object):
             log.warn("RPC constructor called without a protocol, defaulting " +
                      "to HTTP, this could be an issue if connection is on :6263")
             protocol = 'http'
+
         self.url = '{}://{}:{}'.format(protocol, server, port)
         self.srv = TimeoutServerProxy(self.url, protocol, timeout=timeout, allow_none=True)
         self.server = server
@@ -1618,6 +1618,7 @@ def get_name_blockchain_history(name, start_block, end_block, proxy=None):
     return ret
 
 
+# DEPRECATED
 def get_op_history_rows(name, proxy=None):
     """
     Get the history rows for a name or namespace.
@@ -1804,6 +1805,7 @@ def get_zonefiles_by_block(from_block, to_block, proxy=None):
              'zonefile_info' : output_zonefiles }
 
 
+# DEPRECATED
 def get_nameops_affected_at(block_id, proxy=None):
     """
     Get the *current* states of the name records that were
@@ -1908,6 +1910,110 @@ def get_nameops_affected_at(block_id, proxy=None):
     return all_nameops
 
 
+def get_blockstack_transactions_at(block_id, proxy=None):
+    """
+    Get the *prior* states of the blockstack records that were
+    affected at the given block height.
+    Return the list of name records at the given height on success.
+    Return {'error': ...} on error.
+    """
+    history_schema = {
+        'type': 'array',
+        'items': {
+            'type': 'object',
+            'properties': OP_HISTORY_SCHEMA['properties'],
+            'required': [
+                'op',
+                'opcode',
+                'txid',
+                'vtxindex',
+            ]
+        }
+    }
+
+    nameop_history_schema = {
+        'type': 'object',
+        'properties': {
+            'nameops': history_schema,
+        },
+        'required': [
+            'nameops',
+        ],
+    }
+
+    history_count_schema = {
+        'type': 'object',
+        'properties': {
+            'count': {
+                'type': 'integer',
+                'minimum': 0,
+            },
+        },
+        'required': [
+            'count',
+        ],
+    }
+    
+    count_schema = json_response_schema( history_count_schema )
+    nameop_schema = json_response_schema( nameop_history_schema )
+
+    proxy = get_default_proxy() if proxy is None else proxy
+
+    # how many nameops?
+    num_nameops = None
+    try:
+        num_nameops = proxy.get_num_nameops_at(block_id)
+        num_nameops = json_validate(count_schema, num_nameops)
+        if json_is_error(num_nameops):
+            return num_nameops
+
+    except ValidationError as e:
+        num_nameops = json_traceback()
+        return num_nameops
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    num_nameops = num_nameops['count']
+
+    # grab at most 10 of these at a time
+    all_nameops = []
+    page_size = 10
+    while len(all_nameops) < num_nameops:
+        resp = {}
+        try:
+            resp = proxy.get_nameops_at(block_id, len(all_nameops), page_size)
+            resp = json_validate(nameop_schema, resp)
+            if json_is_error(resp):
+                return resp
+
+            if len(resp['nameops']) == 0:
+                return {'error': 'Got zero-length nameops reply'}
+
+            all_nameops += resp['nameops']
+
+        except ValidationError as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            resp = json_traceback(resp.get('error'))
+            return resp
+        except Exception as ee:
+            if BLOCKSTACK_DEBUG:
+                log.exception(ee)
+
+            log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+            resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+            return resp
+
+    return all_nameops
+
+
 def get_nameops_at(block_id, proxy=None):
     """
     Get all the name operation that happened at a given block,
@@ -1916,6 +2022,17 @@ def get_nameops_at(block_id, proxy=None):
     Return {'error': ...} on error.
     """
     
+    # try the dedicated `get_nameops_at()` and `get_num_nameops_at()` method first
+    # works on nodes on or after 0.17.0.16
+    try:
+        all_nameops = get_blockstack_transactions_at(block_id, proxy=proxy)
+        assert not json_is_error(all_nameops)
+        return all_nameops
+    except AssertionError:
+        pass
+
+    # DEPRECATED PATH
+    # get name ops by fetching and replaying history deltas (pre-0.17.0.16 nodes)
     all_nameops = get_nameops_affected_at(block_id, proxy=proxy)
     if json_is_error(all_nameops):
         log.debug('Failed to get nameops affected at {}: {}'.format(block_id, all_nameops['error']))
