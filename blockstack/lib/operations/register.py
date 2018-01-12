@@ -27,9 +27,6 @@ from ..scripts import *
 from ..nameset import *
 from binascii import hexlify, unhexlify
 
-import blockstack_client
-from blockstack_client.operations import *
-
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
@@ -55,7 +52,7 @@ REGISTER_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
     'preorder_block_number',
     'consensus_hash',
     'op_fee',
-    'last_creation_op'
+    # 'last_creation_op'
 ]
 
 # fields renewal changes
@@ -67,14 +64,6 @@ RENEWAL_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
     'value_hash',
     'op_fee'
 ]
-
-# fields to back up when applying this operation 
-REGISTER_BACKUP_FIELDS = NAMEREC_NAME_BACKUP_FIELDS[:] + REGISTER_MUTATE_FIELDS[:] + ['burn_address']
-
-RENEWAL_BACKUP_FIELDS = NAMEREC_NAME_BACKUP_FIELDS[:] + RENEWAL_MUTATE_FIELDS[:] + [
-    'consensus_hash'
-]
-
 
 def get_registration_recipient_from_outputs( outputs ):
     """
@@ -92,19 +81,7 @@ def get_registration_recipient_from_outputs( outputs ):
     if len(outputs) < 2:
         raise Exception("Malformed registration outputs: less than 2")
     
-    assert outputs[0].has_key('scriptPubKey')
-    assert outputs[1].has_key('scriptPubKey')
-
-    data_scriptpubkey = outputs[0]['scriptPubKey']
-    recipient_scriptpubkey = outputs[1]['scriptPubKey']
-
-    assert data_scriptpubkey.has_key('asm')
-    assert recipient_scriptpubkey.has_key('hex')
-
-    if data_scriptpubkey['asm'][0:9] != 'OP_RETURN':
-        raise Exception("Malformed registration outputs: first output is not an OP_RETURN")
-
-    return recipient_scriptpubkey['hex']
+    return outputs[1]['script']
 
 
 def get_renew_burn_info( outputs ):
@@ -118,24 +95,12 @@ def get_renew_burn_info( outputs ):
     if len(outputs) < 4:
         raise Exception("Malformed renew outputs: don't have 4")
 
-    assert outputs[0].has_key('scriptPubKey')
-    assert outputs[3].has_key('scriptPubKey')
+    burn_addr = virtualchain.script_hex_to_address(outputs[3]['script'])
+    if burn_addr is None:
+        raise Exception("Malformed renew inputs: burn output is a nonstandard script")
 
-    data_scriptpubkey = outputs[0]['scriptPubKey']
-    burn_scriptpubkey = outputs[3]['scriptPubKey']
-
-    assert data_scriptpubkey.has_key('asm')
-    assert burn_scriptpubkey.has_key('hex')
-
-    if data_scriptpubkey['asm'][0:9] != 'OP_RETURN':
-        raise Exception("Malformed renew outputs: first output is not an OP_RETURN")
-
-    addr = virtualchain.script_hex_to_address(burn_scriptpubkey['hex'])
-    if addr is None:
-        raise Exception("Malformed renew outputs: last output has a nonstandard script")
-
-    op_fee = int(outputs[3]['value'] * (10**8))
-    return {'burn_address': addr, 'op_fee': op_fee}
+    op_fee = outputs[3]['value']
+    return {'burn_address': burn_addr, 'op_fee': op_fee}
 
 
 def get_num_names_owned( state_engine, checked_ops, sender ):
@@ -203,7 +168,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     * either the name was preordered by the same sender, or the name exists and is owned by this sender (the name cannot be registered and owned by someone else)
     * the mining fee must be high enough.
     * if the name was expired, then merge the preorder information from the expired preorder (since this is a state-creating operation,
-    we set the __preorder__ and __prior_history__ fields to preserve this).
+    we set the __preorder__ /* and __prior_history__ fields *./ to preserve this).
 
     NAME_REGISTRATION is not allowed during a namespace import, so the namespace must be ready.
 
@@ -235,7 +200,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     preorder_block_number = None 
     name_block_number = None
     consensus_hash = None
-    transfer_send_block_id = None
+    # transfer_send_block_id = None
     fee_block_id = None         # block ID at which the fee was paid
     burn_address = None         # preorder/renew burn address
     opcode = nameop['opcode']
@@ -278,6 +243,8 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     preorder = state_engine.get_name_preorder( name, sender, register_addr )
     old_name_rec = state_engine.get_name( name, include_expired=True )
 
+    # TODO: verify that the preorder is fresh.
+
     if preorder is not None:
         # Case 1(a-b): registering or re-registering from a preorder
 
@@ -314,7 +281,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
             # Case 1(a): registered for the first time ever 
             log.debug("Registering name '%s'" % name)
             name_block_number = preorder['block_number']
-            state_create_put_prior_history( nameop, None )
+            # state_create_put_prior_history( nameop, None )
         
         else:
             # Case 1(b): name expired, and is now re-registered
@@ -322,11 +289,11 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         
             # push back preorder block number to the original preorder
             name_block_number = old_name_rec['block_number']
-            transfer_send_block_id = old_name_rec['transfer_send_block_id']
+            # transfer_send_block_id = old_name_rec['transfer_send_block_id']
 
             # re-registering
-            prior_hist = prior_history_create( nameop, old_name_rec, preorder_block_number, state_engine, extra_backup_fields=['consensus_hash','preorder_hash','transfer_send_block_id','op_fee','last_creation_op']) 
-            state_create_put_prior_history( nameop, prior_hist )
+            # prior_hist = prior_history_create( nameop, old_name_rec, preorder_block_number, state_engine, extra_backup_fields=['consensus_hash','preorder_hash','transfer_send_block_id','op_fee','last_creation_op']) 
+            # state_create_put_prior_history( nameop, prior_hist )
 
 
     elif state_engine.is_name_registered( name ):
@@ -362,15 +329,15 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         name_block_number = prev_name_rec['block_number']
         name_fee = nameop['op_fee']
         preorder_hash = prev_name_rec['preorder_hash']
-        transfer_send_block_id = prev_name_rec['transfer_send_block_id']
+        # transfer_send_block_id = prev_name_rec['transfer_send_block_id']
         fee_block_id = block_id
 
         burn_address = nameop['burn_address']
         opcode = "NAME_RENEWAL"     # will cause this operation to be re-checked under check_renewal()
 
         # pass along prior history 
-        prior_hist = prior_history_create( nameop, old_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','preorder_hash','transfer_send_block_id','op_fee','last_creation_op'])
-        state_create_put_prior_history( nameop, prior_hist )
+        # prior_hist = prior_history_create( nameop, old_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','preorder_hash','transfer_send_block_id','op_fee','last_creation_op'])
+        # state_create_put_prior_history( nameop, prior_hist )
         state_create_put_preorder( nameop, None ) 
 
     else:
@@ -410,8 +377,8 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     nameop['block_number'] = name_block_number
 
     # not consensus-bearing, but required for SNV
-    nameop['transfer_send_block_id'] = transfer_send_block_id
-    nameop['last_creation_op'] = NAME_PREORDER 
+    # nameop['transfer_send_block_id'] = transfer_send_block_id
+    # nameop['last_creation_op'] = NAME_PREORDER 
 
     # propagate new sender information
     nameop['sender'] = nameop['recipient']
@@ -732,88 +699,3 @@ def parse(bin_payload, block_height):
        'value_hash': value_hash
     }
  
- 
-def restore_delta( name_rec, block_number, history_index, working_db, untrusted_db ):
-    """
-    Find the fields in a name record that were changed by an instance of this operation, at the 
-    given (block_number, history_index) point in time in the past.  The history_index is the
-    index into the list of changes for this name record in the given block.
-
-    Return the fields that were modified on success.
-    Return None on error.
-    """
-
-    from ..nameset import BlockstackDB
-
-    namespace_id = get_namespace_from_name(name_rec['name'])
-    epoch_features = get_epoch_features(block_number)
-    value_hash = None
-    receive_fees_period = get_epoch_namespace_receive_fees_period(block_number, namespace_id)
-
-    # restore history to find previous sender, address, public key
-    name_rec_prev = BlockstackDB.get_previous_name_version( name_rec, block_number, history_index, untrusted_db )
-    
-    # restore zone file hash, if this is supported in this epoch
-    if EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE in epoch_features and op_get_opcode_name(name_rec['op']) == 'NAME_RENEWAL' and name_rec.has_key('value_hash'):
-        value_hash = name_rec['value_hash']
-
-    if EPOCH_FEATURE_OP_REGISTER_UPDATE in epoch_features and op_get_opcode_name(name_rec['op']) == 'NAME_REGISTRATION' and name_rec.has_key('value_hash'):
-        value_hash = name_rec['value_hash']
-
-    name_rec_script = build_registration( str(name_rec['name']), value_hash=value_hash )
-    name_rec_payload = unhexlify( name_rec_script )[3:]
-    ret_op = parse( name_rec_payload, block_number )
-
-    # reconstruct the registration/renewal op's recipient info
-    ret_op['recipient'] = str(name_rec['sender'])
-    ret_op['recipient_address'] = str(name_rec['address'])
-
-    sender = name_rec_prev['sender']
-    address = name_rec_prev['address']
-
-    sender_pubkey = None
-    opcode_name = None
-    if op_get_opcode_name(name_rec['op']) == "NAME_RENEWAL":
-        opcode_name = 'NAME_RENEWAL'
-        log.debug("NAME_RENEWAL: sender_pubkey = '%s'" % name_rec['sender_pubkey'])
-        sender_pubkey = name_rec['sender_pubkey']
-    else:
-        opcode_name = 'NAME_REGISTRATION'
-        log.debug("NAME_REGISTRATION: sender_pubkey = '%s'" % name_rec_prev['sender_pubkey'])
-        sender_pubkey = name_rec_prev['sender_pubkey']
-    
-    namespace = untrusted_db.get_namespace(namespace_id)
-    assert namespace
-
-    ret_op['sender'] = sender
-    ret_op['address'] = address
-    ret_op['revoked'] = False
-    ret_op['sender_pubkey'] = sender_pubkey
-
-    if (namespace['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR):
-        fee_block_number = None
-        if opcode_name == 'NAME_RENEWAL':
-            fee_block_number = block_number
-        else:
-            fee_block_number = name_rec['preorder_block_number']
-
-        if namespace['reveal_block'] + receive_fees_period >= fee_block_number:
-            # still in the fee capture interval
-            ret_op['burn_address'] = namespace['address']
-        else:
-            ret_op['burn_address'] = BLOCKSTACK_BURN_ADDRESS
-    else:
-        ret_op['burn_address'] = BLOCKSTACK_BURN_ADDRESS
-
-    return ret_op
-
-
-def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
-    """
-    Given a name record most recently affected by an instance of this operation, 
-    find the dict of consensus-affecting fields from the operation that are not
-    already present in the name record.
-    """
-    return blockstack_client.operations.register.snv_consensus_extras( name_rec, block_id, blockchain_name_data )
-
-

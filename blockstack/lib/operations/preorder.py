@@ -27,9 +27,6 @@ from ..scripts import *
 from ..nameset import *
 from binascii import hexlify, unhexlify
 
-import blockstack_client
-from blockstack_client.operations import *
-
 # consensus hash fields (ORDER MATTERS!)
 FIELDS = [
      'preorder_hash',       # hash(name,sender,register_addr) 
@@ -47,12 +44,6 @@ FIELDS = [
 
 # fields this operation changes
 MUTATE_FIELDS = FIELDS[:]
-
-# fields to back up when processing this operation 
-BACKUP_FIELDS = [
-    "__all__",
-    'burn_address'
-]
 
 
 @state_preorder("check_preorder_collision")
@@ -108,36 +99,25 @@ def check( state_engine, nameop, block_id, checked_ops ):
 def get_preorder_burn_info( outputs ):
     """
     Given the set of outputs, find the fee sent 
-    to our burn address.
+    to our burn address.  This is always the third output.
     
     Return the fee and burn address on success as {'op_fee': ..., 'burn_address': ...}
     Return None if not found
     """
-     
+    
     if len(outputs) != 3:
         # not a well-formed preorder 
         return None 
-    
-    assert outputs[0].has_key('scriptPubKey')
-    assert outputs[2].has_key('scriptPubKey')
+   
+    op_fee = outputs[2]['value']
+    burn_address = None
 
-    data_scriptpubkey = outputs[0]['scriptPubKey']
-    burn_scriptpubkey = outputs[2]['scriptPubKey']
-
-    assert data_scriptpubkey.has_key('asm')
-    assert burn_scriptpubkey.has_key('hex')
-    assert outputs[2].has_key('value')
-
-    if data_scriptpubkey['asm'][0:9] != 'OP_RETURN':
-        # not a well-formed preorder
+    try:
+        burn_address = virtualchain.script_hex_to_address(outputs[2]['script'])
+        assert burn_address
+    except:
+        log.error("Not a well-formed preorder burn: {}".format(outputs[2]['script']))
         return None
-
-    if virtualchain.script_hex_to_address(burn_scriptpubkey['hex']) is None:
-        # not a well-formed preorder
-        return None
-
-    op_fee = int(outputs[2]['value'] * (10**8))
-    burn_address = virtualchain.script_hex_to_address(burn_scriptpubkey['hex'])
 
     return {'op_fee': op_fee, 'burn_address': burn_address}
    
@@ -224,34 +204,3 @@ def parse(bin_payload):
         'consensus_hash': consensus_hash
     }
 
-
-def restore_delta( name_rec, block_number, history_index, working_db, untrusted_db ):
-    """
-    Find the fields in a name record that were changed by an instance of this operation, at the 
-    given (block_number, history_index) point in time in the past.  The history_index is the
-    index into the list of changes for this name record in the given block.
-
-    Return the fields that were modified on success.
-    Return None on error.
-    """
-
-    # reconstruct the previous fields of the preorder op...
-    name_rec_script = build_preorder( None, None, None, str(name_rec['consensus_hash']), \
-                                      name_hash=str(name_rec['preorder_hash']) )
-
-    name_rec_payload = unhexlify( name_rec_script )[3:]
-    ret_delta = parse( name_rec_payload )
-
-    ret_delta['burn_address'] = name_rec['burn_address']
-    return ret_delta
-
-
-def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
-    """
-    Calculate any derived missing data that goes into the check() operation,
-    given the block number, the name record at the block number, and the db.
-    """
-    return blockstack_client.operations.preorder.snv_consensus_extras( name_rec, block_id, blockchain_name_data )
-    '''
-    return {}
-    '''

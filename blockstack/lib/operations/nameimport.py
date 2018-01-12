@@ -29,9 +29,6 @@ from ..scripts import *
 from ..hashing import *
 from ..nameset import *
 
-import blockstack_client
-from blockstack_client.operations import *
-
 # consensus hash fields (ORDER MATTERS!) 
 FIELDS = NAMEREC_FIELDS[:] + [
     'sender',            # scriptPubKey hex that identifies the name recipient
@@ -53,16 +50,8 @@ MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
     'revoked',
     'block_number',
     'namespace_block_number',
-    'transfer_send_block_id',
     'op_fee',
-    'last_creation_op'
 ]
- 
-# fields to preserve when applying this operation 
-BACKUP_FIELDS = MUTATE_FIELDS[:] + [
-    'consensus_hash'
-]
-
 
 def get_import_recipient_from_outputs( outputs ):
     """
@@ -73,26 +62,13 @@ def get_import_recipient_from_outputs( outputs ):
     output (i.e. the second output).
     """
     
-    ret = None
-    for output in outputs:
-       
-        output_script = output['scriptPubKey']
-        output_asm = output_script.get('asm')
-        output_hex = output_script.get('hex')
-        output_addresses = output_script.get('addresses')
-        
-        if output_asm[0:9] != 'OP_RETURN' and output_hex:
-            
-            ret = output_hex
-            break
-            
-    if ret is None:
-       raise Exception("No recipients found")
-    
-    return ret 
+    if len(outputs) < 2:
+        raise Exception("No recipients found")
+
+    return outputs[1]['script']
 
 
-def get_import_update_hash_from_outputs( outputs, recipient ):
+def get_import_update_hash_from_outputs( outputs ):
     """
     This is meant for NAME_IMPORT operations, which 
     have five outputs:  the OP_RETURN, the sender (i.e.
@@ -101,29 +77,21 @@ def get_import_update_hash_from_outputs( outputs, recipient ):
     This method extracts the name update hash from
     the list of outputs.
     
-    By construction, the update hash address in 
-    the NAME_IMPORT operation is the first 
-    non-OP_RETURN output that is *not* the recipient.
+    By construction, the update hash address is the 3rd output. 
     """
     
-    ret = None
-    count = 0
-    for output in outputs:
-       
-        output_script = output['scriptPubKey']
-        output_asm = output_script.get('asm')
-        output_hex = output_script.get('hex')
-        output_addresses = output_script.get('addresses')
-        
-        if output_asm[0:9] != 'OP_RETURN' and output_hex is not None and output_hex != recipient:
-            
-            ret = hexlify( keylib.b58check.b58check_decode( str(output_addresses[0]) ) )
-            break
-            
-    if ret is None:
-       raise Exception("No update hash found")
-    
-    return ret 
+    if len(outputs) < 3:
+        raise Exception("No update hash found")
+
+    update_addr = None
+    try:
+        update_addr = virtualchain.script_hex_to_address(outputs[2]['script'])
+        assert update_addr
+    except:
+        log.error("Invalid update output: {}".format(outputs[2]['script']))
+        raise Exception("No update hash found")
+
+    return hexlify(keylib.b58check.b58check_decode(update_addr))
 
 
 def get_prev_imported( state_engine, checked_ops, name ):
@@ -136,7 +104,7 @@ def get_prev_imported( state_engine, checked_ops, name ):
     imported = find_by_opcode( checked_ops, "NAME_IMPORT" )
     for opdata in reversed(imported):
         if opdata['name'] == name:
-            hist = state_engine.get_name_history_diffs(name)
+            hist = state_engine.get_name_history(name)
             ret = copy.deepcopy(opdata)
             ret['history'] = hist
             return ret
@@ -183,7 +151,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     name_block_number = block_id 
     name_first_registered = block_id
     name_last_renewed = block_id
-    transfer_send_block_id = None
+    # transfer_send_block_id = None
 
     if not nameop.has_key('sender_pubkey'):
         log.debug("Name import requires a sender_pubkey (i.e. use of a p2pkh transaction)")
@@ -209,7 +177,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     sender_pubkey = virtualchain.BitcoinPublicKey( str(sender_pubkey_hex) )
     sender_address = sender_pubkey.address()
 
-    import_addresses = BlockstackDB.load_import_keychain( namespace['namespace_id'] )
+    import_addresses = BlockstackDB.load_import_keychain( state_engine.working_dir, namespace['namespace_id'] )
     if import_addresses is None:
 
         # the first name imported must be the revealer's address
@@ -219,7 +187,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
         # need to generate a keyring from the revealer's public key
         log.debug("Generating %s-key keychain for '%s'" % (NAME_IMPORT_KEYRING_SIZE, namespace_id))
-        import_addresses = BlockstackDB.build_import_keychain( namespace['namespace_id'], sender_pubkey_hex )
+        import_addresses = BlockstackDB.build_import_keychain( state_engine.working_dir, namespace['namespace_id'], sender_pubkey_hex )
 
     # sender must be the same as the the person who revealed the namespace
     # (i.e. sender's address must be from one of the valid import addresses)
@@ -242,8 +210,9 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
         log.debug("use previous preorder_hash = %s" % prev_name_rec['preorder_hash'])
         preorder_hash = prev_name_rec['preorder_hash']
-        transfer_send_block_id = prev_name_rec.get('transfer_send_block_id',None)
+        # transfer_send_block_id = prev_name_rec.get('transfer_send_block_id',None)
 
+    '''
     # if this name had existed prior to being imported here,
     # (i.e. the namespace was revealed and then expired), then
     # preserve its prior history (since this is a state-creating operation)
@@ -251,12 +220,13 @@ def check( state_engine, nameop, block_id, checked_ops ):
     if prev_name_rec is not None:
         # set preorder and prior history...
         prior_hist = prior_history_create( nameop, prev_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','namespace_block_number','transfer_send_block_id','op_fee','last_creation_op'] )
-    
-    # can never have been preordered
-    state_create_put_preorder( nameop, None )
 
     # might have existed as a previous import in the past 
     state_create_put_prior_history( nameop, prior_hist )
+    '''
+
+    # can never have been preordered
+    state_create_put_preorder( nameop, None )
 
     # carry out the transition 
     del nameop['recipient']
@@ -277,8 +247,8 @@ def check( state_engine, nameop, block_id, checked_ops ):
     nameop['opcode'] = "NAME_IMPORT"
 
     # not required for consensus, but for SNV
-    nameop['transfer_send_block_id'] = transfer_send_block_id
-    nameop['last_creation_op'] = NAME_IMPORT
+    # nameop['transfer_send_block_id'] = transfer_send_block_id
+    # nameop['last_creation_op'] = NAME_IMPORT
 
     # good!
     return True
@@ -316,7 +286,8 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
        assert recipient is not None 
        assert recipient_address is not None
        
-       import_update_hash = get_import_update_hash_from_outputs( outputs, recipient )
+       # import_update_hash = get_import_update_hash_from_outputs( outputs, recipient )
+       import_update_hash = get_import_update_hash_from_outputs( outputs )
        assert import_update_hash is not None
        assert is_hex( import_update_hash )
 
@@ -383,62 +354,15 @@ def parse(bin_payload, recipient, update_hash ):
     }
 
 
-def restore_delta( name_rec, block_number, history_index, working_db, untrusted_db ):
+def canonicalize(parsed_op):
     """
-    Find the fields in a name record that were changed by an instance of this operation, at the 
-    given (block_number, history_index) point in time in the past.  The history_index is the
-    index into the list of changes for this name record in the given block.
+    Get the "canonical form" of this operation, putting it into a form where it can be serialized
+    to form a consensus hash.  This method is meant to preserve compatibility across blockstackd releases.
 
-    Return the fields that were modified on success.
-    Return None on error.
+    For NAME_IMPORT, this means:
+    * make sure the fee is a float
     """
-
-    # sanity check... 
-    if 'importer' not in name_rec.keys() or 'importer_address' not in name_rec.keys():
-        raise Exception("Name was not imported")
-
-    recipient = str(name_rec['sender'])
-    recipient_address = str(name_rec['address'])
-    sender = str(name_rec['importer'])
-    address = str(name_rec['importer_address'])
-
-    name_rec_script = build_name_import( str(name_rec['name']) )
-    name_rec_payload = unhexlify( name_rec_script )[3:]
-    ret_op = parse( name_rec_payload, recipient, str(name_rec['value_hash']) )
-
-    # reconstruct recipient and sender...
-    ret_op['recipient'] = recipient
-    ret_op['recipient_address'] = recipient_address 
-    ret_op['sender'] = sender 
-    ret_op['address'] = address
-
-    return ret_op
-
-
-def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
-    """
-    Given a name record most recently affected by an instance of this operation, 
-    find the dict of consensus-affecting fields from the operation that are not
-    already present in the name record.
-    """
-    return blockstack_client.operations.nameimport.snv_consensus_extras( name_rec, block_id, blockchain_name_data )
-
-    '''
-    ret_op = {}
-
-    # reconstruct the recipient information
-    ret_op['recipient'] = str(name_rec['sender'])
-    ret_op['recipient_address'] = str(name_rec['address'])
-
-    # the preorder hash used is the *first* preorder hash calculated in a series of NAME_IMPORTs
-    if name_rec.has_key('preorder_hash'):
-        ret_op['preorder_hash'] = name_rec['preorder_hash']
-
-    else:
-        ret_op['preorder_hash'] = hash_name( str(name_rec['name']), name_rec['importer'], ret_op['recipient_address'] )
-
-    log.debug("restore preorder hash: %s --> %s (%s, %s, %s)" % (name_rec.get('preorder_hash', "None"), ret_op['preorder_hash'], name_rec['name'], name_rec['importer'], ret_op['recipient_address']))
-    return ret_op
-    '''
-
+    assert 'op_fee' in parsed_op
+    parsed_op['op_fee'] = float(parsed_op['op_fee'])
+    return parsed_op
 

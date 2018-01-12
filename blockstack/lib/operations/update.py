@@ -31,9 +31,6 @@ from binascii import hexlify, unhexlify
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
-import blockstack_client
-from blockstack_client.operations import *
-
 # consensus hash fields (ORDER MATTERS!) 
 FIELDS = NAMEREC_FIELDS[:] + [
     'name_consensus_hash',  # hash(name,consensus_hash)
@@ -46,8 +43,10 @@ MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
     'consensus_hash'
 ]
 
-# fields to back up when applying this operation 
-BACKUP_FIELDS = NAMEREC_NAME_BACKUP_FIELDS[:] + MUTATE_FIELDS[:]
+# fields that will not be written to the database, but are canonical
+UNSTORED_CANONICAL_FIELDS = [
+    'name_consensus_hash'
+]
 
 
 def update_sanity_test( name, consensus_hash, data_hash ):
@@ -238,40 +237,10 @@ def parse(bin_payload):
     }
 
 
-def restore_delta( name_rec, block_number, history_index, working_db, untrusted_db ):
+def canonicalize(parsed_op):
     """
-    Find the fields in a name record that were changed by an instance of this operation, at the 
-    given (block_number, history_index) point in time in the past.  The history_index is the
-    index into the list of changes for this name record in the given block.
-
-    Return the fields that were modified on success.
-    Return None on error.
+    Get the canonical representation of this operation
     """
-    
-    data_hash = None
-    if name_rec['value_hash'] is not None:
-       data_hash = str(name_rec['value_hash'])
-
-    name_rec_script = build_update( str(name_rec['name']), str(name_rec['consensus_hash']), data_hash=data_hash )
-    name_rec_payload = unhexlify( name_rec_script )[3:]
-    ret_op = parse(name_rec_payload)
-
-    return ret_op
-
-
-def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
-    """
-    Given a name record most recently affected by an instance of this operation, 
-    find the dict of consensus-affecting fields from the operation that are not
-    already present in the name record.
-    """
-    return blockstack_client.operations.update.snv_consensus_extras( name_rec, block_id, blockchain_name_data )
-    '''
-    ret_op = {}
-
-    # reconstruct name_hash
-    ret_op['name_consensus_hash'] = hash256_trunc128( str(name_rec['name']) + str(name_rec['consensus_hash']) )
-    return ret_op
-    '''
-
+    parsed_op['name_consensus_hash'] = hash256_trunc128(str(parsed_op['name']) + str(parsed_op['consensus_hash']))
+    return parsed_op
 
