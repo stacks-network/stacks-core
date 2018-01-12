@@ -4,7 +4,7 @@
     Blockstack
     ~~~~~
     copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
-    copyright: (c) 2016 by Blockstack.org
+    copyright: (c) 2016-2018 by Blockstack.org
 
     This file is part of Blockstack
 
@@ -24,6 +24,7 @@
 import sqlite3
 import subprocess
 import json
+import simplejson
 import traceback
 import os
 import sys
@@ -49,20 +50,23 @@ BLOCKSTACK_DB_SCRIPT = ""
 
 BLOCKSTACK_DB_SCRIPT += """
 -- NOTE: history_id is a fully-qualified name or namespace ID.
--- NOTE: address is the address that owned the name or namespace ID at the time of insertion
--- NOTE: history_data is a JSON-serialized dict of changed fields.
+-- NOTE: creator_address is the address that owned the name or namespace ID at the time of insertion
+-- NOTE: value_hash is the associated value hash for this history entry at the time of insertion.
+-- NOTE: history_data is a JSON blob with the operation that was committed at this point in time.
 CREATE TABLE history( txid TEXT NOT NULL,
-                      history_id STRING NOT NULL,
+                      history_id STRING,
                       creator_address STRING,
                       block_id INT NOT NULL,
                       vtxindex INT NOT NULL,
                       op TEXT NOT NULL,
+                      opcode TEXT NOT NULL,
+                      value_hash TEXT,
                       history_data TEXT NOT NULL,
-                      PRIMARY KEY(txid,history_id,block_id,vtxindex) );
+                      PRIMARY KEY(txid,block_id,vtxindex) );
 """
 
 BLOCKSTACK_DB_SCRIPT += """
-CREATE INDEX history_block_id_index ON history( history_id, block_id );
+-- CREATE INDEX history_block_id_index ON history( history_id, block_id );
 CREATE INDEX history_id_index ON history( history_id );
 """
 
@@ -138,8 +142,6 @@ CREATE TABLE name_records( name STRING NOT NULL,
                            importer TEXT,
                            importer_address TEXT,
                            consensus_hash TEXT,
-                           transfer_send_block_id INT,
-                           last_creation_op STRING NOT NULL,
 
                            -- primary key includes block number, so an expired name can be re-registered 
                            PRIMARY KEY(name,block_number),
@@ -149,10 +151,12 @@ CREATE TABLE name_records( name STRING NOT NULL,
                            );
 """
 
+'''
 BLOCKSTACK_DB_SCRIPT += """
 CREATE TABLE ops_hashes( block_id INTEGER PRIMARY KEY NOT NULL,
                          ops_hash STRING NOT NULL );
 """
+'''
 
 BLOCKSTACK_DB_SCRIPT += """
 CREATE INDEX hash_names_index ON name_records( name_hash128, name );
@@ -166,100 +170,6 @@ BLOCKSTACK_DB_SCRIPT += """
 -- turn on foreign key constraints 
 PRAGMA foreign_keys = ON;
 """
-
-
-def sqlite3_find_tool():
-    """
-    Find the sqlite3 binary
-    Return the path to the binary on success
-    Return None on error
-    """
-
-    # find sqlite3
-    path = os.environ.get("PATH", None)
-    if path is None:
-        path = "/usr/local/bin:/usr/bin:/bin"
-
-    sqlite3_path = None
-    dirs = path.split(":")
-    for pathdir in dirs:
-        if len(pathdir) == 0:
-            continue
-
-        sqlite3_path = os.path.join(pathdir, 'sqlite3')
-        if not os.path.exists(sqlite3_path):
-            continue
-
-        if not os.path.isfile(sqlite3_path):
-            continue
-
-        if not os.access(sqlite3_path, os.X_OK):
-            continue
-
-        break
-
-    if sqlite3_path is None:
-        log.error("Could not find sqlite3 binary")
-        return None
-
-    return sqlite3_path
-
-
-def sqlite3_backup( src_path, dest_path ):
-    """
-    Back up a sqlite3 database, while ensuring
-    that no ongoing queries are being executed.
-
-    Return True on success
-    Return False on error.
-    """
-
-    # find sqlite3
-    sqlite3_path = sqlite3_find_tool()
-    if sqlite3_path is None:
-        log.error("Failed to find sqlite3 tool")
-        return False
-
-    sqlite3_cmd = [sqlite3_path, '{}'.format(src_path), '.backup "{}"'.format(dest_path)]
-    rc = None
-    backoff = 1.0
-
-    out = None
-    err = None
-
-    try:
-        while True:
-            log.debug("{}".format(" ".join(sqlite3_cmd)))
-            p = subprocess.Popen(sqlite3_cmd, shell=False, close_fds=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            out, err = p.communicate()
-            rc = p.wait()
-
-            if rc != 0 and ("database is locked" in out.lower() or "database is locked" in err.lower()):
-                # try again
-                log.error("Database {} is locked; trying again in {} seconds".format(src_path, backoff))
-                time.sleep(backoff)
-                backoff += 2 * backoff + random.random() * random.randint(0, int(backoff))
-                continue
- 
-            else:
-                break
-
-    except Exception, e:
-        log.exception(e)
-        return False
-
-    if not os.WIFEXITED(rc):
-        # bad exit 
-        # failed for some other reason
-        log.error("Backup failed: out='{}', err='{}', rc={}".format(out, err, rc))
-        return False
-    
-    if os.WEXITSTATUS(rc) != 0:
-        # bad exit
-        log.error("Backup failed: out='{}', err='{}', exit={}".format(out, err, os.WEXITSTATUS(rc)))
-        return False
-
-    return True
 
 
 def namedb_create( path ):
@@ -736,12 +646,17 @@ def namedb_namespace_fields_check( namespace_rec ):
 
     assert namespace_rec.has_key('namespace_id'), "BUG: namespace record has no ID"
 
+    '''
     # make buckets into a JSON string 
     assert namespace_rec.has_key('buckets'), "BUG: no namespace price buckets"
     assert type(namespace_rec['buckets']) == list, "BUG: namespace buckets type %s, expected 'list'" % (type(namespace_rec['buckets']))
 
     bucket_str = json.dumps( namespace_rec['buckets'] )
     namespace_rec['buckets'] = bucket_str
+    '''
+    assert namespace_rec.has_key('buckets'), 'BUG: missing price buckets'
+    assert isinstance(namespace_rec['buckets'], str), 'BUG: namespace data is not in canonical form'
+
     return namespace_rec
 
 
@@ -755,6 +670,7 @@ def namedb_namespace_insert( cur, input_namespace_rec ):
     """
 
     namespace_rec = copy.deepcopy( input_namespace_rec )
+
     namedb_namespace_fields_check( namespace_rec )
 
     try:
@@ -914,6 +830,7 @@ def namedb_state_transition( cur, opcode, op_data, block_id, vtxindex, txid, his
     # sanity check: must be a state-transitioning operation
     try:
         assert opcode in OPCODE_NAME_STATE_TRANSITIONS + OPCODE_NAMESPACE_STATE_TRANSITIONS, "BUG: opcode '%s' is not a state-transition"
+        assert 'opcode' not in op_data, 'BUG: opcode not allowed in op_data'
     except Exception, e:
         log.exception(e)
         log.error("BUG: opcode '%s' is not a state-transition operation" % opcode)
@@ -934,8 +851,13 @@ def namedb_state_transition( cur, opcode, op_data, block_id, vtxindex, txid, his
         log.error("FATAL: state transition sanity checks failed")
         os.abort()
 
-    # back these fields up.
-    rc = namedb_history_save( cur, opcode, history_id, None, block_id, vtxindex, txid, cur_record )
+    # back these fields up.  Include the opcode
+    # rc = namedb_history_save( cur, opcode, history_id, None, block_id, vtxindex, txid, cur_record )
+    new_record = {}
+    new_record.update(cur_record)
+    new_record.update(op_data)
+    new_record['opcode'] = opcode
+    rc = namedb_history_save(cur, opcode, history_id, None, new_record.get('value_hash', None), block_id, vtxindex, txid, new_record)
     if not rc:
         log.error("FATAL: failed to save history for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
         os.abort()
@@ -1009,8 +931,21 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
     if opcode not in OPCODE_NAME_STATE_CREATIONS + OPCODE_NAMESPACE_STATE_CREATIONS or opcode in OPCODE_NAME_STATE_IMPORTS:
         log.error("FATAL: Opcode '%s' is not a state-creating operation" % opcode)
         os.abort()
+    
+    # did this name or namespace previously exist?
+    exists = False
+    if opcode in OPCODE_NAMESPACE_STATE_CREATIONS:
+        prev_rec = namedb_get_namespace(cur, history_id, block_id, include_expired=True, include_history=False)
+        if prev_rec is not None:
+            exists = True
+
+    elif opcode in OPCODE_NAME_STATE_CREATIONS or opcode in OPCODE_NAME_STATE_IMPORTS:
+        prev_rec = namedb_get_name(cur, history_id, block_id, include_expired=True, include_history=False)
+        if prev_rec is not None:
+            exists = True
 
     try:
+        assert 'op' in preorder_record.keys(), 'BUG: no preorder op'
         assert 'preorder_hash' in preorder_record.keys(), "BUG: no preorder hash"
         assert 'block_number' in preorder_record.keys(), "BUG: preorder has no block number"
         assert 'vtxindex' in preorder_record.keys(), "BUG: preorder has no vtxindex"
@@ -1022,14 +957,17 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
         os.abort()
         
     try:
-        # sanity check to make sure we got valid state-creation data
-        rc = namedb_state_create_sanity_check( opcode, new_record, history_id, preorder_record, record_table )
-        if not rc:
-            raise Exception("state-creation sanity check on '%s' failed" % opcode )
+        if not exists:
+            # sanity check to make sure we got valid state-creation data
+            rc = namedb_state_create_sanity_check( opcode, new_record, history_id, preorder_record, record_table )
+            if not rc:
+                raise Exception("state-creation sanity check on '%s' failed" % opcode )
 
         rc = namedb_state_mutation_sanity_check( opcode, new_record )
         if not rc:
             raise Exception("State mutation sanity checks failed")
+
+        assert 'opcode' not in new_record, 'BUG: opcode not allowed in op_data'
 
     except Exception, e:
         log.exception(e)
@@ -1037,7 +975,17 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
         os.abort()
 
     # save the preorder as history.
-    rc = namedb_history_save( cur, opcode, history_id, new_record['address'], block_id, vtxindex, txid, preorder_record )
+    # rc = namedb_history_save( cur, opcode, history_id, new_record['address'], block_id, vtxindex, txid, preorder_record )
+    rc = namedb_history_save(cur, preorder_record['opcode'], history_id, None, None, preorder_record['block_number'], preorder_record['vtxindex'], preorder_record['txid'], preorder_record)
+    if not rc:
+        log.error("FATAL: failed to save preorder for {} at ({}, {})".format(history_id, preorder_record['block_number'], preorder_record['vtxindex']))
+        os.abort()
+
+    # save new record
+    history_data = {}
+    history_data.update(new_record)
+    history_data['opcode'] = opcode
+    rc = namedb_history_save(cur, opcode, history_id, history_data['address'], history_data.get('value_hash', None), block_id, vtxindex, txid, history_data)
     if not rc:
         log.error("FATAL: failed to save history for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
         os.abort()
@@ -1100,13 +1048,31 @@ def namedb_name_import_sanity_check( cur, opcode, op_data, history_id, block_id,
     return True
 
 
-def namedb_state_create_as_import( db, opcode, new_record, block_id, vtxindex, txid, history_id, prior_import, record_table, constraints_ignored=[] ):
+def namedb_get_last_name_import(cur, name, block_id, vtxindex):
+    """
+    Find the last name import for this name
+    """
+    query = 'SELECT history_data FROM history WHERE history_id = ? AND (block_id < ? OR (block_id = ? AND vtxindex < ?)) ' + \
+            'ORDER BY block_id,vtxindex DESC LIMIT 1;'
+
+    args = (name, block_id, block_id, vtxindex)
+
+    history_rows = namedb_query_execute(cur, query, args)
+
+    for row in history_rows:
+        history_data = json.loads(row['history_data'])
+        return history_data
+
+    return None
+
+
+def namedb_state_create_as_import( db, opcode, new_record, block_id, vtxindex, txid, history_id, record_table, constraints_ignored=[] ):
     """
     Given an operation and a new record (opcode, new_record), and point in time (block_id, vtxindex, txid)
     create the initial name as an import.  Does not work on namespaces.
 
-    The record named by history_id must not exist if prior_import is None.
-    The record named by history_id must exist if prior_import is not None.
+    # The record named by history_id must not exist if prior_import is None.
+    # The record named by history_id must exist if prior_import is not None.
 
     Return True on success
     Raise an exception on failure.
@@ -1119,8 +1085,12 @@ def namedb_state_create_as_import( db, opcode, new_record, block_id, vtxindex, t
         log.error("FATAL: Opcode '%s' is not a state-importing operation" % opcode)
         os.abort()
 
+    cur = db.cursor()
+
+    # does a previous version of this record exist?
+    prior_import = namedb_get_last_name_import(cur, history_id, block_id, vtxindex)
+
     try:
-        cur = db.cursor()
 
         # sanity check to make sure we got valid state-import data
         rc = namedb_name_import_sanity_check( cur, opcode, new_record, history_id, block_id, vtxindex, prior_import, record_table )
@@ -1130,6 +1100,8 @@ def namedb_state_create_as_import( db, opcode, new_record, block_id, vtxindex, t
         rc = namedb_state_mutation_sanity_check( opcode, new_record )
         if not rc:
             raise Exception("State mutation sanity checks failed")
+        
+        assert 'opcode' not in new_record, 'BUG: opcode in new_record'
 
     except Exception, e:
         log.exception(e)
@@ -1137,31 +1109,27 @@ def namedb_state_create_as_import( db, opcode, new_record, block_id, vtxindex, t
         os.abort()
 
     cur = db.cursor()
+    creator_address = None
+    if prior_import is None:
+        # creating for the first time
+        creator_address = new_record['address']
+
+    history_data = {}
+    history_data.update(new_record)
+    history_data['opcode'] = opcode
+    rc = namedb_history_save(cur, opcode, history_id, creator_address, history_data.get('value_hash', None), block_id, vtxindex, txid, history_data)
+    if not rc:
+        log.error("FATAL: failed to save history snapshot for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
+        os.abort()
 
     if prior_import is None:
-        # duplicate as history (no prior record of this import)
-        rec_dup = copy.deepcopy(new_record)
-        rec_dup['history_snapshot'] = True
-        rc = namedb_history_save( cur, opcode, history_id, rec_dup['address'], block_id, vtxindex, txid, rec_dup )
-        if not rc:
-            log.error("FATAL: failed to save history snapshot for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
-            os.abort()
-        
+        # creating for the first time
         cur = db.cursor()
-
-        # save for the first time
-        rc = namedb_name_insert( cur, new_record )
+        rc = namedb_name_insert(cur, new_record)
 
     else:
-        # save the prior import
-        # only save address if address changed
-        rc = namedb_history_save( cur, opcode, history_id, None, block_id, vtxindex, txid, prior_import )
-        if not rc:
-            log.error("FATAL: failed to save history snapshot for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
-            os.abort()
-        
-        cur = db.cursor()
-        rc = namedb_name_update( cur, opcode, new_record, constraints_ignored=constraints_ignored )
+        # updating an existing import 
+        rc = namedb_name_update(cur, opcode, new_record, constraints_ignored=constraints_ignored)
 
     if not rc:
         log.error("FATAL: failed to execute import operation")
@@ -1173,7 +1141,7 @@ def namedb_state_create_as_import( db, opcode, new_record, block_id, vtxindex, t
 
 def namedb_is_history_snapshot( history_snapshot ):
     """
-    Given a dict and a history ID, verify that it is a history snapshot.
+    Given a dict, verify that it is a history snapshot.
     It must have all consensus fields.
     Return True if so.
     Raise an exception of it doesn't.
@@ -1196,172 +1164,20 @@ def namedb_is_history_snapshot( history_snapshot ):
     return True
 
 
-def namedb_state_create_from_prior_history( cur, opcode, new_record, block_id, vtxindex, txid, history_id, history_snapshot, preorder_record, record_table ):
+def namedb_history_save( cur, opcode, history_id, creator_address, value_hash, block_id, vtxindex, txid, accepted_rec, history_snapshot=False ):
     """
-    Given an operation and a new record (opcode, new_record), a point in time (block_id, vtxindex, txid), and a prior historic
-    snapshot of the record for a known record (history_id, history_snapshot), create the initial name or namespace using
-    the history snapshot and operation's data.  Record the history snapshot as the most recent history item.
-
-    The record named by history_id must exist.
-
-    Return True on success
-    Raise an exception on failure.
-
-    DO NOT CALL THIS METHOD DIRECTLY.
-    """
-
-    # sanity check: must be a state-creation operation 
-    if opcode not in OPCODE_NAME_STATE_CREATIONS + OPCODE_NAMESPACE_STATE_CREATIONS:
-        log.error("FATAL: Opcode '%s' is not a state-creating operation" % opcode)
-        os.abort()
-       
-    try:
-        assert 'preorder_hash' in preorder_record.keys(), "BUG: no preorder hash"
-        assert 'block_number' in preorder_record.keys(), "BUG: preorder has no block number"
-        assert 'vtxindex' in preorder_record.keys(), "BUG: preorder has no vtxindex"
-        assert 'txid' in preorder_record.keys(), "BUG: preorder has no txid"
-        assert 'burn_address' in preorder_record.keys(), 'BUG: preorder has no burn address'
-    except Exception, e:
-        log.exception(e)
-        log.error("FATAL: no preorder hash")
-        os.abort()
-
-    preorder_block_id = preorder_record['block_number']
-    preorder_vtxindex = preorder_record['vtxindex']
-    preorder_txid = preorder_record['txid']
-    
-    try:
-      
-        assert preorder_block_id in history_snapshot.keys(), "BUG: no history snapshot at %s" % block_id
-        assert len(history_snapshot[preorder_block_id]) > 0, "BUG: no history at %" % block_id
-
-        # verify that this is a whole record 
-        rc = namedb_is_history_snapshot( history_snapshot[preorder_block_id][-1] )
-        if not rc:
-            raise Exception("History snapshot sanity checks failed")
-
-        assert 'history_snapshot' in history_snapshot[preorder_block_id][-1].keys(), "BUG: not a marked history snapshot"
-        assert history_snapshot[preorder_block_id][-1]['history_snapshot'], "BUG: not a true history snapshot"
-
-        rc = namedb_state_mutation_sanity_check( opcode, new_record )
-        if not rc:
-            raise Exception("State mutation sanity checks failed")
-
-    except Exception, e:
-        log.exception(e)
-        log.error("FATAL: state-creation sanity check failed")
-        os.abort()
-
-    # save the history snapshot at the preorder block/txindex/txid
-    rc = namedb_history_save( cur, opcode, history_id, None, preorder_block_id, preorder_vtxindex, preorder_txid, history_snapshot[preorder_block_id][-1], history_snapshot=True )
-    if not rc:
-        log.error("FATAL: failed to save history snapshot for '%s' at (%s, %s)" % (history_id, preorder_block_id, preorder_vtxindex))
-        os.abort()
-
-    # save the preorder as history at the current time
-    rc = namedb_history_save( cur, opcode, history_id, new_record['address'], block_id, vtxindex, txid, preorder_record )
-    if not rc:
-        log.error("FATAL: failed to save history for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
-        os.abort()
-
-    # make sure we have a name 
-    op_data_name = copy.deepcopy( new_record )
-
-    rc = False
-    if opcode in OPCODE_NAME_STATE_CREATIONS:
-        # name state transition 
-        op_data_name['name'] = history_id
-        rc = namedb_name_update( cur, opcode, op_data_name )
-
-    elif opcode in OPCODE_NAMESPACE_STATE_CREATIONS:
-        # namespace state transition 
-        op_data_name['namespace_id'] = history_id
-        rc = namedb_namespace_update( cur, opcode, op_data_name )
-   
-    if not rc:
-        log.error("FATAL: opcode is not a state-creation operation")
-        os.abort()
-
-    # success!
-    return True
-
-
-def namedb_history_save( cur, opcode, history_id, creator_address, block_id, vtxindex, txid, input_rec, history_snapshot=False ):
-    """
-    Given a current record and an operation to perform on it,
-    calculate and save its history diff (i.e. all the fields that
-    the operation will change).
     @history_id is either the name or namespace ID
 
     Return True on success
     Raise an Exception on error
     """
 
-    history_diff = None 
-
-    log.debug("SAVE HISTORY %s[creator:%s] AT (%s, %s)" % (history_id, creator_address if creator_address else '(none)', block_id, vtxindex))
-
-    # special case: if the given record was created by an operation
-    # whose mutate fields are "__all__", then *everything* must be
-    # snapshotted, regardless of what the operation changes.
-    prev_opcode = op_get_opcode_name( input_rec['op'] )
-    prev_history_diff_fields = op_get_backup_fields( prev_opcode )
-    if '__all__' in prev_history_diff_fields or history_snapshot:
-
-        # full back-up of this record
-        if not history_snapshot:
-            history_diff_fields = op_get_consensus_fields( prev_opcode ) + filter(lambda x: x != '__all__', prev_history_diff_fields)
-        else:
-            history_diff_fields = input_rec.keys()
-
-            # don't preserve history if given 
-            if 'history' in history_diff_fields:
-                history_diff_fields.remove('history')
-
-        history_snapshot = True
-
-        log.debug("Backup (%s, %s) from %s: %s" % (block_id, vtxindex, prev_opcode, ",".join(sorted(history_diff_fields))))
-        history_diff = dict( [(field, input_rec[field]) for field in history_diff_fields] )
-        history_diff['history_snapshot'] = True
-
-    else:
-        
-        # field-by-field backup of this record
-        # sanity check...
-        # what fields will this opcode overwrite?
-        history_diff_fields = op_get_backup_fields( opcode )
-
-        # sanity check: given operation must have the fields to be backed up
-        missing = []
-        for field in history_diff_fields:
-            if not input_rec.has_key( field ):
-                missing.append( field )
-
-        assert len(missing) == 0, "BUG: missing history diff fields '%s'" % ",".join(missing)
-
-        log.debug("Backup (%s, %s) from %s: %s" % (block_id, vtxindex, prev_opcode, ",".join(sorted(history_diff_fields))))
-        history_diff = dict( [(field, input_rec.get(field, None)) for field in history_diff_fields] )
-
-    rc = namedb_history_append( cur, history_id, creator_address, block_id, vtxindex, txid, history_diff )
-    if not rc:
-        raise Exception("Failed to save history for '%s' at %s" % (history_rec, block_id))
-
-    return True
-
-
-def namedb_history_append( cur, history_id, creator_address, block_id, vtxindex, txid, history_rec ):
-    """
-    Append a history record at the given (block_id, vtxindex) point in time, for a
-    record with the primary key @history_id.
-
-    DO NOT CALL THIS DIRECTLY; USE namedb_history_save()
-    """
-
-    assert 'vtxindex' in history_rec, "Malformed history record at %s: missing vtxindex" % block_id
-    assert 'txid' in history_rec, "Malformed history record at (%s,%s): missing txid" % (block_id, history_rec['vtxindex'])
-    assert 'op' in history_rec, "Malformed history record at (%s,%s): missing op" % (block_id, history_rec['vtxindex'])
+    assert 'op' in accepted_rec, "Malformed record at ({},{}): missing op".format(block_id, accepted_rec['vtxindex'])
     
-    record_txt = json.dumps( history_rec )
+    op = accepted_rec['op']
+   
+    record_data = op_canonicalize(opcode, accepted_rec)
+    record_txt = json.dumps(record_data, sort_keys=True)
 
     history_insert = {
         "txid": txid,
@@ -1369,8 +1185,10 @@ def namedb_history_append( cur, history_id, creator_address, block_id, vtxindex,
         "creator_address": creator_address,
         "block_id": block_id,
         "vtxindex": vtxindex,
-        "op": history_rec['op'],
-        "history_data": record_txt
+        "op": op,
+        "opcode": opcode,
+        "history_data": record_txt,
+        'value_hash': value_hash
     }
 
     try:
@@ -1460,14 +1278,12 @@ def namedb_get_history( cur, history_id ):
 
 def namedb_history_extract( history_rows ):
     """
-    TODO: DRY up; moved to client
-
     Given the rows of history for a name, collapse
     them into a history dictionary.
     Return a dict of:
     {
         block_id: [
-            { ... historical data ...
+            { ... historical copy ...
              txid:
              vtxindex:
              op:
@@ -1485,7 +1301,8 @@ def namedb_history_extract( history_rows ):
         data_json = history_row['history_data']
         hist = json.loads( data_json )
         
-        hist[ 'opcode' ] = op_get_opcode_name( hist['op'] )
+        hist['opcode'] = op_get_opcode_name( hist['op'] )
+        hist = op_decanonicalize(hist['opcode'], hist)
 
         if history.has_key( block_id ):
             history[ block_id ].append( hist )
@@ -1554,10 +1371,7 @@ def namedb_get_namespace( cur, namespace_id, current_block, include_expired=Fals
         hist = namedb_get_history( cur, namespace_id )
         namespace['history'] = hist
 
-    # convert buckets back to list 
-    buckets = json.loads( namespace['buckets'] )
-    namespace['buckets'] = buckets
-
+    namespace = op_decanonicalize(op_get_opcode_name(namespace['op']), namespace)
     return namespace
 
 
@@ -1581,10 +1395,7 @@ def namedb_get_namespace_by_preorder_hash( cur, preorder_hash, include_history=T
         hist = namedb_get_history( cur, namespace['namespace_id'] )
         namespace['history'] = hist
 
-    # convert buckets back to list 
-    buckets = json.loads( namespace['buckets'] )
-    namespace['buckets'] = buckets
-
+    namespace = op_decanonicalize(op_get_opcode_name(namespace['op']), namespace)
     return namespace
 
 
@@ -1679,7 +1490,86 @@ def namedb_get_name( cur, name, current_block, include_expired=False, include_hi
     return name_rec
 
 
-def namedb_get_preorder( cur, preorder_hash, current_block_number, include_expired=False, expiry_time=None ):
+def namedb_get_record_states_at(cur, history_id, block_number):
+    """
+    Get the state(s) that the given history record was in at a given block height.
+    Normally, this is one state (i.e. if a name was registered at block 8, then it is in a NAME_REGISTRATION state in block 10)
+
+    However, if the record changed at this block, then this method returns all states the record passed through.
+
+    Returns an array of record states
+    """
+    query = 'SELECT block_id,history_data FROM history WHERE history_id = ? AND block_id == ? ORDER BY block_id,vtxindex DESC'
+    args = (history_id, block_number)
+    history_rows = namedb_query_execute(cur, query, args)
+    ret = []
+
+    for row in history_rows:
+        history_data = simplejson.loads(row['history_data'])
+        ret.append(history_data)
+
+    if len(ret) > 0:
+        # record changed in this block
+        return ret
+    
+    # if the name did not change in this block, then find the last version of the name
+    query = 'SELECT block_id,history_data FROM history WHERE history_id = ? AND block_id < ? ORDER BY block_id,vtxindex DESC LIMIT 1'
+    args = (history_id, block_number)
+    history_rows = namedb_query_execute(cur, query, args)
+    
+    for row in history_rows:
+        history_data = simplejson.loads(row['history_data'])
+        ret.append(history_data)
+
+    return ret
+
+
+def namedb_get_name_at(cur, name, block_number, include_expired=False):
+    """
+    Get the sequence of states that a name record was in at a particular block height.
+    There can be more than one if the name changed during the block.
+
+    Returns only unexpired names by default.  Can return expired names with include_expired=True
+    Returns None if this name does not exist at this block height.
+    """
+    if not include_expired:
+        # don't return anything if this name is expired
+        name_rec = namedb_get_name(cur, name, block_number, include_expired=False, include_history=False)
+        if name_rec is None:
+            # expired at this block.
+            return None
+
+    history_rows = namedb_get_record_states_at(cur, name, block_number)
+    if len(history_rows) == 0:
+        # doesn't exist
+        return None
+    else:
+        return history_rows
+
+
+def namedb_get_namespace_at(cur, namespace_id, block_number, include_expired=True):
+    """
+    Get the sequence of states that a namespace record was in at a particular block height.
+    There can be more than one if the namespace changed durnig the block.
+    
+    Returns only unexpired namespaces by default.  Can return expired namespaces with include_expired=True
+    """
+    if not include_expired:
+        # don't return anything if the namespace was expired at this block.
+        namespace_rec = namedb_get_namespace(cur, namespace_id, block_number, include_expired=False, include_history=False)
+        if namespace_rec is None:
+            # expired at this block 
+            return None
+
+    history_rows = namedb_get_record_states_at(cur, name, block_number)
+    if len(history_rows) == 0:
+        # doesn't exist yet 
+        return None
+    else:
+        return history_rows
+
+
+def namedb_get_preorder(cur, preorder_hash, current_block_number, include_expired=False, expiry_time=None):
     """
     Get a preorder record by hash.
     If include_expired is set, then so must expiry_time
@@ -1781,54 +1671,6 @@ def namedb_get_historic_names_by_address( cur, address, offset=None, count=None 
         return names
 
 
-def namedb_restore_from_history( name_rec, block_id ):
-    """
-    Given a name or a namespace record, replay its
-    history diffs "back in time" to a particular block
-    number.
-
-    Return the sequence of states the name record went
-    through at that block number, starting from the beginning
-    of the block.
-
-    Return None if the record does not exist at that point in time
-
-    The returned records will *not* have a 'history' key.
-    """
-    
-    return blockstack_client.operations.nameop_restore_from_history( name_rec, name_rec['history'], block_id )
-    
-
-def namedb_rec_restore( db, rows, history_id_key, block_id, include_history=False ):
-    """
-    Restore a record to its previous states over a block.
-    Return the list of previous states (not sorted; you can do so on vtxindex if you want).
-    """
-
-    def get_history( history_id ):
-        hist_cur = db.cursor()
-        hist = namedb_get_history( hist_cur, history_id )
-        return hist
-
-    ret = []
-    
-    for row in rows:
-        rec = {}
-        rec.update( row )
-
-        rec_history = get_history( rec[history_id_key] )
-        rec['history'] = rec_history
-
-        restored_recs = namedb_restore_from_history( rec, block_id )
-        if include_history:
-            for r in restored_recs:
-                r['history'] = rec_history
-        
-        ret += restored_recs
-
-    return ret
-
-
 def namedb_offset_count_predicate( offset=None, count=None ):
     """
     Make an offset/count predicate
@@ -1864,465 +1706,101 @@ def namedb_select_count_rows( cur, query, args, count_column='COUNT(*)' ):
     return count
 
 
-def namedb_get_names_preordered_or_imported_at( db, block_id, include_history=False, offset=None, count=None, restore_history=True ):
-    """
-    Get the list of names preordered or imported at this block height.
-
-    Return either the list of rows on success.
-    If offset is not None, and the offset exceeds the number of rows,
-    return the number of rows instead.
-
-    Note that offset/count affect db queries, not history restorations.
-    If restore_history is True, then offset/count cannot be set.
-    """
-
-    assert not (restore_history and (offset is not None or count is not None)), "restore_history is incompatible with offset/length"
-
-    if offset is not None:
-        # how many name records preordered for the first time at this block?
-        cur = db.cursor()
-        name_preorder_rows_count_query = "SELECT COUNT(*) FROM name_records " + \
-                                         "WHERE (name_records.block_number = ? OR name_records.preorder_block_number = ?);"
-        args = (block_id,block_id)
-
-        num_rows = namedb_select_count_rows( cur, name_preorder_rows_count_query, args )
-        if num_rows < offset:
-            log.debug("%s name-preorder states at %s" % (num_rows, block_id ))
-            return num_rows
-
-    # all name records preordered for the first time at this block 
-    cur = db.cursor()
-
-    offset_count_query, offset_count_args = namedb_offset_count_predicate( offset=offset, count=count )
-    name_preorder_rows_query = "SELECT * FROM name_records " + \
-                               "WHERE (name_records.block_number = ? OR name_records.preorder_block_number = ?) " + offset_count_query + ";"
-    args = (block_id,block_id) + offset_count_args
-
-    # log.debug(namedb_format_query(name_preorder_rows_query, args))
-
-    name_preorder_rows = namedb_query_execute( cur, name_preorder_rows_query, args )
-
-    if restore_history:
-        restored_recs = namedb_rec_restore( db, name_preorder_rows, "name", block_id, include_history=include_history )
-    else:
-        restored_recs = [dict(r) for r in name_preorder_rows]
-
-    # keep only the preorders if we're returning fully-restored records (in case register happens in the same block).
-    # otherwise, return all of them.
-    restored_recs = filter( lambda rec: (not restore_history or (rec['op'] == NAME_PREORDER or rec['op'] == NAME_IMPORT)), restored_recs )
-
-    log.debug("%s name-preorder/import states at %s" % (len(restored_recs), block_id ))
-
-    return restored_recs
-
-
-def namedb_get_names_modified_at( db, block_id, include_history=False, offset=None, count=None, restore_history=True ):
-    """
-    Get the list of name-modification operations that occurred at the given block height.
-
-    Return the list of name operations on success.
-    If offset is not None, and offset exceeds the number of rows,
-    then return the number of rows instead.
-    
-    Note that offset/count affect db queries, not history restorations.
-    If restore_history is True, then offset/count cannot be set.
-    """
-
-    assert not (restore_history and (offset is not None or count is not None)), "restore_history is incompatible with offset/length"
-
-    if offset is not None:
-        # how many name records affected by this block?
-        cur = db.cursor()
-        name_rows_count_query = "SELECT name_records.name FROM name_records JOIN history ON name_records.name = history.history_id " + \
-                                "WHERE name_records.block_number < ? AND name_records.preorder_block_number != ? AND history.block_id = ? " + \
-                                "GROUP BY name_records.name;"
-
-        args = (block_id, block_id, block_id)
-        name_rows = namedb_query_execute( cur, name_rows_count_query, args )
-        num_rows = 0
-        for r in name_rows:
-            num_rows += 1
-
-        if num_rows < offset:
-            log.debug("%s name-change states at %s" % (num_rows, block_id))
-            return num_rows
-
-    # all name records affected at this height
-    cur = db.cursor()
-
-    offset_count_query, offset_count_args = namedb_offset_count_predicate( offset=offset, count=count )
-    name_rows_query = "SELECT name_records.* FROM name_records JOIN history ON name_records.name = history.history_id " + \
-                      "WHERE name_records.block_number < ? AND name_records.preorder_block_number != ? AND history.block_id = ? " + \
-                      "GROUP BY name_records.name " + offset_count_query + ";"
-
-    args = (block_id, block_id, block_id) + offset_count_args
-
-    # log.debug(namedb_format_query(name_rows_query, args))
-
-    name_rows = namedb_query_execute( cur, name_rows_query, args )
-
-    if restore_history:
-        restored_recs = namedb_rec_restore( db, name_rows, "name", block_id, include_history=include_history )
-    else:
-        restored_recs = [dict(r) for r in name_rows]
-
-    log.debug("%s name-change states at %s" % (len(restored_recs), block_id ))
-
-    return restored_recs
-
-
-def namedb_get_preorders_at( db, block_id, offset=None, count=None ):
-    """
-    Get the list of outstanding preorders at this block height.
-
-    Return a list of preorders from the preorders table.
-    If offset is not None, and the offset exceeds the number of preorders,
-    then return the number of rows instead.
-    """
-    ret = []
-
-    if offset is not None:
-        # how many preorders at this block?
-        cur = db.cursor()
-        preorder_rows_count_query = "SELECT COUNT(*) FROM preorders WHERE block_number = ?;"
-        args = (block_id,)
-
-        num_rows = namedb_select_count_rows( cur, preorder_rows_count_query, args )
-        if num_rows < offset:
-            log.debug("%s preorders created at %s" % (num_rows, block_id))
-            return num_rows
-
-    cur = db.cursor()
-    
-    offset_count_query, offset_count_args = namedb_offset_count_predicate( offset=offset, count=count )
-
-    preorder_rows_query = "SELECT * FROM preorders WHERE block_number = ? " + " " + offset_count_query + ";"
-    args = (block_id,) + offset_count_args
-
-    # log.debug(namedb_format_query(preorder_rows_query, args))
-
-    preorder_rows = namedb_query_execute( cur, preorder_rows_query, args )
-
-    cnt = 0
-    for preorder in preorder_rows:
-
-        preorder_rec = {}
-        preorder_rec.update( preorder )
-
-        ret.append( preorder_rec )
-        cnt += 1
-
-    log.debug("%s preorders created at %s" % (cnt, block_id))
-    return ret
-
-
-def namedb_get_namespaces_preordered_at( db, block_id, include_history=False, offset=None, count=None, restore_history=True ):
-    """
-    Get the namespace preorders that have occurred at the given block height.
-
-    Return the list of namespace preorders from this block.
-    If offset is not None, and the offset exceeds the number of preorders,
-    then return the number of rows instead
-
-    Note that offset/count affect db queries, not history restorations.
-    If restore_history is True, then offset/count cannot be set.
-    """
-
-    assert not (restore_history and (offset is not None or count is not None)), "restore_history is incompatible with offset/length"
-
-    if offset is not None:
-        # how many namespace preorders in this block?
-        cur = db.cursor()
-        namespace_preorder_rows_count_query = "SELECT COUNT(*) FROM namespaces WHERE namespaces.block_number = ?;"
-        args = (block_id,)
-
-        num_rows = namedb_select_count_rows( cur, namespace_preorder_rows_count_query, args )
-        if num_rows < offset:
-            log.debug("%s namespace-preorders at at %s" % (num_rows, block_id))
-            return num_rows
-
-    cur = db.cursor()
-
-    offset_count_query, offset_count_args = namedb_offset_count_predicate( offset=offset, count=count )
-    namespace_preorder_rows_query = "SELECT * FROM namespaces WHERE namespaces.block_number = ? " + offset_count_query + ";"
-    args = (block_id,) + offset_count_args
-
-    # log.debug(namedb_format_query(namespace_preorder_rows_query, args))
-
-    namespace_preorder_rows = namedb_query_execute( cur, namespace_preorder_rows_query, args )
-
-    if restore_history:
-        restored_recs = namedb_rec_restore( db, namespace_preorder_rows, "namespace_id", block_id, include_history=include_history )
-    else:
-        restored_recs = [dict(r) for r in namespace_preorder_rows]
-
-    log.debug("%s namespace-preorder states at %s" % (len(restored_recs), block_id ))
-    return restored_recs
-
-
-def namedb_get_namespaces_modified_at( db, block_id, include_history=False, offset=None, count=None, restore_history=True ):
-    """
-    Get the namespace operations that occurred at the given blocok height.
-
-    Return the list of namespace operations from this block.
-    If offset is not None, and the offset exceeds the number of preorders,
-    then return the number of rows instead.
-
-    Note that offset/count affect db queries, not history restorations.
-    If restore_history is True, then offset/count cannot be set.
-    """
-    
-    assert not (restore_history and (offset is not None or count is not None)), "restore_history is incompatible with offset/length"
-
-    if offset is not None:
-        # how many namespaces modified in this block?
-        cur = db.cursor()
-        namespace_rows_query = "SELECT COUNT(*) FROM namespaces JOIN history ON namespaces.namespace_id = history.history_id " + \
-                               "WHERE namespaces.block_number <= ? AND history.block_id = ? AND (namespaces.op = ? OR namespaces.op = ?);"
-
-        args = (block_id, block_id, NAMESPACE_REVEAL, NAMESPACE_READY)
-        
-        num_rows = namedb_select_count_rows( cur, namespace_rows_query, args )
-        if num_rows < offset:
-            log.debug("%s namespace-change states at %s" % (num_rows, block_id))
-            return num_rows
-
-    cur = db.cursor()
-
-    offset_count_query, offset_count_args = namedb_offset_count_predicate( offset=offset, count=count )
-    namespace_rows_query = "SELECT namespaces.* FROM namespaces JOIN history ON namespaces.namespace_id = history.history_id " + \
-                           "WHERE namespaces.block_number <= ? AND history.block_id = ? AND (namespaces.op = ? OR namespaces.op = ?) " + offset_count_query + ";"
-
-    args = (block_id, block_id, NAMESPACE_REVEAL, NAMESPACE_READY) + offset_count_args
-
-    # log.debug(namedb_format_query(namespace_rows_query, args))
-
-    namespace_rows = namedb_query_execute( cur, namespace_rows_query, args )
-
-    if restore_history:
-        restored_recs = namedb_rec_restore( db, namespace_rows, "namespace_id", block_id, include_history=include_history )
-    else:
-        restored_recs = [dict(r) for r in namespace_rows]
-
-    log.debug("%s namespace-change states at %s" % (len(restored_recs), block_id ))
-    return restored_recs
-
-
-def namedb_get_all_ops_countdown( restored_recs, rel_offset, remaining ):
-    """
-    Given the result of a query, update rel_offset and remaining
-    to reflect the relative offset of the next query and the number
-    of rows to actually fetch.
-
-    Return (list of records, new relative offset, new remaining count)
-    """
-
-    if remaining is None:
-        # fetching all recs 
-        return (restored_recs, rel_offset, remaining)
-
-    rows = []
-    if type(restored_recs) in [int, long]:
-        # skipped all rows in this query 
-        rel_offset -= restored_recs
-
-    else:
-        # got data
-        rel_offset = 0
-
-        # overshoot?
-        if len(restored_recs) > remaining:
-            restored_recs = restored_recs[:remaining]
-
-        remaining -= len(restored_recs)
-        rows = restored_recs
-
-    log.debug("%s rows, rel_offset = %s, remaining = %s" % (len(rows), rel_offset, remaining))
-    return (rows, rel_offset, remaining)
-       
-
-
-def namedb_get_all_ops_at( db, block_id, offset=None, count=None, include_history=False, restore_history=True ):
+def namedb_get_all_ops_at(db, block_id, offset=None, count=None):
     """
     Get the states that each name and namespace record
     passed through in the given block.
 
     Return the list of prior record states, ordered by vtxindex.
-
-    If we're paging (i.e. offset, count aren't None), then we won't restore the name records to their
-    historical points in time. This is an anti-DDoS measure.  Honest clients will need to fetch the
-    name/namespace history separately (paginated) and re-assemble the history and current record state
-    into the historic state client-side.
-
-    In this case, offset/count only refer to the number of unique records affected at this block.  
-    Multiple modifications to the same record will be ignored.
-
-    No ordering within these lists is guaranteed during pagination.
     """
+    assert (count is None and offset is None) or (count is not None and offset is not None), 'Invalid arguments: expect both offset/count or neither offset/count'
 
-    assert not (restore_history and (offset is not None or count is not None)), "Invalid arguments: restore_history is incompatible with pagination"
-    
     ret = []
-    rel_offset = offset
-    remaining = count
+    cur = db.cursor()
 
-    # all name records preordered or imported for the first time at this block 
-    res = namedb_get_names_preordered_or_imported_at( db, block_id, offset=rel_offset, count=remaining, include_history=include_history, restore_history=restore_history )
-    restored_recs, rel_offset, remaining = namedb_get_all_ops_countdown( res, rel_offset, remaining )
+    # how many preorders at this block?
+    offset_count_query, offset_count_args = namedb_offset_count_predicate(offset=offset, count=count)
 
-    ret += restored_recs
-    if remaining is not None and remaining <= 0:
-        return ret
+    preorder_count_rows_query = "SELECT COUNT(*) FROM preorders WHERE block_number = ? " + " " + offset_count_query + ";"
+    preorder_count_rows_args = (block_id,) + offset_count_args
 
-    # all name records affected by this block 
-    res = namedb_get_names_modified_at( db, block_id, offset=rel_offset, count=remaining, include_history=include_history, restore_history=restore_history )
-    restored_recs, rel_offset, remaining = namedb_get_all_ops_countdown( res, rel_offset, remaining )
+    # log.debug(namedb_format_query(preorder_count_rows_query, preorder_count_rows_args))
 
-    ret += restored_recs
-    if remaining is not None and remaining <= 0:
-        return ret
+    num_preorders = namedb_select_count_rows(cur, preorder_count_rows_query, preorder_count_rows_args)
 
-    # all outstanding name/namespace preorders created at this block
-    res = namedb_get_preorders_at( db, block_id, offset=rel_offset, count=remaining )
-    restored_recs, rel_offset, remaining = namedb_get_all_ops_countdown( res, rel_offset, remaining )
+    # get preorders at this block
+    offset_count_query, offset_count_args = namedb_offset_count_predicate(offset=offset, count=count)
 
-    ret += restored_recs
-    if remaining is not None and remaining <= 0:
-        return ret
+    preorder_rows_query = "SELECT * FROM preorders WHERE block_number = ? " + " " + offset_count_query + ";"
+    preorder_rows_args = (block_id,) + offset_count_args
 
-    # all namespaces preordered at this block
-    res = namedb_get_namespaces_preordered_at( db, block_id, include_history=include_history, offset=rel_offset, count=remaining, restore_history=restore_history )
-    restored_recs, rel_offset, remaining = namedb_get_all_ops_countdown( res, rel_offset, remaining )
+    # log.debug(namedb_format_query(preorder_rows_query, preorder_rows_args))
 
-    ret += restored_recs
-    if remaining is not None and remaining <= 0:
-        return ret
+    preorder_rows = namedb_query_execute(cur, preorder_rows_query, preorder_rows_args)
 
-    # all namespaces revealed/readied at this block
-    res = namedb_get_namespaces_modified_at( db, block_id, include_history=include_history, offset=rel_offset, count=remaining, restore_history=restore_history )
-    restored_recs, rel_offset, remaining = namedb_get_all_ops_countdown( res, rel_offset, remaining )
+    cnt = 0
+    for preorder in preorder_rows:
+        preorder_rec = {}
+        preorder_rec.update( preorder )
+        
+        ret.append( preorder_rec )
+        cnt += 1
 
-    ret += restored_recs
-    if remaining is not None and remaining <= 0:
-        return ret
+    log.debug("{} preorders created at {}".format(cnt, block_id))
 
-    # got everything.  put into block order.
-    return sorted( ret, key=lambda n: n['vtxindex'] )
+    # don't return too many rows, and slide down the offset window
+    if count is not None and offset is not None:
+        offset = min(0, offset - num_preorders)
+        count -= num_preorders
+        if count <= 0:
+            # done!
+            return ret
+
+    # get all other operations at this block
+    offset_count_query, offset_count_args = namedb_offset_count_predicate(offset=offset, count=count)
+    query = "SELECT history_data FROM history WHERE block_id = ? ORDER BY vtxindex " + offset_count_query + ";"
+    args = (block_id,) + offset_count_args
+
+    # log.debug(namedb_format_query(query, args))
+
+    rows_result = namedb_query_execute(cur, query, args)
+
+    # extract rows
+    cnt = 0
+    for r in rows_result:
+        history_data_str = r['history_data']
+
+        try:
+            history_data = json.loads(history_data_str)
+        except Exception as e:
+            log.exception(e)
+            log.error("FATAL: corrupt JSON string '{}'".format(history_data_str))
+            os.abort()
+
+        ret.append(history_data)
+        cnt += 1
+
+    log.debug("{} non-preorder operations at {}".format(cnt, block_id))
+    return ret
 
 
 def namedb_get_num_ops_at( db, block_id ):
     """
     Get the number of operations that occurred at a particular block.
-    Optionally select only the ones listed in op_filter
     """
-    # get just the counts
+    query = "SELECT COUNT(*) FROM history WHERE block_id = ?;"
+    args = (block_id,)
+
+    cur = db.cursor()
+    rows_result = namedb_query_execute(cur, query, args)
+
     count = 0
-
-    res = namedb_get_names_preordered_or_imported_at( db, block_id, offset=1e9, count=1e9, restore_history=False )
-    count += res
-
-    res = namedb_get_names_modified_at( db, block_id, offset=1e9, count=1e9, restore_history=False )
-    count += res
-
-    res = namedb_get_preorders_at( db, block_id, offset=1e9, count=1e9 )
-    count += res
-    
-    res = namedb_get_namespaces_preordered_at( db, block_id, offset=1e9, count=1e9, restore_history=False )
-    count += res
-
-    res = namedb_get_namespaces_modified_at( db, block_id, offset=1e9, count=1e9, restore_history=False )
-    count += res
+    for r in rows_result:
+        count = r['COUNT(*)']
+        break
 
     return count
     
-
-def namedb_get_last_nameops( db, offset=None, count=None ):
-    """
-    Get the last $count records committed, starting at $offset
-    Return the list of name operations.
-    Return None on error
-    """
-    if offset is None:
-        offset = 0
-
-    if count is None:
-        count = 0
-
-    if offset == 0 and count == 0:
-        return None
-
-    block_map = {}        # maps block height to a list of transaction indexes
-    ret = []
-    cur = db.cursor()
-
-    # TODO: actually paginate this
-    previous_query = "SELECT name_records.block_number name_block_number,namespaces.block_number namespaces_block_number,history.block_id history_block_id,history.vtxindex history_vtxindex " + \
-                     "FROM history " + \
-                     "LEFT JOIN name_records ON name_records.name = history.history_id " + \
-                     "LEFT JOIN namespaces ON history.history_id = namespaces.namespace_id " + \
-                     "ORDER BY history.block_id DESC, history.vtxindex DESC;"
-    
-    previous_rows = namedb_query_execute( cur, previous_query, () )
-
-    added = 0
-    for r in previous_rows:
-        print r
-        if r['history_vtxindex'] is None:
-            continue
-
-        # get the history of operations
-        if r['history_block_id'] is None:
-            continue
-
-        if r['history_block_id'] not in block_map.keys():
-            block_map[r['history_block_id']] = 0
-
-        block_map[r['history_block_id']] += 1
-
-        # don't forget to count the block numbers for the names and namespacess
-        for col in ['name_block_number', 'namespaces_block_number']:
-            if r[col] is None:
-                continue
-
-            if r[col] not in block_map.keys():
-                block_map[r[col]] = 1
-    
-
-    # find the blocks to actually load by expanding
-    hist = []
-    for k in sorted(block_map.keys()):
-        for v in xrange(0, block_map[k]):
-            hist.append((k, v))
-
-    hist.reverse()
-
-    # get the blocks' operations that correspond to offset and offset+count
-    blocks_to_fetch = []
-    for (height, vtxindex) in hist[offset:offset+count]:
-        if not height in blocks_to_fetch:
-            blocks_to_fetch.append(height)
-
-
-    # TODO: pagenate
-    ret = []
-    for h in blocks_to_fetch:
-        ops = namedb_get_all_ops_at( db, h )
-        ops.reverse()
-        ret += ops
-
-    # ret is aligned to block boundaries, so it doesn't correspond to offset or offset+length
-    # how many ops do we drop from the left?
-    left_drop = 0
-    left_block = blocks_to_fetch[0]
-    i = offset-1
-    while i >= 0 and hist[i][0] == left_block:
-        # drop these ops
-        left_drop += 1
-        i -= 1
-
-    ret = ret[left_drop:left_drop+count]
-    return ret
-   
 
 def namedb_get_num_names( cur, current_block, include_expired=False ):
     """
@@ -2428,22 +1906,6 @@ def namedb_get_all_namespace_ids( cur ):
     return ret
 
 
-def namedb_get_all_preordered_namespace_hashes( cur, current_block ):
-    """
-    Get a list of all preordered namespace hashes that haven't expired yet.
-    """
-
-    query = "SELECT preorder_hash FROM preorders WHERE op = ? AND block_number >= ? AND block_number < ?;"
-    args = (NAMESPACE_PREORDER, current_block, current_block + NAMESPACE_PREORDER_EXPIRE )
-
-    namespace_rows = namedb_query_execute( cur, query, args )
-    ret = []
-    for namespace_row in namespace_rows:
-        ret.append( namespace_row['preorder_hash'] )
-
-    return ret
-
-
 def namedb_get_all_revealed_namespace_ids( self, current_block ):
     """
     Get all non-expired revealed namespaces.
@@ -2501,7 +1963,8 @@ def namedb_get_names_by_sender( cur, sender, current_block ):
 def namedb_get_name_preorder( db, preorder_hash, current_block ):
     """
     Get a (singular) name preorder record outstanding at the given block, given the preorder hash.
-
+    NOTE: returns expired preorders.
+    
     Return the preorder record on success.
     Return None if not found.
     """
@@ -2586,6 +2049,7 @@ def namedb_get_namespace_reveal( cur, namespace_id, current_block, include_histo
 
     select_query = "SELECT * FROM namespaces WHERE namespace_id = ? AND op = ? AND reveal_block <= ? AND ? < reveal_block + ?;"
     args = (namespace_id, NAMESPACE_REVEAL, current_block, current_block, NAMESPACE_REVEAL_EXPIRE)
+
     namespace_reveal_rows = namedb_query_execute( cur, select_query, args )
 
     namespace_reveal_row = namespace_reveal_rows.fetchone()
@@ -2599,11 +2063,8 @@ def namedb_get_namespace_reveal( cur, namespace_id, current_block, include_histo
     if include_history:
         hist = namedb_get_history( cur, namespace_id )
         reveal_rec['history'] = hist
-
-    # convert buckets back to list 
-    buckets = json.loads( reveal_rec['buckets'] )
-    reveal_rec['buckets'] = buckets
-
+    
+    reveal_rec = op_decanonicalize('NAMESPACE_REVEAL', reveal_rec)
     return reveal_rec
 
 
@@ -2629,10 +2090,7 @@ def namedb_get_namespace_ready( cur, namespace_id, include_history=True ):
         hist = namedb_get_history( cur, namespace_id )
         namespace['history'] = hist
 
-    # convert buckets back to list 
-    buckets = json.loads( namespace['buckets'] )
-    namespace['buckets'] = buckets
-
+    namespace = op_decanonicalize('NAMESPACE_READY', namespace)
     return namespace
 
 
@@ -2659,7 +2117,7 @@ def namedb_get_name_from_name_hash128( cur, name_hash128, block_number ):
 
 def namedb_get_names_with_value_hash( cur, value_hash, block_number ):
     """
-    Get the names with the given value hash.
+    Get the names with the given value hash.  Only includes current, non-revoked names.
     Return None if there are no names.
     """
 
@@ -2680,6 +2138,24 @@ def namedb_get_names_with_value_hash( cur, value_hash, block_number ):
         return names
 
 
+def namedb_get_value_hash_txids(cur, value_hash):
+    """
+    Get the list of txs that sent this value hash, ordered by block and vtxindex
+    """
+    query = 'SELECT txid FROM history WHERE value_hash = ? ORDER BY block_id,vtxindex;'
+    args = (value_hash,)
+
+    rows = namedb_query_execute(cur, query, args)
+    txids = []
+    
+    for r in rows:
+        # present
+        txid = str(r['txid'])
+        txids.append(txid)
+
+    return txids
+
+
 def namedb_get_num_block_vtxs( cur, block_number ):
     """
     How many virtual transactions were processed for this block?
@@ -2693,33 +2169,6 @@ def namedb_get_num_block_vtxs( cur, block_number ):
         count += 1
 
     return count
-
-
-def namedb_set_block_ops_hash( cur, block_number, ops_hash ):
-    """
-    Set the operations hash for a block height
-    """
-    insert_query = "INSERT INTO ops_hashes (block_id,ops_hash) VALUES (?,?);"
-    insert_args = (block_number, ops_hash)
-
-    namedb_query_execute( cur, insert_query, insert_args )
-
-
-def namedb_get_block_ops_hash( cur, block_number ):
-    """
-    Get the previously-stored ops hash for this block number.
-    Return None if not set.
-    """
-    select_query = "SELECT ops_hash FROM ops_hashes WHERE block_id = ?;"
-    select_args = (block_number,)
-
-    rows = namedb_query_execute( cur, select_query, select_args )
-    ops_hash = None
-    for r in rows:
-        ops_hash = r['ops_hash']
-        break
-
-    return ops_hash
 
 
 if __name__ == "__main__":
