@@ -188,36 +188,27 @@ def get_public_key_hex_from_tx( inputs, address ):
     it in other transactions' consensus data for legacy reasons that
     now have to be supported forever :(
     """
-    
-    ret = None 
-    
-    for inp in inputs:
-        
-        input_scriptsig = inp.get('scriptSig', None )
-        if input_scriptsig is None:
-            continue 
-        
-        input_asm = input_scriptsig.get("asm")
-        
-        if len(input_asm.split(" ")) >= 2:
-            
-            # public key is the second hex string.  verify it matches the address
-            pubkey_hex = input_asm.split(" ")[1]
-            pubkey = None 
-            
-            try:
-                pubkey = virtualchain.BitcoinPublicKey( str(pubkey_hex) ) 
-            except Exception, e: 
-                traceback.print_exc()
-                log.warning("Invalid public key '%s'" % pubkey_hex)
-                continue 
-            
-            if address != pubkey.address():
-                continue 
-            
-            ret = pubkey_hex
-            break
-        
-    return ret 
 
+    ret = None
+    for inp in inputs:
+        input_scriptsig = inp['script']
+        input_script_code = virtualchain.btc_script_deserialize(input_scriptsig)
+        if len(input_script_code) == 2:
+            # signature pubkey
+            pubkey_candidate = input_script_code[1]
+            pubkey = None
+            try:
+                pubkey = virtualchain.BitcoinPublicKey(pubkey_candidate)
+            except Exception as e:
+                traceback.print_exc()
+                log.warn("Invalid public key {}".format(pubkey_candidate))
+                continue
+
+            if address != pubkey.address():
+                continue
+
+            # success!
+            return pubkey_candidate
+
+    return None
 
