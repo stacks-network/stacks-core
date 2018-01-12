@@ -21,6 +21,8 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
+'''
+
 import json
 import tempfile
 import copy
@@ -42,6 +44,7 @@ from .storage import *
 from .nameset import *
 from .operations import *
 
+# DEPRECATED
 def rec_to_virtualchain_op( name_rec, block_number, history_index, working_db, untrusted_db ):
     """
     Given a record from the blockstack database,
@@ -86,6 +89,7 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, working_db, u
     return merged_ret_op
 
 
+# DEPRECATED
 def rec_restore_snv_consensus_fields( name_rec, block_id ):
     """
     Given a name record at a given point in time, ensure
@@ -115,6 +119,7 @@ def rec_restore_snv_consensus_fields( name_rec, block_id ):
     return merged_op
 
 
+# DEPRECATED
 def block_to_virtualchain_ops( block_id, working_db, untrusted_db ):
     """
     convert a block's name ops to virtualchain ops.
@@ -200,6 +205,45 @@ def block_to_virtualchain_ops( block_id, working_db, untrusted_db ):
     return virtualchain_ops
 
 
+# DEPRECATED
+def get_virtualchain_ops(untrusted_db, working_db, block_id):
+    """
+    Get all of the information from the untrusted db that was given to it by virtualchain.
+    Return the information in a form that virtualchain understands.
+    """
+    virtualchain_inputs = untrusted_db.get_virtualchain_data(block_id)
+    virtualchain_ops = []
+    for virtualchain_input in virtualchain_inputs:
+        opcode_name = op_get_opcode_name(virtualchain_input['op'])
+        assert opcode_name is not None, "Unrecognized opcode '{}'".format(virtualchain_input['op'])
+
+        virtualchain_op_data = copy.deepcopy(virtualchain_input)
+        virtualchain_op_data = virtualchain.virtualchain_set_opfields(virtualchain_op_data, \
+                                                                      virtualchain_opcode=virtualchain_op_data['op'],
+                                                                      virtualchain_txid=virtualchain_op_data['txid'],
+                                                                      virtualchain_txindex=virtualchain_op_data['vtxindex'])
+        
+        tx_data = virtualchain.btc_tx_deserialize(virtualchain_input['tx_hex'])
+        virtualchain_op_data['opcode'] = opcode_name
+        
+        virtualchain_op = virtualchain_hooks.db_parse(block_id, virtualchain_op_data['txid'], virtualchain_op_data['vtxindex'], \
+                                                      virtualchain_op_data['op'], virtualchain_op_data['data_hex'].decode('hex'),
+                                                      virtualchain_op_data['senders'], tx_data['ins'], tx_data['outs'],
+                                                      virtualchain_op_data['fee'], db_state=working_db, raw_tx=virtualchain_input['tx_hex'])
+
+        if virtualchain_op is None:
+            continue
+
+        virtualchain_op = virtualchain.virtualchain_set_opfields(virtualchain_op, \
+                                                                 virtualchain_opcode=virtualchain_op_data['op'],
+                                                                 virtualchain_txid=virtualchain_op_data['txid'],
+                                                                 virtualchain_txindex=virtualchain_op_data['vtxindex'])
+        virtualchain_ops.append(virtualchain_op)
+
+    return virtualchain_ops
+
+
+# DEPRECATED
 def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, resume_dir=None, start_block=None, expected_snapshots={} ):
     """
     Given a target block ID and a path to an (untrusted) db, reconstruct it in a temporary directory by
@@ -221,7 +265,6 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
         working_dir = resume_dir
 
     blockstack_state_engine.working_dir = working_dir
-
     virtualchain.setup_virtualchain( impl=blockstack_state_engine )
 
     if resume_dir is None:
@@ -237,25 +280,32 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
     log.debug( "Rebuilding database from %s to %s" % (start_block, target_block_id) )
 
     # feed in operations, block by block, from the untrusted database
-    untrusted_db = BlockstackDB( untrusted_db_path, DISPOSITION_RO )
+    untrusted_db = BlockstackDB(untrusted_db_path, DISPOSITION_RO)
+    rc = untrusted_db.db_setup(working_dir=working_dir)
+    assert rc, 'BUG: unclean state in {}'.format(working_dir)
 
     # working db, to build up the operations in the untrusted db block-by-block
     working_db = None
     if working_db_path is None:
         working_db_path = virtualchain.get_db_filename()
 
-    working_db = BlockstackDB( working_db_path, DISPOSITION_RW )
+    working_db = BlockstackDB(working_db_path, DISPOSITION_RW)
+    rc = working_db.db_setup(working_dir)
 
     # map block ID to consensus hashes
     consensus_hashes = {}
 
     for block_id in xrange( start_block, target_block_id+1 ):
-
+        
         untrusted_db.lastblock = block_id
+        
+        """
         virtualchain_ops = block_to_virtualchain_ops( block_id, working_db, untrusted_db )
+        """
+        virtualchain_ops = get_virtualchain_ops(untrusted_db, working_db, block_id) 
 
         # feed ops to virtualchain to reconstruct the db at this block
-        consensus_hash = working_db.process_block( block_id, virtualchain_ops )
+        consensus_hash = working_db.process_block(block_id, virtualchain_ops)
         log.debug("VERIFY CONSENSUS(%s): %s" % (block_id, consensus_hash))
 
         consensus_hashes[block_id] = consensus_hash
@@ -269,18 +319,8 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
     return consensus_hashes[ target_block_id ]
 
 
-def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_path, working_db_path=None, start_block=None, expected_snapshots={} ):
-    """
-    Verify that a database is consistent with a
-    known-good consensus hash.
 
-    This algorithm works by creating a new database,
-    parsing the untrusted database, and feeding the untrusted
-    operations into the new database block-by-block.  If we
-    derive the same consensus hash, then we can trust the
-    database.
     """
-
     final_consensus_hash = rebuild_database( consensus_block_id, untrusted_db_path, working_db_path=working_db_path, start_block=start_block, expected_snapshots=expected_snapshots )
 
     # did we reach the consensus hash we expected?
@@ -290,4 +330,5 @@ def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_pa
     else:
         log.error("Unverifiable database state stored in '%s'" % blockstack_state_engine.working_dir )
         return False
-
+    """
+'''
