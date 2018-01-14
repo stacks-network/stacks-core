@@ -2326,16 +2326,24 @@ def blockstack_get_zonefile( zonefile_hash, parse=True, config_path=None ):
 
 def blockstack_get_profile( name, config_path=None ):
     """
-    Get a profile from the RPC endpoint
-    Return None if not given
+    Get a profile.
+    Used to be that the blockstackd node had a get_profile endpoint.
+    It no longer does.  This method is just around for compatibility.
+
     MEANT FOR DIAGNOSTIC PURPOSES ONLY
     """
+    
+    res = blockstack_cli_lookup(name, config_path=config_path)
+    if 'error' in res:
+        return None
 
+    return res['profile']
+
+    '''
     # TODO: sync with API
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
-
 
     profile_result = test_proxy.get_profile( name )
     if 'error' in profile_result:
@@ -2345,6 +2353,7 @@ def blockstack_get_profile( name, config_path=None ):
         return None 
 
     return profile_result['profile']
+    '''
 
 
 def blockstack_app_session( app_domain, methods, config_path=None ):
