@@ -1327,7 +1327,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         Get the list of txids by value hash
         """
-        cur = db.cursor()
+        cur = self.db.cursor()
         return namedb_get_value_hash_txids(cur, value_hash)
 
 
