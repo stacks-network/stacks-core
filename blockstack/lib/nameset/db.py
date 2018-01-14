@@ -1788,7 +1788,7 @@ def namedb_get_all_ops_at(db, block_id, offset=None, count=None):
 
     # don't return too many rows, and slide down the offset window
     if count is not None and offset is not None:
-        offset = min(0, offset - num_preorders)
+        offset = max(0, offset - num_preorders)
         count -= num_preorders
         if count <= 0:
             # done!
@@ -1940,6 +1940,22 @@ def namedb_get_all_namespace_ids( cur ):
     ret = []
     for namespace_row in namespace_rows:
         ret.append( namespace_row['namespace_id'] )
+
+    return ret
+
+
+def namedb_get_all_preordered_namespace_hashes( cur, current_block ):
+    """
+    Get a list of all preordered namespace hashes that haven't expired yet.
+    Used for testing
+    """
+    query = "SELECT preorder_hash FROM preorders WHERE op = ? AND block_number >= ? AND block_number < ?;"
+    args = (NAMESPACE_PREORDER, current_block, current_block + NAMESPACE_PREORDER_EXPIRE )
+
+    namespace_rows = namedb_query_execute( cur, query, args )
+    ret = []
+    for namespace_row in namespace_rows:
+        ret.append( namespace_row['preorder_hash'] )
 
     return ret
 
