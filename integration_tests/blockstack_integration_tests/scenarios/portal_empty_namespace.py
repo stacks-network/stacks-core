@@ -37,28 +37,102 @@ import time
 import json
 import sys
 import blockstack_client
+import re
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
     testlib.Wallet( "5Kg5kJbQHvk1B64rJniEmgbD83FpZpbw2RjdAZEzTefs9ihN3Bz", 100000000000 ),
     testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 5500 ),
-    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 5500 )
+    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 5500 ),
+    testlib.Wallet('5Kh8cUeVaUXx8PNrNg3zn88w6m5BNZUuYLDs2tJx8bYGcRkkpa6',0),
+    testlib.Wallet('5Jdmz1ZaPKKfgsX8uXGD7XBH2KsWieHEpSrq5A28Wti6b2B5Vjx',0),
+    testlib.Wallet('5KFGi8jzCyFANkiCE66x17eEF74uJ1VGAdAzzz2gHbhA1XC2zfu',0),
+    testlib.Wallet('5JpSjFwAD9QLyQDDhrb1hrsk2zStWFFjt6kSxT5vshBvMjJzWd4',0),
+    testlib.Wallet('5K8YoPZoGsyaT3SeGSr6ab9anU8o4pYe8uHn8SJFDdHy66NoBRx',0),
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
+
+ZONEFILE_FORMAT = """
+$ORIGIN {fqu}
+$TTL 3600
+_http._tcp URI 10 1 "{url}"
+""".strip()
+
+URL = "https://gaia.blockstack.org/hub/{addr}/{index}/profile.json"
+
+def make_zonefile(name, address, index=0):
+    """
+    Make the appropriate zone file hash
+    """
+    url = URL.format(addr = address, index = index)
+    zonefile_data = ZONEFILE_FORMAT.format(fqu = name, url = url)
+    return zonefile_data
+
+
+def make_zonefile_hash(name, address, index=0):
+    """
+    Make the appropriate zone file hash
+    """
+    zonefile_data = make_zonefile(name, address, index=index)
+    zonefile_hash = blockstack_client.get_zonefile_data_hash(zonefile_data)
+    return zonefile_hash
 
 def scenario( wallets, **kw ):
 
     testlib.blockstack_namespace_preorder( "id", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
-
-    testlib.blockstack_namespace_reveal( "id", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
+    
+    # names last for 10 blocks
+    testlib.blockstack_namespace_reveal( "id", wallets[1].addr, 10, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
     testlib.next_block( **kw )
 
     testlib.blockstack_namespace_ready( "id", wallets[1].privkey )
     testlib.next_block( **kw )
-    
+     
+    names_to_preorder_and_renew = '/tmp/testdata.txt'
+    if os.path.exists(names_to_preorder_and_renew):
+        name_infos = []
+        with open(names_to_preorder_and_renew, 'r') as f:
+            while True:
+                name_line = f.readline()
+                if len(name_line) == 0:
+                    break
+                
+                name_line = name_line.strip()
+                m = re.match('^([^ ]+)[ ]+([^ ]+)[ ]+([^ ]+)$', name_line)
+                if m:
+                    name, addr, pkey = m.groups()
+                    name_infos.append({'name': name.strip(), 'addr': addr.strip(), 'owner_privkey': pkey.strip()})
+                else:
+                    name, addr = name_line.split(' ', 1)
+                    name_infos.append({'name': name.strip(), 'addr': addr.strip()})
+
+        for i, name_info in enumerate(name_infos):
+            owner_addr = None
+            if name_info.has_key('owner_privkey'):
+                owner_addr = virtualchain.get_privkey_address(name_info['owner_privkey'])
+            else:
+                print name_info['addr']
+                owner_addr = virtualchain.address_reencode(name_info['addr'])
+            
+            testlib.blockstack_name_preorder(name_info['name'], wallets[(i%8)+2].privkey, owner_addr, safety_checks=False, tx_fee=300*1000)
+
+        testlib.next_block(**kw)
+
+        for i, name_info in enumerate(name_infos):
+            owner_addr = None
+            if name_info.has_key('owner_privkey'):
+                owner_addr = virtualchain.get_privkey_address(name_info['owner_privkey'])
+            else:
+                owner_addr = virtualchain.address_reencode(name_info['addr'])
+            
+            zonefile_hash = make_zonefile_hash(name_info['name'], owner_addr)
+            testlib.blockstack_name_register(name_info['name'], wallets[(i%8)+2].privkey, owner_addr, zonefile_hash=zonefile_hash, safety_checks=False, tx_fee=300*1000)
+            
+        testlib.next_block(**kw)
+
     wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
 
     print >> sys.stderr, "We're a go!"
