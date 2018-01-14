@@ -1230,8 +1230,6 @@ def get_DID_blockchain_record(did, proxy=None):
         log.error(errormsg)
         return {'error': errormsg}
     
-    # new path with virtualchain 0.18: see if we can just get the name directly
-
     # order by blockchain and tx
     addr_names.sort(lambda n1,n2: -1 if n1['block_id'] < n2['block_id'] or (n1['block_id'] == n2['block_id'] and n1['vtxindex'] < n2['vtxindex']) else 1)
     name = addr_names[name_index]['name']
