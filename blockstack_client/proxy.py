@@ -1229,6 +1229,8 @@ def get_DID_blockchain_record(did, proxy=None):
         errormsg = 'Invalid DID: index {} exceeds number of names ({}: {}) created by {}'.format(name_index, len(addr_names), ", ".join([an['name'] for an in addr_names]), address)
         log.error(errormsg)
         return {'error': errormsg}
+    
+    # new path with virtualchain 0.18: see if we can just get the name directly
 
     # order by blockchain and tx
     addr_names.sort(lambda n1,n2: -1 if n1['block_id'] < n2['block_id'] or (n1['block_id'] == n2['block_id'] and n1['vtxindex'] < n2['vtxindex']) else 1)
@@ -1245,7 +1247,7 @@ def get_DID_blockchain_record(did, proxy=None):
     final_name_state = None
 
     for history_block in sorted(name_history.keys()):
-        for history_state in name_history[history_block]:
+        for history_state in sorted(name_history[history_block], cmp=lambda n1,n2: -1 if n1['vtxindex'] < n2['vtxindex'] else 1):
             if history_state['op'] == NAME_REVOKE:
                 # end of the line
                 return {'error': 'The name for this DID has been deleted'}
