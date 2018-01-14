@@ -1543,7 +1543,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
             rc = namedb_state_create(cur, opcode, initial_state, current_block_number,
                                      initial_state['vtxindex'], initial_state['txid'],
-                                     history_id, preorder, table)
+                                     history_id, preorder, table, constraints_ignored=constraints_ignored)
 
             if not rc:
                 log.error("FATAL: failed to create '{}'".format(history_id))
