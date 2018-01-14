@@ -45,7 +45,7 @@ OP_ZONEFILE_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTHS['value_hash']
 OP_BASE64_EMPTY_PATTERN = '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$'    # base64 with empty string
 OP_BASE58CHECK_CLASS = r'[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]'
 OP_BASE58CHECK_PATTERN = r'^({}+)$'.format(OP_BASE58CHECK_CLASS)
-OP_ADDRESS_PATTERN = r'^({}{{1,34}})$'.format(OP_BASE58CHECK_CLASS)
+OP_ADDRESS_PATTERN = r'^({}{{1,35}})$'.format(OP_BASE58CHECK_CLASS)
 
 class TimeoutHTTPConnection(httplib.HTTPConnection):
     """
