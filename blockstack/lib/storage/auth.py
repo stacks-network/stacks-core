@@ -24,6 +24,8 @@
 import virtualchain
 import hashlib
 
+from virtualchain.lib.hashing import hex_hash160
+
 log = virtualchain.get_logger("blockstack-server")
 
 
