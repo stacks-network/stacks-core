@@ -728,7 +728,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         Includes expired namespaces by default.
         """
         
-        return namedb_get_namespace_at(name, block_number, include_expired=True)
+        return namedb_get_namespace_at(namespace_id, block_number, include_expired=True)
 
 
     def get_name_history( self, name ):
@@ -914,6 +914,16 @@ class BlockstackDB( virtualchain.StateEngine ):
         cur = self.db.cursor()
         namespace_ids = namedb_get_all_revealed_namespace_ids( cur, self.lastblock )
         return namespace_ids
+
+
+    def get_all_preordered_namespace_hashes( self ):
+        """
+        Get all oustanding namespace preorder hashes that have not expired.
+        Used for testing
+        """
+        cur = self.db.cursor()
+        namespace_hashes = namedb_get_all_preordered_namespace_hashes( cur, self.lastblock )
+        return namespace_hashes 
 
 
     def get_all_importing_namespace_hashes( self ):
