@@ -615,7 +615,7 @@ def namedb_name_update( cur, opcode, input_opdata, only_if={}, constraints_ignor
 
     # reduce opdata down to the given fields....
     must_equal = namedb_update_must_equal( opdata, mutate_fields )
-    must_equal += ['name']
+    must_equal += ['name','block_number']
 
     for ignored in constraints_ignored:
         if ignored in must_equal:
@@ -704,7 +704,7 @@ def namedb_namespace_update( cur, opcode, input_opdata, only_if={}, constraints_
 
     # reduce opdata down to the given fields....
     must_equal = namedb_update_must_equal( opdata, mutate_fields )
-    must_equal += ['namespace_id']
+    must_equal += ['namespace_id','block_number']
  
     for ignored in constraints_ignored:
         if ignored in must_equal:
