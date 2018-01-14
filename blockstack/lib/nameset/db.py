@@ -92,7 +92,7 @@ CREATE TABLE preorders( preorder_hash TEXT NOT NULL,
 
 BLOCKSTACK_DB_SCRIPT += """
 -- NOTE: this table includes revealed namespaces
--- NOTE: 'buckets' is a JSON-serialized array of integers
+-- NOTE: 'buckets' is a string representation of an array of 16 integers.
 CREATE TABLE namespaces( namespace_id STRING NOT NULL,
                          preorder_hash TEXT NOT NULL,
                          version INT,
@@ -341,7 +341,7 @@ def namedb_insert_prepare( cur, record, table_name ):
     return (query, values)
 
 
-def namedb_update_prepare( cur, primary_key, input_record, table_name, must_equal=[], only_if={} ):
+def namedb_update_prepare( cur, primary_key_or_keys, input_record, table_name, must_equal=[], only_if={} ):
     """
     Prepare to update a record, but make sure that the fields in input_record
     correspond to acual columns.
@@ -360,9 +360,17 @@ def namedb_update_prepare( cur, primary_key, input_record, table_name, must_equa
 
     # extract primary key
     # sanity check: primary key cannot be mutated
-    primary_key_value = record.get(primary_key, None)
-    assert primary_key_value is not None, "BUG: no primary key value given in record"
-    assert primary_key in must_equal, "BUG: primary key set to change"
+    primary_keys = []
+    if isinstance(primary_key_or_keys, (str,unicode)):
+        primary_keys = [primary_key_or_keys]
+    else:
+        primary_keys = primary_key_or_keys
+
+    for primary_key_col in primary_keys:
+        primary_key_value = record.get(primary_key_col, None)
+        assert primary_key_value is not None, "BUG: no primary key value given in record"
+        assert primary_key_col in must_equal, "BUG: primary key set to change"
+
     assert len(must_equal) > 0, "BUG: no identifying information for this record"
 
     # find set of columns that will change 
@@ -615,7 +623,7 @@ def namedb_name_update( cur, opcode, input_opdata, only_if={}, constraints_ignor
             must_equal.remove( ignored )
 
     try:
-        query, values = namedb_update_prepare( cur, 'name', opdata, "name_records", must_equal=must_equal, only_if=only_if )
+        query, values = namedb_update_prepare( cur, ['name', 'block_number'], opdata, "name_records", must_equal=must_equal, only_if=only_if )
     except Exception, e:
         log.exception(e)
         log.error("FATAL: failed to update name '%s'" % opdata['name'])
@@ -645,15 +653,6 @@ def namedb_namespace_fields_check( namespace_rec ):
     """
 
     assert namespace_rec.has_key('namespace_id'), "BUG: namespace record has no ID"
-
-    '''
-    # make buckets into a JSON string 
-    assert namespace_rec.has_key('buckets'), "BUG: no namespace price buckets"
-    assert type(namespace_rec['buckets']) == list, "BUG: namespace buckets type %s, expected 'list'" % (type(namespace_rec['buckets']))
-
-    bucket_str = json.dumps( namespace_rec['buckets'] )
-    namespace_rec['buckets'] = bucket_str
-    '''
     assert namespace_rec.has_key('buckets'), 'BUG: missing price buckets'
     assert isinstance(namespace_rec['buckets'], str), 'BUG: namespace data is not in canonical form'
 
@@ -713,7 +712,7 @@ def namedb_namespace_update( cur, opcode, input_opdata, only_if={}, constraints_
             must_equal.remove( ignored )
 
     try:
-        query, values = namedb_update_prepare( cur, 'namespace_id', opdata, "namespaces", must_equal=must_equal, only_if={} )
+        query, values = namedb_update_prepare( cur, ['namespace_id', 'block_number'], opdata, "namespaces", must_equal=must_equal, only_if={} )
     except Exception, e:
         log.exception(e)
         log.error("FATAL: failed to update name '%s'" % opdata['namespace_id'])
@@ -802,6 +801,9 @@ def namedb_state_transition_sanity_check( opcode, op_data, history_id, cur_recor
         # name state transition 
         assert record_table == "name_records", "BUG: name state transition opcode (%s) on table %s" % (opcode, record_table)
         assert cur_record.has_key('name'), "BUG: name state transition with no name"
+        assert op_data.has_key('name'), "BUG: name state transition with no name"
+        assert op_data['name'] == history_id, 'BUG: name op data is for the wrong name ({} != {})'.format(op_data['name'], history_id)
+        assert op_data['name'] == cur_record['name'], 'BUG: name op data is for the wrong name ({} != {})'.format(op_data['name'], cur_record['name'])
         assert cur_record['name'] == history_id, "BUG: history ID '%s' != '%s'" % (history_id, cur_record['name'])
 
     elif opcode in OPCODE_NAMESPACE_STATE_TRANSITIONS:
@@ -809,6 +811,13 @@ def namedb_state_transition_sanity_check( opcode, op_data, history_id, cur_recor
         assert record_table == "namespaces", "BUG: namespace state transition opcode (%s) on table %s" % (opcode, record_table)
         assert cur_record.has_key('namespace_id'), "BUG: namespace state transition with no namespace ID"
         assert cur_record['namespace_id'] == history_id, "BUG: history ID '%s' != '%s'" % (history_id, cur_record['namespace_id'])
+        assert op_data['namespace_id'] == history_id, 'BUG: name op data is for the wrong name ({} != {})'.format(op_data['namespace_id'], history_id)
+        assert op_data['namespace_id'] == cur_record['namespace_id'], 'BUG: name op data is for the wrong name ({} != {})'.format(op_data['namespace_id'], cur_record['namespace_id'])
+        assert cur_record['namespace_id'] == history_id, "BUG: history ID '%s' != '%s'" % (history_id, cur_record['namespace_id'])
+
+    assert cur_record.has_key('block_number'), 'BUG: name state transition with no block number'
+    if op_data.has_key('block_number'):
+        assert op_data['block_number'] == cur_record['block_number'], 'BUG: block number mismatch ({} != {})'.format(op_data['block_number'], cur_record['block_number'])
 
     return True
 
@@ -836,13 +845,27 @@ def namedb_state_transition( cur, opcode, op_data, block_id, vtxindex, txid, his
         log.error("BUG: opcode '%s' is not a state-transition operation" % opcode)
         os.abort()
 
+    # make sure we have a name/namespace_id and block number
+    op_data_name = copy.deepcopy(op_data)
+
+    if opcode in OPCODE_NAME_STATE_TRANSITIONS:
+        # name state transition 
+        op_data_name['name'] = history_id
+
+    elif opcode in OPCODE_NAMESPACE_STATE_TRANSITIONS:
+        # namespace state transition 
+        op_data_name['namespace_id'] = history_id
+
     # sanity check make sure we got valid state transition data
     try:
-        rc = namedb_state_transition_sanity_check( opcode, op_data, history_id, cur_record, record_table )
+        assert cur_record.has_key('block_number'), 'current record does not have a block number'
+        op_data_name['block_number'] = cur_record['block_number']
+
+        rc = namedb_state_transition_sanity_check( opcode, op_data_name, history_id, cur_record, record_table )
         if not rc:
             raise Exception("State transition sanity checks failed")
 
-        rc = namedb_state_mutation_sanity_check( opcode, op_data )
+        rc = namedb_state_mutation_sanity_check( opcode, op_data_name )
         if not rc:
             raise Exception("State mutation sanity checks failed")
 
@@ -855,25 +878,20 @@ def namedb_state_transition( cur, opcode, op_data, block_id, vtxindex, txid, his
     # rc = namedb_history_save( cur, opcode, history_id, None, block_id, vtxindex, txid, cur_record )
     new_record = {}
     new_record.update(cur_record)
-    new_record.update(op_data)
+    new_record.update(op_data_name)
     new_record['opcode'] = opcode
     rc = namedb_history_save(cur, opcode, history_id, None, new_record.get('value_hash', None), block_id, vtxindex, txid, new_record)
     if not rc:
         log.error("FATAL: failed to save history for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
         os.abort()
 
-    # make sure we have a name 
-    op_data_name = copy.deepcopy( op_data )
-
     rc = False
     if opcode in OPCODE_NAME_STATE_TRANSITIONS:
         # name state transition 
-        op_data_name['name'] = history_id
         rc = namedb_name_update( cur, opcode, op_data_name, constraints_ignored=constraints_ignored )
 
     elif opcode in OPCODE_NAMESPACE_STATE_TRANSITIONS:
         # namespace state transition 
-        op_data_name['namespace_id'] = history_id
         rc = namedb_namespace_update( cur, opcode, op_data_name, constraints_ignored=constraints_ignored )
     
     if not rc:
@@ -905,15 +923,21 @@ def namedb_state_create_sanity_check( opcode, op_data, history_id, preorder_reco
         assert record_table == "name_records", "BUG: name state transition opcode (%s) on table %s" % (opcode, record_table)
         assert preorder_opcode in OPCODE_NAME_STATE_PREORDER, "BUG: preorder record opcode '%s' is not a name preorder" % (preorder_opcode)
 
+        assert 'name' in op_data, 'BUG: no name in op_data'
+        assert 'block_number' in op_data, 'BUG: no block_number in op_data'
+
     elif opcode in OPCODE_NAMESPACE_STATE_CREATIONS:
         # namespace state transition 
         assert record_table == "namespaces", "BUG: namespace state transition opcode (%s) on table %s" % (opcode, record_table)
         assert preorder_opcode in OPCODE_NAMESPACE_STATE_PREORDER, "BUG: preorder record opcode '%s' is not a namespace preorder" % (preorder_opcode)
+        
+        assert 'namespace_id' in op_data, 'BUG: no namespace_id in op_data'
+        assert 'block_number' in op_data, 'BUG: no block_number in op_data'
 
     return True
 
 
-def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, history_id, preorder_record, record_table ):
+def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, history_id, preorder_record, record_table, constraints_ignored=[] ):
     """
     Given an operation and a new record (opcode, new_record), a point in time (block_id, vtxindex, txid), and a preorder
     record for a known record (history_id, preorder_record), create the initial name or namespace using
@@ -951,6 +975,11 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
         assert 'vtxindex' in preorder_record.keys(), "BUG: preorder has no vtxindex"
         assert 'txid' in preorder_record.keys(), "BUG: preorder has no txid"
         assert 'burn_address' in preorder_record.keys(), 'BUG: preorder has no burn address'
+
+        if prev_rec is not None:
+            # block_number cannot change
+            assert prev_rec['block_number'] == new_record['block_number'], 'BUG: trying to change block number from {} to {} for "{}"'.format(prev_rec['block_number'], new_record['block_number'], history_id)
+
     except Exception, e:
         log.exception(e)
         log.error("FATAL: no preorder hash")
@@ -975,7 +1004,6 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
         os.abort()
 
     # save the preorder as history.
-    # rc = namedb_history_save( cur, opcode, history_id, new_record['address'], block_id, vtxindex, txid, preorder_record )
     rc = namedb_history_save(cur, preorder_record['opcode'], history_id, None, None, preorder_record['block_number'], preorder_record['vtxindex'], preorder_record['txid'], preorder_record)
     if not rc:
         log.error("FATAL: failed to save preorder for {} at ({}, {})".format(history_id, preorder_record['block_number'], preorder_record['vtxindex']))
@@ -993,11 +1021,21 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
     rc = False
     if opcode in OPCODE_NAME_STATE_CREATIONS:
         # name state transition 
-        rc = namedb_name_insert( cur, new_record )
+        if exists:
+            # update existing name entry (i.e. re-registering it)
+            rc = namedb_name_update(cur, opcode, new_record, constraints_ignored=constraints_ignored)
+        else:
+            # insert new entry
+            rc = namedb_name_insert(cur, new_record)
 
     elif opcode in OPCODE_NAMESPACE_STATE_CREATIONS:
         # namespace state transition 
-        rc = namedb_namespace_insert( cur, new_record )
+        if exists:
+            # update existing namespace entry (i.e. re-revealing it) 
+            rc = namedb_namespace_update(cur, opcode, new_record, constraints_ignored=constraints_ignored)
+        else:
+            # insert new entry
+            rc = namedb_namespace_insert(cur, new_record)
     
     if not rc:
         log.error("FATAL: opcode is not a state-creation operation")
