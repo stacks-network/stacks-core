@@ -101,6 +101,7 @@ def get_prev_imported( state_engine, checked_ops, name ):
     Check the DB *and* current ops.
     Make sure the returned record has the name history
     """
+    '''
     imported = find_by_opcode( checked_ops, "NAME_IMPORT" )
     for opdata in reversed(imported):
         if opdata['name'] == name:
@@ -108,7 +109,7 @@ def get_prev_imported( state_engine, checked_ops, name ):
             ret = copy.deepcopy(opdata)
             ret['history'] = hist
             return ret
- 
+    '''
     name_rec = state_engine.get_name( name )
     return name_rec
 
