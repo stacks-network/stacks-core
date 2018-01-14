@@ -63,13 +63,13 @@ DEFAULT_DEPS = [
     {
         'name': 'virtualchain',
         'git': 'https://github.com/blockstack/virtualchain',
-        'branch': 'hotfix/faster-cryptography',
+        'branch': 'develop',
         'type': 'python',
     },
     {
         'name': 'blockstack-core',
         'git': 'https://github.com/blockstack/blockstack-core',
-        'branch': 'hotfix/ipfs-support',
+        'branch': 'feature/clean-chainstate',
         'type': 'python',
         'subpackages': ['integration_tests'],
     },
