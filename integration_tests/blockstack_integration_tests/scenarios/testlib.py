@@ -2339,22 +2339,6 @@ def blockstack_get_profile( name, config_path=None ):
 
     return res['profile']
 
-    '''
-    # TODO: sync with API
-    test_proxy = make_proxy(config_path=config_path)
-    blockstack_client.set_default_proxy( test_proxy )
-    config_path = test_proxy.config_path if config_path is None else config_path
-
-    profile_result = test_proxy.get_profile( name )
-    if 'error' in profile_result:
-        return None
-
-    if 'profile' not in profile_result or 'status' not in profile_result or not profile_result['status']:
-        return None 
-
-    return profile_result['profile']
-    '''
-
 
 def blockstack_app_session( app_domain, methods, config_path=None ):
     """
@@ -3301,7 +3285,7 @@ def check_historic_names_by_address( state_engine ):
                                 ret = False
 
     return ret
-
+ 
 
 def get_unspents( addr ):
     """
