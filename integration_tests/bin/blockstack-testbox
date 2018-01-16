@@ -18,6 +18,8 @@ import signal
 import SimpleHTTPServer
 import re
 import tempfile
+import random
+import errno
 from SimpleHTTPServer import BaseHTTPServer, SimpleHTTPRequestHandler
 
 DEBUG = True
@@ -28,6 +30,7 @@ COLORS = {
     "blue":   "\x1b[0;34m",
     "green":  "\x1b[0;32m",
     "red":    "\x1b[0;31m",
+    "yellow": "\x1b[0;93m",
     "reset":  "\x1b[0m",
 }
 
@@ -66,7 +69,7 @@ DEFAULT_DEPS = [
     {
         'name': 'blockstack-core',
         'git': 'https://github.com/blockstack/blockstack-core',
-        'branch': 'hotfix/did-support',
+        'branch': 'hotfix/ipfs-support',
         'type': 'python',
         'subpackages': ['integration_tests'],
     },
@@ -80,7 +83,7 @@ DEFAULT_DEPS = [
     {
         'name': 'blockstack-storage.js',
         'git': 'https://github.com/blockstack/blockstack-storage-js',
-        'branch': 'master',
+        'branch': 'hotfix/integration-test-origin-header',
         'type': 'node.js',
         'npm_build_commands': ['dev-build'],
         'npm_deps': ['bigi', 'jsonify', 'promise'],     # TODO: add these to package.json
@@ -88,7 +91,7 @@ DEFAULT_DEPS = [
     {
         'name': 'blockstack.js',
         'git': 'https://github.com/blockstack/blockstack.js',
-        'branch': 'master',
+        'branch': 'hotfix/integration-test-origin-header',
         'type': 'node.js',
     },
 ]
@@ -499,7 +502,30 @@ def main_test(test_package_name, test_dir, test_user=None):
 
     Test output will be put into
     """
+
+    def signal_reap_children(*args, **kw):
+        """
+        If we're PID 1, then adopt orphan children
+        """
+        while True:
+            try:
+                os.waitpid(-1, os.WNOHANG)
+                time.sleep(0.25)
+            except OSError, oe:
+                if oe.errno == errno.ECHILD:
+                    break
+                else:
+                    raise
+
     assert os.getuid() == 0, "must be called as a root user"
+
+    if os.getpid() == 1:
+        # we're running the show
+        # bring up the local network 
+        os.system("ifconfig lo up")
+
+        # reap children
+        signal.signal(signal.SIGCHLD, signal_reap_children)
 
     test_uid = None
     test_gid = None
@@ -541,7 +567,7 @@ def main_test(test_package_name, test_dir, test_user=None):
     return retval
 
 
-def main_watchdog(venv_dir, test_package_name, test_root, timeout=(3600 * 75), test_user=None):
+def main_watchdog(venv_dir, test_package_name, test_root, timeout=(60 * 75), test_user=None):
     """
     Privileged operation.  Start up the test in its own private environment, and collect the output.
     Kill the process and all of its children after a given timeout.
@@ -596,7 +622,7 @@ def main_watchdog(venv_dir, test_package_name, test_root, timeout=(3600 * 75), t
     if test_user:
         worker_cmd += ' --test_user {}'.format(test_user)
  
-    cmd = 'unshare --net --mount --pid --fork --mount-proc /bin/sh -c \'ifconfig lo up; {}\''.format(worker_cmd)
+    cmd = 'unshare --net --mount --pid --fork --mount-proc /usr/bin/python2 {}'.format(worker_cmd)
 
     # TEST TEST TEST 
     # cmd = '/bin/sh -c "{}"'.format(worker_cmd)
@@ -653,7 +679,7 @@ def main_watchdog(venv_dir, test_package_name, test_root, timeout=(3600 * 75), t
     return {'status': test_result, 'logs': logs_path, 'port': http_port}
   
 
-def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(3600 * 75), test_user=None, ssh_id_path=None):
+def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(60 * 75), test_user=None, ssh_id_path=None):
     """
     Run a test on the remote host.
     Determine whether it succeeded or failed.
@@ -671,8 +697,13 @@ def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(3
     if timeout:
         timeout_opt = '--timeout "{}"'.format(int(timeout))
 
-    cmd = ['/usr/bin/ssh'] + ([id_opt] if id_opt else []) + ['{}@{}'.format(user, host), 'sudo /tmp/blockstack-testbox watchdog "{}" "{}" "{}" {} {}'.format(venv_dir, test_package_name, test_root, test_user_opt, timeout_opt)]
+    cmd = ['/usr/bin/ssh'] + ([id_opt] if id_opt else []) + [
+            '{}@{}'.format(user, host), 'sudo /tmp/blockstack-testbox watchdog "{}" "{}" "{}" {} {}'.format(venv_dir, test_package_name, test_root, test_user_opt, timeout_opt)
+    ]
+
     log.debug("$ {}".format(" ".join(cmd)))
+
+    deadline = time.time() + timeout
 
     # cmd = 'ssh {} "{}@{}" \'sudo /tmp/blockstack-testbox watchdog "{}" "{}" "{}" {} {}\''.format(id_opt, user, host, venv_dir, test_package_name, test_root, test_user_opt, timeout_opt)
     # log.debug("$ {}".format(cmd))
@@ -681,10 +712,48 @@ def main_run_test(user, host, venv_dir, test_package_name, test_root, timeout=(3
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = p.communicate()
     retval = p.returncode
-    if retval != 0:
+    if retval != 0 and retval != 255:
         # failed to run
         log.error("Failed to run {} on {}@{}: exit code {}".format(test_package_name, user, host, retval))
         return {'error': 'Failed to run {} on {}@{}: exit code {}'.format(test_package_name, user, host, retval)}
+
+    elif retval == 255:
+        # ssh had an error
+        log.error("SSH error running {} on {}@{}".format(test_package_name, user, host))
+
+        # wait for the test to finish running
+        # poll every few minutes, but be mindful of the time
+        while True:
+            cmd = ['/usr/bin/ssh'] + ([id_opt] if id_opt else []) + [
+                '{}@{}'.format(user, host),
+                'test -f "{}/{}.out.gz" || exit 10; zcat "{}/{}.out.gz" | egrep "(SUCCESS {})|(FAILURE {})"'.format(
+                    test_root, test_package_name, test_root, test_package_name, test_package_name, test_package_name)
+            ]
+            log.debug("$ {}".format(" ".join(cmd)))
+
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            out, err = p.communicate()
+            retval = p.returncode
+            
+            if retval == 0:
+                break
+
+            elif retval == 10:
+                # not done yet
+                log.debug("Test {} is still running on {}@{}".format(test_package_name, user, host))
+
+            elif retval != 0 and retval != 255:
+                # test output is corrupt
+                log.error("Test {} output on {}@{} is corrupt, aborting...".format(test_package_name, user, host))
+                print COLORS['yellow'] + "Test {} is corrupt on {}@{}".format(test_package_name, user, host) + COLORS['reset']
+                return {'status': False}
+
+            if time.time() >= deadline:
+                print COLORS['yellow'] + "Test {} timed out on {}@{}".format(test_package_name, user, host) + COLORS['reset']
+                sys.stdout.flush()
+                return {'status': False}
+
+            time.sleep(60 + random.random() * 60)   # jittery
 
     # ssh back in and get the test results
     cmd = ['/usr/bin/ssh'] + ([id_opt] if id_opt else []) + ['{}@{}'.format(user, host), 'zcat "{}/{}.out.gz" | tail -n 100 | grep "SUCCESS {}"'.format(test_root, test_package_name, test_package_name)]
@@ -809,7 +878,7 @@ def main_test_runner(testname, hostinfo, testinfo, ssh_id_path=None, dependencie
     """
     test_queue = testinfo[:]
     remote_test_port = 8086
-    test_timeout = 3600 * 75
+    test_timeout = 60 * 75
 
     bootstrap_logs_dir = tempfile.mkdtemp(prefix='blockstack-test-bootstrap-')
     
@@ -845,7 +914,8 @@ def main_test_runner(testname, hostinfo, testinfo, ssh_id_path=None, dependencie
         host_venv_dir = res['host_venv_dir']
         host_testout_dir = res['host_testout_dir']
         
-        res = bootstrap_host(username, hostname, host_venv_dir, host_testout_dir, remote_test_port, deps_path=dependencies, ssh_id_path=ssh_id_path, logfile=os.path.join(bootstrap_logs_dir, '{}@{}.log'.format(username,hostname)))
+        res = bootstrap_host(username, hostname, host_venv_dir, host_testout_dir, remote_test_port,
+                deps_path=dependencies, ssh_id_path=ssh_id_path, logfile=os.path.join(bootstrap_logs_dir, '{}@{}.log'.format(username,hostname)))
         
         bootstrap_results['{}@{}'.format(username, hostname)] = res
         return res
@@ -1132,7 +1202,7 @@ def main(argv):
         if test_timeout is not None:
             test_timeout = int(test_timeout)
         else:
-            test_timeout = 75 * 3600  # 75 min
+            test_timeout = 75 * 60  # 75 min
 
         if os.getuid() != 0:
             print >> sys.stderr, 'You must be root to start a test'
@@ -1296,7 +1366,7 @@ def main(argv):
         test_user = getattr(args, 'test_user', None)
 
         if timeout is None:
-            timeout = 3600 * 75
+            timeout = 60 * 75
 
         user, host = login.split('@', 1)
         

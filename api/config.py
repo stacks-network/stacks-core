@@ -35,14 +35,14 @@ MAX_PROFILE_LIMIT = (8 * 1024) - 50  # roughly 8kb max limit
 
 EMAIL_REGREX = r'[^@]+@[^@]+\.[^@]+'
 
-DEFAULT_NAMESPACE = "id"
-
 PUBLIC_NODE = True
 
-BASE_API_URL = "http://localhost:6270"
-PUBLIC_NODE_URL = 'https://core.blockstack.org'
-SEARCH_NODE_URL = 'https://search.blockstack.org'
-BLOCKSTACKD_IP = 'localhost'
+MONGODB_URI = "mongodb://mongodb"
+
+BASE_API_URL = "http://blockstack-api:6270"
+PUBLIC_NODE_URL = 'https://core.example.org'
+SEARCH_NODE_URL = 'https://search.example.org'
+BLOCKSTACKD_IP = 'node.technofractal.com'
 BLOCKSTACKD_PORT = 6264
 DHT_MIRROR_IP = '52.20.98.85'
 DHT_MIRROR_PORT = 6266
@@ -70,19 +70,6 @@ SEARCH_BULK_INSERT_LIMIT = 1000
 SEARCH_DEFAULT_LIMIT = 50
 SEARCH_LUCENE_ENABLED = False
 SEARCH_SUPPORTED_PROOFS = ['twitter', 'facebook', 'github', 'domain']
-
-
-# Memcache settings
-MEMCACHED_USERNAME = None
-MEMCACHED_PASSWORD = None
-
-MEMCACHED_TIMEOUT = 12 * 60 * 60
-USERSTATS_TIMEOUT = 60 * 60
-MEMCACHED_ENABLED = False
-
-MEMCACHED_PORT = 11211
-MEMCACHED_SERVER = '127.0.0.1'
-MEMCACHED_SERVERS = ['127.0.0.1:11211']
 
 if 'DYNO' in os.environ:
     DEBUG = False

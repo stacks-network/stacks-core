@@ -1,0 +1,40 @@
+version: '2'
+services:
+  mongodb:
+    image: mongo:3.4
+    volumes:
+      - './data/mongodb/:/data/db'
+    networks:
+      - api
+    restart: always
+
+  blockstack-api:
+    image: 'quay.io/blockstack/blockstack-core:master'
+    command: blockstack api start-foreground --debug --password dummywalletpassword
+    volumes:
+      - './data/blockstack-api/:/root/.blockstack'
+      # - '/tmp/:/data/blockstack-api/tmp/'
+    networks:
+      - api
+    restart: always
+
+  search-api:
+    build:
+      context: ../
+      dockerfile: api/Dockerfile
+    environment:
+      - BLOCKSTACK_DEBUG=1
+    networks:
+      - api
+    ports:
+      - 3000:3000
+    restart: always
+    links:
+      - mongodb
+      - blockstack-api
+    volumes:
+      - "./data/search-api/:/var/blockstack-search"
+
+
+networks:
+  api: null

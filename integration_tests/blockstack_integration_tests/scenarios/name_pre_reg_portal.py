@@ -21,6 +21,13 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """ 
 
+"""
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 680
+TEST ENV BLOCKSTACK_EPOCH_2_END_BLOCK 681
+"""
+
+
+import testlib
 # useful for simulating the blockchain for Portal
 # the user "foo.id" will be registered
 
@@ -41,7 +48,7 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 def scenario( wallets, **kw ):
 
     # save the wallet 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey, start_rpc=False )
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey, start_rpc=True )
     if 'error' in wallet:
         print 'failed to set wallet: {}'.format(wallet)
         return False
