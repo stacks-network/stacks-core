@@ -2297,7 +2297,6 @@ def blockstack_get_zonefile( zonefile_hash, parse=True, config_path=None ):
     MEANT FOR DIAGNOSTIC PURPOSES ONLY
     """
 
-    # TODO: sync with API
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -2322,6 +2321,22 @@ def blockstack_get_zonefile( zonefile_hash, parse=True, config_path=None ):
 
     else:
         return zonefile_txt
+
+
+def blockstack_put_zonefile(zonefile_txt, config_path=None):
+    """
+    Store zonefile data to the RPC endpoint.
+    MEANT FOR DIAGNOSTIC PURPOSS ONLY
+
+    Return True on success
+    Return False on failure
+    """
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    res = test_proxy.put_zonefiles([base64.b64encode(zonefile_txt)])
+    return res['saved'][0] == 1
 
 
 def blockstack_get_profile( name, config_path=None ):
@@ -3502,14 +3517,14 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
     return result
 
 
-def peer_make_config( peer_port, dirp, seed_relations={}, blacklist_relations={}, extra_fields={} ):
+def peer_make_config( working_dir, peer_port, dirp, seed_relations={}, blacklist_relations={}, extra_fields={} ):
     """
     Make a config directory for a peer blockstack server
     """
     hostport = "localhost:%s" % peer_port
 
     # generate server config
-    blockstack_conf = blockstack.default_blockstack_opts()
+    blockstack_conf = blockstack.default_blockstack_opts(working_dir)
     virtualchain_bitcoin_conf = virtualchain.get_bitcoind_config()
 
     virtualchain_bitcoin_conf['bitcoind_port'] = 18332
@@ -3642,6 +3657,10 @@ def peer_has_zonefiles( peer_info, lastblock, num_zonefiles ):
         log.error("Peer localhost:%s is down" % (peer_info['port']))
         return False
 
+    if 'error' in info:
+        log.error("Failed to query localhost:{}: {}".format(peer_info['port'], info['error']))
+        return False
+
     if info['last_block_processed'] < lastblock:
         log.debug("Peer localhost:%s is at %s (but we're at %s)" % (peer_info['port'], info['last_block_processed'], lastblock))
         return False
@@ -3717,7 +3736,7 @@ def peer_setup( base_working_dir, index ):
     if os.path.exists(config_path_2):
         raise Exception("Config already exists for client {}".format(index))
 
-    res = peer_make_config(16300 + index, peer_wd)
+    res = peer_make_config(peer_working_dir, 16300 + index, peer_wd)
     if 'error' in res:
         print "failed to set up {}".format(peer_wd)
         return {'error': 'failed to set up config dir'}
