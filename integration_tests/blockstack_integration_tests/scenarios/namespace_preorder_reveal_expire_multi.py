@@ -55,12 +55,17 @@ def scenario( wallets, **kw ):
         resp = testlib.blockstack_namespace_preorder( "test", wallets[count+1].addr, wallets[count].privkey )
         if 'error' in resp:
             print json.dumps(resp, indent=4)
+            return False
 
         testlib.next_block( **kw )
 
         # reveal it  
         buckets = [count] * 16
-        testlib.blockstack_namespace_reveal( "test", wallets[count+1].addr, count + 1, count + 1, count + 1, buckets, count + 1, count + 1, wallets[count].privkey )
+        resp = testlib.blockstack_namespace_reveal( "test", wallets[count+1].addr, count + 1, count + 1, count + 1, buckets, count + 1, count + 1, wallets[count].privkey )
+        if 'error' in resp:
+            print resp
+            return False
+
         testlib.next_block( **kw )
 
         reveal_blocks.append( testlib.get_current_block(**kw) )
@@ -98,11 +103,16 @@ def check( state_engine ):
     # examine historical form 
     for count in xrange(0, 3):
         ns = state_engine.get_namespace_at( "test", reveal_blocks[count] )
-        if ns is None or len(ns) == 0:
-            print "no namespace state at %s" % (reveal_blocks[count])
+        if ns is None or len(ns) != 1:
+            print "no namespace state or too much namespace state at %s" % (reveal_blocks[count])
             return False
 
         ns = ns[0]
+
+        print ''
+        print 'count={}, namespace at {}'.format(count, reveal_blocks[count])
+        print ns
+        print ''
 
         # fields should match 
         for f in ['lifetime', 'coeff', 'base', 'nonalpha_discount', 'no_vowel_discount']:
@@ -111,8 +121,8 @@ def check( state_engine ):
                 return False
 
         buckets = [count] * 16
-        if ns['buckets'] != buckets:
-            print "buckets: expected %s, got %s" % ([count+1]*16, ns['buckets'])
+        if ns['buckets'] != str(buckets):
+            print "buckets: expected %s, got %s" % ([count]*16, ns['buckets'])
             return False
         
         # reveal block should match 
