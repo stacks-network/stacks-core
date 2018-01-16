@@ -21,12 +21,21 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """ 
 
+"""
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 689
+TEST ENV BLOCKSTACK_EPOCH_2_END_BLOCK 690
+TEST ENV BLOCKSTACK_EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER 2
+TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER 2
+TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_LIFETIME_GRACE_PERIOD 5
+"""
+
 import testlib
 import virtualchain
 import json
 import os
 import sys
-import virtualchain
+import blockstack
+import blockstack.lib.nameset.virtualchain_hooks as virtualchain_hooks
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -52,18 +61,29 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     testlib.blockstack_name_preorder( "judecn.id", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_preorder( "faker.id", wallets[2].privkey, wallets[4].addr )
     testlib.next_block( **kw )
+    
+    message = 'hello world!'
+    message_hash = blockstack.lib.storage.get_zonefile_data_hash(message)
+    
+    fake_message = 'This should not appear'
+    fake_message_hash = blockstack.lib.storage.get_zonefile_data_hash(fake_message)
 
-    testlib.blockstack_name_register( "judecn.id", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_register( "judecn.id", wallets[2].privkey, wallets[3].addr, zonefile_hash=message_hash)
+    testlib.blockstack_name_register( "faker.id", wallets[2].privkey, wallets[4].addr, zonefile_hash=fake_message_hash)
     testlib.next_block( **kw )
+    
+    assert testlib.blockstack_put_zonefile(message)
+    assert testlib.blockstack_put_zonefile(fake_message)
 
-    resp = testlib.blockstack_announce( "hello world!", wallets[3].privkey )
+    resp = testlib.blockstack_announce( message, wallets[3].privkey )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_announce( "This should not appear", wallets[4].privkey )
+    resp = testlib.blockstack_announce( fake_message, wallets[4].privkey )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
@@ -110,7 +130,7 @@ def check( state_engine ):
 
     # "hello world!" exists...
     announce_path = os.path.join(working_dir, "announcements", expected_hash + ".txt" )
-    hashes_path = os.path.join( working_dir, virtualchain.get_implementation().get_virtual_chain_name() + ".announce" )
+    hashes_path = os.path.join( working_dir, virtualchain_hooks.get_virtual_chain_name() + ".announce" )
 
     if not os.path.exists( announce_path ):
         print >> sys.stderr, "No announcement text: %s" % announce_path
