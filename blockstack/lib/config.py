@@ -1463,6 +1463,10 @@ def write_config_file(opts, config_file):
     return True
 
 
+def get_version_parts(whole, func):
+    return [func(_.strip()) for _ in whole[0:3]]
+
+
 def semver_newer(v1, v2):
     """
     Verify (as semantic versions) if v1 < v2
