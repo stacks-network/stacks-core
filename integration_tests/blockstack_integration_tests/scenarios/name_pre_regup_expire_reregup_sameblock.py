@@ -66,7 +66,7 @@ def scenario( wallets, **kw ):
         print whois
         return False
 
-    if whois['owner_address'] != wallets[2].addr:
+    if whois['owner_address'] != wallets[3].addr:
         print 'wrong owner'
         print whois
         return False
