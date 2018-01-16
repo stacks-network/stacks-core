@@ -623,7 +623,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return self.success_response({'record': None})
 
         db = get_db_state(self.working_dir)
-        name_at = db.get_name_at( name, block_height )
+        name_at = db.get_name_at( name, block_height, include_expired=False )
         db.close()
 
         return self.success_response( {'records': name_at} )
@@ -689,12 +689,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         ret = []
         
         for nameop in nameops:
-            """
-            # TODO: replace with an op-specific 'canonicalize()' method
-            if 'buckets' in nameop and (isinstance(nameop['buckets'], str) or
-                                    isinstance(nameop['buckets'], unicode)):
-                nameop['buckets'] = json.loads(nameop['buckets'])
-            """
             assert 'opcode' in nameop, 'BUG: missing opcode'
             ret.append(op_canonicalize(nameop['opcode'], nameop))
         
@@ -1156,7 +1150,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         for zfd in zonefile_datas:
             if not self.check_string(zfd, max_length=((4 * RPC_MAX_ZONEFILE_LEN) / 3) + 3, pattern=OP_BASE64_EMPTY_PATTERN):
-                return {'error': 'Invalid zone file payload (exceeds {} bytes)'.format(RPC_MAX_ZONEFILE_LEN)}
+                return {'error': 'Invalid zone file payload (exceeds {} bytes and/or not base64-encoded)'.format(RPC_MAX_ZONEFILE_LEN)}
 
         zonefile_dir = conf.get("zonefiles", None)
         saved = []
@@ -1417,21 +1411,32 @@ def gc_stop():
     log.debug("GC thread joined")
 
 
+def is_atlas_enabled(blockstack_opts):
+    """
+    Can we do atlas operations?
+    """
+    if not blockstack_opts['atlas']:
+        log.debug("Atlas is disabled")
+        return False
+
+    if 'zonefiles' not in blockstack_opts:
+        log.debug("Atlas is disabled: no 'zonefiles' path set")
+        return False
+
+    if 'atlasdb_path' not in blockstack_opts:
+        log.debug("Atlas is disabled: no 'atlasdb_path' path set")
+        return False
+
+    return True
+
+
 def atlas_start( blockstack_opts, db, port ):
     """
     Start up atlas functionality
     """
     # start atlas node
     atlas_state = None
-    if blockstack_opts['atlas']:
-        if 'zonefiles' not in blockstack_opts:
-            log.error("No zonefiles directory set.  Atlas will not initialize.")
-            return None
-        
-        if 'atlasdb_path' not in blockstack_opts:
-            log.error('No atlasdb path set.  Atlas will not initialize.')
-            return None
-
+    if is_atlas_enabled(blockstack_opts):
         atlas_seed_peers = filter( lambda x: len(x) > 0, blockstack_opts['atlas_seeds'].split(","))
         atlas_blacklist = filter( lambda x: len(x) > 0, blockstack_opts['atlas_blacklist'].split(","))
         zonefile_dir = blockstack_opts['zonefiles']
@@ -1439,8 +1444,8 @@ def atlas_start( blockstack_opts, db, port ):
         zonefile_storage_drivers_write = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers_write'].split(","))
         my_hostname = blockstack_opts['atlas_hostname']
 
-        initial_peer_table = atlasdb_init( blockstack_opts['atlasdb_path'], zonefile_dir, db, atlas_seed_peers, atlas_blacklist, validate=True )
-        atlas_peer_table_init( initial_peer_table )
+        initial_peer_table = atlasdb_init(blockstack_opts['atlasdb_path'], zonefile_dir, db, atlas_seed_peers, atlas_blacklist, validate=True)
+        atlas_peer_table_init(initial_peer_table)
 
         atlas_state = atlas_node_start( my_hostname, port, blockstack_opts['atlasdb_path'], zonefile_dir, db.working_dir,
                                         zonefile_storage_drivers=zonefile_storage_drivers, zonefile_storage_drivers_write=zonefile_storage_drivers_write)
@@ -1613,9 +1618,9 @@ def index_blockchain( working_dir, expected_snapshots=GENESIS_SNAPSHOT ):
 
     # bring the db up to the chain tip.
     log.debug("Begin indexing (up to %s)" % current_block)
-    set_indexing( True )
-    rc = virtualchain_hooks.sync_blockchain( working_dir, bt_opts, current_block, expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter )
-    set_indexing( False )
+    set_indexing( working_dir, True )
+    rc = virtualchain_hooks.sync_blockchain(working_dir, bt_opts, current_block, expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter)
+    set_indexing( working_dir, False )
 
     db.close()
 
@@ -1629,17 +1634,14 @@ def index_blockchain( working_dir, expected_snapshots=GENESIS_SNAPSHOT ):
     # version of the server, or a removed/corrupted atlas.db file).
     # TODO: this is racy--we also do this in virtualchain-hooks
     blockstack_opts = get_blockstack_opts()
-    if blockstack_opts.get('atlas', False):
-        if 'zonefiles' not in blockstack_opts:
-            log.error("No zonefiles directory set.  Atlas node will not run.")
-        else:
-            db = get_db_state(working_dir)
-            if old_lastblock < db.lastblock:
-                log.debug("Synchronize Atlas DB from %s to %s" % (old_lastblock+1, db.lastblock+1))
-                zonefile_dir = blockstack_opts['zonefiles']
-                atlasdb_sync_zonefiles( db, old_lastblock+1, zonefile_dir )
+    if is_atlas_enabled(blockstack_opts):
+        db = get_db_state(working_dir)
+        if old_lastblock < db.lastblock:
+            log.debug("Synchronize Atlas DB from %s to %s" % (old_lastblock+1, db.lastblock+1))
+            zonefile_dir = blockstack_opts['zonefiles']
+            atlasdb_sync_zonefiles(db, old_lastblock+1, zonefile_dir, path=blockstack_opts['atlasdb_path'])
 
-            db.close()
+        db.close()
 
     log.debug("End indexing (up to %s)" % current_block)
     return rc
@@ -1670,7 +1672,7 @@ def run_server( working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSH
     blockstack_opts = get_blockstack_opts()
     indexer_log_file = get_logfile_path(working_dir)
     pid_file = get_pidfile_path(working_dir)
-    db_path = virutalchain.get_db_path()
+    db_path = virtualchain.get_db_filename(virtualchain_hooks, working_dir)
 
     if port is None:
         port = blockstack_opts['rpc_port']
@@ -1731,13 +1733,10 @@ def run_server( working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSH
     gc_start()
 
     # clear indexing state
-    set_indexing( False )
-
-    # make sure client is initialized
-    # get_blockstack_client_session()
+    set_indexing( working_dir, False )
 
     # get db state
-    db = get_db_state(working_dir)
+    db = get_or_instantiate_db_state(working_dir)
 
     # start atlas node
     atlas_state = atlas_start( blockstack_opts, db, port )
@@ -1745,15 +1744,12 @@ def run_server( working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSH
 
     db.close()
 
-    # start storage
-    storage_start( blockstack_opts )
-
     # start API server
     rpc_start(working_dir, port)
     set_running( True )
 
     # clear any stale indexing state
-    set_indexing( False )
+    set_indexing( working_dir, False )
     log.debug("Begin Indexing")
 
     running = True
@@ -1789,10 +1785,6 @@ def run_server( working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSH
     log.debug("Stopping Atlas node")
     atlas_stop( atlas_state )
     atlas_state = None
-
-    # stopping storage
-    log.debug("Stopping storage pusher")
-    storage_stop()
 
     # stopping GC
     log.debug("Stopping GC worker")
@@ -2188,7 +2180,7 @@ def run_blockstackd():
           blockstack_backup_restore( working_dir, None )
 
           # make sure we "stop"
-          set_indexing(False)
+          set_indexing(working_dir, False)
 
       # use snapshots?
       if args.expected_snapshots is not None:
