@@ -632,7 +632,7 @@ class AtlasNetworkServer( threading.Thread, object ):
         self.network.shutdown()
 
 
-def atlas_network_build( peer_ports, seed_relations, blacklist_relations, network_dir ):
+def atlas_network_build( working_dir, peer_ports, seed_relations, blacklist_relations, network_dir ):
     """
     Construct a network with the given initial topology and properties.
     Return a dict of network state, which can be fed into atlas_network_start.
@@ -649,7 +649,7 @@ def atlas_network_build( peer_ports, seed_relations, blacklist_relations, networ
         hostport = "localhost:%s" % peer_port
         dirp = os.path.join( network_dir, hostport )
 
-        res = testlib.peer_make_config(peer_port, dirp, seed_relations=seed_relations, blacklist_relations=blacklist_relations)
+        res = testlib.peer_make_config(working_dir, peer_port, dirp, seed_relations=seed_relations, blacklist_relations=blacklist_relations)
         if not res:
             print("Failed to make config in {}".format(dirp))
             return None
