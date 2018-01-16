@@ -715,7 +715,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         Generate and return the sequence of of states a name record was in
         at a particular block number.
         """
-        
         cur = self.db.cursor()
         return namedb_get_name_at(cur, name, block_number, include_expired=include_expired)
 
@@ -727,8 +726,8 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         Includes expired namespaces by default.
         """
-        
-        return namedb_get_namespace_at(namespace_id, block_number, include_expired=True)
+        cur = self.db.cursor() 
+        return namedb_get_namespace_at(cur, namespace_id, block_number, include_expired=True)
 
 
     def get_name_history( self, name ):
