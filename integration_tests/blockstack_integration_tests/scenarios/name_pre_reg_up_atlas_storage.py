@@ -117,15 +117,13 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
 
-        # propagate 
-        res = testlib.blockstack_cli_sync_zonefile('foo_{}.test'.format(i), zonefile_string=empty_zonefile_str)
-        if 'error' in res:
-            print json.dumps(res)
+        res = testlib.blockstack_put_zonefile(empty_zonefile_str)
+        if not res:
             return False
 
     # start up a simple Atlas test network with two nodes: the main one doing the test, and a subordinate one that treats it as a seed peer.
     atlas_dir = os.path.join( working_dir, "atlas_network" )
-    network_des = atlas_network.atlas_network_build( [17000], {17000: [16264]}, {}, atlas_dir )
+    network_des = atlas_network.atlas_network_build( testlib.working_dir(**kw), [17000], {17000: [16264]}, {}, atlas_dir )
     atlas_network.atlas_network_start( network_des )
 
     # wait at most 60 seconds for atlas network to converge
@@ -197,6 +195,7 @@ def check( state_engine ):
         name = 'foo_{}.test'.format(i)
         value_hash = value_hashes[i]
 
+        '''
         # atlas logic tried storage (either this node or the atlas peer)
         zfinfo = blockstack.atlasdb_get_zonefile( value_hash, path=atlasdb_path )
         if not zfinfo['tried_storage']:
@@ -205,7 +204,7 @@ def check( state_engine ):
             if not zfinfo2['tried_storage']:
                 print "didn't get zonefile from storage: test node: %s, atlas peer: %s" % (zfinfo, zfinfo2)
                 return False
-
+        '''
         '''
         # zonefile stored to disk?
         zfdata = blockstack_client.zonefile.load_name_zonefile(name, value_hash, storage_drivers=['disk'])
