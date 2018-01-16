@@ -3181,9 +3181,9 @@ def check_atlas_zonefiles( state_engine, atlasdb_path ):
             continue
 
         if "value_hash" not in api_call.result:
-            log.warn("Api call {} on name {} in block {} has no value_hash, skipping atlas check.".format(
-                api_call.method, name, block_id))
+            log.warn("Api call {} on name {} in block {} has no value_hash, skipping atlas check.".format(api_call.method, name, block_id))
             continue
+
         value_hash = api_call.result['value_hash']
 
         log.debug("Verify Atlas zonefile hash %s for %s in '%s' at %s" % (value_hash, name, api_call.method, block_id))
