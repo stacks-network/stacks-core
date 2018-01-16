@@ -101,7 +101,7 @@ def search_people():
 
     if SEARCH_API_ENDPOINT_ENABLED:
         client = app.test_client()
-        return client.get('/search?query={}'.format(query), 
+        return client.get('/search?query={}'.format(query),
                           headers=list(request.headers))
 
     search_url = SEARCH_NODE_URL + '/search'

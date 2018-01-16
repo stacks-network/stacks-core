@@ -1,0 +1,40 @@
+#!/bin/bash
+
+ops () {
+
+  local python=/usr/bin/python
+  local initCore=blockstack-core-init
+  local storageBucket=https://blockstack.blob.core.windows.net/index
+  local image=quay.io/blockstack/blockstack-core
+  local tag=master
+
+  init-api () {
+    local apiData=data/blockstack-api
+    echo "Initializing Blockstack Core API server with dummy wallet..."
+    mkdir -p $apiData
+    docker run -it --rm \
+      -v $(pwd)/$apiData:/root/.blockstack \
+      $image:$tag \
+      blockstack setup -y --password dummywalletpassword
+    sudo cp deployment/client.ini $apiData/client.ini
+  }
+
+  commands () {
+    cat <<-EOF
+ops commands:
+  init-api -> Set up the dummy wallet for the core api
+EOF
+  }
+
+  case $1 in
+    init-api)
+      init-api
+      ;;
+    *)
+      commands
+      ;;
+  esac
+
+}
+
+ops $1 $2
