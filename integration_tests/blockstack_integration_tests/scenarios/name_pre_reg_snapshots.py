@@ -31,6 +31,7 @@ import subprocess
 import keylib
 import shutil
 import blockstack
+import time
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -42,6 +43,7 @@ wallets = [
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 value_hashes = []
+namespace_ids = []
 
 def take_snapshot(config_path, virtualchain_dir, snapshot_dir, max_age):
     """
@@ -65,7 +67,7 @@ def take_snapshot(config_path, virtualchain_dir, snapshot_dir, max_age):
     return True
 
 
-def restore( snapshot_path, restore_dir, pubkeys, num_required ):
+def restore( working_dir, snapshot_path, restore_dir, pubkeys, num_required ):
     
     global value_hashes
 
@@ -81,12 +83,14 @@ def restore( snapshot_path, restore_dir, pubkeys, num_required ):
         return False
 
     # database must be identical 
-    db_filenames = ['blockstack-server.db', 'blockstack-server.snapshots', 'blockstack-server.lastblock']
-    src_paths = [os.path.join(virtualchain.get_working_dir(), fn) for fn in db_filenames]
+    db_filenames = ['blockstack-server.db', 'blockstack-server.snapshots']
+    src_paths = [os.path.join(working_dir, fn) for fn in db_filenames]
     backup_paths = [os.path.join(restore_dir, fn) for fn in db_filenames]
 
     for src_path, backup_path in zip(src_paths, backup_paths):
-        rc = os.system("cmp '{}' '{}'".format(src_path, backup_path))
+        rc = os.system('echo ".dump" | sqlite3 "{}" > "{}/first.dump"; echo ".dump" | sqlite3 "{}" > "{}/second.dump"; cmp "{}/first.dump" "{}/second.dump"'.format(
+            src_path, restore_dir, backup_path, restore_dir, restore_dir, restore_dir))
+
         if rc != 0:
             print '{} disagress with {}'.format(src_path, backup_path)
             return False
@@ -97,13 +101,19 @@ def restore( snapshot_path, restore_dir, pubkeys, num_required ):
         if zfdata is None:
             print 'Missing {} in {}'.format(vh, os.path.join(restore_dir, 'zonefiles'))
             return False
+    
+    # all import keychains must be present
+    for ns in namespace_ids:
+        import_keychain_path = blockstack.lib.namedb.BlockstackDB.get_import_keychain_path(restore_dir, ns)
+        if not os.path.exists(import_keychain_path):
+            print 'Missing import keychain {}'.format(import_keychain_path)
+            return False
 
-    shutil.rmtree(restore_dir)
     return True
 
 
 def scenario( wallets, **kw ):
-    global value_hashes
+    global value_hashes, namespace_ids
 
     virtualchain_dir = kw['working_dir']
     assert virtualchain_dir
@@ -133,6 +143,27 @@ logfile = {}
     
     assert take_snapshot(config_file, virtualchain_dir, snapshot_dir, 3)
 
+    zonefile = blockstack_client.zonefile.make_empty_zonefile( "foo.test", wallets[0].pubkey_hex )
+    zonefile_txt = blockstack_zones.make_zone_file( zonefile )
+    zonefile_hash = blockstack_client.storage.get_zonefile_data_hash( zonefile_txt )
+    
+    value_hashes.append(zonefile_hash)
+
+    namespace_ids.append('test')
+
+    resp = testlib.blockstack_name_import( "imported.test", wallets[3].addr, zonefile_hash, wallets[1].privkey )
+    if 'error' in resp:
+        print json.dumps( resp, indent=4 )
+        return False
+
+    testlib.next_block( **kw )
+
+    # store zonefile
+    res = testlib.blockstack_put_zonefile(zonefile_txt)
+    assert res
+    
+    assert take_snapshot(config_file, virtualchain_dir, snapshot_dir, 3)
+
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
     
@@ -153,11 +184,15 @@ logfile = {}
     zonefile_hash = blockstack_client.storage.get_zonefile_data_hash( zonefile_txt )
  
     value_hashes.append(zonefile_hash)
-
-    assert blockstack_client.storage.put_immutable_data( zonefile_txt, '00' * 32, data_hash=zonefile_hash )
     
     testlib.blockstack_name_update('foo.test', zonefile_hash, wallets[3].privkey)
     testlib.next_block( **kw )
+
+    time.sleep(1.0)
+
+    # store zonefile
+    res = testlib.blockstack_put_zonefile(zonefile_txt)
+    assert res
 
     # there must be three snapshots 
     res = os.listdir(snapshot_dir)
@@ -173,7 +208,7 @@ logfile = {}
 
     # restore it
     restore_dir = os.path.join(snapshot_dir, 'test_restore')
-    res = restore(os.path.join(snapshot_dir, 'snapshot.bsk'), restore_dir, [wallets[4].pubkey_hex], 1)
+    res = restore(virtualchain_dir, os.path.join(snapshot_dir, 'snapshot.bsk'), restore_dir, [wallets[4].pubkey_hex], 1)
     assert res
 
 
