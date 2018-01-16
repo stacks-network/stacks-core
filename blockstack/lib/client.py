@@ -30,9 +30,16 @@ import httplib
 import base64
 import jsonschema
 from jsonschema.exceptions import ValidationError
+import random
+import json
+import storage
 
 from .util import url_to_host_port
 from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT
+
+import virtualchain
+
+log = virtualchain.get_logger('blockstackd-client')
 
 # prevent the usual XML attacks
 xmlrpc.MAX_DATA = MAX_RPC_LEN
