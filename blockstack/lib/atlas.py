@@ -2182,7 +2182,6 @@ def atlas_peer_get_neighbors( my_hostport, peer_hostport, timeout=None, peer_tab
 
     try:
         peer_list = blockstack_get_atlas_peers( peer_hostport, timeout=timeout, my_hostport=my_hostport, proxy=rpc )
-
     except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
         atlas_log_socket_error( "get_atlas_peers(%s)" % peer_hostport, peer_hostport, se)
         log.error("Socket error in response from '%s'" % peer_hostport)
@@ -3016,7 +3015,6 @@ class AtlasHealthChecker( threading.Thread ):
         self.atlasdb_path = path
         self.hostport = "%s:%s" % (my_host, my_port)
         self.last_clean_time = 0
-        self.atlasdb_path = path
 
 
     def step(self, con=None, path=None, peer_table=None, local_inv=None):
@@ -3113,8 +3111,7 @@ class AtlasZonefileCrawler( threading.Thread ):
         Return True on success
         Return False on error
         """
-        # rc = store_zonefile_data_to_storage( zonefile_data, txid, required=self.zonefile_storage_drivers_write, cache=True, zonefile_dir=self.zonefile_dir, tx_required=False )
-        rc = add_atlas_zonefile_data( zonefile_data, zonefile_dir )
+        rc = add_atlas_zonefile_data( zonefile_data, self.zonefile_dir )
         if not rc:
             log.error("%s: Failed to store zonefile %s" % (self.hostport, fetched_zfhash))
 
