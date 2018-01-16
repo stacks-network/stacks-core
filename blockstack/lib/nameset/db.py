@@ -943,6 +943,9 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
     record for a known record (history_id, preorder_record), create the initial name or namespace using
     the preorder and operation's data.  Record the preorder as history.
 
+    This operation will allow the caller to update an existing name or namespace if it is being re-registered.
+    It is up to the caller to verify that the name or namespace does not exist at the time of this call.
+
     The record named by history_id must not exist.
 
     Return True on success
@@ -1072,9 +1075,9 @@ def namedb_name_import_sanity_check( cur, opcode, op_data, history_id, block_id,
     namedb_op_sanity_check( opcode, op_data, op_data )
 
     # must be the only such existant name, if prior_import is None
-    name = namedb_get_name( cur, history_id, block_id )
+    name_rec = namedb_get_name( cur, history_id, block_id )
     if prior_import is None:
-        assert name is None, "BUG: trying to import '%s' for the first time, again" % history_id
+        assert name_rec is None, "BUG: trying to import '%s' for the first time, again" % history_id
     else:
         assert name is not None, "BUG: trying to overwrite non-existent import '%s'" % history_id
         assert prior_import['name'] == history_id, "BUG: trying to overwrite import for different name '%s'" % history_id
@@ -1091,7 +1094,7 @@ def namedb_get_last_name_import(cur, name, block_id, vtxindex):
     Find the last name import for this name
     """
     query = 'SELECT history_data FROM history WHERE history_id = ? AND (block_id < ? OR (block_id = ? AND vtxindex < ?)) ' + \
-            'ORDER BY block_id,vtxindex DESC LIMIT 1;'
+            'ORDER BY block_id DESC,vtxindex DESC LIMIT 1;'
 
     args = (name, block_id, block_id, vtxindex)
 
@@ -1269,7 +1272,7 @@ def namedb_get_history_rows( cur, history_id, offset=None, count=None ):
     Use offset/count if given.
     """
     ret = []
-    select_query = "SELECT * FROM history WHERE history_id = ? ORDER BY block_id, vtxindex ASC"
+    select_query = "SELECT * FROM history WHERE history_id = ? ORDER BY block_id ASC, vtxindex ASC"
     args = (history_id,)
 
     if count is not None:
@@ -1296,7 +1299,7 @@ def namedb_get_num_history_rows( cur, history_id ):
     Use offset/count if given.
     """
     ret = []
-    select_query = "SELECT COUNT(*) FROM history WHERE history_id = ? ORDER BY block_id, vtxindex ASC;"
+    select_query = "SELECT COUNT(*) FROM history WHERE history_id = ? ORDER BY block_id ASC, vtxindex ASC;"
     args = (history_id,)
 
     count = namedb_select_count_rows( cur, select_query, args )
@@ -1366,25 +1369,35 @@ def namedb_flatten_history( hist ):
     return ret
 
 
-def namedb_get_namespace( cur, namespace_id, current_block, include_expired=False, include_history=True ):
+def namedb_get_namespace( cur, namespace_id, current_block, include_expired=False, include_history=True, only_revealed=True):
     """
     Get a namespace (revealed or ready) and optionally its history.
     Only return an expired namespace if asked.
-    If current_block is None, any namespace is returned.
+    If current_block is None, any namespace is returned (expired or not)
+    If current_block is not None and only_revealed is False, then a namespace can be returned before it was revealed.
+    -- if include_expired is False, then a namespace can be returned only if current_block is less than the expire block
+    -- otherwise, any namespace can be returned
     """
 
     include_expired_query = ""
     include_expired_args = ()
 
-    min_age_query = " AND namespaces.reveal_block <= ?"
-    min_age_args = (current_block,)
+    min_age_query = ""
+    min_age_args = ()
+
+    if only_revealed:
+        # requier lower bound on age
+        min_age_query = " AND namespaces.reveal_block <= ?"
+        min_age_args = (current_block,)
 
     if not include_expired:
         assert current_block is not None
+        # require upper bound on age
         include_expired_query = " AND ? < namespaces.reveal_block + ?"
         include_expired_args = (current_block, NAMESPACE_REVEAL_EXPIRE)
 
     if current_block is None:
+        # no bounds on age
         min_age_query = ""
         min_age_args = ()
 
@@ -1460,48 +1473,51 @@ def namedb_get_name_by_preorder_hash( cur, preorder_hash, include_history=True )
     return namerec
 
 
-def namedb_select_where_unexpired_names( current_block ):
+def namedb_select_where_unexpired_names(current_block, only_registered=True):
     """
     Generate part of a WHERE clause that selects from name records joined with namespaces
     (or projections of them) that are not expired.
+
+    Also limit to names that are registered at this block, if only_registered=True.
+    If only_registered is False, then as long as current_block is before the expire block, then the name will be returned (but the name may not have existed at that block)
     """
-    query_fragment = "(" \
-                        "name_records.first_registered <= ? AND " + \
-                        "(" + \
-                            "(" + \
-                                "(" + \
-                                    "namespaces.op = ? AND " + \
+
+    unexpired_query_fragment =  "(" + \
                                     "(" + \
-                                        "(namespaces.ready_block + ((namespaces.lifetime * namespace_lifetime_multiplier(?, namespaces.namespace_id)) + namespace_lifetime_grace_period(?, namespaces.namespace_id)) > ?) OR " + \
-                                        "(name_records.last_renewed + ((namespaces.lifetime * namespace_lifetime_multiplier(?, namespaces.namespace_id)) + namespace_lifetime_grace_period(?, namespaces.namespace_id)) >= ?)" + \
+                                        "namespaces.op = ? AND " + \
+                                        "(" + \
+                                            "(namespaces.ready_block + ((namespaces.lifetime * namespace_lifetime_multiplier(?, namespaces.namespace_id)) + namespace_lifetime_grace_period(?, namespaces.namespace_id)) > ?) OR " + \
+                                            "(name_records.last_renewed + ((namespaces.lifetime * namespace_lifetime_multiplier(?, namespaces.namespace_id)) + namespace_lifetime_grace_period(?, namespaces.namespace_id)) >= ?)" + \
+                                        ")" + \
+                                    ") OR " + \
+                                    "(" + \
+                                        "namespaces.op = ? AND namespaces.reveal_block <= ? AND ? < namespaces.reveal_block + ?" + \
                                     ")" + \
-                                ") OR " + \
-                                "(" + \
-                                    "namespaces.op = ? AND namespaces.reveal_block <= ? AND ? < namespaces.reveal_block + ?" + \
-                                ")" + \
-                            ")" + \
-                        ")" + \
-                    ")"
+                                ")"
 
-    query_args = (current_block, 
-                    NAMESPACE_READY, 
-                        current_block, current_block, current_block, 
-                        current_block, current_block, current_block,
-                    NAMESPACE_REVEAL, current_block, current_block, NAMESPACE_REVEAL_EXPIRE)
+    unexpired_query_args = (NAMESPACE_READY, 
+                                current_block, current_block, current_block, 
+                                current_block, current_block, current_block,
+                            NAMESPACE_REVEAL, current_block, current_block, NAMESPACE_REVEAL_EXPIRE)
 
-    return (query_fragment, query_args)
+    if only_registered:
+        # also limit to only names registered before this block
+        unexpired_query_fragment = '(name_records.first_registered <= ? AND {})'.format(unexpired_query_fragment)
+        unexpired_query_args = (current_block,) + unexpired_query_args
+
+    return (unexpired_query_fragment, unexpired_query_args)
 
 
-def namedb_get_name( cur, name, current_block, include_expired=False, include_history=True ):
+def namedb_get_name(cur, name, current_block, include_expired=False, include_history=True, only_registered=True):
     """
-    Get a name and all of its history.
+    Get a name and all of its history.  Note: will return a revoked name
     Return the name + history on success
     Return None if the name doesn't exist, or is expired (NOTE: will return a revoked name)
     """
 
     if not include_expired:
 
-        unexpired_fragment, unexpired_args = namedb_select_where_unexpired_names( current_block )
+        unexpired_fragment, unexpired_args = namedb_select_where_unexpired_names(current_block, only_registered=only_registered)
         select_query = "SELECT name_records.* FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id " + \
                        "WHERE name = ? AND " + unexpired_fragment + ";"
         args = (name, ) + unexpired_args
@@ -1537,7 +1553,7 @@ def namedb_get_record_states_at(cur, history_id, block_number):
 
     Returns an array of record states
     """
-    query = 'SELECT block_id,history_data FROM history WHERE history_id = ? AND block_id == ? ORDER BY block_id,vtxindex DESC'
+    query = 'SELECT block_id,history_data FROM history WHERE history_id = ? AND block_id == ? ORDER BY block_id DESC,vtxindex DESC'
     args = (history_id, block_number)
     history_rows = namedb_query_execute(cur, query, args)
     ret = []
@@ -1551,7 +1567,7 @@ def namedb_get_record_states_at(cur, history_id, block_number):
         return ret
     
     # if the name did not change in this block, then find the last version of the name
-    query = 'SELECT block_id,history_data FROM history WHERE history_id = ? AND block_id < ? ORDER BY block_id,vtxindex DESC LIMIT 1'
+    query = 'SELECT block_id,history_data FROM history WHERE history_id = ? AND block_id < ? ORDER BY block_id DESC,vtxindex DESC LIMIT 1'
     args = (history_id, block_number)
     history_rows = namedb_query_execute(cur, query, args)
     
@@ -1571,8 +1587,9 @@ def namedb_get_name_at(cur, name, block_number, include_expired=False):
     Returns None if this name does not exist at this block height.
     """
     if not include_expired:
-        # don't return anything if this name is expired
-        name_rec = namedb_get_name(cur, name, block_number, include_expired=False, include_history=False)
+        # don't return anything if this name is expired.
+        # however, we don't care if the name hasn't been created as of this block_number either, since we might return its preorder (hence only_registered=False)
+        name_rec = namedb_get_name(cur, name, block_number, include_expired=False, include_history=False, only_registered=False)
         if name_rec is None:
             # expired at this block.
             return None
@@ -1585,7 +1602,7 @@ def namedb_get_name_at(cur, name, block_number, include_expired=False):
         return history_rows
 
 
-def namedb_get_namespace_at(cur, namespace_id, block_number, include_expired=True):
+def namedb_get_namespace_at(cur, namespace_id, block_number, include_expired=False):
     """
     Get the sequence of states that a namespace record was in at a particular block height.
     There can be more than one if the namespace changed durnig the block.
@@ -1594,12 +1611,13 @@ def namedb_get_namespace_at(cur, namespace_id, block_number, include_expired=Tru
     """
     if not include_expired:
         # don't return anything if the namespace was expired at this block.
-        namespace_rec = namedb_get_namespace(cur, namespace_id, block_number, include_expired=False, include_history=False)
+        # (but do return something here even if the namespace was created after this block, so we can potentially pick up its preorder (hence only_revealed=False))
+        namespace_rec = namedb_get_namespace(cur, namespace_id, block_number, include_expired=False, include_history=False, only_revealed=False)
         if namespace_rec is None:
-            # expired at this block 
+            # expired at this block
             return None
 
-    history_rows = namedb_get_record_states_at(cur, name, block_number)
+    history_rows = namedb_get_record_states_at(cur, namespace_id, block_number)
     if len(history_rows) == 0:
         # doesn't exist yet 
         return None
@@ -1826,10 +1844,18 @@ def namedb_get_num_ops_at( db, block_id ):
     """
     Get the number of operations that occurred at a particular block.
     """
+    cur = db.cursor()
+
+    # preorders at this block
+    preorder_count_rows_query = "SELECT COUNT(*) FROM preorders WHERE block_number = ?;"
+    preorder_count_rows_args = (block_id,)
+    
+    num_preorders = namedb_select_count_rows(cur, preorder_count_rows_query, preorder_count_rows_args)
+
+    # committed operations at this block
     query = "SELECT COUNT(*) FROM history WHERE block_id = ?;"
     args = (block_id,)
 
-    cur = db.cursor()
     rows_result = namedb_query_execute(cur, query, args)
 
     count = 0
@@ -1837,7 +1863,8 @@ def namedb_get_num_ops_at( db, block_id ):
         count = r['COUNT(*)']
         break
 
-    return count
+    log.debug("{} preorders; {} history rows at {}".format(num_preorders, count, block_id))
+    return count + num_preorders
     
 
 def namedb_get_num_names( cur, current_block, include_expired=False ):
