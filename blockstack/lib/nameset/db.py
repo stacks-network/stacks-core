@@ -1079,7 +1079,7 @@ def namedb_name_import_sanity_check( cur, opcode, op_data, history_id, block_id,
     if prior_import is None:
         assert name_rec is None, "BUG: trying to import '%s' for the first time, again" % history_id
     else:
-        assert name is not None, "BUG: trying to overwrite non-existent import '%s'" % history_id
+        assert name_rec is not None, "BUG: trying to overwrite non-existent import '%s'" % history_id
         assert prior_import['name'] == history_id, "BUG: trying to overwrite import for different name '%s'" % history_id
         
         # must actually be prior
