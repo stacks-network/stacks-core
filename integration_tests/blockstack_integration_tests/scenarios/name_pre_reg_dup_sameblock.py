@@ -45,9 +45,11 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_preorder( "foo.test", wallets[4].privkey, wallets[3].addr )
     testlib.blockstack_name_preorder( "foo.test", wallets[3].privkey, wallets[2].addr )
-    testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
+    
+    # should be accepted
+    testlib.blockstack_name_register( "foo.test", wallets[4].privkey, wallets[3].addr )
 
     # should be rejected
     testlib.blockstack_name_register( "foo.test", wallets[3].privkey, wallets[2].addr )
@@ -88,7 +90,7 @@ def check( state_engine ):
     # owned by
     if name_rec['address'] != wallets[3].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[3].addr):
         print "sender is wrong"
-        print 'expected {}'.foramt(wallets[3].addr)
+        print 'expected {}'.format(wallets[3].addr)
         print 'got {}'.format(name_rec['address'])
         return False 
 
