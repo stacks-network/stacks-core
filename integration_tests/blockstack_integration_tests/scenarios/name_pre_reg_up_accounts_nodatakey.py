@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import urllib2
 import json
 import blockstack_client
@@ -151,7 +151,7 @@ def check( state_engine ):
         wallet_data_pubkey = 3 * (i+1) # same as owner key
         wallet_keys = wallet_keys_list[i]
 
-        preorder = state_engine.get_name_preorder( name, pybitcoin.make_pay_to_address_script(wallets[wallet_payer].addr), wallets[wallet_owner].addr )
+        preorder = state_engine.get_name_preorder( name, virtualchain.make_payment_script(wallets[wallet_payer].addr), wallets[wallet_owner].addr )
         if preorder is not None:
             print "still have preorder"
             return False
@@ -163,7 +163,7 @@ def check( state_engine ):
             return False 
 
         # owned 
-        if name_rec['address'] != wallets[wallet_owner].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[wallet_owner].addr):
+        if name_rec['address'] != wallets[wallet_owner].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[wallet_owner].addr):
             print "name has wrong owner"
             return False 
 

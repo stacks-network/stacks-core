@@ -42,9 +42,10 @@ import gc
 import jsonschema
 from jsonschema import ValidationError
 
+import xmlrpclib
 from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 
-# stop common XML attacks 
+# stop common XML attacks
 from defusedxml import xmlrpc
 xmlrpc.monkey_patch()
 
@@ -57,7 +58,7 @@ import blockstack_client
 
 from lib import nameset as blockstack_state_engine
 from lib import get_db_state
-from lib.config import REINDEX_FREQUENCY 
+from lib.config import REINDEX_FREQUENCY
 from lib import *
 from lib.storage import *
 from lib.atlas import *
@@ -137,7 +138,7 @@ def put_pidfile( pidfile_path, pid ):
         f.write("%s" % pid)
         os.fsync(f.fileno())
 
-    return 
+    return
 
 
 def get_logfile_path():
@@ -147,7 +148,7 @@ def get_logfile_path():
    working_dir = virtualchain.get_working_dir()
    logfile_filename = blockstack_state_engine.get_virtual_chain_name() + ".log"
    return os.path.join( working_dir, logfile_filename )
-     
+
 
 def get_lastblock():
     """
@@ -262,13 +263,104 @@ def get_namespace_cost( db, namespace_id ):
 class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
     """
     Dispatcher to properly instrument calls and do
-    proper deserialization.
+    proper deserialization and request-size limiting.
     """
+
+    MAX_REQUEST_SIZE = 512 * 1024   # 500KB
+
+    def do_POST(self):
+        """
+        Based on the original, available at https://github.com/python/cpython/blob/2.7/Lib/SimpleXMLRPCServer.py
+
+        Only difference is that it denies requests bigger than a certain size.
+
+        Handles the HTTP POST request.
+        Attempts to interpret all HTTP POST requests as XML-RPC calls,
+        which are forwarded to the server's _dispatch method for handling.
+        """
+
+        # Check that the path is legal
+        if not self.is_rpc_path_valid():
+            self.report_404()
+            return
+
+        # reject gzip, so size-caps will work
+        encoding = self.headers.get("content-encoding", "identity").lower()
+        if encoding != 'identity':
+            log.error("Reject request with encoding '{}'".format(encoding))
+            self.send_response(501, "encoding %r not supported" % encoding)
+            return
+
+        try:
+            size_remaining = int(self.headers["content-length"])
+            if size_remaining > self.MAX_REQUEST_SIZE:
+                if os.environ.get("BLOCKSTACK_DEBUG") == "1":
+                    log.error("Request is too big!")
+
+                self.send_response(400)
+                self.send_header('Content-length', '0')
+                self.end_headers()
+                return
+
+            if os.environ.get("BLOCKSTACK_DEBUG") == "1":
+                log.debug("Message is small enough to parse ({} bytes)".format(size_remaining))
+
+            # Get arguments by reading body of request.
+            # never read more than our max size
+            L = []
+            while size_remaining:
+                chunk_size = min(size_remaining, self.MAX_REQUEST_SIZE)
+                chunk = self.rfile.read(chunk_size)
+                if not chunk:
+                    break
+                L.append(chunk)
+                size_remaining -= len(L[-1])
+
+            data = ''.join(L)
+
+            data = self.decode_request_content(data)
+            if data is None:
+                return #response has been sent
+
+            # In previous versions of SimpleXMLRPCServer, _dispatch
+            # could be overridden in this class, instead of in
+            # SimpleXMLRPCDispatcher. To maintain backwards compatibility,
+            # check to see if a subclass implements _dispatch and dispatch
+            # using that method if present.
+            response = self.server._marshaled_dispatch(
+                    data, getattr(self, '_dispatch', None), self.path
+                )
+
+        except Exception, e: # This should only happen if the module is buggy
+            # internal error, report as HTTP server error
+            self.send_response(500)
+            self.send_header("Content-length", "0")
+            self.end_headers()
+
+        else:
+            # got a valid XML RPC response
+            self.send_response(200)
+            self.send_header("Content-type", "text/xml")
+            if self.encode_threshold is not None:
+                if len(response) > self.encode_threshold:
+                    q = self.accept_encodings().get("gzip", 0)
+                    if q:
+                        try:
+                            response = xmlrpclib.gzip_encode(response)
+                            self.send_header("Content-Encoding", "gzip")
+                        except NotImplementedError:
+                            pass
+
+            self.send_header("Content-length", str(len(response)))
+            self.end_headers()
+            self.wfile.write(response)
+
+
     def _dispatch(self, method, params):
         global gc_thread
         gc_thread.gc_event()
 
-        try: 
+        try:
             con_info = {
                 "client_host": self.client_address[0],
                 "client_port": RPC_SERVER_PORT
@@ -297,7 +389,7 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
                         "client_host": "",
                         "client_port": 0
                     }
-                
+
                 log.debug("Inbound RPC begin %s(%s) (from atlas simulator)" % ("rpc_" + str(method), params))
 
             else:
@@ -333,33 +425,12 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         log.info("Listening on %s:%s" % (host, port))
         SimpleXMLRPCServer.__init__( self, (host, port), handler, allow_none=True )
 
-        # register methods 
+        # register methods
         for attr in dir(self):
             if attr.startswith("rpc_"):
                 method = getattr(self, attr)
                 if callable(method) or hasattr(method, '__call__'):
                     self.register_function( method )
-
-
-    def analytics(self, event_type, event_payload):
-        """
-        Report analytics information for this server
-        (uses this server's client handle)
-        """
-        ak = None
-        conf = get_blockstack_opts()
-        if conf.has_key('analytics_key'):
-            ak = conf['analytics_key']
-
-        if ak is None or len(ak) == 0:
-            return
-
-        try:
-            blockstack_client.client.analytics_event( event_type, event_payload, analytics_key=ak, action_tag="Perform server action" )
-        except:
-            log.error("Failed to log analytics event")
-        
-        return
 
 
     def success_response(self, method_resp ):
@@ -377,10 +448,116 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return resp
 
 
+    def check_name(self, name):
+        """
+        Verify the name is well-formed
+        """
+        if type(name) not in [str, unicode]:
+            return False
+
+        if not is_name_valid(name):
+            return False
+
+        return True
+
+
+    def check_namespace(self, namespace_id):
+        """
+        Verify that a namespace ID is well-formed
+        """
+        if type(namespace_id) not in [str, unicode]:
+            return False
+
+        if not is_namespace_valid(namespace_id):
+            return False
+
+        return True
+
+
+    def check_block(self, block_id):
+        """
+        Verify that a block ID is valid
+        """
+        if type(block_id) not in [int, long]:
+            return False
+
+        if os.environ.get("BLOCKSTACK_TEST") == "1":
+            if block_id <= 0:
+                return False
+
+        else:
+            if block_id < FIRST_BLOCK_MAINNET:
+                return False
+
+        if block_id > 1e7:
+            # 1 million blocks? not in my lifetime
+            return False
+
+        return True
+
+
+    def check_offset(self, offset, max_value=None):
+        """
+        Verify that an offset is valid
+        """
+        if type(offset) not in [int, long]:
+            return False
+
+        if offset < 0:
+            return False
+
+        if max_value and offset > max_value:
+            return False
+
+        return True
+
+
+    def check_count(self, count, max_value=None):
+        """
+        verify that a count is valid
+        """
+        if type(count) not in [int, long]:
+            return False
+
+        if count < 0:
+            return False
+
+        if max_value and count > max_value:
+            return False
+
+        return True
+
+
+    def check_string(self, value, min_length=None, max_length=None, pattern=None):
+        """
+        verify that a string has a particular size and conforms
+        to a particular alphabet
+        """
+        if type(value) not in [str, unicode]:
+            return False
+
+        if min_length and len(value) < min_length:
+            return False
+
+        if max_length and len(value) > max_length:
+            return False
+
+        if pattern and not re.match(pattern, value):
+            return False
+
+        return True
+
+
+    def check_address(self, address):
+        """
+        verify that a string is an address
+        """
+        return self.check_string(address, min_length=26, max_length=35, pattern=blockstack_client.schemas.OP_ADDRESS_PATTERN)
+
+
     def rpc_ping(self, **con_info):
         reply = {}
         reply['status'] = "alive"
-        self.analytics("ping", {})
         return reply
 
 
@@ -394,10 +571,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_indexer():
             return {'error': 'Method not supported'}
 
-        if type(name) not in [str, unicode]:
-            return {'error': 'invalid name'}
-
-        if not is_name_valid(name):
+        if not self.check_name(name):
             return {'error': 'invalid name'}
 
         db = get_db_state()
@@ -418,17 +592,30 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
             namespace_id = get_namespace_from_name(name)
             namespace_record = db.get_namespace(namespace_id)
+            if namespace_record is None:
+                namespace_record = db.get_namespace_reveal(namespace_id)
 
             # when does this name expire (if it expires)?
             if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
-                namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( db.lastblock, namespace_id )
-                name_record['expire_block'] = max( namespace_record['ready_block'], name_record['last_renewed'] ) + namespace_record['lifetime'] * namespace_lifetime_multiplier
+                deadlines = BlockstackDB.get_name_deadlines(name_record, namespace_record, db.lastblock)
+                if deadlines is not None:
+                    name_record['expire_block'] = deadlines['expire_block']
+                    name_record['renewal_deadline'] = deadlines['renewal_deadline']
+                else:
+                    # only possible if namespace is not yet ready
+                    name_record['expire_block'] = -1
+                    name_record['renewal_deadline'] = -1
 
             else:
                 name_record['expire_block'] = -1
+                name_record['renewal_deadline'] = -1
+
+            if name_record['expire_block'] > 0 and name_record['expire_block'] <= db.lastblock:
+                name_record['expired'] = True
+            else:
+                name_record['expired'] = False
 
             db.close()
-            self.analytics("get_name_blockchain_record", {})
             return self.success_response( {'record': name_record} )
 
 
@@ -441,10 +628,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_indexer():
             return {'error': 'Method not supported'}
 
-        if type(name) not in [str, unicode]:
-            return {'error': 'invalid name'}
-
-        if not is_name_valid(name):
+        if not self.check_name(name):
             return {'error': 'invalid name'}
 
         db = get_db_state()
@@ -461,10 +645,10 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_indexer():
             return {'error': 'Method not supported'}
 
-        if type(name) not in [str, unicode]:
+        if not self.check_name(name):
             return {'error': 'invalid name'}
 
-        if block_height < FIRST_BLOCK_MAINNET:
+        if not self.check_block(block_height):
             return {'status': True, 'record': None}
 
         db = get_db_state()
@@ -474,19 +658,25 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return self.success_response( {'records': name_at} )
 
 
-    def rpc_get_last_nameops( self, offset, count, **con_info ):
+    def rpc_get_historic_name_at( self, name, block_height, **con_info ):
         """
-        Get the last nameops processed, starting at the offset
-        and returning up to count items.
-        Operations are returned in newer to older order.
+        Get all the states the name was in at a particular block height.
+        Return {'status': true, 'record': ...}
         """
         if not is_indexer():
             return {'error': 'Method not supported'}
 
+        if not self.check_name(name):
+            return {'error': 'invalid name'}
+
+        if not self.check_block(block_height):
+            return {'status': True, 'record': None}
+
         db = get_db_state()
-        last_nameops = db.get_last_nameops( offset, count )
+        name_at = db.get_name_at( name, block_height, include_expired=True )
         db.close()
-        return self.success_response( {'last_nameops': last_nameops} )
+
+        return self.success_response( {'records': name_at} )
 
 
     def rpc_get_op_history_rows( self, history_id, offset, count, **con_info ):
@@ -498,11 +688,14 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_indexer():
             return {'error': 'Method not supported'}
 
-        if offset < 0 or count < 0:
-            return {'error': 'Invalid offset, count'}
+        if not self.check_name(history_id) and not self.check_namespace(history_id):
+            return {'error': 'Invalid name or namespace'}
 
-        if count > 10:
-            return {'error': 'Count is too big'}
+        if not self.check_offset(offset):
+            return {'error': 'invalid offset'}
+
+        if not self.check_count(count, 10):
+            return {'error': 'invalid count'}
 
         db = get_db_state()
         history_rows = db.get_op_history_rows( history_id, offset, count )
@@ -520,11 +713,15 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_indexer():
             return {'error': 'Method not supported'}
 
+        if not self.check_name(history_id) and not self.check_namespace(history_id):
+            return {'error': 'Invalid name or namespace'}
+
         db = get_db_state()
         num_history_rows = db.get_num_op_history_rows( history_id )
         db.close()
 
         return self.success_response( {'count': num_history_rows} )
+
 
     def rpc_get_nameops_affected_at( self, block_id, offset, count, **con_info ):
         """
@@ -544,11 +741,14 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_indexer():
             return {'error': 'Method not supported'}
 
-        if offset < 0 or count < 0:
-            return {'error': 'invalid page offset/length'}
+        if not self.check_block(block_id):
+            return {'error': 'Invalid block height'}
 
-        if count > 10:
-            return {'error': 'Page too big'}
+        if not self.check_offset(offset):
+            return {'error': 'invalid offset'}
+
+        if not self.check_count(count, 10):
+            return {'error': 'invalid count'}
 
         # do NOT restore history information, since we're paging
         db = get_db_state()
@@ -572,6 +772,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_indexer():
             return {'error': 'Method not supported'}
 
+        if not self.check_block(block_id):
+            return {'error': 'Invalid block height'}
+
         db = get_db_state()
         count = db.get_num_ops_at( block_id )
         db.close()
@@ -590,6 +793,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         """
         if not is_indexer():
             return {'error': 'Method not supported'}
+
+        if not self.check_block(block_id):
+            return {'error': 'Invalid block height'}
 
         db = get_db_state()
         ops_hash = db.get_block_ops_hash( block_id )
@@ -613,7 +819,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         bitcoind_opts = blockstack_client.default_bitcoind_opts( virtualchain.get_config_filename(), prefix=True )
         bitcoind = get_bitcoind( new_bitcoind_opts=bitcoind_opts, new=True )
-        
+
         if bitcoind is None:
             return {'error': 'Internal server error: failed to connect to bitcoind'}
 
@@ -621,7 +827,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         info = bitcoind.getinfo()
         reply = {}
         reply['last_block_seen'] = info['blocks']
-        
+
         db = get_db_state()
         reply['consensus'] = db.get_current_consensus()
         reply['server_version'] = "%s" % VERSION
@@ -632,10 +838,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         db.close()
 
         if conf.get('atlas', False):
-            # return zonefile inv length 
+            # return zonefile inv length
             reply['zonefile_count'] = atlas_get_num_zonefiles()
-        
-        self.analytics("getinfo", {})
+
         return reply
 
 
@@ -648,8 +853,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_indexer():
             return {'error': 'Method not supported'}
 
-        if type(address) not in [str, unicode]:
-            return {'error': 'invalid address'}
+        if not self.check_address(address):
+            return {'error': 'Invalid address'}
 
         db = get_db_state()
         names = db.get_names_owned_by_address( address )
@@ -661,6 +866,57 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return self.success_response( {'names': names} )
 
 
+    def rpc_get_historic_names_by_address(self, address, offset, count, **con_info):
+        """
+        Get the list of names owned by an address throughout history
+        Return {'status': True, 'names': [{'name': ..., 'block_id': ..., 'vtxindex': ...}]} on success
+        Return {'error': ...} on error
+        """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
+        if not self.check_address(address):
+            return {'error': 'Invalid address'}
+
+        if not self.check_offset(offset):
+            return {'error': 'invalid offset'}
+
+        if not self.check_count(count, 10):
+            return {'error': 'invalid count'}
+
+        db = get_db_state()
+        names = db.get_historic_names_by_address(address, offset, count)
+        db.close()
+
+        if names is None:
+            names = []
+
+        return self.success_response( {'names': names} )
+
+    
+    def rpc_get_num_historic_names_by_address(self, address, **con_info):
+        """
+        Get the number of names owned by an address throughout history
+        Return {'status': True, 'count': ...} on success
+        Return {'error': ...} on failure
+        """
+
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
+        if not self.check_address(address):
+            return {'error': 'Invalid address'}
+
+        db = get_db_state()
+        ret = db.get_num_historic_names_by_address(address)
+        db.close()
+
+        if ret is None:
+            ret = 0
+
+        return self.success_response( {'count': ret} )
+
+
     def rpc_get_name_cost( self, name, **con_info ):
         """
         Return the cost of a given name, including fees
@@ -670,11 +926,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_indexer():
             return {'error': 'Method not supported'}
 
-        if type(name) not in [str, unicode]:
-            return {'error': 'invalid name'}
-
-        if not is_name_valid(name):
-            return {'error': 'invalid name'}
+        if not self.check_name(name):
+            return {'error': 'Invalid name or namespace'}
 
         db = get_db_state()
         ret = get_name_cost( db, name )
@@ -695,11 +948,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_indexer():
             return {'error': 'Method not supported'}
 
-        if type(namespace_id) not in [str, unicode]:
-            return {'error': 'invalid namespace ID'}
-
-        if not is_namespace_valid(namespace_id):
-            return {'error': 'invalid namespace ID'}
+        if not self.check_namespace(namespace_id):
+            return {'error': 'Invalid name or namespace'}
 
         db = get_db_state()
         cost, ns = get_namespace_cost( db, namespace_id )
@@ -716,7 +966,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
 
     def rpc_get_namespace_blockchain_record( self, namespace_id, **con_info ):
-        """
+        """ 
         Return the namespace with the given namespace_id
         Return {'status': True, 'record': ...} on success
         Return {'error': ...} on error
@@ -725,11 +975,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_indexer():
             return {'error': 'Method not supported'}
 
-        if type(namespace_id) not in [str, unicode]:
-            return {'error': 'invalid namespace ID'}
-
-        if not is_namespace_valid(namespace_id):
-            return {'error': 'invalid namespace ID'}
+        if not self.check_namespace(namespace_id):
+            return {'error': 'Invalid name or namespace'}
 
         db = get_db_state()
         ns = db.get_namespace( namespace_id )
@@ -752,17 +999,33 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
     def rpc_get_num_names( self, **con_info ):
         """
-        Get the number of names that exist
+        Get the number of names that exist and are not expired
         Return {'status': True, 'count': count} on success
         Return {'error': ...} on error
         """
-        
+
         if not is_indexer():
             return {'error': 'Method not supported'}
 
         db = get_db_state()
-        self.analytics("get_num_names", {})
         num_names = db.get_num_names()
+        db.close()
+
+        return self.success_response( {'count': num_names} )
+
+
+    def rpc_get_num_names_cumulative( self, **con_info ):
+        """
+        Get the number of names that have ever existed
+        Return {'status': True, 'count': count} on success
+        Return {'error': ...} on error
+        """
+
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
+        db = get_db_state()
+        num_names = db.get_num_names(include_expired=True)
         db.close()
 
         return self.success_response( {'count': num_names} )
@@ -770,29 +1033,43 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
     def rpc_get_all_names( self, offset, count, **con_info ):
         """
-        Get all names, paginated
+        Get all unexpired names, paginated
         Return {'status': true, 'names': [...]} on success
         Return {'error': ...} on error
         """
         if not is_indexer():
             return {'error': 'Method not supported'}
 
-        if type(offset) not in [int, long]:
+        if not self.check_offset(offset):
             return {'error': 'invalid offset'}
 
-        if type(count) not in [int, long]:
+        if not self.check_count(count, 100):
             return {'error': 'invalid count'}
 
-        if offset < 0 or count < 0:
-            return {'error': 'invalid pages'}
+        db = get_db_state()
+        all_names = db.get_all_names( offset=offset, count=count )
+        db.close()
 
-        # don't do more than 100 at a time 
-        if count > 100:
-            return {'error': 'count is too big'}
+        return self.success_response( {'names': all_names} )
+
+
+    def rpc_get_all_names_cumulative( self, offset, count, **con_info ):
+        """
+        Get all names that have ever existed, paginated
+        Return {'status': true, 'names': [...]} on success
+        Return {'error': ...} on error
+        """
+        if not is_indexer():
+            return {'error': 'Method not supported'}
+
+        if not self.check_offset(offset):
+            return {'error': 'invalid offset'}
+
+        if not self.check_count(count, 100):
+            return {'error': 'invalid count'}
 
         db = get_db_state()
-        self.analytics("get_all_names", {})
-        all_names = db.get_all_names( offset=offset, count=count )
+        all_names = db.get_all_names( offset=offset, count=count, include_expired=True )
         db.close()
 
         return self.success_response( {'names': all_names} )
@@ -804,16 +1081,16 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': true, 'namespaces': [...]} on success
         Return {'error': ...} on error
         """
-        
+
         if not is_indexer():
             return {'error': 'Method not supported'}
 
         db = get_db_state()
-        self.analytics("get_all_namespaces", {})
         all_namespaces = db.get_all_namespace_ids()
         db.close()
 
         return self.success_response( {'namespaces': all_namespaces} )
+
 
     def rpc_get_num_names_in_namespace( self, namespace_id, **con_info ):
         """
@@ -821,12 +1098,14 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': true, 'count': count} on success
         Return {'error': ...} on error
         """
-        
+
         if not is_indexer():
             return {'error': 'Method not supported'}
 
+        if not self.check_namespace(namespace_id):
+            return {'error': 'Invalid name or namespace'}
+
         db = get_db_state()
-        self.analytics('get_num_names_in_namespace', {})
         num_names = db.get_num_names_in_namespace( namespace_id )
         db.close()
 
@@ -842,22 +1121,18 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_indexer():
             return {'error': 'Method not supported'}
 
-        if type(namespace_id) not in [str, unicode]:
-            return {'error': 'invalid namespace ID'}
-    
-        if type(offset) not in [int, long]:
+        if not self.check_namespace(namespace_id):
+            return {'error': 'Invalid name or namespace'}
+
+        if not self.check_offset(offset):
             return {'error': 'invalid offset'}
 
-        if type(count) not in [int, long]:
+        if not self.check_count(count, 100):
             return {'error': 'invalid count'}
-
-        if offset < 0 or count < 0:
-            return {'error': 'invalid pages'}
 
         if not is_namespace_valid( namespace_id ):
             return {'error': 'invalid namespace ID'}
 
-        self.analytics("get_all_names_in_namespace", {'namespace_id': namespace_id})
 
         db = get_db_state()
         res = db.get_names_in_namespace( namespace_id, offset=offset, count=count )
@@ -875,11 +1150,10 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_indexer():
             return {'error': 'Method not supported'}
 
-        if type(block_id) not in [int, long]:
-            return {'error': 'Invalid block ID'}
+        if not self.check_block(block_id):
+            return {'error': 'Invalid block height'}
 
         db = get_db_state()
-        self.analytics("get_consensus_at", {'block_id': block_id})
         consensus = db.get_consensus_at( block_id )
         db.close()
         return self.success_response( {'consensus': consensus} )
@@ -897,11 +1171,14 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'error': 'Method not supported'}
 
         if type(block_id_list) != list:
-            return {'error': 'Invalid block IDs'}
+            return {'error': 'Invalid block heights'}
+
+        if len(block_id_list) > 32:
+            return {'error': 'Too many block heights'}
 
         for bid in block_id_list:
-            if type(bid) not in [int, long]:
-                return {'error': 'Invalid block ID'}
+            if not self.check_block(bid):
+                return {'error': 'Invalid block height'}
 
         db = get_db_state()
         ret = {}
@@ -920,13 +1197,17 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if type(fq_data_id) not in [str, unicode]:
             return {'error': 'Invalid data ID'}
 
-        if not type(blockchain_id) in [str, unicode] or not blockstack_client.is_name_valid(blockchain_id):
+        if len(fq_data_id) > 4096:
+            # no way this is valid
+            return {'error': 'Invalid data ID'}
+
+        if not self.check_name(blockchain_id):
             return {'error': 'Invalid blockchain ID'}
 
         conf = get_blockstack_opts()
         if not conf['serve_data']:
             return {'error': 'No data'}
-      
+
         drivers = conf.get('data_storage_drivers', None)
         if drivers is not None:
             drivers = drivers.split(',')
@@ -942,20 +1223,16 @@ class BlockstackdRPC( SimpleXMLRPCServer):
     def rpc_get_immutable_data( self, blockchain_id, data_hash, **con_info ):
         """
         Get immutable data record written by a given user.
-        TODO: disable by default, unless we're set up to serve data.
-        """ 
-        if type(blockchain_id) not in [str, unicode]:
-            return {'error': 'Invalid blockchain ID'}
-
-        if not is_name_valid(blockchain_id):
-            return {'error': 'Invalid blockchain ID'}
-
-        if type(data_hash) not in [str, unicode]:
-            return {'error': 'Invalid data hash'}
-
+        """
         conf = get_blockstack_opts()
         if not conf['serve_data']:
             return {'error': 'No data'}
+
+        if not self.check_name(blockchain_id):
+            return {'error': 'Invalid blockchain ID'}
+
+        if not self.check_string(data_hash, min_length=32, max_length=128, pattern=blockstack_client.schemas.OP_HEX_PATTERN):
+            return {'error': 'Invalid address'}
 
         client = get_blockstack_client_session()
         return client.get_immutable( str(blockchain_id), str(data_hash) )
@@ -968,7 +1245,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_indexer():
             return {'error': 'Method not supported'}
 
-        if type(consensus_hash) not in [str, unicode]:
+        if not self.check_string(consensus_hash, min_length=LENGTHS['consensus_hash']*2, max_length=LENGTHS['consensus_hash']*2, pattern=blockstack_client.schemas.OP_CONSENSUS_HASH_PATTERN):
             return {'error': 'Not a valid consensus hash'}
 
         db = get_db_state()
@@ -983,11 +1260,11 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return the serialized zonefile on success
         Return None on error
         """
-    
-        # check cache 
+
+        # check cache
         cached_zonefile_data = get_cached_zonefile_data( zonefile_hash, zonefile_dir=config.get('zonefiles', None))
         if cached_zonefile_data is not None:
-            # check hash 
+            # check hash
             zfh = blockstack_client.get_zonefile_data_hash( cached_zonefile_data )
             if zfh != zonefile_hash:
                 log.debug("Invalid cached zonefile %s" % zonefile_hash )
@@ -998,7 +1275,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 return cached_zonefile_data
 
         return None
-       
+
 
     def get_zonefile_data_by_name( self, conf, name, name_rec=None ):
         """
@@ -1022,7 +1299,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if zonefile_hash is None:
             return None
 
-        # find zonefile 
+        # find zonefile
         zonefile_data = self.get_zonefile_data( conf, zonefile_hash, name=name )
         if zonefile_data is None:
             return None
@@ -1050,14 +1327,13 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         if len(zonefile_hashes) > 100:
             log.error("Too many requests (%s)" % len(zonefile_hashes))
-            return {'error': 'Too many requests'}
+            return {'error': 'Too many requests (no more than 100 allowed)'}
+
+        for zfh in zonefile_hashes:
+            if not self.check_string(zfh, min_length=LENGTHS['value_hash']*2, max_length=LENGTHS['value_hash']*2, pattern=blockstack_client.schemas.OP_HEX_PATTERN):
+                return {'error': 'Invalid zone file hash'}
 
         ret = {}
-        for zonefile_hash in zonefile_hashes:
-            if type(zonefile_hash) not in [str, unicode]:
-                log.error("Invalid zonefile hash")
-                return {'error': 'Not a zonefile hash'}
-
         for zonefile_hash in zonefile_hashes:
             zonefile_data = self.get_zonefile_data( conf, zonefile_hash )
             if zonefile_data is None:
@@ -1066,48 +1342,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             else:
                 ret[zonefile_hash] = base64.b64encode( zonefile_data )
 
-        # self.analytics("get_zonefiles", {'count': len(zonefile_hashes)})
         log.debug("Serve back %s zonefiles" % len(ret.keys()))
-        return self.success_response( {'zonefiles': ret} )
-
-
-    def rpc_get_zonefiles_by_names( self, names, **con_info ):
-        """
-        Get a users' zonefiles from the local cache,
-        or (on miss), from upstream storage.
-        Only return at most 100 zonefiles.
-        Return {'status': True, 'zonefiles': {name: zonefile}]} on success
-        Return {'error': ...} on error
-
-        zonefiles will be serialized to string
-        """
-        conf = get_blockstack_opts()
-        if not conf['serve_zonefiles']:
-            return {'error': 'No data'}
-
-        if type(names) != list:
-            return {'error': 'Invalid data'}
-
-        if len(names) > 100:
-            return {'error': 'Too many requests'}
-        
-        ret = {}
-        for name in names:
-            if type(name) not in [str, unicode]:
-                return {'error': 'Invalid name'}
-
-            if not is_name_valid(name):
-                return {'error': 'Invalid name'}
-
-        for name in names:
-            zonefile_data = self.get_zonefile_data_by_name( conf, name )
-            if zonefile_data is None:
-                continue
-
-            else:
-                ret[name] = base64.b64encode(zonefile_data)
-
-        self.analytics("get_zonefiles", {'count': len(names)})
         return self.success_response( {'zonefiles': ret} )
 
 
@@ -1117,33 +1352,31 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Note that the system *only* takes well-formed zonefiles.
         Returns {'status': True, 'saved': [0|1]'} on success ('saved' is a vector of success/failure)
         Returns {'error': ...} on error
-        Takes at most 100 zonefiles
+        Takes at most 5 zonefiles
         """
+
+        conf = get_blockstack_opts()
+        if not conf['serve_zonefiles']:
+            return {'error': 'No data'}
 
         if not is_indexer():
             return {'error': 'Method not supported'}
 
-        conf = get_blockstack_opts()
-
-        if not conf['serve_zonefiles']:
-            return {'error': 'No data'}
-
         if type(zonefile_datas) != list:
             return {'error': 'Invalid data'}
 
-        if len(zonefile_datas) > 100:
+        if len(zonefile_datas) > 5:
             return {'error': 'Too many zonefiles'}
+
+        for zfd in zonefile_datas:
+            if not self.check_string(zfd, max_length=((4 * RPC_MAX_ZONEFILE_LEN) / 3) + 3, pattern=blockstack_client.schemas.OP_BASE64_PATTERN):
+                return {'error': 'Invalid zone file payload (exceeds {} bytes)'.format(RPC_MAX_ZONEFILE_LEN)}
 
         zonefile_dir = conf.get("zonefiles", None)
         saved = []
         db = get_db_state()
 
         for zonefile_data in zonefile_datas:
-          
-            if type(zonefile_data) not in [str,unicode]:
-                log.debug("Invalid non-text zonefile")
-                saved.append(0)
-                continue
 
             # decode
             try:
@@ -1152,7 +1385,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 log.debug("Invalid base64 zonefile")
                 saved.append(0)
                 continue
-            
+
             if len(zonefile_data) > RPC_MAX_ZONEFILE_LEN:
                 log.debug("Zonefile too long")
                 saved.append(0)
@@ -1176,7 +1409,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             # maybe a proper zonefile?  if so, get the name out
             name = None
             txid = None
-            try: 
+            try:
                 zonefile = blockstack_zones.parse_zone_file( str(zonefile_data) )
                 name = str(zonefile['$origin'])
                 txid = db.get_name_value_hash_txid( name, zonefile_hash )
@@ -1192,12 +1425,11 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
             log.debug("Enqueued {}".format(zonefile_hash))
             saved.append(1)
-       
+
         db.close()
 
         log.debug("Saved %s zonefile(s)\n", sum(saved))
         log.debug("Reply: {}".format({'saved': saved}))
-        self.analytics("put_zonefiles", {'count': len(zonefile_datas)})
         return self.success_response( {'saved': saved} )
 
 
@@ -1210,7 +1442,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         name_rec = None
 
         if is_indexer():
-            # fetch from db directly 
+            # fetch from db directly
             db = get_db_state()
             name_rec = db.get_name(name)
             db.close()
@@ -1219,29 +1451,26 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 return {'error': 'No such name'}
 
         else:
-            # fetch from upstream 
+            # fetch from upstream
             name_rec = blockstack_client.proxy.get_name_blockchain_record(name)
             if 'error' in name_rec:
                 return name_rec
 
         return name_rec
 
-    
+
     def rpc_get_profile(self, name, **con_info):
         """
         Get a profile for a particular name
         Return {'profile': profile text} on success
         Return {'error': ...} on error
         """
-        if type(name) not in [str, unicode]:
-            return {'error': 'Invalid name'}
-
-        if not is_name_valid(name):
-            return {'error': 'Invalid name'}
-
         conf = get_blockstack_opts()
         if not conf['serve_profiles']:
             return {'error': 'No data'}
+
+        if not self.check_name(name):
+            return {'error': 'Invalid name'}
 
         zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
         profile_storage_drivers = conf['profile_storage_drivers'].split(",")
@@ -1250,12 +1479,12 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if 'error' in name_rec:
             return name_rec
 
-        # find zonefile 
+        # find zonefile
         zonefile_data = self.get_zonefile_data_by_name( conf, name, name_rec=name_rec )
         if zonefile_data is None:
             return {'error': 'No zonefile'}
 
-        # deserialize 
+        # deserialize
         try:
             zonefile_dict = blockstack_zones.parse_zone_file( zonefile_data )
         except:
@@ -1282,7 +1511,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         if 'error' in zonefile:
             return zonefile
-        
+
         else:
             return self.success_response( {'profile': profile} )
 
@@ -1294,8 +1523,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': True} on success
         Return {'error': ...} on error
         """
-        
-        # needs a timestamp 
+
+        # needs a timestamp
         if 'timestamp' not in datum.keys():
             log.debug("Datum has no timestamp")
             return {'error': 'Datum has no timestamp'}
@@ -1306,7 +1535,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         timestamp = datum['timestamp']
 
-        # timestamp needs to be fresh 
+        # timestamp needs to be fresh
         now = time.time()
         if abs(now - timestamp) > 30:
             log.debug("Out-of-sync timestamp: |%s - %s| == %s" % (now, timestamp, abs(now, timestamp)))
@@ -1315,49 +1544,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         else:
             log.debug("Client and server differ by %s seconds" % abs(now - timestamp))
             return {'status': True}
-
-
-    def verify_profile_hash( self, name, name_rec, zonefile_dict, profile_txt, prev_profile_hash, sigb64, user_data_pubkey ):
-        """
-        DEPRECATED
-
-        Verify that the uploader signed the profile's previous hash.
-        Return {'status': True} on success
-        Return {'error': ...} on error
-        """
-
-        conf = get_blockstack_opts()
-        if not conf['serve_profiles']:
-            return {'error': 'No data'}
-
-        profile_storage_drivers = conf['profile_storage_drivers'].split(",")
-        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
-
-        # verify that the previous profile actually does have this hash 
-        try:
-            old_profile_txt, zonefile = blockstack_client.get_profile(name, profile_storage_drivers=profile_storage_drivers, zonefile_storage_drivers=zonefile_storage_drivers,
-                                                                       user_zonefile=zonefile_dict, name_record=name_rec, use_zonefile_urls=False, decode_profile=False)
-        except Exception, e:
-            log.exception(e)
-            log.debug("Failed to load profile for '%s'" % name)
-            return {'error': 'Failed to load profile'}
-
-        if old_profile_txt is None:
-            # no profile yet (or error)
-            old_profile_txt = ""
-
-        old_profile_hash = hex_hash160(old_profile_txt)
-        if old_profile_hash != prev_profile_hash:
-            log.debug("Invalid previous profile hash")
-            return {'error': 'Invalid previous profile hash'}
-
-        # finally, verify the signature over the previous profile hash and this new profile
-        rc = blockstack_client.storage.verify_raw_data( "%s%s" % (prev_profile_hash, profile_txt), user_data_pubkey, sigb64 )
-        if not rc:
-            log.debug("Invalid signature")
-            return {'error': 'Invalid signature'}
-
-        return {'status': True}
 
 
     def load_mutable_data( self, name, data_txt, max_len=RPC_MAX_PROFILE_LEN, storage_drivers=None ):
@@ -1388,7 +1574,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
         zonefile_dict = None
 
-        # find name record 
+        # find name record
         name_rec = self.get_name_rec(name)
         if 'error' in name_rec:
             return name_rec
@@ -1397,13 +1583,13 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             log.debug("No name for '%s'" % name)
             return {'error': 'No such name'}
 
-        # find zonefile 
+        # find zonefile
         zonefile_data = self.get_zonefile_data_by_name( conf, name, name_rec=name_rec )
         if zonefile_data is None:
             log.debug("No zonefile for '%s'" % name)
             return {'error': 'No zonefile'}
 
-        # must be standard 
+        # must be standard
         try:
             zonefile_dict = blockstack_zones.parse_zone_file( zonefile_data )
         except:
@@ -1424,7 +1610,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 log.exception(e)
                 log.debug("Failed to authenticate data")
                 return {'error': 'Failed to authenticate data'}
-        
+
         else:
             log.warn("Falling back to verifying with owner address")
             owner_addr = name_rec.get('address', None)
@@ -1486,32 +1672,22 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         @sigb64_or_ignored, if given, must cover prev_profile_hash+profile_txt
            (this argument is obsolete in 0.14.1)
         """
-
         conf = get_blockstack_opts()
         if not conf['serve_profiles']:
             return {'error': 'No data'}
 
+        if not self.check_name(name):
+            return {'error': 'Invalid name'}
+
         data_info = self.load_mutable_data(name, profile_txt, max_len=RPC_MAX_PROFILE_LEN)
         if 'error' in data_info:
-            if data_info.has_key('reason') and data_info['reason'] == 'timestamp' and data_info.has_key('data_pubkey') and data_info.has_key('zonefile'):
+            return data_info
 
-                user_data_pubkey = data_info['data_pubkey']
-                zonefile_dict = data_info['zonefile']
-
-                # try hash-based verification (deprecated)
-                res = self.verify_profile_hash( name, name_rec, zonefile_dict, profile_txt, prev_profile_hash_or_ignored, sigb64_or_ignored, user_data_pubkey )
-                if 'error' in res:
-                    log.debug("Failed to verify profile by owner hash")
-                    return {'error': 'Failed to validate profile: invalid or missing timestamp and/or previous hash'}
-
-            else:
-                return data_info
-       
         res = storage_enqueue_profile( name, str(profile_txt) )
         if not res:
             log.error('Failed to queue {}-byte profile for {}'.format(len(profile_txt), name))
             return {'error': 'Failed to queue profile'}
-        
+
         log.debug("Queued {}-byte profile for {}".format(len(profile_txt), name))
         return self.success_response( {'num_replicas': 1, 'num_failures': 0} )
 
@@ -1526,10 +1702,18 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         This method does NOT need access to the database.
         However, it only works if the caller has a registered name.
         """
+
+        conf = get_blockstack_opts()
+        if not conf['serve_data']:
+            return {'error': 'No data'}
+
+        if not self.check_name(blockchain_id):
+            return {'error': 'Invalid name'}
+
         if type(data_txt) not in [str, unicode]:
             return {'error': 'Data must be a serialized JWT'}
 
-        # must be v2 or later 
+        # must be v2 or later
         if not data_txt.startswith('bsk2.'):
             return {'error': 'Obsolete data format'}
 
@@ -1540,14 +1724,14 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         user_data = data_info['data']
 
-        # must be mutable data 
+        # must be mutable data
         try:
             jsonschema.validate(user_data, blockstack_client.schemas.DATA_BLOB_SCHEMA)
         except ValidationError as ve:
             log.debug("User data is not a mutable data blob")
             return {'error': 'Not a mutable data blob'}
 
-        # must match name 
+        # must match name
         if not user_data.has_key('blockchain_id') or blockchain_id != user_data['blockchain_id']:
             log.debug("Data has no blockchain_id, or does not match {} (got {})".format(blockchain_id, user_data.get('blockchain_id', "None")))
             return {'error': 'Failed to validate data: invalid or missing blockchain ID'}
@@ -1558,7 +1742,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not res:
             log.error('Failed to queue {}-byte datum for {}'.format(len(data_txt), blockchain_id))
             return {'error': 'Failed to queue datum'}
-        
+
         log.debug("Queued {}-byte datum from {}".format(len(data_txt), blockchain_id))
         return self.success_response( {'num_replicas': 1, 'num_failures': 0} )
 
@@ -1577,7 +1761,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return {'status': True, 'servers': servers}
 
 
-
     def rpc_get_zonefiles_by_block( self, from_block, to_block, offset, count, **con_info ):
         """
         Get information about zonefiles announced in blocks [@from_block, @to_block]
@@ -1593,12 +1776,24 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not conf['atlas']:
             return {'error': 'Not an atlas node'}
 
-        zonefile_info = atlasdb_get_zonefiles_by_block(
-           from_block, to_block, offset, count)
+        if not self.check_block(from_block):
+            return {'error': 'Invalid from_block height'}
+
+        if not self.check_block(to_block):
+            return {'error': 'Invalid to_block height'}
+
+        if not self.check_offset(offset):
+            return {'error': 'invalid offset'}
+
+        if not self.check_count(count, 100):
+            return {'error': 'invalid count'}
+
+        zonefile_info = atlasdb_get_zonefiles_by_block(from_block, to_block, offset, count)
         if 'error' in zonefile_info:
            return zonefile_info
 
         return self.success_response( {'zonefile_info': zonefile_info } )
+
 
     def rpc_get_atlas_peers( self, **con_info ):
         """
@@ -1627,10 +1822,10 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         log.debug("Live peers to %s:%s: %s" % (client_host, client_port, peer_list))
         return self.success_response( {'peers': peer_list} )
 
-    
+
     def rpc_get_zonefile_inventory( self, offset, length, **con_info ):
         """
-        Get an inventory bit vector for the zonefiles in the 
+        Get an inventory bit vector for the zonefiles in the
         given bit range (i.e. offset and length are in bits)
         Returns at most 64k of inventory (or 524288 bits)
         Return {'status': True, 'inv': ...} on success, where 'inv' is a b64-encoded bit vector string
@@ -1640,8 +1835,11 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not conf['atlas']:
             return {'error': 'Not an atlas node'}
 
-        if length > 524288:
-            return {'error': 'Request length too large'}
+        if not self.check_offset(offset):
+            return {'error': 'invalid offset'}
+
+        if not self.check_count(length, 524288):
+            return {'error': 'invalid length'}
 
         zonefile_inv = atlas_get_zonefile_inventory( offset=offset, length=length )
 
@@ -1662,22 +1860,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'error': 'No such method'}
 
         return atlas_get_all_neighbors()
-        
-   
-    def rpc_get_analytics_key(self, client_uuid, **con_info ):
-        """
-        Get the analytics key
-        """
-
-        if type(client_uuid) not in [str, unicode]:
-            return {'error': 'invalid uuid'}
-
-        conf = get_blockstack_opts()
-        if not conf.has_key('analytics_key') or conf['analytics_key'] is None:
-            return {'error': 'No analytics key'}
-        
-        log.debug("Give key to %s" % client_uuid)
-        return {'analytics_key': conf['analytics_key']}
 
 
 class BlockstackdRPCServer( threading.Thread, object ):
@@ -1797,7 +1979,7 @@ class BlockstackStoragePusher( threading.Thread ):
         if type(zonefile_data) not in [str, unicode]:
             log.debug("Invalid zonefile data type")
             return False
-        
+
         if txid is not None and type(txid) not in [str, unicode]:
             log.debug("Invalid txid type")
             return False
@@ -1884,7 +2066,7 @@ class BlockstackStoragePusher( threading.Thread ):
         # find a zonefile
         entries = queue_findall( self.zonefile_queue_id, limit=1, path=self.queue_path )
         if entries is None or len(entries) == 0:
-            # empty 
+            # empty
             return False
 
         entry = entries[0]
@@ -1898,7 +2080,7 @@ class BlockstackStoragePusher( threading.Thread ):
         log.debug("Replicated zonefile {} ({} bytes)".format(entry['zonefile_hash'], len(entry['zonefile'])))
 
         if self.atlasdb_path is not None:
-            # mark present in the atlas subsystem 
+            # mark present in the atlas subsystem
             atlasdb_set_zonefile_present( str(entry['zonefile_hash']), True, path=self.atlasdb_path )
 
         queue_removeall( entries, path=self.queue_path )
@@ -1911,11 +2093,11 @@ class BlockstackStoragePusher( threading.Thread ):
         """
         entries = queue_findall( queue_id, limit=1, path=self.queue_path )
         if entries is None or len(entries) == 0:
-            # empty 
+            # empty
             return False
 
         entry = entries[0]
-        
+
         blockchain_id = str(entry['fqu'])
         fq_data_id = None
         data_txt = None
@@ -1924,7 +2106,7 @@ class BlockstackStoragePusher( threading.Thread ):
         try:
             # mutable data?
             payload = json.loads(entry['profile'])
-            
+
             assert isinstance(payload, dict)
             assert payload.has_key('fq_data_id')
             assert payload.has_key('data_txt')
@@ -1937,8 +2119,8 @@ class BlockstackStoragePusher( threading.Thread ):
                 log.debug("mutable datum txt: {}".format(data_txt))
 
         except AssertionError:
-            
-            # profile 
+
+            # profile
             fq_data_id = blockchain_id
             data_txt = str(entry['profile'])
             profile = True
@@ -1949,7 +2131,7 @@ class BlockstackStoragePusher( threading.Thread ):
             log.debug("Abandoning data from {}".format(blockchain_id))
             queue_removeall( entries, path=self.queue_path )
             return False
-        
+
         success = store_mutable_data_to_storage( blockchain_id, fq_data_id, data_txt, profile=profile, required=storage_drivers, skip=['blockstack_server','blockstack_resolver'])
         if not success:
             log.error("Failed to store data for {} ({} bytes) (rc = {})".format(blockchain_id, len(data_txt), success))
@@ -1983,18 +2165,18 @@ class BlockstackStoragePusher( threading.Thread ):
 
         self.running = True
         while self.running:
-          
+
             res_zonefile = self.store_one_zonefile()
             res_profile = self.store_one_profile()
             res_data = self.store_one_datum()
 
             if not res_zonefile and not res_profile and not res_data:
                 time.sleep(1.0)
-                gc_thread.gc_event()                
+                gc_thread.gc_event()
                 continue
 
             else:
-                gc_thread.gc_event()                
+                gc_thread.gc_event()
 
         log.debug("StoragePusher thread exit")
         self.running = False
@@ -2080,7 +2262,7 @@ def storage_start( blockstack_opts ):
     Start the global data-pusher thread
     """
     global storage_pusher
-   
+
     storage_queue = get_storage_queue_path()
     storage_pusher = BlockstackStoragePusher( blockstack_opts, storage_queue )
     log.debug("Starting storage pusher")
@@ -2093,7 +2275,7 @@ def storage_stop():
     """
     global storage_pusher
 
-    # if we're testing, then drain the storage queue completely 
+    # if we're testing, then drain the storage queue completely
     if os.environ.get("BLOCKSTACK_TEST") == "1":
         log.debug("Draining storage pusher queue")
         storage_pusher.drain()
@@ -2132,10 +2314,10 @@ def atlas_start( blockstack_opts, db, port ):
     """
     Start up atlas functionality
     """
-    # start atlas node 
+    # start atlas node
     atlas_state = None
     if blockstack_opts['atlas']:
-         
+
         atlas_seed_peers = filter( lambda x: len(x) > 0, blockstack_opts['atlas_seeds'].split(","))
         atlas_blacklist = filter( lambda x: len(x) > 0, blockstack_opts['atlas_blacklist'].split(","))
         zonefile_dir = blockstack_opts.get('zonefiles', None)
@@ -2161,6 +2343,41 @@ def atlas_stop( atlas_state ):
         atlas_state = None
 
 
+def read_pid_file(pidfile_path):
+    """
+    Read the PID from the PID file
+    """
+
+    try:
+        fin = open(pidfile_path, "r")
+    except Exception, e:
+        return None
+
+    else:
+        pid_data = fin.read().strip()
+        fin.close()
+
+        try:
+            pid = int(pid_data)
+            return pid
+        except:
+            return None
+
+
+def check_server_running(pid):
+    """
+    Determine if the given process is running
+    """
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError as oe:
+        if oe.errno == errno.ESRCH:
+            return False
+        else:
+            raise
+
+
 def stop_server( clean=False, kill=False ):
     """
     Stop the blockstackd server.
@@ -2176,60 +2393,52 @@ def stop_server( clean=False, kill=False ):
             dead = True
             break
 
-        try:
-            fin = open(pid_file, "r")
-        except Exception, e:
-            pass
-
-        else:
-            pid_data = fin.read().strip()
-            fin.close()
-
+        pid = read_pid_file(pid_file)
+        if pid is not None:
             try:
-                pid = int(pid_data)
+               os.kill(pid, signal.SIGTERM)
+            except OSError, oe:
+               if oe.errno == errno.ESRCH:
+                  # already dead
+                  log.info("Process %s is not running" % pid)
+                  try:
+                      os.unlink(pid_file)
+                  except:
+                      pass
 
-                try:
-                   os.kill(pid, signal.SIGTERM)
-                except OSError, oe:
-                   if oe.errno == errno.ESRCH:
-                      # already dead 
-                      log.info("Process %s is not running" % pid)
-                      try:
-                          os.unlink(pid_file)
-                      except:
-                          pass
+                  return
 
-                      return
-
-                except Exception, e:
-                    log.exception(e)
-                    os.abort()
-            
-            except:
-                log.info("Corrupt PID file.  Please make sure all instances of this program have stopped and remove {}".format(pid_file))
+            except Exception, e:
+                log.exception(e)
                 os.abort()
 
-            # is it actually dead?
-            try:
-                res = blockstack_client.ping()
-            except socket.error as se:
-                # dead?
-                if se.errno == errno.ECONNREFUSED:
-                    # couldn't connect, so infer dead
-                    try:
-                        os.kill(pid, 0)
-                        log.info("Server %s is not dead yet..." % pid)
+        else:
+            log.info("Corrupt PID file.  Please make sure all instances of this program have stopped and remove {}".format(pid_file))
+            os.abort()
 
-                    except OSError, oe:
-                        log.info("Server %s is dead to us" % pid)
-                        dead = True
-                        break
-                else:
-                    continue
-            
-            log.info("Server %s is still running; trying again in %s seconds" % (pid, timeout))
-            time.sleep(timeout)
-            timeout *= 2
+        # is it actually dead?
+        blockstack_opts = get_blockstack_opts()
+        srv = blockstack_client.proxy.BlockstackRPCClient('localhost', blockstack_opts['rpc_port'], timeout=5, protocol = 'http')
+        try:
+            res = blockstack_client.ping(proxy=srv)
+        except socket.error as se:
+            # dead?
+            if se.errno == errno.ECONNREFUSED:
+                # couldn't connect, so infer dead
+                try:
+                    os.kill(pid, 0)
+                    log.info("Server %s is not dead yet..." % pid)
+
+                except OSError, oe:
+                    log.info("Server %s is dead to us" % pid)
+                    dead = True
+                    break
+            else:
+                continue
+
+        log.info("Server %s is still running; trying again in %s seconds" % (pid, timeout))
+        time.sleep(timeout)
+        timeout *= 2
 
     if not dead and kill:
         # be sure to clean up the pidfile
@@ -2239,17 +2448,17 @@ def stop_server( clean=False, kill=False ):
             os.kill(pid, signal.SIGKILL)
         except Exception, e:
             pass
-   
+
     if clean:
-        # blow away the pid file 
+        # blow away the pid file
         try:
             os.unlink(pid_file)
         except:
             pass
 
-    
+
     log.debug("Blockstack server stopped")
-    
+
 
 def blockstack_tx_filter( tx ):
     """
@@ -2277,12 +2486,12 @@ def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
     Return False if not
     Aborts on error
     """
-    
+
     if not is_indexer():
         # nothing to do
         return True
 
-    bt_opts = get_bitcoin_opts() 
+    bt_opts = get_bitcoin_opts()
     start_block, current_block = get_index_range()
 
     db = get_db_state()
@@ -2298,7 +2507,7 @@ def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
     set_indexing( True )
     rc = virtualchain_hooks.sync_blockchain( bt_opts, current_block, expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter )
     set_indexing( False )
-   
+
     db.close()
 
     if not rc:
@@ -2397,8 +2606,8 @@ def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None
             # wait for intermediate child
             pid, status = os.waitpid( child_pid, 0 )
             sys.exit(status)
-   
-    # set up signals 
+
+    # set up signals
     signal.signal( signal.SIGINT, blockstack_signal_handler )
     signal.signal( signal.SIGQUIT, blockstack_signal_handler )
     signal.signal( signal.SIGTERM, blockstack_signal_handler )
@@ -2406,13 +2615,13 @@ def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None
     # put supervisor pid file
     put_pidfile( pid_file, os.getpid() )
 
-    # start GC 
+    # start GC
     gc_start()
 
     # clear indexing state
     set_indexing( False )
 
-    # make sure client is initialized 
+    # make sure client is initialized
     get_blockstack_client_session()
 
     # get db state
@@ -2421,10 +2630,10 @@ def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None
     # start atlas node
     atlas_state = atlas_start( blockstack_opts, db, port )
     atexit.register( blockstack_exit, atlas_state )
-  
+
     db.close()
-    
-    # start storage 
+
+    # start storage
     storage_start( blockstack_opts )
 
     # start API server
@@ -2444,7 +2653,7 @@ def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None
            log.exception(e)
            log.error("FATAL: caught exception while indexing")
            os.abort()
-       
+
         if not running:
             break
 
@@ -2456,7 +2665,7 @@ def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None
             except:
                 # interrupt
                 break
-     
+
     log.debug("End Indexing")
     set_running( False )
 
@@ -2464,16 +2673,16 @@ def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None
     log.debug("Stopping API server")
     rpc_stop()
 
-    # stop atlas node 
+    # stop atlas node
     log.debug("Stopping Atlas node")
     atlas_stop( atlas_state )
     atlas_state = None
 
-    # stopping storage 
+    # stopping storage
     log.debug("Stopping storage pusher")
     storage_stop()
 
-    # stopping GC 
+    # stopping GC
     log.debug("Stopping GC worker")
     gc_stop()
 
@@ -2506,6 +2715,8 @@ def setup( working_dir=None, return_parser=False ):
     virtualchain.setup_virtualchain( impl=blockstack_state_engine )
     working_dir = virtualchain.get_working_dir()
 
+    log.debug("Working dir: {}".format(working_dir))
+
     if not os.path.exists( working_dir ):
         os.makedirs( working_dir, 0700 )
 
@@ -2516,9 +2727,9 @@ def setup( working_dir=None, return_parser=False ):
 
     # config file version check
     config_server_version = blockstack_opts.get('server_version', None)
-    if (config_server_version is None
-        or config.versions_need_upgrade(config_server_version, VERSION)):
-       print >> sys.stderr, "Obsolete config file (%s): '%s' != '%s'\nPlease move it out of the way, so Blockstack Server can generate a fresh one." % (virtualchain.get_config_filename(), config_server_version, VERSION)
+    if (config_server_version is None or config.versions_need_upgrade(config_server_version, VERSION)):
+       print >> sys.stderr, "Obsolete or unrecognizable config file ({}): '{}' != '{}'".format(virtualchain.get_config_filename(), config_server_version, VERSION)
+       print >> sys.stderr, 'Please see the release notes for version {} for instructions to upgrade (in the release-notes/ folder).'.format(VERSION)
        return None
 
     log.debug("config:\n%s" % json.dumps(opts, sort_keys=True, indent=4))
@@ -2700,6 +2911,7 @@ def load_expected_snapshots( snapshots_path ):
     Return None on error
     """
     # use snapshots?
+    snapshots_path = os.path.expanduser(snapshots_path)
     expected_snapshots = {}
     try:
         with open(snapshots_path, "r") as f:
@@ -2731,12 +2943,12 @@ def run_blockstackd():
        # fatal error
        os.abort()
 
-   # need sqlite3 
+   # need sqlite3
    sqlite3_tool = sqlite3_find_tool()
    if sqlite3_tool is None:
        print 'Failed to find sqlite3 tool in your PATH.  Cannot continue'
        sys.exit(1)
-       
+
    working_dir = virtualchain.get_working_dir()
 
    # get RPC server options
@@ -2828,7 +3040,7 @@ def run_blockstackd():
       'fast_sync',
       help='fetch and verify a recent known-good name database')
    parser.add_argument(
-      'url',
+      'url', nargs='?',
       help='the URL to the name database snapshot')
    parser.add_argument(
       'public_keys', nargs='?',
@@ -2869,44 +3081,60 @@ def run_blockstackd():
    if args.action == 'start':
       global has_indexer
       has_indexer = (not args.no_indexer)
-
       expected_snapshots = {}
 
-      if is_indexer():
-          if config.is_indexing():
-              # The server didn't shut down properly.
-              # restore from back-up before running
-              log.warning("Server did not shut down properly.  Restoring state from last known-good backup.")
-
-              # move any existing db information out of the way so we can start fresh.
-              state_paths = BlockstackDB.get_state_paths()
-              need_backup = reduce( lambda x, y: x or y, map(lambda sp: os.path.exists(sp), state_paths), False )
-              if need_backup:
-
-                  # have old state.  keep it around for later inspection
-                  target_dir = os.path.join( working_dir, 'crash.{}'.format(time.time()))
-                  os.makedirs(target_dir)
-                  for sp in state_paths:
-                      if os.path.exists(sp):
-                         target = os.path.join( target_dir, os.path.basename(sp) )
-                         shutil.move( sp, target )
-              
-                  log.warning("State from crash stored to '{}'".format(target_dir))
-
-              blockstack_backup_restore( working_dir, None )
-              config.set_indexing(False)
-
-              log.warning("State reverted")
-
-          # use snapshots?
-          if args.expected_snapshots is not None:
-              expected_snapshots = load_expected_snapshots( args.expected_snapshots )
-              if expected_snapshots is None:
-                  sys.exit(1)
-
-      if os.path.exists( get_pidfile_path() ):
-          log.error("Blockstackd appears to be running already.  If not, please run '%s stop'" % (sys.argv[0]))
+      pid = read_pid_file(get_pidfile_path())
+      still_running = False
+      
+      if pid is not None:
+          try:
+              still_running = check_server_running(pid)
+          except:
+              log.error("Could not contact process {}".format(pid))
+              sys.exit(1)
+      
+      if still_running:
+          log.error("Blockstackd appears to be running already.  If not, please run '{} stop'".format(sys.argv[0]))
           sys.exit(1)
+
+      if is_indexer() and pid is not None:
+          # The server didn't shut down properly.
+          # restore from back-up before running
+          log.warning("Server did not shut down properly.  Restoring state from last known-good backup.")
+
+          # move any existing db information out of the way so we can start fresh.
+          state_paths = BlockstackDB.get_state_paths()
+          need_backup = reduce( lambda x, y: x or y, map(lambda sp: os.path.exists(sp), state_paths), False )
+          if need_backup:
+
+              # have old state.  keep it around for later inspection
+              target_dir = os.path.join( working_dir, 'crash.{}'.format(time.time()))
+              os.makedirs(target_dir)
+              for sp in state_paths:
+                  if os.path.exists(sp):
+                     target = os.path.join( target_dir, os.path.basename(sp) )
+                     shutil.move( sp, target )
+
+              log.warning("State from crash stored to '{}'".format(target_dir))
+
+          blockstack_backup_restore( working_dir, None )
+
+          # make sure we "stop"
+          config.set_indexing(False)
+
+      # use snapshots?
+      if args.expected_snapshots is not None:
+          expected_snapshots = load_expected_snapshots( args.expected_snapshots )
+          if expected_snapshots is None:
+              sys.exit(1)
+
+          log.debug("Load expected snapshots from {}".format(args.expected_snapshots))
+
+      # we're definitely not running, so make sure this path is clear
+      try:
+          os.unlink(get_pidfile_path())
+      except:
+          pass
 
       if args.foreground:
           log.info('Initializing blockstackd server in foreground (working dir = \'%s\')...' % (working_dir))
@@ -2915,10 +3143,11 @@ def run_blockstackd():
 
       if args.port is not None:
           log.info("Binding on port %s" % int(args.port))
+          args.port = int(args.port)
       else:
-          args.port = RPC_SERVER_PORT
+          args.port = None
 
-      exit_status = run_server( foreground=args.foreground, expected_snapshots=expected_snapshots, port=int(args.port) )
+      exit_status = run_server( foreground=args.foreground, expected_snapshots=expected_snapshots, port=args.port )
       if args.foreground:
           log.info("Service endpoint exited with status code %s" % exit_status )
 
@@ -2952,7 +3181,7 @@ def run_blockstackd():
       db_path = virtualchain.get_db_filename()
       working_db_path = os.path.join( working_dir, os.path.basename( db_path ) )
       expected_snapshots = None
-      
+
       if args.expected_snapshots is not None:
           expected_snapshots = load_expected_snapshots( args.expected_snapshots )
           if expected_snapshots is None:
@@ -2991,7 +3220,7 @@ def run_blockstackd():
       shutil.copy( old_lastblock_path, virtualchain.get_lastblock_filename() )
 
    elif args.action == 'fast_sync_snapshot':
-      # create a fast-sync snapshot from the last backup 
+      # create a fast-sync snapshot from the last backup
       dest_path = str(args.path)
       private_key = str(args.private_key)
       try:
@@ -3010,7 +3239,7 @@ def run_blockstackd():
           sys.exit(1)
 
    elif args.action == 'fast_sync_sign':
-      # sign an existing fast-sync snapshot with an additional key 
+      # sign an existing fast-sync snapshot with an additional key
       snapshot_path = str(args.path)
       private_key = str(args.private_key)
       try:
@@ -3025,8 +3254,12 @@ def run_blockstackd():
           sys.exit(1)
 
    elif args.action == 'fast_sync':
-      # fetch the snapshot and verify it 
-      url = str(args.url)
+      # fetch the snapshot and verify it
+      if hasattr(args, 'url') and args.url:
+          url = str(args.url)
+      else:
+          url = str(config.FAST_SYNC_DEFAULT_URL)
+
       public_keys = config.FAST_SYNC_PUBLIC_KEYS
 
       if args.public_keys is not None:
@@ -3037,14 +3270,14 @@ def run_blockstackd():
               except:
                   print "Invalid public key"
                   sys.exit(1)
-      
+
       num_required = len(public_keys)
       if args.num_required:
           num_required = int(args.num_required)
 
-      print "Synchronizing from snapshot.  This will take about 10-15 minutes."
+      print "Synchronizing from snapshot from {}.  This may take up to 15 minutes.".format(url)
 
-      rc = fast_sync_import(working_dir, url, public_keys=public_keys, num_required=num_required)
+      rc = fast_sync_import(working_dir, url, public_keys=public_keys, num_required=num_required, verbose=True)
       if not rc:
           print 'fast_sync failed'
           sys.exit(1)

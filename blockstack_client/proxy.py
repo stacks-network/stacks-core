@@ -28,6 +28,7 @@ import json
 import traceback
 import os
 import random
+import re
 from xmlrpclib import ServerProxy, Transport
 from defusedxml import xmlrpc
 import httplib
@@ -36,17 +37,17 @@ import jsonschema
 from jsonschema.exceptions import ValidationError
 from utils import url_to_host_port
 
+from .constants import (
+    MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST, DEFAULT_TIMEOUT,
+    BLOCKSTACK_DEBUG, NAME_REVOKE
+)
+
 # prevent the usual XML attacks
-xmlrpc.MAX_DATA = 10 * 1024 * 1024  # 10MiB
+xmlrpc.MAX_DATA = MAX_RPC_LEN
 xmlrpc.monkey_patch()
 
 import storage
 import scripts
-
-from .constants import (
-    MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST, DEFAULT_TIMEOUT,
-    BLOCKSTACK_DEBUG
-)
 
 from .logger import get_logger
 
@@ -57,6 +58,8 @@ from .operations import (
 
 from .schemas import (
     OP_NAMESPACE_PATTERN,
+    OP_BASE58CHECK_CLASS,
+    OP_NAME_OR_SUBDOMAIN_PATTERN,
     OP_CONSENSUS_HASH_PATTERN,
     OP_CONSENSUS_HASH_PATTERN,
     NAMEOP_SCHEMA_PROPERTIES,
@@ -82,6 +85,8 @@ class TimeoutHTTPConnection(httplib.HTTPConnection):
     def connect(self):
         httplib.HTTPConnection.connect(self)
         self.sock.settimeout(self.timeout)
+
+
 class TimeoutHTTPSConnection(httplib.HTTPSConnection):
     def connect(self):
         httplib.HTTPSConnection.connect(self)
@@ -96,6 +101,7 @@ class TimeoutHTTP(httplib.HTTP):
 
     def getresponse(self, **kw):
         return self._conn.getresponse(**kw)
+
 
 class TimeoutHTTPS(httplib.HTTP):
     _connection_class = TimeoutHTTPSConnection
@@ -120,8 +126,8 @@ class TimeoutTransport(Transport):
             conn = TimeoutHTTP(host)
         elif self.protocol == 'https':
             conn = TimeoutHTTPS(host)
-        conn.set_timeout(self.timeout)
 
+        conn.set_timeout(self.timeout)
         return conn
 
 
@@ -129,8 +135,7 @@ class TimeoutServerProxy(ServerProxy):
     def __init__(self, uri, protocol, *l, **kw):
         timeout = kw.pop('timeout', 10)
         use_datetime = kw.get('use_datetime', 0)
-        kw['transport'] = TimeoutTransport(
-            protocol, timeout=timeout, use_datetime=use_datetime)
+        kw['transport'] = TimeoutTransport(protocol, timeout=timeout, use_datetime=use_datetime)
         ServerProxy.__init__(self, uri, *l, **kw)
 
 
@@ -218,6 +223,11 @@ def get_default_proxy(config_path=CONFIG_PATH):
 
     blockstack_server, blockstack_port = conf['server'], conf['port']
     protocol = conf['protocol']
+
+    if os.environ.get("BLOCKSTACK_TEST") == "1":
+        # we'd better be using the test port
+        if blockstack_port != 16264:
+            log.warning("Invalid port {} loaded from {}, at\n{}".format(blockstack_port, config_path, ''.join(traceback.format_stack())))
 
     log.debug('Default proxy to {}://{}:{}'.format(protocol, blockstack_server, blockstack_port))
 
@@ -361,7 +371,7 @@ def json_response_schema( expected_object_schema ):
 
 
 
-def getinfo(proxy=None):
+def getinfo(proxy=None, hostport=None):
     """
     getinfo
     Returns server info on success
@@ -408,7 +418,20 @@ def getinfo(proxy=None):
 
     resp = {}
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    if proxy is None:
+        if hostport is None:
+            proxy = get_default_proxy()
+        else:
+            host, port = url_to_host_port(hostport)
+            assert host is not None and port is not None
+
+            protocol = None
+            if port == 6264 or port == 16264:
+                protocol = 'http'
+            else:
+                protocol = 'https'
+
+            proxy = BlockstackRPCClient(host, port, protocol=protocol)
 
     try:
         resp = proxy.getinfo()
@@ -575,7 +598,7 @@ def get_namespace_cost(namespace_id, proxy=None):
     return resp
 
 
-def get_all_names_page(offset, count, proxy=None):
+def get_all_names_page(offset, count, include_expired=False, proxy=None):
     """
     get a page of all the names
     Returns the list of names on success
@@ -612,7 +635,11 @@ def get_all_names_page(offset, count, proxy=None):
 
     resp = {}
     try:
-        resp = proxy.get_all_names(offset, count)
+        if include_expired:
+            resp = proxy.get_all_names_cumulative(offset, count)
+        else:
+            resp = proxy.get_all_names(offset, count)
+
         resp = json_validate(schema, resp)
         if json_is_error(resp):
             return resp
@@ -643,9 +670,9 @@ def get_all_names_page(offset, count, proxy=None):
     return resp['names']
 
 
-def get_num_names(proxy=None):
+def get_num_names(proxy=None, include_expired=False):
     """
-    Get the number of names
+    Get the number of names, optionally counting the expired ones
     Return {'error': ...} on failure
     """
 
@@ -656,8 +683,7 @@ def get_num_names(proxy=None):
                 'type': 'integer',
                 'minimum': 0,
             },
-        
-            },
+        },
         'required': [
             'count',
         ],
@@ -669,7 +695,11 @@ def get_num_names(proxy=None):
 
     resp = {}
     try:
-        resp = proxy.get_num_names()
+        if include_expired:
+            resp = proxy.get_num_names_cumulative()
+        else:
+            resp = proxy.get_num_names()
+
         resp = json_validate(count_schema, resp)
         if json_is_error(resp):
             return resp
@@ -692,7 +722,7 @@ def get_num_names(proxy=None):
     return resp['count']
 
 
-def get_all_names(offset=None, count=None, proxy=None):
+def get_all_names(offset=None, count=None, include_expired=False, proxy=None):
     """
     Get all names within the given range.
     Return the list of names on success
@@ -717,7 +747,7 @@ def get_all_names(offset=None, count=None, proxy=None):
         if count - len(all_names) < request_size:
             request_size = count - len(all_names)
 
-        page = get_all_names_page(offset + len(all_names), request_size, proxy=proxy)
+        page = get_all_names_page(offset + len(all_names), request_size, include_expired=include_expired, proxy=proxy)
         if json_is_error(page):
             # error
             return page
@@ -998,7 +1028,229 @@ def get_names_owned_by_address(address, proxy=None):
     return resp['names']
 
 
-def get_consensus_at(block_height, proxy=None):
+def get_num_historic_names_by_address(address, proxy=None):
+    """
+    Get the number of names historically created by an address
+    Returns the number of names on success
+    Returns {'error': ...} on error
+    """
+    num_names_schema = {
+        'type': 'object',
+        'properties': {
+            'count': {
+                'type': 'integer',
+                'minimum': 0,
+            },
+        },
+        'required': [
+            'count',
+        ],
+    }
+
+    schema = json_response_schema( num_names_schema )
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    resp = {}
+    try:
+        resp = proxy.get_num_historic_names_by_address(address)
+        resp = json_validate(schema, resp)
+        if json_is_error(resp):
+            return resp
+
+    except ValidationError as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    return resp['count']
+
+
+def get_historic_names_by_address_page(address, offset, count, proxy=None):
+    """
+    Get the list of names historically created by an address
+    Returns the list of names on success
+    Returns {'error': ...} on error
+    """
+
+    names_schema = {
+        'type': 'object',
+        'properties': {
+            'names': {
+                'type': 'array',
+                'items': {
+                    'type': 'object',
+                    'properties': {
+                        'name': {
+                            'type': 'string',
+                            'pattern': OP_NAME_OR_SUBDOMAIN_PATTERN,
+                        },
+                        'block_id': {
+                            'type': 'integer',
+                            'minimum': 0,
+                        },
+                        'vtxindex': {
+                            'type': 'integer',
+                            'minimum': 0,
+                        },
+                    },
+                    'required': [
+                        'name',
+                        'block_id',
+                        'vtxindex',
+                    ],
+                },
+            },
+        },
+        'required': [
+            'names'
+        ],
+    }
+
+    schema = json_response_schema( names_schema )
+    
+    proxy = get_default_proxy() if proxy is None else proxy
+    
+    assert count <= 100, "Page too big"
+
+    resp = {}
+    try:
+        resp = proxy.get_historic_names_by_address(address, offset, count)
+        resp = json_validate(schema, resp)
+        if json_is_error(resp):
+            return resp
+
+        # names must be valid
+        for n in resp['names']:
+            assert scripts.is_name_valid(str(n['name'])), ('Invalid name "{}"'.format(str(n['name'])))
+
+    except (ValidationError, AssertionError) as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(e))
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    return resp['names']
+
+
+def get_historic_names_by_address(address, offset=None, count=None, proxy=None):
+    """
+    Get the list of names created by an address throughout history
+    Returns the list of names on success
+    Returns {'error': ...} on failure
+    """
+    proxy = get_default_proxy() if proxy is None else proxy
+
+    offset = 0 if offset is None else offset
+    if count is None:
+        # get all names owned by this address
+        count = get_num_historic_names_by_address(address, proxy=proxy)
+        if json_is_error(count):
+            return count
+
+        count -= offset
+
+    page_size = 10
+    all_names = []
+    while len(all_names) < count:
+        request_size = page_size
+        if count - len(all_names) < request_size:
+            request_size = count - len(all_names)
+
+        page = get_historic_names_by_address_page(address, offset + len(all_names), request_size, proxy=proxy)
+        if json_is_error(page):
+            # error
+            return page
+
+        if len(page) > request_size:
+            # error
+            error_str = 'server replied too much data'
+            return {'error': error_str}
+
+        elif len(page) == 0:
+            # end-of-table
+            break
+
+        all_names += page
+
+    return all_names[:count]
+
+
+def get_DID_blockchain_record(did, proxy=None):
+    """
+    Resolve a Blockstack decentralized identifier (DID) to its blockchain record.
+    DID format: did:stack:v0:${address}-${name_index}, where:
+    * address is the address that created the name this DID references
+    * name_index is the nth name ever created by this address.
+
+    Follow the sequence of NAME_TRANSFERs and NAME_RENEWALs to find the current
+    address, and then look up the public key.
+
+    Returns the blockchain record on success
+    Returns {'error': ...} on failure
+    """
+    proxy = get_default_proxy() if proxy is None else proxy
+    did_pattern = '^did:stack:v0:({}{{25,35}})-([0-9]+)$'.format(OP_BASE58CHECK_CLASS)
+
+    m = re.match(did_pattern, did)
+    assert m, 'Invalid DID: {}'.format(did)
+
+    address = m.groups()[0]
+    name_index = int(m.groups()[1])
+
+    addr_names = get_historic_names_by_address(address, proxy=proxy)
+    if json_is_error(addr_names):
+        return addr_names
+
+    if len(addr_names) <= name_index:
+        errormsg = 'Invalid DID: index {} exceeds number of names ({}: {}) created by {}'.format(name_index, len(addr_names), ", ".join([an['name'] for an in addr_names]), address)
+        log.error(errormsg)
+        return {'error': errormsg}
+
+    # order by blockchain and tx
+    addr_names.sort(lambda n1,n2: -1 if n1['block_id'] < n2['block_id'] or (n1['block_id'] == n2['block_id'] and n1['vtxindex'] < n2['vtxindex']) else 1)
+    name = addr_names[name_index]['name']
+    start_block = addr_names[name_index]['block_id']
+    end_block = 100000000       # TODO: update if this gets too small (not likely in my lifetime)
+
+    # verify that the name hasn't been revoked since this DID was created.
+    name_history = get_name_blockchain_history(name, start_block, end_block)
+    final_name_state = None
+
+    for history_block in sorted(name_history.keys()):
+        for history_state in name_history[history_block]:
+            if history_state['op'] == NAME_REVOKE:
+                # end of the line
+                return {'error': 'The name for this DID has been deleted'}
+
+            final_name_state = history_state
+
+    return final_name_state
+
+
+def get_consensus_at(block_height, proxy=None, hostport=None):
     """
     Get consensus at a block
     Returns the consensus hash on success
@@ -1026,7 +1278,20 @@ def get_consensus_at(block_height, proxy=None):
 
     resp_schema = json_response_schema( consensus_schema )
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    if proxy is None:
+        if hostport is None:
+            proxy = get_default_proxy()
+        else:
+            host, port = url_to_host_port(hostport)
+            assert host is not None and port is not None
+
+            protocol = None
+            if port == 6264 or port == 16264:
+                protocol = 'http'
+            else:
+                protocol = 'https'
+
+            proxy = BlockstackRPCClient(host, port, protocol=protocol)
 
     resp = {}
     try:
@@ -1243,7 +1508,7 @@ def get_name_history_blocks(name, proxy=None):
     return resp['history_blocks']
 
 
-def get_name_at(name, block_id, proxy=None):
+def get_name_at(name, block_id, include_expired=False, proxy=None):
     """
     Get the name as it was at a particular height.
     Returns the name record states on success (an array)
@@ -1259,8 +1524,15 @@ def get_name_at(name, block_id, proxy=None):
         'type': 'object',
         'properties': {
             'records': {
-                'type': 'array',
-                'items': namerec_schema
+                'anyOf': [
+                    {
+                        'type': 'array',
+                        'items': namerec_schema
+                    },
+                    {
+                        'type': 'null',
+                    },
+                ],
             },
         },
         'required': [
@@ -1274,7 +1546,13 @@ def get_name_at(name, block_id, proxy=None):
 
     resp = {}
     try:
-        resp = proxy.get_name_at(name, block_id)
+        if include_expired:
+            resp = proxy.get_historic_name_at(name, block_id)
+        if not include_expired or 'KeyError' in resp.get('error', ''):
+            resp = proxy.get_name_at(name, block_id)
+
+        assert resp, "No such name {} at block {}".format(name, block_id)
+
         resp = json_validate(resp_schema, resp)
         if json_is_error(resp):
             return resp
@@ -1316,7 +1594,7 @@ def get_name_blockchain_history(name, start_block, end_block, proxy=None):
 
     ret = {}
     for qb in query_blocks:
-        name_at = get_name_at(name, qb)
+        name_at = get_name_at(name, qb, include_expired=True)
         if json_is_error(name_at):
             # error
             return name_at
@@ -1458,6 +1736,7 @@ def get_op_history_rows(name, proxy=None):
 
     return history_rows
 
+
 def get_zonefiles_by_block(from_block, to_block, proxy=None):
     """
     Get zonefile information for zonefiles announced in [@from_block, @to_block]
@@ -1509,6 +1788,7 @@ def get_zonefiles_by_block(from_block, to_block, proxy=None):
 
     return { 'last_block' : last_server_block,
              'zonefile_info' : output_zonefiles }
+
 
 def get_nameops_affected_at(block_id, proxy=None):
     """
@@ -1621,7 +1901,7 @@ def get_nameops_at(block_id, proxy=None):
     Return the list of operations on success, ordered by transaction index.
     Return {'error': ...} on error.
     """
-
+    
     all_nameops = get_nameops_affected_at(block_id, proxy=proxy)
     if json_is_error(all_nameops):
         log.debug('Failed to get nameops affected at {}: {}'.format(block_id, all_nameops['error']))
@@ -1633,29 +1913,40 @@ def get_nameops_at(block_id, proxy=None):
     nameops = []
     nameop_histories = {}   # cache histories
     for nameop in all_nameops:
+
+        rec_id = None
+        rec_key = None
+        if 'name' in nameop:
+            rec_key = 'name'
+        elif 'namespace_id' in nameop:
+            rec_key = 'namespace_id'
+        
+        if rec_key:
+            rec_id = nameop[rec_key]
+        else:
+            rec_id = 'UNKNOWN'
+
         # get history (if not a preorder)
         history_rows = []
-        if nameop.has_key('name'):
-            # If the nameop has a 'name' field, then it's not an outstanding preorder.
-            # Outstanding preorders have no history, so we don't need to worry about 
-            # getting history for them.
-            history_rows = nameop_histories.get(nameop['name'])
+        if rec_key is not None:
+            # this isn't some kind of preorder.  We have history for it.
+            history_rows = nameop_histories.get(nameop[rec_key])
             if history_rows is None:
-                history_rows = get_op_history_rows( nameop['name'], proxy=proxy )
+                history_rows = get_op_history_rows( nameop[rec_key], proxy=proxy )
                 if json_is_error(history_rows):
                     return history_rows
 
-                nameop_histories[nameop['name']] = history_rows
+                nameop_histories[nameop[rec_key]] = history_rows
 
         # restore history
         history = nameop_history_extract(history_rows)
         historic_nameops = nameop_restore_from_history(nameop, history, block_id)
 
-        msg = '{} had {} operations ({} history rows, {} historic nameops, txids: {}) at {}'
+        msg = '{} had {} operations ({} history rows, {} historic nameops, txids: {})'
         log.debug(
             msg.format(
-                nameop.get('name', 'UNKNOWN'), len(history), len(history_rows),
-                len(historic_nameops), [op['txid'] for op in historic_nameops], block_id
+                rec_id, len(history), len(history_rows),
+                len(historic_nameops), [op['txid'] for op in historic_nameops]
             )
         )
 
@@ -1716,7 +2007,7 @@ def get_nameops_hash_at(block_id, proxy=None):
     return resp['ops_hash']
 
 
-def get_name_blockchain_record(name, include_expired=True, proxy=None):
+def get_name_blockchain_record(name, include_expired=True, include_grace=True, proxy=None):
     """
     get_name_blockchain_record
     Return the blockchain-extracted information on success.
@@ -1724,6 +2015,7 @@ def get_name_blockchain_record(name, include_expired=True, proxy=None):
         In particular, return {'error': 'Not found.'} if the name isn't registered
 
     If include_expired is True, then a name record will be returned even if it expired
+    If include_expired is False, but include_grace is True, then the name record will be returned even if it is expired and in the grace period
     """
 
     nameop_schema = {
@@ -1765,6 +2057,7 @@ def get_name_blockchain_record(name, include_expired=True, proxy=None):
 
         resp = json_traceback(resp.get('error'))
         return resp
+    
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
             log.exception(ee)
@@ -1778,8 +2071,15 @@ def get_name_blockchain_record(name, include_expired=True, proxy=None):
         if lastblock is None:
             return {'error': 'No lastblock given from server'}
 
-        if lastblock > resp['record']['expire_block'] and int(resp['record']['expire_block']) > 0:
-            return {'error': 'Name expired'}
+        if include_grace:
+            # only care if the name is beyond the grace period
+            if lastblock > int(resp['record']['renewal_deadline']) and int(resp['record']['renewal_deadline']) > 0:
+                return {'error': 'Name expired'}
+
+        else:
+            # only care about expired, even if it's in the grace period
+            if lastblock > resp['record']['expire_block'] and int(resp['record']['expire_block']) > 0:
+                return {'error': 'Name expired'}
 
     return resp['record']
 
@@ -1838,15 +2138,15 @@ def get_namespace_blockchain_record(namespace_id, proxy=None):
     return ret
 
 
-def is_name_registered(fqu, proxy=None):
+def is_name_registered(fqu, config_path=CONFIG_PATH, proxy=None, include_grace=True):
     """
     Return True if @fqu is a registered name on the blockchain.
     Must not be revoked, and must not be expired.
     """
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
 
-    blockchain_record = get_name_blockchain_record(fqu, include_expired=False, proxy=proxy)
+    blockchain_record = get_name_blockchain_record(fqu, include_expired=False, include_grace=include_grace, proxy=proxy)
     if 'error' in blockchain_record:
         log.debug('Failed to read blockchain record for {}'.format(fqu))
         return False
@@ -1951,7 +2251,7 @@ def is_name_owner(fqu, address, proxy=None):
 
     proxy = get_default_proxy() if proxy is None else proxy
 
-    blockchain_record = get_name_blockchain_record(fqu, proxy=proxy)
+    blockchain_record = get_name_blockchain_record(fqu, include_expired=False, include_grace=True, proxy=proxy)
     if 'error' in blockchain_record:
         log.debug('Failed to read blockchain record for {}'.format(fqu))
         return False
@@ -2074,7 +2374,7 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node {}.  Try again with `--debug`.'.format(hostport)}
         return resp
 
     return peers
@@ -2109,7 +2409,15 @@ def get_zonefiles(hostport, zonefile_hashes, timeout=30, my_hostport=None, proxy
     }
 
     schema = json_response_schema( zonefiles_schema )
-    proxy = get_default_proxy() if proxy is None else proxy
+
+    if proxy is None:
+        host, port = url_to_host_port(hostport)
+        assert host is not None and port is not None
+        if int(port) == 6263:
+            protocol = 'https'
+        else:
+            protocol = 'http'
+        proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport, protocol = protocol)
 
     zonefiles = None
     try:
@@ -2167,9 +2475,11 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
                 'type': 'array',
                 'items': {
                     'type': 'integer',
-                    'minimum': len(zonefile_data_list),
-                    'maximum': len(zonefile_data_list)
+                    'minimum': 0,
+                    'maximum': 1,
                 },
+                'minItems': len(zonefile_data_list),
+                'maxItems': len(zonefile_data_list)
             },
         },
         'required': [
@@ -2178,7 +2488,18 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
     }
 
     schema = json_response_schema( saved_schema )
-    proxy = get_default_proxy() if proxy is None else proxy
+    
+    if proxy is None:
+        host, port = url_to_host_port(hostport)
+        assert host is not None and port is not None
+
+        protocol = None
+        if port == 6264 or port == 16264:
+            protocol = 'http'
+        else:
+            protocol = 'https'
+
+        proxy = BlockstackRPCClient(host, port, protocol=protocol)
 
     push_info = None
     try:

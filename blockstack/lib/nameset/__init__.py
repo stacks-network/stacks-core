@@ -79,7 +79,8 @@ NAMEREC_NAME_BACKUP_FIELDS = [
 # version of a name.
 NAMEREC_INDIRECT_CONSENSUS_FIELDS = [
     'opcode',
-    'transfer_send_block_id'
+    'transfer_send_block_id',
+    'burn_address'
 ]
 
 def state_create_invariant_tags():

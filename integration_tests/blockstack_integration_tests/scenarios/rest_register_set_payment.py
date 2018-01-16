@@ -22,7 +22,7 @@
 """
 import os
 import testlib
-import pybitcoin
+import virtualchain
 import urllib2
 import json
 import blockstack_client
@@ -180,7 +180,7 @@ def scenario( wallets, **kw ):
         return False
 
     # wait for the preorder to get confirmed
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
 
     # wait for register to go through
@@ -195,7 +195,7 @@ def scenario( wallets, **kw ):
     if not res:
         return False
 
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
 
     print 'Wait for update to be submitted'
@@ -209,7 +209,7 @@ def scenario( wallets, **kw ):
     if not res:
         return False
 
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
 
     print 'Wait for transfer to be submitted'
@@ -224,7 +224,7 @@ def scenario( wallets, **kw ):
         print "Wrongly issued a TRANSFER"
         return False
 
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
 
     print 'Wait for transfer to be confirmed'
@@ -293,7 +293,7 @@ def check( state_engine ):
         # not preordered
         preorder = state_engine.get_name_preorder(
             name,
-            pybitcoin.make_pay_to_address_script(wallet_payer),
+            virtualchain.make_payment_script(wallet_payer),
             wallet_owner)
         if preorder is not None:
             print "still have preorder"

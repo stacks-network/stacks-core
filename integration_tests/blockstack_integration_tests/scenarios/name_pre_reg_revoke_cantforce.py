@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 
 wallets = [
@@ -52,8 +52,10 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
+    # should fail; not the owner
     resp = testlib.blockstack_name_revoke( "foo.test", wallets[4].privkey, safety_checks=False )
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at("foo.test", testlib.get_current_block(**kw))
 
 
 def check( state_engine ):
@@ -71,7 +73,7 @@ def check( state_engine ):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
     if preorder is not None:
         return False
     
@@ -81,7 +83,7 @@ def check( state_engine ):
         return False 
 
     # owned 
-    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
+    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[3].addr):
         return False 
 
     # NOT revoked 

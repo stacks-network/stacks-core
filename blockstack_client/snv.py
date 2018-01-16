@@ -42,6 +42,7 @@ from .constants import (
     NAME_TRANSFER, NAMESPACE_PREORDER
 )
 
+import json
 
 log = get_logger()
 
@@ -421,9 +422,19 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
         return {'error': 'Previous block/consensus hash is unreachable from trusted block/consensus hash'}
 
     if historic_nameops_hash != prev_nameops_hashes[block_id]:
-        return {'error': 'Hash mismatch: name is not consistent with consensus hash'}
+        return {
+            'error': 'Hash mismatch: failed to get operations at {}-{} from {}-{} ({} != {})'.format(
+                block_id, consensus_hash, current_block_id, current_consensus_hash, historic_nameops_hash, prev_nameops_hashes[block_id]
+            )
+        }
 
     log.debug('{} nameops at {}'.format(len(historic_nameops), block_id))
+
+    # strip history
+    for hn in historic_nameops:
+        if 'history' in hn.keys():
+            del hn['history']
+
     return historic_nameops
 
 
@@ -549,6 +560,7 @@ def snv_lookup(verify_name, verify_block_id,
         # but that's okay--if the consensus hash in this tx is inauthentic, it will be unreachable
         # from the other consensus hash [short of a SHA256 collision])
         trusted_block_id = get_block_from_consensus(trusted_consensus_hash, proxy=proxy)
+
     elif hash_len_32 and hash_is_hex:
         # consensus hash
         trusted_consensus_hash = trusted_serial_number_or_txid_or_consensus_hash
@@ -556,6 +568,7 @@ def snv_lookup(verify_name, verify_block_id,
         if isinstance(trusted_block_id, dict) and 'error' in trusted_block_id:
             # got error back
             return trusted_block_id
+        
     elif hash_parts_2:
         # must be a serial number
         parts = trusted_serial_number_or_txid_or_consensus_hash.split('-')

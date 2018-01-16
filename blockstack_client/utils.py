@@ -28,6 +28,9 @@ import urllib2
 import hashlib
 import threading
 import traceback
+import gc
+import signal
+import time
 
 from .config import get_config
 from .logger import get_logger
@@ -118,7 +121,13 @@ def daemonize( logpath, child_wait=None ):
     Return >0 if we're the parent
     """
     logfile = open(logpath, 'a+')
-
+    
+    # turn off GC across the fork
+    gc.collect(2)
+    gc.collect(1)
+    gc.collect(0)
+    gc.disable()
+    
     child_pid = os.fork()
 
     if child_pid == 0:
@@ -126,12 +135,27 @@ def daemonize( logpath, child_wait=None ):
         sys.stdin.close()
         os.dup2(logfile.fileno(), sys.stdout.fileno())
         os.dup2(logfile.fileno(), sys.stderr.fileno())
+
+        # we don't have many other fds open yet
+        for i in xrange(3, 1024):
+            if i == logfile.fileno():
+                continue
+
+            try:
+                os.close(i)
+            except:
+                pass
+
         os.setsid()
 
         daemon_pid = os.fork()
         if daemon_pid == 0:
             # daemon! chdir and return
             os.chdir('/')
+            gc.enable()
+            gc.collect(2)
+            gc.collect(1)
+            gc.collect(0)
             return 0
 
         elif daemon_pid > 0:
@@ -152,13 +176,38 @@ def daemonize( logpath, child_wait=None ):
 
     elif child_pid > 0:
         # grand-parent (caller)
-        # wait for intermediate child
-        pid, status = os.waitpid(child_pid, 0)
-        if os.WEXITSTATUS(status) == 0:
-            return child_pid
-        else:
-            log.error("Child exit status {}".format(status))
-            return -1
+        # re-activate gc
+        gc.enable()
+        gc.collect(2)
+        gc.collect(1)
+        gc.collect(0)
+
+        # wait for intermediate child.
+        # panic if we don't hear back after 1 minute
+        timeout = 60
+        if os.environ.get("BLOCKSTACK_TEST") == "1":
+            # wait around so we can attach gdb or whatever
+            timeout = 60000
+
+        for i in xrange(0, timeout):
+            pid, status = os.waitpid(child_pid, os.WNOHANG)
+            if pid == 0:
+                # still waiting
+                time.sleep(1)
+                log.debug("Still waiting on {}".format(child_pid))
+                continue
+
+            # child has exited!
+            if os.WEXITSTATUS(status) == 0:
+                return child_pid
+            else:
+                log.error("Child exit status {}".format(status))
+                return -1
+
+        # child has not exited yet.  This is not okay.
+        log.error("Child PID={} did not exit.  Killing it instead and failing...".format(child_pid))
+        os.kill(child_pid, signal.SIGKILL)
+        return -1
     
     else:
         # failed to fork 

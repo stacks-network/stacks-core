@@ -22,11 +22,11 @@
 """ 
 
 """
-TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 272
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 704
 """
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import blockstack as blockstack_server
 
@@ -94,7 +94,7 @@ def check( state_engine ):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
     if preorder is not None:
         return False
     
@@ -104,7 +104,7 @@ def check( state_engine ):
         return False
 
     # owned by
-    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
+    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[3].addr):
         return False
 
     # renewed (22 blocks later)
@@ -119,9 +119,9 @@ def check( state_engine ):
         return False
 
     # original paid the epoch 1 fee
-    historic_name_rec = state_engine.get_name_at( "foo.test", 261 )
+    historic_name_rec = state_engine.get_name_at( "foo.test", 693 )
     if historic_name_rec is None or len(historic_name_rec) == 0:
-        print "no name at 261"
+        print "no name at 693"
         return False
 
     historic_name_rec = historic_name_rec[0]

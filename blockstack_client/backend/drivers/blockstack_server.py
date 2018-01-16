@@ -76,28 +76,35 @@ def get_data( data_id, zonefile=False, fqu=None ):
 
     if zonefile:
         log.debug("Get zonefile for %s" % data_id)
+        
+        zonefile_hash = None
+        if not is_zonefile_hash(data_id):
 
-        res = None
-        if is_zonefile_hash(data_id):
-            res = ses.get_zonefiles([data_id])
-        else:
-            res = ses.get_zonefiles_by_names( [data_id] )
-
-        try:
-            data = json.loads(res)
-        except:
-            log.error("Failed to parse zonefile from %s" % data_id)
-            return None
-
-        if 'error' in data:
-            log.error("Get zonefile %s: %s" % (data_id, data['error']))
-            return None
-        else:
-            try:
-                return base64.b64decode( data['zonefiles'][data_id] )
-            except:
-                log.error("Failed to parse zonefile")
+            if not blockstack_client.is_name_valid(data_id):
+                log.error("Not a valid name or zone file hash: {}".format(data_id))
                 return None
+
+            # find zonefile hash
+            res = blockstack_client.proxy.get_name_blockchain_record(data_id, proxy=ses)
+            if 'error' in res:
+                log.error("Failed to look up {}: {}".format(data_id), res['error'])
+                return None
+
+            zonefile_hash = res.get('value_hash', None)
+            if zonefile_hash is None:
+                log.error("No zonefile hash for {}".format(data_id))
+                return None
+
+        res = blockstack_client.proxy.get_zonefiles([zonefile_hash], proxy=ses)
+        if 'error' in res:
+            log.error("Failed to look up {}: {}".format(zonefile_hash), res['error'])
+            return None
+        
+        try:
+            return base64.b64decode(data['zonefiles'][zonefile_hash])
+        except:
+            log.error("Failed to decode zonefile")
+            return None
 
     elif blockstack_client.is_name_valid(data_id):
         log.debug("Get profile for %s" % data_id)

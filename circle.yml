@@ -1,6 +1,7 @@
 machine:
   pre:
     - sudo -H pip install --upgrade virtualenv
+    - brew update
     - brew install openssl
 dependencies:
   pre:
@@ -9,8 +10,9 @@ dependencies:
           PYSCRYPT_NO_LINK_FLAGS: "1"
           LDFLAGS: /usr/local/opt/openssl/lib/libcrypto.a /usr/local/opt/openssl/lib/libssl.a
           CPPFLAGS: -I/usr/local/opt/openssl/include
-    - ../virtualenvs/venv-system/bin/pip install virtualchain
-    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/blockstack/jsontokens-py@develop
+    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/blockstack/virtualchain
+    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/blockstack/jsontokens-py
+
 compile:
   post:
     - ../virtualenvs/venv-system/bin/pip install ./integration_tests

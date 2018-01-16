@@ -29,7 +29,7 @@ TEST ENV BLOCKSTACK_NAMESPACE_REVEAL_EXPIRE 3
 import os
 import testlib 
 import json
-import pybitcoin
+import virtualchain
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -79,6 +79,7 @@ def scenario( wallets, **kw ):
         print json.dumps(resp, indent=4)
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at('test', testlib.get_current_block(**kw))
 
     # try to re-preorder it 
     resp = testlib.blockstack_namespace_preorder( "test", wallets[3].addr, wallets[2].privkey )
@@ -122,7 +123,7 @@ def check( state_engine ):
         return False 
 
     # should be revealed by wallets[1]
-    if ns['sender'] != pybitcoin.make_pay_to_address_script( wallets[2].addr ):
+    if ns['sender'] != virtualchain.make_payment_script( wallets[2].addr ):
         print "not sent by '%s'" % ns['sender'] 
         return False
 

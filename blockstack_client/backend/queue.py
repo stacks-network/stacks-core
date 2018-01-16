@@ -27,6 +27,7 @@ import json
 import base64
 import time
 import random
+import threading
 
 from ..constants import (
     DEFAULT_QUEUE_PATH, PREORDER_MAX_CONFIRMATIONS, CONFIG_PATH, MAX_TX_CONFIRMATIONS)
@@ -51,12 +52,14 @@ from ..logger import get_logger
 
 log = get_logger()
 
+DB_SERIALIZE_LOCK = threading.Lock()
+
 def queuedb_create( path ):
     """
     Create a sqlite3 db at the given path.
     Create all the tables and indexes we need.
     """
-
+    
     global QUEUE_SQL, ERROR_SQL
 
     if os.path.exists( path ):
@@ -69,8 +72,10 @@ def queuedb_create( path ):
     for line in lines:
         con.execute(line)
 
+    con.commit()
     con.row_factory = queuedb_row_factory
     return con
+
 
 def conditionally_create_err_table( sql_conn ):
     """
@@ -84,17 +89,20 @@ def conditionally_create_err_table( sql_conn ):
     assert len(lines) == 2
     sql_conn.execute(lines[0])
 
+
 def queuedb_open( path ):
     """
     Open a connection to our database 
     """
-    if not os.path.exists( path ):
-        con = queuedb_create( path )
-    else:
-        con = sqlite3.connect( path, isolation_level=None )
-        conditionally_create_err_table( con )
-        con.row_factory = queuedb_row_factory
-    return con
+
+    with DB_SERIALIZE_LOCK:
+        if not os.path.exists( path ):
+            con = queuedb_create( path )
+        else:
+            con = sqlite3.connect( path, isolation_level=None )
+            conditionally_create_err_table( con )
+            con.row_factory = queuedb_row_factory
+        return con
 
 
 def queuedb_row_factory( cursor, row ):
@@ -180,6 +188,7 @@ def queuedb_find( queue_id, fqu, limit=None, path=DEFAULT_QUEUE_PATH ):
     db.close()
     return ret
 
+
 def queue_add_error_msg( queue_id, fqu, error_msg, path=DEFAULT_QUEUE_PATH ):
     """
     Add an error message for an entry
@@ -196,6 +205,7 @@ def queue_add_error_msg( queue_id, fqu, error_msg, path=DEFAULT_QUEUE_PATH ):
     db.commit()
     db.close()
 
+
 def queue_clear_error_msg( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
     """
     Remove all error messages for an entry
@@ -210,6 +220,7 @@ def queue_clear_error_msg( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
     rows = queuedb_query_execute( cur, sql, args )
     db.commit()
     db.close()
+
 
 def queue_get_error_msgs( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
     """
@@ -229,6 +240,7 @@ def queue_get_error_msgs( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
     db.close()
 
     return ret
+
 
 def queuedb_findall( queue_id, limit=None, path=DEFAULT_QUEUE_PATH ):
     """
@@ -321,6 +333,7 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
                  zonefile_data=None, profile=None, zonefile_hash=None,
                  unsafe_reg = None, confirmations_needed = None,
                  owner_privkey=None, payment_privkey = None,
+                 is_regup=None,
                  min_payment_confs = None, path=DEFAULT_QUEUE_PATH):
 
     """
@@ -346,17 +359,24 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
 
     if unsafe_reg is not None:
         new_entry['unsafe_reg'] = unsafe_reg
+
     if confirmations_needed is not None:
         new_entry['confirmations_needed'] = confirmations_needed
+
     if min_payment_confs is not None:
         new_entry['min_payment_confs'] = min_payment_confs
+
     if owner_privkey is not None:
         new_entry['owner_privkey'] = owner_privkey
+
     if payment_privkey is not None:
         new_entry['payment_privkey'] = payment_privkey
 
     if zonefile_data is not None:
         new_entry['zonefile_b64'] = base64.b64encode(zonefile_data)
+
+    if is_regup is not None:
+        new_entry['is_regup'] = is_regup
 
     new_entry['profile'] = profile
     if zonefile_hash is None and zonefile_data is not None:
@@ -365,7 +385,39 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
     if zonefile_hash is not None:
         new_entry['zonefile_hash'] = zonefile_hash
 
+    new_entry['replicated_zonefile'] = False
+
     queuedb_insert( queue_id, fqu, tx_hash, new_entry, path=path )
+    return True
+
+
+def queue_set_data(queue_id, fqu, new_data, path=DEFAULT_QUEUE_PATH):
+    """
+    Update a name's data in the queue
+    """
+    entry_data = {}
+    entry_data.update(new_data)
+    
+    for k in ['tx_hash', 'type', 'queue_id', 'fqu']:
+        if k in entry_data:
+            del entry_data[k]
+
+    if entry_data.has_key('zonefile'):
+        entry_data['zonefile_b64'] = base64.b64encode(entry_data['zonefile'])
+        del entry_data['zonefile']
+
+    sql = "UPDATE entries SET data = ? WHERE fqu = ? AND queue_id = ?;"
+    args = (json.dumps(entry_data,sort_keys=True), fqu, queue_id)
+
+    db = queuedb_open(path)
+    if db is None:
+        raise Exception("Failed to open %s" % path)
+
+    cur = db.cursor()
+    res = queuedb_query_execute( cur, sql, args )
+
+    db.commit()
+    db.close()
     return True
 
 
@@ -396,10 +448,8 @@ def is_entry_accepted( entry, config_path=CONFIG_PATH ):
     Return False on error.
     """
     if 'confirmations_needed' in entry:
-        log.debug('Custom confirmations check on {} with {}'.format(
-            entry['tx_hash'], entry['confirmations_needed']))
-        return is_tx_accepted( entry['tx_hash'], num_needed = entry['confirmations_needed'],
-                               config_path=config_path )
+        log.debug('Custom confirmations check on {} with {}'.format(entry['tx_hash'], entry['confirmations_needed']))
+        return is_tx_accepted( entry['tx_hash'], num_needed=entry['confirmations_needed'], config_path=config_path )
     else:
         return is_tx_accepted( entry['tx_hash'], config_path=config_path )
 
@@ -445,7 +495,7 @@ def get_queue_state(queue_ids=None, limit=None, path=DEFAULT_QUEUE_PATH):
     """
     state = []
     if queue_ids is None:
-        queue_ids = ["preorder", "register", "update", "transfer", "renew", "revoke"]
+        queue_ids = ["preorder", "register", "update", "transfer", "renew", "revoke", "name_import"]
 
     elif type(queue_ids) not in [list]:
         queue_ids = [queue_ids]
@@ -459,6 +509,7 @@ def get_queue_state(queue_ids=None, limit=None, path=DEFAULT_QUEUE_PATH):
         errors = queue_get_error_msgs(row['type'], row['fqu'], path=path)
         if len(errors) > 0:
             row['errors'] = errors
+
     return state
 
 
@@ -467,6 +518,7 @@ def queue_findall( queue_id, limit=None, path=DEFAULT_QUEUE_PATH ):
     Load a single queue into RAM
     """
     return get_queue_state( queue_id, limit=limit, path=path )
+
 
 def queue_removeall( entries, path=DEFAULT_QUEUE_PATH ):
     """

@@ -144,7 +144,7 @@ class AuthInternal(APITestCase):
         request = {
             'app_domain': 'test.com',
             'app_public_key': blockstack_client.keys.get_pubkey_hex(privkey),
-            'methods': ['wallet_read'],
+            'methods': ['wallet_read', 'user_read'],
         }
 
         signer = jsontokens.TokenSigner()
@@ -166,9 +166,9 @@ class AuthInternal(APITestCase):
         data = self.get_request('/v1/wallet/payment_address',
                                 headers = auth_header, status_code=200)
 
-        data = self.get_request('/v1/users/muneeb.id',
-                                headers = auth_header, status_code=403)
-        self.assertIn('error', data)
+        data = self.get_request('/v1/users/ablankstein.id',
+                                headers = auth_header, status_code=200)
+        # self.assertIn('error', data)
 
     def test_get_and_use_session_token_url(self):
         privkey = ("a28ea1a6f11fb1c755b1d102990d64d6" +
@@ -179,7 +179,7 @@ class AuthInternal(APITestCase):
         request = {
             'app_domain': 'http://test.com',
             'app_public_key': blockstack_client.keys.get_pubkey_hex(privkey),
-            'methods': ['wallet_read'],
+            'methods': ['wallet_read', 'user_read'],
         }
 
         signer = jsontokens.TokenSigner()
@@ -201,9 +201,8 @@ class AuthInternal(APITestCase):
         data = self.get_request('/v1/wallet/payment_address',
                                 headers = auth_header, status_code=200)
 
-        data = self.get_request('/v1/users/muneeb.id',
-                                headers = auth_header, status_code=403)
-        self.assertIn('error', data)
+        data = self.get_request('/v1/users/ablankstein.id',
+                                headers = auth_header, status_code=200)
 
     def test_auth_token_no_username(self):
         auth_header = get_auth_header()
@@ -297,9 +296,8 @@ class NamesOwnedTest(APITestCase):
     def build_url(self, addr):
         return '/v1/addresses/bitcoin/{}'.format(addr)
     def test_check_names(self):
-        addrs_to_check = ["1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP",
-                          "16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg"]
-        names_to_check = ["muneeb.id", "judecn.id"]
+        addrs_to_check = ["1J3PUxY5uDShUnHRrMyU6yKtoHEUPhKULs"]
+        names_to_check = ["muneeb.id"]
         for addr, name in zip(addrs_to_check, names_to_check):
             data = self.get_request(self.build_url(addr),
                                     headers = {}, status_code = 200)
@@ -350,7 +348,6 @@ class Prices(APITestCase):
         self.assertIn('register_tx_fee', json_keys)
         self.assertIn('total_estimated_cost', json_keys)
         self.assertIn('total_tx_fees', json_keys)
-        self.assertIn('update_tx_fee', json_keys)
 
     def test_ns_price(self):
         data = self.get_request("/v1/prices/namespaces/id",

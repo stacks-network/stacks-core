@@ -20,9 +20,13 @@
     You should have received a copy of the GNU General Public License
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """ 
+"""
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 680
+TEST ENV BLOCKSTACK_EPOCH_2_END_BLOCK 681
+"""
 
 import testlib
-import pybitcoin
+import virtualchain
 import time
 import json
 import sys
@@ -92,6 +96,7 @@ def scenario( wallets, **kw ):
         return False
 
     testlib.next_block(**kw)
+    testlib.expect_snv_fail_at("fail.test", testlib.get_current_block(**kw))
    
     # 3 in one block (zero-conf)
     resp = testlib.blockstack_cli_name_import("bar.test", wallets[3].addr, "Hello bar.test!", private_keys[1])
@@ -122,7 +127,10 @@ def scenario( wallets, **kw ):
         print json.dumps(resp, indent=4, sort_keys=True)
         return False
 
-    for i in xrange(0, 10):
+    testlib.next_block(**kw)
+    testlib.expect_snv_fail_at("fail.test", testlib.get_current_block(**kw))
+
+    for i in xrange(0, 12):
         testlib.next_block(**kw)
 
     print "Waiting 10 seconds for registrar to replicate zone files"

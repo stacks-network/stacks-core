@@ -45,7 +45,7 @@ import logging
 logging.disable(logging.CRITICAL)
 
 from blockstack_client import config
-from blockstack_client.client import session, analytics_user_register
+from blockstack_client.client import session
 from blockstack_client.constants import WALLET_FILENAME, set_secret, serialize_secrets, write_secrets, load_secrets, CONFIG_PATH
 from blockstack_client.config import CONFIG_PATH, VERSION, client_uuid_path, get_or_set_uuid
 from blockstack_client.method_parser import parse_methods, build_method_subparsers
@@ -437,17 +437,6 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         first_time = True
         client_uuid = get_or_set_uuid(config_dir=os.path.dirname(config_path))
 
-        if os.environ.get('BLOCKSTACK_CLIENT_INTERACTIVE_YES') != '1':
-            # interactive allowed
-            # prompt for email 
-            print("Would you like to receive an email when there is a new release of this software available?")
-            email_addr = raw_input("Email address (leave blank to opt out): ")
-
-            # will only process real email addresses when we email announcements out
-            if len(email_addr) > 0:
-                analytics_user_register( client_uuid, email_addr )
-
-  
     res = config.setup_config(config_path=config_path, interactive=(os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES") != '1'))
     if 'error' in res:
         exit_with_error("Failed to load and verify config file: {}".format(res['error']))
@@ -526,7 +515,8 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         server_port=blockstack_port, set_global=True
     )
 
-    prompt_func = lambda help, name: raw_input('optional: {} ("{}"): '.format(help, name))
+    prompt_func_arg = lambda help, name: raw_input('required: {} ("{}"): '.format(help, name))
+    prompt_func_opt = lambda help, name: raw_input('optional: {} ("{}"): '.format(help, name))
 
     # dispatch to the apporpriate method
     for method_info in all_methods:
@@ -549,11 +539,11 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             print('Arguments: {} {} {}'.format(method_info['command'], arg_usage, opt_usage))
             print('')
 
-            required_args = prompt_args(method_info['args'], prompt_func)
+            required_args = prompt_args(method_info['args'], prompt_func_arg)
             if required_args is None:
                 return {'error': 'Failed to prompt for arguments'}
 
-            optional_args = prompt_args(method_info['opts'], prompt_func)
+            optional_args = prompt_args(method_info['opts'], prompt_func_opt)
             if optional_args is None:
                 return {'error': 'Failed to prompt for arguments'}
 

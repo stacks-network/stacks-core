@@ -26,7 +26,8 @@ import blockstack_profiles
 import blockstack_zones
 import base64
 import socket
-from keylib import ECPrivateKey
+import virtualchain
+from virtualchain.lib.ecdsalib import ecdsa_private_key
 
 from .proxy import (
     get_default_proxy, get_zonefiles, get_name_blockchain_record, put_zonefiles)
@@ -211,6 +212,8 @@ def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_z
     # try atlas node first 
     res = get_zonefiles( hostport, [expected_zonefile_hash], proxy=proxy )
     if 'error' in res or expected_zonefile_hash not in res['zonefiles'].keys():
+        log.warning("Zonefile {} not available from {}; falling back to storage".format(expected_zonefile_hash, hostport))
+
         # fall back to storage drivers if atlas node didn't have it
         zonefile_txt = storage.get_immutable_data(
                 expected_zonefile_hash, hash_func=storage.get_zonefile_data_hash, 
@@ -254,7 +257,7 @@ def load_data_pubkey_for_new_zonefile(wallet_keys={}, config_path=CONFIG_PATH):
     data_privkey = wallet_keys.get('data_privkey', None)
     if data_privkey is not None:
         # force compressed
-        data_pubkey = ECPrivateKey(data_privkey, compressed=True).public_key().to_hex()
+        data_pubkey = ecdsa_private_key(data_privkey, compressed=True).public_key().to_hex()
         return data_pubkey
 
     data_pubkey = wallet_keys.get('data_pubkey', None)

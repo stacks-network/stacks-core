@@ -90,17 +90,11 @@ def site_data_to_fixed_proof_url(account, zonefile):
         account['proofUrl'] = proof
 
 
-def fetch_proofs(profile, username, profile_ver=2, zonefile = None, refresh=False):
+def fetch_proofs(profile, username, address, profile_ver=2, zonefile = None):
     """ Get proofs for a profile and:
         a) check cached entries
         b) check which version of profile we're using
     """
-
-    if MEMCACHED_ENABLED and not refresh:
-        log.debug("Memcache get proofs: %s" % username)
-        proofs_cache_reply = mc.get("proofs_" + str(username))
-    else:
-        proofs_cache_reply = None
 
     if 'account' not in profile:
         return []
@@ -110,20 +104,10 @@ def fetch_proofs(profile, username, profile_ver=2, zonefile = None, refresh=Fals
             and 'proofUrl' not in account):
             site_data_to_fixed_proof_url(account, zonefile)
 
-    if proofs_cache_reply is None:
-
-        if profile_ver == 3:
-            proofs = profile_v3_to_proofs(profile, username)
-        else:
-            proofs = profile_to_proofs(profile, username)
-
-        if MEMCACHED_ENABLED or refresh:
-            log.debug("Memcache set proofs: %s" % username)
-            mc.set("proofs_" + str(username), json.dumps(proofs),
-                   int(time() + MEMCACHED_TIMEOUT))
+    if profile_ver == 3:
+        proofs = profile_v3_to_proofs(profile, username, address = address)
     else:
-
-        proofs = json.loads(proofs_cache_reply)
+        proofs = profile_to_proofs(profile, username, address = address)
 
     return proofs
 
@@ -162,35 +146,30 @@ def is_profile_in_legacy_format(profile):
 
     return is_in_legacy_format
 
-def format_profile(profile, fqa, zone_file, refresh=False):
+def format_profile(profile, fqa, zone_file, address, public_key):
     """ Process profile data and
         1) Insert verifications
         2) Check if profile data is valid JSON
     """
 
     data = {'profile' : profile,
-            'zone_file' : zone_file}
+            'zone_file' : zone_file,
+            'public_key': public_key,
+            'owner_address' : address}
 
-    try:
-        username, ns = fqa.split(".")
-    except:
-        data = {'error' : "Failed to split fqa into name and namespace."}
-        return data
-    if ns != 'id':
+    if not fqa.endswith('.id'):
         data['verifications'] = ["No verifications for non-id namespaces."]
         return data
 
     profile_in_legacy_format = is_profile_in_legacy_format(profile)
 
     if not profile_in_legacy_format:
-        data['verifications'] = fetch_proofs(data['profile'], username,
-                                             profile_ver=3, zonefile=zone_file,
-                                             refresh=refresh)
+        data['verifications'] = fetch_proofs(data['profile'], fqa, address,
+                                             profile_ver=3, zonefile=zone_file)
     else:
         if type(profile) is not dict:
             data['profile'] = json.loads(profile)
-        data['verifications'] = fetch_proofs(data['profile'], username,
-                                             refresh=refresh)
+        data['verifications'] = fetch_proofs(data['profile'], fqa, address)
 
     return data
 
@@ -205,14 +184,13 @@ def is_valid_fqa(fqa):
         return False
     return (NS_PATTERN.match(ns) is not None)
 
-def get_profile(fqa, refresh=False):
+def get_profile(fqa):
     """ Given a fully-qualified username (username.namespace)
         get the data associated with that fqu.
         Return cached entries, if possible.
     """
 
-    global MEMCACHED_ENABLED
-    global mc
+    profile_expired_grace = False
 
     fqa = fqa.lower()
     if not is_valid_fqa(fqa):
@@ -224,157 +202,95 @@ def get_profile(fqa, refresh=False):
                 resp = blockstack_client.subdomains.resolve_subdomain(subdomain, domain)
                 data = { 'profile' : resp['profile'],
                          'zone_file': resp['zonefile'],
+                         'public_key': resp.get('public_key', None),
                          'verifications' : [] }
                 return data
             except blockstack_client.subdomains.SubdomainNotFound as e:
                 log.exception(e)
-                abort(404, jsonify({'error' : 'Name {} not found'.format(fqa)}))
+                abort(404, json.dumps({'error' : 'Name {} not found'.format(fqa)}))
 
         return {'error' : 'Malformed name {}'.format(fqa)}
 
-    if MEMCACHED_ENABLED and not refresh:
-        log.debug("Memcache get DHT: %s" % fqa)
-        dht_cache_reply = mc.get("dht_" + str(fqa))
-    else:
-        dht_cache_reply = None
 
-    if dht_cache_reply is None:
-        try:
-            res = blockstack_client.profile.get_profile(fqa, use_legacy = True)
-            if 'error' in res:
-                log.error('Error from profile.get_profile: {}'.format(res['error']))
-                return res
-            profile = res['profile']
-            zonefile = res['zonefile']
-        except Exception as e:
-            log.exception(e)
-            abort(500, "Connection to blockstack-server %s:%s timed out" % 
-                  (BLOCKSTACKD_IP, BLOCKSTACKD_PORT))
+    try:
+        res = blockstack_client.profile.get_profile(
+            fqa, use_legacy = True, include_name_record = True)
+        if 'error' in res:
+            log.error('Error from profile.get_profile: {}'.format(res['error']))
+            if "no user record hash defined" in res['error']:
+                res['status_code'] = 404
+            if "Failed to load user profile" in res['error']:
+                res['status_code'] = 404
+            return res
+        log.warn(json.dumps(res['name_record']))
 
-        if profile is None or 'error' in zonefile:
-            log.error("{}".format(zonefile))
-            abort(404)
-            
-        prof_data = {'response' : profile}
-     
-        if MEMCACHED_ENABLED or refresh:
-            log.debug("Memcache set DHT: %s" % fqa)
-            mc.set("dht_" + str(fqa), json.dumps(data),
-                   int(time() + MEMCACHED_TIMEOUT))
-    else:
-        prof_data = json.loads(dht_cache_reply)
+        profile = res['profile']
+        zonefile = res['zonefile']
+        public_key = res.get('public_key', None)
+        address = res['name_record']['address']
 
-    data = format_profile(prof_data['response'], fqa, zonefile)
+        if 'expired' in res['name_record'] and res['name_record']['expired']:
+            profile_expired_grace = True
+
+    except Exception as e:
+        log.exception(e)
+        abort(500, json.dumps({'error': 'Server error fetching profile'}))
+
+    if profile is None or 'error' in zonefile:
+        log.error("{}".format(zonefile))
+        abort(404)
+
+    prof_data = {'response' : profile}
+
+    data = format_profile(prof_data['response'], fqa, zonefile, address, public_key)
+
+    if profile_expired_grace:
+        data['expired'] = (
+            'This name has expired! It is still in the renewal grace period, ' +
+            'but must be renewed or it will eventually expire and be available' +
+            ' for others to register.')
 
     return data
 
 
-def get_all_users():
-    """ Return all users in the .id namespace
-    """
-
-    # aaron: hardcode a non-response for the time being -- 
-    #  the previous code was trying to load a non-existent file
-    #  anyways. 
-    return {}
-
-# aaron note: do we need to support multiple users in a query?
-#    this seems like a potential avenue for abuse.
-
-@resolver.route('/v2/users/<usernames>', methods=['GET'], strict_slashes=False)
+@resolver.route('/v1/users/<username>', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')
 @cache_control(MEMCACHED_TIMEOUT)
-def get_users(usernames):
+def get_users(username):
     """ Fetch data from username in .id namespace
     """
     reply = {}
-    refresh = False
 
-    try:
-        refresh = request.args.get('refresh')
-    except:
-        pass
 
-    if usernames is None:
-        reply['error'] = "No usernames given"
+    if username is None:
+        reply['error'] = "No username given"
         return jsonify(reply), 404
 
-    if ',' not in usernames:
-        usernames = [usernames]
+    if ',' in username:
+        reply['error'] = 'Multiple username queries are no longer supported.'
+        return jsonify(reply), 401
+
+
+    if "." not in username:
+        fqa = "{}.{}".format(username, 'id')
     else:
-        try:
-            usernames = usernames.rsplit(',')
-        except:
-            reply['error'] = "Invalid input format"
-            return jsonify(reply), 401
+        fqa = username
 
-    for username in usernames:
-        if "." not in username:
-            fqa = "{}.{}".format(username, 'id')
-        else:
-            fqa = username
-        profile = get_profile(fqa, refresh=refresh)
+    profile = get_profile(fqa)
 
-        if 'error' in profile:
-            if len(usernames) == 1:
-                reply[username] = profile
-                return jsonify(reply), 502
-        else:
-            reply[username] = profile
+    reply[username] = profile
+    if 'error' in profile:
+        status_code = 200
+        if 'status_code' in profile:
+            status_code = profile['status_code']
+            del profile['status_code']
+        return jsonify(reply), status_code
+    else:
+        return jsonify(reply), 200
 
-    return jsonify(reply), 200
-
-
-@resolver.route('/v2/namespace', strict_slashes=False)
+@resolver.route('/v2/users/<username>', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')
-def get_namespace():
-    """ Get stats on registration and all names registered
-        (old endpoint, still here for compatibility)
-    """
+@cache_control(MEMCACHED_TIMEOUT)
+def get_users_v2(username):
+    return get_users(username)
 
-    reply = {}
-    total_users = get_all_users()
-    reply['stats'] = {'registrations': len(total_users)}
-    reply['usernames'] = total_users
-
-    return jsonify(reply)
-
-
-@resolver.route('/v2/namespaces', strict_slashes=False)
-@crossdomain(origin='*')
-def get_all_namespaces():
-    """ Get stats on registration and all names registered
-    """
-
-    json.encoder.c_make_encoder = None
-
-    reply = {}
-    all_namespaces = []
-    total_users = get_all_users()
-
-    id_namespace = collections.OrderedDict([("namespace", "id"),
-                                            ("registrations", len(total_users)),
-                                            ("names", total_users)])
-
-    all_namespaces.append(id_namespace)
-
-    reply['namespaces'] = all_namespaces
-
-    # disable Flask's JSON sorting
-    app.config["JSON_SORT_KEYS"] = False
-
-    return jsonify(reply)
-
-
-@resolver.route('/v2/users/', methods=['GET'], strict_slashes=False)
-@crossdomain(origin='*')
-def get_user_count():
-    """ Get stats on registered names
-    """
-
-    reply = {}
-
-    total_users = get_all_users()
-    reply['stats'] = {'registrations': len(total_users)}
-
-    return jsonify(reply)

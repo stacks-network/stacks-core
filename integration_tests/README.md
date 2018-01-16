@@ -76,6 +76,10 @@ The API password for connecting from the browser is:
 blockstack_integration_test_api_password
 ```
 
+Note: To obtain regtest bitcoins in the browser's wallet during testing-mode,
+use the hidden browser page (http://localhost:8888/wallet/send-core) or
+(http://localhost:3000/wallet/send-core) to send bitcoins to the address.
+
 ## Using CLI commands from the docker container
 
 To use the CLI commands once your docker container has started, connect to the docker container:
@@ -93,7 +97,19 @@ And from the container, set the test environment variables:
      $ export BLOCKSTACK_CLIENT_CONFIG=/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.portal_test_env/client/client.ini
 ```
 
-Now you can run `blockstack` commands from the container shell:
+You can also set these variables with an automated script included in the test
+framework:
+
+```bash
+    $ . $(which blockstack-test-env) portal_env_test
+    |blockstack-test portal_env_test| $
+```
+
+Your `$PS1` variable will be updated to show the name of the test if you take
+this option.  You can unset the environment variables with `. $(which
+blockstack-test-env) deactivate`.
+
+With these variables set, you can now run `blockstack` commands from the container shell:
 
 ```bash
      $ blockstack lookup foo.id
@@ -176,14 +192,17 @@ This example will set up an interactive regtest node that you can connect to via
  $ BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.portal_test_env
 ```
 
-Hitting `^C` (or sending `SIGINT`) to the `blockstack-test-scenario` process will cause the test to stop idling, finish its built-in
-tests, and clean up after itself.
+### Using the CLI
 
 To interact with this using the Blockstack Browser, you need to use the api_password:
 
 ```
 blockstack_integration_test_api_password
 ```
+
+Note: To obtain regtest bitcoins in the browser's wallet during testing-mode,
+use the hidden browser page [http://localhost:8888/wallet/send-core] or
+[http://localhost:3000/wallet/send-core] to send bitcoins to the address.
 
 ### Using the CLI
 
@@ -376,3 +395,47 @@ and will be loaded from the pre-configured `disk` driver (the defualt driver use
     }
 ```
 
+Namespace Creation Example
+--------------------------
+
+You can test out the namespace creation functions once you've got a shell
+set up to connect to your regtest environment:
+
+First, get the private keys you'll use for the namespace:
+```bash
+$ blockstack wallet
+{
+    "data_privkey": "bb68eda988e768132bc6c7ca73a87fb9b0918e9a38d3618b74099be25f7cab7d01",
+    "data_pubkey": "04ea5d8c2a3ba84eb17625162320bb53440557c71f7977a57d61405e86be7bdcdab63a7f1eda1e6c1670c64a9f532b9f55458019d9b80fdf41748d06cd7f60d451", 
+    "owner_address": "myaPViveUWiiZQQTb51KXCDde4iLC3Rf3K",
+    "owner_privkey": "8f87d1ea26d03259371675ea3bd31231b67c5df0012c205c154764a124f5b8fe01",
+    "payment_address": "mvF2KY1UbdopoomiB371epM99GTnzjSUfj",
+    "payment_privkey": "f4c3907cb5769c28ff603c145db7fc39d7d26f69f726f8a7f995a40d3897bb5201"
+}
+```
+
+For testing, I use the `payment_privkey` above to fund the namespace creation and `owner_privkey`
+as the namespace reveal key.
+
+```bash
+$ PAYMENTKEY="f4c3907cb5769c28ff603c145db7fc39d7d26f69f726f8a7f995a40d3897bb5201"
+$ REVEALKEY="8f87d1ea26d03259371675ea3bd31231b67c5df0012c205c154764a124f5b8fe01"
+```
+
+Now, you can perform the preorder.
+```bash
+$ blockstack namespace_preorder blankstein $PAYMENTKEY $REVEALKEY
+```
+
+Wait for the transaction to confirm, and then issue a "reveal". During
+the reveal you configure the price function, expiration time of names,
+and whether or not you receive funds.
+```bash
+$ blockstack namespace_reveal blankstein $PAYMENTKEY $REVEALKEY
+```
+
+Once your reveal your namespace, you can issue a "ready", and then
+
+```bash
+$ blockstack namespace_ready blankstein $REVEALKEY
+```

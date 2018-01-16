@@ -19,14 +19,23 @@
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-""" 
+"""
+
+import os
+
+"""
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 689
+TEST ENV BLOCKSTACK_EPOCH_2_END_BLOCK 690
+TEST ENV BLOCKSTACK_EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER 2
+TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER 2
+TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_LIFETIME_GRACE_PERIOD 5
+"""
 
 import testlib
-import pybitcoin
+import virtualchain
 import time
 import json
 import sys
-import os
 import blockstack_client
 
 wallets = [

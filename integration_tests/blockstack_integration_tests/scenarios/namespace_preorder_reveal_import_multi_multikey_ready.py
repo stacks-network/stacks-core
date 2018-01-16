@@ -23,15 +23,16 @@
 
 import testlib 
 import json
-import pybitcoin
+import virtualchain
 import base58
 import keychain
 import virtualchain
+import keylib
 
 def testnet_encode( pk_wif ):
-    s = pybitcoin.b58check_decode(pk_wif )
+    s = keylib.b58check.b58check_decode(pk_wif )
     s = '\xef' + s
-    ret = base58.b58encode( s + pybitcoin.bin_double_sha256(s)[0:4] )
+    ret = base58.b58encode( s + virtualchain.lib.hashing.bin_double_sha256(s)[0:4] )
     return ret
 
 wallets = [
@@ -46,7 +47,7 @@ def addr_reencode( addr ):
     """
     Encode addr to testnet
     """
-    return pybitcoin.b58check_encode( pybitcoin.b58check_decode( addr ), version_byte=111 )
+    return keylib.b58check.b58check_encode( keylib.b58check.b58check_decode( addr ), version_byte=111 )
 
 
 def scenario( wallets, **kw ):
@@ -121,7 +122,7 @@ def check( state_engine ):
         return False
 
     if foo['address'] != addr_reencode("1PYu4vKB3g2QLDFdurxqYSJ9aJSed7tne1") or \
-       foo['sender'] != pybitcoin.make_pay_to_address_script(addr_reencode("1PYu4vKB3g2QLDFdurxqYSJ9aJSed7tne1")):
+       foo['sender'] != virtualchain.make_payment_script(addr_reencode("1PYu4vKB3g2QLDFdurxqYSJ9aJSed7tne1")):
         return False 
     
     return True

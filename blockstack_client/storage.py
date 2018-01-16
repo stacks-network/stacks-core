@@ -31,6 +31,7 @@ import urllib
 import urllib2
 import base64
 import time
+import jsontokens
 
 import blockstack_zones
 import blockstack_profiles
@@ -367,13 +368,13 @@ def serialize_mutable_data(data_text_or_json, data_privkey=None, data_pubkey=Non
         return res
 
 
-def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash=None, data_hash=None, raw=False):
+def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash=None, data_hash=None, raw=False, return_public_key=False):
     """
     Version 2 parser
     Parse a piece of mutable data back into the serialized payload.
     Verify that it was signed by the given public key, or the public key hash.
     If neither are given, then verify that it has the given hash.
-    Return the data on success
+    Return the data on success.  If return_public_key is True, then return {'data': ..., 'public_key': ...}
     Return None on error
     """
 
@@ -430,15 +431,20 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
         if dh == data_hash:
             # done!
             log.debug("Verified with hash {}".format(data_hash))
-            return data_txt
+
+            if return_public_key:
+                return {'data': data_txt, 'public_key': None}
+            else:
+                return data_txt
 
         else:
             log.debug("Hash mismatch: expected {}, got {}\noriginal_data_text ({}): '{}'\nlen(original_data_text): {}\nparsed payload: '{}'\nhash_data_payload: {}".format(
                 data_hash, dh, type(original_data_txt), original_data_txt, len(original_data_txt), parse_data_payload(original_data_txt), hash_data_payload(data_txt)))
-
+    
     # validate 
-    if keylib.key_formatting.get_pubkey_format(pubk_hex) == 'hex_compressed':
-        pubk_hex = keylib.key_formatting.decompress(pubk_hex)
+    if pubk_hex is not None:
+        if keylib.key_formatting.get_pubkey_format(pubk_hex) == 'hex_compressed':
+            pubk_hex = keylib.key_formatting.decompress(pubk_hex)
 
     if public_key_hex is not None:
         # make sure uncompressed
@@ -446,19 +452,23 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
         if keylib.key_formatting.get_pubkey_format(given_pubkey_hex) == 'hex_compressed':
             given_pubkey_hex = keylib.key_formatting.decompress(given_pubkey_hex)
 
-        log.debug("Try verify with {}".format(pubk_hex))
+        log.debug("Try verify with {}".format(given_pubkey_hex))
 
-        if given_pubkey_hex == pubk_hex:
+        if pubk_hex is not None and given_pubkey_hex == pubk_hex:
             if verify_data_payload( data_txt, pubk_hex, sig_b64 ):
                 log.debug("Verified payload with public key {}".format(pubk_hex))
-                return data_txt
+
+                if return_public_key:
+                    return {'data': data_txt, 'public_key': pubk_hex}
+                else:
+                    return data_txt
             else:
                 log.debug("Signature failed")
 
         else:
             log.debug("Public key mismatch: {} != {}".format(given_pubkey_hex, pubk_hex))
 
-    if public_key_hash is not None:
+    if public_key_hash is not None and pubk_hex is not None:
         pubkey_hash = keylib.address_formatting.bin_hash160_to_address(
                 keylib.address_formatting.address_to_bin_hash160(
                     str(public_key_hash),
@@ -474,7 +484,12 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
         if keylib.public_key_to_address(pubk_compressed) == pubkey_hash or keylib.public_key_to_address(pubk_uncompressed) == pubkey_hash:
             if verify_data_payload( data_txt, pubk_hex, sig_b64 ):
                 log.debug("Verified payload with public key hash {} ({})".format(pubk_hex, pubkey_hash))
-                return data_txt
+
+                if return_public_key:
+                    return {'data': data_txt, 'public_key': pubk_hex}
+
+                else:
+                    return data_txt
             else:
                 log.debug("Signature failed with pubkey hash")
 
@@ -485,7 +500,7 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
     return None
 
 
-def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, data_hash=None, bsk_version=None):
+def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, data_hash=None, bsk_version=None, return_public_key=False):
     """
     Given the serialized JSON for a piece of mutable data,
     parse it into a JSON document.  Verify that it was
@@ -493,7 +508,11 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, 
 
     Try to verify with both keys, if given.
 
-    Return the parsed JSON dict on success
+    Returns:
+    * the parsed JSON dict on success (if a profile)
+    * the raw data (otherwise)
+    * the dict {'data': ..., 'public_key': ...} (if return_public_key is True)
+
     Return None on error
     """
     
@@ -507,7 +526,7 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, 
                 log.error("Corrupt data: data text does not start with 'bsk2.', and no data hash given")
                 return None
 
-        return parse_mutable_data_v2(mutable_data_json_txt, public_key, public_key_hash=public_key_hash, data_hash=data_hash, raw=raw)
+        return parse_mutable_data_v2(mutable_data_json_txt, public_key, public_key_hash=public_key_hash, data_hash=data_hash, raw=raw, return_public_key=return_public_key)
         
     # legacy parser
     assert public_key is not None or public_key_hash is not None, 'Need a public key or public key hash'
@@ -530,7 +549,10 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, 
         )
 
         if len(mutable_data_json) > 0:
-            return mutable_data_json
+            if return_public_key:
+                return {'data': mutable_data_json, 'public_key': str(public_key)}
+            else:
+                return mutable_data_json
 
         msg = 'Failed to verify with public key "{}"'
         log.warn(msg.format(public_key))
@@ -552,7 +574,23 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None, 
 
         if len(mutable_data_json) > 0:
             log.debug('Verified with {}'.format(public_key_hash))
-            return mutable_data_json
+            if return_public_key:
+                profile_token = jsontokens.decode_token(mutable_data_jwt[0]['token'])
+                issuer_public_key = profile_token['payload']['issuer']['publicKey']
+
+                # use the one that corresponds to the address 
+                ret_pubkey = None
+                if virtualchain.address_reencode(keylib.public_key_to_address(keylib.key_formatting.compress(str(issuer_public_key)))) == virtualchain.address_reencode(str(public_key_hash)):
+                    ret_pubkey = keylib.key_formatting.compress(issuer_public_key)
+                elif virtualchain.address_reencode(keylib.public_key_to_address(keylib.key_formatting.decompress(str(issuer_public_key)))) == virtualchain.address_reencode(str(public_key_hash)):
+                    ret_pubkey = keylib.key_formatting.decompress(issuer_public_key)
+                else:
+                    raise Exception("BUG: public key {} does not match {}".format(issuer_public_key, public_key_hash))
+
+                return {'data': mutable_data_json, 'public_key': ret_pubkey}
+
+            else:
+                return mutable_data_json
 
         msg = 'Failed to verify with public key hash "{}" ("{}")'
         log.warn(msg.format(public_key_hash, public_key_hash_0))
@@ -790,13 +828,19 @@ def get_driver_urls( fq_data_id, storage_drivers ):
 
 
 def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data_hash=None,
-                     owner_address=None, blockchain_id=None, drivers=None, decode=True, bsk_version=None):
+                     owner_address=None, blockchain_id=None, drivers=None, decode=True, bsk_version=None, return_public_key=False):
     """
     Low-level call to get mutable data, given a fully-qualified data name.
     
     if decode is False, then data_pubkey, data_address, and owner_address are not needed and raw bytes will be returned.
+    if return_public_key is True, and resolution succeeds, then return {'data': ..., 'public_key': ...} instead of the data.
 
-    Return a mutable data dict on success (or raw bytes if decode=False)
+    Return:
+    * a dict containing the profile if profile=True and this was a profile
+    * a dict {'data': {...profile dict...}, 'public_key': ...} if profile=True and return_public_key=True
+    * a dict {'data': "...", 'public_key': ...} if profile=False and return_public_key=True
+    * a byte string if profile=False and return_public_key=False
+
     Return None on error
     """
 
@@ -869,7 +913,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
                     try_urls.append(url)
 
         for url in try_urls:
-            data_txt, data = None, None
+            data_txt, data_res = None, None
 
             log.debug('Try {} ({})'.format(storage_handler.__name__, url))
             try:
@@ -891,18 +935,18 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
 
             # parse it, if desired
             if decode:
-                data = None
+                data_res = None
                 if data_pubkey is not None or data_address is not None or data_hash is not None:
-                    data = parse_mutable_data(
-                        data_txt, data_pubkey, public_key_hash=data_address, data_hash=data_hash, bsk_version=bsk_version
+                    data_res = parse_mutable_data(
+                        data_txt, data_pubkey, public_key_hash=data_address, data_hash=data_hash, bsk_version=bsk_version, return_public_key=return_public_key
                     )
 
-                if data is None and owner_address is not None:
-                    data = parse_mutable_data(
-                        data_txt, None, public_key_hash=owner_address, bsk_version=bsk_version
+                if data_res is None and owner_address is not None:
+                    data_res = parse_mutable_data(
+                        data_txt, None, public_key_hash=owner_address, bsk_version=bsk_version, return_public_key=return_public_key
                     )
 
-                if data is None:
+                if data_res is None:
                     msg = 'Unparseable data from "{}"'
                     log.error(msg.format(url))
                     continue
@@ -911,14 +955,18 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None, data
                 log.debug(msg.format(url, storage_handler.__name__))
 
                 if BLOCKSTACK_TEST:
-                    log.debug("loaded data: {}".format(data))
+                    log.debug("loaded data: {}".format(data_res))
 
             else:
-                data = data_txt
+                if return_public_key:
+                    data_res = {'data': data_txt, 'public_key': None}
+                else:
+                    data_res = data_txt
+
                 msg = 'Fetched (but did not decode or verify) "{}" with "{}"'
                 log.debug(msg.format(url, storage_handler.__name__))
 
-            return data
+            return data_res
 
     return None
 
@@ -1049,12 +1097,14 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
         serialized_data = serialize_mutable_data(data_text_or_json, data_privkey=data_privkey, data_pubkey=data_pubkey, data_signature=data_signature, profile=profile)
     else:
         serialized_data = data_text_or_json
-    
+
     if BLOCKSTACK_TEST:
         log.debug("data ({}): {}".format(type(serialized_data), serialized_data))
 
     successes = 0
     required_successes = 0
+
+    skipped_optionals = []
 
     for handler in storage_handlers:
         if handler.__name__ in skip:
@@ -1070,7 +1120,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
             return False
 
         if required_exclusive and handler.__name__ not in required:
-            log.debug("Skipping {}: it is optional".format(handler.__name__))
+            skipped_optionals.append(handler.__name__)
             continue
 
         rc = False
@@ -1082,7 +1132,7 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
             log.exception(e)
             if handler.__name__ not in required:
                 continue
-            
+
             log.error("Failed to replicate data with '{}'".format(handler.__name__))
             return None
 
@@ -1098,12 +1148,18 @@ def put_mutable_data(fq_data_id, data_text_or_json, sign=True, raw=False, data_p
         if handler.__name__ not in required:
             log.debug('Failed to replicate with "{}"'.format(handler.__name__))
             continue
-        
+
         # required driver failed
         log.error("Failed to replicate to required storage provider '{}'".format(handler.__name__))
         return False
 
+    if len(skipped_optionals) > 1:
+        log.debug("Skipped optional drivers: [{}]".format(",".join(skipped_optionals)))
     # failed everywhere or succeeded somewhere
+    log.debug("put_mutable_data: successes = {}, required_successes = {}, |required - skip| = {}".format(
+        successes, required_successes, len(set(required) - set(skip))
+    ))
+
     return (successes > 0) and (required_successes >= len(set(required) - set(skip)))
 
 

@@ -37,8 +37,15 @@ from .constants import (
 
 import blockstack_profiles
 
+
+OP_URLENCODED_NOSLASH_CLASS = r'[a-zA-Z0-9\-_.~%]'
+OP_URLENCODED_NOSLASH_COLON_CLASS = r'[a-zA-Z0-9\-_.~%:]'
+OP_URLENCODED_CLASS = r'[a-zA-Z0-9\-_.~%/]'
+OP_NAME_CLASS = r'[a-z0-9\-_.+]{{{},{}}}'.format(3, LENGTH_MAX_NAME)
+OP_NAMESPACE_CLASS = r'[a-z0-9\-_+]{{{},{}}}'.format(1, LENGTH_MAX_NAMESPACE_ID)
+OP_BASE58CHECK_CLASS = r'[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]'
 OP_CONSENSUS_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTH_CONSENSUS_HASH * 2)
-OP_BASE58CHECK_PATTERN = r'^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$'
+OP_BASE58CHECK_PATTERN = r'^({}+)$'.format(OP_BASE58CHECK_CLASS)
 OP_ADDRESS_PATTERN = OP_BASE58CHECK_PATTERN
 OP_PRIVKEY_PATTERN = OP_BASE58CHECK_PATTERN
 OP_P2PKH_PATTERN = r'^76[aA]914[0-9a-fA-F]{40}88[aA][cC]$'
@@ -56,22 +63,27 @@ OP_PUBKEY_PATTERN = OP_HEX_PATTERN
 OP_SCRIPT_PATTERN = OP_HEX_PATTERN
 OP_TXID_PATTERN = OP_HEX_PATTERN
 OP_ZONEFILE_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTH_VALUE_HASH * 2)
-OP_NAME_PATTERN = r'^([a-z0-9\-_.+]{{{},{}}})$'.format(3, LENGTH_MAX_NAME)
-OP_NAMESPACE_PATTERN = r'^([a-z0-9\-_+]{{{},{}}})$'.format(1, LENGTH_MAX_NAMESPACE_ID)
-OP_NAMESPACE_HASH_PATTERN = r'^([0-9a-fA-F]{16})$'
+OP_NAME_PATTERN = r'^({})$'.format(OP_NAME_CLASS)
+OP_SUBDOMAIN_NAME_PATTERN = r'^({})\.({})$'.format(OP_NAME_CLASS, OP_NAME_CLASS)
+OP_NAME_OR_SUBDOMAIN_FRAGMENT = r'({})|({})'.format(OP_NAME_PATTERN, OP_SUBDOMAIN_NAME_PATTERN)
+OP_NAME_OR_SUBDOMAIN_PATTERN = r'^{}$'.format(OP_NAME_OR_SUBDOMAIN_FRAGMENT)
+OP_NAMESPACE_PATTERN = r'^({})$'.format(OP_NAMESPACE_CLASS)
+OP_NAMESPACE_ID_HASH_PATTERN = r'^([0-9a-fA-F]{40})$'
 OP_SUBDOMAIN_NAME_PATTERN = r'^([a-z0-9\-_.+]{{{},{}}})$'.format(5, LENGTH_MAX_NAME * 2)
 OP_BASE64_PATTERN_SECTION = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
 OP_BASE64_PATTERN = r'^({})$'.format(OP_BASE64_PATTERN_SECTION)
-OP_URLENCODED_NOSLASH_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'       # intentionally left out /
-OP_URLENCODED_NOSLASH_OR_EMPTY_PATTERN = r'^([a-zA-Z0-9\-_.~%]*)$'       # intentionally left out /, allow empty
-OP_URLENCODED_OR_EMPTY_PATTERN = r'^([a-zA-Z0-9\-_.~%/]*)$'
-OP_URLENCODED_PATTERN = r'^([a-zA-Z0-9\-_.~%/]+)$'
-OP_USER_ID_CLASS = r'[a-zA-Z0-9\-_.%]'
+OP_URLENCODED_NOSLASH_PATTERN = r'^({}+)$'.format(OP_URLENCODED_NOSLASH_CLASS)       # intentionally left out /
+OP_URLENCODED_NOSLASH_OR_EMPTY_PATTERN = r'^({}*)$'.format(OP_URLENCODED_NOSLASH_CLASS)       # intentionally left out /, allow empty
+OP_URLENCODED_OR_EMPTY_PATTERN = r'^({}*)$'.format(OP_URLENCODED_CLASS)
+OP_URLENCODED_PATTERN = r'^({}+)$'.format(OP_URLENCODED_CLASS)
 OP_DATASTORE_ID_CLASS = r'[a-zA-Z0-9\-_.~%]'
-OP_USER_ID_PATTERN = r'^({}+)$'.format(OP_USER_ID_CLASS)
 OP_DATASTORE_ID_PATTERN = r'^({}+)$'.format(OP_DATASTORE_ID_CLASS)
-OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/=@]+)$'
-OP_URI_TARGET_PATTERN_NOSCHEME = r'^([a-zA-Z0-9\-_.~%#?&\\:/=@]+)$'
+OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
+OP_URI_TARGET_PATTERN_NOSCHEME = r'^([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
+OP_TOMBSTONE_PATTERN = '^delete-([0-9]+):([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
+OP_SIGNED_TOMBSTONE_PATTERN = '^delete-([0-9]+):([a-zA-Z0-9\-_.~%#?&\\:/=]+):({})$'.format(OP_BASE64_PATTERN_SECTION)
+OP_DNS_NAME_PATTERN = r'([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])(\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]))*'
+OP_APP_NAME_PATTERN = r'^(^({})\.1(:[0-9]+){{0,1}}$)|(^({})\.x$)$'.format(OP_DNS_NAME_PATTERN, OP_NAME_OR_SUBDOMAIN_FRAGMENT)
 
 OP_ANY_TYPE_SCHEMA = [
     {
@@ -124,7 +136,10 @@ PRIVKEY_MULTISIG_SCHEMA = {
         },
         'private_keys': {
             'type': 'array',
-            'items': PRIVKEY_SINGLESIG_SCHEMA
+            'items': PRIVKEY_SINGLESIG_SCHEMA,
+        },
+        'segwit': {
+            'type': 'boolean',
         },
     },
     'required': [
@@ -748,6 +763,10 @@ APP_INFO_PROPERTIES = {
                 'type': 'string',
                 'pattern': OP_URI_TARGET_PATTERN,
             },
+            {
+                'type': 'string',
+                'pattern': OP_APP_NAME_PATTERN,
+            }
         ]
     },
     'methods': {
@@ -862,7 +881,9 @@ APP_SESSION_SCHEMA = {
 APP_SESSION_REQUEST_SCHEMA = {
     'type': 'object',
     'properties': APP_SESSION_REQUEST_PROPERTIES,
-    'required': APP_SESSION_REQUEST_PROPERTIES.keys(),
+    'required': [
+        'app_public_keys', 'app_domain', 'version', 'methods',
+        'blockchain_id', 'device_id' ],
 }
 
 # old session request schema
@@ -1142,6 +1163,10 @@ OP_HISTORY_SCHEMA = {
         'buckets': {
             'anyOf': [
                 {
+                    'type': 'string',
+                    'pattern': r'^\[((0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15), ){15}(0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15)\]$'
+                },
+                {
                     'type': 'array',
                     'items': {
                         'type': 'integer',
@@ -1312,9 +1337,19 @@ NAMEOP_SCHEMA_PROPERTIES = {
     'address': OP_HISTORY_SCHEMA['properties']['address'],
     'block_number': OP_HISTORY_SCHEMA['properties']['block_number'],
     'consensus_hash': OP_HISTORY_SCHEMA['properties']['consensus_hash'],
+    'expired': {
+        # NOTE: filled in by the indexer
+        'type': 'boolean',
+    },
     'expire_block': {
+        # NOTE: filled in by the indexer
         'type': 'integer',
-        'minimum': 0,
+        'minimum': -1,
+    },
+    'renewal_deadline': {
+        # NOTE: filled in by the indexer
+        'type': 'integer',
+        'minimum': -1,
     },
     'first_registered': OP_HISTORY_SCHEMA['properties']['first_registered'],
     'history': {
@@ -1372,9 +1407,10 @@ NAMESPACE_SCHEMA_PROPERTIES = {
         'type': 'string',
         'pattern': OP_NAMESPACE_PATTERN,
     },
+    # legacy field
     'namespace_id_hash': {
         'type': 'string',
-        'pattern': OP_NAMESPACE_HASH_PATTERN,
+        'pattern': OP_NAMESPACE_ID_HASH_PATTERN,
     },
     'no_vowel_discount': {
         'type': 'integer',
@@ -1387,6 +1423,10 @@ NAMESPACE_SCHEMA_PROPERTIES = {
         'maximum': 15,
     },
     'op': OP_HISTORY_SCHEMA['properties']['op'],
+    'preorder_hash': {
+        'type': 'string',
+        'pattern': OP_NAMESPACE_ID_HASH_PATTERN,
+    },
     'ready': {
         'type': 'boolean',
     },

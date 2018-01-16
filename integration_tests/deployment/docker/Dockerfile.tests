@@ -44,4 +44,4 @@ RUN pip install .
 # Change into the tests directory
 WORKDIR /src/blockstack/integration_tests
 
-RUN ./setup.py build && ./setup.py install
+RUN pip install .

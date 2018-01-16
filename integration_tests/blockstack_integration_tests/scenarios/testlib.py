@@ -72,8 +72,21 @@ class Wallet(object):
 
         self.pubkey_hex = pk.public_key().to_hex()
         self.addr = pk.public_key().address()
+        self.segwit = False
 
-        log.debug("Wallet %s (%s)" % (self.privkey, self.addr))
+        if os.environ.get('BLOCKSTACK_TEST_FORCE_SEGWIT') == '1':
+            self.segwit = True
+            self.privkey = virtualchain.make_segwit_info(pk_wif)
+            log.debug("P2SH-P2WPKH Wallet %s (%s)" % (self.privkey, self.addr))
+
+        else:
+            log.debug("Wallet %s (%s)" % (self.privkey, self.addr))
+
+            # for consensus history checker  
+            log.debug("BLOCKSTACK_SERIALIZATION_CHECK_WALLET: {}".format(json.dumps({
+                'type': 'singlesig',
+                'public_key': self.pubkey_hex
+            })))
 
 
 class MultisigWallet(object):
@@ -83,19 +96,55 @@ class MultisigWallet(object):
         self.m = m
         self.n = len(pks)
         self.pks = pks
+        self.segwit = False
 
         self.addr = self.privkey['address']
 
-        log.debug("Multisig wallet %s" % (self.addr))
-        log.debug(json.dumps(self.privkey, indent=4, sort_keys=True))
+        if os.environ.get('BLOCKSTACK_TEST_FORCE_SEGWIT') == '1':
+            self.segwit = True
+            self.privkey = virtualchain.make_multisig_segwit_info( m, pks )
+            log.debug("Multisig P2SH-P2WSH wallet %s" % (self.addr))
 
+        else:
+            log.debug("Multisig wallet %s" % (self.addr))
+
+
+class SegwitWallet(object):
+    def __init__(self, pk_wif ):
+
+        self.privkey = virtualchain.make_segwit_info( pk_wif )
+        pk = virtualchain.BitcoinPrivateKey( pk_wif )
+
+        self._pk = pk
+        self.segwit = True
+
+        self.pubkey_hex = pk.public_key().to_hex()
+        self.addr = self.privkey['address']
+        
+        log.debug("P2SH-P2WPKH Wallet %s (%s)" % (self.privkey, self.addr))
+
+
+class MultisigSegwitWallet(object):
+    def __init__(self, m, *pks ):
+
+        self.privkey = virtualchain.make_multisig_segwit_info( m, pks )
+        self.m = m
+        self.n = len(pks)
+        self.pks = pks
+        self.segwit = True
+
+        self.addr = self.privkey['address']
+
+        log.debug("Multisig P2SH-P2WSH wallet %s" % (self.addr))
+       
 
 class APICallRecord(object):
-    def __init__(self, method, name, result ):
+    def __init__(self, method, name, address, result ):
         self.block_id = max(all_consensus_hashes.keys()) + 1
         self.name = name
         self.method = method
         self.result = result
+        self.address = address
 
         assert 'transaction_hash' in result.keys() or 'error' in result.keys()
 
@@ -220,7 +269,7 @@ def expect_snv_fail_at( name, block_id ):
     """
     global snv_fail_at
 
-    if name not in snv_fail_at.keys():
+    if block_id not in snv_fail_at.keys():
         snv_fail_at[block_id] = [name]
     else:
         snv_fail_at[block_id].append(name)
@@ -271,7 +320,14 @@ def make_proxy(password=None, config_path=None):
     return proxy
 
 
-def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, subsidy_key=None, consensus_hash=None, safety_checks=True, config_path=None ):
+def blockstack_get_name_cost(name, config_path=None):
+    test_proxy = make_proxy(config_path=config_path)
+    name_cost_info = test_proxy.get_name_cost( name )
+    assert 'satoshis' in name_cost_info, "error getting cost of %s: %s" % (name, name_cost_info)
+    return name_cost_info['satoshis']
+
+
+def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn_addr=None, consensus_hash=None, tx_fee=None, safety_checks=True, config_path=None ):
 
     global api_call_history 
 
@@ -287,14 +343,17 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, subs
 
     log.debug("Preorder '%s' for %s satoshis" % (name, name_cost_info['satoshis']))
 
-    resp = blockstack_client.do_preorder( name, privatekey, owner_privkey_info, name_cost_info['satoshis'], test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+    resp = blockstack_client.do_preorder( name, privatekey, owner_privkey_info, name_cost_info['satoshis'], test_proxy, test_proxy, tx_fee=tx_fee,
+            burn_address=burn_addr, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    api_call_history.append( APICallRecord( "preorder", name, resp ) )
+    api_call_history.append( APICallRecord( "preorder", name, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
     return resp
 
 
-def blockstack_name_register( name, privatekey, register_addr, wallet=None, subsidy_key=None, user_public_key=None, safety_checks=True, config_path=None ):
+def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=None, wallet=None, safety_checks=True, config_path=None, tx_fee=None ):
     
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -304,93 +363,102 @@ def blockstack_name_register( name, privatekey, register_addr, wallet=None, subs
 
     kwargs = {}
     if not safety_checks:
-        kwargs = {'tx_fee' : 1} # regtest shouldn't care about the tx_fee
-    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
-    api_call_history.append( APICallRecord( "register", name, resp ) )
+        if tx_fee is None:
+            tx_fee = 1
+
+        kwargs = {'tx_fee' : tx_fee} # regtest shouldn't care about the tx_fee
+
+    resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, zonefile_hash=zonefile_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
+    api_call_history.append( APICallRecord( "register", name, register_addr, resp ) )
     return resp
 
 
-def blockstack_name_update( name, data_hash, privatekey, user_public_key=None, subsidy_key=None, consensus_hash=None, test_api_proxy=True, safety_checks=True, config_path=None ):
+def blockstack_name_update( name, data_hash, privatekey, consensus_hash=None, test_api_proxy=True, safety_checks=True, config_path=None, tx_fee=None ):
     
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
     payment_key = get_default_payment_wallet().privkey
-    if subsidy_key is not None:
-        payment_key = subsidy_key
 
-    resp = blockstack_client.do_update( name, data_hash, privatekey, payment_key, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
-    api_call_history.append( APICallRecord( "update", name, resp ) )
+    resp = blockstack_client.do_update( name, data_hash, privatekey, payment_key, test_proxy, test_proxy,
+            consensus_hash=consensus_hash, tx_fee=tx_fee, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+
+    api_call_history.append( APICallRecord( "update", name, None, resp ) )
     return resp
 
 
-def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_key=None, subsidy_key=None, consensus_hash=None, safety_checks=True, config_path=None ):
+def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_hash=None, safety_checks=True, config_path=None, tx_fee=None ):
      
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
     payment_key = get_default_payment_wallet().privkey
-    if subsidy_key is not None:
-        payment_key = subsidy_key 
 
-    resp = blockstack_client.do_transfer( name, address, keepdata, privatekey, payment_key, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
-    api_call_history.append( APICallRecord( "transfer", name, resp ) )
+    resp = blockstack_client.do_transfer( name, address, keepdata, privatekey, payment_key, test_proxy, test_proxy,
+            tx_fee=tx_fee, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+
+    api_call_history.append( APICallRecord( "transfer", name, address, resp ) )
     return resp
 
 
-def blockstack_name_renew( name, privatekey, register_addr=None, subsidy_key=None, user_public_key=None, safety_checks=True, config_path=None ):
+def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None, safety_checks=True, config_path=None, zonefile_hash=None, tx_fee=0, tx_fee_per_byte=None ):
     
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
     name_cost_info = test_proxy.get_name_cost( name )
-    if register_addr is None:
-        register_addr = virtualchain.get_privkey_address(privatekey)
-    else:
-        assert register_addr == virtualchain.get_privkey_address(privatekey)
 
     payment_key = get_default_payment_wallet().privkey
-    if subsidy_key is not None:
-        payment_key = subsidy_key 
 
     log.debug("Renew %s for %s satoshis" % (name, name_cost_info['satoshis']))
-    resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['satoshis'], test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+    resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['satoshis'], test_proxy, test_proxy, tx_fee=tx_fee, tx_fee_per_byte=tx_fee_per_byte,
+            burn_address=burn_addr, zonefile_hash=zonefile_hash, recipient_addr=recipient_addr, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    api_call_history.append( APICallRecord( "renew", name, resp ) )
+    api_call_history.append( APICallRecord( "renew", name, virtualchain.address_reencode(recipient_addr) if recipient_addr is not None else None, resp ) )
     return resp
 
 
-def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, user_public_key=None, safety_checks=True, config_path=None ):
+def blockstack_name_revoke( name, privatekey, tx_only=False, safety_checks=True, config_path=None, tx_fee=None ):
     
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
     payment_key = get_default_payment_wallet().privkey
-    if subsidy_key is not None:
-        payment_key = subsidy_key
 
-    resp = blockstack_client.do_revoke( name, privatekey, payment_key, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
-    api_call_history.append( APICallRecord( "revoke", name, resp ) )
+    resp = blockstack_client.do_revoke( name, privatekey, payment_key, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, tx_fee=tx_fee )
+    api_call_history.append( APICallRecord( "revoke", name, None, resp ) )
     return resp
 
 
 def blockstack_name_import( name, recipient_address, update_hash, privatekey, safety_checks=True, config_path=None ):
     
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
     
     resp = blockstack_client.do_name_import( name, privatekey, recipient_address, update_hash, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
-    api_call_history.append( APICallRecord( "name_import", name, resp ) )
+    api_call_history.append( APICallRecord( "name_import", name, virtualchain.address_reencode(recipient_address), resp ) )
     return resp
 
 
 def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, consensus_hash=None, safety_checks=True, config_path=None ):
     
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -403,42 +471,50 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
         return {'error': 'Failed to get namespace costs'}
 
     resp = blockstack_client.do_namespace_preorder( namespace_id, namespace_cost['satoshis'], privatekey, register_addr, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
-    api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, resp ) )
+    api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
     return resp
 
 
-def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, safety_checks=True, config_path=None ):
+def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, version_bits=1, safety_checks=True, config_path=None ):
     
+    global api_call_history 
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
     register_addr = virtualchain.address_reencode(register_addr)
 
-    resp = blockstack_client.do_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy)
-    api_call_history.append( APICallRecord( "namespace_reveal", namespace_id, resp ) )
+    resp = blockstack_client.do_namespace_reveal( namespace_id, version_bits, register_addr, lifetime, coeff, base, bucket_exponents,
+            nonalpha_discount, no_vowel_discount, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy)
+
+    api_call_history.append( APICallRecord( "namespace_reveal", namespace_id, virtualchain.address_reencode(register_addr), resp ) )
     return resp
 
 
 def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, config_path=None ):
     
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
     
     resp = blockstack_client.do_namespace_ready( namespace_id, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks ) 
-    api_call_history.append( APICallRecord( "namespace_ready", namespace_id, resp ) )
+    api_call_history.append( APICallRecord( "namespace_ready", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
     return resp
 
 
-def blockstack_announce( message, privatekey, user_public_key=None, subsidy_key=None, safety_checks=True, config_path=None ):
+def blockstack_announce( message, privatekey, safety_checks=True, config_path=None ):
     
+    global api_call_history
+
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
     resp = blockstack_client.do_announce( message, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
-    api_call_history.append( APICallRecord( "announce", message, resp ) )
+    api_call_history.append( APICallRecord( "announce", message, None, resp ) )
     return resp
 
 
@@ -560,7 +636,31 @@ def blockstack_client_queue_state(config_path=None):
     return queue_info
 
 
-def blockstack_cli_namespace_preorder( namespace_id, namespace_privkey, reveal_privkey, config_path=None ):
+def serialize_privkey_info(payment_privkey):
+    """
+    serialize a wallet private key into a CLI-parseable string
+    """
+    payment_privkey_str = None
+    if isinstance(payment_privkey, (str,unicode)):
+        payment_privkey_str = payment_privkey
+    else:
+        if payment_privkey['segwit']:
+            m = payment_privkey['m']
+            n = len(payment_privkey['private_keys'])
+
+            if n > 1:
+                payment_privkey_str = 'segwit:{},{},{}'.format(m, n, ','.join(payment_privkey['private_keys']))
+            else:
+                payment_privkey_str = 'segwit:{}'.format(payment_privkey['private_keys'][0])
+        else:
+            m, pubks = virtualchain.parse_multisig_redeemscript(payment_privkey['redeem_script'])
+            n = len(payment_privkey['private_keys'])
+            payment_privkey_str = '{},{},{}'.format(m, n, ','.join(payment_privkey['private_keys']))
+
+    return payment_privkey_str
+
+
+def blockstack_cli_namespace_preorder( namespace_id, payment_privkey, reveal_privkey, config_path=None ):
     """
     Preorder a namespace
     """
@@ -568,9 +668,11 @@ def blockstack_cli_namespace_preorder( namespace_id, namespace_privkey, reveal_p
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
+    payment_privkey_str = serialize_privkey_info(payment_privkey)
+
     args = CLIArgs()
     args.namespace_id = namespace_id
-    args.payment_privkey = namespace_privkey
+    args.payment_privkey = payment_privkey_str
     args.reveal_privkey = reveal_privkey
 
     resp = cli_namespace_preorder(args, config_path=config_path, interactive=False, proxy=test_proxy)
@@ -580,7 +682,7 @@ def blockstack_cli_namespace_preorder( namespace_id, namespace_privkey, reveal_p
     return resp
 
 
-def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privkey, lifetime, coeff, base, buckets, nonalpha_disc, no_vowel_disc, config_path=None ):
+def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privkey, lifetime, coeff, base, buckets, nonalpha_disc, no_vowel_disc, preorder_txid=None, config_path=None, version_bits=None ):
     """
     reveal a namespace
     """
@@ -588,10 +690,26 @@ def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privk
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
+    payment_privkey_str = serialize_privkey_info(payment_privkey)
+
+    if preorder_txid is None:
+        # go find it
+        try:
+            addr = virtualchain.get_privkey_address(payment_privkey)
+            utxos = get_utxos(addr)
+            if len(utxos) != 1:
+                return {'error': 'Found {} UTXOs for {} ({})'.format(len(utxos), payment_privkey, addr)}
+
+            preorder_txid = utxos[0]['transaction_hash']
+        except Exception as e:
+            log.exception(e)
+            pass
+
     args = CLIArgs()
     args.namespace_id = namespace_id
-    args.payment_privkey = payment_privkey
+    args.payment_privkey = payment_privkey_str
     args.reveal_privkey = reveal_privkey
+    args.preorder_txid = preorder_txid
     args.lifetime = lifetime
     args.coeff = coeff
     args.base = base
@@ -599,7 +717,7 @@ def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privk
     args.nonalpha_discount = nonalpha_disc
     args.no_vowel_discount = no_vowel_disc
 
-    resp = cli_namespace_reveal(args, config_path=config_path, interactive=False, proxy=test_proxy)
+    resp = cli_namespace_reveal(args, config_path=config_path, interactive=False, proxy=test_proxy, version=version_bits)
     if 'error' not in resp:
         assert 'transaction_hash' in resp
 
@@ -648,6 +766,8 @@ def blockstack_cli_register( name, password, recipient_address=None, zonefile=No
     """
     Register a name, using the backend RPC endpoint
     """
+    global atlas_zonefiles_present
+
     test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -677,6 +797,9 @@ def blockstack_cli_register( name, password, recipient_address=None, zonefile=No
 
     if 'error' not in resp:
         assert 'transaction_hash' in resp
+
+    if 'value_hash' in resp:
+        atlas_zonefiles_present.append( resp['value_hash'] )
 
     return resp
 
@@ -736,20 +859,29 @@ def blockstack_cli_transfer( name, new_owner_address, password, config_path=None
     return resp
 
 
-def blockstack_cli_renew( name, password, config_path=None):
+def blockstack_cli_renew( name, password, new_zonefile_txt=None, owner_privkey=None, payment_privkey=None, recipient_addr=None, config_path=None):
     """
     Renew a name, using the backend RPC endpoint
     """
+    global atlas_zonefiles_present
+
     test_proxy = make_proxy(password=password, config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
     args = CLIArgs()
     args.name = name
+    args.owner_key = owner_privkey
+    args.payment_key = payment_privkey
+    args.recipient_address = recipient_addr
+    args.zonefile_data = new_zonefile_txt
 
-    resp = cli_renew( args, config_path=config_path, password=password, interactive=False, proxy=test_proxy )
+    resp = cli_renew( args, config_path=config_path, password=password, interactive=False, force_data=True, proxy=test_proxy )
     if 'error' not in resp:
         assert 'transaction_hash' in resp
+
+    if 'value_hash' in resp:
+        atlas_zonefiles_present.append( resp['value_hash'] )
 
     return resp
 
@@ -997,7 +1129,7 @@ def blockstack_cli_lookup( name, config_path=None):
     return cli_lookup( args, config_path=config_path )
 
 
-def blockstack_cli_migrate( name, password, force=False, config_path=None):
+def blockstack_cli_migrate( name, password, force=False, config_path=None, interactive=False):
     """
     Migrate from legacy zonefile to new zonefile
     """
@@ -1008,6 +1140,7 @@ def blockstack_cli_migrate( name, password, force=False, config_path=None):
     args = CLIArgs()
    
     args.name = name
+    args.force = 'True' if force else 'False'
 
     return cli_migrate( args, config_path=config_path, proxy=test_proxy, password=password, interactive=False, force=force )
     
@@ -1331,6 +1464,40 @@ def blockstack_cli_verify_data(name, data_str, public_key=None, config_path=None
     return res
 
 
+def blockstack_cli_sign_profile(name, path, private_key=None, config_path=None):
+    """
+    sign profile
+    """
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    args.name = name
+    args.path = path
+    args.privkey = private_key
+
+    res = cli_sign_profile(args, config_path=config_path)
+    return res
+
+
+def blockstack_cli_verify_profile(name, path, pubkey=None, config_path=None):
+    """
+    Verify profile
+    """
+    test_proxy = make_proxy(config_path=config_path)
+    blockstack_client.set_default_proxy( test_proxy )
+    config_path = test_proxy.config_path if config_path is None else config_path
+
+    args = CLIArgs()
+    args.name = name
+    args.path = path
+    args.pubkey = pubkey
+
+    res = cli_verify_profile(args, config_path=config_path)
+    return res
+
+
 def blockstack_cli_get_public_key(name, config_path=None):
     """
     get pubkey
@@ -1491,7 +1658,7 @@ def blockstack_cli_lookup_snv( name, block_id, trust_anchor, config_path=CONFIG_
     return cli_lookup_snv( args, config_path=config_path )
 
 
-def blockstack_cli_get_name_zonefile( name, config_path=CONFIG_PATH, json=False):
+def blockstack_cli_get_name_zonefile( name, config_path=CONFIG_PATH, json=False, raw=True):
     """
     get name zonefile
     """
@@ -1504,7 +1671,7 @@ def blockstack_cli_get_name_zonefile( name, config_path=CONFIG_PATH, json=False)
     args.name = name
     args.json = "True" if json else "False"
 
-    return cli_get_name_zonefile( args, config_path=config_path )
+    return cli_get_name_zonefile( args, config_path=config_path, raw=raw )
 
 
 def blockstack_cli_get_names_owned_by_address( address, config_path=CONFIG_PATH):
@@ -2397,8 +2564,8 @@ def make_legacy_014_wallet( owner_privkey, payment_privkey, data_privkey, passwo
 
     decrypted_legacy_wallet = blockstack_client.keys.make_wallet_keys(data_privkey=data_privkey, owner_privkey=owner_privkey, payment_privkey=payment_privkey)
     encrypted_legacy_wallet = {
-        'data_pubkey': ECPrivateKey(data_privkey).public_key().to_hex(),
-        'data_pubkeys': [ECPrivateKey(data_privkey).public_key().to_hex()],
+        'data_pubkey': keylib.ECPrivateKey(data_privkey).public_key().to_hex(),
+        'data_pubkeys': [keylib.ECPrivateKey(data_privkey).public_key().to_hex()],
         'data_privkey': encrypt_private_key_info(data_privkey, password)['encrypted_private_key_info']['private_key_info'],
         'owner_addresses': decrypted_legacy_wallet['owner_addresses'],
         'encrypted_owner_privkey': encrypt_private_key_info(owner_privkey, password)['encrypted_private_key_info']['private_key_info'],
@@ -2472,7 +2639,7 @@ def start_api(password):
     return {'status': True}
 
 
-def stop_api():
+def stop_api(hard_stop=True):
     """
     Stop API server
     """
@@ -2485,11 +2652,18 @@ def stop_api():
     port = int(conf['api_endpoint_port'])
     api_pass = conf['api_password']
 
-    res = hard_local_api_stop(config_dir)
-    if not res:
-        return {'error': 'Failed to stop API server'}
+    if hard_stop:
+        res = hard_local_api_stop(config_dir)
+        if not res:
+            return {'error': 'Failed to hard-stop API server'}
+
+    else:
+        res = blockstack_client.rpc.local_api_stop(config_dir=config_dir)
+        if not res:
+            return {'error': 'Failed to stop API server'}
 
     return {'status': True}
+
 
 def hard_local_api_stop(config_dir):
     pidpath = blockstack_client.rpc.local_api_pidfile_path(
@@ -2513,6 +2687,7 @@ def hard_local_api_stop(config_dir):
         print 'Issues killing API'
 
     return True
+
 
 def instantiate_wallet():
     """
@@ -2575,6 +2750,7 @@ def get_utxos( addr ):
     inputs = blockstack_client.backend.blockchain.get_utxos(addr)
     return inputs
 
+
 def send_funds_tx( privkey, satoshis, payment_addr ):
     """
     Make a signed transaction that will send the given number
@@ -2597,7 +2773,8 @@ def send_funds_tx( privkey, satoshis, payment_addr ):
         else:
             raise
 
-    send_addr = virtualchain.BitcoinPrivateKey(privkey).public_key().address()
+    # send_addr = virtualchain.BitcoinPrivateKey(privkey).public_key().address()
+    send_addr = virtualchain.get_privkey_address(privkey)
     
     inputs = blockstack_client.backend.blockchain.get_utxos(send_addr)
     outputs = [
@@ -2607,9 +2784,10 @@ def send_funds_tx( privkey, satoshis, payment_addr ):
         {"script": virtualchain.make_payment_script(send_addr),
          "value": virtualchain.calculate_change_amount(inputs, satoshis, 5500)},
     ]
+    prev_outputs = [{'out_script': inp['out_script'], 'value': inp['value']} for inp in inputs]
 
     serialized_tx = blockstack_client.tx.serialize_tx(inputs, outputs)
-    signed_tx = blockstack_client.tx.sign_tx(serialized_tx, privkey)
+    signed_tx = blockstack_client.tx.sign_tx(serialized_tx, prev_outputs, privkey)
     return signed_tx
 
 
@@ -2799,6 +2977,18 @@ def snv_all_names( state_engine ):
             name = api_call.name
             opcode = "NAME_REVOKE"
 
+        elif api_call.method == 'namespace_preorder':
+            name = api_call.name
+            opcode = "NAMESPACE_PREORDER"
+
+        elif api_call.method == 'namespace_reveal':
+            name = api_call.name
+            opcode = 'NAMESPACE_REVEAL'
+
+        elif api_call.method == 'namespace_ready':
+            name = api_call.name
+            opcode = 'NAMESPACE_READY'
+
         if name is not None:
             block_id = int(api_call.block_id)
             consensus_hash = all_consensus_hashes.get( block_id, None )
@@ -2881,6 +3071,10 @@ def snv_all_names( state_engine ):
                             log.debug("SNV lookup %s failed at %s as expected" % (name, block_id))
                             continue 
 
+                        print 'SNV lookup on {} at {} with {} failed'.format(name, block_id, trusted_consensus_hash)
+                        print 'Expected SNV failures at {}: {}'.format(block_id, snv_fail_at.get(block_id, []))
+                        print 'All SNV failures expected:\n{}'.format(json.dumps(snv_fail_at, indent=4, sort_keys=True))
+                        print 'SNV lookup return value:'
                         print json.dumps(snv_recs, indent=4, sort_keys=True )
                         return False 
 
@@ -2892,12 +3086,22 @@ def snv_all_names( state_engine ):
                     assert len(snv_recs) <= 1, "Multiple SNV records returned"
                     snv_rec = snv_recs[0]
 
-                    if snv_rec['name'] != name:
-                        print "mismatch name"
+                    if snv_rec.has_key('name') and snv_rec['name'] != name:
+                        print "mismatch name: expected {}, got {}".format(name, snv_rec['name'])
                         print json.dumps(snv_rec, indent=4, sort_keys=True )
                         return False 
 
+                    # namespace operation?
+                    elif not snv_rec.has_key('name') and snv_rec.has_key('namespace_id') and snv_rec['namespace_id'] != name:
+                        print "mismatch namespace: expected {}, got {}".format(name, snv_rec['name'])
+                        print json.dumps(snv_rec, indent=4, sort_keys=True)
+                        return False
+                    
                     if snv_rec['txid'] != txid:
+                        if name in snv_fail_at.get(block_id, []):
+                            log.debug("SNV lookup {} failed as expected".format(name))
+                            continue
+
                         print "mismatch txid at %s: expected %s, got %s" % (j, txid, snv_rec['txid'])
                         print json.dumps(snv_rec, indent=4, sort_keys=True)
                         return False
@@ -2915,8 +3119,9 @@ def snv_all_names( state_engine ):
                     if snv_rec['opcode'] == 'NAME_IMPORT' and type(snv_rec['op_fee']) != float:
                         print "QUIRK: NAME_IMPORT: fee isn't a float"
                         return False 
-
-                    elif type(snv_rec['op_fee']) not in [int,long]:
+ 
+                    # only NAMESPACE_REVEAL doesn't have an 'op_fee' member.  It must be an int or long.
+                    elif snv_rec['opcode'] != 'NAMESPACE_REVEAL' and type(snv_rec['op_fee']) not in [int,long]:
                         print "QUIRK: %s: fee isn't an int (but a %s: %s)" % (snv_rec['opcode'], type(snv_rec['op_fee']), snv_rec['op_fee'])
 
                     log.debug("SNV verified %s with (%s,%s) back to (%s,%s)" % (name, trusted_block_id, trusted_consensus_hash, block_id, consensus_hash ))
@@ -2979,7 +3184,93 @@ def check_atlas_zonefiles( state_engine, atlasdb_path ):
             return False
 
     return True 
-       
+    
+
+def check_historic_names_by_address( state_engine ):
+    """
+    Verify that we can look up all names owned by a given address.
+    Do so by creating DIDs for all of the names we've registered or imported,
+    and verifying that we can resolve them to the names' current form
+    """
+
+    global api_call_history
+    global snv_fail_at
+    global snv_fail
+
+    ret = True
+
+    addrs_checked = []  # for logging
+    addr_names = {}     # map address to list of names
+    revoked_names = {}  # map name to block height
+    final_name_states = {}
+
+    for api_call in api_call_history:
+        if api_call.method not in ['register', 'name_import', 'revoke']:
+            continue
+
+        name = api_call.name
+        address = api_call.address
+        block_id = api_call.block_id
+
+        if name in snv_fail_at.get(block_id, []):
+            continue
+
+        if name in snv_fail:
+            continue
+
+        if api_call.method in ['register', 'name_import']:
+            assert address is not None
+            
+            add = True
+            if api_call.method == 'name_import':
+                # don't allow dups of names added via name_import; the db won't allow it anyway
+                for addr in addr_names.keys():
+                    for (n, _, calltype) in addr_names[addr]:
+                        if n == name and calltype == 'name_import':
+                            # another import on this name
+                            add = False
+
+            if add:
+                if not address in addr_names:
+                    addr_names[address] = []
+            
+                addr_names[address].append((name, block_id, api_call.method))
+
+        if api_call.method == 'revoke':
+            revoked_names[name] = block_id
+
+        final_name_states[name] = state_engine.get_name(name, include_expired=True)
+
+    log.debug('addr names: {}'.format(addr_names))
+    log.debug('revoked names: {}'.format(revoked_names))
+    
+    for address in addr_names.keys():
+        for i, (name, block_id, _) in enumerate(addr_names[address]):
+            did = 'did:stack:v0:{}-{}'.format(address, i)
+            name_rec = blockstack_client.proxy.get_DID_blockchain_record(did)
+
+            if name in revoked_names.keys() and revoked_names[name] >= block_id:
+                # name was revoked. expect failure
+                if 'error' not in name_rec:
+                    log.error("Accidentally resolved {} on revoked name".format(did))
+                    ret = False 
+
+            else:
+                if 'error' in name_rec:
+                    log.error("Failed to resolve {}: {}".format(did, name_rec['error']))
+                    ret = False
+
+                else:
+                    for k in name_rec.keys():
+                        if final_name_states[name] is not None:
+                            if name_rec[k] != final_name_states[name].get(k, None):
+                                log.error("Name rec for {} does not equal final name state from db".format(name))
+                                log.error("Expected:\n{}".format(json.dumps(final_name_states[name], indent=4, sort_keys=True)))
+                                log.error("Got:\n{}".format(name_rec, indent=4, sort_keys=True))
+                                ret = False
+
+    return ret
+
 
 def get_unspents( addr ):
     """
@@ -3150,17 +3441,22 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
     owner_privkey_info = blockstack_client.get_owner_privkey_info( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     data_privkey_info = blockstack_client.get_data_privkey_info( user_zonefile, wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
 
-    assert data_privkey_info is not None
-    assert 'error' not in data_privkey_info, str(data_privkey_info)
-    assert virtualchain.is_singlesig(data_privkey_info)
+    profile_signing_key = None
+
+    if zonefile_has_data_key:
+        assert data_privkey_info is not None
+        assert 'error' not in data_privkey_info, str(data_privkey_info)
+        assert virtualchain.is_singlesig(data_privkey_info)
+
+        profile_signing_key = data_privkey_info
+    else:
+        data_privkey_info = None
+        profile_signing_key = owner_privkey_info
 
     user_zonefile_hash = blockstack_client.hash_zonefile( user_zonefile )
     
-    # replicate the profile
-    # TODO: this is onename-specific
-
     rc = blockstack_client.profile.put_profile(name, user_profile, blockchain_id=name,
-                                              user_data_privkey=data_privkey_info, user_zonefile=user_zonefile,
+                                              user_data_privkey=profile_signing_key, user_zonefile=user_zonefile,
                                               proxy=proxy, wallet_keys=wallet_keys )
 
     if 'error' in rc:
@@ -3169,7 +3465,7 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
 
     # do the update 
     res = blockstack_client.do_update( name, user_zonefile_hash, owner_privkey_info, payment_privkey_info, proxy, proxy, config_path=proxy.config_path, proxy=proxy )
-    api_call_history.append( APICallRecord( "update", name, res ) )
+    api_call_history.append( APICallRecord( "update", name, None, res ) )
 
     if 'error' in res:
         return {'error': 'Failed to send update transaction: %s' % res['error']}
@@ -3208,7 +3504,7 @@ def peer_make_config( peer_port, dirp, seed_relations={}, blacklist_relations={}
     virtualchain_bitcoin_conf['bitcoind_spv_path'] = os.path.join( dirp, "spv_headers.dat" )
 
     blockstack_conf['rpc_port'] = peer_port
-    blockstack_conf['server_version'] = '0.14.1'
+    blockstack_conf['server_version'] = '0.17.0'
     blockstack_conf['zonefiles'] = os.path.join( dirp, 'zonefiles' )
     blockstack_conf['atlas_seeds'] = ",".join( ["localhost:%s" % p for p in seed_relations.get(peer_port, []) ] )
     blockstack_conf['atlas_blacklist'] = ",".join( ["localhost:%s" % p for p in blacklist_relations.get(peer_port, [])] )
@@ -3469,6 +3765,26 @@ def make_client_device( index ):
     return {'status': True}
 
 
+def get_queue( ses, queue_name, api_pass=None):
+    """
+    Get a registrar queue
+    """
+    res = blockstack_REST_call('GET', '/v1/blockchains/bitcoin/pending', ses, api_pass = api_pass )
+    if 'error' in res:
+        res['test'] = 'Failed to get queues'
+        print json.dumps(res)
+        error = True
+        return False
+
+    res = res['response']
+    assert res.has_key('queues')
+    
+    if not res['queues'].has_key(queue_name):
+        return {'error': 'No queue {}'.format(queue_name)}
+
+    return res['queues'][queue_name]
+        
+
 def verify_in_queue( ses, name, queue_name, tx_hash, expected_length=1, api_pass=None ):
     """
     Verify that a name (optionally with the given tx hash) is in the given queue
@@ -3539,7 +3855,6 @@ def verify_in_queue( ses, name, queue_name, tx_hash, expected_length=1, api_pass
     # should be in the preorder queue at some point
     if res['response']['operation'] != queue_name:
         return False
-
 
     return True
 

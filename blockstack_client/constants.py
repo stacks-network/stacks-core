@@ -86,10 +86,10 @@ WALLET_PASSWORD_LENGTH = 8
 WALLET_DECRYPT_MAX_TRIES = 5
 WALLET_DECRYPT_BACKOFF_RESET = 3600
 
-BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = 'disk,dropbox,s3,blockstack_resolver,blockstack_server,http,dht'
+BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = 'disk,gaia_hub,dropbox,s3,blockstack_resolver,http,dht'
 
 # storage drivers that must successfully acknowledge each write
-BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE = 'disk,dropbox'
+BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE = 'disk'
 
 BLOCKSTACK_STORAGE_CLASSES = ['read_public', 'read_private', 'write_public', 'write_private', 'read_local', 'write_local']
 
@@ -199,7 +199,7 @@ NAMEREC_FIELDS = [
 # these never change, so it's fine to duplicate them here
 NAMESPACE_FIELDS = [
     'namespace_id',            # human-readable namespace ID
-    'namespace_id_hash',       # hash(namespace_id,sender,reveal_addr) from the preorder (binds this namespace to its preorder)
+    'preorder_hash',           # hash(namespace_id,sender,reveal_addr) from the preorder (binds this namespace to its preorder)
     'version',                 # namespace rules version
     'sender',                  # the scriptPubKey hex script that identifies the preorderer
     'sender_pubkey',           # if sender is a p2pkh script, this is the public key
@@ -227,7 +227,7 @@ OPFIELDS = {
         'recipient_address'    # address of the recipient
     ],
     NAMESPACE_PREORDER: [
-        'namespace_id_hash',   # hash(namespace_id,sender,reveal_addr)
+        'preorder_hash',       # hash(namespace_id,sender,reveal_addr)
         'consensus_hash',      # consensus hash at the time issued
         'op',                  # bytecode describing the operation (not necessarily 1 byte)
         'op_fee',              # fee paid for the namespace to the burn address
@@ -273,13 +273,16 @@ OPFIELDS = {
 
 
 # a few contants borrowed from Blockstack Core
+MAX_OP_LENGTH = 80
 LENGTH_VALUE_HASH = 20
 LENGTH_CONSENSUS_HASH = 16
 LENGTH_MAX_NAME = 37  # maximum name length
 LENGTH_MAX_NAMESPACE_ID = 19  # maximum namespace length
 
 # namespace version
-BLOCKSTACK_VERSION = 1
+NAMESPACE_VERSION_PAY_TO_BURN = 0x1
+NAMESPACE_VERSION_PAY_TO_CREATOR = 0x2
+
 NAME_SCHEME = MAGIC_BYTES + NAME_REGISTRATION
 
 # burn address for fees (the address of public key
@@ -291,10 +294,13 @@ BLOCKSTACK_BURN_ADDRESS = virtualchain.hex_hash160_to_address(BLOCKSTACK_BURN_PU
 # never changes, so safe to duplicate to avoid gratuitous imports
 MAXIMUM_NAMES_PER_ADDRESS = 25
 
-MAX_RPC_LEN = 1024 * 1024 * 1024
-
 RPC_MAX_ZONEFILE_LEN = 4096     # 4KB
 RPC_MAX_PROFILE_LEN = 1024000   # 1MB
+
+MAX_RPC_LEN = RPC_MAX_ZONEFILE_LEN * 110    # maximum blockstackd RPC length--100 zonefiles with overhead
+if os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"):
+    MAX_RPC_LEN = int(os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"))
+    print("Overriding MAX_RPC_LEN to {}".format(MAX_RPC_LEN))
 
 CONFIG_FILENAME = 'client.ini'
 WALLET_FILENAME = 'wallet.json'
@@ -372,9 +378,10 @@ DEFAULT_SESSION_LIFETIME = 3600 * 24 * 7    # 1 week
 
 # epoch dates
 EPOCH_1_END_BLOCK = 436650
+EPOCH_2_END_BLOCK = 488500 
 
 # epoch dates for the test environment
-NUM_EPOCHS = 2
+NUM_EPOCHS = 3
 for i in range(1, NUM_EPOCHS + 1):
     # epoch lengths can be altered by the test framework, for ease of tests
     blockstack_epoch_end_block = os.environ.get('BLOCKSTACK_EPOCH_{}_END_BLOCK'.format(i), None)
@@ -385,7 +392,7 @@ for i in range(1, NUM_EPOCHS + 1):
 
 del i
 
-EPOCH_HEIGHT_MINIMUM = EPOCH_1_END_BLOCK + 1
+EPOCH_HEIGHT_MINIMUM = EPOCH_2_END_BLOCK + 1
 
 DEFAULT_BLOCKCHAIN_READER = 'blockstack_utxo'
 DEFAULT_BLOCKCHAIN_WRITER = 'blockstack_utxo'

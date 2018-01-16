@@ -31,20 +31,59 @@ import time
 import virtualchain
 from virtualchain.lib.ecdsalib import get_pubkey_hex
 
+import re
 import jsontokens
 import storage
 import data
+import urlparse
+import keylib
 import user as user_db
 from .proxy import get_default_proxy
 
 from config import get_config, get_logger
 from .constants import CONFIG_PATH, BLOCKSTACK_TEST, LENGTH_MAX_NAME, DEFAULT_API_PORT, DEFAULT_API_HOST
-from .schemas import APP_CONFIG_SCHEMA, APP_SESSION_SCHEMA
+from .schemas import APP_CONFIG_SCHEMA, APP_SESSION_SCHEMA, OP_APP_NAME_PATTERN
 from .storage import classify_storage_drivers
 
 log = get_logger()
 
-def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_public_keys, requester_device_id, master_data_privkey, session_lifetime=None, config_path=CONFIG_PATH ):
+
+def is_valid_app_name(app_name):
+    """
+    Is the given application name valid?
+    i.e. does it match either of our app name schemas?
+    """
+    if not re.match(OP_APP_NAME_PATTERN, app_name):
+        return False
+    else:
+        return True
+   
+
+def app_domain_to_app_name(app_domain):
+    """
+    Convert an app comain (e.g. an Origin: string, a DNS name)
+    to its fully-qualified application name for use in the token file.
+
+    This method is idempotent.
+    """
+    if is_valid_app_name(app_domain):
+        return app_domain
+
+    urlinfo = urlparse.urlparse(app_domain)
+    if not urlinfo.netloc:
+        # try as URL:
+        urlinfo = urlparse.urlparse("http://{}/".format(app_domain))
+    assert urlinfo.netloc, app_domain
+
+    if ':' in urlinfo.netloc:
+        p = urlinfo.netloc.split(':', 1)
+        return '{}.1:{}'.format(p[0], p[1])
+
+    else:
+        return '{}.1'.format(urlinfo.netloc)
+
+
+def app_make_session( blockchain_id, app_public_key, app_domain, methods, app_public_keys, requester_device_id, master_data_privkey, session_lifetime=None, config_path=CONFIG_PATH ):
     """
     Make a session JWT for this application.
     Verify with user private key
@@ -59,8 +98,12 @@ def app_make_session( blockchain_id, app_private_key, app_domain, methods, app_p
     if session_lifetime is None:
         session_lifetime = conf.get('default_session_lifetime', 1e80)
 
-    app_public_key = get_pubkey_hex(app_private_key)
-    app_user_id = data.datastore_get_id(app_public_key)
+    # blockstack-storage.js assumes it needs to use an
+    #  uncompressed address. let's do that if we need to
+
+    app_datastore_public_key = keylib.key_formatting.decompress(app_public_key)
+
+    app_user_id = data.datastore_get_id(app_datastore_public_key)
 
     api_endpoint_host = conf.get('api_endpoint_host', DEFAULT_API_HOST)
     api_endpoint_port = conf.get('api_endpoint_port', DEFAULT_API_PORT)

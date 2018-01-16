@@ -27,7 +27,7 @@ os.environ["CLIENT_STORAGE_DRIVERS"] = "blockstack_server,disk"
 os.environ["CLIENT_STORAGE_DRIVERS_REQUIRED_WRITE"] = "blockstack_server"
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import time
 import blockstack_client
@@ -39,7 +39,7 @@ import base64
 
 # activate multisig
 """
-TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 250
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 682
 TEST ENV BLOCKSTACK_EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER 1
 """
 
@@ -230,7 +230,7 @@ def check( state_engine ):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
     if preorder is not None:
         print "still have preorder"
         return False
@@ -242,7 +242,7 @@ def check( state_engine ):
         return False 
 
     # owned 
-    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
+    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[3].addr):
         print "name has wrong owner"
         return False 
 
@@ -250,30 +250,19 @@ def check( state_engine ):
 
     # zonefile and profile replicated to blockstack server 
     try:
-        zonefile_by_name_str = srv.get_zonefiles_by_names(['foo.test'])
         zonefile_by_hash_str = srv.get_zonefiles([name_rec['value_hash']])
        
-        zonefile_by_name = json.loads(zonefile_by_name_str)
         zonefile_by_hash = json.loads(zonefile_by_hash_str)
 
-        assert 'error' not in zonefile_by_name, json.dumps(zonefile_by_name, indent=4, sort_keys=True)
         assert 'error' not in zonefile_by_hash, json.dumps(zonefile_by_hash, indent=4, sort_keys=True)
 
         zf1 = None
-        zf2 = None
         try:
-            zf1 = base64.b64decode( zonefile_by_name['zonefiles']['foo.test'] )
-        except:
-            print zonefile_by_name
-            raise
-
-        try:
-            zf2 = base64.b64decode( zonefile_by_hash['zonefiles'][name_rec['value_hash']] )
+            zf1 = base64.b64decode( zonefile_by_hash['zonefiles'][name_rec['value_hash']] )
         except:
             print zonefile_by_hash
             raise
         
-        assert zf1 == zf2
         zonefile = blockstack_zones.parse_zone_file( zf1 )
 
         user_pubkey = blockstack_client.user.user_zonefile_data_pubkey( zonefile )

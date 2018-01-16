@@ -28,7 +28,7 @@ TEST ENV BLOCKSTACK_MIN_CONFIRMATIONS 6
 
 import os
 import testlib
-import pybitcoin
+import virtualchain
 import urllib2
 import json
 import blockstack_client
@@ -81,15 +81,14 @@ def scenario( wallets, **kw ):
         print 'accidentally succeeded to preorder test2'
         return False
 
-    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw)+1)
-
     # try to reveal; it should fail 
     res = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
     if 'error' not in res:
         print 'accidentally succeeded to reveal test'
         return False
 
-    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw)+1)
+    testlib.expect_snv_fail_at( "test2", testlib.get_current_block(**kw)+1)
+    testlib.expect_snv_fail_at( "test", testlib.get_current_block(**kw)+1)
 
     for i in xrange(0, 3):
         testlib.next_block( **kw )
@@ -109,7 +108,7 @@ def scenario( wallets, **kw ):
         print res
         return False
 
-    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw)+1)
+    testlib.expect_snv_fail_at( "test", testlib.get_current_block(**kw)+1)
 
     for i in xrange(0, 3):
         testlib.next_block( **kw )
@@ -251,7 +250,7 @@ def scenario( wallets, **kw ):
         return False
 
     # wait for the preorder to get confirmed
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
 
     # wait for register to go through 
@@ -266,7 +265,7 @@ def scenario( wallets, **kw ):
     if not res:
         return False
 
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
 
     print 'Wait for update to be submitted'
@@ -280,7 +279,7 @@ def scenario( wallets, **kw ):
     if not res:
         return False
 
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
   
     print 'Wait for transfer to be submitted'
@@ -294,7 +293,7 @@ def scenario( wallets, **kw ):
     if not res:
         return False
 
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
   
     print 'Wait for transfer to be confirmed'
@@ -379,7 +378,7 @@ def check( state_engine ):
         wallet_data_pubkey = 4
 
         # not preordered
-        preorder = state_engine.get_name_preorder( name, pybitcoin.make_pay_to_address_script(wallets[wallet_payer].addr), wallets[wallet_owner].addr )
+        preorder = state_engine.get_name_preorder( name, virtualchain.make_payment_script(wallets[wallet_payer].addr), wallets[wallet_owner].addr )
         if preorder is not None:
             print "still have preorder"
             return False
@@ -391,7 +390,7 @@ def check( state_engine ):
             return False 
 
         # owned 
-        if name_rec['address'] != wallets[wallet_owner].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[wallet_owner].addr):
+        if name_rec['address'] != wallets[wallet_owner].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[wallet_owner].addr):
             print "name {} has wrong owner".format(name)
             return False 
 

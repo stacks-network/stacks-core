@@ -25,7 +25,7 @@
 from ..b40 import is_b40
 from ..constants import (
     DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
-    TX_MIN_CONFIRMATIONS, NAME_SCHEME, BLOCKSTACK_BURN_ADDRESS,
+    TX_MIN_CONFIRMATIONS, NAME_SCHEME,
     LENGTH_CONSENSUS_HASH, LENGTH_MAX_NAME)
 from ..logger import get_logger
 
@@ -41,6 +41,7 @@ from ..scripts import (
 
 import virtualchain
 log = get_logger("blockstack-client")
+
 
 def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None):
     """
@@ -63,10 +64,14 @@ def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None):
         # expect inputs to the hash
         if not is_b40( name ) or "+" in name or name.count(".") > 1:
            raise Exception("Name '%s' has non-base-38 characters" % name)
-        
+       
+        '''
         # name itself cannot exceed maximum name length
         if len(NAME_SCHEME) + len(name) > LENGTH_MAX_NAME:
            raise Exception("Name '%s' is too long; exceeds %s bytes" % (name, LENGTH_MAX_NAME - len(NAME_SCHEME)))
+        '''
+        if not is_name_valid(name):
+            raise Exception("Name {} is not valid".format(name))
     
         name_hash = hash_name(name, script_pubkey, register_addr=register_addr)
 
@@ -77,45 +82,48 @@ def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None):
     return packaged_script
 
 
-def make_outputs( data, inputs, sender_addr, fee, tx_fee, pay_fee=True ):
+def make_outputs( data, inputs, sender_addr, burn_addr, fee, tx_fee, pay_fee=True, dust_included=False ):
     """
     Make outputs for a name preorder:
-    [0] OP_RETURN with the name 
+    [0] OP_RETURN with the name
     [1] address with the NAME_PREORDER sender's address
     [2] pay-to-address with the *burn address* with the fee
     Raise ValueError if there are not enough inputs to make the transaction
     """
-    
+
     op_fee = max(fee, DEFAULT_DUST_FEE)
-    dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE + tx_fee
+    total_tx_fee = tx_fee
+    if not dust_included:
+        total_tx_fee += (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     dust_value = DEFAULT_DUST_FEE
-     
+
     bill = 0
 
     if pay_fee:
         bill = op_fee
-
     else:
         op_fee = 0
         bill = 0
-        dust_fee = 0
-    
+        total_tx_fee = 0
+
     return [
         # main output
         {"script": virtualchain.make_data_script(str(data)),
          "value": 0},
-        
+
         # change address (can be subsidy key)
-        {"script": virtualchain.make_payment_script(sender_addr),
-         "value": virtualchain.calculate_change_amount(inputs, bill, dust_fee)},
-        
+        {"script": virtualchain.make_payment_script(str(sender_addr)),
+         "value": virtualchain.calculate_change_amount(inputs, bill, total_tx_fee)},
+
         # burn address
-        {"script": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
+        {"script": virtualchain.make_payment_script(str(burn_addr)),
          "value": op_fee}
     ]
 
 
-def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, blockchain_client, tx_fee=0, subsidize=False, safety=True):
+def make_transaction(name, preorder_addr, register_addr, burn_addr, fee, consensus_hash,
+                     blockchain_client, tx_fee=0, subsidize=False, safety=True,
+                     dust_included=False):
     """
     Builds and broadcasts a preorder transaction.
     """
@@ -133,7 +141,7 @@ def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, bl
     inputs = None
     private_key_obj = None
     script_pubkey = None    # to be mixed into preorder hash
-    
+
     pay_fee = True
     if subsidize:
         pay_fee = False
@@ -142,15 +150,15 @@ def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, bl
     inputs = tx_get_unspents( preorder_addr, blockchain_client )
     if safety:
         assert len(inputs) > 0, "No UTXOs for {}".format(preorder_addr)
-        
+
     script_pubkey = virtualchain.make_payment_script( preorder_addr )
 
     nulldata = build( name, script_pubkey, register_addr, consensus_hash)
-    outputs = make_outputs(nulldata, inputs, preorder_addr, fee, tx_fee, pay_fee=pay_fee)
-    
+    outputs = make_outputs(nulldata, inputs, preorder_addr, burn_addr, fee, tx_fee, pay_fee=pay_fee,
+                           dust_included = dust_included)
+
     return (inputs, outputs)
 
-    
 def get_fees( inputs, outputs ):
     """
     Given a transaction's outputs, look up its fees:
@@ -184,10 +192,6 @@ def get_fees( inputs, outputs ):
     if addr_hash is None:
         log.error("outputs[2] has no decipherable burn address")
         return (None, None) 
-    
-    if addr_hash != BLOCKSTACK_BURN_ADDRESS:
-        log.error("outputs[2] is not the burn address (%s)" % BLOCKSTACK_BURN_ADDRESS)
-        return (None, None)
     
     # should match make_outputs()
     # the +2 comes from 2 new outputs

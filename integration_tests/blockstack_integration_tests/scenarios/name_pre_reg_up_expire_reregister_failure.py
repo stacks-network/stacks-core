@@ -22,13 +22,13 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import blockstack as blockstack_server
 
 # in epoch 2 immediately, but with the old price (in order to test compatibility with 0.13)
 """
-TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 250
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 682
 TEST ENV BLOCKSTACK_EPOCH_2_PRICE_MULTIPLIER 1.0
 """
 
@@ -74,7 +74,7 @@ def scenario( wallets, **kw ):
             print json.dumps( resp, indent=4 )
     
         if i == 3:
-            testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
+            testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw)+1)
 
         testlib.next_block( **kw )
 
@@ -86,7 +86,7 @@ def scenario( wallets, **kw ):
             print json.dumps( resp, indent=4 )
         
         if i == 3:
-            testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
+            testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw)+1)
 
         testlib.next_block( **kw )
 
@@ -106,7 +106,7 @@ def check( state_engine ):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
     if preorder is not None:
         print json.dumps(name_rec, indent=4)
         return False
@@ -122,7 +122,7 @@ def check( state_engine ):
         print "invalid value hash"
         return False 
 
-    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
+    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[3].addr):
         print "wrong owner"
         print json.dumps(name_rec, indent=4 )
         return False

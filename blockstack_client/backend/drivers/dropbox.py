@@ -158,7 +158,7 @@ def dropbox_get_chunk(dvconf, name):
         return None
     
 
-def storage_init(conf, index=False, force_index=False):
+def storage_init(conf, index=False, force_index=False, **kwargs):
     """
     Initialize dropbox storage driver
     """

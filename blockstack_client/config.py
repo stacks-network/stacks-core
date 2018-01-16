@@ -456,7 +456,6 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True, set_migrat
             num_blockstack_opts_prompted += 1
             blockstack_opts['email'] = ''
 
-    # get client UUID for analytics
     u = get_or_set_uuid(config_dir=config_dir)
     if u is None:
         raise Exception('Failed to get/set UUID')
@@ -657,6 +656,11 @@ def get_subdomains_db_path(config_path=CONFIG_PATH):
     opts = configure(interactive=False, config_file=config_path)
     subdomain_opts = opts['subdomain-resolution']
     return subdomain_opts['subdomains_db']
+
+def get_is_resolving_subdomains(config_path=CONFIG_PATH):
+    opts = configure(interactive=False, config_file=config_path)
+    subdomain_opts = opts['subdomain-resolution']
+    return subdomain_opts.get('resolving_subdomains', False)
 
 def get_tx_broadcaster(config_path=CONFIG_PATH):
     """
@@ -932,13 +936,21 @@ def read_config_file(config_path=CONFIG_PATH, set_migrate=False):
                     prior_default, new_default = changed_field_value
                     old_value = ret[sec][changed_field_name]
                     if old_value == prior_default and old_value != new_default:
-                        log.debug("Change {}.{} to {}".format(sec, changed_field_name, new_default))
+
+                        # don't go overboard
+                        if not (sec == 'blockstack-client' and changed_field_name == 'client_version'):
+                            log.debug("Change {}.{} to {}".format(sec, changed_field_name, new_default))
+
                         ret[sec][changed_field_name] = new_default
                         migrated = True
-                elif ret[sec][changed_field_name] != changed_field_value:
-                    log.debug("Change {}.{} to {}".format(sec, changed_field_name, changed_field_value))
-                    ret[sec][changed_field_name] = changed_field_value
 
+                elif ret[sec][changed_field_name] != changed_field_value:
+
+                    # don't go overboard
+                    if not (sec == 'blockstack-client' and changed_field_name == 'client_version'):
+                        log.debug("Change {}.{} to {}".format(sec, changed_field_name, changed_field_value))
+
+                    ret[sec][changed_field_name] = changed_field_value
                     migrated = True
 
     # overrides from the environment

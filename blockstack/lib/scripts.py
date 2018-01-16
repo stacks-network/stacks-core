@@ -151,20 +151,11 @@ def price_namespace( namespace_id, block_height ):
    """
    Calculate the cost of a namespace.
    """
+   price_table = get_epoch_namespace_prices( block_height )
+   if len(namespace_id) >= len(price_table):
+       return price_table[0]
 
-   price_multiplier = get_epoch_price_multiplier( block_height, namespace_id )
-
-   if len(namespace_id) == 1:
-       return NAMESPACE_1_CHAR_COST * price_multiplier
-
-   elif len(namespace_id) in [2, 3]:
-       return NAMESPACE_23_CHAR_COST * price_multiplier
-
-   elif len(namespace_id) in [4, 5, 6, 7]:
-       return NAMESPACE_4567_CHAR_COST * price_multiplier
-
-   else:
-       return NAMESPACE_8UP_CHAR_COST * price_multiplier
+   return price_table[len(namespace_id)]
 
 
 def find_by_opcode( checked_ops, opcode ):
@@ -184,35 +175,6 @@ def find_by_opcode( checked_ops, opcode ):
             ret.append(opdata)
 
     return ret 
-
-
-def get_burn_fee_from_outputs( outputs ):
-    """
-    Given the set of outputs, find the fee sent 
-    to our burn address.
-    
-    Return the fee on success
-    Return None if not found
-    """
-    
-    ret = None
-    for output in outputs:
-       
-        output_script = output['scriptPubKey']
-        output_asm = output_script.get('asm')
-        output_hex = output_script.get('hex')
-        output_addresses = output_script.get('addresses')
-        
-        if output_asm[0:9] != 'OP_RETURN' and BLOCKSTACK_BURN_ADDRESS == output_addresses[0]:
-            
-            # recipient's script_pubkey and address
-            ret = int(output['value']*(10**8))
-            if os.environ.get("BLOCKSTACK_TEST") == "1" and ret > 1000 * (10**8):
-                raise Exception("Absurdly high burn output\n%s" % simplejson.dumps(outputs, indent=4, sort_keys=True))
-
-            break
-    
-    return ret 
     
 
 def get_public_key_hex_from_tx( inputs, address ):
@@ -221,6 +183,10 @@ def get_public_key_hex_from_tx( inputs, address ):
     find the public key.
 
     This only works for p2pkh scripts.
+
+    We only really need this for NAMESPACE_REVEAL, but we included 
+    it in other transactions' consensus data for legacy reasons that
+    now have to be supported forever :(
     """
     
     ret = None 

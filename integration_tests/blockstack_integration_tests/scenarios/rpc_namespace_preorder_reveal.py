@@ -20,9 +20,13 @@
     You should have received a copy of the GNU General Public License
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """ 
+"""
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 680
+TEST ENV BLOCKSTACK_EPOCH_2_END_BLOCK 681
+"""
 
 import testlib
-import pybitcoin
+import virtualchain
 import time
 import json
 import sys

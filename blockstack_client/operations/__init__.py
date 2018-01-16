@@ -81,6 +81,8 @@ from .announce import snv_consensus_extras as announce_consensus_extras
 from ..constants import (NAME_IMPORT, NAME_PREORDER, OPFIELDS)
 from ..config import *
 
+# TODO: move all of this back to blockstack, out of the client
+
 # NOTE: these all have the same signatures
 SNV_CONSENSUS_EXTRA_METHODS = {
      "NAME_PREORDER": preorder_consensus_extras,
@@ -102,6 +104,8 @@ def nameop_is_history_snapshot( history_snapshot ):
     It must have all consensus fields.
     Return True if so.
     Raise an exception of it doesn't.
+
+    TODO: move to blockstack, out of the client
     """
 
     # sanity check:  each mutate field in the operation must be defined in op_data, even if it's null.
@@ -141,6 +145,8 @@ def nameop_history_extract( history_rows ):
     }
 
     Raise on failure to parse
+
+    TODO: move to blockstack, out of the client
     """
 
     history = {}
@@ -173,6 +179,8 @@ def nameop_restore_from_history( name_rec, name_history, block_id ):
     Return None if the record does not exist at that point in time
 
     The returned records will *not* have a 'history' key.
+
+    TODO: move to blockstack, out of the client
     """
 
     block_history = list( reversed( sorted( name_history.keys() ) ) )
@@ -273,6 +281,8 @@ def nameop_snv_consensus_extra_quirks( extras, namerec, block_id ):
     """
     Given the set of arguments to snv_consensus_extras, apply any
     op-specific quirks that are needed to preserve backwards compatibility
+
+    TODO: move to blockstack, out of the client
     """
 
     last_creation_op = namerec.get('last_creation_op', None)
@@ -316,6 +326,8 @@ def nameop_snv_consensus_extra( op_name, prev_name_rec, prev_block_id ):
 
     Return the extra conesnsus fields on success.
     Return None on error.
+
+    TODO: move to blockstack, out of the client
     """
 
     global SNV_CONSENSUS_EXTRA_METHODS
@@ -335,6 +347,8 @@ def nameop_restore_snv_consensus_fields( name_rec, block_id ):
     that all of its consensus fields are present.
     Because they can be reconstructed directly from the record,
     but they are not always stored in the db, we have to do so here.
+
+    TODO: move to blockstack, out of the client
     """
 
     opcode_name = op_get_opcode_name( name_rec['op'] )

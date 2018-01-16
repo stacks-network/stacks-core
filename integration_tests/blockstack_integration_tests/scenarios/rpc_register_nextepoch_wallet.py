@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import time
 import json
 import sys
@@ -32,7 +32,7 @@ import virtualchain
 
 # activate multisig
 """
-TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 260
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 692
 TEST ENV BLOCKSTACK_EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER 1
 """
 

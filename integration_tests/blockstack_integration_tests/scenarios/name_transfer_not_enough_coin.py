@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import time
 import json
 import sys
@@ -59,7 +59,7 @@ def scenario( wallets, **kw ):
         return False
    
     # wait for the preorder to get confirmed
-    for i in xrange(0, 12):
+    for i in xrange(0, 10):
         testlib.next_block( **kw )
 
     # wait for the poller to pick it up
@@ -70,7 +70,7 @@ def scenario( wallets, **kw ):
     assert 'errors' not in r['register'][0]
 
     # wait for the register to get confirmed 
-    for i in xrange(0, 12):
+    for i in xrange(0, 10):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
@@ -91,6 +91,7 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
     time.sleep(10)
 
+
 def check( state_engine ):
 
     # not revealed, but ready 
@@ -109,6 +110,8 @@ def check( state_engine ):
         return False 
 
     r = blockstack_client.actions.cli_get_registrar_info(None)
+    print r
+
     assert 'errors' in r['update'][0]
 
     return True

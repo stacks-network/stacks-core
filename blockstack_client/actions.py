@@ -60,6 +60,7 @@ import binascii
 from decimal import Decimal
 import string
 import jsontokens
+import keychain
 
 requests.packages.urllib3.disable_warnings()
 
@@ -78,7 +79,8 @@ from blockstack_client import (
     get_name_zonefile, get_nameops_at, get_names_in_namespace, get_names_owned_by_address,
     get_namespace_blockchain_record, get_namespace_cost,
     is_user_zonefile, list_immutable_data_history, list_update_history,
-    list_zonefile_history, lookup_snv, put_immutable, put_mutable, zonefile_data_replicate
+    list_zonefile_history, lookup_snv, put_immutable, put_mutable, zonefile_data_replicate,
+    get_historic_names_by_address
 )
 
 from blockstack_client import subdomains
@@ -93,7 +95,7 @@ import config
 from .config import configure_zonefile, configure, get_utxo_provider_client, get_tx_broadcaster, get_local_device_id
 from .constants import (
     CONFIG_PATH, CONFIG_DIR, WALLET_FILENAME,
-    FIRST_BLOCK_MAINNET, NAME_UPDATE,
+    FIRST_BLOCK_MAINNET, NAME_UPDATE, NAME_IMPORT, NAME_REGISTRATION, NAME_RENEWAL,
     BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS, DEFAULT_SESSION_LIFETIME,
     get_secret, set_secret, BLOCKSTACK_TEST, VERSION
 )
@@ -103,7 +105,7 @@ from .storage import get_driver_urls, get_storage_handlers, sign_data_payload, \
 
 from .backend.blockchain import (
     get_balance, get_utxos, broadcast_tx, select_utxos,
-    get_tx_confirmations, get_tx_fee, get_tx_fee_per_byte, get_block_height
+    get_tx_confirmations, get_block_height, get_bitcoind_client
 )
 
 from .backend.registrar import get_wallet as registrar_get_wallet
@@ -143,13 +145,12 @@ from .wallet import (
     unlock_wallet
 )
 
-from .keys import privkey_to_string
+from .keys import privkey_to_string, get_data_privkey
 from .proxy import (
     is_zonefile_current, get_default_proxy, json_is_error,
     get_name_blockchain_history, get_all_namespaces, getinfo,
-    storage, is_zonefile_data_current
+    storage, is_zonefile_data_current, get_num_names
 )
-from .client import analytics_event
 from .scripts import UTXOException, is_name_valid, is_valid_hash, is_namespace_valid
 from .user import make_empty_user_profile, user_zonefile_data_pubkey
 
@@ -167,7 +168,7 @@ from .data import datastore_mkdir, datastore_rmdir, make_datastore_info, put_dat
         make_mutable_data_info, data_blob_parse, data_blob_serialize, make_mutable_data_tombstones, sign_mutable_data_tombstones
 
 from .schemas import (
-    OP_URLENCODED_PATTERN, OP_NAME_PATTERN, OP_USER_ID_PATTERN,
+    OP_URLENCODED_PATTERN, OP_NAME_PATTERN,
     OP_BASE58CHECK_PATTERN, MUTABLE_DATUM_FILE_TYPE)
 
 import keylib
@@ -175,7 +176,10 @@ import keylib
 import virtualchain
 from virtualchain.lib.ecdsalib import (
     ecdsa_private_key, set_privkey_compressed,
-    ECPrivateKey, get_pubkey_hex
+    get_pubkey_hex
+)
+from virtualchain.lib.hashing import (
+    bin_double_sha256
 )
 
 log = config.get_logger()
@@ -579,14 +583,14 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
                  "value": 0} ] + outputs
 
         serialized_tx = serialize_tx(selected_inputs, outputs)
-        signed_tx = sign_tx(serialized_tx, payment_key)
+        signed_tx = sign_tx(serialized_tx, selected_inputs, payment_key)
         return signed_tx
 
     tx = mktx(amount, 0)
     if json_is_error(tx):
         return tx
 
-    tx_fee = get_tx_fee(tx, config_path=config_path)
+    tx_fee = virtualchain.get_tx_fee(tx, config_path=config_path)
 
     tx = mktx(amount, tx_fee)
     if json_is_error(tx):
@@ -604,16 +608,18 @@ def cli_withdraw(args, password=None, interactive=True, wallet_keys=None, config
     return res
 
 
-def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_privkey_info, payment_address=None, owner_address=None, transfer_address=None, config_path=CONFIG_PATH, proxy=None ):
+def get_price_and_fees(name_or_ns, operations, payment_privkey_info, owner_privkey_info,
+                       payment_address=None, owner_address=None, transfer_address=None,
+                       config_path=CONFIG_PATH, proxy=None, fake_utxos=False):
     """
     Get the price and fees associated with a set of operations, using
     a given owner and payment key.
     Returns a dict with each operation as a key, and the prices in BTC and satoshis.
     Returns {'error': ...} on failure
     """
- 
-    # first things first: get fee per byte 
-    tx_fee_per_byte = get_tx_fee_per_byte(config_path=config_path)
+
+    # first things first: get fee per byte
+    tx_fee_per_byte = virtualchain.get_tx_fee_per_byte(config_path=config_path)
     if tx_fee_per_byte is None:
         log.error("Unable to calculate fee per byte")
         return {'error': 'Unable to get fee estimate'}
@@ -623,7 +629,8 @@ def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_priv
     sg = ScatterGather()
     res = get_operation_fees( name_or_ns, operations, sg, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
                               proxy=proxy, config_path=config_path, payment_address=payment_address,
-                              owner_address=owner_address, transfer_address=transfer_address )
+                              owner_address=owner_address, transfer_address=transfer_address,
+                              fake_utxos = fake_utxos )
 
     if not res:
         return {'error': 'Failed to get the requisite operation fees'}
@@ -631,7 +638,7 @@ def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_priv
     if 'error' in res:
         return res
 
-    # do queries 
+    # do queries
     sg.run_tasks()
 
     # get results 
@@ -639,8 +646,6 @@ def get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_priv
     if 'error' in fees:
         log.error("Failed to get all operation fees: {}".format(fees['error']))
         return {'error': 'Failed to get some operation fees: {}.  Try again with `--debug` for details.'.format(fees['error'])}
-
-    analytics_event('Name price', {})
 
     # convert to BTC
     btc_keys = [
@@ -670,14 +675,18 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None, interact
     arg: name_or_namespace (str) 'Name or namespace ID to query'
     opt: recipient (str) 'Address of the recipient, if not this wallet.'
     opt: operations (str) 'A CSV of operations to check.'
+    opt: use_single_sig (str) 'Compute price assuming single sig addresses'
     """
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
     password = get_default_password(password)
 
     name_or_ns = str(args.name_or_namespace)
     transfer_address = getattr(args, 'recipient', None)
     operations = getattr(args, 'operations', None)
+
+    use_single_sig = getattr(args, 'use_single_sig', 'F')
+    use_single_sig = ( use_single_sig in ['1','T'] )
 
     if transfer_address is not None:
         transfer_address = str(transfer_address)
@@ -685,7 +694,7 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None, interact
     if operations is not None:
         operations = operations.split(',')
     else:
-        operations = ['preorder', 'register', 'update']
+        operations = ['preorder', 'register']
         if transfer_address:
             operations.append('transfer')
 
@@ -745,8 +754,17 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None, interact
         payment_privkey_info = wallet_keys['payment_privkey']
         owner_privkey_info = wallet_keys['owner_privkey']
 
-    fees = get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_privkey_info,
-                               payment_address=payment_address, owner_address=owner_address, transfer_address=transfer_address, config_path=config_path, proxy=proxy )
+    if use_single_sig:
+        dummy_ecpk = virtualchain.lib.ecdsalib.ecdsa_private_key()
+        dummy_pk = dummy_ecpk.to_hex()
+        dummy_address = virtualchain.address_reencode(dummy_ecpk.public_key().address())
+        fees = get_price_and_fees( name_or_ns, operations, dummy_pk, dummy_pk,
+                                   payment_address=dummy_address, owner_address=dummy_address,
+                                   transfer_address=None, config_path=config_path, proxy=proxy,
+                                   fake_utxos = True )
+    else:
+        fees = get_price_and_fees( name_or_ns, operations, payment_privkey_info, owner_privkey_info,
+                                   payment_address=payment_address, owner_address=owner_address, transfer_address=transfer_address, config_path=config_path, proxy=proxy )
 
     return fees
 
@@ -994,23 +1012,28 @@ def cli_lookup(args, config_path=CONFIG_PATH):
     command: lookup
     help: Get the zone file and profile for a particular name
     arg: name (str) 'The name to look up'
+    opt: force (str) 'If true, then look up even if expired'
     """
     data = {}
 
     blockchain_record = None
     fqu = str(args.name)
+    subdomain = None
+    force = getattr(args, 'force', 'False')
+    if force is None:
+        force = 'False'
+
+    force = force.lower() in ['1', 'true', 'force']
 
     error = check_valid_name(fqu)
     if error:
         res = subdomains.is_address_subdomain(fqu)
         if res:
             subdomain, domain = res[1]
-            try:
-                return subdomains.resolve_subdomain(subdomain, domain)
-            except subdomains.SubdomainNotFound as e:
-                log.exception(e)
-                return {'error' : "Failed to find name {}.{}".format(subdomain, domain)}
-        return {'error': error}
+            fqu = domain
+
+        else:
+            return {'error': error}
 
     try:
         blockchain_record = get_name_blockchain_record(fqu)
@@ -1023,10 +1046,23 @@ def cli_lookup(args, config_path=CONFIG_PATH):
     if 'value_hash' not in blockchain_record:
         return {'error': '{} has no profile'.format(fqu)}
 
-    if blockchain_record.get('revoked', False):
-        msg = 'Name is revoked. Use get_name_blockchain_record for details.'
+    if not force and blockchain_record.get('revoked', False):
+        msg = 'Name is revoked. Use `whois` or `get_name_blockchain_record` for details.'
         return {'error': msg}
 
+    if not force and blockchain_record.get('expired', False):
+        msg = 'Name is expired. Use `whois` or `get_name_blockchain_record` for details. If you own this name, use `renew` to renew it.'
+        return {'error': msg}
+
+    # subdomain?
+    if subdomain:
+        try:
+            return subdomains.resolve_subdomain(subdomain, domain)
+        except subdomains.SubdomainNotFound as e:
+            log.exception(e)
+            return {'error' : "Failed to find name {}.{}".format(subdomain, domain)}
+
+    # regular domain
     try:
         res = get_profile(
             str(args.name), name_record=blockchain_record, include_raw_zonefile=True, use_legacy=True, use_legacy_zonefile=True
@@ -1037,13 +1073,13 @@ def cli_lookup(args, config_path=CONFIG_PATH):
 
         data['profile'] = res['profile']
         data['zonefile'] = res['raw_zonefile']
+        data['public_key'] = res['public_key']
     except Exception as e:
         log.exception(e)
         msg = 'Failed to look up name\n{}'
         return {'error': msg.format(traceback.format_exc())}
 
     result = data
-    analytics_event('Name lookup', {})
 
     return result
 
@@ -1069,7 +1105,7 @@ def cli_whois(args, config_path=CONFIG_PATH):
                 return {'error': 'Not found.'}
 
             ret = {
-                'satus' : 'registered_subdomain',
+                'status' : 'registered_subdomain',
                 'zonefile_txt' : subdomain_obj.zonefile_str,
                 'zonefile_hash' : storage.get_zonefile_data_hash(subdomain_obj.zonefile_str),
                 'address' : subdomain_obj.address,
@@ -1121,7 +1157,9 @@ def cli_whois(args, config_path=CONFIG_PATH):
     if expire_block is not None:
         result['expire_block'] = expire_block
 
-    analytics_event('Whois', {})
+    renew_deadline = record.get('renewal_deadline', None)
+    if renew_deadline is not None:
+        result['renewal_deadline'] = renew_deadline
 
     return result
 
@@ -1333,9 +1371,8 @@ def analyze_zonefile_string(fqu, zonefile_data, force_data=False, check_current=
     return ret
 
 
-def cli_register(args, config_path=CONFIG_PATH, force_data=False,
-                 cost_satoshis=None, interactive=True, password=None, proxy=None,
-                 make_profile = None):
+def cli_register(args, config_path=CONFIG_PATH, force_data=False, make_profile=False,
+              cost_satoshis=None, interactive=True, password=None, proxy=None):
     """
     command: register
     help: Register a blockchain ID
@@ -1406,6 +1443,7 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
             return {'error': 'Not a valid address'}
 
     user_profile = None
+
     if user_zonefile:
         zonefile_info = analyze_zonefile_string(fqu, user_zonefile, force_data=force_data, proxy=proxy)
         if 'error' in zonefile_info:
@@ -1461,10 +1499,9 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
         else:
             payment_privkey_info = wallet_keys['payment_privkey']
 
-        operations = ['preorder', 'register', 'update']
+        operations = ['preorder', 'register']
         required_checks = ['is_name_available', 'is_payment_address_usable', 'owner_can_receive']
         if transfer_address:
-            operations.append('transfer')
             required_checks.append('recipient_can_receive')
 
         res = check_operations( fqu, operations, owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs,
@@ -1554,7 +1591,6 @@ def cli_register(args, config_path=CONFIG_PATH, force_data=False,
     if local_rpc.is_api_server(config_dir):
         # log this
         total_estimated_cost = {'total_estimated_cost': opchecks['total_estimated_cost']}
-        analytics_event('Register name', total_estimated_cost)
 
     return result
 
@@ -1583,7 +1619,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     if not interactive and getattr(args, 'data', None) is None:
         return {'error': 'Zone file data required in non-interactive mode'}
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
     password = get_default_password(password)
 
     if hasattr(args, 'nonstandard') and not nonstandard:
@@ -1607,9 +1643,23 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     if getattr(args, 'data', None) is not None:
         zonefile_data_path_or_string = str(args.data)
 
+    args_ownerkey = getattr(args, 'owner_key', None)
+    if args_ownerkey is None or len(args_ownerkey) == 0:
+        owner_key = None
+    else:
+        owner_key = args_ownerkey
+    args_paymentkey = getattr(args, 'payment_key', None)
+    if args_paymentkey is None or len(args_paymentkey) == 0:
+        payment_key = None
+    else:
+        payment_key = args_paymentkey
+
     if not local_rpc.is_api_server(config_dir=config_dir):
         # verify that we own the name before trying to edit its zonefile
-        _, owner_address, _ = get_addresses_from_file(config_dir=config_dir)
+        if owner_key:
+            owner_address = virtualchain.get_privkey_address(owner_key)
+        else:
+            _, owner_address, _ = get_addresses_from_file(config_dir=config_dir)
         assert owner_address
 
         res = get_names_owned_by_address( owner_address, proxy=proxy )
@@ -1691,17 +1741,6 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     assert rpc
 
     try:
-        args_ownerkey = getattr(args, 'owner_key', None)
-        if args_ownerkey is None or len(args_ownerkey) == 0:
-            owner_key = None
-        else:
-            owner_key = args_ownerkey
-        args_paymentkey = getattr(args, 'payment_key', None)
-        if args_paymentkey is None or len(args_paymentkey) == 0:
-            payment_key = None
-        else:
-            payment_key = args_paymentkey
-
         # NOTE: already did safety checks
         resp = rpc.backend_update(
             fqu, user_data_txt, None, None, owner_key = owner_key, payment_key = payment_key)
@@ -1715,8 +1754,6 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
     if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
-
-    analytics_event('Update name', {})
 
     resp['zonefile_hash'] = user_data_hash
     return resp
@@ -1736,7 +1773,7 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     if not local_api_status(config_dir=config_dir):
         return {'error': 'API server not running.  Please start it with `blockstack api start`.'}
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
     password = get_default_password(password)
     conf = config.get_config(config_path)
     assert conf
@@ -1787,18 +1824,18 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
 
-    analytics_event('Transfer name', {})
-
     return resp
 
 
-def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None, cost_satoshis=None):
+def cli_renew(args, config_path=CONFIG_PATH, force_data=False, interactive=True, password=None, proxy=None, cost_satoshis=None):
     """
     command: renew
     help: Renew a blockchain ID
     arg: name (str) 'The blockchain ID to renew'
     opt: owner_key (str) 'A private key string to be used for the update.'
     opt: payment_key (str) 'Payers private key string'
+    opt: recipient_address (str) 'The new owner address'
+    opt: zonefile_data (str) 'The new zone file data'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1822,6 +1859,33 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
+
+    # inspect zonefile
+    zonefile_data = getattr(args, 'zonefile_data', None)
+    zonefile_hash = None
+
+    if zonefile_data:
+        zonefile_data = str(zonefile_data)
+        zonefile_info = analyze_zonefile_string(fqu, zonefile_data, force_data=force_data, check_current=False, proxy=proxy)
+        if 'error' in zonefile_info:
+            log.error("Failed to analyze zone file: {}".format(zonefile_info['error']))
+            return {'error': zonefile_info['error']}
+
+        if zonefile_info['nonstandard']:
+            if interactive:
+                proceed = prompt_invalid_zonefile()
+                if not proceed:
+                    return {'error': 'Aborting name import on invalid zone file'}
+
+            else:
+                log.warning("Using nonstandard zone file data")
+
+        zonefile_data = zonefile_info['zonefile_str']
+        zonefile_hash = get_zonefile_data_hash(zonefile_data)
+
+    new_owner_address = getattr(args, 'recipient_address', None)
+    if new_owner_address:
+        new_owner_address = str(new_owner_address)
 
     if interactive:
         print("Calculating total renewal costs for {}...".format(fqu))
@@ -1891,17 +1955,27 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
             print('\nExiting.')
             exit(0)
 
-
     rpc = local_api_connect(config_path=config_path)
     assert rpc
 
-    log.debug("Renew {} for {} BTC".format(fqu, cost_satoshis))
+    log.debug("Renew {} for {} BTC".format(fqu, cost['btc']))
+    if zonefile_data:
+        log.debug('new zonefile:\n{}'.format(zonefile_data))
+
+    if new_owner_address:
+        log.debug("new owner address: {}".format(new_owner_address))
+
     try:
         additionals = {}
         if owner_key:
             additionals['owner_key'] = owner_key
         if payment_key:
             additionals['payment_key'] = payment_key
+        if zonefile_data:
+            additionals['zonefile_data'] = zonefile_data
+        if new_owner_address:
+            additionals['new_owner_address'] = new_owner_address
+
         resp = rpc.backend_renew(fqu, cost_satoshis, **additionals)
     except Exception as e:
         log.exception(e)
@@ -1915,8 +1989,6 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
 
     if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
-
-    analytics_event('Renew name', total_estimated_cost)
 
     return resp
 
@@ -1987,7 +2059,6 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
     if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
 
-    analytics_event('Revoke name', {})
     return resp
 
 
@@ -2067,7 +2138,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
                 user_zonefile = make_empty_zonefile(fqu, data_pubkey)
 
             else:
-                if os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
+                if interactive or os.environ.get("BLOCKSTACK_CLIENT_INTERACTIVE_YES", None) != "1":
                     # prompt
                     msg = (
                         ''
@@ -2123,8 +2194,6 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
 
-    analytics_event('Migrate name', {})
-    
     resp['zonefile_hash'] = zonefile_hash
     return resp
 
@@ -2350,6 +2419,108 @@ def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None
     return profile_delete_account(name, service, identifier, wallet_keys, config_path=config_path, proxy=proxy)
 
 
+def parse_multisig_csv(multisig_csv, segwit=False):
+    """
+    Helper to parse 'm,n,pk1,pk2.,,,' into a virtualchain private key bundle.
+    Parses 'm,n,pk1,pk2,...' as p2sh
+    Parses 'segwit:m,n,pk1,pk2,...' as p2sh-p2wsh
+    """
+    if multisig_csv.startswith("segwit:"):
+        segwit = True
+        multisig_csv = multisig_csv[len('segwit:'):]
+
+    parts = multisig_csv.split(',')
+    m = None
+    n = None
+    try:
+        m = int(parts[0])
+        n = int(parts[1])
+        assert m <= n
+        assert len(parts[2:]) == n
+    except ValueError as ve:
+        log.exception(ve)
+        log.debug("Invalid multisig CSV {}".format(multisig_csv))
+        log.error("Invalid m, n")
+        return {'error': 'Unparseable m or n'}
+    except AssertionError as ae:
+        log.exception(ae)
+        log.debug("Invalid multisig CSV {}".format(multisig_csv))
+        log.error("Invalid argument: n must not exceed m, and there must be n private keys")
+        return {'error': 'Invalid argument: invalid values for m or n'}
+
+    keys = parts[2:]
+    key_info = None
+    try:
+        if segwit:
+            # p2wsh
+            key_info = virtualchain.make_multisig_segwit_info(m, keys)
+        else:
+            # p2sh
+            key_info = virtualchain.make_multisig_info(m, keys)
+
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error("Failed to make multisig information from keys")
+        return {'error': 'Failed to make multisig information'}
+
+    return key_info
+
+
+def parse_privkey_info(privkey_str):
+    """
+    Parse a private key or a bundle of private keys.
+    Formats:
+        * "pk" --> p2pkh private key
+        * "segwit:pk" --> p2sh-p2wpkh private key bundle
+        * "m,n,pk1,pk2,..." --> p2sh multisig bundle
+        * "segwit:m,n,pk1,pk2,..." --> p2sh-p2wsh multisig bundle
+    """
+    segwit = False
+    if privkey_str.startswith('segwit:'):
+        segwit = True
+        privkey_str = privkey_str[len('segwit:'):]
+
+    privkey_info = None
+    try:
+        privkey_info = ecdsa_private_key(str(privkey_str)).to_hex()
+        if segwit:
+            privkey_info = virtualchain.make_segwit_info(privkey_info)
+
+    except:
+        log.debug("Private key string is not a valid Bitcoin private key")
+        privkey_info = parse_multisig_csv(str(privkey_str), segwit=segwit)
+        if 'error' in privkey_info:
+            return privkey_info
+
+    return privkey_info
+
+
+def serialize_privkey_info(payment_privkey):
+    """
+    Serialize a wallet private key into a CLI-parseable string
+    """
+    payment_privkey_str = None
+    if isinstance(payment_privkey, (str,unicode)):
+        payment_privkey_str = payment_privkey
+    else:
+        if payment_privkey['segwit']:
+            m = payment_privkey['m']
+            n = len(payment_privkey['private_keys'])
+
+            if n > 1:
+                payment_privkey_str = 'segwit:{},{},{}'.format(m, n, ','.join(payment_privkey['private_keys']))
+            else:
+                payment_privkey_str = 'segwit:{}'.format(payment_privkey['private_keys'][0])
+        else:
+            m, pubks = virtualchain.parse_multisig_redeemscript(payment_privkey['redeem_script'])
+            n = len(payment_privkey['private_keys'])
+            payment_privkey_str = '{},{},{}'.format(m, n, ','.join(payment_privkey['private_keys']))
+
+    return payment_privkey_str
+
+
 def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False):
     """
     command: import_wallet advanced
@@ -2399,68 +2570,25 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
             log.exception(e)
         return {'error': 'Invalid private keys'}
 
-    def parse_multisig_csv(multisig_csv):
-        """
-        Helper to parse 'm,n,pk1,pk2.,,,' into a virtualchain private key bundle.
-        """
-        parts = multisig_csv.split(',')
-        m = None
-        n = None
-        try:
-            m = int(parts[0])
-            n = int(parts[1])
-            assert m <= n
-            assert len(parts[2:]) == n
-        except ValueError as ve:
-            log.exception(ve)
-            log.debug("Invalid multisig CSV {}".format(multisig_csv))
-            log.error("Invalid m, n")
-            return {'error': 'Unparseable m or n'}
-        except AssertionError as ae:
-            log.exception(ae)
-            log.debug("Invalid multisig CSV {}".format(multisig_csv))
-            log.error("Invalid argument: n must not exceed m, and there must be n private keys")
-            return {'error': 'Invalid argument: invalid values for m or n'}
-
-        keys = parts[2:]
-        key_info = None
-        try:
-            key_info = virtualchain.make_multisig_info(m, keys)
-        except Exception as e:
-            if BLOCKSTACK_DEBUG:
-                log.exception(e)
-
-            log.error("Failed to make multisig information from keys")
-            return {'error': 'Failed to make multisig information'}
-
-        return key_info
-
     owner_privkey_info = None
     payment_privkey_info = None
     data_privkey_info = None
 
     # make absolutely certain that these are valid keys or multisig key strings
-    try:
-        owner_privkey_info = ecdsa_private_key(str(args.owner_privkey)).to_hex()
-    except:
-        log.debug("Owner private key string is not a valid Bitcoin private key")
-        owner_privkey_info = parse_multisig_csv(args.owner_privkey)
-        if 'error' in owner_privkey_info:
-            return owner_privkey_info
+    owner_privkey_info = parse_privkey_info(args.owner_privkey)
+    if 'error' in owner_privkey_info:
+        return owner_privkey_info
 
-    try:
-        payment_privkey_info = ecdsa_private_key(str(args.payment_privkey)).to_hex()
-    except:
-        log.debug("Payment private key string is not a valid Bitcoin private key")
-        payment_privkey_info = parse_multisig_csv(args.payment_privkey)
-        if 'error' in payment_privkey_info:
-            return payment_privkey_info
+    payment_privkey_info = parse_privkey_info(args.payment_privkey)
+    if 'error' in payment_privkey_info:
+        return payment_privkey_info
 
-    try:
-        data_privkey_info = ecdsa_private_key(str(args.data_privkey)).to_hex()
-    except:
-        log.error("Only single private keys are supported for data at this time")
-        return {'error': 'Invalid data private key'}
+    data_privkey_info = parse_privkey_info(args.data_privkey)
+    if 'error' in data_privkey_info:
+        return data_privkey_info
+    
+    if not isinstance(data_privkey_info, (str,unicode)):
+        return {'error': 'Invalid data private key: only single private keys are supported'}
 
     data = make_wallet(password,
             payment_privkey_info=payment_privkey_info,
@@ -2695,13 +2823,13 @@ def cli_name_import(args, interactive=True, config_path=CONFIG_PATH, proxy=None)
     help: Import a name to a revealed but not-yet-launched namespace
     arg: name (str) 'The name to import'
     arg: address (str) 'The address of the name recipient'
-    arg: zonefile (str) 'The path to the zone file'
+    arg: zonefile_path (str) 'The path to the zone file'
     arg: privatekey (str) 'An unhardened child private key derived from the namespace reveal key'
     """
 
     import blockstack
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
     config_dir = os.path.dirname(config_path)
     conf = config.get_config(config_path)
     assert conf
@@ -2757,7 +2885,7 @@ def cli_name_import(args, interactive=True, config_path=CONFIG_PATH, proxy=None)
     zonefile_hash = get_zonefile_data_hash(zonefile_data)
 
     if interactive:
-        fees = get_price_and_fees(name, ['name_import'], privkey, privkey, config_path=config_path, proxy=proxy)
+        fees = get_price_and_fees(name, ['name_import'], privkey, privkey, transfer_address=address, config_path=config_path, proxy=proxy)
         if 'error' in fees:
             return fees
 
@@ -2780,6 +2908,46 @@ def cli_name_import(args, interactive=True, config_path=CONFIG_PATH, proxy=None)
     return res
 
 
+def cli_make_import_keys(args, config_path=CONFIG_PATH, proxy=None):
+    """
+    command: make_import_keys advanced
+    help: Generate private keys to import names into a revealed namespace
+    arg: namespace_id (str) 'The namespace ID'
+    arg: reveal_privkey (str) 'The private key that was used to reveal the namespace'
+    """
+    import blockstack
+
+    reveal_privkey = str(args.reveal_privkey)
+    namespace_id = str(args.namespace_id)
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
+
+    namespace_rec = get_namespace_blockchain_record(namespace_id, proxy=proxy)
+    if 'error' in namespace_rec:
+        return namespace_rec
+
+    if namespace_rec['ready']:
+        return {'error': 'Namespace is already launched'}
+
+    try:
+        reveal_addr = virtualchain.get_privkey_address(reveal_privkey)
+    except:
+        return {'error': 'Unparseable private key'}
+
+    if namespace_rec['recipient_address'] != reveal_addr:
+        msg = "Wrong reveal private key: given private key address {} does not match namespace address {}".format(reveal_addr, namespace_rec['recipient_address'])
+        print(msg)
+        return {'error': msg}
+
+    private_keychain = keychain.PrivateKeychain.from_private_key(reveal_privkey)
+    
+    for i in xrange(0, blockstack.NAME_IMPORT_KEYRING_SIZE):
+        import_key = private_keychain.child(i).private_key()
+        import_addr = virtualchain.get_privkey_address(import_key)
+        print('{} ({})'.format(import_key, import_addr))
+
+    return {'status': True}
+
+
 def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, proxy=None):
     """
     command: namespace_preorder advanced
@@ -2793,7 +2961,7 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
 
     # NOTE: this does *not* go through the API.
     # exposing this through the API is dangerous.
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
 
     config_dir = os.path.dirname(config_path)
     nsid = str(args.namespace_id)
@@ -2802,33 +2970,43 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
     reveal_addr = None
    
     try:
-        ns_privkey = keylib.ECPrivateKey(ns_privkey).to_hex()
+        ns_privkey = parse_privkey_info(ns_privkey)
         ns_reveal_privkey = keylib.ECPrivateKey(ns_reveal_privkey).to_hex()
 
-        # force compresssed 
-        ns_privkey = set_privkey_compressed(ns_privkey, compressed=True)
-        ns_reveal_privkey = set_privkey_compressed(ns_reveal_privkey, compressed=True)
+        # force compresssed
+        if virtualchain.is_singlesig(ns_privkey):
+            ns_privkey = set_privkey_compressed(ns_privkey, compressed=True)
 
-        keylib.ECPrivateKey(ns_privkey)
+        ns_reveal_privkey = set_privkey_compressed(ns_reveal_privkey, compressed=True)
         reveal_addr = virtualchain.get_privkey_address(ns_reveal_privkey)
     except Exception as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
         return {'error': 'Invalid namespace private key'}
-    
+   
     print("Calculating fees...")
-    fees = get_price_and_fees(nsid, ['namespace_preorder', 'namespace_reveal', 'namespace_ready'], ns_privkey, ns_reveal_privkey, config_path=config_path, proxy=proxy )
+    fees = get_price_and_fees(nsid, ['namespace_preorder'], ns_privkey, ns_privkey, config_path=config_path, proxy=proxy )
     if 'error' in fees or 'warnings' in fees:
+        print('You do not have enough money to order this namespace!')
         return fees
 
+    print("Checking that the namespace does not exist...")
+    namespace_rec = get_namespace_blockchain_record(nsid, proxy=proxy)
+    if 'error' not in namespace_rec:
+        print("Namespace {} already exists!".format(nsid))
+        return namespace_rec
+
+    if 'failed to contact blockstack node' in namespace_rec['error'].lower():
+        return namespace_rec
+    
     msg = "".join([
         "\n",
         "IMPORTANT:  PLEASE READ THESE INSTRUCTIONS CAREFULLY\n",
         "\n",
         "You are about to preorder the namespace '{}'.  It will cost about {} BTC ({} satoshi).\n".format(nsid, fees['total_estimated_cost']['btc'], fees['total_estimated_cost']['satoshis']),
-        'The address {} will be used to pay the fee'.format(virtualchain.get_privkey_address(ns_privkey)),
-        'The address {} will be used to reveal the namespace.'.format(reveal_addr),
+        'The address {} will be used to pay the fee, and will capture name fees (if created to do so).\n'.format(virtualchain.address_reencode(virtualchain.get_privkey_address(ns_privkey))),
+        'The address {} will be used to reveal the namespace.\n'.format(virtualchain.address_reencode(reveal_addr)),
         'MAKE SURE YOU KEEP THE PRIVATE KEYS FOR BOTH ADDRESSES\n',
         "\n",
         "Before you preorder this namespace {}, there are some things you should know.\n".format(nsid),
@@ -2855,29 +3033,55 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
         "\n",
         "  The command to do so is `blockstack name_import`.\n",
         "\n",
-        "If you want to test your namespace parameters before creating it, please consider trying it in our integration test\n",
-        "framework first.  Instructions are at https://github.com/blockstack/blockstack-core/tree/master/integration_tests\n",
+        "\n",
+        "To review, the sequence of steps you must take are:\n",
+        "\n",
+        "     $ blockstack namespace_preorder '{}' '{}' '{}'\n".format(nsid, serialize_privkey_info(ns_privkey), serialize_privkey_info(ns_reveal_privkey)),
+        "     $ blockstack namespace_reveal '{}' '{}' '{}' $TXID   # within 144 blocks\n".format(nsid, serialize_privkey_info(ns_privkey), serialize_privkey_info(ns_reveal_privkey)),
+        "     $ blockstack name_import .... # OPTIONAL\n",
+        "     $ blockstack namespace_ready '{}' '{}'               # within {} blocks\n".format(nsid, serialize_privkey_info(ns_reveal_privkey), blockstack.BLOCKS_PER_YEAR),
+        "\n",
+        "\n"
+        "You SHOULD test your namespace parameters before creating it using the integration test framework first.\n",
+        "Instructions are at https://github.com/blockstack/blockstack-core/tree/master/integration_tests\n",
+        "\n",
+        "The addresses {} and {} SHOULD NOT have \n".format(
+            virtualchain.address_reencode(reveal_addr), 
+            virtualchain.address_reencode(keylib.ECPrivateKey(ns_reveal_privkey, compressed=False).public_key().address())
+        ),
+        "been used at any point in the past ({} is used as a salt in the preorder).\n".format(reveal_addr),
+        "If either address was used before, then there is a chance that an attacker could deduce the namespace you\n",
+        "are preordering, and preorder/reveal it before you do.\n",
         "\n",
         "If you have any questions, please contact us at support@blockstack.com or via https://blockstack.slack.com\n",
         "\n",
         "Full cost breakdown:\n",
-        "{}".format(json.dumps(fees, indent=4, sort_keys=True))
+        "{}".format(json.dumps(fees, indent=4, sort_keys=True)),
+        "\n",
     ])
-   
+
     print(msg)
-    
+
     prompts = [
         "I acknowledge that I have read and understood the above instructions (yes/no) ",
         "I acknowledge that this will cost {} BTC or more (yes/no) ".format(fees['total_estimated_cost']['btc']),
         "I acknowledge that by not following these instructions, I may lose {} BTC (yes/no) ".format(fees['total_estimated_cost']['btc']),
         "I acknowledge that I have tested my namespace in Blockstack's test mode (yes/no) ",
+        "I acknowledge that the addresses {} and {} have never been used before (yes/no) ".format(
+            virtualchain.address_reencode(reveal_addr),
+            virtualchain.address_reencode(keylib.ECPrivateKey(ns_reveal_privkey, compressed=False).public_key().address())
+        ),
+        "I have copied down the sequence of commands above, so I do not forget them (yes/no) ",
+        "I will remember to copy down the transaction ID, and wait for it to confirm before revealing the namespace (yes/no) ",
+        "I will issue these commands at the right times (yes/no) ",
+        "If I do not understand any of the above, I will seek help first (yes/no) ",
         "I am ready to preorder this namespace (yes/no) "
     ]
 
     for prompt in prompts:
         while True:
             if interactive:
-                proceed = raw_input("I acknowledge that I have read the above instructions. (yes/No) ")
+                proceed = raw_input(prompt)
             else:
                 proceed = 'yes'
 
@@ -2894,6 +3098,18 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
     res = do_namespace_preorder(nsid, int(fees['namespace_price']), ns_privkey, reveal_addr, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
+    if 'error' in res:
+        return res
+
+    print('')
+    print('Remember this transaction ID: {}'.format(res['transaction_hash']))
+    print('You will need it for `blockstack namespace_reveal`')
+    print('')
+    print('Wait until {} has six (6) confirmations.  Then, you can reveal `{}` with:'.format(res['transaction_hash'], nsid))
+    print('')
+    print('    $ blockstack namespace_reveal "{}" "{}" "{}" "{}"'.format(nsid, serialize_privkey_info(ns_privkey), serialize_privkey_info(ns_reveal_privkey), res['transaction_hash']))
+    print('')
+            
     return res
 
 
@@ -2973,7 +3189,10 @@ def format_price_formula(namespace_id, block_height):
     divider_str =     "cost(name) = -----------------------------------------------------\n"
     denominator_str = "                   max(nonalpha_discount, no_vowel_discount)      \n"
 
-    formula_str = "(UNIT_COST = 100):\n" + \
+    unit_cost = blockstack.NAME_COST_UNIT * blockstack.get_epoch_price_multiplier(block_height, '*')
+    currency_name = 'satoshi'
+    
+    formula_str = "(UNIT_COST = {} {}):\n".format(unit_cost, currency_name) + \
                   exponent_str + \
                   numerator_str + \
                   divider_str + \
@@ -3061,13 +3280,141 @@ def format_price_formula_worksheet(name, namespace_id, base, coeff, bucket_expon
     return formula_str
 
 
-def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=None):
+def verify_namespace_preorder(namespace_id, ns_preorder_txid, payment_privkey, ns_reveal_privkey, config_path=CONFIG_PATH):
+    """
+    Verify that the given txid corresponds to a well-formed namespace preorder transaction,
+    and that the given keys are valid.
+    Return {'status': True} on success
+    Return {'error': ...} on failure
+    """
+    import blockstack
+
+    # load config
+    conf = config.get_config(config_path)
+    assert conf
+
+    bitcoind_opts = virtualchain.get_bitcoind_config(config_file=config_path)
+    assert bitcoind_opts
+
+    # confirm that these are, in fact, the correct keys
+    print("Looking up NAMESPACE_PREORDER at {}...".format(ns_preorder_txid))
+
+    # TODO: this is messy, and exposes a need for a classmethod for fetching and parsing bulk transactions.
+    # Introduce this in the next version of virtualchain.
+    bdl = virtualchain.BlockchainDownloader(bitcoind_opts, conf['bitcoind_spv_path'], 0, 0, p2p_port=int(conf['bitcoind_port']))
+    tx = None
+    try:
+        txinfo = bdl.fetch_txs_rpc(bitcoind_opts, [ns_preorder_txid])
+
+        assert txinfo is not None and 'error' not in txinfo
+        assert ns_preorder_txid in txinfo
+
+        txinfo = txinfo[ns_preorder_txid]
+    except Exception as e:
+        log.exception(e)
+        return {'error': 'Failed to look up transaction {}'.format(ns_preorder_txid)}
+
+    # find OP_RETURN output
+    payload_hex = None
+    payload_idx = None
+    for i, out in enumerate(txinfo['vout']):
+        if out['scriptPubKey']['type'] == 'nulldata':
+            payload_hex = out['scriptPubKey']['hex']
+            payload_idx = i
+
+    if payload_hex is None:
+        # definitely not a NAMESPACE_PREORDER
+        return {'error': 'Transaction {} is not a NAMESPACE_PREORDER: no OP_RETURN output'.format(ns_preorder_txid)}
+
+    if payload_hex[4:10].decode('hex') != 'id*':
+        # (note: wire format is "OP_RETURN [1-byte-length] ord('i') ord('d') ord('*')")
+        # definitely NOT a NAMESPACE_PREORDER
+        return {'error': 'Transaction {} is not a NAMESPACE_PREORDER: invalid OP_RETURN output {}'.format(ns_preorder_txid, payload_hex)}
+
+    print("Lookup up NAMESPACE_PREORDER funding transactions...")
+
+    # go find the senders
+    bdl = virtualchain.BlockchainDownloader(bitcoind_opts, conf['bitcoind_spv_path'], 0, 0, p2p_port=int(conf['bitcoind_port']))
+    sender_txids = []
+    senders = {}
+    for inp in txinfo['vin']:
+        sender_txid = inp['txid']
+        sender_txids.append(sender_txid)
+
+    for i in xrange(0, len(sender_txids), 20):
+        txid_batch = sender_txids[i:i+20]
+        txs = bdl.fetch_txs_rpc(bitcoind_opts, txid_batch)
+        if txs is None or 'error' in txs:
+            if txs is None:
+                txs = {'error': 'Failed to fetch NAMESPACE_PREORDER funding transactions {}-{}'.format(i,i+20)}
+
+            log.error("Failed to fetch NAMESPACE_PREORDER funding transactions {}-{}".format(i,i+20))
+            return txs
+
+        senders.update(txs)
+
+    assert len(senders) == len(txinfo['vin']), "Failed to fetch all funding transactions for {}".format(ns_preorder_txid)
+
+    # senders maps sender txid to the transaction that created it.
+    # instead, put senders in 1-to-1 correspondance with the NAMESPACE_PREORDER inputs
+    # TODO: clean this up--this basically duplicates functionality in the blockchain downloader in virtualchain
+    sender_list = [None] * len(senders)
+    for i in xrange(0, len(txinfo['vin'])):
+        if txinfo['vin'][i]['txid'] in senders.keys():
+            sender_rec = senders[txinfo['vin'][i]['txid']]
+            sender_outpoint = txinfo['vin'][i]['vout']
+            sender_output = sender_rec['vout'][sender_outpoint]
+
+            sender_info = {
+                "amount": sender_output['value'],
+                "script_pubkey": sender_output['scriptPubKey']['hex'],
+                "script_type": sender_output['scriptPubKey']['type'],
+                "addresses": sender_output['scriptPubKey']['addresses'],
+                "nulldata_vin_outpoint": payload_idx,
+                "txid": txinfo['vin'][i]['txid']
+            }
+
+            sender_list[i] = sender_info
+           
+        else:
+            print("Failed to find funding transaction to input {} in {} (missing {})".format(i, ns_preorder_txid, txinfo['vin'][i]['txid']))
+            return {'error': 'Failed to find funding transactions for {}'.format(ns_preorder_txid)}
+
+    try:
+        ns_preorder_info = blockstack.lib.operations.extract_namespace_preorder(payload_hex[10:].decode('hex'), sender_list, txinfo['vin'], txinfo['vout'], 0, 0, ns_preorder_txid)
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        return {'error': 'Transaction {} could not be parsed as a NAMESPACE_PREORDER'.format(ns_preorder_txid)}
+
+    # this looks like a NAMESPACE_PREORDER
+    # but was it created with these keys?
+    if ns_preorder_info['address'] != virtualchain.get_privkey_address(payment_privkey):
+        return {'error': 'Private key does not match namespace preorder address: expected {}, got {}'.format(ns_preorder_info['address'], virtualchain.get_privkey_address(payment_privkey))}
+
+    # does the hash match?
+    ph = blockstack.hash_name(namespace_id, virtualchain.make_payment_script(virtualchain.get_privkey_address(payment_privkey)), virtualchain.get_privkey_address(ns_reveal_privkey))
+    if ns_preorder_info['preorder_hash'] != ph:
+        return {'error': 'Preorder hash {} does not match: hash({}, {}, {}) == {}'.format(
+            ns_preorder_info['preorder_hash'],
+            namespace_id, 
+            virtualchain.make_payment_script(virtualchain.get_privkey_address(payment_privkey)),
+            virtualchain.get_privkey_address(ns_reveal_privkey),
+            ph
+        )}
+
+    return {'status': True}
+
+
+def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=None, version=None):
     """
     command: namespace_reveal advanced
     help: Reveal a namespace and interactively set its pricing parameters
     arg: namespace_id (str) 'The namespace ID'
-    arg: payment_privkey (str) 'The private key that paid for the namespace'
+    arg: payment_privkey (str) 'The private key or keys that paid for the namespace'
     arg: reveal_privkey (str) 'The private key that will import names'
+    arg: preorder_txid (str) 'The TXID of the NAMESPACE_PREORDER transaction, from the `namespace_preorder` command'
     """
     # NOTE: this will not use the RESTful API.
     # it is too dangerous to expose this to web browsers.
@@ -3075,7 +3422,10 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     
     namespace_id = str(args.namespace_id)
     privkey = str(args.payment_privkey)
+    ns_addr = None
     reveal_privkey = str(args.reveal_privkey)
+    ns_preorder_txid = str(args.preorder_txid)
+
     reveal_addr = None
 
     res = is_namespace_valid(namespace_id)
@@ -3083,20 +3433,26 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         return {'error': 'Invalid namespace ID'}
 
     try:
-        privkey = keylib.ECPrivateKey(privkey).to_hex()
+        privkey = parse_privkey_info(privkey)
         reveal_privkey = keylib.ECPrivateKey(reveal_privkey).to_hex()
 
-        # force compresssed 
-        ns_privkey = set_privkey_compressed(privkey, compressed=True)
+        # force compresssed
+        if virtualchain.is_singlesig(privkey):
+            privkey = set_privkey_compressed(privkey, compressed=True)
+
         ns_reveal_privkey = set_privkey_compressed(reveal_privkey, compressed=True)
 
-        ecdsa_private_key(privkey)
         reveal_addr = virtualchain.get_privkey_address(reveal_privkey)
+        ns_addr = virtualchain.get_privkey_address(privkey)
     except Exception as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
         return {'error': 'Invalid private keys'}
+           
+    res = verify_namespace_preorder(namespace_id, ns_preorder_txid, privkey, reveal_privkey, config_path=config_path)
+    if 'error' in res:
+        return res
 
     infinite_lifetime = 0xffffffff       # means "infinite" to blockstack-core
     
@@ -3136,13 +3492,17 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         return bucket_exponents
 
     def print_namespace_configuration(params):
-        print("Namespace ID:           {}".format(namespace_id))
-        print("Name lifetimes:         {}".format(params['lifetime'] if params['lifetime'] != infinite_lifetime else "infinite"))
-        print("Price coefficient:      {}".format(params['coeff']))
-        print("Price base:             {}".format(params['base']))
-        print("Price bucket exponents: {}".format(params['buckets']))
-        print("Non-alpha discount:     {}".format(params['nonalpha_discount']))
-        print("No-vowel discount:      {}".format(params['no_vowel_discount']))
+        
+        namespace_lifetime_multiplier = blockstack.get_epoch_namespace_lifetime_multiplier(block_height, '*')
+
+        print("Namespace ID:            {}".format(namespace_id))
+        print("Name lifetimes (blocks): {}".format(params['lifetime'] * namespace_lifetime_multiplier if params['lifetime'] != infinite_lifetime else "infinite"))
+        print("Price coefficient:       {}".format(params['coeff']))
+        print("Price base:              {}".format(params['base']))
+        print("Price bucket exponents:  {}".format(params['buckets']))
+        print("Non-alpha discount:      {}".format(params['nonalpha_discount']))
+        print("No-vowel discount:       {}".format(params['no_vowel_discount']))
+        print("Burn or receive fees?    {}".format('Receive to {}'.format(virtualchain.address_reencode(ns_addr)) if params['receive_fees'] else 'Burn'))
         print("")
 
         formula_str = format_price_formula(namespace_id, block_height)
@@ -3173,41 +3533,51 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         'base': base,
         'buckets': bbs,
         'nonalpha_discount': nonalpha_discount,
-        'no_vowel_discount': no_vowel_discount
+        'no_vowel_discount': no_vowel_discount,
+        'receive_fees': True
     }
 
+    if version is not None:
+        namespace_params['receive_fees'] = True if (version & blockstack.NAMESPACE_VERSION_PAY_TO_BURN) else False
+
     block_height = get_block_height(config_path=config_path)
+    log.debug("Block height is {}".format(block_height))
 
     options = {
-        '1': {
+        '0': {
             'msg': 'Set name lifetime in blocks             (positive integer between 1 and {}, or "infinite")'.format(2**32 - 1),
             'var': 'lifetime',
-            'parse': lambda x: infinite_lifetime if x == "infinite" else int(x)
+            'parse': lambda x: infinite_lifetime if x == "infinite" else int(x)/namespace_lifetime_multiplier
         },
-        '2': {
+        '1': {
             'msg': 'Set price coefficient                   (positive integer between 1 and 255)',
             'var': 'coeff',
             'parse': lambda x: int(x)
         },
-        '3': {
+        '2': {
             'msg': 'Set base price                          (positive integer between 1 and 255)',
             'var': 'base',
             'parse': lambda x: int(x)
         },
-        '4': {
+        '3': {
             'msg': 'Set price bucket exponents              (16 comma-separated integers, each between 1 and 15)',
             'var': 'buckets',
             'parse': lambda x: parse_bucket_exponents(x)
         },
-        '5': {
+        '4': {
             'msg': 'Set non-alphanumeric character discount (positive integer between 1 and 15)',
             'var': 'nonalpha_discount',
             'parse': lambda x: int(x)
         },
-        '6': {
+        '5': {
             'msg': 'Set no-vowel discount                   (positive integer between 1 and 15)',
             'var': 'no_vowel_discount',
             'parse': lambda x: int(x)
+        },
+        '6': {
+            'msg': 'Toggle collecting name fees             (True: receive fees; False: burn fees)',
+            'var': 'receive_fees',
+            'parse': lambda x: False if x.lower() in ['false', '0'] else True
         },
         '7': {
             'msg': 'Show name price formula',
@@ -3255,7 +3625,9 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
             try:
                 value = options[selection]['parse'](value_str)
                 namespace_params[ options[selection]['var'] ] = value
-                assert blockstack.namespacereveal.namespacereveal_sanity_check( namespace_id, blockstack.BLOCKSTACK_VERSION, namespace_params['lifetime'],
+                version = blockstack.NAMESPACE_VERSION_PAY_TO_CREATOR if namespace_params['receive_fees'] else blockstack.NAMESPACE_VERSION_PAY_TO_BURN
+
+                assert blockstack.namespacereveal.namespacereveal_sanity_check( namespace_id, version, namespace_params['lifetime'],
                                                                                 namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
                                                                                 namespace_params['nonalpha_discount'], namespace_params['no_vowel_discount'] )
 
@@ -3288,7 +3660,8 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     if not interactive:
         # still check this 
         try:
-            assert blockstack.namespacereveal.namespacereveal_sanity_check( namespace_id, blockstack.BLOCKSTACK_VERSION, namespace_params['lifetime'],
+            version = blockstack.NAMESPACE_VERSION_PAY_TO_CREATOR if namespace_params['receive_fees'] else blockstack.NAMESPACE_VERSION_PAY_TO_BURN
+            assert blockstack.namespacereveal.namespacereveal_sanity_check( namespace_id, version, namespace_params['lifetime'],
                                                                             namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
                                                                             namespace_params['nonalpha_discount'], namespace_params['no_vowel_discount'] )
         except Exception as e:
@@ -3310,8 +3683,9 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     print("This is the final configuration for your namespace:") 
     print_namespace_configuration(namespace_params)
     print("You will NOT be able to change this once it is set.")
-    print("Reveal address:  {}".format(reveal_addr))
-    print("Payment address: {}".format(virtualchain.get_privkey_address(privkey)))
+    print("Reveal address:            {}".format(virtualchain.address_reencode(reveal_addr)))
+    print("Payment address:           {}".format(virtualchain.address_reencode(ns_addr)))
+    print("Burn or receive name fees? {}".format('Receive' if namespace_params['receive_fees'] else 'Burn'))
     print("Transaction cost breakdown:\n{}".format(json.dumps(fees, indent=4, sort_keys=True)))
     print("")
 
@@ -3329,9 +3703,35 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     # proceed!
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
-    res = do_namespace_reveal(namespace_id, reveal_addr, namespace_params['lifetime'], namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
+    version = blockstack.NAMESPACE_VERSION_PAY_TO_CREATOR if namespace_params['receive_fees'] else blockstack.NAMESPACE_VERSION_PAY_TO_BURN
+
+    res = do_namespace_reveal(namespace_id, version, reveal_addr, namespace_params['lifetime'], namespace_params['coeff'], namespace_params['base'], namespace_params['buckets'],
                               namespace_params['nonalpha_discount'], namespace_params['no_vowel_discount'], privkey, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
 
+    if 'error' in res:
+        return res
+
+    print('')
+    print('Successfully sent transaction to reveal namespace `.{}`'.format(namespace_id))
+    print('Once it confirms, you will have the option to import names.')
+    print('To do so, you can use the following command:')
+    print('')
+    print('    $ blockstack name_import NAME.{} RECIPIENT_ADDRESS /path/to/name/zonefile {}'.format(namespace_id, reveal_privkey))
+    print('')
+    print('Example:')
+    print('')
+    print('    $ blockstack name_import helloworld.{} {} /var/blockstack/helloworld.{} {}'.format(namespace_id, ns_addr, namespace_id, reveal_privkey))
+    print('')
+    print('If you want to import many names (thousands or more), please see docs/namespace_creation.md for how to do so efficiently.')
+    print('')
+    print('Once you are satisfied with your namespace, you can launch it to the public with this command:')
+    print('')
+    print('    $ blockstack namespace_ready {} {}'.format(namespace_id, reveal_privkey))
+    print('')
+    print('(NOTE: you may need to fund the reveal private key address {} first)'.format(reveal_addr))
+    print('')
+    print('YOU MUST RUN THE ABOVE namespace_ready COMMAND BEFORE BLOCK {}'.format(block_height + blockstack.NAMESPACE_REVEAL_EXPIRE - 10))     # - 10 to give a buffer
+    print('')
     return res
 
 
@@ -3356,7 +3756,6 @@ def cli_namespace_ready(args, interactive=True, config_path=CONFIG_PATH, proxy=N
 
         # force compresssed 
         reveal_privkey = set_privkey_compressed(reveal_privkey, compressed=True)
-
         reveal_addr = virtualchain.get_privkey_address(reveal_privkey)
     except:
         return {'error': 'Invalid private keys'}
@@ -3368,6 +3767,7 @@ def cli_namespace_ready(args, interactive=True, config_path=CONFIG_PATH, proxy=N
         return fees
 
     if 'warnings' in fees:
+        print('Insufficient balance in {}'.format(reveal_addr))
         return {'error': 'Not enough information for fee calculation: {}'.format( ", ".join(["'{}'".format(w) for w in fees['warnings']]) )}
 
     namespace_rec = get_namespace_blockchain_record(namespace_id, proxy=proxy)
@@ -3376,6 +3776,11 @@ def cli_namespace_ready(args, interactive=True, config_path=CONFIG_PATH, proxy=N
 
     if namespace_rec['ready']:
         return {'error': 'Namespace is already launched'}
+
+    if namespace_rec['recipient_address'] != reveal_addr:
+        msg = "Wrong reveal private key: given private key address {} does not match namespace address {}".format(reveal_addr, namespace_rec['recipient_address'])
+        print(msg)
+        return {'error': msg}
 
     launch_deadline = namespace_rec['reveal_block'] + blockstack.NAMESPACE_REVEAL_EXPIRE
 
@@ -3465,10 +3870,12 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None, st
         privkey = str(args.privkey)
 
     try:
-        pubkey = ECPrivateKey(privkey).public_key().to_hex()
-    except:
+        pubkey = ecdsa_private_key(privkey).public_key().to_hex()
+    except Exception as e:
         if BLOCKSTACK_TEST:
+            log.exception(e)
             log.error("Invalid private key {}".format(privkey))
+
         return {'error': 'Failed to parse private key'}
 
     mutable_data_info = make_mutable_data_info(data_id, data, blockchain_id=fqu, config_path=config_path)
@@ -3511,7 +3918,7 @@ def cli_put_immutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     if 'error' in wallet_keys:
         return wallet_keys
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
 
     result = put_immutable(
         fqu, str(args.data_id), data,
@@ -3559,7 +3966,7 @@ def cli_get_immutable(args, config_path=CONFIG_PATH, proxy=None):
     arg: name (str) 'The name that points to the zone file with the data hash'
     arg: data_id_or_hash (str) 'Either the name or the SHA256 of the data to obtain'
     """
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
 
     if is_valid_hash( args.data_id_or_hash ):
         result = get_immutable(str(args.name), str(args.data_id_or_hash), proxy=proxy)
@@ -3630,7 +4037,7 @@ def cli_delete_immutable(args, config_path=CONFIG_PATH, proxy=None, password=Non
         return wallet_keys
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     result = None
     if is_valid_hash(str(args.data_id)):
@@ -3662,6 +4069,8 @@ def cli_delete_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None)
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
+
+    device_ids = [get_local_device_id(os.path.dirname(config_path))]
 
     config_dir = os.path.dirname(config_path)
 
@@ -3746,20 +4155,96 @@ def cli_get_namespace_blockchain_record(args, config_path=CONFIG_PATH):
     return result
 
 
+def cli_get_snv_blockchain_record(args, config_path=CONFIG_PATH):
+    """
+    command: get_snv_blockchain_record advanced
+    help: Use SNV to look up a name or namespace blockchain record at a particular block height
+    arg: name (str) 'The name or namespace to query'
+    arg: block_id (str) 'The block height at which the name or namespace was last altered'
+    arg: trust_anchor (str) 'A trusted consensus hash, Blockstack transaction ID with a consensus hash, or a serial number from a higher block height than `block_id`'
+    """
+
+    blockchain_records = lookup_snv(
+        str(args.name),
+        int(args.block_id),
+        str(args.trust_anchor)
+    )
+    
+    if 'error' in blockchain_records:
+        return blockchain_records
+
+    return blockchain_records[-1]
+
+
 def cli_lookup_snv(args, config_path=CONFIG_PATH):
     """
     command: lookup_snv advanced
     help: Use SNV to look up a name at a particular block height
     arg: name (str) 'The name to query'
-    arg: block_id (int) 'The block height at which to query the name'
-    arg: trust_anchor (str) 'The trusted consensus hash, transaction ID, or serial number from a higher block height than `block_id`'
+    arg: block_id (int) 'The block height at which the name was last altered'
+    arg: trust_anchor (str) 'A trusted consensus hash, Blockstack transaction ID with a consensus hash, or serial number from a higher block height than `block_id`'
+    opt: force (str) 'If True, then resolve the name even if it is expired'
     """
-    result = lookup_snv(
-        str(args.name),
+    
+    force = False
+    if hasattr(args, 'force') and args.force and args.force.lower() in ['true', '1', 'force']:
+        force = True
+
+    name = str(args.name)
+    error = check_valid_name(name)
+    if error:
+        res = subdomains.is_address_subdomain(name)
+        if res:
+            subdomain, domain = res[1]
+            if subdomain:
+                return {'error': 'SNV lookup on subdomains is not yet supported'}
+
+            name = domain
+
+        else:
+            return {'error': error}
+
+    blockchain_records = lookup_snv(
+        name,
         int(args.block_id),
         str(args.trust_anchor)
     )
 
+    if 'error' in blockchain_records:
+        return blockchain_records
+    
+    # use latest record
+    blockchain_record = blockchain_records[-1]
+
+    if 'value_hash' not in blockchain_record:
+        return {'error': '{} has no profile'.format(name)}
+
+    if not force and blockchain_record.get('revoked', False):
+        msg = 'Name is revoked. Use `whois` or `get_name_blockchain_record` for details.'
+        return {'error': msg}
+
+    if not force and blockchain_record.get('expired', False):
+        msg = 'Name is expired. Use `whois` or `get_name_blockchain_record` for details. If you own this name, use `renew` to renew it.'
+        return {'error': msg}
+
+    data = {}
+    try:
+        res = get_profile(
+            name, name_record=blockchain_record, include_raw_zonefile=True, use_legacy=True, use_legacy_zonefile=True
+        )
+
+        if 'error' in res:
+            return res
+
+        data['profile'] = res['profile']
+        data['zonefile'] = res['raw_zonefile']
+        data['public_key'] = res['public_key']
+    except Exception as e:
+        log.exception(e)
+        msg = 'Failed to look up name\n{}'
+        return {'error': msg.format(traceback.format_exc())}
+
+    result = data
     return result
 
 
@@ -3776,7 +4261,7 @@ def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True, proxy=None):
     parse_json = getattr(args, 'json', 'false')
     parse_json = parse_json is not None and parse_json.lower() in ['true', '1']
 
-    result = get_name_zonefile(str(args.name), raw_zonefile=True)
+    result = get_name_zonefile(str(args.name), raw_zonefile=True, allow_legacy=True)
     if 'error' in result:
         log.error("get_name_zonefile failed: %s" % result['error'])
         return result
@@ -3813,6 +4298,22 @@ def cli_get_names_owned_by_address(args, config_path=CONFIG_PATH):
     return result
 
 
+def cli_get_historic_names_by_address(args, config_path=CONFIG_PATH):
+    """
+    command: get_historic_names_by_address advanced
+    help: Get all of the names historically owned by an address
+    arg: address (str) 'The address that owns names'
+    arg: page (int) 'The page of names to fetch (groups of 100)'
+    """
+
+    offset = int(args.page) * 100
+    count = 100
+
+    result = get_historic_names_by_address(str(args.address), offset, count)
+
+    return result
+
+
 def cli_get_namespace_cost(args, config_path=CONFIG_PATH):
     """
     command: get_namespace_cost advanced
@@ -3835,12 +4336,31 @@ def cli_get_all_names(args, config_path=CONFIG_PATH):
     command: get_all_names advanced
     help: Get all names in existence, optionally paginating through them
     arg: page (int) 'The page of names to fetch (groups of 100)'
+    opt: include_expired (int) 'If True, then count expired names as well'
     """
 
     offset = int(args.page) * 100
     count = 100
+    include_expired = False
+    if getattr(args, 'include_expired', None) is not None and args.include_expired.lower() in ['true', '1']:
+        include_expired = True
 
-    result = get_all_names(offset=offset, count=count)
+    result = get_all_names(offset=offset, count=count, include_expired=include_expired)
+
+    return result
+
+
+def cli_get_num_names(args, config_path=CONFIG_PATH):
+    """
+    command: get_num_names advanced
+    help: Get the number of names in existence
+    opt: include_expired (str) 'If True, then count expired names as well'
+    """
+    include_expired = False
+    if getattr(args, 'include_expired', None) is not None and args.include_expired.lower() in ['true', '1']:
+        include_expired = True
+
+    result = get_num_names(include_expired=include_expired)
 
     return result
 
@@ -3937,8 +4457,6 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     if (not 'success' in resp or not resp['success']) and 'message' in resp:
         return {'error': resp['message']}
 
-    analytics_event('Set zonefile hash', {})
-
     resp['zonefile_hash'] = zonefile_hash
     return resp
 
@@ -3981,7 +4499,7 @@ def cli_put_profile(args, config_path=CONFIG_PATH, password=None, proxy=None, fo
     name = str(args.blockchain_id)
     profile_json_str = str(args.data)
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
 
     profile = None
     if not force_data and is_valid_path(profile_json_str) and os.path.exists(profile_json_str):
@@ -4036,7 +4554,7 @@ def cli_delete_profile(args, config_path=CONFIG_PATH, password=None, proxy=None,
     arg: blockchain_id (str) 'The blockchain ID.'
     """
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path) if proxy is None else proxy
     password = get_default_password(password)
     
     name = str(args.blockchain_id)
@@ -4138,31 +4656,32 @@ def cli_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, interactive=Tru
                 return {'error': msg}
 
             # find the tx hash that corresponds to this zonefile
-            if name_rec['op'] == NAME_UPDATE:
+            if name_rec['op'] in [NAME_UPDATE, NAME_REGISTRATION, NAME_REGISTRATION + ":", NAME_IMPORT]:
                 if name_rec['value_hash'] == zonefile_hash:
                     txid = name_rec['txid']
             else:
                 name_history = name_rec['history']
                 for history_key in reversed(sorted(name_history)):
-                    name_history_item = name_history[history_key]
+                    name_history_items = name_history[history_key]
 
-                    op = name_history_item.get('op', None)
-                    if op is None:
-                        continue
+                    for name_history_item in name_history_items:
+                        op = name_history_item.get('op', None)
+                        if op is None:
+                            continue
 
-                    if op != NAME_UPDATE:
-                        continue
+                        if op not in [NAME_UPDATE, NAME_IMPORT, NAME_REGISTRATION]:
+                            continue
 
-                    value_hash = name_history_item.get('value_hash', None)
+                        value_hash = name_history_item.get('value_hash', None)
 
-                    if value_hash is None:
-                        continue
+                        if value_hash is None:
+                            continue
 
-                    if value_hash != zonefile_hash:
-                        continue
+                        if value_hash != zonefile_hash:
+                            continue
 
-                    txid = name_history_item.get('txid', None)
-                    break
+                        txid = name_history_item.get('txid', None)
+                        break
 
         if txid is None:
             log.error('Unable to lookup txid for update {}, {}'.format(name, zonefile_hash))
@@ -4450,6 +4969,7 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
     """
     command: sign_profile advanced raw
     help: Sign a JSON file to be used as a profile.
+    arg: name (str) 'The name for whom to sign the profile.'
     arg: path (str) 'The path to the profile data on disk.'
     opt: privkey (str) 'The optional private key to sign it with (defaults to the data private key in your wallet)'
     """
@@ -4460,6 +4980,8 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
     password = get_default_password(password)
 
     config_dir = os.path.dirname(config_path)
+
+    name = str(args.name)
     path = str(args.path)
     data_json = None
     try:
@@ -4481,14 +5003,26 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
         wallet_keys = get_wallet_keys( config_path, password )
         if 'error' in wallet_keys:
             return wallet_keys
+        
+        zonefile_data = None
+        name_rec = None
+        zonefile_data_res = get_name_zonefile(
+            name, proxy=proxy, raw_zonefile=False, include_name_record=True
+        )
+        if 'error' not in zonefile_data_res:
+            zonefile_data = zonefile_data_res['zonefile']
+            name_rec = zonefile_data_res['name_record']
 
-        if not wallet_keys.has_key('data_privkey'):
-            log.error("No data private key in the wallet.  You may need to explicitly select a private key.")
-            return {'error': 'No data private key set.\nTry passing your owner private key.'}
+            if 'error' in zonefile_data:
+                # zonefile itself is bad
+                zonefile_data = None
+        
+        privkey = get_data_privkey(zonefile_data, wallet_keys=wallet_keys, config_path=config_path)
+        if privkey is None or 'error' in privkey:
+            log.error("No data private key in the wallet, and cannot use owner private key.  You will need to either explicitly select a private key, or insert the data public key into your zone file.")
+            return {'error': 'No data private key found.  Try passing your owner private key, or adding your data public key to your zone file.'}
 
-        privkey = wallet_keys['data_privkey']
-
-    privkey = ECPrivateKey(privkey).to_hex()
+    privkey = ecdsa_private_key(privkey).to_hex()
     pubkey = get_pubkey_hex(privkey)
 
     res = storage.serialize_mutable_data(data_json, privkey, pubkey, profile=True)
@@ -4531,6 +5065,7 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
 
     if pubkey is None:
         zonefile_data = None
+        pubkey = None
         name_rec = None
         # get the pubkey 
         zonefile_data_res = get_name_zonefile(
@@ -4539,17 +5074,17 @@ def cli_verify_profile( args, config_path=CONFIG_PATH, proxy=None, interactive=F
         if 'error' not in zonefile_data_res:
             zonefile_data = zonefile_data_res['zonefile']
             name_rec = zonefile_data_res['name_record']
-        else:
-            return {'error': "Failed to get zonefile data: {}".format(name)}
 
-        # parse 
-        zonefile_dict = None
-        try:
-            zonefile_dict = blockstack_zones.parse_zone_file(zonefile_data)
-        except:
-            return {'error': 'Nonstandard zone file'}
+            # parse 
+            zonefile_dict = None
+            try:
+                zonefile_dict = blockstack_zones.parse_zone_file(zonefile_data)
+            except:
+                log.warning("Nonstandard zone file")
 
-        pubkey = user_zonefile_data_pubkey(zonefile_dict)
+            if zonefile_dict is not None:
+                pubkey = user_zonefile_data_pubkey(zonefile_dict)
+
         if pubkey is None:
             # fall back to owner hash
             owner_address = str(name_rec['address'])
@@ -4616,7 +5151,7 @@ def cli_sign_data( args, config_path=CONFIG_PATH, proxy=None, password=None, int
 
         privkey = wallet_keys['data_privkey']
 
-    privkey = ECPrivateKey(privkey).to_hex()
+    privkey = ecdsa_private_key(privkey).to_hex()
     pubkey = get_pubkey_hex(privkey)
 
     res = storage.serialize_mutable_data(data, privkey, pubkey)
@@ -5081,7 +5616,7 @@ def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None ):
     """
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     blockchain_id = str(args.blockchain_id)
     privkey = str(args.privkey)

@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import shutil
 import tempfile
@@ -180,7 +180,7 @@ def check( state_engine ):
         name_transfer_wallet = name_transfer_wallets[i]
 
         # not preordered
-        preorder = state_engine.get_name_preorder( name, pybitcoin.make_pay_to_address_script(name_preorder_wallet.addr), name_register_wallet.addr )
+        preorder = state_engine.get_name_preorder( name, virtualchain.make_payment_script(name_preorder_wallet.addr), name_register_wallet.addr )
         if preorder is not None:
             return False
         
@@ -194,7 +194,7 @@ def check( state_engine ):
             return False 
 
         # owned by the right transfer wallet 
-        if name_rec['address'] != name_transfer_wallet.addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(name_transfer_wallet.addr):
+        if name_rec['address'] != name_transfer_wallet.addr or name_rec['sender'] != virtualchain.make_payment_script(name_transfer_wallet.addr):
             return False
 
         # renewed 

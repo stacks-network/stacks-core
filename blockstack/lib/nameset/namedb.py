@@ -33,6 +33,7 @@ from . import *
 from ..config import *
 from ..operations import *
 from ..hashing import *
+from ..scripts import get_namespace_from_name
 
 import virtualchain
 from db import *
@@ -614,7 +615,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
 
         cur = self.db.cursor()
-        return namedb_get_namespace_ready( cur, namespace_id )
+        return namedb_get_namespace_ready( cur, namespace_id, self.lastblock )
 
 
     @autofill( "opcode" )
@@ -705,6 +706,15 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         historical_recs = namedb_restore_from_history( namespace_rec, block_number )
         return historical_recs
+
+    
+    def get_preorders_at( self, block_number, offset=None, count=None ):
+        """
+        Get the list of outstanding preorders at a block number.
+        Return the list of them
+        """
+        preorders = namedb_get_preorders_at(self.db, block_number, offset=offset, count=count)
+        return preorders
 
 
     def get_name_history_diffs( self, name ):
@@ -801,6 +811,27 @@ class BlockstackDB( virtualchain.StateEngine ):
         return names
 
     
+    def get_historic_names_by_address( self, address, offset=None, count=None ):
+        """
+        Get the list of names owned by an address throughout history (used for DIDs)
+        Return a list of {'name': ..., 'block_id': ..., 'vtxindex': ...}
+        """
+
+        cur = self.db.cursor()
+        names = namedb_get_historic_names_by_address( cur, address, offset=offset, count=count )
+        return names
+
+
+    def get_num_historic_names_by_address( self, address ):
+        """
+        Get the number of names historically owned by an address
+        """
+
+        cur = self.db.cursor()
+        count = namedb_get_num_historic_names_by_address( cur, address )
+        return count
+
+
     def get_names_owned_by_sender( self, sender_pubkey, lastblock=None ):
         """
         Get the set of names owned by a particular script-pubkey.
@@ -814,15 +845,15 @@ class BlockstackDB( virtualchain.StateEngine ):
         return names
 
     
-    def get_num_names( self ):
+    def get_num_names( self, include_expired=False ):
         """
         Get the number of names that exist.
         """
         cur = self.db.cursor()
-        return namedb_get_num_names( cur, self.lastblock )
+        return namedb_get_num_names( cur, self.lastblock, include_expired=include_expired )
 
 
-    def get_all_names( self, offset=None, count=None ):
+    def get_all_names( self, offset=None, count=None, include_expired=False ):
         """
         Get the set of all registered names, with optional pagination
         Returns the list of names.
@@ -835,7 +866,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             count = None 
 
         cur = self.db.cursor()
-        names = namedb_get_all_names( cur, self.lastblock, offset=offset, count=count )
+        names = namedb_get_all_names( cur, self.lastblock, offset=offset, count=count, include_expired=include_expired )
         return names
 
 
@@ -963,9 +994,27 @@ class BlockstackDB( virtualchain.StateEngine ):
         if name_rec is not None and not include_failed:
             return None
 
+        # what namespace are we in?
+        namespace_id = get_namespace_from_name(name)
+        namespace = self.get_namespace(namespace_id)
+        if namespace is None:
+            return None
+
         # isn't currently registered, or we don't care
         preorder_hash = hash_name(name, sender_script_pubkey, register_addr=register_addr)
         preorder = namedb_get_name_preorder( self.db, preorder_hash, self.lastblock )
+        if preorder is None:
+            # doesn't exist or expired
+            return None
+
+        # preorder must be younger than the namespace lifetime
+        # (otherwise we get into weird conditions where someone can preorder
+        # a name before someone else, and register it after it expires)
+        namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( self.lastblock, namespace_id )
+        if preorder['block_number'] + (namespace['lifetime'] * namespace_lifetime_multiplier)  <= self.lastblock:
+            log.debug("Preorder is too old (accepted at {}, namespace lifetime is {}, current block is {})".format(preorder['block_number'], namespace['lifetime'] * namespace_lifetime_multiplier, self.lastblock))
+            return None
+
         return preorder 
 
     
@@ -1021,11 +1070,14 @@ class BlockstackDB( virtualchain.StateEngine ):
         nameops = self.get_all_ops_at( block_id )
         ret = []
         for nameop in nameops:
-            if nameop.has_key('op') and nameop['op'] in [NAME_UPDATE, NAME_IMPORT]:
+            if nameop.has_key('op') and op_get_opcode_name(nameop['op']) in ['NAME_UPDATE', 'NAME_IMPORT', 'NAME_REGISTRATION', 'NAME_RENEWAL']:
+
                 assert nameop.has_key('value_hash')
                 assert nameop.has_key('name')
                 assert nameop.has_key('txid')
-                ret.append( {'name': nameop['name'], 'value_hash': nameop['value_hash'], 'txid': nameop['txid']} )
+
+                if nameop['value_hash'] is not None:
+                    ret.append( {'name': nameop['name'], 'value_hash': nameop['value_hash'], 'txid': nameop['txid']} )
 
         return ret
 
@@ -1099,6 +1151,60 @@ class BlockstackDB( virtualchain.StateEngine ):
         cur = self.db.cursor()
         return namedb_get_name( cur, name, block_number ) is None
 
+
+    @classmethod
+    def get_name_deadlines( self, name_rec, namespace_rec, block_number ):
+        """
+        Get the expiry and renewal deadlines for a (registered) name.
+
+        NOTE: expire block here is NOT the block at which the owner loses the name, but the block at which lookups fail.
+        The name owner has until renewal_deadline to renew the name.
+
+        Return {'expire_block': ..., 'renewal_deadline': ...} on success
+        Return None if the namespace isn't ready yet
+        """
+
+        if namespace_rec['op'] != NAMESPACE_READY:
+            # name cannot be in grace period, since the namespace is not ready 
+            return None
+
+        namespace_id = namespace_rec['namespace_id']
+        namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( block_number, namespace_id )
+        namespace_lifetime_grace_period = get_epoch_namespace_lifetime_grace_period( block_number, namespace_id )
+
+        expire_block = max(namespace_rec['ready_block'], name_rec['last_renewed']) + (namespace_rec['lifetime'] * namespace_lifetime_multiplier)
+        renewal_deadline = expire_block + namespace_lifetime_grace_period
+
+        return {'expire_block': expire_block, 'renewal_deadline': renewal_deadline}
+
+
+    def is_name_in_grace_period(self, name, block_number):
+        """
+        Given a name and block number, determine if it is in the renewal grace period at that block.
+        * names in revealed but not ready namespaces are never expired, unless the namespace itself is expired;
+        * names in ready namespaces enter the grace period once max(ready_block, renew_block) + lifetime - grace_period blocks passes
+
+        Return True if so
+        Return False if not, or if the name does not exist.
+        """
+        cur = self.db.cursor()
+        name_rec = namedb_get_name(cur, name, block_number, include_expired=False)
+        if name_rec is None:
+            # expired already or doesn't exist
+            return False
+
+        namespace_id = get_namespace_from_name(name)
+        namespace_rec = namedb_get_namespace(cur, namespace_id, block_number, include_history=False)
+        if namespace_rec is None:
+            return False
+
+        grace_info = BlockstackDB.get_name_deadlines(name_rec, namespace_rec, block_number)
+        if grace_info is None:
+            # namespace isn't ready yet
+            return False
+
+        return (block_number >= grace_info['expire_block'] and block_number < grace_info['renewal_deadline'])
+        
 
     def is_name_registered( self, name ):
         """

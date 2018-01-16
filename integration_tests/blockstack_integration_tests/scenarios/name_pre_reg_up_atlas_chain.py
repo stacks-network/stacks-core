@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import time
 import blockstack_client
@@ -142,9 +142,9 @@ def scenario( wallets, **kw ):
             print json.dumps(res)
             return False
 
-    # wait at most 30 seconds for atlas network to converge
+    # wait at most 60 seconds for atlas network to converge
     synchronized = False
-    for i in xrange(0, 30):
+    for i in xrange(0, 60):
         atlas_network.atlas_print_network_state( network_des )
         if atlas_network.atlas_network_is_synchronized( network_des, testlib.last_block( **kw ) - 1, 1 ):
             print "Synchronized!"

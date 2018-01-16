@@ -22,7 +22,7 @@
 """
 
 import httplib
-from virtualchain import AuthServiceProxy
+from virtualchain import AuthServiceProxy, JSONRPCException
 from .blockchain_client import BlockchainClient
 
 from blockstack_client import constants

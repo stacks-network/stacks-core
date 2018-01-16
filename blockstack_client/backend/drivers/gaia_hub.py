@@ -7,7 +7,7 @@ ACCESS_ADDRESS = None
 HUB_SERVER = None
 HUB_URL_PREFIX = None
 
-log = get_logger()
+log = get_logger("blockstack-storage-driver-gaia_hub")
 
 def storage_init(conf, **kwargs):
     config_path = conf['path']
@@ -35,18 +35,25 @@ def storage_init(conf, **kwargs):
     return True
 
 def handles_url( url ):
+    if not HUB_URL_PREFIX:
+        return False
     return url.startswith(HUB_URL_PREFIX)
 
 def data_id_to_hex( data_id ):
     return "".join(x.encode('hex') for x in data_id)
 
 def make_mutable_url( data_id ):
+    if not HUB_URL_PREFIX:
+        return None
     path = data_id_to_hex(data_id)
     url = "{}{}/{}".format(HUB_URL_PREFIX, ACCESS_ADDRESS, path)
     log.debug( "make_mutable_url: {}".format(url))
     return url
 
 def put_mutable_handler( data_id, data_txt, **kw ):
+    if not HUB_SERVER:
+        return None
+
     url = "{}/store/{}/{}".format(
         HUB_SERVER,
         ACCESS_ADDRESS,
@@ -62,19 +69,26 @@ def put_mutable_handler( data_id, data_txt, **kw ):
         log.error(resp)
         msg = "Error putting to mutable storage. Tried store at {}".format(url)
         log.error(msg)
-        raise Exception(msg)
+        return False
+
     log.debug(resp)
     resp_obj = resp.json()
+
     if 'publicURL' not in resp_obj:
-        msg = "Expectin publicURL in JSON response"
-        raise Exception(msg)
+        log.error("Expecting publicURL in JSON response")
+        return False
+
     elif resp_obj['publicURL'] != make_mutable_url(data_id):
         msg = "Unexpected publicURL. Expected '{}', Actual '{}'".format(
             make_mutable_url(data_id), resp_obj['publicURL'])
-        raise Exception(msg)
-    return True
+        log.error(msg)
+        return False
+
+    return resp_obj['publicURL']
 
 def get_mutable_handler( data_url, **kw):
+    if not HUB_URL_PREFIX:
+        return None
     log.debug("get_mutable: {}".format(data_url))
     resp = requests.get( data_url )
     if resp.status_code != 200:

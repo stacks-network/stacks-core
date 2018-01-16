@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 
 wallets = [
@@ -73,6 +73,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at('bar.test', testlib.get_current_block(**kw))
 
 
 def check( state_engine ):
@@ -96,7 +97,7 @@ def check( state_engine ):
             print "missing foo%s.test" % i
             return False
 
-        if namerec['address'] != wallets[3].addr or namerec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
+        if namerec['address'] != wallets[3].addr or namerec['sender'] != virtualchain.make_payment_script(wallets[3].addr):
             print "foo%s.test not owned by %s" % (i, wallets[3].addr)
             return False
 

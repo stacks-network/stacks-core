@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import blockstack
 import binascii
 import sys
@@ -56,7 +56,7 @@ def scenario( wallets, **kw ):
     pass
 
 def compile_script( opcode, payload ):
-    return "id%s%s" % (opcode, binascii.unhexlify(payload))
+    return binascii.hexlify("id%s%s" % (opcode, binascii.unhexlify(payload)))
 
 def compile_test( opcode, tests ):
     result = {}
@@ -64,12 +64,12 @@ def compile_test( opcode, tests ):
         result[ test_name ] = compile_script( opcode, test_payload )
     return result
 
-def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_address=None, import_update_hash=None ):
+def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_address=None, import_update_hash=None, burn_address=None, reveal_address=None ):
 
     opcode_name = OPCODE_NAMES[opcode]
-    pubk = pybitcoin.BitcoinPublicKey(fake_pubkey)
+    pubk = virtualchain.BitcoinPublicKey(fake_pubkey)
     address = pubk.address()
-    script_pubkey = pybitcoin.make_pay_to_address_script( address )
+    script_pubkey = virtualchain.make_payment_script( address )
     senders = [{
         "script_pubkey": script_pubkey,
         "script_type": "pubkeyhash",
@@ -86,11 +86,12 @@ def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_addres
     script = "OP_RETURN %s" % payload
 
     try:
-        scripthex = pybitcoin.make_op_return_script( payload )
+        scripthex = virtualchain.make_data_script(binascii.hexlify(payload))
     except:
         if len(payload) == 0:
             scripthex = "6a"
         else:
+            print 'failed on {}'.format(payload)
             raise
 
     outputs = [{
@@ -101,29 +102,53 @@ def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_addres
         }}]
 
     if recipient_address is not None:
-        script = "OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG" % binascii.hexlify( pybitcoin.bin_double_sha256( fake_pubkey ) )
-        scripthex = pybitcoin.make_pay_to_address_script( recipient_address )
+        script = "OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG" % binascii.hexlify( virtualchain.lib.hashing.bin_double_sha256( fake_pubkey ) )
+        scripthex = virtualchain.make_payment_script( recipient_address )
         outputs.append( {
             "scriptPubKey": {
                 "asm": script,
                 "hex": scripthex,
                 "addresses": [ recipient_address ]
-            }
+            },
+            "value": 10000000
         })
 
     if import_update_hash is not None:
         script = "OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG" % import_update_hash
-        scripthex = pybitcoin.make_pay_to_address_script( pybitcoin.hex_hash160_to_address( import_update_hash ) )
+        scripthex = virtualchain.make_payment_script( virtualchain.hex_hash160_to_address( import_update_hash ) )
         outputs.append( {
             "scriptPubKey": {
                 "asm": script,
                 "hex": scripthex,
-                "addresses": [ pybitcoin.hex_hash160_to_address(import_update_hash) ]
-            }
+                "addresses": [ virtualchain.hex_hash160_to_address(import_update_hash) ]
+            },
+            "value": 10000000
         })
-   
+
+    elif burn_address is not None:
+        scripthex = virtualchain.make_payment_script( burn_address )
+        outputs.append( {
+            "scriptPubKey": {
+                "asm": script,
+                "hex": scripthex,
+                "addresses": [ burn_address ]
+            },
+            "value": 10000000
+        })
+    
+    elif reveal_address is not None:
+        scripthex = virtualchain.make_payment_script( reveal_address )
+        outputs.append( {
+            "scriptPubKey": {
+                "asm": script,
+                "hex": scripthex,
+                "addresses": [ reveal_address ]
+            },
+            "value": 10000000
+        })
+
     try:
-        op = op_extract( opcode_name, payload, senders, inputs, outputs, 373601, 0, "00" * 64 )  
+        op = op_extract( opcode_name, payload, senders, inputs, outputs, 488501, 0, "00" * 64 )  
     except AssertionError, ae:
         # failed to parse
         return None
@@ -156,13 +181,13 @@ def check( state_engine ):
     #                                                                            discounts
    
     namespace_reveals = {
-        "valid":      "%s%s%s%s%s%s%s%s%s%s%s%s%s%s" % ("11111111", "02", "03", "40", "41", "42", "43", "44", "45", "46", "47", "15", "6666", binascii.hexlify("hello")),
-        "non-b38":    "%s%s%s%s%s%s%s%s%s%s%s%s%s%s" % ("11111111", "02", "03", "40", "41", "42", "43", "44", "45", "46", "47", "15", "6666", binascii.hexlify("Hello")),
-        "period2":    "%s%s%s%s%s%s%s%s%s%s%s%s%s%s" % ("11111111", "02", "03", "40", "41", "42", "43", "44", "45", "46", "47", "15", "6666", binascii.hexlify("He.l.lo")),
-        "period":     "%s%s%s%s%s%s%s%s%s%s%s%s%s%s" % ("11111111", "02", "03", "40", "41", "42", "43", "44", "45", "46", "47", "15", "6666", binascii.hexlify(".")),
-        "no-plus":    "%s%s%s%s%s%s%s%s%s%s%s%s%s%s" % ("11111111", "02", "03", "40", "41", "42", "43", "44", "45", "46", "47", "15", "6666", binascii.hexlify("hel+lo")),
-        "null_name":  "%s%s%s%s%s%s%s%s%s%s%s%s%s%s" % ("11111111", "02", "03", "40", "41", "42", "43", "44", "45", "46", "47", "15", "6666", binascii.hexlify("")),
-        "too_long":   "%s%s%s%s%s%s%s%s%s%s%s%s%s%s" % ("11111111", "02", "03", "40", "41", "42", "43", "44", "45", "46", "47", "15", "6666", binascii.hexlify("hellohellohellohello"))
+        "valid":      "%s%s%s%s%s%s%s%s%s%s%s%s%s%s" % ("11111111", "02", "03", "40", "41", "42", "43", "44", "45", "46", "47", "15", "0001", binascii.hexlify("hello")),
+        "non-b38":    "%s%s%s%s%s%s%s%s%s%s%s%s%s%s" % ("11111111", "02", "03", "40", "41", "42", "43", "44", "45", "46", "47", "15", "0001", binascii.hexlify("Hello")),
+        "period2":    "%s%s%s%s%s%s%s%s%s%s%s%s%s%s" % ("11111111", "02", "03", "40", "41", "42", "43", "44", "45", "46", "47", "15", "0001", binascii.hexlify("He.l.lo")),
+        "period":     "%s%s%s%s%s%s%s%s%s%s%s%s%s%s" % ("11111111", "02", "03", "40", "41", "42", "43", "44", "45", "46", "47", "15", "0001", binascii.hexlify(".")),
+        "no-plus":    "%s%s%s%s%s%s%s%s%s%s%s%s%s%s" % ("11111111", "02", "03", "40", "41", "42", "43", "44", "45", "46", "47", "15", "0001", binascii.hexlify("hel+lo")),
+        "null_name":  "%s%s%s%s%s%s%s%s%s%s%s%s%s%s" % ("11111111", "02", "03", "40", "41", "42", "43", "44", "45", "46", "47", "15", "0001", binascii.hexlify("")),
+        "too_long":   "%s%s%s%s%s%s%s%s%s%s%s%s%s%s" % ("11111111", "02", "03", "40", "41", "42", "43", "44", "45", "46", "47", "15", "0001", binascii.hexlify("hellohellohellohello"))
     }
 
     all_tests["&"] = compile_test( "&", namespace_reveals )
@@ -198,10 +223,15 @@ def check( state_engine ):
 
     all_tests["?"] = compile_test( "?", name_preorders )
 
-    # name register/renew wire format 
+    # name register/renew wire format (pre F-day 2017) 
     # 0    2  3                             39
     # |----|--|-----------------------------|
     # magic op   name.ns_id (37 bytes)
+
+    # name register/renew wire format (post F-day 2017)
+    # 0    2  3                                  39                  59
+    # |----|--|----------------------------------|-------------------|
+    # magic op   name.ns_id (37 bytes, 0-padded)       value hash
     
     name_registrations = {
         "valid":     binascii.hexlify("hello.test"),
@@ -211,7 +241,20 @@ def check( state_engine ):
         "null-namespace": binascii.hexlify("hello."),
         "2period":   binascii.hexlify("hello.tes.t"),
         "no-plus":   binascii.hexlify("hel+lo.test"),
-        "too-long":  binascii.hexlify("hellohellohellohellohellohellohel.test")
+        "too-long":  binascii.hexlify("hellohellohellohellohellohellohel.test"),
+
+        "valid_2":        binascii.hexlify("hello.test" + "\x00" * 27 + "\x11" * 20),
+        "null_name_2":    binascii.hexlify("\x00" * 37 + "\x11" * 20),
+        "non-b38_2":      binascii.hexlify("Hello.test" + "\x00" * 27 + "\x11" * 20),
+        "no-namespace_2": binascii.hexlify("hello" + "\x00" * 32 + "\x11" * 20),
+        "null-namespace_2":  binascii.hexlify("hello." + "\x00" * 31 + "\x11" * 20),
+        "2period_2":      binascii.hexlify("hello.tes.t" + "\x00" * 26 + "\x11" * 20),
+        "no-plus_2":      binascii.hexlify("hel+lo.test" + "\x00" * 26 + "\x11" * 20),
+        "too-long_2":     binascii.hexlify("hellohellohellohellohellohellohel.test" + "\x11" * 20),
+        "no_hash":      binascii.hexlify("hello.test" + "\x00" * 27),
+        "hash_too_long": binascii.hexlify("hello.test" + "\x00" * 27 + "\x11" * 21),
+        "padding_too_short": binascii.hexlify("hello.test" + "\x00" * 26 + "\x11" * 21),
+        "op_too_short": binascii.hexlify("hello.test" + "\x00" * 26 + "\x11" * 20),
     }
 
     all_tests[":"] = compile_test( ":", name_registrations )
@@ -297,30 +340,48 @@ def check( state_engine ):
     all_tests["#"] = compile_test( "#", announces )
 
     fake_pubkey = wallets[0].pubkey_hex
-    fake_sender = pybitcoin.make_pay_to_address_script( wallets[0].addr )
-    fake_recipient = pybitcoin.make_pay_to_address_script( wallets[1].addr )
+    fake_sender = virtualchain.make_payment_script( wallets[0].addr )
+    fake_recipient = virtualchain.make_payment_script( wallets[1].addr )
     fake_recipient_address = wallets[1].addr
     fake_import_update_hash = "44" * 20
+    fake_burn_address = virtualchain.address_reencode('1111111111111111111114oLvT2')
+    fake_reveal_address = fake_burn_address
 
     # only 'valid' tests should return non-NULL
     # all other tests should return None
     for opcode, tests in all_tests.items():
         print "test %s" % opcode
         for testname, testscript in tests.items():
+          
+            bin_testscript = binascii.unhexlify(testscript)[3:]
+            print 'script: {}'.format(bin_testscript)
 
-            parsed_op = parse_nameop( opcode, testscript[3:], fake_pubkey, \
-                    recipient=fake_recipient, recipient_address=fake_recipient_address, import_update_hash=fake_import_update_hash )
+            burn_addr = None
+            reveal_addr = None
+            import_hash = None
+
+            if opcode in ['*', '?']:
+                burn_addr = fake_burn_address
+
+            elif opcode == ';':
+                import_hash = fake_import_update_hash
+
+            elif opcode == '&':
+                reveal_addr = fake_reveal_address
+
+            parsed_op = parse_nameop( opcode, bin_testscript, fake_pubkey, \
+                    recipient=fake_recipient, recipient_address=fake_recipient_address, import_update_hash=import_hash, burn_address=burn_addr, reveal_address=reveal_addr )
 
             if testname.startswith("valid"):
                 # should work
                 if parsed_op is None:
-                    print >> sys.stderr, "Failed to parse valid id%s%s" % (opcode, testscript[3:])
+                    print >> sys.stderr, "Failed to parse %s id%s%s (%s)" % (testname, opcode, bin_testscript, binascii.hexlify(bin_testscript))
                     return False 
 
             else:
                 # should fail
                 if parsed_op is not None:
-                    print >> sys.stderr, "Parsed invalid test '%s' (id%s%s)" % (testname, opcode, testscript[3:])
+                    print >> sys.stderr, "Parsed invalid test '%s' (id%s%s)" % (testname, opcode, bin_testscript)
                     return False
 
     return True

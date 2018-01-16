@@ -35,7 +35,6 @@ from ..scripts import (
     add_magic_bytes,
     is_name_valid,
     tx_get_unspents,
-    hash256_trunc128
 )
 
 from ..logger import get_logger
@@ -88,7 +87,7 @@ def build(name, consensus_hash, data_hash=None):
     return packaged_script
 
 
-def make_outputs( data, inputs, change_address, tx_fee, pay_fee=True ):
+def make_outputs( data, inputs, change_address, tx_fee, pay_fee=True, dust_included = False ):
     """
     Make outputs for an update.
     Raise ValueError if there are not enough inputs to make the transaction
@@ -96,31 +95,33 @@ def make_outputs( data, inputs, change_address, tx_fee, pay_fee=True ):
 
     dust_fee = None
     op_fee = None
-    dust_value = None 
-    
+    dust_value = None
+
+    total_tx_fee = tx_fee
     if pay_fee:
-        dust_fee = (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE + tx_fee
+        if not dust_included:
+            total_tx_fee += (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
         op_fee = DEFAULT_DUST_FEE
         dust_value = DEFAULT_DUST_FEE
-    
     else:
         # will be subsidized
-        dust_fee = 0
+        total_tx_fee = 0
         op_fee = 0
         dust_value = 0
-   
+
     return [
         # main output
         {"script": virtualchain.make_data_script(str(data)),
          "value": 0},
-        
+
         # change output
         {"script": virtualchain.make_payment_script(change_address),
-         "value": virtualchain.calculate_change_amount(inputs, op_fee, dust_fee)}
+         "value": virtualchain.calculate_change_amount(inputs, op_fee, total_tx_fee)}
     ]
 
 
-def make_transaction(name, data_hash, consensus_hash, owner_addr, blockchain_client, tx_fee=0, subsidize=False, safety=True):
+def make_transaction(name, data_hash, consensus_hash, owner_addr, blockchain_client,
+                     tx_fee=0, subsidize=False, safety=True, dust_included = False):
     """
     Write a name update into the blockchain.
     Returns a JSON object with 'data' set to the nulldata and 'transaction_hash' set to the transaction hash on success.
@@ -134,8 +135,8 @@ def make_transaction(name, data_hash, consensus_hash, owner_addr, blockchain_cli
 
     assert len(consensus_hash) == LENGTH_CONSENSUS_HASH * 2
     assert is_name_valid(name)
-    
-    # sanity check 
+
+    # sanity check
     pay_fee = True
     if subsidize:
         pay_fee = False
@@ -145,8 +146,9 @@ def make_transaction(name, data_hash, consensus_hash, owner_addr, blockchain_cli
         assert len(inputs) > 0, "No UTXOs for {}".format(owner_addr)
 
     nulldata = build(name, consensus_hash, data_hash=data_hash)
-    outputs = make_outputs( nulldata, inputs, owner_addr, tx_fee, pay_fee=pay_fee )
-    
+    outputs = make_outputs( nulldata, inputs, owner_addr, tx_fee, pay_fee=pay_fee,
+                            dust_included = dust_included )
+
     return (inputs, outputs)
 
 

@@ -35,6 +35,7 @@ import socket
 import gc
 
 import virtualchain
+from nameset.virtualchain_hooks import get_last_block, get_snapshots
 
 from blockstack_client.config import semver_newer
 from blockstack_client.utils import url_to_host_port, atlas_inventory_to_string
@@ -53,7 +54,7 @@ log = virtualchain.get_logger("blockstack-server")
 from .config import *
 from .storage import *
 
-MIN_ATLAS_VERSION = "0.14.0"
+MIN_ATLAS_VERSION = "0.17.0"
 
 PEER_LIFETIME_INTERVAL = 3600  # 1 hour
 PEER_PING_INTERVAL = 600       # 10 minutes
@@ -1415,6 +1416,33 @@ def atlasdb_zonefile_find_missing( bit_offset, bit_count, con=None, path=None ):
     return ret
 
 
+def atlasdb_zonefile_find_present( bit_offset, bit_count, con=None, path=None ):
+    """
+    Find out which zonefiles we have.
+    offset and count are *bit* indexes
+    Return a list of zonefile rows, where present == 0.
+    """
+    if path is None:
+        path = atlasdb_path()
+
+    with AtlasDBOpen(con=con, path=path) as dbcon:
+
+        sql = "SELECT * FROM zonefiles WHERE present = 0 LIMIT ? OFFSET ?;"
+        args = (bit_count, bit_offset)
+
+        cur = dbcon.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        dbcon.commit()
+
+        ret = []
+        for row in res:
+            tmp = {}
+            tmp.update(row)
+            ret.append(tmp)
+
+    return ret
+
+
 def atlas_make_zonefile_inventory( bit_offset, bit_length, con=None, path=None ):
     """
     Get a summary description of the list of zonefiles we have
@@ -2622,6 +2650,8 @@ class AtlasPeerCrawler( threading.Thread ):
         self.neighbors_timeout = None
         self.ping_timeout =  None
 
+        self.consensus_hashes = {}
+
 
     def canonical_peer( self, peer ):
         """
@@ -2706,12 +2736,24 @@ class AtlasPeerCrawler( threading.Thread ):
                 continue
 
             if semver_newer( res['server_version'], MIN_ATLAS_VERSION ):
-                # too old to be an atlas node
+                # too old to be a valid atlas node
                 filtered.append(peer)
-                log.debug("%s is too old to be an atlas node (version %s)" % (peer, res['version']))
+                log.debug("%s is too old to be an atlas node (version %s)" % (peer, res['server_version']))
                 continue
 
-            # TODO: check consensus hash as well
+            our_last_block = get_last_block()
+            if not self.consensus_hashes.has_key(our_last_block):
+                consensus_hashes = get_snapshots()
+                if consensus_hashes:
+                    self.consensus_hashes = consensus_hashes
+
+            if self.consensus_hashes.has_key(our_last_block):
+
+                their_last_block = res['last_block_processed']
+                if their_last_block <= our_last_block and res['consensus'] not in self.consensus_hashes.values():
+                    # on different consensus rules than us
+                    log.debug("Peer {} has ({},{}), but we have ({},{}). Ignoring.".format(peer, their_last_block, res['consensus'], our_last_block, self.consensus_hashes[our_last_block]))
+                    continue
 
             if res:
                 log.debug("Add newly-discovered peer %s" % peer)

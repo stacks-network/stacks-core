@@ -375,6 +375,34 @@ def make_snapshot(snapshots_dir, private_key, block_number):
     return {'status': True}
 
 
+def remove_snapshot(snapshots_dir, block_number):
+    """
+    Remove an existing snapshot.
+    It must not be the current snapshot.
+
+    Return {'status': True} on success
+    Return {'error': ...} on failure
+    """
+    
+    snapshot_path = os.path.join(snapshots_dir, 'snapshot.bsk.{}'.format(block_number))
+    if not os.path.exists(snapshot_path) or not os.path.isfile(snapshot_path):
+        return {'error': 'No such file or directory: {}'.format(snapshot_path)}
+
+    snapshot_link = os.readlink(os.path.join(snapshots_dir, 'snapshot.bsk'))
+    if os.path.basename(snapshot_link) == 'snapshot.bsk.{}'.format(block_number):
+        return {'error': 'Snapshot for {} is the current snapshot'.format(block_number)}
+
+    log.debug("Remove old snapshot {}".format(snapshot_path))
+
+    try:
+        os.unlink(snapshot_path)
+    except Exception as e:
+        log.exception(e)
+        return {'error': 'Failed to remove {}'.format(snapshot_path)}
+
+    return {'status': True}
+
+
 def get_snapshot_hash(snapshots_dir, block_number):
     """
     Get the expected hash of a snapshot payload
@@ -426,7 +454,45 @@ def find_snapshot_blocks(snapshots_dir):
     return list(set(snapshot_blocks))
 
 
-def snapshotter_thread_main(working_dir, snapshots_dir, private_key, check_running):
+def find_old_snapshot_blocks(snapshots_dir, cur_block_height, max_age):
+    """
+    Find the block heights for which we have snapshots, but are now expired
+    """
+    snapshot_blocks = []
+    names = os.listdir(snapshots_dir)
+    cutoff = cur_block_height - max_age
+    for name in names:
+        if re.match("^snapshot.bsk.[0-9]+$", name):
+            # what's the block?
+            _, block_num_str = name.rsplit('.', 1)
+            block_num = int(block_num_str)
+            if block_num <= cutoff:
+                snapshot_blocks.append( block_num )
+
+    return list(set(snapshot_blocks))
+
+
+def clear_old_snapshots(snapshots_dir, cur_block, max_age):
+    """
+    Clear out old snapshots
+    """
+    log.debug("Clearing old snapshots")
+
+    # clean out old snapshots
+    if max_age is not None:
+        old_block_numbers = find_old_snapshot_blocks(snapshots_dir, cur_block, max_age)
+        for old_block_number in old_block_numbers:
+            if old_block_number == cur_block:
+                continue
+
+            res = remove_snapshot(snapshots_dir, old_block_number)
+            if 'error' in res:
+                log.error("Failed to remove snapshot for {}: {}".format(old_block_number, res['error']))
+
+    return
+
+
+def snapshotter_thread_main(working_dir, snapshots_dir, private_key, check_running, max_age=None):
     """
     Continuously watch the snapshots directory.
     Periodically check that we're not running with 
@@ -447,6 +513,8 @@ def snapshotter_thread_main(working_dir, snapshots_dir, private_key, check_runni
         os.makedirs(snapshots_dir)
 
     block_numbers = find_snapshot_blocks(snapshots_dir)
+    if len(block_numbers) > 0:
+        clear_old_snapshots(snapshots_dir, max(block_numbers), max_age)
 
     log.debug("Snapshotter start")
     while check_running():
@@ -472,14 +540,18 @@ def snapshotter_thread_main(working_dir, snapshots_dir, private_key, check_runni
             continue
 
         # have new snapshots to make.
-        # start with the most recent
-        for new_block in reversed(sorted(new_block_numbers)):
+        # start with the oldest
+        for new_block in sorted(new_block_numbers):
             res = make_snapshot( snapshots_dir, private_key, new_block )
             if 'error' in res:
                 log.error("Failed to make snapshot for {}: {}".format(new_block, res['error']))
 
             else:
                 block_numbers.append(new_block)
+
+        # clean out old snapshots
+        if len(block_numbers) > 0:
+            clear_old_snapshots(snapshots_dir, max(block_numbers), max_age)
 
     log.debug("Snapshotter exit")
     return
@@ -502,6 +574,7 @@ def read_config(config_path=SNAPSHOTS_CONFIG_PATH):
             'snapshots_dir': os.path.join( os.path.dirname(config_path), 'snapshots' ),
             'log_file': os.path.join( os.path.dirname(config_path), 'blockstack-snapshots.log' ),
             'port': 31128,
+            'max_age': 2016,
         },
     }
 
@@ -510,6 +583,7 @@ def read_config(config_path=SNAPSHOTS_CONFIG_PATH):
     snapshots_dir = None
     log_file = None
     port = None
+    max_age = None
 
     if parser.has_section("blockstack-snapshots"):
         if parser.has_option('blockstack-snapshots', 'private_key'):
@@ -524,6 +598,13 @@ def read_config(config_path=SNAPSHOTS_CONFIG_PATH):
         if parser.has_option('blockstack-snapshots', 'log_file'):
             log_file = parser.get('blockstack-snapshots', 'log_file')
 
+        if parser.has_option('blockstack-snapshots', 'max_age'):
+            try:
+                max_age = int(parser.get('blockstack-snapshots', 'max_age'))
+            except:
+                print >> sys.stderr, 'Failed to parse `max_age` in config file'
+                sys.exit(1)
+
         if parser.has_option('blockstack-snapshots', 'port'):
             try:
                 port = int(parser.get('blockstack-snapshots', 'port'))
@@ -537,7 +618,8 @@ def read_config(config_path=SNAPSHOTS_CONFIG_PATH):
             'public_keys': public_keys_path,
             'snapshots_dir': snapshots_dir,
             'log_file': log_file,
-            'port': port
+            'port': port,
+            'max_age': max_age,
         },
     }
 
@@ -561,7 +643,8 @@ def merge_config_args(conf, args):
         'snapshots':   'blockstack-snapshots.snapshots_dir',
         'public_keys': 'blockstack-snapshots.public_keys',
         'log_file':    'blockstack-snapshots.log_file',
-        'port':        'blockstack-snapshots.port'
+        'port':        'blockstack-snapshots.port',
+        'max_age':     'blockstack-snapshots.max_age',
     }
     
     required = fields.keys()
@@ -722,6 +805,14 @@ if __name__ == '__main__':
     parser.add_argument(
         '--foreground', action='store_true',
         help='Run in the foreground. Do not daemonize')
+
+    parser.add_argument(
+        '--max_age', action='store',
+        help='maximum snapshot age, in blocks')
+
+    parser.add_argument(
+        '--working_dir', action='store',
+        help='path to the blockstack server\'s working directory (defaults to {})'.format(working_dir))
    
     # ---------------------------
     parser = subparsers.add_parser(
@@ -756,7 +847,15 @@ if __name__ == '__main__':
     parser.add_argument(
         '--debug', action='store_true',
         help='activate debug output')
+
+    parser.add_argument(
+        '--max_age', action='store',
+        help='maximum snapshot age, in blocks')
     
+    parser.add_argument(
+        '--working_dir', action='store',
+        help='path to the blockstack server\'s working directory (defaults to {})'.format(working_dir))
+
     args, _ = argparser.parse_known_args()
 
     if hasattr(args, 'debug') and args.debug:
@@ -769,12 +868,18 @@ if __name__ == '__main__':
 
         os.execv(sys.argv[0], new_argv)
 
-    config_path = getattr(args, 'config_path', config_path)
+    if hasattr(args, 'config_file') and args.config_file:
+        config_path = args.config_file
 
     conf = read_config(config_path=config_path)
     conf = merge_config_args(conf, args)
 
+    if hasattr(args, 'working_dir') and args.working_dir:
+        working_dir = args.working_dir
+
     snapshots_conf = conf['blockstack-snapshots']
+
+    log.debug("working dir: {}".format(working_dir))
 
     if args.action == 'start':
         # start up 
@@ -783,6 +888,9 @@ if __name__ == '__main__':
         public_keys_path = snapshots_conf.get('public_keys', None)
         log_file = snapshots_conf.get('log_file', None)
         port = snapshots_conf.get('port', None)
+        max_age = snapshots_conf.get('max_age', None)
+        if max_age:
+            max_age = int(max_age)
 
         if snapshots_path is None or private_key_path is None or public_keys_path is None or log_file is None or port is None:
             argparser.print_help()
@@ -796,8 +904,11 @@ if __name__ == '__main__':
         trusted_public_keys = []
         
         if not os.path.exists(snapshots_path) or not os.path.isdir(snapshots_path):
-            print >> sys.stderr, "{} does not exist or is not a directory".format(snapshots_path)
-            sys.exit(1)
+            try:
+                os.makedirs(snapshots_path)
+            except:
+                print >> sys.stderr, "{} does not exist or is not a directory".format(snapshots_path)
+                sys.exit(1)
 
         if not os.path.exists(private_key_path):
             print >> sys.stderr, 'Failed to read {}: no such file or directory'.format(private_key_path)
@@ -876,7 +987,7 @@ if __name__ == '__main__':
 
         # daemon child continues here
         # start snapshotter thread
-        thr = thread.start_new_thread( snapshotter_thread_main, (working_dir, snapshots_path, private_key, is_running) )
+        thr = thread.start_new_thread( snapshotter_thread_main, (working_dir, snapshots_path, private_key, is_running, max_age) )
 
         # start HTTP server
         srv = BlockstackSnapshotServer( port, trusted_public_keys, private_key, snapshots_path )
@@ -916,6 +1027,9 @@ if __name__ == '__main__':
         # make all snapshots
         snapshots_path = snapshots_conf.get('snapshots_dir', None)
         private_key_path = snapshots_conf.get('private_key', None)
+        max_age = snapshots_conf.get('max_age', None)
+        if max_age:
+            max_age = int(max_age)
 
         if snapshots_path is None or private_key_path is None:
             argparser.print_help()
@@ -923,14 +1037,18 @@ if __name__ == '__main__':
             sys.exit(1)
 
         if not os.path.exists(snapshots_path) or not os.path.isdir(snapshots_path):
-            print >> sys.stderr, "{} does not exist or is not a directory"
-            sys.exit(1)
+            try:
+                os.makedirs(snapshots_path)
+            except:
+                print >> sys.stderr, "{} does not exist or is not a directory".format(snapshots_path)
+                sys.exit(1)
 
         if not os.path.exists(private_key_path):
             print >> sys.stderr, 'Failed to read {}: no such file or directory'.format(private_key_path)
             sys.exit(1)
 
         def _snapshot_running():
+            # make snapshotter_thread_main() run once
             global running
             if running:
                 running = False
@@ -948,5 +1066,5 @@ if __name__ == '__main__':
             print >> sys.stderr, "Invalid key data"
             sys.exit(1)
 
-        snapshotter_thread_main(working_dir, snapshots_path, private_key, _snapshot_running)
+        snapshotter_thread_main(working_dir, snapshots_path, private_key, _snapshot_running, max_age)
         sys.exit(0)

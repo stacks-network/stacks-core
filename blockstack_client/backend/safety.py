@@ -39,6 +39,8 @@ from ..constants import (
     APPROX_NAMESPACE_PREORDER_TX_LEN,
     APPROX_NAMESPACE_REVEAL_TX_LEN,
     APPROX_NAMESPACE_READY_TX_LEN,
+    NAMESPACE_VERSION_PAY_TO_CREATOR,
+    NAMESPACE_VERSION_PAY_TO_BURN
 )
 
 from ..proxy import (
@@ -49,9 +51,12 @@ from ..proxy import (
     is_namespace_revealed,
     is_namespace_ready,
     json_is_error,
+    get_name_blockchain_record,
     get_namespace_cost,
     get_namespace_blockchain_record,
     get_num_names_in_namespace,
+    getinfo,
+    is_name_owner
 )
 
 from ..config import get_utxo_provider_client
@@ -61,7 +66,7 @@ from ..utils import ScatterGather, ScatterGatherThread
 
 from .blockchain import (
     get_balance, is_address_usable, get_utxos,
-    can_receive_name, get_tx_fee_per_byte
+    can_receive_name 
 )
 
 from virtualchain.lib.ecdsalib import ecdsa_private_key
@@ -154,7 +159,7 @@ def check_valid_namespace(nsid):
 
 def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
                             required_checks=[], min_confirmations=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH,
-                            transfer_address=None, owner_address=None, proxy=None):
+                            transfer_address=None, owner_address=None, zonefile_hash=None, burn_address=None, proxy=None):
     """
     Do a sanity check on carrying out a sequence of operations on a given name.
     Prime the given scatter/gather context with the set of necessary callbacks.
@@ -177,6 +182,10 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
     If not preordering:
     * name must be registered
     * name must be owned by the owner address
+
+    If renewing:
+    * can only set the value hash if we're in epoch 3+
+    * can only change owner if we're in epoch 3+
 
     Return {'status': True} on success
     Return {'error': ...} on error
@@ -238,21 +247,15 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         else:
             return {'status': True}
 
-    def _is_name_owner(addr):
+    def _is_name_owner(name, addr):
         """
         Is the given address the name owner?
         """
-        res = get_names_owned_by_address(addr, proxy=proxy)
-        if 'error' in res:
-            log.error("Failed to get names owned by {}: {}".format(addr, res['error']))
-            return {'error': res['error']}
+        res = is_name_owner(name, addr, proxy=proxy)
+        if not res:
+            return {'error': 'Address {} does not own {}'.format(addr, name)}
 
-        else:
-            if fqu_or_ns not in res:
-                log.error("Name {} not owned by {}".format(fqu_or_ns, addr))
-                return {'error': 'Name {} not owned by {}'.format(fqu_or_ns, addr)}
-
-            return {'status': True}
+        return {'status': True}
 
     def _is_namespace_available(ns):
         """
@@ -309,12 +312,144 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         if not virtualchain.is_singlesig_address(reveal_address):
             return {'error': 'Invalid address; only p2pkh addresses are supported for namespace reveal'}
         
-        if not BLOCKSTACK_TEST:
-            # if we're *NOT* testing, then we also require that the reveal key be absent from the blockchain.
-            utxos = get_utxos(reveal_address, utxo_client=utxo_client, config_path=config_path, min_confirmations=0)
-            if len(utxos) > 0:
-                return {'error': 'Reveal key must not have been used prior to namespace reveal'}
+        return {'status': True}
 
+    def _register_can_change_zonefile_hash(zonefile_hash):
+        """
+        If we're registering, can we set the value hash?
+        """
+        import blockstack
+        if zonefile_hash is not None:
+            indexer_info = getinfo()
+            if 'error' in indexer_info:
+                return {'error': 'Failed to contact indexer'}
+            
+            # +1, so we consider the next block to be formed.
+            epoch_features = blockstack.get_epoch_features(indexer_info['last_block_seen']+1)
+            if blockstack.EPOCH_FEATURE_OP_REGISTER_UPDATE not in epoch_features:
+                # not active yet
+                return {'error': 'NAME_REGISTRATION cannot set value hashes in this epoch (block {})'.format(indexer_info['last_block_seen'])}
+
+            log.debug("Epoch feature '{}' is active!".format(blockstack.EPOCH_FEATURE_OP_REGISTER_UPDATE))
+
+        return {'status': True}
+
+    def _renewal_can_change_zonefile_hash(zonefile_hash):
+        """
+        If we're renewing, can we set the value hash?
+        """
+        import blockstack
+        if zonefile_hash is not None:
+            indexer_info = getinfo()
+            if 'error' in indexer_info:
+                return {'error': 'Failed to contact indexer'}
+
+            # +1, so we consider the next block to be formed
+            epoch_features = blockstack.get_epoch_features(indexer_info['last_block_seen']+1)
+            if blockstack.EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE not in epoch_features:
+                # not active yet
+                return {'error': 'NAME_RENEWAL cannot set value hashes in this epoch (block {})'.format(indexer_info['last_block_seen'])}
+
+            log.debug("Epoch feature '{}' is active!".format(blockstack.EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE))
+
+        return {'status': True}
+
+    def _renewal_can_change_owner_address(transfer_address):
+        """
+        If we're renewing, can we set the transfer address?
+        """
+        import blockstack
+        if transfer_address is not None and transfer_address != owner_address:
+            indexer_info = getinfo()
+            if 'error' in indexer_info:
+                return {'error': 'Failed to contact indexer'}
+
+            # +1, so we consider the next block to be formed
+            epoch_features = blockstack.get_epoch_features(indexer_info['last_block_seen']+1)
+            if blockstack.EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE not in epoch_features:
+                # not active yet
+                return {'error': 'NAME_RENEWAL cannot change the owner in this epoch'}
+            
+            log.debug("Epoch feature '{}' is active!".format(blockstack.EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE))
+
+        return {'status': True}
+
+    def _is_burn_address_correct(fqu, burn_addr):
+        """
+        If we're preordering or registering, is the burn address valid?
+        """
+        import blockstack
+        if burn_addr is not None:
+            indexer_info = getinfo()
+            if 'error' in indexer_info:
+                return {'error': 'Failed to contact indexer'}
+
+            # +1, so we consider the next block to be formed 
+            block_height = indexer_info['last_block_seen'] + 1
+            epoch_features = blockstack.get_epoch_features(block_height)
+            if blockstack.EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR not in epoch_features and virtualchain.address_reencode(burn_addr) != virtualchain.address_reencode(blockstack.BLOCKSTACK_BURN_ADDRESS):
+                # not active yet 
+                return {'error': 'cannot burn to namespace burn address (not allowed in this epoch)'}
+
+            # what's the namespace burn address?
+            nsid = blockstack.get_namespace_from_name(fqu)
+            ns_info = get_namespace_blockchain_record(nsid)
+            if 'error' in ns_info:
+                return {'error': 'Failed to get namespace info for {}'.format(nsid)}
+
+            ns_burn_address = None
+            if (ns_info['version'] & NAMESPACE_VERSION_PAY_TO_BURN) != 0:
+                # version-1 namespace: pay to null burn address
+                ns_burn_address = blockstack.BLOCKSTACK_BURN_ADDRESS
+
+            elif (ns_info['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR) != 0:
+                # version-2 namespace: pay to namespace creator if it's still in it's fee capture period
+                receive_fees_period = blockstack.get_epoch_namespace_receive_fees_period(block_height, nsid)
+                if ns_info['reveal_block'] + receive_fees_period >= block_height:
+                    # use the namespace burn address
+                    ns_burn_address = str(ns_info['address'])
+                else:
+                    # use the null burn address
+                    ns_burn_address = blockstack.BLOCKSTACK_BURN_ADDRESS
+            
+            log.debug("Burn address for {} is {}".format(nsid, ns_burn_address))
+            if virtualchain.address_reencode(str(burn_address)) != virtualchain.address_reencode(ns_burn_address):
+                return {'error': 'wrong burn address: expected {}, got {}'.format(
+                    virtualchain.address_reencode(ns_burn_address),
+                    virtualchain.address_reencode(str(burn_address))
+                )}
+
+        return {'status': True}
+
+    def _is_name_outside_grace_period(fqu):
+        """
+        Is the name outside the grace period?
+        """
+        import blockstack
+
+        indexer_info = getinfo()
+        if 'error' in indexer_info:
+            return {'error': 'Failed to contact indexer'}
+
+        # +1, so we consider the next block to be formed 
+        block_number = indexer_info['last_block_seen']+1
+        nsid = blockstack.get_namespace_from_name(fqu)
+
+        name_rec = get_name_blockchain_record(fqu)
+        if 'error' in name_rec:
+            log.error("Failed to get name record for {}".format(fqu))
+            return {'error': 'Failed to get name blockchain record for {}'.format(fqu)}
+            
+        namespace_rec = get_namespace_blockchain_record(nsid)
+        if 'error' in namespace_rec:
+            log.error('Failed to get namespace record for {}'.format(nsid))
+            return {'error': 'Failed to get namespace record for {}'.format(nsid)}
+
+        grace_info = blockstack.BlockstackDB.get_name_deadlines(name_rec, namespace_rec, block_number)
+        if (block_number >= grace_info['expire_block'] and block_number < grace_info['renewal_deadline']):
+            return {'error': 'Name {} is in the renewal grace period.  Only renewals are possible.'.format(fqu)}
+           
+        log.debug("Block number is {}, but grace period is between {} and {}".format(block_number, grace_info['expire_block'], grace_info['renewal_deadline']))
         return {'status': True}
 
     def _is_name_import_key(fqu_or_ns, import_privkey):
@@ -329,7 +464,7 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
 
         nsid = fqu_or_ns
         if '.' in fqu_or_ns:
-            nsid = fqu_or_ns.split('.')[1]
+            nsid = blockstack.get_namespace_from_name(fqu_or_ns)
 
         if not virtualchain.is_singlesig(import_privkey):
             if BLOCKSTACK_TEST:
@@ -396,13 +531,18 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         'is_name_available': _is_name_available,
         'owner_can_receive': lambda: _can_receive_name(owner_address),
         'is_name_registered': _is_name_registered,
-        'is_name_owner': lambda: _is_name_owner(owner_address),
+        'is_name_owner': lambda: _is_name_owner(fqu_or_ns, owner_address),
         'recipient_can_receive': lambda: _can_receive_name(transfer_address),
         'is_namespace_available': lambda: _is_namespace_available(fqu_or_ns),
         'is_namespace_still_revealed': lambda: _is_namespace_still_revealed(fqu_or_ns),
         'is_namespace_revealer': lambda: _is_namespace_revealer(fqu_or_ns, owner_address),
         'is_namespace_reveal_address_valid': lambda: _is_namespace_reveal_address_valid(owner_address),
-        'is_name_import_key': lambda: _is_name_import_key(fqu_or_ns, payment_privkey_info)
+        'is_name_import_key': lambda: _is_name_import_key(fqu_or_ns, payment_privkey_info),
+        'register_can_change_zonefile_hash': lambda: _register_can_change_zonefile_hash(zonefile_hash),
+        'renewal_can_change_zonefile_hash': lambda: _renewal_can_change_zonefile_hash(zonefile_hash),
+        'renewal_can_change_owner_address': lambda: _renewal_can_change_owner_address(transfer_address),
+        'is_burn_address_correct': lambda: _is_burn_address_correct(fqu_or_ns, burn_address),
+        'is_name_outside_grace_period': lambda: _is_name_outside_grace_period(fqu_or_ns),
     }
     
     # common to all operations
@@ -422,7 +562,7 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
     # add tasks for fees
     res = get_operation_fees(fqu_or_ns, operations, sg, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
                              payment_address=payment_address, owner_address=owner_address, transfer_address=transfer_address,
-                             min_payment_confs=min_confirmations, config_path=config_path, proxy=proxy )
+                             zonefile_hash=zonefile_hash, min_payment_confs=min_confirmations, config_path=config_path, proxy=proxy )
 
     if 'error' in res:
         log.error("Failed to get operation fees: {}".format(res['error']))
@@ -468,6 +608,25 @@ def interpret_operation_sanity_checks( operations, scatter_gather ):
     return reply
 
 
+def make_fake_input(addr, value=21 * 10**8):
+    """
+    Make a fake transaction input, based on the kind of input the given private key information
+    is expected to create.
+    """
+    fake_input = {
+        "transaction_hash": '00' * 32,
+        'outpoint': {
+            'index': 0,
+            'hash': '00' * 32,
+        },
+        "value": value,
+        "out_script": virtualchain.make_payment_script(addr),
+        "confirmations": 256,
+    }
+
+    return fake_input
+
+
 def estimate_transaction_inputs(operations, inputs, owner_address=None, payment_address=None):
     """
     Estimate the inputs that will be consumed by each
@@ -508,12 +667,13 @@ def estimate_transaction_inputs(operations, inputs, owner_address=None, payment_
 
 
 def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
-                       proxy=None, config_path=CONFIG_PATH, payment_address=None,
-                       min_payment_confs=TX_MIN_CONFIRMATIONS, owner_address=None, transfer_address=None):
+                       proxy=None, config_path=CONFIG_PATH, payment_address=None, zonefile_hash=None,
+                       min_payment_confs=TX_MIN_CONFIRMATIONS, owner_address=None, transfer_address=None,
+                       fake_utxos=False):
     """
     Given a list of operations and a scatter/gather context,
     go prime it to fetch the cost of each operation.
-    
+
     Operations must be a list containing 'preorder', 'register', 'update', 'transfer', 'revoke',
     'renewal', 'namespace_preorder', 'namespace_reveal', 'namespace_ready', or 'name_import'
 
@@ -524,7 +684,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
         * "tx_fee": the transaction fee (including dust)
         * "insufficient": whether or not we had sufficient funds to calculate the tx_fee
         * "estimate": whether or not this is a rough estimate (i.e. if we don't have the payment info on hand)
-    
+
         Preorder and Renewal will also have:
         * "name_cost": the cost of the name itself
 
@@ -544,7 +704,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
         estimate_namespace_preorder_tx_fee, estimate_namespace_reveal_tx_fee,
         estimate_namespace_ready_tx_fee, estimate_name_import_tx_fee
     )
-    
+
     name_operations = ['preorder', 'register', 'update', 'transfer', 'revoke', 'renewal']
     namespace_operations = ['namespace_preorder', 'namespace_reveal', 'namespace_ready', 'name_import']
 
@@ -567,17 +727,19 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
     # cost of registration transaction + cost of update transaction + cost of transfer transaction
 
     if owner_address:
-        owner_address = str(owner_address)
+        owner_address = virtualchain.address_reencode(str(owner_address))
+
     if payment_address:
-        payment_address = str(payment_address)
+        payment_address = virtualchain.address_reencode(str(payment_address))
+
     if transfer_address:
-        transfer_address = str(transfer_address)
+        transfer_address = virtualchain.address_reencode(str(transfer_address))
 
     assert owner_address, "Owner address or owner_privkey_info required"
     assert payment_address, "Payment address or payment_privkey_info required"
     if ('transfer' in operations or 'name_import' in operations) and (transfer_address is None or len(transfer_address) == 0):
         return {'error': 'Transfer or name import requested, but no recipient address given'}
-    
+
     if len(set(operations).intersection(set(name_operations))) > 0 and len(set(operations).intersection(set(namespace_operations))) > 0:
         return {'error': 'Cannot mix name and namespace operations'}
 
@@ -586,43 +748,56 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
 
     # first things first: get UTXOs for owner and payment addresses
     utxo_client = get_utxo_provider_client(config_path=config_path, min_confirmations=min_payment_confs)
-    
-    log.debug("Getting UTXOs for {}".format(owner_address))
-    owner_utxos = get_utxos(owner_address, utxo_client=utxo_client, config_path=config_path, min_confirmations=min_payment_confs)
-    if 'error' in owner_utxos:
-        log.error("Failed to get UTXOs for {}: {}".format(owner_address, owner_utxos['error']))
-        return {'error': 'Failed to get UTXOs for {}'.format(owner_address)}
 
-    payment_utxos = get_utxos(payment_address, utxo_client=utxo_client, config_path=config_path, min_confirmations=min_payment_confs)
-    if 'error' in payment_utxos:
-        log.error("Failed to get UTXOs for {}: {}".format(payment_address, payment_utxos['error']))
-        return {'error': 'Failed to get UTXOs for {}'.format(payment_address)}
+    if not fake_utxos:
+        log.debug("Getting UTXOs for {}".format(owner_address))
+        owner_utxos = get_utxos(owner_address, utxo_client=utxo_client, config_path=config_path, min_confirmations=min_payment_confs)
+        if 'error' in owner_utxos:
+            log.error("Failed to get UTXOs for {}: {}".format(owner_address, owner_utxos['error']))
+            return {'error': 'Failed to get UTXOs for {}'.format(owner_address)}
 
-    balance = sum([utxo.get('value', None) for utxo in payment_utxos])
-    log.debug("Balance of {} is {} satoshis".format(payment_address, balance))
+        payment_utxos = get_utxos(payment_address, utxo_client=utxo_client, config_path=config_path, min_confirmations=min_payment_confs)
+        if 'error' in payment_utxos:
+            log.error("Failed to get UTXOs for {}: {}".format(payment_address, payment_utxos['error']))
+            return {'error': 'Failed to get UTXOs for {}'.format(payment_address)}
+
+        balance = sum([utxo.get('value', None) for utxo in payment_utxos])
+        log.debug("Balance of {} is {} satoshis".format(payment_address, balance))
+    else:
+        log.debug("Forcing fake UTXOs")
+        owner_utxos = []
+        payment_utxos = []
+        balance = 0
 
     estimated_owner_inputs = []
     estiamted_payment_inputs = []
 
-    # find out what our UTXOs will look like for each operation 
+    # find out what our UTXOs will look like for each operation
     if len(owner_utxos) > 0:
         estimated_owner_inputs = estimate_transaction_inputs(operations, owner_utxos, owner_address=owner_address)['inputs']
     else:
-        estimated_owner_inputs = [[]] * len(operations)
+        # generate a fake owner input
+        log.warning("Using a fake owner input")
+        fake_owner_input = make_fake_input(owner_address)
+        estimated_owner_inputs = [[fake_owner_input]] * len(operations)
 
     if len(payment_utxos) > 0:
         estimated_payment_inputs = estimate_transaction_inputs(operations, payment_utxos, payment_address=payment_address)['inputs']
     else:
-        estimated_payment_inputs = [[]] * len(operations)
+        log.warning("Using a fake payment input")
+        fake_payment_input = make_fake_input(payment_address)
+        estimated_payment_inputs = [[fake_payment_input]] * len(operations)
 
     log.debug("Get total operation fees for running '{}' on {} owned by {} paid by {}".format(','.join(operations), name_or_ns, owner_address, payment_address))
 
     for i in xrange(0, len(operations)):
         if BLOCKSTACK_TEST:
-            log.debug("Operation {} may consume owner inputs\n{}".format(operations[i], json.dumps(estimated_owner_inputs[i], indent=4, sort_keys=True)))
-            log.debug("Operation {} may consume payment inputs\n{}".format(operations[i], json.dumps(estimated_payment_inputs[i], indent=4, sort_keys=True)))
+            log.debug("Operation {} may consume owner inputs of {}\n{}".format(operations[i], owner_address, json.dumps(estimated_owner_inputs[i], indent=4, sort_keys=True)))
+            log.debug("Operation {} may consume payment inputs of {}\n{}".format(operations[i], payment_address, json.dumps(estimated_payment_inputs[i], indent=4, sort_keys=True)))
         else:
-            log.debug("Operation {} may consume up to {} owner inputs and {} payment inputs".format(operations[i], len(estimated_owner_inputs[i]), len(estimated_payment_inputs[i])))
+            log.debug("Operation {} may consume up to {} owner inputs of {} and {} payment inputs of {}".format(
+                operations[i], len(estimated_owner_inputs[i]), owner_address, len(estimated_payment_inputs[i]), payment_address
+            ))
 
     def _get_balance():
         """
@@ -653,7 +828,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
             insufficient_funds = False
             preorder_tx_fee = estimate_preorder_tx_fee(
                 name_or_ns, name_cost, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client,
-                payment_utxos=estimated_payment_inputs[operation_index],
+                payment_utxos=estimated_payment_inputs[operation_index], owner_address=owner_address,
                 config_path=config_path, include_dust=True
             )
 
@@ -687,7 +862,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
             insufficient_funds = False
             register_tx_fee = estimate_register_tx_fee(
                 name_or_ns, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client,
-                payment_utxos=estimated_payment_inputs[operation_index],
+                payment_utxos=estimated_payment_inputs[operation_index], owner_address=owner_address, zonefile_hash=zonefile_hash,
                 config_path=config_path, include_dust=True
             )
 
@@ -849,7 +1024,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
             estimate = False
 
             tx_fee = estimate_renewal_tx_fee(
-                name_or_ns, name_cost, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client,
+                name_or_ns, name_cost, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, zonefile_hash=zonefile_hash,
                 payment_utxos=estimated_payment_inputs[operation_index], owner_utxos=estimated_owner_inputs[operation_index],
                 config_path=config_path, include_dust=True
             )
@@ -1154,7 +1329,7 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
         insufficient_funds = True
 
     if insufficient_funds:
-        reply['warnings'] = ['Insufficient funds; fees are rough estimates.']
+        reply['warnings'] = ['Insufficient funds (need {}, have {}).  Fees are rough estimates.'.format(total_cost, balance)]
 
     if estimate:
         reply.setdefault('warnings', [])
@@ -1168,7 +1343,8 @@ def interpret_operation_fees( operations, scatter_gather, balance=None ):
     return reply
 
 
-def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey_info, required_checks=[], transfer_address=None, owner_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey_info, required_checks=[], burn_address=None, 
+                      transfer_address=None, owner_address=None, zonefile_hash=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
     """
     Verify that an operation sequence can be performed, given the set of sanity checks that must pass.
     Return {'status': True, 'opchecks': {...}} if so
@@ -1182,7 +1358,7 @@ def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey
     payment_address = virtualchain.get_privkey_address(payment_privkey_info)
     
     # first things first: get fee per byte 
-    tx_fee_per_byte = get_tx_fee_per_byte(config_path=config_path)
+    tx_fee_per_byte = virtualchain.get_tx_fee_per_byte(config_path=config_path)
     if tx_fee_per_byte is None:
         log.error("Unable to calculate fee per byte")
         return {'error': 'Unable to get fee estimate'}
@@ -1190,7 +1366,7 @@ def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey
     sg = ScatterGather()
 
     res = operation_sanity_checks(fqu_or_ns, operations, sg, payment_privkey_info, owner_privkey_info, tx_fee_per_byte,
-                                  required_checks=required_checks, owner_address=owner_address,
+                                  required_checks=required_checks, owner_address=owner_address, burn_address=burn_address, zonefile_hash=zonefile_hash,
                                   min_confirmations=min_payment_confs, config_path=config_path,
                                   transfer_address=transfer_address, proxy=proxy )
 
@@ -1237,7 +1413,8 @@ def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey
     return {'status': True, 'opchecks': opchecks, 'tx_fee_per_byte': tx_fee_per_byte}
 
 
-def _check_op(fqu_or_ns, operation, required_checks, owner_privkey_info, payment_privkey_info, owner_address=None, transfer_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+def _check_op(fqu_or_ns, operation, required_checks, owner_privkey_info, payment_privkey_info,
+              owner_address=None, transfer_address=None, zonefile_hash=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
     """
     Check an operation
     Return {'status': True, 'opchecks': {...}, 'tx_fee': ...} on success
@@ -1247,7 +1424,8 @@ def _check_op(fqu_or_ns, operation, required_checks, owner_privkey_info, payment
     assert payment_privkey_info
 
     res = check_operations( fqu_or_ns, [operation], owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs,
-                            transfer_address=transfer_address, owner_address=owner_address, required_checks=required_checks, config_path=config_path, proxy=proxy )
+                            transfer_address=transfer_address, owner_address=owner_address, zonefile_hash=zonefile_hash,
+                            required_checks=required_checks, config_path=config_path, proxy=proxy )
 
     opchecks = res.get('opchecks', None)
     tx_fee_per_byte = res.get('tx_fee_per_byte', None)
@@ -1263,7 +1441,7 @@ def _check_op(fqu_or_ns, operation, required_checks, owner_privkey_info, payment
         return {'status': True, 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
 
 
-def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, owner_address=None, burn_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
     """
     Verify that a preorder can go through.
 
@@ -1274,9 +1452,9 @@ def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info,
     assert owner_privkey_info
     assert payment_privkey_info
 
-    required_checks = ['is_name_available', 'is_payment_address_usable']
+    required_checks = ['is_name_available', 'is_payment_address_usable', 'is_burn_address_correct']
 
-    res = check_operations( fqu, ['preorder'], owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs,
+    res = check_operations( fqu, ['preorder'], owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs, burn_address=burn_address, owner_address=owner_address,
                             required_checks=required_checks, config_path=config_path, proxy=proxy )
 
     opchecks = res.get('opchecks', None)
@@ -1297,14 +1475,15 @@ def check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info,
     return {'status': True, 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
 
 
-def check_register(fqu, owner_privkey_info, payment_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None, force_it=False ):
+def check_register(fqu, owner_privkey_info, payment_privkey_info, owner_address=None, zonefile_hash=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None, force_it=False ):
     """
     Verify that a register can go through
     """
-    required_checks = ['is_name_available', 'is_payment_address_usable']
+    required_checks = ['is_name_available', 'is_payment_address_usable', 'register_can_change_zonefile_hash']
     if not force_it:
         required_checks += ['owner_can_receive']
-    return _check_op(fqu, 'register', required_checks, owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy )
+    return _check_op(fqu, 'register', required_checks, owner_privkey_info, payment_privkey_info,
+            owner_address=owner_address, zonefile_hash=zonefile_hash, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy )
 
 
 def check_update(fqu, owner_privkey_info, payment_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None, force_it=False ):
@@ -1313,7 +1492,8 @@ def check_update(fqu, owner_privkey_info, payment_privkey_info, min_payment_conf
     """
     required_checks = ['is_payment_address_usable']
     if not force_it:
-        required_checks += ['is_name_registered', 'is_owner_address_usable', 'is_name_owner']
+        required_checks += ['is_name_registered', 'is_owner_address_usable', 'is_name_owner', 'is_name_outside_grace_period']
+
     return _check_op(fqu, 'update', required_checks, owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)
 
 
@@ -1321,20 +1501,27 @@ def check_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
     """
     Verify that a transfer can go through
     """
-    required_checks = ['is_name_registered', 'is_owner_address_usable', 'is_payment_address_usable', 'is_name_owner', 'recipient_can_receive']
+    required_checks = ['is_name_registered', 'is_owner_address_usable', 'is_payment_address_usable', 'is_name_owner', 'recipient_can_receive', 'is_name_outside_grace_period']
+
     return _check_op(fqu, 'transfer', required_checks, owner_privkey_info, payment_privkey_info, transfer_address=transfer_address, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy)
 
 
-def check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
+def check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, zonefile_hash=None, new_owner_address=None, burn_address=None, min_payment_confs=TX_MIN_CONFIRMATIONS, config_path=CONFIG_PATH, proxy=None ):
     """
     Verify that a renew can go through
     """ 
     # find tx fee, and do sanity checks
     assert owner_privkey_info
     assert payment_privkey_info
+    
+    if new_owner_address is None:
+        new_owner_address = virtualchain.get_privkey_address(owner_privkey_info)
 
-    required_checks = ['is_name_registered', 'is_name_owner', 'is_owner_address_usable', 'is_payment_address_usable']
-    res = check_operations( fqu, ['renewal'], owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs,
+    required_checks = ['is_name_registered', 'is_name_owner', 'is_owner_address_usable', 'is_payment_address_usable', 
+                       'recipient_can_receive', 'renewal_can_change_zonefile_hash', 'renewal_can_change_owner_address',
+                       'is_burn_address_correct']
+
+    res = check_operations( fqu, ['renewal'], owner_privkey_info, payment_privkey_info, zonefile_hash=zonefile_hash, transfer_address=new_owner_address, min_payment_confs=min_payment_confs, burn_address=burn_address,
                             required_checks=required_checks, config_path=config_path, proxy=proxy )
 
     opchecks = res.get('opchecks', None)
@@ -1358,7 +1545,7 @@ def check_revoke(fqu, owner_privkey_info, payment_privkey_info, min_payment_conf
     """
     Verify that a revoke can go through
     """
-    required_checks = ['is_name_registered', 'is_name_owner', 'is_owner_address_usable', 'is_payment_address_usable']
+    required_checks = ['is_name_registered', 'is_name_owner', 'is_owner_address_usable', 'is_payment_address_usable', 'is_name_outside_grace_period']
     return _check_op(fqu, 'revoke', required_checks, owner_privkey_info, payment_privkey_info, min_payment_confs=min_payment_confs, config_path=config_path, proxy=proxy )
 
 

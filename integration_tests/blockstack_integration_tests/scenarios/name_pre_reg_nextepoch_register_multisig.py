@@ -22,11 +22,11 @@
 """ 
 
 """
-TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 262
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 694
 """
 
 import testlib
-import pybitcoin
+import virtualchain
 import blockstack as blockstack_server
 import virtualchain 
 

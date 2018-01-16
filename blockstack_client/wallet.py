@@ -149,7 +149,12 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
     # encrypt secrets
     wallet_secret_str = json.dumps(wallet_enc, sort_keys=True)
     password_hex = hexlify(password)
-    encrypted_secret_str = aes_encrypt(wallet_secret_str, password_hex)
+
+    scrypt_kwargs = {}
+    if os.environ.get("BLOCKSTACK_TEST") == "1" and os.environ.get('BLOCKSTACK_CLIENT_WALLET_CRYPTO_PARAMS') is not None:
+        scrypt_kwargs = json.loads(os.environ["BLOCKSTACK_CLIENT_WALLET_CRYPTO_PARAMS"])
+
+    encrypted_secret_str = aes_encrypt(wallet_secret_str, password_hex, **scrypt_kwargs)
 
     # fulfill wallet
     wallet['enc'] = encrypted_secret_str
@@ -164,6 +169,7 @@ def encrypt_wallet(decrypted_wallet, password, test_legacy=False):
             raise
 
     return wallet
+
 
 def save_modified_wallet(decrypted_wallet, password, config_path = CONFIG_PATH):
     """
@@ -180,6 +186,7 @@ def save_modified_wallet(decrypted_wallet, password, config_path = CONFIG_PATH):
     encrypted_wallet = encrypt_wallet(decrypted_wallet, password)
     if 'error' in encrypted_wallet:
         return encrypted_wallet
+
     # sanity check
     jsonschema.validate(encrypted_wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
 
@@ -191,7 +198,8 @@ def save_modified_wallet(decrypted_wallet, password, config_path = CONFIG_PATH):
 
     return write_wallet(encrypted_wallet, path=wallet_path)
 
-def make_wallet(password, payment_privkey_info=None, owner_privkey_info=None, data_privkey_info=None, test_legacy=False, encrypt=True):
+
+def make_wallet(password, payment_privkey_info=None, owner_privkey_info=None, data_privkey_info=None, test_legacy=False, encrypt=True, segwit=None):
     """
     Make a new, encrypted wallet structure.
     The owner and payment keys will be 2-of-3 multisig key bundles.
@@ -204,9 +212,29 @@ def make_wallet(password, payment_privkey_info=None, owner_privkey_info=None, da
     if test_legacy and not BLOCKSTACK_TEST:
         raise Exception("Not in testing but tried to make a legacy wallet")
 
+    if segwit is None:
+        # no preference given.
+        # safe to use by default post-F-day 2017 (Dec 1 2017)
+        '''
+        if time.time() >= 1512086400:
+            segwit = True
+
+        else:
+            # defer to virtualchain
+            segwit = virtualchain.get_features('segwit')
+        '''
+        # disable for now
+        segwit = False
+
     # default to 2-of-3 multisig key info if data isn't given
-    payment_privkey_info = virtualchain.make_multisig_wallet(2, 3) if payment_privkey_info is None and not test_legacy else payment_privkey_info
-    owner_privkey_info = virtualchain.make_multisig_wallet(2, 3) if owner_privkey_info is None and not test_legacy else owner_privkey_info
+    if segwit:
+        payment_privkey_info = virtualchain.make_multisig_segwit_wallet(2,3) if payment_privkey_info is None and not test_legacy else payment_privkey_info
+        owner_privkey_info = virtualchain.make_multisig_segwit_wallet(2,3) if owner_privkey_info is None and not test_legacy else owner_privkey_info
+
+    else:
+        payment_privkey_info = virtualchain.make_multisig_wallet(2,3) if payment_privkey_info is None and not test_legacy else payment_privkey_info
+        owner_privkey_info = virtualchain.make_multisig_wallet(2,3) if owner_privkey_info is None and not test_legacy else owner_privkey_info
+
     data_privkey_info = ecdsa_private_key().to_hex() if data_privkey_info is None and not test_legacy else data_privkey_info
 
     decrypted_wallet = {
@@ -316,7 +344,7 @@ def make_legacy_wallet_013_keys(data, password):
  
     data_privkey = None
     if virtualchain.is_singlesig(owner_privkey):
-        data_privkey = owner_privkey
+        data_privkey = virtualchain.get_singlesig_privkey(owner_privkey)
     else:
         # data private key gets instantiated from the first owner private key,
         # if we have a multisig key bundle.
@@ -340,7 +368,7 @@ def get_data_key_from_owner_key_LEGACY(owner_privkey):
     """
     data_privkey = None
     if virtualchain.is_singlesig(owner_privkey):
-        data_privkey = owner_privkey
+        data_privkey = virtualchain.get_singlesig_privkey(owner_privkey)
     else:
         # data private key gets instantiated from the first owner private key,
         # if we have a multisig key bundle.

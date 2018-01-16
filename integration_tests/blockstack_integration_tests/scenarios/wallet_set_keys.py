@@ -23,7 +23,7 @@
 
 import os
 import testlib
-import pybitcoin
+import virtualchain
 import blockstack_client
 
 wallets = [

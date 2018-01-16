@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import shutil
 import tempfile
@@ -60,6 +60,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at('test', testlib.get_current_block(**kw))
 
     # should get accepted
     resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, safety_checks=False )
@@ -72,6 +73,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at('test', testlib.get_current_block(**kw))
 
     resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey, safety_checks=False )
     if debug or  'error' in resp:
@@ -119,7 +121,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # (this should succeed)
-    resp = testlib.blockstack_name_renew( "foo.test", wallets[4].privkey, safety_checks=False )
+    resp = testlib.blockstack_name_renew( "foo.test", wallets[4].privkey, safety_checks=False, tx_fee=10000*5 )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
@@ -200,7 +202,7 @@ def check( state_engine ):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
     if preorder is not None:
         print "preordered: %s" % preorder
         return False
@@ -217,7 +219,7 @@ def check( state_engine ):
         return False 
 
     # transferred 
-    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
+    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[3].addr):
         print "owned by %s; expected %s" % (name_rec['address'], wallets[3].addr)
         return False 
 

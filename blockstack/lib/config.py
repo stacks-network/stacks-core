@@ -36,8 +36,9 @@ log = virtualchain.get_logger("blockstack-server")
 DEBUG = True
 VERSION = __version__
 
-# namespace version
-BLOCKSTACK_VERSION = 1
+# namespace version bits
+NAMESPACE_VERSION_PAY_TO_BURN = 0x1
+NAMESPACE_VERSION_PAY_TO_CREATOR = 0x2
 
 """ constants
 """
@@ -59,10 +60,61 @@ FAST_SYNC_PUBLIC_KEYS = [
     '02edbaa730f241960bcd1a50c718fac7f9d4874f460c1f6db0a3941094e7685ef9'
 ]
 
+FAST_SYNC_DEFAULT_URL = 'http://fast-sync.blockstack.org/snapshot.bsk'
+
+""" name price configs
+"""
+
+SATOSHIS_PER_BTC = 10**8
+PRICE_FOR_1LETTER_NAMES = 10*SATOSHIS_PER_BTC
+PRICE_DROP_PER_LETTER = 10
+PRICE_DROP_FOR_NON_ALPHABETIC = 10
+ALPHABETIC_PRICE_FLOOR = 10**4
+
+NAME_COST_UNIT = 100    # 100 satoshis
+
+NAMESPACE_1_CHAR_COST = 400.0 * SATOSHIS_PER_BTC        # ~$96,000
+NAMESPACE_23_CHAR_COST = 40.0 * SATOSHIS_PER_BTC        # ~$9,600
+NAMESPACE_4567_CHAR_COST = 4.0 * SATOSHIS_PER_BTC       # ~$960
+NAMESPACE_8UP_CHAR_COST = 0.4 * SATOSHIS_PER_BTC      # ~$96
+
+NAMESPACE_PREORDER_EXPIRE = BLOCKS_PER_DAY      # namespace preorders expire after 1 day, if not revealed
+NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after 1 year, if not readied.
+
 
 """ blockstack configs
 """
 MAX_NAMES_PER_SENDER = 25                # a single sender script can own up to this many names
+
+if os.environ.get("BLOCKSTACK_TEST", None) is not None:
+    # testing 
+    log.warning("(%s): in test environment" % os.getpid())
+
+    NAME_IMPORT_KEYRING_SIZE = 5                  # number of keys to derive from the import key
+
+    if os.environ.get("BLOCKSTACK_NAMESPACE_REVEAL_EXPIRE", None) is not None:
+        NAMESPACE_REVEAL_EXPIRE = int(os.environ.get("BLOCKSTACK_NAMESPACE_REVEAL_EXPIRE"))
+        log.warning("NAMESPACE_REVEAL_EXPIRE = %s" % NAMESPACE_REVEAL_EXPIRE)
+
+    else:
+        NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_DAY      # small enough so we can actually test this...
+
+    # make this low enough that we can actually test it with regtest
+    NAMESPACE_1_CHAR_COST = 41 * SATOSHIS_PER_BTC
+
+else:
+    NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
+
+
+NUM_CONFIRMATIONS = 6                         # number of blocks to wait for before accepting names
+if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+    NUM_CONFIRMATIONS = 0
+    log.warning("NUM_CONFIRMATIONS = %s" % NUM_CONFIRMATIONS)
+
+if os.environ.get("BLOCKSTACK_CORE_NUM_CONFS", None) is not None:
+    NUM_CONFIRMATIONS = int(os.environ["BLOCKSTACK_CORE_NUM_CONFS"])
+    log.warning("NUM_CONFIRMATIONS = %s" % NUM_CONFIRMATIONS)
+
 
 """ RPC server configs
 """
@@ -100,6 +152,7 @@ GENESIS_SNAPSHOT = {
 Epoch constants govern externally-adjusted behaviors over different time intervals.
 Specifically:
     * NAMESPACE_LIFETIME_MULTIPLIER:    constant to multiply name lifetimes by
+    * NAMESPACE_LIFETIME_GRACE_PERIOD:  constant to add to the name's lifetime when it's about to expire
     * PRICE_MULTIPLIER:                 constant to multiply name and namespace prices by
 """
 EPOCH_FIELDS = [
@@ -110,30 +163,47 @@ EPOCH_FIELDS = [
 
 EPOCH_NAMESPACE_FIELDS = [
     "NAMESPACE_LIFETIME_MULTIPLIER",
+    "NAMESPACE_LIFETIME_GRACE_PERIOD",
     "PRICE_MULTIPLIER"
 ]
 
 # epoch features
 EPOCH_FEATURE_MULTISIG = "BLOCKSTACK_MULTISIG"
+EPOCH_FEATURE_SEGWIT = "BLOCKSTACK_SEGWIT"
+EPOCH_FEATURE_OP_REGISTER_UPDATE = "BLOCKSTACK_OP_REGISTER_UPDATE"
+EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE = "BLOCKSTACK_OP_RENEW_TRANSFER_UPDATE"
+EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR = "BLOCKSTACK_NAMESPACE_BURN_TO_CREATOR"
 
 # when epochs end (-1 means "never")
 EPOCH_NOW = -1
 EPOCH_1_END_BLOCK = 436650      # F-Day 2016
-EPOCH_2_END_BLOCK = EPOCH_NOW
+EPOCH_2_END_BLOCK = 488500      # F-day 2017
+EPOCH_3_END_BLOCK = 541843      # F-day 2018 (TODO)
 
 EPOCH_1_NAMESPACE_LIFETIME_MULTIPLIER_id = 1
 EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER_id = 2
+EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER_id = 2
+
+EPOCH_1_NAMESPACE_LIFETIME_GRACE_PERIOD_id = 0
+EPOCH_2_NAMESPACE_LIFETIME_GRACE_PERIOD_id = 0
+EPOCH_3_NAMESPACE_LIFETIME_GRACE_PERIOD_id = 5000   # about 30 days
 
 EPOCH_1_PRICE_MULTIPLIER_id = 1.0
 EPOCH_2_PRICE_MULTIPLIER_id = 1.0
+EPOCH_3_PRICE_MULTIPLIER_id = 0.1
+
+EPOCH_1_NAMESPACE_RECEIVE_FEES_PERIOD_id = 0
+EPOCH_2_NAMESPACE_RECEIVE_FEES_PERIOD_id = 0
+EPOCH_3_NAMESPACE_RECEIVE_FEES_PERIOD_id = BLOCKS_PER_YEAR
 
 EPOCH_1_FEATURES = []
 EPOCH_2_FEATURES = [EPOCH_FEATURE_MULTISIG]
+EPOCH_3_FEATURES = [EPOCH_FEATURE_MULTISIG, EPOCH_FEATURE_SEGWIT, EPOCH_FEATURE_OP_REGISTER_UPDATE, EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE, EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR]
 
 # minimum block height at which this server can run
 EPOCH_MINIMUM = EPOCH_1_END_BLOCK + 1
 
-NUM_EPOCHS = 2
+NUM_EPOCHS = 3
 for i in xrange(1, NUM_EPOCHS+1):
     # epoch lengths can be altered by the test framework, for ease of tests
     if os.environ.get("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
@@ -148,6 +218,14 @@ for i in xrange(1, NUM_EPOCHS+1):
         exec("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER" % i)))
         log.warn("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id = %s" % (i, eval("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id" % i)))
 
+    if os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_GRACE_PERIOD" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
+        exec("EPOCH_%s_NAMESPACE_LIFETIME_GRACE_PERIOD_id = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_GRACE_PERIOD" % i)))
+        log.warn("EPOCH_%s_NAMESPACE_LIFETIME_GRACE_PERIOD_id = %s" % (i, eval("EPOCH_%s_NAMESPACE_LIFETIME_GRACE_PERIOD_id" % i)))
+
+    if os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_RECEIVE_FEES_PERIOD" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
+        exec("EPOCH_%s_NAMESPACE_RECEIVE_FEES_PERIOD_id = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_RECEIVE_FEES_PERIOD" % i)))
+        log.warn("EPOCH_%s_NAMESPACE_RECEIVE_FEES_PERIOD_id = %s" % (i, eval("EPOCH_%s_NAMESPACE_RECEIVE_FEES_PERIOD_id" % i)))
+
 del i
 
 # epoch definitions
@@ -160,9 +238,39 @@ EPOCHS = [
         "namespaces": {
             "id": {
                 "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_1_NAMESPACE_LIFETIME_MULTIPLIER_id,
-                "PRICE_MULTIPLIER": EPOCH_1_PRICE_MULTIPLIER_id
-            }
+                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_1_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
+                "PRICE_MULTIPLIER": EPOCH_1_PRICE_MULTIPLIER_id,
+                "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_1_NAMESPACE_RECEIVE_FEES_PERIOD_id,
+            },
+            "*": {
+                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_1_NAMESPACE_LIFETIME_MULTIPLIER_id,
+                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_1_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
+                "PRICE_MULTIPLIER": EPOCH_1_PRICE_MULTIPLIER_id,
+                "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_1_NAMESPACE_RECEIVE_FEES_PERIOD_id,
+            },
         },
+        "namespace_prices": [
+            21 * 10**8,                 # 0-character cost
+            NAMESPACE_1_CHAR_COST,      # 1-character cost
+            NAMESPACE_23_CHAR_COST,     # 2-character cost
+            NAMESPACE_23_CHAR_COST,     # 3-character cost
+            NAMESPACE_4567_CHAR_COST,   # 4-character cost
+            NAMESPACE_4567_CHAR_COST,   # 5-character cost
+            NAMESPACE_4567_CHAR_COST,   # 6-character cost
+            NAMESPACE_4567_CHAR_COST,   # 7-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 8-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 9-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 10-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 11-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 12-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 13-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 14-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 15-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 16-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 17-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 18-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 19-character cost 
+        ],
         "features": EPOCH_1_FEATURES
     },
     {
@@ -171,11 +279,82 @@ EPOCHS = [
         "namespaces": {
             "id": {
                 "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER_id,
-                "PRICE_MULTIPLIER": EPOCH_2_PRICE_MULTIPLIER_id
-            }
+                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_2_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
+                "PRICE_MULTIPLIER": EPOCH_2_PRICE_MULTIPLIER_id,
+                "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_2_NAMESPACE_RECEIVE_FEES_PERIOD_id,
+            },
+            "*": {
+                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER_id,
+                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_2_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
+                "PRICE_MULTIPLIER": EPOCH_2_PRICE_MULTIPLIER_id,
+                "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_2_NAMESPACE_RECEIVE_FEES_PERIOD_id,
+            },
         },
-        "features": EPOCH_2_FEATURES
-    }
+        "namespace_prices": [
+            21 * 10**8,                 # 0-character cost
+            NAMESPACE_1_CHAR_COST,      # 1-character cost
+            NAMESPACE_23_CHAR_COST,     # 2-character cost
+            NAMESPACE_23_CHAR_COST,     # 3-character cost
+            NAMESPACE_4567_CHAR_COST,   # 4-character cost
+            NAMESPACE_4567_CHAR_COST,   # 5-character cost
+            NAMESPACE_4567_CHAR_COST,   # 6-character cost
+            NAMESPACE_4567_CHAR_COST,   # 7-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 8-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 9-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 10-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 11-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 12-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 13-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 14-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 15-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 16-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 17-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 18-character cost
+            NAMESPACE_8UP_CHAR_COST,    # 19-character cost 
+        ],
+        "features": EPOCH_2_FEATURES,
+    },
+    {
+        # epoch 3
+        "end_block": EPOCH_3_END_BLOCK,
+        "namespaces": {
+            "id": {
+                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER_id,
+                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_3_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
+                "PRICE_MULTIPLIER": EPOCH_3_PRICE_MULTIPLIER_id,
+                "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_3_NAMESPACE_RECEIVE_FEES_PERIOD_id,
+            },
+            "*": {
+                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER_id,
+                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_3_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
+                "PRICE_MULTIPLIER": EPOCH_3_PRICE_MULTIPLIER_id,
+                "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_3_NAMESPACE_RECEIVE_FEES_PERIOD_id,
+            },
+        },
+        "namespace_prices": [
+            21 * 10**8,                 # 0-character cost
+            NAMESPACE_1_CHAR_COST / 10,      # 1-character cost
+            NAMESPACE_23_CHAR_COST / 10,     # 2-character cost
+            NAMESPACE_23_CHAR_COST / 10,     # 3-character cost
+            NAMESPACE_4567_CHAR_COST / 10,   # 4-character cost
+            NAMESPACE_4567_CHAR_COST / 10,   # 5-character cost
+            NAMESPACE_4567_CHAR_COST / 10,   # 6-character cost
+            NAMESPACE_4567_CHAR_COST / 10,   # 7-character cost
+            NAMESPACE_8UP_CHAR_COST / 10,    # 8-character cost
+            NAMESPACE_8UP_CHAR_COST / 10,    # 9-character cost
+            NAMESPACE_8UP_CHAR_COST / 10,    # 10-character cost
+            NAMESPACE_8UP_CHAR_COST / 10,    # 11-character cost
+            NAMESPACE_8UP_CHAR_COST / 10,    # 12-character cost
+            NAMESPACE_8UP_CHAR_COST / 10,    # 13-character cost
+            NAMESPACE_8UP_CHAR_COST / 10,    # 14-character cost
+            NAMESPACE_8UP_CHAR_COST / 10,    # 15-character cost
+            NAMESPACE_8UP_CHAR_COST / 10,    # 16-character cost
+            NAMESPACE_8UP_CHAR_COST / 10,    # 17-character cost
+            NAMESPACE_8UP_CHAR_COST / 10,    # 18-character cost
+            NAMESPACE_8UP_CHAR_COST / 10,    # 19-character cost 
+        ],
+        "features": EPOCH_3_FEATURES,
+    },
 ]
 
 # if we're testing, then add the same rules for the 'test' namespace
@@ -195,8 +374,8 @@ for i in xrange(0, len(EPOCHS)):
             if not EPOCHS[i]['namespaces'][nsid].has_key(epoch_field):
                 raise Exception("Missing field '%s' at epoch %s in namespace '%s'" % (epoch_field, i, nsid))
 
-if EPOCHS[len(EPOCHS)-1]['end_block'] != EPOCH_NOW:
-    raise Exception("Last epoch ends at %s" % EPOCHS[len(EPOCHS)-1]['end_block'])
+# if EPOCHS[len(EPOCHS)-1]['end_block'] != EPOCH_NOW:
+#    raise Exception("Last epoch ends at %s" % EPOCHS[len(EPOCHS)-1]['end_block'])
 
 for i in xrange(0, len(EPOCHS)-1):
     if EPOCHS[i]['end_block'] < 0:
@@ -226,8 +405,6 @@ NAME_TRANSFER = '>'
 NAME_RENEWAL = NAME_REGISTRATION
 NAME_REVOKE = '~'
 NAME_IMPORT = ';'
-
-NAME_SCHEME = MAGIC_BYTES + NAME_REGISTRATION
 
 NAMESPACE_PREORDER = '*'
 NAMESPACE_REVEAL = '&'
@@ -402,56 +579,7 @@ OPCODE_STATELESS_OPS = [
 
 NAMESPACE_LIFE_INFINITE = 0xffffffff
 
-OP_RETURN_MAX_SIZE = 40
-
-""" name price configs
-"""
-
-SATOSHIS_PER_BTC = 10**8
-PRICE_FOR_1LETTER_NAMES = 10*SATOSHIS_PER_BTC
-PRICE_DROP_PER_LETTER = 10
-PRICE_DROP_FOR_NON_ALPHABETIC = 10
-ALPHABETIC_PRICE_FLOOR = 10**4
-
-NAME_COST_UNIT = 100    # 100 satoshis
-
-NAMESPACE_1_CHAR_COST = 400 * SATOSHIS_PER_BTC        # ~$96,000
-NAMESPACE_23_CHAR_COST = 40 * SATOSHIS_PER_BTC        # ~$9,600
-NAMESPACE_4567_CHAR_COST = 4 * SATOSHIS_PER_BTC       # ~$960
-NAMESPACE_8UP_CHAR_COST = 0.4 * SATOSHIS_PER_BTC      # ~$96
-
-NAMESPACE_PREORDER_EXPIRE = BLOCKS_PER_DAY      # namespace preorders expire after 1 day, if not revealed
-NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after 1 year, if not readied.
-
-if os.environ.get("BLOCKSTACK_TEST", None) is not None:
-    # testing 
-    log.warning("(%s): in test environment" % os.getpid())
-
-    NAME_IMPORT_KEYRING_SIZE = 5                  # number of keys to derive from the import key
-
-    if os.environ.get("BLOCKSTACK_NAMESPACE_REVEAL_EXPIRE", None) is not None:
-        NAMESPACE_REVEAL_EXPIRE = int(os.environ.get("BLOCKSTACK_NAMESPACE_REVEAL_EXPIRE"))
-        log.warning("NAMESPACE_REVEAL_EXPIRE = %s" % NAMESPACE_REVEAL_EXPIRE)
-
-    else:
-        NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_DAY      # small enough so we can actually test this...
-
-    # make this low enough that we can actually test it with regtest
-    NAMESPACE_1_CHAR_COST = 41 * SATOSHIS_PER_BTC
-
-else:
-    NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
-
-
-NUM_CONFIRMATIONS = 6                         # number of blocks to wait for before accepting names
-if os.environ.get("BLOCKSTACK_TEST", None) == "1":
-    NUM_CONFIRMATIONS = 0
-    log.warning("NUM_CONFIRMATIONS = %s" % NUM_CONFIRMATIONS)
-if os.environ.get("BLOCKSTACK_CORE_NUM_CONFS", None) is not None:
-    NUM_CONFIRMATIONS = int(os.environ["BLOCKSTACK_CORE_NUM_CONFS"])
-    log.warning("NUM_CONFIRMATIONS = %s" % NUM_CONFIRMATIONS)
-
-# burn address for fees (the address of public key 0x0000000000000000000000000000000000000000)
+# default burn address for fees (the address of public key hash 0x0000000000000000000000000000000000000000)
 BLOCKSTACK_BURN_PUBKEY_HASH = "0000000000000000000000000000000000000000"
 BLOCKSTACK_BURN_ADDRESS = virtualchain.hex_hash160_to_address( BLOCKSTACK_BURN_PUBKEY_HASH )   # "1111111111111111111114oLvT2"
 
@@ -462,7 +590,7 @@ NAMESPACE_DEFAULT = {
    'coeff': 15,
    'base': 15,
    'buckets': [15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15],
-   'version': BLOCKSTACK_VERSION,
+   'version': NAMESPACE_VERSION_PAY_TO_BURN,
    'nonalpha_discount': 1.0,
    'no_vowel_discount': 1.0,
    'namespace_id': None,
@@ -522,18 +650,56 @@ def get_epoch_namespace_lifetime_multiplier( block_height, namespace_id ):
     if epoch_config['namespaces'].has_key(namespace_id):
         return epoch_config['namespaces'][namespace_id]['NAMESPACE_LIFETIME_MULTIPLIER']
     else:
-        return 1
+        return epoch_config['namespaces']['*']['NAMESPACE_LIFETIME_MULTIPLIER']
+
+
+def get_epoch_namespace_lifetime_grace_period( block_height, namespace_id ):
+    """
+    what's the namespace lifetime grace period for this epoch?
+    """
+    epoch_config = get_epoch_config( block_height )
+    if epoch_config['namespaces'].has_key(namespace_id):
+        return epoch_config['namespaces'][namespace_id]['NAMESPACE_LIFETIME_GRACE_PERIOD']
+    else:
+        return epoch_config['namespaces']['*']['NAMESPACE_LIFETIME_GRACE_PERIOD']
 
 
 def get_epoch_price_multiplier( block_height, namespace_id ):
     """
-    what's the price multiplier for this epoch?
+    what's the name price multiplier for this epoch?
     """
     epoch_config = get_epoch_config( block_height )
     if epoch_config['namespaces'].has_key(namespace_id):
         return epoch_config['namespaces'][namespace_id]['PRICE_MULTIPLIER']
     else:
-        return 1
+        return epoch_config['namespaces']['*']['PRICE_MULTIPLIER']
+
+
+def get_epoch_namespace_receive_fees_period( block_height, namespace_id ):
+    """
+    how long can a namespace receive register/renewal fees?
+    """
+    epoch_config = get_epoch_config( block_height )
+    if epoch_config['namespaces'].has_key(namespace_id):
+        return epoch_config['namespaces'][namespace_id]['NAMESPACE_RECEIVE_FEES_PERIOD']
+    else:
+        return epoch_config['namespaces']['*']['NAMESPACE_RECEIVE_FEES_PERIOD']
+
+
+def get_epoch_namespace_prices( block_height ):
+    """
+    get the list of namespace prices by block height
+    """
+    epoch_config = get_epoch_config( block_height )
+    return epoch_config['namespace_prices']
+
+
+def get_epoch_features( block_height ):
+    """
+    Get the features of an epoch
+    """
+    epoch_config = get_epoch_config( block_height )
+    return epoch_config['features']
 
 
 def epoch_has_multisig( block_height ):
@@ -545,6 +711,18 @@ def epoch_has_multisig( block_height ):
         return True
     else:
         return False
+
+
+def epoch_has_segwit( block_height ):
+    """
+    Is segwit available in this epoch?
+    """
+    epoch_config = get_epoch_config( block_height )
+    if EPOCH_FEATURE_SEGWIT in epoch_config['features']:
+        return True
+    else:
+        return False
+
 
 """
 Which announcements has this blockstack node seen so far?
@@ -1178,8 +1356,8 @@ def configure( config_file=None, force=False, interactive=True ):
 
 def versions_need_upgrade(v_from, v_to):
     version_upgrades = [
-        # all semver mismatches before "0.14" require upgrade
-        (lambda v : v[:2] < (0,14))
+        # all semver mismatches before "0.17" require upgrade
+        (lambda v : v[:2] < (0,17))
     ]
 
     v1 = tuple( int(x) for x in str(v_from).split('.') )

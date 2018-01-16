@@ -22,13 +22,13 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import blockstack as blockstack_server
 
 # in epoch 2 immediately, but with the old price (in order to test compatibility with 0.13)
 """
-TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 250
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 682
 TEST ENV BLOCKSTACK_EPOCH_2_PRICE_MULTIPLIER 1.0
 """
 
@@ -87,7 +87,7 @@ def scenario( wallets, **kw ):
     testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
-    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, safety_checks=False )
+    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, safety_checks=False, tx_fee=10000*5 )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
@@ -122,7 +122,7 @@ def check( state_engine ):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
     if preorder is not None:
         return False
     

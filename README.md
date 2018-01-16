@@ -128,8 +128,7 @@ If you encounter any technical issues in installing or using Blockstack, please 
 
 ## Development Status
 
-**v0.14.5** is the current stable release of Blockstack Core (available on the master branch).<br>
-**v0.14.6** will be the next release for `blockstack-core`.
+**v0.17.0** is the current stable release of Blockstack Core (available on the master branch).<br> 
 
 The next release is being built on the [develop](https://github.com/blockstack/blockstack-core/tree/develop). Please submit all
 pull requests to the `develop` branch.

@@ -22,6 +22,7 @@
 """
 
 import os
+import sys
 import shutil
 import tempfile
 import base64
@@ -291,9 +292,9 @@ def fast_sync_snapshot( export_path, private_key, block_number ):
         return True
 
 
-    # ugly hack to work around the lack of a `nonlocal` keyword in Python 2.x
-    def _zonefile_copy_progress_outer():
+    def _zonefile_copy_progress():
         def inner(src, names):
+            # ugly hack to work around the lack of a `nonlocal` keyword in Python 2.x
             for name in names:
                 if name == 'zonefile.txt':
                     inner.zonefile_count += 1
@@ -305,7 +306,7 @@ def fast_sync_snapshot( export_path, private_key, block_number ):
         inner.zonefile_count = 0
         return inner
 
-    _zonefile_copy_progress = _zonefile_copy_progress_outer()
+    _zonefile_copy_progress = _zonefile_copy_progress()
 
     # make sure we have the apppriate tools
     tools = ['sqlite3']
@@ -334,6 +335,12 @@ def fast_sync_snapshot( export_path, private_key, block_number ):
     # use a backup database 
     db_paths = BlockstackDB.get_backup_paths( block_number, virtualchain_hooks )
 
+    # include namespace keychains 
+    db = virtualchain_hooks.get_db_state()
+    namespace_ids = db.get_all_namespace_ids()
+    all_namespace_keychain_paths = [os.path.join(working_dir, '{}.keychain'.format(nsid)) for nsid in namespace_ids]
+    namespace_keychain_paths = filter(lambda nsp: os.path.exists(nsp), all_namespace_keychain_paths)
+    
     for p in db_paths:
         if not os.path.exists(p):
             log.error("Missing file: '%s'" % p)
@@ -380,6 +387,14 @@ def fast_sync_snapshot( export_path, private_key, block_number ):
     except Exception, e:
         log.exception(e)
         log.error('Failed to copy {} to {}'.format(zonefiles_path, dest_path))
+        _cleanup(tmpdir)
+        return False
+
+    # copy over namespace keychains 
+    rc = _copy_paths(namespace_keychain_paths, tmpdir)
+    if not rc:
+        log.error("Failed to copy namespace keychain paths")
+        _cleanup(tmpdir)
         return False
 
     # compress
@@ -504,7 +519,7 @@ def fast_sync_inspect_snapshot( snapshot_path ):
     return info
 
 
-def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBLIC_KEYS, num_required=len(config.FAST_SYNC_PUBLIC_KEYS) ):
+def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBLIC_KEYS, num_required=len(config.FAST_SYNC_PUBLIC_KEYS), verbose=False ):
     """
     Fast sync import.
     Verify the given fast-sync file from @import_path using @public_key, and then 
@@ -514,17 +529,29 @@ def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBL
     NOTE: `public_keys` needs to be in the same order as the private keys that signed.
     """
 
+    def logmsg(s):
+        if verbose:
+            print s
+        else:
+            log.debug(s)
+
+    def logerr(s):
+        if verbose:
+            print >> sys.stderr, s
+        else:
+            log.error(s)
+
     if working_dir is None:
         working_dir = virtualchain.get_working_dir()
 
     if not os.path.exists(working_dir):
-        log.error("No such directory {}".format(working_dir))
+        logerr("No such directory {}".format(working_dir))
         return False
 
     # go get it 
     import_path = fast_sync_fetch(import_url)
     if import_path is None:
-        log.error("Failed to fetch {}".format(import_url))
+        logerr("Failed to fetch {}".format(import_url))
         return False
 
     # format: <signed bz2 payload> <sigb64> <sigb64 length (8 bytes hex)> ... <num signatures>
@@ -543,7 +570,7 @@ def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBL
     with open(import_path, 'r') as f:
         info = fast_sync_inspect( f )
         if 'error' in info:
-            log.error("Failed to inspect snapshot {}: {}".format(import_path, info['error']))
+            logerr("Failed to inspect snapshot {}: {}".format(import_path, info['error']))
             return False
 
         signatures = info['signatures']
@@ -553,7 +580,7 @@ def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBL
         hash_hex = get_file_hash(f, hashlib.sha256, fd_len=ptr)
         
         # validate signatures over the hash
-        log.debug("Verify {} bytes".format(ptr))
+        logmsg("Verify {} bytes".format(ptr))
         key_idx = 0
         num_match = 0
         for next_pubkey in public_keys:
@@ -564,32 +591,32 @@ def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBL
                     if num_match >= num_required:
                         break
                     
-                    log.debug("Public key {} matches {} ({})".format(next_pubkey, sigb64, hash_hex))
+                    logmsg("Public key {} matches {} ({})".format(next_pubkey, sigb64, hash_hex))
                     signatures.remove(sigb64)
                 
                 else:
-                    log.debug("Public key {} does NOT match {} ({})".format(next_pubkey, sigb64, hash_hex))
+                    logmsg("Public key {} does NOT match {} ({})".format(next_pubkey, sigb64, hash_hex))
 
         # enough signatures?
         if num_match < num_required:
-            log.error("Not enough signatures match (required {}, found {})".format(num_required, num_match))
+            logerr("Not enough signatures match (required {}, found {})".format(num_required, num_match))
             return False
 
     # decompress
     import_path = os.path.abspath(import_path)
     res = fast_sync_snapshot_decompress(import_path, working_dir)
     if 'error' in res:
-        log.error("Failed to decompress {} to {}: {}".format(import_path, working_dir, res['error']))
+        logerr("Failed to decompress {} to {}: {}".format(import_path, working_dir, res['error']))
         return False
 
     # restore from backup
     rc = blockstack_backup_restore(working_dir, None)
     if not rc:
-        log.error("Failed to instantiate blockstack name database")
+        logerr("Failed to instantiate blockstack name database")
         return False
 
     # success!
-    log.debug("Restored to {}".format(working_dir))
+    logmsg("Restored to {}".format(working_dir))
     return True
 
 

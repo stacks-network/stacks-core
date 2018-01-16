@@ -10,6 +10,12 @@ For this reason, **it is strongly recommended to run the latest Blockstack Core 
 
 * **Non-consenus-breaking Releases**:  These are all other releases.  They include bugfixes, reliability improvements, performance improvements, and so on.
 
+The consensus-breaking releases are:
+
+* [0.17](changelog-0.17.md): hard fork of 2017
+* [0.14](changelog-0.14.md): hard fork of 2016
+* initial release: hardfork of 2015; migration from Namecoin to Bitcoin
+
 Notes on Consensus
 ==================
 

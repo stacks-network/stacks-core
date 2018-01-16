@@ -215,7 +215,7 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
     data public key, then the owner address of the name will be used to verify
     the profile's authenticity.
 
-    Returns {'status': True, 'profile': profile, 'zonefile': zonefile} on success.
+    Returns {'status': True, 'profile': profile, 'zonefile': zonefile, 'public_key': ...} on success.
     * If include_name_record is True, then include 'name_record': name_record with the user's blockchain information
     * If include_raw_zonefile is True, then include 'raw_zonefile': raw_zonefile with unparsed zone file
 
@@ -223,6 +223,7 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
+    user_profile_pubkey = None
 
     res = subdomains.is_address_subdomain(str(name))
     if res:
@@ -284,7 +285,7 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
             user_data_pubkey = None
 
         if not use_legacy_zonefile and user_data_pubkey is None:
-            # legacy zonefile without a data public key 
+            # legacy zonefile without a data public key
             return {'error': 'Name zonefile is missing a public key'}
 
         # find owner address
@@ -302,11 +303,27 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
         if use_zonefile_urls and user_zonefile is not None:
             urls = user_db.user_zonefile_urls(user_zonefile)
 
-        user_profile = storage.get_mutable_data(
-            name, user_data_pubkey, blockchain_id=name,
-            data_address=data_address, owner_address=owner_address,
-            urls=urls, drivers=profile_storage_drivers, decode=decode_profile,
-        )
+        user_profile = None
+        user_profile_pubkey = None
+
+        try:
+            user_profile_res = storage.get_mutable_data(
+                name, user_data_pubkey, blockchain_id=name,
+                data_address=data_address, owner_address=owner_address,
+                urls=urls, drivers=profile_storage_drivers, decode=decode_profile,
+                return_public_key=True
+            )
+
+            if user_profile_res is None:
+                log.error("Failed to get profile for {}".format(name))
+                return {'error': 'Failed in parsing and fetching profile for {}'.format(name)}
+
+            user_profile = user_profile_res['data']
+            user_profile_pubkey = user_profile_res['public_key']
+
+        except Exception as e:
+            log.exception(e)
+            return {'error' : 'Failure in parsing and fetching profile for {}'.format(name)}
 
         if user_profile is None or json_is_error(user_profile):
             if user_profile is None:
@@ -321,7 +338,8 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
     ret = {
         'status': True,
         'profile': user_profile,
-        'zonefile': user_zonefile
+        'zonefile': user_zonefile,
+        'public_key': user_profile_pubkey
     }
 
     if include_name_record:

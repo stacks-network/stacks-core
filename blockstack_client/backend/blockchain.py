@@ -47,7 +47,7 @@ def get_bitcoind_client(config_path=CONFIG_PATH):
     client = virtualchain.connect_bitcoind( bitcoind_opts )
 
     return client
-
+ 
 
 def get_block_height(config_path=CONFIG_PATH):
     """
@@ -105,54 +105,6 @@ def get_tx_confirmations(tx_hash, config_path=CONFIG_PATH):
 
     return resp
 
-
-def get_tx_fee_per_byte(config_path=CONFIG_PATH):
-    """
-    Get the tx fee per byte from the underlying blockchain
-    Return the fee on success
-    Return None on error
-    """
-    bitcoind_client = get_bitcoind_client(config_path=config_path)
-    try:
-        # try to confirm in 2-3 blocks
-        fee = bitcoind_client.estimatefee(2)
-        if fee < 0:
-            # if we're testing, then use our own fee
-            if BLOCKSTACK_TEST or os.environ.get("BLOCKSTACK_TESTNET", None) == "1":
-                fee = 5500.0 / 10**8
-
-            else:
-                log.error("Failed to estimate tx fee")
-                return None
-        else:
-            log.debug("Bitcoin estimatefee(2) is {}".format(fee))
-
-        fee = float(fee)
-
-        # fee is BTC/kb.  Return satoshis/byte
-        return int(round(fee * 10**8 / 1024.0))
-    except Exception as e:
-        if BLOCKSTACK_DEBUG:
-            log.exception(e)
-
-        log.error("Failed to estimate tx fee per byte")
-        return None
-
-
-def get_tx_fee( tx_hex, config_path=CONFIG_PATH ):
-    """
-    Get the tx fee from bitcoind
-    Return the fee on success, in satoshis
-    Return None on error
-    """
-    fee_per_byte = get_tx_fee_per_byte(config_path=config_path)
-    if fee_per_byte is None:
-        log.error("Failed to estimate fee of {}-byte tx".format(len(tx_hex)/2))
-        return None
-
-    # need /2, since tx_hex is a string of hex characters (i.e. 2x as long as the number of bytes)
-    return fee_per_byte * len(tx_hex)/2
-  
 
 def is_tx_accepted( tx_hash, num_needed=DEFAULT_TX_CONFIRMATIONS_NEEDED, config_path=CONFIG_PATH ):
     """
@@ -355,7 +307,7 @@ def is_address_usable(address, config_path=CONFIG_PATH, utxo_client=None, min_co
     return True
 
 
-def can_receive_name( address, proxy=None ):
+def can_receive_name( address, proxy=None, config_path=CONFIG_PATH ):
     """
     Can an address receive a name?
     It must have no more than MAXIMUM_NAMES_PER_ADDRESS.
@@ -367,7 +319,7 @@ def can_receive_name( address, proxy=None ):
     from ..proxy import get_names_owned_by_address as blockstack_get_names_owned_by_address
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path)
 
     resp = blockstack_get_names_owned_by_address(address, proxy=proxy)
     names_owned = resp

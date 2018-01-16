@@ -22,7 +22,7 @@
 """ 
 
 import testlib
-import pybitcoin
+import virtualchain
 import json
 import shutil
 import tempfile
@@ -32,7 +32,7 @@ import blockstack as blockstack_server
 
 # in epoch 2 immediately, but with the old price (in order to test compatibility with 0.13)
 """
-TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 250
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 682
 TEST ENV BLOCKSTACK_EPOCH_2_PRICE_MULTIPLIER 1.0
 """
 
@@ -137,7 +137,7 @@ def check( state_engine ):
 
     # not preordered 
     for i in xrange(0, len(wallets)):
-        preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[i].addr), wallets[(i+1)%5].addr )
+        preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[i].addr), wallets[(i+1)%5].addr )
         if preorder is not None:
             print "preordered"
             return False

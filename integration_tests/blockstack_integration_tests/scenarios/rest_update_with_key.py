@@ -22,7 +22,7 @@
 """
 import os
 import testlib
-import pybitcoin
+import virtualchain
 import urllib2
 import json
 import blockstack_client
@@ -56,7 +56,7 @@ index_file_data = "<html><head></head><body>foo.test hello world</body></html>"
 resource_data = "hello world"
 
 new_key = "cPo24qGYz76xSbUCug6e8LzmzLGJPZoowQC7fCVPLN2tzCUJgfcW"
-new_addr = "mqnupoveYRrSHmrxFT9nQQEZt3RLsetbBQ"
+new_addr = virtualchain.get_privkey_address(new_key) # "mqnupoveYRrSHmrxFT9nQQEZt3RLsetbBQ"
 
 insanity_key = "cSCyE5Q1AFVyDAL8LkHo1sFMVqmwdvFcCbGJ71xEvto2Nrtzjm67"
 
@@ -152,31 +152,41 @@ def scenario( wallets, **kw ):
     if not res:
         return False
     # wait for the preorder to get confirmed
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
     # wait for register to go through
     print 'Wait for register to be submitted'
     time.sleep(10)
+
     # wait for the register to get confirmed
     for i in xrange(0, 6):
         testlib.next_block( **kw )
+
     res = testlib.verify_in_queue(None, 'bar.test', 'register', None, api_pass = api_pass )
     if not res:
         return False
-    for i in xrange(0, 6):
+
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
+
     print 'Wait for update to be submitted'
     time.sleep(10)
+
     # wait for update to get confirmed
     for i in xrange(0, 6):
         testlib.next_block( **kw )
+
     res = testlib.verify_in_queue(None, 'bar.test', 'update', None, api_pass = api_pass )
     if not res:
         print res
         print "update error in first update"
         return False
-    for i in xrange(0, 6):
+
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
+
+    print 'Wait for zonefile to be sent'
+    time.sleep(10)
 
     res = testlib.blockstack_REST_call("GET", "/v1/names/bar.test",
                                        None, api_pass=api_pass)
@@ -184,6 +194,8 @@ def scenario( wallets, **kw ):
         res['test'] = 'Failed to get name bar.test'
         print json.dumps(res)
         return False
+
+    print res['response']
 
     zonefile_hash = res['response']['zonefile_hash']
 
@@ -256,7 +268,7 @@ def scenario( wallets, **kw ):
         print res
         return False
 
-    for i in xrange(0, 6):
+    for i in xrange(0, 4):
         testlib.next_block( **kw )
 
     # wait for zonefile to propagate
