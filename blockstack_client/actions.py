@@ -3317,9 +3317,10 @@ def verify_namespace_preorder(namespace_id, ns_preorder_txid, payment_privkey, n
     # find OP_RETURN output
     payload_hex = None
     payload_idx = None
-    for i, out in enumerate(txinfo['vout']):
-        if out['scriptPubKey']['type'] == 'nulldata':
-            payload_hex = out['scriptPubKey']['hex']
+    for i, out in enumerate(txinfo['outs']):
+        script_type = virtualchain.btc_script_classify(out['script'])
+        if script_type == 'nulldata':
+            payload_hex = out['script']
             payload_idx = i
 
     if payload_hex is None:
@@ -3337,8 +3338,8 @@ def verify_namespace_preorder(namespace_id, ns_preorder_txid, payment_privkey, n
     bdl = virtualchain.BlockchainDownloader(bitcoind_opts, conf['bitcoind_spv_path'], 0, 0, p2p_port=int(conf['bitcoind_port']))
     sender_txids = []
     senders = {}
-    for inp in txinfo['vin']:
-        sender_txid = inp['txid']
+    for inp in txinfo['ins']:
+        sender_txid = inp['outpoint']['hash']
         sender_txids.append(sender_txid)
 
     for i in xrange(0, len(sender_txids), 20):
@@ -3353,35 +3354,35 @@ def verify_namespace_preorder(namespace_id, ns_preorder_txid, payment_privkey, n
 
         senders.update(txs)
 
-    assert len(senders) == len(txinfo['vin']), "Failed to fetch all funding transactions for {}".format(ns_preorder_txid)
+    assert len(senders) == len(txinfo['ins']), "Failed to fetch all funding transactions for {}".format(ns_preorder_txid)
 
     # senders maps sender txid to the transaction that created it.
     # instead, put senders in 1-to-1 correspondance with the NAMESPACE_PREORDER inputs
     # TODO: clean this up--this basically duplicates functionality in the blockchain downloader in virtualchain
     sender_list = [None] * len(senders)
-    for i in xrange(0, len(txinfo['vin'])):
-        if txinfo['vin'][i]['txid'] in senders.keys():
-            sender_rec = senders[txinfo['vin'][i]['txid']]
-            sender_outpoint = txinfo['vin'][i]['vout']
-            sender_output = sender_rec['vout'][sender_outpoint]
+    for i in range(0, len(txinfo['ins'])):
+        if txinfo['ins'][i]['outpoint']['hash'] in senders.keys():
+            sender_rec = senders[txinfo['ins'][i]['outpoint']['hash']]
+            sender_outpoint = txinfo['ins'][i]['outpoint']['index']
+            sender_output = sender_rec['outs'][sender_outpoint]
 
             sender_info = {
-                "amount": sender_output['value'],
-                "script_pubkey": sender_output['scriptPubKey']['hex'],
-                "script_type": sender_output['scriptPubKey']['type'],
-                "addresses": sender_output['scriptPubKey']['addresses'],
+                "value": sender_output['value'],
+                "script_pubkey": sender_output['script'],
+                "script_type": virtualchain.btc_script_classify(sender_output['script']),
+                "addresses": [virtualchain.script_hex_to_address(sender_output['script'])],
                 "nulldata_vin_outpoint": payload_idx,
-                "txid": txinfo['vin'][i]['txid']
+                "txid": txinfo['ins'][i]['outpoint']['hash']
             }
 
             sender_list[i] = sender_info
            
         else:
-            print("Failed to find funding transaction to input {} in {} (missing {})".format(i, ns_preorder_txid, txinfo['vin'][i]['txid']))
+            print("Failed to find funding transaction to input {} in {} (missing {})".format(i, ns_preorder_txid, txinfo['ins'][i]['outpoint']['hash']))
             return {'error': 'Failed to find funding transactions for {}'.format(ns_preorder_txid)}
 
     try:
-        ns_preorder_info = blockstack.lib.operations.extract_namespace_preorder(payload_hex[10:].decode('hex'), sender_list, txinfo['vin'], txinfo['vout'], 0, 0, ns_preorder_txid)
+        ns_preorder_info = blockstack.lib.operations.extract_namespace_preorder(payload_hex[10:].decode('hex'), sender_list, txinfo['ins'], txinfo['outs'], 0, 0, ns_preorder_txid)
     except Exception as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
