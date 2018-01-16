@@ -85,7 +85,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # start up a simple Atlas test network with two nodes: the main one doing the test, and a subordinate one that treats it as a seed peer.
-    network_des = atlas_network.atlas_network_build( [17000], {17000: [16264]}, {}, os.path.join( testlib.working_dir(**kw), "atlas_network" ))
+    network_des = atlas_network.atlas_network_build( testlib.working_dir(**kw), [17000], {17000: [16264]}, {}, os.path.join( testlib.working_dir(**kw), "atlas_network" ))
     atlas_network.atlas_network_start( network_des )
 
     time.sleep(5.0)
@@ -103,11 +103,9 @@ def scenario( wallets, **kw ):
             return False
 
         testlib.next_block( **kw )
-
-        # propagate 
-        res = testlib.blockstack_cli_sync_zonefile('foo_{}.test'.format(i), zonefile_string=empty_zonefile_str)
-        if 'error' in res:
-            print json.dumps(res)
+        
+        res = testlib.blockstack_put_zonefile(empty_zonefile_str)
+        if not res:
             return False
 
     # wait at most 10 seconds for atlas network to converge
