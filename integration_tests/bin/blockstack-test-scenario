@@ -518,14 +518,6 @@ def network_start( blockstack_opts, db ):
     return atlas_state
 
 
-'''
-def storage_start( blockstack_opts ):
-    """
-    Start storage services
-    """
-    blockstackd.storage_start( blockstack_opts )
-'''
-
 def network_stop():
     """
     Stop RPC services
@@ -542,15 +534,6 @@ def atlas_stop( atlas_state ):
             log.error("Atlas support disabled")
         else:
             raise
-
-
-'''
-def storage_stop():
-    """
-    Stop storage services
-    """
-    blockstackd.storage_stop()
-'''
 
 def bitcoin_stop():
     """
@@ -705,9 +688,6 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     # start taking RPC requests
     atlas_state = network_start( blockstack_opts, db )
 
-    # start storage
-    # storage_start( blockstack_opts )
-
     # start pinging bitcoind so it pushes out p2p messages
     pinger = Pinger(virtualchain_working_dir)
     pinger.start()
@@ -728,9 +708,6 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
 
         log.info("Shutting down atlas")
         atlas_stop( atlas_state )
-
-        # log.info("Shutting down storage")
-        # storage_stop()
 
         log.info("Shutting down bitcoin")
         bitcoin_stop()
