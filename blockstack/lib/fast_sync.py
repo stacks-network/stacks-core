@@ -373,7 +373,7 @@ def fast_sync_snapshot(working_dir, export_path, private_key, block_number ):
     atlasdb_path = os.path.join(working_dir, "atlas.db")
     dest_path = os.path.join(tmpdir, "atlas.db")
     _log_backup(atlasdb_path)
-    rc = virualchain.sqlite3_backup(atlasdb_path, dest_path)
+    rc = virtualchain.sqlite3_backup(atlasdb_path, dest_path)
     if not rc:
         _cleanup(tmpdir)
         return False
@@ -606,7 +606,7 @@ def fast_sync_import(working_dir, import_url, public_keys=config.FAST_SYNC_PUBLI
         return False
 
     # restore from backup
-    rc = blockstack_backup_restore(working_dir, virtualchain_hooks, working_dir)
+    rc = blockstack_backup_restore(working_dir, None)
     if not rc:
         logerr("Failed to instantiate blockstack name database")
         return False
@@ -626,7 +626,6 @@ def blockstack_backup_restore(working_dir, block_number):
     Return True on success
     Return False on failure
     """
-    raise Exception("FIXME")
     db = BlockstackDB.get_readwrite_instance(working_dir)
     res = db.db_restore(block_number=block_number)
     db.close()
