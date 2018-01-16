@@ -153,12 +153,28 @@ def get_db_state(working_dir):
     Returns the handle on success
     Raises on error
     """
-
-    # make this usable even if we haven't explicitly configured virtualchain 
     impl = sys.modules[__name__]
     db_inst = BlockstackDB.get_readonly_instance(working_dir)
     assert db_inst, 'Failed to instantiate database handle'
     return db_inst
+
+
+def get_or_instantiate_db_state(working_dir):
+    """
+    Get a read-only handle to the DB.
+    Instantiate it first if it doesn't exist.
+
+    DO NOT CALL WHILE INDEXING
+
+    Returns the handle on success
+    Raises on error
+    """
+
+    # instantiates
+    new_db = BlockstackDB.borrow_readwrite_instance(working_dir, -1)
+    BlockstackDB.release_readwrite_instance(new_db, -1)
+
+    return get_db_state(working_dir)
 
 
 def db_parse( block_id, txid, vtxindex, op, data, senders, inputs, outputs, fee, db_state=None, **virtualchain_hints ):
