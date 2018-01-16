@@ -7,7 +7,7 @@
 - `blockstack-core`
   * Creating and transmitting blockchain transactions,
   * Creating and parsing [virtualchain](https://github.com/blockstack/virtualchain) state, and
-  * Communicating with the peer network, Atlas. The
+  * Communicating with the peer network, Atlas.
 - `blockstack-core api`
   * Provides a RESTful interface for clients to interact with `blockstack-core` functionality
   * Contains your bitcoin wallet
