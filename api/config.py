@@ -39,10 +39,12 @@ DEFAULT_NAMESPACE = "id"
 
 PUBLIC_NODE = True
 
-BASE_API_URL = "http://localhost:6270"
-PUBLIC_NODE_URL = 'https://core.blockstack.org'
-SEARCH_NODE_URL = 'https://search.blockstack.org'
-BLOCKSTACKD_IP = 'localhost'
+MONGODB_CONNECTION = "mongodb://mongodb"
+
+BASE_API_URL = "http://blockstack-api:6270"
+PUBLIC_NODE_URL = 'https://core.example.com'
+SEARCH_NODE_URL = 'https://core.example.com'
+BLOCKSTACKD_IP = 'blockstack-core'
 BLOCKSTACKD_PORT = 6264
 DHT_MIRROR_IP = '52.20.98.85'
 DHT_MIRROR_PORT = 6266

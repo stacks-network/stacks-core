@@ -1,0 +1,3 @@
+0 12 * * * /usr/bin/docker run -d --network api_api -v /home/ubuntu/blockstack-core/api/data/search-api/:/var/blockstack-search/ api_search-api:latest ./ops search-reindex
+0 0 * * * /usr/bin/docker run -d --network api_api -v /home/ubuntu/blockstack-core/api/data/search-api/:/var/blockstack-search/ api_search-api:latest ./ops search-reindex
+0,12,24,36,48 * * * * /usr/bin/docker run -d --network api_api -v /home/ubuntu/blockstack-core/api/data/search-api/:/var/blockstack-search/ api_search-api:latest ./ops search-update

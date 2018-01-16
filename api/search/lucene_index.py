@@ -32,11 +32,13 @@ from pyes import *
 conn = ES()
 
 from pymongo import MongoClient
-c = MongoClient()
+from api.config import MONGODB_CONNECTION
+from config import BULK_INSERT_LIMIT
+
+c = MongoClient(MONGODB_CONNECTION)
 
 INPUT_OPTIONS = '--create_index --search'
 
-from config import BULK_INSERT_LIMIT
 from common import log
 
 

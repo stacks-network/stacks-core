@@ -1,0 +1,183 @@
+#!/bin/bash
+ops () {
+
+  local python=/usr/bin/python
+  local initCore=blockstack-core-init
+  local storageBucket=https://blockstack.blob.core.windows.net/index
+  local image=quay.io/blockstack/blockstack-core
+  local tag=develop-configure-mongo
+
+  search-reindex () {
+    # Setup logging
+    local tmpFile=/var/blockstack-search/logs/search-reindex/$(date +%s).log
+    mkdir -p /var/blockstack-search/logs/search-reindex
+    touch $tmpFile
+
+    $python -m api.search.fetch_data --fetch_namespace 2>> $tmpFile
+    $python -m api.search.fetch_data --fetch_profiles 2>> $tmpFile
+    echo "[$(date)] Building mongodb index..." >> $tmpFile
+    $python -m api.search.basic_index --refresh 2>> $tmpFile
+    echo "[$(date)] Finished indexing..." >> $tmpFile
+  }
+
+  search-update () {
+    # Setup logging
+    local tmpFile=/var/blockstack-search/logs/search-update/$(date +%s).log
+    local updateProfilesOut=/var/blockstack-search/logs/update-profiles/$(date +%s).log
+    mkdir -p /var/blockstack-search/logs/search-update
+    mkdir -p /var/blockstack-search/logs/update-profiles
+    touch $tmpFile $updateProfilesOut
+
+    # Run update_profiles
+    echo "Starting indexing at $(date)" >> $tmpFile
+    $python -m api.search.fetch_data --update_profiles 2>&1 | tee $updateProfilesOut >> $tmpFile
+
+    # Check that script ran
+    grep -q "Indexed" $updateProfilesOut
+    UPDATED=$?
+    grep -q "Indexed 0 profiles" $updateProfilesOut
+    UPDATED_ZERO=$?
+    if [ $UPDATED -eq 0 ] && [ $UPDATED_ZERO -ne 0 ]; then
+      echo "Refreshing mongodb index at $(date)" >> $tmpFile
+      $python -m api.search.basic_index --refresh  >> $tmpFile
+    else
+      echo "Skipping mondodb index, no new profiles" >> $tmpFile
+    fi
+    echo "Finished indexing at $(date)" >> $tmpFile
+  }
+
+  init-core () {
+    local coreData=data/blockstack-core
+    echo "Initializing Blockstack Core node. This task runs in the background and may take up to 20 minutes..."
+    mkdir -p $coreData/server/
+    cp deployment/blockstack-server.ini $coreData/server/blockstack-server.ini
+    docker run -d --rm \
+      -v $(pwd)/$coreData/server/:/root/.blockstack-server/ \
+      -v $(pwd)/$coreData/api/:/root/.blockstack \
+      --name $initCore \
+      $image:$tag \
+      blockstack-core --debug fast_sync http://fast-sync.blockstack.org/snapshot.bsk > /dev/null
+  }
+
+  init-api () {
+    local apiData=data/blockstack-api
+    echo "Initializing Blockstack Core API server with dummy wallet..."
+    mkdir -p $apiData
+    docker run -it --rm \
+      -v $(pwd)/$apiData:/root/.blockstack \
+      $image:$tag \
+      blockstack setup -y --password dummywalletpassword > /dev/null
+    sudo cp deployment/client.ini $apiData/client.ini
+  }
+
+  init-index () {
+    local searchData=data/search-api
+    local bs=blockchain_data.json
+    local pd=profile_data.json
+    echo "Pulling current index files from $storageBucket..."
+    mkdir -p $searchData
+    wget -O $searchData/$bs $storageBucket/$bs > /dev/null 2>&1
+    wget -O $searchData/$pd $storageBucket/$pd > /dev/null 2>&1
+  }
+
+  install-docker () {
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+    sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+    sudo apt-get update
+    sudo apt-get install -y docker-ce docker-compose
+  }
+
+  install-certbot () {
+    sudo add-apt-repository ppa:certbot/certbot
+    sudo apt-get update
+    sudo apt-get install -y python-certbot-nginx
+  }
+
+  init-cron () {
+    crontab deployment/crontab
+  }
+
+  config-nginx () {
+    if [ -z "$1" ]; then
+      echo "Need to input domain name that points to this server"
+      echo "e.g. core.example.com"
+      exit 1
+    fi
+    echo "Configuring nginx to serve core api from $1..."
+    sed -i "s/core.example.com/$1/g" deployment/nginx.cfg
+    echo "Configuring core api to serve from $1..."
+    sed -i "s/core.example.com/$1/g" config.py
+    # TODO: add checks here for nginx -t and grep config.py for the domain
+
+    echo "Running certbot..."
+    sudo certbot --nginx -d $1
+
+    echo "Replacing your /etc/nginx/sites-available folder with deployment/nginx.cfg..."
+    sudo rm -rf /etc/nginx/sites-available/*
+    sudo ln deployment/nginx.cfg /etc/nginx/sites-available/default
+
+    echo "Reloading nginx..."
+    sudo systemctl reload nginx
+  }
+
+  commands () {
+    cat <<-EOF
+ops commands:
+  Setup Commands:
+    init-api -> Set up the dummy wallet for the core api
+    init-index -> Pull down the current version of the index
+    init-core -> Fast sync the core node
+    config-nginx -> Configure core server and nginx to point to proper domain
+    init-cron -> install cron jobs needed to reindex and update the index
+
+  Commands to be run in Docker Environment:
+    search-reindex -> Once every 6 hours, run by cron
+    search-update  -> Once every 15 min, run by cron
+
+  Commands to install dependancies:
+    install-docker -> installs the docker daemon on ubuntu
+    install-nginx -> installs nginx on ubuntu
+    install-certbot -> installs certbot for fetching ssl certs
+EOF
+  }
+
+  case $1 in
+    search-reindex)
+      search-reindex
+      ;;
+    search-update)
+      search-update
+      ;;
+    config-nginx)
+      config-nginx $2
+      ;;
+    init-api)
+      init-api
+      ;;
+    init-index)
+      init-index
+      ;;
+    init-core)
+      init-core
+      ;;
+    init-cron)
+      init-cron
+      ;;
+    install-docker)
+      install-docker
+      usermod -aG docker ${USER}
+      ;;
+    install-certbot)
+      install-certbot
+      ;;
+    install-nginx)
+      sudo apt-get update
+      sudo apt-get install -y nginx
+      ;;
+    *)
+      commands
+      ;;
+  esac
+}
+
+ops $1 $2
