@@ -1210,7 +1210,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                                        'zonefile_hash' : '0000000' } ] }
         """
         conf = get_blockstack_opts()
-        if not conf['atlas']:
+        if not is_atlas_enabled(conf):
             return {'error': 'Not an atlas node'}
 
         if not self.check_block(from_block):
@@ -1225,7 +1225,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not self.check_count(count, 100):
             return {'error': 'invalid count'}
 
-        zonefile_info = atlasdb_get_zonefiles_by_block(from_block, to_block, offset, count)
+        zonefile_info = atlasdb_get_zonefiles_by_block(from_block, to_block, offset, count, path=conf['atlasdb_path'])
         if 'error' in zonefile_info:
            return zonefile_info
 
@@ -1269,7 +1269,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'error': ...} on error.
         """
         conf = get_blockstack_opts()
-        if not conf['atlas']:
+        if not is_atlas_enabled(conf):
             return {'error': 'Not an atlas node'}
 
         if not self.check_offset(offset):
