@@ -2026,7 +2026,7 @@ def run_blockstackd():
    special_args = check_and_set_envars( sys.argv )
    working_dir = special_args.get('working_dir')
    if working_dir is None:
-       working_dir = os.path.expanduser('~/{}'.format(virtualchain_hooks.get_virtual_chain_name()))
+       working_dir = os.path.expanduser('~/.{}'.format(virtualchain_hooks.get_virtual_chain_name()))
        
    argparser = setup( working_dir, return_parser=True )
    if argparser is None:
