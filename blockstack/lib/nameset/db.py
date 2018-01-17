@@ -884,26 +884,39 @@ def namedb_state_transition( cur, opcode, op_data, block_id, vtxindex, txid, his
     new_record['opcode'] = opcode
 
     canonicalized_record = op_canonicalize_quirks(opcode, new_record, cur_record)
+    canonicalized_record['opcode'] = opcode
+
     rc = namedb_history_save(cur, opcode, history_id, None, new_record.get('value_hash', None), block_id, vtxindex, txid, canonicalized_record)
     if not rc:
         log.error("FATAL: failed to save history for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
         os.abort()
 
     rc = False
+    merged_new_record = None
+
     if opcode in OPCODE_NAME_STATE_TRANSITIONS:
         # name state transition 
         rc = namedb_name_update( cur, opcode, op_data_name, constraints_ignored=constraints_ignored )
+        if not rc:
+            log.error("FATAL: opcode is not a state-transition operation on names")
+            os.abort()
+
+        merged_new_record = namedb_get_name(cur, history_id, block_id, include_history=False, include_expired=True)
 
     elif opcode in OPCODE_NAMESPACE_STATE_TRANSITIONS:
         # namespace state transition 
         rc = namedb_namespace_update( cur, opcode, op_data_name, constraints_ignored=constraints_ignored )
-    
-    if not rc:
-        log.error("FATAL: opcode is not a state-transition operation")
-        os.abort()
+        if not rc:
+            log.error("FATAL: opcode is not a state-transition operation on namespaces")
+            os.abort()
 
-    # success!
-    return canonicalized_record
+        merged_new_record = namedb_get_namespace(cur, history_id, block_id, include_history=False, include_expired=True)
+
+    # success! re-apply quirks on the transitioned name record
+    canonical_merged_new_record = op_canonicalize(opcode, merged_new_record)
+    merged_canonicalized_record = op_canonicalize_quirks(opcode, canonical_merged_new_record, cur_record)
+    merged_canonicalized_record['opcode'] = opcode
+    return merged_canonicalized_record
     
 
 def namedb_state_create_sanity_check( opcode, op_data, history_id, preorder_record, record_table ):
@@ -1021,6 +1034,8 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
     history_data['opcode'] = opcode
     
     canonicalized_record = op_canonicalize_quirks(opcode, history_data, prev_rec)
+    canonicalized_record['opcode'] = opcode
+
     rc = namedb_history_save(cur, opcode, history_id, history_data['address'], history_data.get('value_hash', None), block_id, vtxindex, txid, canonicalized_record)
     if not rc:
         log.error("FATAL: failed to save history for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
@@ -1162,6 +1177,8 @@ def namedb_state_create_as_import( db, opcode, new_record, block_id, vtxindex, t
     history_data['opcode'] = opcode
 
     canonicalized_record = op_canonicalize_quirks(opcode, new_record, prior_import)
+    canonicalized_record['opcode'] = opcode
+
     rc = namedb_history_save(cur, opcode, history_id, creator_address, history_data.get('value_hash', None), block_id, vtxindex, txid, canonicalized_record)
     if not rc:
         log.error("FATAL: failed to save history snapshot for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
