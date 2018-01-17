@@ -219,12 +219,6 @@ def check( state_engine ):
             print "no cached zonefile %s in %s" % (value_hash, zonefile_dir)
             return False
 
-        cached_zonefile = blockstack_zones.parse_zone_file(cached_zonefile)
-        
-        if cached_zonefile != zfdata:
-            print "zonefile mismatch"
-            print "from disk:\n%s\n" % json.dumps(zfdata, indent=4, sort_keys=True)
-            print "from cache:\n%s\n" % json.dumps(cached_zonefile, indent=4, sort_keys=True)
-            return False
+        cached_zonefile = blockstack_zones.parse_zone_file(cached_zonefile_txt)
         
     return True
