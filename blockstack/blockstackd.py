@@ -531,6 +531,23 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return self.check_string(address, min_length=26, max_length=35, pattern=OP_ADDRESS_PATTERN)
 
 
+    def sanitize_rec(self, rec):
+        """
+        sanitize a name/namespace record before returning it.
+        * canonicalize it
+        * remove quirk fields
+        """
+        canonical_op = op_canonicalize(rec['opcode'], rec)
+
+        # don't return internally-used quirk fields
+        quirk_fields = op_get_quirk_fields(rec['opcode'])
+        for f in quirk_fields:
+            if f in canonical_op:
+                del canonical_op[f]
+
+        return canonical_op
+
+
     def rpc_ping(self, **con_info):
         reply = {}
         reply['status'] = "alive"
@@ -563,8 +580,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         else:
 
-            assert 'opcode' in name_record, 'BUG: missing opcode'
-            name_record = op_canonicalize(name_record['opcode'], name_record)
+            assert 'opcode' in name_record, 'BUG: missing opcode in {}'.format(json.dumps(name_record, sort_keys=True))
+            name_record = self.sanitize_rec(name_record)
 
             namespace_id = get_namespace_from_name(name)
             namespace_record = db.get_namespace(namespace_id)
@@ -623,10 +640,17 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return self.success_response({'record': None})
 
         db = get_db_state(self.working_dir)
-        name_at = db.get_name_at( name, block_height, include_expired=False )
+        names_at = db.get_name_at( name, block_height, include_expired=False )
         db.close()
+        
+        ret = []
+        for name_rec in names_at:
+            if 'opcode' not in name_rec:
+                name_rec['opcode'] = op_get_opcode_name(name_rec['op'])
+            
+            ret.append(self.sanitize_rec(name_rec))
 
-        return self.success_response( {'records': name_at} )
+        return self.success_response( {'records': ret} )
 
 
     def rpc_get_historic_name_at( self, name, block_height, **con_info ):
@@ -642,10 +666,17 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return self.success_response({'record': None})
 
         db = get_db_state(self.working_dir)
-        name_at = db.get_name_at( name, block_height, include_expired=True )
+        names_at = db.get_name_at( name, block_height, include_expired=True )
         db.close()
 
-        return self.success_response( {'records': name_at} )
+        ret = []
+        for name_rec in names_at:
+            if 'opcode' not in name_rec:
+                name_rec['opcode'] = op_get_opcode_name(name_rec['op'])
+
+            ret.append(self.sanitize_rec(name_rec))
+
+        return self.success_response( {'records': ret} )
 
     
     def rpc_get_num_nameops_at(self, block_id, **con_info):
@@ -689,8 +720,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         ret = []
         
         for nameop in nameops:
-            assert 'opcode' in nameop, 'BUG: missing opcode'
-            ret.append(op_canonicalize(nameop['opcode'], nameop))
+            assert 'opcode' in nameop, 'BUG: missing opcode in {}'.format(json.dumps(nameop, sort_keys=True))
+            canonical_op = self.sanitize_rec(nameop)
+            ret.append(canonical_op)
         
         return self.success_response({'nameops': ret})
 
@@ -872,8 +904,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             if ns is None:
                 return {"error": "No such namespace"}
 
-            assert 'opcode' in ns, 'BUG: missing opcode'
-            ns = op_canonicalize(ns['opcode'], ns)
+            assert 'opcode' in ns, 'BUG: missing opcode in {}'.format(json.dumps(ns, sort_keys=True))
+            ns = self.sanitize_rec(ns)
 
             ns['ready'] = False
             return self.success_response( {'record': ns} )
@@ -881,8 +913,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         else:
             db.close()
             
-            assert 'opcode' in ns, 'BUG: missing opcode'
-            ns = op_canonicalize(ns['opcode'], ns)
+            assert 'opcode' in ns, 'BUG: missing opcode in {}'.format(json.dumps(ns, sort_keys=True))
+            ns = self.sanitize_rec(ns)
 
             ns['ready'] = True
             return self.success_response( {'record': ns} )
@@ -2014,7 +2046,8 @@ def load_expected_snapshots( snapshots_path ):
         # extract snapshots: map int to consensus hash
         for (block_id_str, consensus_hash) in snapshots_data['snapshots'].items():
             expected_snapshots[ int(block_id_str) ] = str(consensus_hash)
-
+        
+        log.debug("Loaded expected snapshots from {}; {} entries".format(snapshots_path, len(expected_snapshots)))
         return expected_snapshots
 
     except Exception, e:
@@ -2191,8 +2224,8 @@ def run_blockstackd():
           expected_snapshots = load_expected_snapshots( args.expected_snapshots )
           if expected_snapshots is None:
               sys.exit(1)
-
-          log.debug("Load expected snapshots from {}".format(args.expected_snapshots))
+      else:
+          log.debug("No expected snapshots given")
 
       # we're definitely not running, so make sure this path is clear
       try:
