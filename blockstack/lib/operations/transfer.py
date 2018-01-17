@@ -229,6 +229,8 @@ def check( state_engine, nameop, block_id, checked_ops ):
     nameop['address'] = recipient_address
     nameop['sender_pubkey'] = None
     # nameop['transfer_send_block_id'] = transfer_send_block_id
+
+    log.debug("QUIRK: Changing NAME_TRANSFER consensus hash from {} to {}".format(nameop['consensus_hash'], transfer_consensus_hash))
     nameop['consensus_hash'] = transfer_consensus_hash
 
     if not nameop['keep_data']:
