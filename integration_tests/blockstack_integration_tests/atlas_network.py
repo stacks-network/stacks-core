@@ -655,6 +655,7 @@ def atlas_network_build( working_dir, peer_ports, seed_relations, blacklist_rela
             return None
 
     return {
+        'global_working_dir': working_dir,
         'peer_ports': peer_ports,
         'network_dir': network_dir,
         'peers': [],
@@ -678,7 +679,7 @@ def atlas_network_start( network_des, **network_params ):
     for port in peer_ports:
         hostport = "localhost:%s" % port
         dirp = os.path.join( network_dir, hostport )
-        peer = atlas_peer_start( port, srv, dirp )
+        peer = atlas_peer_start( network_des['global_working_dir'], port, srv, dirp )
         peers.append(peer)
 
     network_des['netsrv'] = srv
@@ -731,14 +732,14 @@ def atlas_network_stop( network_des ):
     return True
 
 
-def atlas_peer_start( port, srv, working_dir ):
+def atlas_peer_start( global_working_dir, port, srv, working_dir ):
     """
     Start up a peer atlas subprocess
     to communicate on the given network server.
     Return a dict with the peer information.
     """
     import scenarios.testlib as testlib
-    return testlib.peer_start( working_dir, port=port )
+    return testlib.peer_start( global_working_dir, working_dir, port=port )
 
 
 def atlas_peer_rpc( peer_info ):
