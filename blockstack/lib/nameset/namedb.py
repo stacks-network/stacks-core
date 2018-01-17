@@ -1010,7 +1010,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         # (otherwise we get into weird conditions where someone can preorder
         # a name before someone else, and register it after it expires)
         namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( self.lastblock, namespace_id )
-        if preorder['block_number'] + (namespace['lifetime'] * namespace_lifetime_multiplier)  <= self.lastblock:
+        if preorder['block_number'] + (namespace['lifetime'] * namespace_lifetime_multiplier) <= self.lastblock:
             log.debug("Preorder is too old (accepted at {}, namespace lifetime is {}, current block is {})".format(preorder['block_number'], namespace['lifetime'] * namespace_lifetime_multiplier, self.lastblock))
             return None
 
