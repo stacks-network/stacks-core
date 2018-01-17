@@ -592,6 +592,16 @@ OPCODE_STATELESS_OPS = [
     "ANNOUNCE"
 ]
 
+# set of operations that affect only names
+OPCODE_NAME_NAMEOPS = [
+    'NAME_PREORDER',
+    'NAME_IMPORT',
+    'NAME_REGISTRATION',
+    'NAME_UPDATE',
+    'NAME_TRANSFER',
+    'NAME_RENEWAL',
+    'NAME_REVOKE'
+]
 
 NAMESPACE_LIFE_INFINITE = 0xffffffff
 
