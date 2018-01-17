@@ -4,7 +4,6 @@ services:
     image: mongo:3.4
     volumes:
       - './data/mongodb/:/data/db'
-    network_mode: "host"
     networks:
       - api
     restart: always
@@ -32,7 +31,6 @@ services:
       - MONGODB_URI=mongodb://mongodb
       - BASE_API_URL=http://blockstack-api:6270
       - DEBUG=True
-    network_mode: "host"
     networks:
       - api
     ports:
