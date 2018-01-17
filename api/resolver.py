@@ -45,10 +45,6 @@ from api.utils import cache_control
 
 from .config import DEBUG
 from .config import DEFAULT_HOST, DEFAULT_CACHE_TIMEOUT
-from .config import VALID_BLOCKS, RECENT_BLOCKS
-from .config import BLOCKSTACKD_IP, BLOCKSTACKD_PORT
-from .config import DHT_MIRROR_IP, DHT_MIRROR_PORT
-from .config import DEFAULT_NAMESPACE
 from .config import NAMES_FILE
 
 import requests
@@ -290,4 +286,3 @@ def get_users(username):
 @cache_control(DEFAULT_CACHE_TIMEOUT)
 def get_users_v2(username):
     return get_users(username)
-

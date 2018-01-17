@@ -32,7 +32,7 @@ from flask import request, jsonify, make_response, render_template, Blueprint
 from flask_crossdomain import crossdomain
 
 from api.config import DEFAULT_HOST, DEFAULT_PORT, DEBUG, DEFAULT_CACHE_TIMEOUT
-from api.config import SEARCH_DEFAULT_LIMIT as DEFAULT_LIMIT, SEARCH_LUCENE_ENABLED as LUCENE_ENABLED
+from api.config import SEARCH_DEFAULT_LIMIT as DEFAULT_LIMIT
 from api.utils import cache_control
 
 from .substring_search import search_people_by_name, search_people_by_twitter

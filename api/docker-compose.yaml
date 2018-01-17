@@ -4,6 +4,7 @@ services:
     image: mongo:3.4
     volumes:
       - './data/mongodb/:/data/db'
+    network_mode: "host"
     networks:
       - api
     restart: always
@@ -12,10 +13,12 @@ services:
     image: 'quay.io/blockstack/blockstack-core:master'
     command: blockstack api start-foreground -y --debug --password dummywalletpassword
     volumes:
-      - './data/blockstack-api/:/root/.blockstack'
-      - '/tmp/:/tmp/'
+      - './data/blockstack-api:/root/.blockstack'
+      - './data/blockstack-api/tmp:/tmp'
     networks:
       - api
+    environment:
+      - BLOCKSTACK_CLIENT_INTERACTIVE_YES=0
     restart: always
 
   search-api:
@@ -24,6 +27,12 @@ services:
       dockerfile: api/Dockerfile
     environment:
       - BLOCKSTACK_DEBUG=1
+      - PUBLIC_NODE=True
+      - DEFAULT_HOST=0.0.0.0
+      - MONGODB_URI=mongodb://mongodb
+      - BASE_API_URL=http://blockstack-api:6270
+      - DEBUG=True
+    network_mode: "host"
     networks:
       - api
     ports:
@@ -34,7 +43,6 @@ services:
       - blockstack-api
     volumes:
       - "./data/search-api/:/var/blockstack-search"
-
 
 networks:
   api: null
