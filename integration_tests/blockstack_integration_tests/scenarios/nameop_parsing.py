@@ -78,9 +78,7 @@ def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_addres
 
     # just enough to get the public key
     inputs = [{
-        "scriptSig": {
-            "asm": "ignored %s" % fake_pubkey,
-        }
+        'script': 'ignored {}'.format(fake_pubkey).encode('hex')
     }]
 
     script = "OP_RETURN %s" % payload
@@ -95,21 +93,15 @@ def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_addres
             raise
 
     outputs = [{
-        "scriptPubKey": {
-            "asm": script,
-            "hex": scripthex,
-            "addresses": []
-        }}]
+        'script': scripthex,
+        'value': 0
+    }]
 
     if recipient_address is not None:
         script = "OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG" % binascii.hexlify( virtualchain.lib.hashing.bin_double_sha256( fake_pubkey ) )
         scripthex = virtualchain.make_payment_script( recipient_address )
         outputs.append( {
-            "scriptPubKey": {
-                "asm": script,
-                "hex": scripthex,
-                "addresses": [ recipient_address ]
-            },
+            'script': scripthex,
             "value": 10000000
         })
 
@@ -117,33 +109,21 @@ def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_addres
         script = "OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG" % import_update_hash
         scripthex = virtualchain.make_payment_script( virtualchain.hex_hash160_to_address( import_update_hash ) )
         outputs.append( {
-            "scriptPubKey": {
-                "asm": script,
-                "hex": scripthex,
-                "addresses": [ virtualchain.hex_hash160_to_address(import_update_hash) ]
-            },
+            "script": scripthex,
             "value": 10000000
         })
 
     elif burn_address is not None:
         scripthex = virtualchain.make_payment_script( burn_address )
         outputs.append( {
-            "scriptPubKey": {
-                "asm": script,
-                "hex": scripthex,
-                "addresses": [ burn_address ]
-            },
+            "script": scripthex,
             "value": 10000000
         })
     
     elif reveal_address is not None:
         scripthex = virtualchain.make_payment_script( reveal_address )
         outputs.append( {
-            "scriptPubKey": {
-                "asm": script,
-                "hex": scripthex,
-                "addresses": [ reveal_address ]
-            },
+            "script": scripthex,
             "value": 10000000
         })
 
