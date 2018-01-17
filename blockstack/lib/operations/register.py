@@ -52,7 +52,7 @@ REGISTER_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
     'preorder_block_number',
     'consensus_hash',
     'op_fee',
-    # 'last_creation_op'
+    'last_creation_op'
 ]
 
 # fields renewal changes
@@ -378,7 +378,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
 
     # not consensus-bearing, but required for SNV
     # nameop['transfer_send_block_id'] = transfer_send_block_id
-    # nameop['last_creation_op'] = NAME_PREORDER 
+    nameop['last_creation_op'] = NAME_PREORDER 
 
     # propagate new sender information
     nameop['sender'] = nameop['recipient']
