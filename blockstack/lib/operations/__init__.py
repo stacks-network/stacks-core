@@ -216,6 +216,36 @@ def op_decanonicalize(op_name, canonical_op):
         return DECANONICALIZE_METHODS[op_name](canonical_op)
 
 
+def op_canonicalize_quirks(op_name, new_record, current_record):
+    """
+    This method preserves backwards-compatibility quirks on canonicalized op data,
+    for snapshotting purposes.  It gets called after the nameop is committed and 
+    its history is saved, but before it gets snapshotted to form the new consensus hash.
+    
+    Backwards-compatibility quirks:
+    * if the operation was created by a NAME_IMPORT, then 'op_fee' must be a float (i.e. must end in .0)
+
+    Returns the new canonicalized op data
+    """
+    ret = {}
+    ret.update(new_record)
+
+    if op_name in OPCODE_NAME_NAMEOPS and op_name in OPCODE_NAME_STATE_TRANSITIONS:
+        # nameop state transition.  what created it?
+        if op_name != 'NAME_IMPORT':
+            assert current_record
+            assert 'last_creation_op' in current_record, 'BUG: missing last_creation_op for {}'.format(op_name)
+        
+        if current_record:
+            if current_record['last_creation_op'] == NAME_IMPORT:
+                ret['op_fee'] = float(current_record['op_fee'])
+            
+            # always preserve
+            ret['last_creation_op'] = current_record['last_creation_op']
+
+    return ret
+
+
 def op_check( state_engine, nameop, block_id, checked_ops ):
     """
     Given the state engine, the current block, the list of pending
@@ -332,3 +362,12 @@ def op_get_consensus_fields( op_name ):
     fields = SERIALIZE_FIELDS[op_name][:]
     return fields
 
+
+def op_get_quirk_fields( op_name ):
+    """
+    Get the set of fields in a database record that are required for compatibility quirks
+    """
+    if op_name in OPCODE_NAME_NAMEOPS:
+        return ['last_creation_op']
+    
+    return []
