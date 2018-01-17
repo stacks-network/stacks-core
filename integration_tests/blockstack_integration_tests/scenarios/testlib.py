@@ -3060,11 +3060,13 @@ def snv_all_names( state_engine ):
             txid_sequence = all_names[name][block_id]['txid_sequence']
             opcode_sequence = all_names[name][block_id]['opcode_sequence']
             error_sequence = all_names[name][block_id]['error_sequence']
-
-            log.debug("SNV verify %s (from %s)" % (name, block_id))
-            log.debug("opcodes: %s" % opcode_sequence)
-            log.debug("txids: %s" % txid_sequence)
-            log.debug("errors: %s" % error_sequence)
+            
+            print ''
+            print "SNV verify %s (from %s)" % (name, block_id)
+            print "opcodes: %s" % opcode_sequence
+            print "txids: %s" % txid_sequence
+            print "errors: %s" % error_sequence
+            print ""
 
             for j in xrange(0, len(txid_sequence)):
                 
@@ -3268,8 +3270,8 @@ def check_historic_names_by_address( state_engine ):
         if api_call.method == 'revoke':
             revoked_names[name] = block_id
 
-        final_name_states[name] = json.loads(json.dumps(state_engine.get_name(name, include_expired=True)))
-        final_name_states[name] = blockstack.op_canonicalize(final_name_states[name]['opcode'], final_name_states[name])
+        final_name_states[name] = json.loads(json.dumps(state_engine.get_name_at(name, state_engine.lastblock, include_expired=True)))
+        final_name_states[name] = blockstack.op_canonicalize(final_name_states[name][-1]['opcode'], final_name_states[name][-1])
 
     log.debug('addr names: {}'.format(addr_names))
     log.debug('revoked names: {}'.format(revoked_names))
@@ -3297,10 +3299,12 @@ def check_historic_names_by_address( state_engine ):
                 else:
                     for k in name_rec.keys():
                         if final_name_states[name] is not None:
-                            if name_rec[k] != final_name_states[name].get(k, None):
+                            if name_rec[k] != final_name_states[name].get(k, None) or type(name_rec[k]) != type(final_name_states[name].get(k, None)):
                                 log.error("Name rec for {} does not equal final name state from db on '{}'".format(name, k))
                                 log.error("Expected:\n{}".format(final_name_states[name].get(k, None)))
                                 log.error("Got:\n{}".format(name_rec[k]))
+                                log.error('final_name_states["{}"]:\n{}'.format(name, json.dumps(final_name_states[name], sort_keys=True, indent=4)))
+                                log.error('name_rec at {}:\n{}'.format(did, json.dumps(name_rec, sort_keys=True, indent=4)))
                                 ret = False
 
     return ret
