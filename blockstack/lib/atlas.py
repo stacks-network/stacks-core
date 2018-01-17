@@ -553,28 +553,29 @@ def atlasdb_query_execute(cur, query, values):
     Handle db timeouts.
     Abort on failure.
     """
-    timeout = 1.0
-    while True:
-        try:
-            ret = cur.execute(query, values)
-            return ret
-        except sqlite3.OperationalError as oe:
-            if oe.message == "database is locked":
-                timeout = timeout * 2 + timeout * random.random()
-                log.error("Query timed out due to lock; retrying in %s: %s" % (timeout, atlasdb_format_query(query, values)))
-                time.sleep(timeout)
-            
-            else:
-                log.exception(oe)
+    with DB_LOCK:
+        timeout = 1.0
+        while True:
+            try:
+                ret = cur.execute(query, values)
+                return ret
+            except sqlite3.OperationalError as oe:
+                if oe.message == "database is locked":
+                    timeout = timeout * 2 + timeout * random.random()
+                    log.error("Query timed out due to lock; retrying in %s: %s" % (timeout, atlasdb_format_query(query, values)))
+                    time.sleep(timeout)
+                
+                else:
+                    log.exception(oe)
+                    log.error("FATAL: failed to execute query (%s, %s)" % (query, values))
+                    log.error("\n".join(traceback.format_stack()))
+                    os.abort()
+
+            except Exception, e:
+                log.exception(e)
                 log.error("FATAL: failed to execute query (%s, %s)" % (query, values))
                 log.error("\n".join(traceback.format_stack()))
                 os.abort()
-
-        except Exception, e:
-            log.exception(e)
-            log.error("FATAL: failed to execute query (%s, %s)" % (query, values))
-            log.error("\n".join(traceback.format_stack()))
-            os.abort()
 
 
 def atlasdb_open( path ):
@@ -878,7 +879,8 @@ def atlasdb_queue_zonefiles( con, db, start_block, zonefile_dir, validate=True )
     # populate zonefile queue
     total = 0
     for block_height in range(start_block, db.lastblock+1, 1):
-
+        
+        # TODO: can we do this transactionally?
         zonefile_info = db.get_atlas_zonefile_info_at( block_height )
         for name_txid_zfhash in zonefile_info:
             name = str(name_txid_zfhash['name'])
