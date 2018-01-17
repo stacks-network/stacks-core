@@ -700,7 +700,7 @@ def atlasdb_get_zonefile( zonefile_hash, con=None, path=None ):
 
 def atlasdb_get_zonefiles_by_block( from_block, to_block, offset, count, con=None, path=None ):
     """
-    Look up all information on this zonefile.
+    Look up all zonefile hashes in a block range.
     Returns {'zonefile_hash': ..., 'indexes': [...], etc}
     """
     ret = None
