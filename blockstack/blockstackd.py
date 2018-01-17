@@ -1586,6 +1586,9 @@ def blockstack_tx_filter( tx ):
     """
     if not 'nulldata' in tx:
         return False
+    
+    if tx['nulldata'] is None:
+        return False
 
     payload = binascii.unhexlify( tx['nulldata'] )
     if payload.startswith("id"):
@@ -1997,6 +2000,7 @@ def load_expected_snapshots( snapshots_path ):
     Return the snapshots as a dict on success
     Return None on error
     """
+    # TODO: compat with new snapshots db
     # use snapshots?
     snapshots_path = os.path.expanduser(snapshots_path)
     expected_snapshots = {}
