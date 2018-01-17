@@ -373,6 +373,21 @@ def db_check( block_id, new_ops, op, op_data, txid, vtxindex, checked_ops, db_st
 
     return accept
    
+
+def check_quirks(block_id, block_op, db_state):
+    """
+    Check that all serialization compatibility quirks have been preserved.
+    Used primarily for testing.
+    """
+    if op_get_opcode_name(block_op['op']) in OPCODE_NAME_NAMEOPS:
+        assert 'last_creation_op' in block_op, 'QUIRK BUG: missing last_creation_op in {}'.format(op_get_opcode_name(block_op['op']))
+
+        if block_op['last_creation_op'] == NAME_IMPORT:
+            # the op_fee will be a float if the name record was created with a NAME_IMPORT
+            assert isinstance(block_op['op_fee'], float), 'QUIRK BUG: op_fee is not a float when it should be'
+
+    return
+
    
 def db_commit( block_id, op, op_data, txid, vtxindex, db_state=None ):
     """
@@ -396,9 +411,9 @@ def db_commit( block_id, op, op_data, txid, vtxindex, db_state=None ):
         log.error("FATAL: no state given")
         os.abort()
 
-    if op_data is not None:
-
-        # sanity checks
+    if op != 'virtualchain_final':
+        # ongoing processing.
+        # do sanity checks
         try:
             assert '__original_op_data__' in op_data, 'BUG: no __original_op_data__'
             assert 'txid' in op_data, "BUG: No txid given"
@@ -420,15 +435,20 @@ def db_commit( block_id, op, op_data, txid, vtxindex, db_state=None ):
         del op_data['__original_op_data__']
 
         # save, and get the sequence of committed operations
-        op_seq = None
+        consensus_ops = []
         if opcode in OPCODE_STATELESS_OPS:
             # state-less operation 
-            op_seq = []
+            consensus_ops = []
 
         else:
-            op_seq = db_state.commit_operation(original_op_data, op_data, block_id)
+            consensus_op = db_state.commit_operation(original_op_data, op_data, block_id)
+            
+            # make sure compatibility quirks are preserved
+            check_quirks(block_id, consensus_op, db_state)
+
+            consensus_ops = [consensus_op]
         
-        return op_seq
+        return consensus_ops
 
     else:
         # final commit for this block 
@@ -482,7 +502,7 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
                     atlasdb_path = blockstack_opts['atlasdb_path']
 
                     gc.collect()
-                    atlasdb_sync_zonefiles(db_state, block_height, zonefile_dir, path=atlasdb_path)
+                    atlasdb_sync_zonefiles(db_state, block_height-1, zonefile_dir, path=atlasdb_path)
                     gc.collect()
 
         except Exception, e:
