@@ -367,7 +367,7 @@ def op_get_quirk_fields( op_name ):
     """
     Get the set of fields in a database record that are required for compatibility quirks
     """
-    if op_name in OPCODE_NAME_NAMEOPS:
+    if op_name in OPCODE_NAME_NAMEOPS and op_name not in OPCODE_NAME_STATE_PREORDER:
         return ['last_creation_op']
     
     return []
