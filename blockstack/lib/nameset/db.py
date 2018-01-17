@@ -143,6 +143,9 @@ CREATE TABLE name_records( name STRING NOT NULL,
                            importer_address TEXT,
                            consensus_hash TEXT,
 
+                           -- for compatibility with previous versions' quirks
+                           last_creation_op STRING NOT NULL,
+
                            -- primary key includes block number, so an expired name can be re-registered 
                            PRIMARY KEY(name,block_number),
 
@@ -830,7 +833,7 @@ def namedb_state_transition( cur, opcode, op_data, block_id, vtxindex, txid, his
 
     The cur_record must exist already.
 
-    Return the newly updated record on success.
+    Return the newly updated record on success, with all compatibility quirks preserved.
     Raise an exception on failure.
 
     DO NOT CALL THIS METHOD DIRECTLY.
@@ -875,12 +878,13 @@ def namedb_state_transition( cur, opcode, op_data, block_id, vtxindex, txid, his
         os.abort()
 
     # back these fields up.  Include the opcode
-    # rc = namedb_history_save( cur, opcode, history_id, None, block_id, vtxindex, txid, cur_record )
     new_record = {}
     new_record.update(cur_record)
     new_record.update(op_data_name)
     new_record['opcode'] = opcode
-    rc = namedb_history_save(cur, opcode, history_id, None, new_record.get('value_hash', None), block_id, vtxindex, txid, new_record)
+
+    canonicalized_record = op_canonicalize_quirks(opcode, new_record, cur_record)
+    rc = namedb_history_save(cur, opcode, history_id, None, new_record.get('value_hash', None), block_id, vtxindex, txid, canonicalized_record)
     if not rc:
         log.error("FATAL: failed to save history for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
         os.abort()
@@ -899,7 +903,7 @@ def namedb_state_transition( cur, opcode, op_data, block_id, vtxindex, txid, his
         os.abort()
 
     # success!
-    return True
+    return canonicalized_record
     
 
 def namedb_state_create_sanity_check( opcode, op_data, history_id, preorder_record, record_table ):
@@ -946,9 +950,7 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
     This operation will allow the caller to update an existing name or namespace if it is being re-registered.
     It is up to the caller to verify that the name or namespace does not exist at the time of this call.
 
-    The record named by history_id must not exist.
-
-    Return True on success
+    Returns the data to snapshot on success (with all compatibility quirks preserved)
     Raise an exception on failure.
 
     DO NOT CALL THIS METHOD DIRECTLY.
@@ -961,6 +963,7 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
     
     # did this name or namespace previously exist?
     exists = False
+    prev_rec = None
     if opcode in OPCODE_NAMESPACE_STATE_CREATIONS:
         prev_rec = namedb_get_namespace(cur, history_id, block_id, include_expired=True, include_history=False)
         if prev_rec is not None:
@@ -970,7 +973,7 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
         prev_rec = namedb_get_name(cur, history_id, block_id, include_expired=True, include_history=False)
         if prev_rec is not None:
             exists = True
-
+    
     try:
         assert 'op' in preorder_record.keys(), 'BUG: no preorder op'
         assert 'preorder_hash' in preorder_record.keys(), "BUG: no preorder hash"
@@ -1016,7 +1019,9 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
     history_data = {}
     history_data.update(new_record)
     history_data['opcode'] = opcode
-    rc = namedb_history_save(cur, opcode, history_id, history_data['address'], history_data.get('value_hash', None), block_id, vtxindex, txid, history_data)
+    
+    canonicalized_record = op_canonicalize_quirks(opcode, history_data, prev_rec)
+    rc = namedb_history_save(cur, opcode, history_id, history_data['address'], history_data.get('value_hash', None), block_id, vtxindex, txid, canonicalized_record)
     if not rc:
         log.error("FATAL: failed to save history for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
         os.abort()
@@ -1050,8 +1055,8 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
         log.error("FATAL: failed to remove preorder")
         os.abort()
 
-    # success!
-    return True
+    # success!  canonicalize and preserve quirks
+    return canonicalized_record
 
 
 def namedb_name_import_sanity_check( cur, opcode, op_data, history_id, block_id, vtxindex, prior_import, record_table):
@@ -1112,10 +1117,7 @@ def namedb_state_create_as_import( db, opcode, new_record, block_id, vtxindex, t
     Given an operation and a new record (opcode, new_record), and point in time (block_id, vtxindex, txid)
     create the initial name as an import.  Does not work on namespaces.
 
-    # The record named by history_id must not exist if prior_import is None.
-    # The record named by history_id must exist if prior_import is not None.
-
-    Return True on success
+    Returns the data to snapshot on success (with all compatibility quirks preserved)
     Raise an exception on failure.
 
     DO NOT CALL THIS METHOD DIRECTLY.
@@ -1158,7 +1160,9 @@ def namedb_state_create_as_import( db, opcode, new_record, block_id, vtxindex, t
     history_data = {}
     history_data.update(new_record)
     history_data['opcode'] = opcode
-    rc = namedb_history_save(cur, opcode, history_id, creator_address, history_data.get('value_hash', None), block_id, vtxindex, txid, history_data)
+
+    canonicalized_record = op_canonicalize_quirks(opcode, new_record, prior_import)
+    rc = namedb_history_save(cur, opcode, history_id, creator_address, history_data.get('value_hash', None), block_id, vtxindex, txid, canonicalized_record)
     if not rc:
         log.error("FATAL: failed to save history snapshot for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
         os.abort()
@@ -1176,8 +1180,8 @@ def namedb_state_create_as_import( db, opcode, new_record, block_id, vtxindex, t
         log.error("FATAL: failed to execute import operation")
         os.abort()
 
-    # success!
-    return True
+    # success!  canonicalize and preserve quirks
+    return canonicalized_record
 
 
 def namedb_is_history_snapshot( history_snapshot ):
