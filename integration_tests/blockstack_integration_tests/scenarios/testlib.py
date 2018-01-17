@@ -3146,9 +3146,13 @@ def snv_all_names( state_engine ):
                         return False 
  
                     # only NAMESPACE_REVEAL doesn't have an 'op_fee' member.  It must be an int or long.
+                    elif snv_rec['opcode'] != 'NAMESPACE_REVEAL' and 'op_fee' not in snv_rec:
+                        print "QUIRK: %s: fee is missing".format(snv_rec['opcode'])
+                        return False
+                    '''
                     elif snv_rec['opcode'] != 'NAMESPACE_REVEAL' and type(snv_rec['op_fee']) not in [int,long]:
                         print "QUIRK: %s: fee isn't an int (but a %s: %s)" % (snv_rec['opcode'], type(snv_rec['op_fee']), snv_rec['op_fee'])
-
+                    '''
                     log.debug("SNV verified %s with (%s,%s) back to (%s,%s)" % (name, trusted_block_id, trusted_consensus_hash, block_id, consensus_hash ))
 
     return True
