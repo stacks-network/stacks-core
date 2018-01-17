@@ -1372,35 +1372,39 @@ class BlockstackDB( virtualchain.StateEngine ):
             collisions[history_id_key].append( history_id )
 
 
-    def generate_consensus_values(self, opcode, op_data, processed_op_data, current_block_number):
+    def extract_consensus_op(self, opcode, op_data, processed_op_data, current_block_number):
         """
         Using the operation data extracted from parsing the virtualchain operation (@op_data),
         and the checked, processed operation (@processed_op_data), return a dict that contains
         all of the consensus fields to snapshot this operation.
         """
-        log.debug("Generate consensus values for {} at {}".format(opcode, current_block_number))
+        log.debug("Extract consensus values for {} at {}".format(opcode, current_block_number))
         ret = {}
 
         consensus_fields = op_get_consensus_fields(opcode)
-        for consensus_field in consensus_fields:
+        quirk_fields = op_get_quirk_fields(opcode)
+        for field in consensus_fields + quirk_fields:
 
             try:
-                assert consensus_field in processed_op_data or consensus_field in op_data, 'Missing consensus field "{}"'.format(consensus_field)
+                # assert field in processed_op_data or field in op_data, 'Missing consensus field "{}"'.format(field)
+                assert field in processed_op_data, 'Missing consensus field "{}"'.format(field)
             except Exception as e:
                 # should NEVER happen
                 log.exception(e)
-                log.error("FATAL: BUG: missing consensus field {}".format(consensus_field))
+                log.error("FATAL: BUG: missing consensus field {}".format(field))
                 log.error("op_data:\n{}".format(json.dumps(op_data, indent=4, sort_keys=True)))
                 log.error("processed_op_data:\n{}".format(json.dumps(op_data, indent=4, sort_keys=True)))
                 os.abort()
-
+            
+            ret[field] = processed_op_data[field]
+            '''
             # keep the field from the processed operation, if applicable.
             # otherwise, use the field given from the input.
-            if consensus_field in processed_op_data:
-                ret[consensus_field] = processed_op_data[consensus_field]
-            elif consensus_field in op_data:
-                ret[consensus_field] = op_data[consensus_field] 
-
+            if field in processed_op_data:
+                ret[field] = processed_op_data[field]
+            elif field in op_data:
+                ret[field] = op_data[field] 
+            '''
         return ret
 
 
@@ -1408,9 +1412,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         Commit an operation, thereby carrying out a state transition.
 
-        Returns the sequence of operations carried out.
-        Each operation returned is a dict that contains *only* the operation's consensus fields,
-        to be hashed to form the ops hash for this block.
+        Returns a dict with the new db record fields
         """
    
         # have to have read-write disposition 
@@ -1420,8 +1422,8 @@ class BlockstackDB( virtualchain.StateEngine ):
             os.abort()
 
         cur = self.db.cursor()
-        op_seq = None
-        op_seq_type_str = None
+        canonical_op = None
+        op_type_str = None      # for debugging
         opcode = accepted_nameop.get('opcode', None)
         history_id = None
 
@@ -1434,37 +1436,38 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         if opcode in OPCODE_PREORDER_OPS:
             # preorder
-            op_seq = self.commit_state_preorder( accepted_nameop, current_block_number )
-            op_seq_type_str = "state_preorder"
+            canonical_op = self.commit_state_preorder( accepted_nameop, current_block_number )
+            op_type_str = "state_preorder"
             
         elif opcode in OPCODE_CREATION_OPS:
             # creation
             history_id_key = state_create_get_history_id_key( accepted_nameop )
             history_id = accepted_nameop[history_id_key]
-            op_seq = self.commit_state_create( accepted_nameop, current_block_number )
-            op_seq_type_str = "state_create"
+            canonical_op = self.commit_state_create( accepted_nameop, current_block_number )
+            op_type_str = "state_create"
            
         elif opcode in OPCODE_TRANSITION_OPS:
             # transition 
             history_id_key = state_transition_get_history_id_key( accepted_nameop )
             history_id = accepted_nameop[history_id_key]
-            op_seq = self.commit_state_transition( accepted_nameop, current_block_number )
-            op_seq_type_str = "state_transition"
+            canonical_op = self.commit_state_transition( accepted_nameop, current_block_number )
+            op_type_str = "state_transition"
         
         else:
             raise Exception("Unknown operation '%s'" % opcode)
 
-        if op_seq is None:
-            log.error("FATAL: no op-sequence generated (for {})".format(op_seq_type_str))
+        if canonical_op is None:
+            log.error("FATAL: no canonical op generated (for {})".format(op_type_str))
             os.abort()
-       
+        
+        '''
         # TODO: not sure if this is strictly okay?
         if type(op_seq) == list:
-            log.error("FATAL: multiple ops generated (for {})".format(op_seq_type_str))
+            log.error("FATAL: multiple ops generated (for {})".format(op_type_str))
             os.abort()
-
-        consensus_values = self.generate_consensus_values(opcode, input_op_data, op_seq, current_block_number)
-        return [consensus_values]
+        '''
+        consensus_op = self.extract_consensus_op(opcode, input_op_data, canonical_op, current_block_number)
+        return consensus_op
 
 
     def commit_state_preorder( self, nameop, current_block_number ):
@@ -1505,6 +1508,8 @@ class BlockstackDB( virtualchain.StateEngine ):
         Commit a state-creation operation (works for name_registration,
         namespace_reveal, name_import).
 
+        Returns the sequence of dicts of fields to serialize.
+
         DO NOT CALL THIS DIRECTLY
         """
 
@@ -1535,12 +1540,15 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         # cannot have collided 
         if BlockstackDB.nameop_is_collided( nameop ):
+            # TODO: is this reachable?
             log.debug("Not commiting '%s' since we're collided" % history_id)
             self.log_reject( current_block_number, nameop['vtxindex'], nameop['op'], nameop )
-            return []
+            return {}
 
         self.log_accept( current_block_number, nameop['vtxindex'], nameop['op'], nameop )
         
+        canonical_opdata = None
+
         if preorder is not None:
             # preordered a name or a namespace, possibly not for the first time even.
             try:
@@ -1550,11 +1558,11 @@ class BlockstackDB( virtualchain.StateEngine ):
                 log.error("FATAL: invalid preorder")
                 os.abort()
 
-            rc = namedb_state_create(cur, opcode, initial_state, current_block_number,
-                                     initial_state['vtxindex'], initial_state['txid'],
-                                     history_id, preorder, table, constraints_ignored=constraints_ignored)
+            canonical_opdata = namedb_state_create(cur, opcode, initial_state, current_block_number,
+                                                   initial_state['vtxindex'], initial_state['txid'],
+                                                   history_id, preorder, table, constraints_ignored=constraints_ignored)
 
-            if not rc:
+            if not canonical_opdata:
                 log.error("FATAL: failed to create '{}'".format(history_id))
                 self.db.rollback()
                 os.abort()
@@ -1570,23 +1578,25 @@ class BlockstackDB( virtualchain.StateEngine ):
                 log.error("FATAL: invalid import operation")
                 os.abort()
 
-            rc = namedb_state_create_as_import(self.db, opcode, initial_state, 
-                                               current_block_number, initial_state['vtxindex'], initial_state['txid'],
-                                               history_id, table, constraints_ignored=constraints_ignored)
+            canonical_opdata = namedb_state_create_as_import(self.db, opcode, initial_state, 
+                                                             current_block_number, initial_state['vtxindex'], initial_state['txid'],
+                                                             history_id, table, constraints_ignored=constraints_ignored)
 
-            if not rc:
+            if not canonical_opdata:
                 log.error("FATAL: failed to create '{}' as import".format(history_id))
                 self.db.rollback()
                 os.abort()
 
             self.db.commit()
         
-        return initial_state
+        return canonical_opdata
 
 
     def commit_state_transition( self, nameop, current_block_number ):
         """
         Commit a state transition (update, transfer, revoke, renew, namespace_ready).
+        
+        Returns the new canonicalized record (with all compatibility quirks preserved)
 
         DO NOT CALL THIS DIRECTLY
         """
@@ -1636,13 +1646,15 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         self.log_accept( current_block_number, nameop['vtxindex'], nameop['op'], nameop )
 
-        rc = namedb_state_transition( cur, opcode, transition, current_block_number, transition['vtxindex'], transition['txid'],
-                                      history_id, cur_record, table, constraints_ignored=constraints_ignored )
-        if not rc:
+        canonical_op = namedb_state_transition( cur, opcode, transition, current_block_number, transition['vtxindex'], transition['txid'],
+                                                 history_id, cur_record, table, constraints_ignored=constraints_ignored )
+        if not canonical_op:
             log.error("FATAL: failed to update '%s'" % history_id)
             self.db.rollback()
             os.abort()
-
+        
+        return canonical_op
+        '''
         self.db.commit()
         cur = self.db.cursor()
 
@@ -1652,8 +1664,9 @@ class BlockstackDB( virtualchain.StateEngine ):
             
         elif history_id_key == "namespace_id":
             new_record = namedb_get_namespace( cur, history_id, current_block_number, include_history=False, include_expired=True )
-
+        
         return new_record
+        '''
 
     
     @classmethod
