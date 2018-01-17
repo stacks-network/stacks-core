@@ -537,14 +537,16 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         * canonicalize it
         * remove quirk fields
         """
-        canonical_op = op_canonicalize(rec['opcode'], rec)
+        opcode = rec['opcode']
+        canonical_op = op_canonicalize(opcode, rec)
 
         # don't return internally-used quirk fields
-        quirk_fields = op_get_quirk_fields(rec['opcode'])
+        quirk_fields = op_get_quirk_fields(opcode)
         for f in quirk_fields:
             if f in canonical_op:
                 del canonical_op[f]
 
+        canonical_op['opcode'] = opcode
         return canonical_op
 
 
