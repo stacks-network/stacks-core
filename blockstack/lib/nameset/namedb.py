@@ -1378,7 +1378,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         and the checked, processed operation (@processed_op_data), return a dict that contains
         all of the consensus fields to snapshot this operation.
         """
-        log.debug("Extract consensus values for {} at {}".format(opcode, current_block_number))
         ret = {}
 
         consensus_fields = op_get_consensus_fields(opcode)
@@ -1397,14 +1396,7 @@ class BlockstackDB( virtualchain.StateEngine ):
                 os.abort()
             
             ret[field] = processed_op_data[field]
-            '''
-            # keep the field from the processed operation, if applicable.
-            # otherwise, use the field given from the input.
-            if field in processed_op_data:
-                ret[field] = processed_op_data[field]
-            elif field in op_data:
-                ret[field] = op_data[field] 
-            '''
+
         return ret
 
 
@@ -1460,12 +1452,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             log.error("FATAL: no canonical op generated (for {})".format(op_type_str))
             os.abort()
         
-        '''
-        # TODO: not sure if this is strictly okay?
-        if type(op_seq) == list:
-            log.error("FATAL: multiple ops generated (for {})".format(op_type_str))
-            os.abort()
-        '''
+        log.debug("Extract consensus fields for {} in {}, as part of a {}".format(opcode, current_block_number, op_type_str))
         consensus_op = self.extract_consensus_op(opcode, input_op_data, canonical_op, current_block_number)
         return consensus_op
 
