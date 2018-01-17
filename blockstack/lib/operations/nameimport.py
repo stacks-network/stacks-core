@@ -51,6 +51,7 @@ MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
     'block_number',
     'namespace_block_number',
     'op_fee',
+    'last_creation_op',
 ]
 
 def get_import_recipient_from_outputs( outputs ):
@@ -249,7 +250,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
     # not required for consensus, but for SNV
     # nameop['transfer_send_block_id'] = transfer_send_block_id
-    # nameop['last_creation_op'] = NAME_IMPORT
+    nameop['last_creation_op'] = NAME_IMPORT
 
     # good!
     return True
