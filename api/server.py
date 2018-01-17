@@ -38,7 +38,7 @@ from flask_crossdomain import crossdomain
 
 from .parameters import parameters_required
 from .utils import get_api_calls, cache_control
-from .config import PUBLIC_NODE, PUBLIC_NODE_URL, BASE_API_URL
+from .config import PUBLIC_NODE, PUBLIC_NODE_URL, BASE_API_URL, DEFAULT_CACHE_TIMEOUT
 from .config import SEARCH_NODE_URL, SEARCH_API_ENDPOINT_ENABLED
 
 # hack around absolute paths
@@ -159,7 +159,7 @@ def catch_all_post(path):
     return jsonify(resp.json()), 200
 
 @app.route('/')
-@cache_control(5*60)
+@cache_control(DEFAULT_CACHE_TIMEOUT)
 def index():
     current_dir = os.path.abspath(os.path.dirname(__file__))
     server_info = getinfo()

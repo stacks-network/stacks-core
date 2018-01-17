@@ -10,10 +10,10 @@ services:
 
   blockstack-api:
     image: 'quay.io/blockstack/blockstack-core:master'
-    command: blockstack api start-foreground --debug --password dummywalletpassword
+    command: blockstack api start-foreground -y --debug --password dummywalletpassword
     volumes:
       - './data/blockstack-api/:/root/.blockstack'
-      # - '/tmp/:/data/blockstack-api/tmp/'
+      - '/tmp/:/tmp/'
     networks:
       - api
     restart: always

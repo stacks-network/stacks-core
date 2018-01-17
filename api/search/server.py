@@ -31,7 +31,7 @@ from time import time
 from flask import request, jsonify, make_response, render_template, Blueprint
 from flask_crossdomain import crossdomain
 
-from api.config import DEFAULT_HOST, DEFAULT_PORT, DEBUG, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
+from api.config import DEFAULT_HOST, DEFAULT_PORT, DEBUG, DEFAULT_CACHE_TIMEOUT
 from api.config import SEARCH_DEFAULT_LIMIT as DEFAULT_LIMIT, SEARCH_LUCENE_ENABLED as LUCENE_ENABLED
 from api.utils import cache_control
 
@@ -42,10 +42,6 @@ from .substring_search import fetch_profiles
 from .attributes_index import search_proofs, validProofQuery
 
 searcher = Blueprint('searcher', __name__, url_prefix='')
-
-from api.utils import get_mc_client
-
-mc = get_mc_client()
 
 class QueryThread(threading.Thread):
     """ for performing multi-threaded search on three search sub-systems
@@ -113,7 +109,7 @@ def test_alphanumeric(query):
 
 @searcher.route('/search', methods = ["GET", "POST"], strict_slashes = False)
 @crossdomain(origin='*')
-@cache_control(MEMCACHED_TIMEOUT)
+@cache_control(DEFAULT_CACHE_TIMEOUT)
 def search_by_name():
 
     query = request.args.get('query')
@@ -124,15 +120,6 @@ def search_by_name():
         return error_reply("No query given")
     elif query == '' or query == ' ':
         return json.dumps({})
-
-    if MEMCACHED_ENABLED:
-
-        cache_key = str('search_cache_' + query.lower())
-        cache_reply = mc.get(cache_key)
-
-        # if a cache hit, respond straight away
-        if(cache_reply is not None):
-            return jsonify(cache_reply)
 
     new_limit = DEFAULT_LIMIT
 
@@ -191,9 +178,6 @@ def search_by_name():
     results = {}
     results['results'] = results_people[:new_limit]
 
-    if MEMCACHED_ENABLED:
-        mc.set(cache_key, results, int(time() + MEMCACHED_TIMEOUT))
-
     return jsonify(results)
 
 
@@ -208,18 +192,6 @@ def search_proofs_index(query):
     elif query == '' or query == ' ':
         return json.dumps({})
 
-    if MEMCACHED_ENABLED:
-
-        cache_key = str('search_cache_' + query.lower())
-        cache_reply = mc.get(cache_key)
-
-        # if a cache hit, respond straight away
-        if(cache_reply is not None):
-            return jsonify(cache_reply)
-
     results['results'] = search_proofs(query)
-
-    if MEMCACHED_ENABLED:
-        mc.set(cache_key, results, int(time() + MEMCACHED_TIMEOUT))
 
     return jsonify(results)
