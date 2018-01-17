@@ -3593,7 +3593,7 @@ def peer_make_config( working_dir, peer_port, dirp, seed_relations={}, blacklist
     return True
 
 
-def peer_start( working_dir, port=None, command='start', args=['--foreground']):
+def peer_start( global_working_dir, working_dir, port=None, command='start', args=['--foreground']):
     """
     Start up a peer blockstack subprocess
     to communicate on the given network server.
@@ -3605,7 +3605,8 @@ def peer_start( working_dir, port=None, command='start', args=['--foreground']):
     
     args += ['--working_dir', working_dir]
     output = os.path.join(working_dir, "blockstack-server.out")
-
+    
+    args += ['--expected-snapshots', os.path.join(global_working_dir, 'blockstack-server.snapshots')]
     env = {}
 
     # preserve test environment variables
