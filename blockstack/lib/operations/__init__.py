@@ -224,6 +224,7 @@ def op_canonicalize_quirks(op_name, new_record, current_record):
     
     Backwards-compatibility quirks:
     * if the operation was created by a NAME_IMPORT, then 'op_fee' must be a float (i.e. must end in .0)
+    * always preserve the 'last_creation_op' field if it is not set in new_record
 
     Returns the new canonicalized op data
     """
@@ -231,17 +232,38 @@ def op_canonicalize_quirks(op_name, new_record, current_record):
     ret.update(new_record)
 
     if op_name in OPCODE_NAME_NAMEOPS and op_name in OPCODE_NAME_STATE_TRANSITIONS:
-        # nameop state transition.  what created it?
+        # nameop state transition.  Need to ensure the op_fee is in the right format.
+        # depends on what created it
         if op_name != 'NAME_IMPORT':
+            # this is some other state transition besides an import.  A prior record must exist.
             assert current_record
-            assert 'last_creation_op' in current_record, 'BUG: missing last_creation_op for {}'.format(op_name)
         
         if current_record:
-            if current_record['last_creation_op'] == NAME_IMPORT:
-                ret['op_fee'] = float(current_record['op_fee'])
+            for f in ['op_fee', 'last_creation_op']:
+                assert f in current_record, 'BUG: missing {} for existing {}'.format(f, op_name)
+
+        # extract quirky values
+        quirk_values = {}
+        for f in ['op_fee', 'last_creation_op']:
+            # get the quirky field, favoring the new record's value over the current record
+            val = new_record.get(f)
+            if val is None and current_record is not None:
+                val = current_record.get(f)
             
-            # always preserve
-            ret['last_creation_op'] = current_record['last_creation_op']
+            assert val, 'Neither new record nor current record has a value for "{}"'.format(f)
+            quirk_values[f] = val
+
+        # QUIRK: NAME_IMPORT-created ops need a float(op_fee).  Everyone else just takes it as it is.
+        assert quirk_values['op_fee'] is not None, 'BUG: no op_fee carried over'
+        if quirk_values['last_creation_op'] == NAME_IMPORT:
+            quirk_values['op_fee'] = float(quirk_values['op_fee'])
+        else:
+            quirk_values['op_fee'] = int(quirk_values['op_fee'])
+
+        ret['op_fee'] = quirk_values['op_fee']
+
+        # QUIRK: preserve last_creation_op across records
+        ret['last_creation_op'] = quirk_values['last_creation_op']
 
     return ret
 
