@@ -2037,6 +2037,17 @@ def load_expected_snapshots( snapshots_path ):
     snapshots_path = os.path.expanduser(snapshots_path)
     expected_snapshots = {}
     try:
+        # sqlite3 db?
+        db_con = virtualchain.StateEngine.db_connect(snapshots_path)
+        expected_snapshots = virtualchain.StateEngine.get_consensus_hashes(None, None, db_con=db_con, completeness_check=False)
+        log.debug("Loaded expected snapshots from chainstate DB {}, {} entries".format(snapshots_path, len(expected_snapshots)))
+        return expected_snapshots
+
+    except:
+        log.debug("{} does not appear to be a chainstate DB".format(snapshots_path))
+
+    # legacy chainstate?
+    try:
         with open(snapshots_path, "r") as f:
             snapshots_json = f.read()
 
