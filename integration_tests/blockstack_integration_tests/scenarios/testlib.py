@@ -3273,6 +3273,9 @@ def check_historic_names_by_address( state_engine ):
         final_name_states[name] = json.loads(json.dumps(state_engine.get_name_at(name, state_engine.lastblock, include_expired=True)))
         final_name_states[name] = blockstack.op_canonicalize(final_name_states[name][-1]['opcode'], final_name_states[name][-1])
 
+        # coerse string values
+        final_name_states[name] = dict(map(lambda (k, v): (k, str(v)) if isinstance(v, unicode) else (k, v), final_name_states[name].items()))
+
     log.debug('addr names: {}'.format(addr_names))
     log.debug('revoked names: {}'.format(revoked_names))
     
@@ -3297,6 +3300,8 @@ def check_historic_names_by_address( state_engine ):
                     ret = False
 
                 else:
+                    # coerse string values
+                    name_rec = dict(map(lambda (k,v): (k, str(v)) if isinstance(v, unicode) else (k,v), name_rec.items()))
                     for k in name_rec.keys():
                         if final_name_states[name] is not None:
                             if name_rec[k] != final_name_states[name].get(k, None) or type(name_rec[k]) != type(final_name_states[name].get(k, None)):
