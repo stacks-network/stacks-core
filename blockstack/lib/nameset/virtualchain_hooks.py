@@ -379,7 +379,7 @@ def check_quirks(block_id, block_op, db_state):
     Check that all serialization compatibility quirks have been preserved.
     Used primarily for testing.
     """
-    if op_get_opcode_name(block_op['op']) in OPCODE_NAME_NAMEOPS:
+    if op_get_opcode_name(block_op['op']) in OPCODE_NAME_NAMEOPS and op_get_opcode_name(block_op['op']) not in OPCODE_NAME_STATE_PREORDER:
         assert 'last_creation_op' in block_op, 'QUIRK BUG: missing last_creation_op in {}'.format(op_get_opcode_name(block_op['op']))
 
         if block_op['last_creation_op'] == NAME_IMPORT:
