@@ -871,14 +871,17 @@ def atlasdb_get_zonefile_bits( zonefile_hash, con=None, path=None ):
     return ret
 
 
-def atlasdb_queue_zonefiles( con, db, start_block, zonefile_dir, validate=True ):
+def atlasdb_queue_zonefiles( con, db, start_block, zonefile_dir, validate=True, end_block=None ):
     """
     Queue all zonefile hashes in the BlockstackDB
     to the zonefile queue
     """
     # populate zonefile queue
     total = 0
-    for block_height in range(start_block, db.lastblock+1, 1):
+    if end_block is None:
+        end_block = db.lastblock+1
+
+    for block_height in range(start_block, end_block, 1):
         
         # TODO: can we do this transactionally?
         zonefile_info = db.get_atlas_zonefile_info_at( block_height )
@@ -901,12 +904,12 @@ def atlasdb_queue_zonefiles( con, db, start_block, zonefile_dir, validate=True )
     return True
 
 
-def atlasdb_sync_zonefiles( db, start_block, zonefile_dir, validate=True, path=None, con=None ):
+def atlasdb_sync_zonefiles( db, start_block, zonefile_dir, validate=True, end_block=None, path=None, con=None ):
     """
     Synchronize atlas DB with name db
     """
     with AtlasDBOpen(con=con, path=path) as dbcon:
-        atlasdb_queue_zonefiles( dbcon, db, start_block, zonefile_dir, validate=validate )
+        atlasdb_queue_zonefiles( dbcon, db, start_block, zonefile_dir, validate=validate, end_block=end_block )
         atlasdb_cache_zonefile_info( con=dbcon )
 
     return True
