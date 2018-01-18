@@ -409,7 +409,7 @@ def remove_name_zonefile(user, txid):
     return rc, data_hash
 
 
-def zonefile_data_publish(fqu, zonefile_txt, server_list, wallet_keys=None):
+def zonefile_data_publish(fqu, zonefile_txt, server_list, wallet_keys=None, b64encoded=False):
     """
     Replicate a zonefile to as many blockstack servers as possible.
     @server_list is a list of (host, port) tuple
@@ -423,7 +423,11 @@ def zonefile_data_publish(fqu, zonefile_txt, server_list, wallet_keys=None):
             log.debug('Replicate zonefile to {}:{}'.format(server_host, server_port))
             hostport = '{}:{}'.format(server_host, server_port)
 
-            res = put_zonefiles(hostport, [base64.b64encode(zonefile_txt)])
+            if b64encoded:
+                zf_data = zonefile_txt
+            else:
+                zf_data = base64.b64encode(zonefile_txt)
+            res = put_zonefiles(hostport, [zf_data])
             if 'error' in res or len(res['saved']) == 0 or res['saved'][0] != 1: 
                 log.debug("server returned {}".format(res))
 

@@ -1040,6 +1040,52 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self._reply_json(resp, status_code=202)
         return
 
+    def POST_raw_zonefile( self, ses, path_info ):
+        """
+        Publish a zonefile which has *already* been announced.
+        Return 200 and {'status': True, 'servers': ...} on success
+        Return 401 when zonefile invalid with {'error': ...}
+        """
+        request_schema = {
+            'type': 'object',
+            'properties': {
+                'zonefile': {
+                    'type': 'string',
+                    'maxLength': RPC_MAX_ZONEFILE_LEN
+                },
+                'zonefile_b64': {
+                    'type': 'string',
+                    'maxLength': (RPC_MAX_ZONEFILE_LEN * 4) / 3 + 1,
+                }
+            }
+        }
+
+        conf = blockstack_config.get_config(self.server.config_path)
+
+        server = (conf['server'], conf['port'])
+
+        request = self._read_json(schema=request_schema)
+        if request is None:
+            self._reply_json({"error": 'Invalid request'}, status_code=401)
+            return
+        elif 'error' in request:
+            self._reply_json({"error": request["error"]}, status_code=401)
+            return
+
+        zonefile_str = request.get('zonefile', False)
+        b64encoded = False
+        if not zonefile_str:
+            zonefile_str = request.get('zonefile_b64')
+            b64encoded = True
+
+        resp = zonefile.zonefile_data_publish(None, zonefile_str, [ server ],
+                                              b64encoded = b64encoded)
+        status_code = 200
+        if 'error' in resp:
+            status_code = 401
+
+        self._reply_json(resp, status_code=status_code)
+        return
 
     def PUT_name_zonefile( self, ses, path_info, name ):
         """
@@ -3294,6 +3340,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': {
                         'name': 'zonefiles',
                         'desc': 'read name public key from zone file',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
+                    },
+                },
+            },
+            r'^/v1/zonefile$': {
+                'routes': {
+                    'POST' : self.POST_raw_zonefile
+                },
+                'whitelist': {
+                    'POST': {
+                        'name': 'zonefiles',
+                        'desc': 'publish a zonefile',
                         'auth_session': False,
                         'auth_pass': False,
                         'need_data_key': False,
