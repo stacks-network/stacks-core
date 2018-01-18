@@ -2036,19 +2036,9 @@ def load_expected_snapshots( snapshots_path ):
     Return the snapshots as a dict on success
     Return None on error
     """
-    # TODO: compat with new snapshots db
     # use snapshots?
     snapshots_path = os.path.expanduser(snapshots_path)
     expected_snapshots = {}
-    try:
-        # sqlite3 db?
-        db_con = virtualchain.StateEngine.db_connect(snapshots_path)
-        expected_snapshots = virtualchain.StateEngine.get_consensus_hashes(None, None, db_con=db_con, completeness_check=False)
-        log.debug("Loaded expected snapshots from chainstate DB {}, {} entries".format(snapshots_path, len(expected_snapshots)))
-        return expected_snapshots
-
-    except:
-        log.debug("{} does not appear to be a chainstate DB".format(snapshots_path))
 
     # legacy chainstate?
     try:
@@ -2062,14 +2052,26 @@ def load_expected_snapshots( snapshots_path ):
         for (block_id_str, consensus_hash) in snapshots_data['snapshots'].items():
             expected_snapshots[ int(block_id_str) ] = str(consensus_hash)
         
-        log.debug("Loaded expected snapshots from {}; {} entries".format(snapshots_path, len(expected_snapshots)))
+        log.debug("Loaded expected snapshots from legacy JSON {}; {} entries".format(snapshots_path, len(expected_snapshots)))
         return expected_snapshots
 
     except Exception, e:
-        log.exception(e)
-        log.error("Failed to read expected snapshots from '%s'" % snapshots_path)
-        return None
+        if os.environ.get('BLOCKSTACK_DEBUG') == '1':
+            log.exception(e)
+        log.debug("Failed to read expected snapshots from '%s'" % snapshots_path)
 
+    try:
+        # sqlite3 db?
+        db_con = virtualchain.StateEngine.db_connect(snapshots_path)
+        expected_snapshots = virtualchain.StateEngine.get_consensus_hashes(None, None, db_con=db_con, completeness_check=False)
+        log.debug("Loaded expected snapshots from chainstate DB {}, {} entries".format(snapshots_path, len(expected_snapshots)))
+        return expected_snapshots
+
+    except:
+        log.debug("{} does not appear to be a chainstate DB".format(snapshots_path))
+
+    return None
+    
 
 def run_blockstackd():
    """
