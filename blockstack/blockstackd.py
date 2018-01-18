@@ -1654,6 +1654,7 @@ def index_blockchain( working_dir, expected_snapshots=GENESIS_SNAPSHOT ):
         return False
 
     # bring the db up to the chain tip.
+    # NOTE: at each block, the atlas db will be synchronized
     log.debug("Begin indexing (up to %s)" % current_block)
     set_indexing( working_dir, True )
     rc = virtualchain_hooks.sync_blockchain(working_dir, bt_opts, current_block, expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter)
@@ -1665,6 +1666,7 @@ def index_blockchain( working_dir, expected_snapshots=GENESIS_SNAPSHOT ):
         log.debug("Stopped indexing at %s" % current_block)
         return rc
 
+    '''
     # synchronize atlas db
     # this is a recovery path--shouldn't be necessary unless
     # we're starting from a lack of atlas.db state (i.e. an older
@@ -1679,7 +1681,7 @@ def index_blockchain( working_dir, expected_snapshots=GENESIS_SNAPSHOT ):
             atlasdb_sync_zonefiles(db, old_lastblock+1, zonefile_dir, path=blockstack_opts['atlasdb_path'])
 
         db.close()
-
+    '''
     log.debug("End indexing (up to %s)" % current_block)
     return rc
 
