@@ -501,8 +501,9 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
                     zonefile_dir = blockstack_opts['zonefiles']
                     atlasdb_path = blockstack_opts['atlasdb_path']
 
+                    # NOTE: set end_block explicitly since db_state.lastblock still points to the previous block height
                     gc.collect()
-                    atlasdb_sync_zonefiles(db_state, block_height-1, zonefile_dir, path=atlasdb_path)
+                    atlasdb_sync_zonefiles(db_state, block_height, zonefile_dir, path=atlasdb_path, end_block=block_height+1)
                     gc.collect()
 
         except Exception, e:
