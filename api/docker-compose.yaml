@@ -42,5 +42,23 @@ services:
     volumes:
       - "./data/search-api/:/var/blockstack-search"
 
+  search-indexer:
+    build:
+      context: ../
+      dockerfile: api/search/Dockerfile
+    environment:
+      - BLOCKSTACK_DEBUG=0
+      - PUBLIC_NODE=True
+      - DEFAULT_HOST=0.0.0.0
+      - MONGODB_URI=mongodb://mongodb
+    networks:
+      - api
+    restart: always
+    links:
+      - mongodb
+      - blockstack-api
+    volumes:
+      - "./data/search-api/:/var/blockstack-search"
+
 networks:
   api: null
