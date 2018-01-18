@@ -139,7 +139,7 @@ echo
 echo "[Desktop Entry]"
 echo "Type=Application"
 echo "Terminal=false"
-echo "Exec=bash -c 'xdg-open http://localhost:3000/auth?authRequest=\$(echo \"%u\" | sed s,blockstack:/*,,)'"
+echo "Exec=bash -c 'xdg-open http://localhost:3000/auth?authRequest=\$(echo \"%u\" | sed s,blockstack:////*,,)'"
 echo "Name=Blockstack-Browser"
 echo "MimeType=x-scheme-handler/blockstack;"
 echo
