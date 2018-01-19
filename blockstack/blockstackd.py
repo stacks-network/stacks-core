@@ -67,7 +67,6 @@ from lib.fast_sync import *
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
-from lib.consensus import *
 
 # global variables, for use with the RPC server
 bitcoind = None
