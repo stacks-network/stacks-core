@@ -272,6 +272,33 @@ def namedb_get_namespace_lifetime_grace_period( block_height, namespace_id ):
         raise
 
 
+def namedb_find_missing_and_extra(cur, record, table_name):
+    """
+    Find the set of fields missing from record, and set of extra fields from record, based on the db schema.
+    Return (missing, extra)
+    """
+    rec_missing = []
+    rec_extra = []
+    
+    # sanity check: all fields must be defined
+    name_fields_rows = cur.execute("PRAGMA table_info(%s);" % table_name)
+    name_fields = []
+    for row in name_fields_rows:
+        name_fields.append( row['name'] )
+
+    # make sure each column has a record field
+    for f in name_fields:
+        if f not in record.keys():
+            rec_missing.append( f )
+
+    # make sure each record field has a column
+    for k in record.keys():
+        if k not in name_fields:
+            rec_extra.append( k )
+
+    return rec_missing, rec_extra
+
+
 def namedb_assert_fields_match( cur, record, table_name, record_matches_columns=True, columns_match_record=True ):
     """
     Ensure that the fields of a given record match
@@ -282,29 +309,8 @@ def namedb_assert_fields_match( cur, record, table_name, record_matches_columns=
     Return True if so.
     Raise an exception if not.
     """
-    
-    rec_missing = []
-    rec_extra = []
-    
-    # sanity check: all fields must be defined
-    name_fields_rows = cur.execute("PRAGMA table_info(%s);" % table_name)
-    name_fields = []
-    for row in name_fields_rows:
-        name_fields.append( row['name'] )
-
-    if columns_match_record:
-        # make sure each column has a record field
-        for f in name_fields:
-            if f not in record.keys():
-                rec_missing.append( f )
-
-    if record_matches_columns:
-        # make sure each record field has a column
-        for k in record.keys():
-            if k not in name_fields:
-                rec_extra.append( k )
-
-    if len(rec_missing) != 0 or len(rec_extra) != 0:
+    rec_missing, rec_extra = namedb_find_missing_and_extra(cur, record, table_name)
+    if (len(rec_missing) > 0 and columns_match_record) or (len(rec_extra) > 0 and record_matches_columns):
         raise Exception("Invalid record: missing = %s, extra = %s" % 
                         (",".join(rec_missing), ",".join(rec_extra)))
 
@@ -877,7 +883,8 @@ def namedb_state_transition( cur, opcode, op_data, block_id, vtxindex, txid, his
         log.error("FATAL: state transition sanity checks failed")
         os.abort()
 
-    # back these fields up.  Include the opcode
+    # 1. generate the new record that will be used for consensus.
+    # It will be the new data overlayed on the current record, with all quirks applied.
     new_record = {}
     new_record.update(cur_record)
     new_record.update(op_data_name)
@@ -885,7 +892,7 @@ def namedb_state_transition( cur, opcode, op_data, block_id, vtxindex, txid, his
 
     canonicalized_record = op_canonicalize_quirks(opcode, new_record, cur_record)
     canonicalized_record['opcode'] = opcode
-
+    
     rc = namedb_history_save(cur, opcode, history_id, None, new_record.get('value_hash', None), block_id, vtxindex, txid, canonicalized_record)
     if not rc:
         log.error("FATAL: failed to save history for '%s' at (%s, %s)" % (history_id, block_id, vtxindex))
@@ -893,10 +900,22 @@ def namedb_state_transition( cur, opcode, op_data, block_id, vtxindex, txid, his
 
     rc = False
     merged_new_record = None
+    
+    # 2. Store the actual op_data, to be returned on name lookups
+    # Don't store extra fields that don't belong in the db (i.e. that we don't have colunms for), but preserve them across the write.
+    stored_op_data = {}
+    stored_op_data.update(op_data_name)
 
+    # separate out the extras
+    _, op_data_extra = namedb_find_missing_and_extra(cur, stored_op_data, record_table)
+    if len(op_data_extra) > 0:
+        log.debug("Remove extra fields: {}".format(','.join(op_data_extra)))
+        for extra in op_data_extra:
+            del stored_op_data[extra]
+    
     if opcode in OPCODE_NAME_STATE_TRANSITIONS:
         # name state transition 
-        rc = namedb_name_update( cur, opcode, op_data_name, constraints_ignored=constraints_ignored )
+        rc = namedb_name_update( cur, opcode, stored_op_data, constraints_ignored=constraints_ignored )
         if not rc:
             log.error("FATAL: opcode is not a state-transition operation on names")
             os.abort()
@@ -905,18 +924,41 @@ def namedb_state_transition( cur, opcode, op_data, block_id, vtxindex, txid, his
 
     elif opcode in OPCODE_NAMESPACE_STATE_TRANSITIONS:
         # namespace state transition 
-        rc = namedb_namespace_update( cur, opcode, op_data_name, constraints_ignored=constraints_ignored )
+        rc = namedb_namespace_update( cur, opcode, stored_op_data, constraints_ignored=constraints_ignored )
         if not rc:
             log.error("FATAL: opcode is not a state-transition operation on namespaces")
             os.abort()
 
         merged_new_record = namedb_get_namespace(cur, history_id, block_id, include_history=False, include_expired=True)
 
-    # success! re-apply quirks on the transitioned name record
+    # 3. success! make sure the merged_new_record is consistent with canonicalized_record
+    for f in merged_new_record:
+        if f not in canonicalized_record:
+            raise Exception("canonicalized record is missing {}".format(f))
+
+    return canonicalized_record
+
+    '''
+    # 3. success! re-apply quirks on the transitioned name record (includes all name fields)
     canonical_merged_new_record = op_canonicalize(opcode, merged_new_record)
     merged_canonicalized_record = op_canonicalize_quirks(opcode, canonical_merged_new_record, cur_record)
     merged_canonicalized_record['opcode'] = opcode
+
+    # check for divergence from canonicalized record
+    diverged = {}
+    for f in canonicalized_record:
+        if merged_canonicalized_record[f] != canonicalized_record[f]:
+            diverged[f] = [merged_canonicalized_record[f], canonicalized_record[f]]
+
+    if len(diverged) > 0:
+        log.error("FATAL: merged name record after applying state-transition diverged from canonical name record!")
+        for f in diverged:
+            log.error("{}: Merged canonical record == {}; canonical record == {}".format(f, diverged[f][0], diverged[f][1]))
+
+        os.abort()
+
     return merged_canonicalized_record
+    '''
     
 
 def namedb_state_create_sanity_check( opcode, op_data, history_id, preorder_record, record_table ):
