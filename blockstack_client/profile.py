@@ -33,7 +33,7 @@ from virtualchain.lib.ecdsalib import get_pubkey_hex
 import keylib
 
 from .proxy import (
-    json_is_error, get_name_blockchain_history, get_name_blockchain_record,
+    json_is_error, get_name_blockchain_history, get_name_blockchain_record, get_name_record,
     get_default_proxy)
 
 from blockstack_client import storage, subdomains
@@ -290,7 +290,7 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
 
         # find owner address
         if name_record is None:
-            name_record = get_name_blockchain_record(name, proxy=proxy)
+            name_record = get_name_record(name, proxy=proxy)
             if name_record is None or 'error' in name_record:
                 log.error('Failed to look up name record for "{}"'.format(name))
                 return {'error': 'Failed to look up name record'}
@@ -344,7 +344,7 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
 
     if include_name_record:
         if name_record is None:
-            name_record = get_name_blockchain_record(name, proxy=proxy)
+            name_record = get_name_record(name, proxy=proxy)
 
         if name_record is None or 'error' in name_record:
             log.error('Failed to look up name record for "{}"'.format(name))
