@@ -644,7 +644,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
 
     @autofill( "opcode" )
-    def get_namespace( self, namespace_id ):
+    def get_namespace( self, namespace_id, include_history=True ):
         """
         Given a namespace ID, get the ready namespace op for it.
 
@@ -653,7 +653,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
 
         cur = self.db.cursor()
-        return namedb_get_namespace_ready( cur, namespace_id, self.lastblock )
+        return namedb_get_namespace_ready( cur, namespace_id, include_history=include_history )
 
 
     @autofill( "opcode" )
@@ -692,7 +692,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
 
     @autofill( "opcode" )
-    def get_name( self, name, lastblock=None, include_expired=False ):
+    def get_name( self, name, lastblock=None, include_expired=False, include_history=True ):
         """
         Given a name, return the latest version and history of
         the metadata gleaned from the blockchain.
@@ -706,7 +706,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             lastblock = self.lastblock
 
         cur = self.db.cursor()
-        name_rec = namedb_get_name( cur, name, lastblock, include_expired=include_expired )
+        name_rec = namedb_get_name( cur, name, lastblock, include_expired=include_expired, include_history=include_history )
         return name_rec
 
 
@@ -1115,7 +1115,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         
     
     @autofill( "opcode" )
-    def get_namespace_reveal( self, namespace_id ):
+    def get_namespace_reveal( self, namespace_id, include_history=True ):
         """
         Given the name of a namespace, get it if it is currently
         being revealed.
@@ -1124,7 +1124,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         Return None if it is not being revealed, or is expired.
         """
         cur = self.db.cursor()
-        namespace_reveal = namedb_get_namespace_reveal( cur, namespace_id, self.lastblock )
+        namespace_reveal = namedb_get_namespace_reveal( cur, namespace_id, self.lastblock, include_history=include_history )
         return namespace_reveal
 
 
@@ -1640,19 +1640,6 @@ class BlockstackDB( virtualchain.StateEngine ):
             os.abort()
         
         return canonical_op
-        '''
-        self.db.commit()
-        cur = self.db.cursor()
-
-        new_record = None 
-        if history_id_key == "name":
-            new_record = namedb_get_name( cur, history_id, current_block_number, include_history=False, include_expired=True )
-            
-        elif history_id_key == "namespace_id":
-            new_record = namedb_get_namespace( cur, history_id, current_block_number, include_history=False, include_expired=True )
-        
-        return new_record
-        '''
 
     
     @classmethod
