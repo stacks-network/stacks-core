@@ -3271,9 +3271,6 @@ def check_historic_names_by_address( state_engine ):
             revoked_names[name] = block_id
 
         if name not in final_name_states:
-            # final_name_states[name] = json.loads(json.dumps(state_engine.get_name_at(name, state_engine.lastblock, include_expired=True)))
-            # final_name_states[name] = blockstack.op_canonicalize(final_name_states[name][-1]['opcode'], final_name_states[name][-1])
-            # final_name_states[name] = blockstack.op_canonicalize(state_engine.get_name_at(name, state_engine.lastblock+1, include_expired=True))
             final_name_states[name] = state_engine.get_name(name, include_expired=True)
 
             # coerse string values
