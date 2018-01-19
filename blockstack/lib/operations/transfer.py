@@ -47,7 +47,7 @@ MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
 
 # fields that will not be written to the database, but are canonical
 UNSTORED_CANONICAL_FIELDS = [
-    'keep_data'
+    'keep_data',
 ]
 
 def get_transfer_recipient_from_outputs( outputs ):
@@ -88,7 +88,7 @@ def find_last_transfer_consensus_hash( name_rec, block_id, vtxindex ):
     """
     Given a name record, find the last non-NAME_TRANSFER consensus hash.
 
-    This preserves compatibility from a bug prior to 0.13.x where the consensus hash from a NAME_TRANSFER
+    This preserves compatibility from a bug prior to 0.14.x where the consensus hash from a NAME_TRANSFER
     is ignored in favor of the last consensus hash (if any) supplied by an operation to the affected name.
     This method finds that consensus hash (if present).
 
@@ -211,16 +211,20 @@ def check( state_engine, nameop, block_id, checked_ops ):
         log.debug("Sender %s is a p2sh script, but multisig is not enabled in epoch %s" % (sender, get_epoch_number(block_id)))
         return False
 
-    # QUIRK: we use either the consensus hash from the last non-NAME_TRANSFER
-    # operation, or if none exists, we use the one from the NAME_TRANSFER itself.
-    transfer_consensus_hash = find_last_transfer_consensus_hash( name_rec, block_id, nameop['vtxindex'] )
-    '''
-    transfer_send_block_id = state_engine.get_block_from_consensus( nameop['consensus_hash'] )
+    # QUIRK: we *hash* either the consensus hash from the last non-NAME_TRANSFER
+    # operation, or if none exists, we *hash* on the one from the NAME_TRANSFER itself.
+    # QUIRK: we *store* either the consensus hash from the last non-NAME_TRANSFER
+    # operation, or if none exists, we *store* None
+    stored_consensus_hash = find_last_transfer_consensus_hash(name_rec, block_id, nameop['vtxindex'])
+
+    # the given consensus hash must be valid
+    nameop_consensus_hash = nameop['consensus_hash']
+    transfer_send_block_id = state_engine.get_block_from_consensus(nameop_consensus_hash)
     if transfer_send_block_id is None:
-        # wrong consensus hash 
-        log.debug("Unrecognized consensus hash '%s'" % nameop['consensus_hash'] )
-        return False 
-    '''
+        # wrong/invalid consensus hash 
+        log.debug("Unrecognized consensus hash '%s'" % nameop_consensus_hash)
+        return False
+    
     # remember the name, so we don't have to look it up later
     nameop['name'] = name
 
@@ -228,10 +232,6 @@ def check( state_engine, nameop, block_id, checked_ops ):
     nameop['sender'] = recipient
     nameop['address'] = recipient_address
     nameop['sender_pubkey'] = None
-    # nameop['transfer_send_block_id'] = transfer_send_block_id
-
-    log.debug("QUIRK: Changing NAME_TRANSFER consensus hash from {} to {}".format(nameop['consensus_hash'], transfer_consensus_hash))
-    nameop['consensus_hash'] = transfer_consensus_hash
 
     if not nameop['keep_data']:
         nameop['value_hash'] = None
@@ -245,6 +245,15 @@ def check( state_engine, nameop, block_id, checked_ops ):
     del nameop['recipient_address']
     del nameop['keep_data']
     del nameop['name_hash128']
+ 
+    # TODO: keep the original around as a compatibility field, so that when we run op_canonicalize(), we put in the "right" consensus hash.
+    # example, doog.id's NAME_TRANSFER (>~) at 405088 should have consensus_hash == None when stored in the name db, but should have consensus_hash == CONSNSUS(405079) hashed when the consensus hash is calculated.
+    # in this particular case, doog.id was preordered, registered, and then transferred.  The stored consensus hash should be None, but the snapshotted consensus hash should be CONSENSUS(405079).
+    log.debug("QUIRK: Hash NAME_TRANSFER consensus hash {}, but store {}".format(nameop_consensus_hash, stored_consensus_hash))
+    nameop['consensus_hash'] = stored_consensus_hash
+    nameop['transfer_consensus_hash'] = nameop_consensus_hash
+
+    # nameop['transfer_send_block_id'] = transfer_send_block_id
 
     return True
 
