@@ -27,6 +27,7 @@ import argparse
 import random
 import urlparse
 import json
+import requests
 
 import virtualchain
 import blockstack
@@ -50,10 +51,36 @@ def benchmark_rpc(client, iterations, method_name, *args, **kw):
         t1 = time.time()
         res = rpc_call(*args, **kw)
         t2 = time.time()
-
+        
         ret.append({'time': t2 - t1, 'response': res})
 
         log.debug("Call {}({}) (count {} of {}) time={}".format(method_name, ','.join(str(a) for a in args), i, iterations, t2 - t1))
+
+    return ret
+
+
+def benchmark_route(url, iterations, method, route, headers, body):
+    """
+    Benchmark an API route
+    Returns [{'time': ..., 'response': ...}]
+    """
+    ret = []
+    for i in range(0, iterations):
+        log.debug("Call {} {} (count {} of {})".format(method, route, i, iterations))
+
+        t1 = time.time()
+        res = requests.request(method, url + route, data=body, headers=headers)
+        t2 = time.time()
+        
+        resp = {}
+        if res.status_code >= 400:
+            resp = {'error': '{}'.format(res.status_code), 'text': res.text}
+        else:
+            resp = {'status': True, 'text': res.text}
+
+        ret.append({'time': t2 - t1, 'response': resp})
+
+        log.debug("Call {} {} (count {} of {}) time={}".format(method, route, i, iterations, t2 - t1))
 
     return ret
 
@@ -172,12 +199,29 @@ def main(argv):
 
     # ---------------------------
     parser = subparsers.add_parser(
-        'benchmark',
+        'rpc',
         help='benchmark an RPC method')
     
-    parser.add_argument('method', action='store', help='Method to benchmark')
     parser.add_argument('iterations', action='store', type=int, help='Number of iterations')
+    parser.add_argument('method', action='store', help='Method to benchmark')
     parser.add_argument('args', nargs='*', action='store', help='Method arguments, if any')
+    parser.add_argument('--url', action='store', help='Blockstackd URL')
+    parser.add_argument('--histogram', action='store_true', help='Print an histogram of the benchmarked method response times')
+    parser.add_argument('--cdf', action='store_true', help='Print a CDF of the benchmarked method response times')
+    parser.add_argument('--ccdf', action='store_true', help='Print a CCDF of the benchmarked method response times')
+    parser.add_argument('--full-responses', action='store_true', help='Print full responses from the node')
+    parser.add_argument('--include-errors', action='store_true', help='Include benchmark data from errors')
+
+    # ---------------------------
+    parser = subparsers.add_parser(
+        'route',
+        help='benchmark an RPC method')
+    
+    parser.add_argument('iterations', action='store', type=int, help='Number of iterations')
+    parser.add_argument('method', action='store', help='Method to benchmark')
+    parser.add_argument('route', action='store', help='Number of iterations')
+    parser.add_argument('--headers', nargs='*', action='store', help='Headers, if any')
+    parser.add_argument('--body', nargs='*', action='store', help='Body, if any')
     parser.add_argument('--url', action='store', help='Blockstackd URL')
     parser.add_argument('--histogram', action='store_true', help='Print an histogram of the benchmarked method response times')
     parser.add_argument('--cdf', action='store_true', help='Print a CDF of the benchmarked method response times')
@@ -188,7 +232,7 @@ def main(argv):
     # ---------------------------
     args, _ = argparser.parse_known_args()
 
-    if args.action == 'benchmark':
+    if args.action == 'rpc':
         method = args.method
         iters = args.iterations
         method_args = args.args
@@ -245,8 +289,48 @@ def main(argv):
                 for t in times:
                     print t
 
-        return True
+    elif args.action == 'route':
+        method = args.method
+        route = args.route
+        iters = args.iterations
+        body = args.body
+        url = args.url
 
+        if url is None:
+            url = host_url
+        
+        log.debug("Blockstack URL: {}".format(url))
+
+        benchmark_data = benchmark_route(url, iters, method, route, {}, body)
+        times = get_benchmark_times(benchmark_data, ignore_errors=(not args.include_errors))
+
+        print_graph = False
+
+        if args.histogram:
+            print_graph = True
+            hist = make_histogram(times, min(times), max(times), 10)
+            print format_histogram(hist)
+
+        if args.cdf:
+            print_graph = True
+            cdf = make_cdf(times, min(times), max(times), 100)
+            print format_histogram(cdf)
+       
+        if args.ccdf:
+            print_graph = True
+            cdf = make_ccdf(times, min(times), max(times), 100)
+            print format_histogram(cdf)
+
+        if not print_graph:
+            if args.full_responses:
+                for data in benchmark_data:
+                    print json.dumps(data, sort_keys=True)
+
+            else:
+                for t in times:
+                    print t
+
+        return True
     return False
 
 
