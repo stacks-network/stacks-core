@@ -36,7 +36,7 @@ services:
       - mongodb
       - blockstack-api
     volumes:
-      - "./data/search-api/:/var/blockstack-search"
+      - "./data/search-api:/var/blockstack-search"
 
   search-api:
     build:
@@ -58,7 +58,7 @@ services:
       - mongodb
       - blockstack-api
     volumes:
-      - "./data/search-api/:/var/blockstack-search"
+      - "./data/search-api:/var/blockstack-search"
 
 networks:
   api: null

@@ -28,6 +28,10 @@ WORKDIR /src/blockstack/api
 COPY api/deployment/crontab /etc/cron.d/search-index-cron
 COPY api/deployment/client.ini /root/.blockstack/client.ini
 
+# Add bootstrapping files...
+RUN cp search/fixtures/blockchain_data.json /var/blockstack-search/blockchain_data.json
+RUN cp search/fixtures/profile_data.slice.json /var/blockstack-search/profile_data.json
+
 # Give execution rights on the cron job
 RUN chmod 0644 /etc/cron.d/search-index-cron
 
