@@ -37,7 +37,7 @@ def url_to_host_port(url, port=None):
     Given a URL, turn it into (host, port) for a blockstack server.
     Return (None, None) on invalid URL
     """
-    if not url.startswith('http://') or not url.startswith('https://'):
+    if not url.startswith('http://') and not url.startswith('https://'):
         url = 'http://' + url
 
     if not port:
@@ -60,7 +60,7 @@ def url_to_host_port(url, port=None):
     if len(parts) == 2:
         try:
             port = int(parts[1])
-            assert 0 < port < 65535, 'Invalid port'
+            assert 0 < port and port < 65535, 'Invalid port'
         except TypeError:
             return None, None
 
