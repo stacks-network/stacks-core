@@ -51,6 +51,7 @@ from ..proxy import (
     is_namespace_revealed,
     is_namespace_ready,
     json_is_error,
+    get_name_record,
     get_name_blockchain_record,
     get_namespace_cost,
     get_namespace_blockchain_record,
@@ -435,7 +436,7 @@ def operation_sanity_checks(fqu_or_ns, operations, scatter_gather, payment_privk
         block_number = indexer_info['last_block_seen']+1
         nsid = blockstack.get_namespace_from_name(fqu)
 
-        name_rec = get_name_blockchain_record(fqu)
+        name_rec = get_name_record(fqu)
         if 'error' in name_rec:
             log.error("Failed to get name record for {}".format(fqu))
             return {'error': 'Failed to get name blockchain record for {}'.format(fqu)}
