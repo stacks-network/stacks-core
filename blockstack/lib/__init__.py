@@ -29,7 +29,6 @@ from .hashing import *
 
 from .nameset import *
 from .operations import *
-from .consensus import *
 from .fast_sync import *
 
 import atlas
