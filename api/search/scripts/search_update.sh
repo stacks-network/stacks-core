@@ -11,6 +11,6 @@ if [ $UPDATED -eq 0 ] && [ $UPDATED_ZERO -ne 0 ]; then
     echo "Refreshing mongodb index at $(date)" >> /tmp/update_index_out
     python -m api.search.basic_index --refresh  >> /tmp/update_index_out
 else
-    echo "Skipping mondodb index, no new profiles" >> /tmp/update_index_out
+    echo "Skipping mongodb index, no new profiles" >> /tmp/update_index_out
 fi
 echo "Finished indexing at $(date)" >> /tmp/update_index_out

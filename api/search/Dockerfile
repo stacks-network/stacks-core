@@ -26,10 +26,7 @@ WORKDIR /src/blockstack/api
 
 # Add crontab file in the cron directory
 COPY api/deployment/crontab /etc/cron.d/search-index-cron
-
-# Add bootstrapping files...
-RUN cp search/fixtures/blockchain_data.json /var/blockstack-search/blockchain_data.json
-RUN cp search/fixtures/profile_data.slice.json /var/blockstack-search/profile_data.json
+COPY api/deployment/client.ini /root/.blockstack/client.ini
 
 # Give execution rights on the cron job
 RUN chmod 0644 /etc/cron.d/search-index-cron
@@ -39,4 +36,3 @@ RUN touch /var/log/cron.log
 
 # cron on startup
 CMD python -m api.search.basic_index --refresh && cron && tail -f /var/log/cron.log
-
