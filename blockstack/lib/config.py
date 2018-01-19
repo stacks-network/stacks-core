@@ -127,9 +127,10 @@ if os.environ.get("BLOCKSTACK_CORE_NUM_CONFS", None) is not None:
 
 """ RPC server configs
 """
+RPC_SERVER_TEST_PORT = 16264
 RPC_SERVER_PORT = None      # non-HTTPS port
 if BLOCKSTACK_TEST is not None:
-    RPC_SERVER_PORT = 16264
+    RPC_SERVER_PORT = RPC_SERVER_TEST_PORT
 else:
     RPC_SERVER_PORT = 6264
 

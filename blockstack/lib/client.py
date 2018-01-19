@@ -35,7 +35,7 @@ import json
 import storage
 
 from .util import url_to_host_port
-from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT
+from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT
 
 import virtualchain
 
@@ -306,7 +306,7 @@ def connect_hostport(hostport, timeout=RPC_DEFAULT_TIMEOUT, my_hostport=None):
     assert host is not None and port is not None
 
     protocol = None
-    if port == RPC_SERVER_PORT:
+    if port == RPC_SERVER_PORT or port == RPC_SERVER_TEST_PORT:
         protocol = 'http'
     else:
         protocol = 'https'
