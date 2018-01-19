@@ -751,7 +751,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 recipient_address = new_addr
 
         # who owns this name now?
-        name_info = proxy.get_name_blockchain_record(name)
+        name_info = proxy.get_name_record(name)
         cur_owner_addr = None
 
         if 'address' in name_info:
@@ -878,7 +878,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json(ret)
             return
 
-        name_rec = proxy.get_name_blockchain_record(name)
+        name_rec = proxy.get_name_record(name)
         if json_is_error(name_rec):
             # does it exist?
             if name_rec['error'] == 'Not found.':
