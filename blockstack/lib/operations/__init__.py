@@ -35,7 +35,7 @@ import announce
 import binascii
 import copy
 
-from ..nameset import CONSENSUS_FIELDS_REQUIRED, NAMEREC_MUTATE_FIELDS  # , NAMEREC_BACKUP_FIELDS
+from ..nameset import CONSENSUS_FIELDS_REQUIRED, NAMEREC_MUTATE_FIELDS
 from ..config import *
 
 from .register import get_registration_recipient_from_outputs 
