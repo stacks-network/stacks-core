@@ -1254,7 +1254,7 @@ def get_DID_blockchain_record(did, proxy=None):
             final_name_state = history_state
 
     if final_name_state is None:
-        final_name_state = get_name_blockchain_record(name, proxy=proxy)
+        final_name_state = get_name_record(name, proxy=proxy)
         if not json_is_error(final_name_state):
             # remove extra fields that shouldn't be present
             for extra_field in ['expired', 'expire_block', 'renewal_deadline']:
@@ -2138,9 +2138,9 @@ def get_nameops_hash_at(block_id, proxy=None):
     return resp['ops_hash']
 
 
-def get_name_blockchain_record(name, include_expired=True, include_grace=True, proxy=None):
+def get_name_record(name, include_history=False, include_expired=True, include_grace=True, proxy=None):
     """
-    get_name_blockchain_record
+    rpc_get_name_blockchain_record or rpc_get_name_record, depending on include_history
     Return the blockchain-extracted information on success.
     Return {'error': ...} on error
         In particular, return {'error': 'Not found.'} if the name isn't registered
@@ -2148,11 +2148,15 @@ def get_name_blockchain_record(name, include_expired=True, include_grace=True, p
     If include_expired is True, then a name record will be returned even if it expired
     If include_expired is False, but include_grace is True, then the name record will be returned even if it is expired and in the grace period
     """
+    
+    required = NAMEOP_SCHEMA_REQUIRED[:]
+    if include_history:
+        required += ['history']
 
     nameop_schema = {
         'type': 'object',
         'properties': NAMEOP_SCHEMA_PROPERTIES,
-        'required': NAMEOP_SCHEMA_REQUIRED + ['history']
+        'required': required
     }
 
     rec_schema = {
@@ -2172,7 +2176,11 @@ def get_name_blockchain_record(name, include_expired=True, include_grace=True, p
     resp = {}
     lastblock = None
     try:
-        resp = proxy.get_name_blockchain_record(name)
+        if include_history:
+            resp = proxy.get_name_blockchain_record(name)
+        else:
+            resp = proxy.get_name_record(name)
+
         resp = json_validate(resp_schema, resp)
         if json_is_error(resp):
             if resp['error'] == 'Not found.':
@@ -2214,6 +2222,14 @@ def get_name_blockchain_record(name, include_expired=True, include_grace=True, p
 
     return resp['record']
 
+
+def get_name_blockchain_record(name, include_expired=True, include_grace=True, proxy=None):
+    """
+    Get a name and its blockchain history
+    Return the record on success, as a dict
+    Return {'error': ...} on failure
+    """
+    return get_name_record(name, include_history=True, include_expired=include_expired, include_grace=include_grace, proxy=proxy)
 
 
 def get_namespace_blockchain_record(namespace_id, proxy=None):
@@ -2277,7 +2293,7 @@ def is_name_registered(fqu, config_path=CONFIG_PATH, proxy=None, include_grace=T
 
     proxy = get_default_proxy(config_path) if proxy is None else proxy
 
-    blockchain_record = get_name_blockchain_record(fqu, include_expired=False, include_grace=include_grace, proxy=proxy)
+    blockchain_record = get_name_record(fqu, include_expired=False, include_grace=include_grace, proxy=proxy)
     if 'error' in blockchain_record:
         log.debug('Failed to read blockchain record for {}'.format(fqu))
         return False
@@ -2328,7 +2344,7 @@ def has_zonefile_hash(fqu, proxy=None):
 
     proxy = get_default_proxy() if proxy is None else proxy
 
-    blockchain_record = get_name_blockchain_record(fqu, proxy=proxy)
+    blockchain_record = get_name_record(fqu, proxy=proxy)
     if 'error' in blockchain_record:
         log.debug('Failed to read blockchain record for {}'.format(fqu))
         return False
@@ -2367,7 +2383,7 @@ def is_zonefile_hash_current(fqu, zonefile_hash, proxy=None):
 
     proxy = get_default_proxy() if proxy is None else proxy
 
-    blockchain_record = get_name_blockchain_record(fqu, proxy=proxy)
+    blockchain_record = get_name_record(fqu, proxy=proxy)
     if 'error' in blockchain_record:
         log.debug('Failed to read blockchain record for {}'.format(fqu))
         return False
@@ -2382,7 +2398,7 @@ def is_name_owner(fqu, address, proxy=None):
 
     proxy = get_default_proxy() if proxy is None else proxy
 
-    blockchain_record = get_name_blockchain_record(fqu, include_expired=False, include_grace=True, proxy=proxy)
+    blockchain_record = get_name_record(fqu, include_expired=False, include_grace=True, proxy=proxy)
     if 'error' in blockchain_record:
         log.debug('Failed to read blockchain record for {}'.format(fqu))
         return False
