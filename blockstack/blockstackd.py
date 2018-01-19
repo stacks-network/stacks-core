@@ -384,7 +384,7 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
             return json.dumps( rpc_traceback() )
 
 
-class BlockstackdRPC( SimpleXMLRPCServer):
+class BlockstackdRPC(SimpleXMLRPCServer):
     """
     Blockstackd RPC server, used for querying
     the name database and the blockchain peer.
@@ -407,8 +407,16 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 if callable(method) or hasattr(method, '__call__'):
                     self.register_function( method )
         
-        # cache some info
+        # cache bitcoind info until we reindex, or a blocktime has passed
         self.cache = {}
+
+
+    def cache_flush(self):
+        """
+        Clear all cached state
+        """
+        self.cache = {}
+
 
     def success_response(self, method_resp, **kw):
         """
@@ -796,7 +804,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             assert 'error' not in info
             assert 'blocks' in info
 
-            self.set_cached_bitcoind_info(self, info)
+            self.set_cached_bitcoind_info(info)
             return info
 
         except Exception as e:
@@ -1414,6 +1422,13 @@ class BlockstackdRPCServer( threading.Thread, object ):
             self.rpc_server.shutdown()
 
 
+    def cache_flush(self):
+        """
+        Flush any cached state
+        """
+        self.rpc_server.cache_flush()
+
+
 class GCThread( threading.Thread ):
     """
     Optimistic GC thread
@@ -1455,6 +1470,14 @@ def rpc_start( working_dir, port ):
 
     log.debug("Starting RPC")
     rpc_server.start()
+
+
+def rpc_cache_flush():
+    """
+    Flush the global RPC server cache
+    """
+    global rpc_server
+    rpc_server.cache_flush()
 
 
 def rpc_stop():
@@ -1692,6 +1715,8 @@ def index_blockchain( working_dir, expected_snapshots=GENESIS_SNAPSHOT ):
     Return False if not
     Aborts on error
     """
+    global rpc_server
+
     bt_opts = get_bitcoin_opts()
     start_block, current_block = get_index_range(working_dir)
 
@@ -1705,6 +1730,7 @@ def index_blockchain( working_dir, expected_snapshots=GENESIS_SNAPSHOT ):
 
     # bring the db up to the chain tip.
     # NOTE: at each block, the atlas db will be synchronized
+    # TODO: add upcall for per-block handling (i.e. to flush the cache)
     log.debug("Begin indexing (up to %s)" % current_block)
     set_indexing( working_dir, True )
     rc = virtualchain_hooks.sync_blockchain(working_dir, bt_opts, current_block, expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter)
@@ -1732,6 +1758,9 @@ def index_blockchain( working_dir, expected_snapshots=GENESIS_SNAPSHOT ):
 
         db.close()
     '''
+    # uncache state specific to this block
+    rpc_cache_flush()
+
     log.debug("End indexing (up to %s)" % current_block)
     return rc
 
