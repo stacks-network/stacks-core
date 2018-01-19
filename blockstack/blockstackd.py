@@ -564,15 +564,15 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         reply['status'] = "alive"
         reply['version'] = VERSION
         return reply
+    
 
-
-    def rpc_get_name_blockchain_record(self, name, **con_info):
+    def get_name_record(self, name, include_history=False):
         """
-        Lookup the blockchain-derived whois info for a name.
+        Get the whois-related info for a name.
+        Optionally include the history.
         Return {'status': True, 'record': rec} on success
         Return {'error': ...} on error
         """
-
         if not self.check_name(name):
             return {'error': 'invalid name'}
 
@@ -584,7 +584,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             db.close()
             return {"error": str(e)}
 
-        name_record = db.get_name(str(name))
+        name_record = db.get_name(str(name), include_history=include_history)
 
         if name_record is None:
             db.close()
@@ -596,9 +596,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             name_record = self.sanitize_rec(name_record)
 
             namespace_id = get_namespace_from_name(name)
-            namespace_record = db.get_namespace(namespace_id)
+            namespace_record = db.get_namespace(namespace_id, include_history=False)
             if namespace_record is None:
-                namespace_record = db.get_namespace_reveal(namespace_id)
+                namespace_record = db.get_namespace_reveal(namespace_id, include_history=False)
 
             # when does this name expire (if it expires)?
             if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
@@ -621,7 +621,33 @@ class BlockstackdRPC(SimpleXMLRPCServer):
                 name_record['expired'] = False
 
             db.close()
-            return self.success_response( {'record': name_record} )
+            return {'status': True, 'record': name_record}
+
+
+    def rpc_get_name_record(self, name, **con_info):
+        """
+        Get the curernt state of a name, excluding its history.
+        Return {'status': True, 'record': rec} on success
+        Return {'error': ...} on error
+        """
+        res = self.get_name_record(name, include_history=False)
+        if 'error' in res:
+            return res
+
+        return self.success_response({'record': res['record']})
+
+
+    def rpc_get_name_blockchain_record(self, name, **con_info):
+        """
+        Lookup all blockchain state for a name, including its history.
+        Return {'status': True, 'record': rec} on success
+        Return {'error': ...} on error
+        """
+        res = self.get_name_record(name, include_history=True)
+        if 'error' in res:
+            return res
+
+        return self.success_response({'record': res['record']})
 
 
     def rpc_get_name_history_blocks( self, name, **con_info ):
