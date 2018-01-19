@@ -297,7 +297,7 @@ def json_response_schema( expected_object_schema ):
     return schema
 
 
-def connect_hostport(hostport):
+def connect_hostport(hostport, timeout=RPC_DEFAULT_TIMEOUT, my_hostport=None):
     """
     Connect to the given "host:port" string
     Returns a BlockstackRPCClient instance
