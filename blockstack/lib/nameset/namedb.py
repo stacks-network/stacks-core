@@ -475,7 +475,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         TODO: less ad-hoc way to do this
         """
         
-        op_data = super( BlockstackDB, self ).sanitize_op( op_data )
+        op_data = super(BlockstackDB, self).sanitize_op(op_data)
 
         # remove invariant tags (i.e. added by our invariant state_* decorators)
         to_remove = get_state_invariant_tags()
@@ -963,10 +963,8 @@ class BlockstackDB( virtualchain.StateEngine ):
             if consensus_hash is not None and consensus_hash not in possible_consensus_hashes:
                 possible_consensus_hashes.append( str(consensus_hash) )
     
-        
         for name in names:
             for consensus_hash in possible_consensus_hashes:
-
                 # what would have been the name/consensus_hash?
                 test_name_consensus_hash = hash256_trunc128( str(name) + consensus_hash )
                 if test_name_consensus_hash == name_consensus_hash:
@@ -1376,7 +1374,8 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         Using the operation data extracted from parsing the virtualchain operation (@op_data),
         and the checked, processed operation (@processed_op_data), return a dict that contains
-        all of the consensus fields to snapshot this operation.
+        (1) all of the consensus fields to snapshot this operation, and
+        (2) all of the data fields that we need to store for the name record (i.e. quirk fields)
         """
         ret = {}
 
