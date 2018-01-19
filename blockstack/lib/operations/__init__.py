@@ -265,6 +265,11 @@ def op_canonicalize_quirks(op_name, new_record, current_record):
         # QUIRK: preserve last_creation_op across records
         ret['last_creation_op'] = quirk_values['last_creation_op']
 
+    if op_name == 'NAME_TRANSFER':
+        # QUIRK: restore consensus hash from transfer_consensus_hash
+        assert new_record.has_key('transfer_consensus_hash'), 'BUG: missing transfer_consensus_hash in new_record'
+        ret['consensus_hash'] = new_record['transfer_consensus_hash']
+
     return ret
 
 
@@ -361,7 +366,6 @@ def op_get_mutate_fields( op_name ):
     Get the names of the fields that will change
     when this operation gets applied to a record.
     """
-
     global MUTATE_FIELDS
 
     if op_name not in MUTATE_FIELDS.keys():
@@ -375,7 +379,6 @@ def op_get_consensus_fields( op_name ):
     """
     Get the set of consensus-generating fields for an operation.
     """
-
     global SERIALIZE_FIELDS
     
     if op_name not in SERIALIZE_FIELDS.keys():
@@ -389,7 +392,13 @@ def op_get_quirk_fields( op_name ):
     """
     Get the set of fields in a database record that are required for compatibility quirks
     """
-    if op_name in OPCODE_NAME_NAMEOPS and op_name not in OPCODE_NAME_STATE_PREORDER:
-        return ['last_creation_op']
+    quirk_field_table = {
+        'NAME_REGISTRATION': ['last_creation_op'],
+        'NAME_UPDATE': ['last_creation_op'],
+        'NAME_TRANSFER': ['last_creation_op', 'transfer_consensus_hash'],
+        'NAME_RENEWAL': ['last_creation_op'],
+        'NAME_REVOKE': ['last_creation_op'],
+        'NAME_IMPORT': ['last_creation_op'],
+    }
     
-    return []
+    return quirk_field_table.get(op_name, [])
