@@ -149,7 +149,7 @@ from .keys import privkey_to_string, get_data_privkey
 from .proxy import (
     is_zonefile_current, get_default_proxy, json_is_error,
     get_name_blockchain_history, get_all_namespaces, getinfo,
-    storage, is_zonefile_data_current, get_num_names
+    storage, is_zonefile_data_current, get_num_names, get_name_record,
 )
 from .scripts import UTXOException, is_name_valid, is_valid_hash, is_namespace_valid
 from .user import make_empty_user_profile, user_zonefile_data_pubkey
@@ -1036,7 +1036,7 @@ def cli_lookup(args, config_path=CONFIG_PATH):
             return {'error': error}
 
     try:
-        blockchain_record = get_name_blockchain_record(fqu)
+        blockchain_record = get_name_record(fqu)
     except socket_error:
         return {'error': 'Error connecting to server.'}
 
