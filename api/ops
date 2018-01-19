@@ -19,16 +19,27 @@ ops () {
     sudo cp deployment/client.ini $apiData/client.ini
   }
 
+  init-indexer () {
+    local idxData=data/blockstack-indexer
+    echo "Initializing Blockstack Indexer with dummy data..."
+    cp search/fixtures/blockchain_data.json $idxData/blockchain_data.json
+    cp search/fixtures/profile_data.slice.json $idxData/profile_data.slice.json
+  }
+
   commands () {
     cat <<-EOF
 ops commands:
-  init-api -> Set up the dummy wallet for the core api
+  init-api     -> Set up the dummy wallet for the core api
+  init-indexer -> Set up the bootstrapping data for the indexer
 EOF
   }
 
   case $1 in
     init-api)
       init-api
+      ;;
+    init-indexer)
+      init-indexer
       ;;
     *)
       commands
