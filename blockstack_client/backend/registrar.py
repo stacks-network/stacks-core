@@ -49,7 +49,7 @@ from .queue import queue_add_error_msg, queue_set_data
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
 
 from ..keys import get_data_privkey_info, is_singlesig_hex
-from ..proxy import is_name_registered, is_zonefile_hash_current, get_default_proxy, get_name_blockchain_record, get_atlas_peers, json_is_error
+from ..proxy import is_name_registered, is_zonefile_hash_current, get_default_proxy, get_name_record, get_name_blockchain_record, get_atlas_peers, json_is_error
 from ..zonefile import zonefile_data_replicate
 from ..user import is_user_zonefile
 from ..storage import put_mutable_data, get_zonefile_data_hash
@@ -504,7 +504,7 @@ class RegistrarWorker(threading.Thread):
         if zonefile_hash not in replicated_zonefiles or BLOCKSTACK_TEST:
             # NOTE: replicated_zonefiles is static but scoped to this method
             # use it to remember what we've replicated, so we don't needlessly retry
-            name_rec = get_name_blockchain_record( name_data['fqu'], proxy=proxy )
+            name_rec = get_name_record( name_data['fqu'], proxy=proxy )
             if 'error' in name_rec:
                 if name_rec['error'] == 'Not found.':
                     return {'error' : 'Name has not appeared on the resolver, cannot issue zonefile until it does.'}
@@ -716,7 +716,7 @@ class RegistrarWorker(threading.Thread):
 
             if update.get("transfer_address") is not None:
                 # let's see if the name already got there!
-                name_rec = get_name_blockchain_record( update['fqu'], proxy=proxy )
+                name_rec = get_name_record( update['fqu'], proxy=proxy )
                 if 'address' in name_rec:
                     log.debug("{} updated, current owner : {}, transfer owner : {}".format(
                         update['fqu'], name_rec['address'], update['transfer_address']))
