@@ -406,7 +406,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 method = getattr(self, attr)
                 if callable(method) or hasattr(method, '__call__'):
                     self.register_function( method )
-
+        
+        # cache some info
+        self.cache = {}
 
     def success_response(self, method_resp, **kw):
         """
@@ -553,6 +555,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
     def rpc_ping(self, **con_info):
         reply = {}
         reply['status'] = "alive"
+        reply['version'] = VERSION
         return reply
 
 
@@ -747,6 +750,59 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return self.success_response( {'ops_hash': ops_hash} )
 
 
+    def get_cached_bitcoind_info(self):
+        """
+        Get cached bitcoind info.
+        Returns {'getinfo': {...}} on success
+        Return None if it is stale
+        """
+        cached_bitcoind_info = self.cache.get('bitcoind_info', None)
+        if cached_bitcoind_info is None:
+            # not cached
+            return None
+
+        now = time.time()
+        if cached_bitcoind_info['time'] + AVERAGE_SECONDS_PER_BLOCK < now:
+            # stale
+            return None
+
+        return cached_bitcoind_info['getinfo']
+
+
+    def set_cached_bitcoind_info(self, info):
+        """
+        Cache bitcoind info
+        """
+        self.cache['bitcoind_info'] = {'time': time.time(), 'getinfo': info}
+
+
+    def get_bitcoind_info(self):
+        """
+        Get bitcoind info.  Try the cache, and on cache miss, 
+        fetch from bitcoind and cache.
+        """
+        cached_bitcoind_info = self.get_cached_bitcoind_info()
+        if cached_bitcoind_info:
+            return cached_bitcoind_info
+
+        bitcoind_opts = default_bitcoind_opts( virtualchain.get_config_filename(virtualchain_hooks, self.working_dir), prefix=True )
+        bitcoind = get_bitcoind( new_bitcoind_opts=bitcoind_opts, new=True )
+
+        if bitcoind is None:
+            return {'error': 'Internal server error: failed to connect to bitcoind'}
+        
+        try:
+            info = bitcoind.getinfo()
+            assert 'error' not in info
+            assert 'blocks' in info
+
+            self.set_cached_bitcoind_info(self, info)
+            return info
+
+        except Exception as e:
+            raise
+        
+
     def rpc_getinfo(self, **con_info):
         """
         Get information from the running server:
@@ -757,14 +813,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         * server_alive: True
         * [optional] zonefile_count: the number of zonefiles known
         """
-        bitcoind_opts = default_bitcoind_opts( virtualchain.get_config_filename(virtualchain_hooks, self.working_dir), prefix=True )
-        bitcoind = get_bitcoind( new_bitcoind_opts=bitcoind_opts, new=True )
-
-        if bitcoind is None:
-            return {'error': 'Internal server error: failed to connect to bitcoind'}
-
         conf = get_blockstack_opts()
-        info = bitcoind.getinfo()
+        info = self.get_bitcoind_info()
         reply = {}
         reply['last_block_seen'] = info['blocks']
 
@@ -1880,7 +1930,7 @@ def setup( working_dir, return_parser=False ):
     argparser = None
 
     if return_parser:
-      arg_bitcoin_opts, argparser = virtualchain.parse_bitcoind_args( return_parser=return_parser )
+       arg_bitcoin_opts, argparser = virtualchain.parse_bitcoind_args( return_parser=return_parser )
 
     else:
        arg_bitcoin_opts = virtualchain.parse_bitcoind_args( return_parser=return_parser )
