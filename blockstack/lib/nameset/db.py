@@ -937,28 +937,6 @@ def namedb_state_transition( cur, opcode, op_data, block_id, vtxindex, txid, his
             raise Exception("canonicalized record is missing {}".format(f))
 
     return canonicalized_record
-
-    '''
-    # 3. success! re-apply quirks on the transitioned name record (includes all name fields)
-    canonical_merged_new_record = op_canonicalize(opcode, merged_new_record)
-    merged_canonicalized_record = op_canonicalize_quirks(opcode, canonical_merged_new_record, cur_record)
-    merged_canonicalized_record['opcode'] = opcode
-
-    # check for divergence from canonicalized record
-    diverged = {}
-    for f in canonicalized_record:
-        if merged_canonicalized_record[f] != canonicalized_record[f]:
-            diverged[f] = [merged_canonicalized_record[f], canonicalized_record[f]]
-
-    if len(diverged) > 0:
-        log.error("FATAL: merged name record after applying state-transition diverged from canonical name record!")
-        for f in diverged:
-            log.error("{}: Merged canonical record == {}; canonical record == {}".format(f, diverged[f][0], diverged[f][1]))
-
-        os.abort()
-
-    return merged_canonicalized_record
-    '''
     
 
 def namedb_state_create_sanity_check( opcode, op_data, history_id, preorder_record, record_table ):
@@ -2215,8 +2193,7 @@ def namedb_get_namespace_reveal( cur, namespace_id, current_block, include_histo
 def namedb_get_namespace_ready( cur, namespace_id, include_history=True ):
     """
     Get a ready namespace, and optionally its history.
-    Only return a namespace if:
-    * it is ready
+    Only return a namespace if it is ready.
     """
 
     select_query = "SELECT * FROM namespaces WHERE namespace_id = ? AND op = ?;"
