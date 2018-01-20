@@ -81,9 +81,10 @@ def scenario( wallets, **kw ):
         return False
 
     testlib.next_block( **kw )
-
-    # when transferring a name, the consensus hash saved to its history should be the one from the transaction.
-    # however, the one saved to the name record should be the last consensus hash stored (i.e. None in this case)
+    
+    # foo.test: NAME_PREORDER, NAME_REGISTRATION, NAME_TRANSFER.
+    # the consensus hash should be the one from the NAME_TRANSFER,
+    # since there was no prior consensus hash.
     resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey )
     if 'error' in resp:
         print resp
@@ -92,22 +93,21 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     db = testlib.get_state_engine()
-    name_rec = db.get_name('foo.test')
-    name_history = db.get_name_at('foo.test', testlib.get_current_block(**kw))
+    name_rec = db.get_name('foo.test', include_history=False)
 
-    if name_rec['consensus_hash'] is not None:
-        print 'NAME_TRANSFER added a consensus hash: {}'.format(name_rec)
+    if name_rec['consensus_hash'] is None:
+        print 'NAME_TRANSFER did not set the consensus hash: {}'.format(name_rec)
         return False
 
-    if name_history[0]['consensus_hash'] != testlib.get_consensus_at(testlib.get_current_block(**kw)-1):
+    if name_rec['consensus_hash'] != testlib.get_consensus_at(testlib.get_current_block(**kw)-1):
         print 'NAME_TRANSFER set wrong consensus hash (expected {}): {}'.format(
                 testlib.get_consensus_at(testlib.get_current_block(**kw)-1),
                 name_history[0]
         )
         return False
 
-    # when transferring a name after any operation that sets the consensus hash (i.e. update), the previous operation's
-    # consensus hash must be preserved for hashing.  However, the name history should receive the transfer's consensus hash.
+    # bar.test: NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE
+    # the consensus hash should be the one from the NAME_UPDATE
     resp = testlib.blockstack_name_update('bar.test', '11' * 20, wallets[3].privkey)
     if 'error' in resp:
         print resp
@@ -116,10 +116,20 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw)
 
     db = testlib.get_state_engine()
-    name_rec = db.get_name('bar.test')
+    name_rec = db.get_name('bar.test', include_history=False)
     bar_update_ch = name_rec['consensus_hash']
     assert bar_update_ch, 'No consensus hash set on update'
 
+    if bar_update_ch != testlib.get_consensus_at(testlib.get_current_block(**kw)-1):
+        print 'NAME_UPDATE did not set consensus hash {} (got {}): {}'.format(
+                testlib.get_consensus_at(testlib.get_current_block(**kw)-1),
+                bar_update_ch,
+                name_rec
+        )
+        return False
+
+    # bar.test: NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER
+    # the consensus hash should still be the one from the NAME_UPDATE
     resp = testlib.blockstack_name_transfer('bar.test', wallets[4].addr, True, wallets[3].privkey)
     if 'error' in resp:
         print resp
@@ -128,17 +138,20 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw)
 
     db = testlib.get_state_engine()
-    name_rec = db.get_name('bar.test')
+    name_rec = db.get_name('bar.test', include_history=False)
     if name_rec['consensus_hash'] != bar_update_ch:
         print 'update consensus hash not preserved (expected {}): {}'.format(bar_update_ch, name_rec)
         return False
 
-    # only a subsequent update ought to change the consensus hash 
+    # foo.test: NAME_PREORDER, NAME_REGISTRATION, NAME_TRANSFER, NAME_UPDATE
+    # the consensus hash should be from foo.test's NAME_UPDATE
     resp = testlib.blockstack_name_update('foo.test', '22' * 20, wallets[4].privkey)
     if 'error' in resp:
         print resp
         return False
-    
+   
+    # bar.test: NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAME_UPDATE
+    # the consensus hash shoudl be from bar.test's last NAME_UPDATE
     resp = testlib.blockstack_name_update('bar.test', '33' * 20, wallets[4].privkey)
     if 'error' in resp:
         print resp
@@ -147,13 +160,13 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw)
 
     db = testlib.get_state_engine()
-    name_rec = db.get_name('foo.test')
+    name_rec = db.get_name('foo.test', include_history=False)
     name_history = db.get_name_at('foo.test', testlib.get_current_block(**kw))
     foo_update_ch = name_rec['consensus_hash']
 
     # foo.test: consensus hash should match that of the previously-sent update now.
     if name_rec['consensus_hash'] != testlib.get_consensus_at(testlib.get_current_block(**kw)-1):
-        print 'NAME_UPDATE did not set consensus hash (expected {}): {}'.format(
+        print 'NAME_UPDATE did not set consensus hash for foo.test (expected {}): {}'.format(
                 testlib.get_consensus_at(testlib.get_current_block(**kw)-1),
                 name_rec
         )
@@ -161,39 +174,41 @@ def scenario( wallets, **kw ):
 
     # foo.test: name's history's consensus hash should match the update as well
     if name_history[0]['consensus_hash'] != testlib.get_consensus_at(testlib.get_current_block(**kw)-1):
-        print 'NAME_UPDATE did not match consensus hash in history (expected {}): {}'.format(
+        print 'NAME_UPDATE did not match consensus hash in history for foo.test (expected {}): {}'.format(
                 testlib.get_consensus_at(testlib.get_current_block(**kw)-1),
                 name_history[0]
         )
         return False
 
-    name_rec = db.get_name('bar.test')
+    name_rec = db.get_name('bar.test', include_history=False)
     name_history = db.get_name_at('bar.test', testlib.get_current_block(**kw))
     bar_update_ch = name_rec['consensus_hash']
 
-    # bar.test: consensus hash should match last consensus hash 
+    # bar.test: consensus hash should match the update's consensus hash 
     if name_rec['consensus_hash'] != testlib.get_consensus_at(testlib.get_current_block(**kw)-1):
-        print 'NAME_UPDATE did not set consensus hash (expected {}): {}'.format(
+        print 'NAME_UPDATE did not set consensus hash for bar.test (expected {}): {}'.format(
                 testlib.get_consensus_at(testlib.get_current_block(**kw)-1),
                 name_rec
         )
         return False
 
-    # foo.test: name's history's consensus hash should match the update as well
+    # bar.test: name's history's consensus hash should match the update as well
     if name_history[0]['consensus_hash'] != testlib.get_consensus_at(testlib.get_current_block(**kw)-1):
-        print 'NAME_UPDATE did not match consensus hash in history (expected {}): {}'.format(
+        print 'NAME_UPDATE did not match consensus hash in history for bar.test (expected {}): {}'.format(
                 testlib.get_consensus_at(testlib.get_current_block(**kw)-1),
                 name_history[0]
         )
         return False
 
-    # transferring the name should preserve the name's consensus hash in the name record, but not the history
+    # foo.test: NAME_PREORDER, NAME_REGISTRATION, NAME_TRANSFER, NAME_UPDATE, NAME_TRANSFER
+    # foo.test's consensus hash should be that of its last NAME_UPDATE
     resp = testlib.blockstack_name_transfer('foo.test', wallets[3].addr, True, wallets[4].privkey)
     if 'error' in resp:
         print resp
         return False
 
-    # transferring the name should preserve the name's consensus hash in the name record, but not the history
+    # bar.test: NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAME_UPDATE, NAME_TRANSFER
+    # bar.test's consensus hash should be that of its last NAME_UPDATE
     resp = testlib.blockstack_name_transfer('bar.test', wallets[3].addr, True, wallets[4].privkey)
     if 'error' in resp:
         print resp
@@ -202,47 +217,54 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw)
 
     db = testlib.get_state_engine()
-    name_rec = db.get_name('foo.test')
+    name_rec = db.get_name('foo.test', include_history=False)
     name_history = db.get_name_at('foo.test', testlib.get_current_block(**kw))
-
+    
+    # foo.test's last NAME_UPDATE set the consensus hash
     if name_rec['consensus_hash'] != foo_update_ch:
-        print 'NAME_TRANSFER did not preserve previous consensus hash (expected {}): {}'.format(
+        print 'NAME_TRANSFER did not preserve previous consensus hash for foo.test (expected {}): {}'.format(
                 foo_update_ch,
                 name_rec
         )
         return False
 
-    if name_history[0]['consensus_hash'] != testlib.get_consensus_at(testlib.get_current_block(**kw)-1):
-        print 'NAME_UPDATE did not match consensus hash in history (expected {}): {}'.format(
-                testlib.get_consensus_at(testlib.get_current_block(**kw)-1),
+    # foo.test's last-history-inserted consensus hash should be from the NAME_UPDATE
+    if name_history[0]['consensus_hash'] != foo_update_ch:
+        print 'NAME_UPDATE did not match consensus hash in history for foo.test (expected {}): {}'.format(
+                foo_update_ch,
                 name_history[0]
         )
         return False
 
     db = testlib.get_state_engine()
-    name_rec = db.get_name('bar.test')
+    name_rec = db.get_name('bar.test', include_history=False)
     name_history = db.get_name_at('bar.test', testlib.get_current_block(**kw))
 
+    # bar.test's last NAME_UPDATE set the consensus hash
     if name_rec['consensus_hash'] != bar_update_ch:
-        print 'NAME_TRANSFER did not preserve previous consensus hash (expected {}): {}'.format(
+        print 'NAME_TRANSFER did not preserve previous consensus hash for foo.test (expected {}): {}'.format(
                 bar_update_ch,
                 name_rec
         )
         return False
 
-    if name_history[0]['consensus_hash'] != testlib.get_consensus_at(testlib.get_current_block(**kw)-1):
-        print 'NAME_UPDATE did not match consensus hash in history (expected {}): {}'.format(
-                testlib.get_consensus_at(testlib.get_current_block(**kw)-1),
+    # bar.test's last-history-inserted consensus hash should be from the NAME_UPDATE
+    if name_history[0]['consensus_hash'] != bar_update_ch:
+        print 'NAME_UPDATE did not match consensus hash in history for bar.test (expected {}): {}'.format(
+                bar_update_ch,
                 name_history[0]
         )
         return False
 
-    # transferring the name again should preserve the name's consensus hash in the name record, but not the history
+    # foo.test: NAME_PREORDER, NAME_REGISTRATION, NAME_TRANSFER, NAME_UPDATE, NAME_TRANSFER, NAME_TRANSFER
+    # foo.test's consensus hash should be that of its last NAME_UPDATE
     resp = testlib.blockstack_name_transfer('foo.test', wallets[4].addr, True, wallets[3].privkey)
     if 'error' in resp:
         print resp
         return False
 
+    # bar.test: NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAME_UPDATE, NAME_TRANSFER, NAME_TRANSFER
+    # bar.test's consensus hash should be that of its last NAME_UPDATE
     resp = testlib.blockstack_name_transfer('bar.test', wallets[4].addr, True, wallets[3].privkey)
     if 'error' in resp:
         print resp
@@ -251,9 +273,10 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw)
     
     db = testlib.get_state_engine()
-    name_rec = db.get_name('foo.test')
+    name_rec = db.get_name('foo.test', include_history=False)
     name_history = db.get_name_at('foo.test', testlib.get_current_block(**kw))
 
+    # foo.test's last NAME_UPDATE set the consensus hash 
     if name_rec['consensus_hash'] != foo_update_ch:
         print 'NAME_TRANSFER did not preserve previous consensus hash (expected {}): {}'.format(
                 foo_update_ch,
@@ -261,16 +284,18 @@ def scenario( wallets, **kw ):
         )
         return False
 
-    if name_history[0]['consensus_hash'] != testlib.get_consensus_at(testlib.get_current_block(**kw)-1):
+    # foo.test's last-history-inserted consensus hash should be from NAME_UPDATE
+    if name_history[0]['consensus_hash'] != foo_update_ch:
         print 'NAME_UPDATE did not match consensus hash in history (expected {}): {}'.format(
-                testlib.get_consensus_at(testlib.get_current_block(**kw)-1),
+                foo_update_ch,
                 name_history[0]
         )
         return False
 
-    name_rec = db.get_name('bar.test')
+    name_rec = db.get_name('bar.test', include_history=False)
     name_history = db.get_name_at('bar.test', testlib.get_current_block(**kw))
-
+    
+    # bar.test's last NAME_UPDATE set the consensus hash
     if name_rec['consensus_hash'] != bar_update_ch:
         print 'NAME_TRANSFER did not preserve previous consensus hash (expected {}): {}'.format(
                 bar_update_ch,
@@ -278,9 +303,10 @@ def scenario( wallets, **kw ):
         )
         return False
 
-    if name_history[0]['consensus_hash'] != testlib.get_consensus_at(testlib.get_current_block(**kw)-1):
+    # bar.test's last-history-inserted consensus hash should be from the NAME_UPDATE
+    if name_history[0]['consensus_hash'] != bar_update_ch:
         print 'NAME_UPDATE did not match consensus hash in history (expected {}): {}'.format(
-                testlib.get_consensus_at(testlib.get_current_block(**kw)-1),
+                bar_update_ch,
                 name_history[0]
         )
         return False
