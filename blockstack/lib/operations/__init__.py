@@ -265,11 +265,6 @@ def op_canonicalize_quirks(op_name, new_record, current_record):
         # QUIRK: preserve last_creation_op across records
         ret['last_creation_op'] = quirk_values['last_creation_op']
 
-    if op_name == 'NAME_TRANSFER':
-        # QUIRK: restore consensus hash from transfer_consensus_hash
-        assert new_record.has_key('transfer_consensus_hash'), 'BUG: missing transfer_consensus_hash in new_record'
-        ret['consensus_hash'] = new_record['transfer_consensus_hash']
-
     return ret
 
 
@@ -395,7 +390,7 @@ def op_get_quirk_fields( op_name ):
     quirk_field_table = {
         'NAME_REGISTRATION': ['last_creation_op'],
         'NAME_UPDATE': ['last_creation_op'],
-        'NAME_TRANSFER': ['last_creation_op', 'transfer_consensus_hash'],
+        'NAME_TRANSFER': ['last_creation_op'],
         'NAME_RENEWAL': ['last_creation_op'],
         'NAME_REVOKE': ['last_creation_op'],
         'NAME_IMPORT': ['last_creation_op'],
