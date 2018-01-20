@@ -213,9 +213,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
     # QUIRK: we *hash* either the consensus hash from the last non-NAME_TRANSFER
     # operation, or if none exists, we *hash* on the one from the NAME_TRANSFER itself.
-    # QUIRK: we *store* either the consensus hash from the last non-NAME_TRANSFER
-    # operation, or if none exists, we *store* None
-    stored_consensus_hash = find_last_transfer_consensus_hash(name_rec, block_id, nameop['vtxindex'])
+    transfer_consensus_hash = find_last_transfer_consensus_hash(name_rec, block_id, nameop['vtxindex'])
 
     # the given consensus hash must be valid
     nameop_consensus_hash = nameop['consensus_hash']
@@ -245,14 +243,18 @@ def check( state_engine, nameop, block_id, checked_ops ):
     del nameop['recipient_address']
     del nameop['keep_data']
     del nameop['name_hash128']
- 
-    # TODO: keep the original around as a compatibility field, so that when we run op_canonicalize(), we put in the "right" consensus hash.
-    # example, doog.id's NAME_TRANSFER (>~) at 405088 should have consensus_hash == None when stored in the name db, but should have consensus_hash == CONSNSUS(405079) hashed when the consensus hash is calculated.
-    # in this particular case, doog.id was preordered, registered, and then transferred.  The stored consensus hash should be None, but the snapshotted consensus hash should be CONSENSUS(405079).
-    log.debug("QUIRK: Hash NAME_TRANSFER consensus hash {}, but store {}".format(nameop_consensus_hash, stored_consensus_hash))
-    nameop['consensus_hash'] = stored_consensus_hash
-    nameop['transfer_consensus_hash'] = nameop_consensus_hash
+    
+    # QUIRK examples
+    # example 1: doog.id underwent a NAME_PREORDER, NAME_REGISTRATION, and NAME_TRANSFER (>~).
+    # In the NAME_TRANSFER (>~) at 405088, it should have consensus_hash == CONSNSUS(405079) hashed when the consensus hash is calculated
+    # (i.e. there is no prior stored consensus hash, so the consensus hash comes from the one given in the NAME_TRANSFER).
+    # example 2: eth3r3um.id underwent a NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, and NAME_TRANSFER (>>)
+    # in the NAME_TRANSFER (>>) at 385652, it should have consensus_hash == CONSENSUS(385610) hashed when the consensus hash is calculated
+    # (i.e. this was the prior stored consensus hash at 385610 (the NAME_UPDATE))
+    nameop['consensus_hash'] = transfer_consensus_hash if transfer_consensus_hash is not None else nameop_consensus_hash
+    log.debug("QUIRK: Hash NAME_TRANSFER consensus hash {} instead of {}".format(nameop['consensus_hash'], nameop_consensus_hash))
 
+    # nameop['nameop_consensus_hash'] = nameop_consensus_hash
     # nameop['transfer_send_block_id'] = transfer_send_block_id
 
     return True
