@@ -139,7 +139,6 @@ def check( state_engine, nameop, block_id, checked_ops ):
     sender = nameop['sender']
     recipient_address = nameop['recipient_address']
     recipient = nameop['recipient']
-    # transfer_send_block_id = None
 
     if name is None:
        # invalid
