@@ -1755,7 +1755,6 @@ def index_blockchain( working_dir, expected_snapshots=GENESIS_SNAPSHOT ):
 
     # bring the db up to the chain tip.
     # NOTE: at each block, the atlas db will be synchronized
-    # TODO: add upcall for per-block handling (i.e. to flush the cache)
     log.debug("Begin indexing (up to %s)" % current_block)
     set_indexing( working_dir, True )
     rc = virtualchain_hooks.sync_blockchain(working_dir, bt_opts, current_block, expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter)
