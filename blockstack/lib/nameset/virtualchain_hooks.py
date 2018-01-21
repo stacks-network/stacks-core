@@ -386,12 +386,6 @@ def check_quirks(block_id, block_op, db_state):
             # the op_fee will be a float if the name record was created with a NAME_IMPORT
             assert isinstance(block_op['op_fee'], float), 'QUIRK BUG: op_fee is not a float when it should be'
    
-    '''
-    if op_get_opcode_name(block_op['op']) == 'NAME_TRANSFER':
-        # make sure we snapshot the right consensus hash
-        assert 'nameop_consensus_hash' in block_op, 'QUIRK BUG: missing nameop_consensus_hash in {}'.format(op_get_opcode_name(block_op['op']))
-        # assert block_op['consensus_hash'] == block_op['nameop_consensus_hash']
-    '''
     return
 
    
