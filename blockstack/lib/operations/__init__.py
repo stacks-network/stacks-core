@@ -351,8 +351,6 @@ def op_check( state_engine, nameop, block_id, checked_ops ):
             if f in nameop:
                 del nameop[f]
 
-        # op_check_quirks( state_engine, nameop, block_id, checked_ops )
-
     return rc
 
 
