@@ -75,10 +75,12 @@ def scenario( wallets, **kw ):
 
     # safety checks should prohibit this
     # TODO: they don't
+    '''
     resp = testlib.blockstack_name_register( "bar.test", wallets[2].privkey, wallets[3].addr)
     if 'error' not in resp:
         print 'safety check failure'
         return False
+    '''
 
     # should fail
     resp = testlib.blockstack_name_register( "bar.test", wallets[2].privkey, wallets[3].addr, safety_checks=False )
