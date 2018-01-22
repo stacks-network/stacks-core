@@ -24,7 +24,7 @@ ops () {
     echo "Initializing Blockstack Indexer with dummy data..."
     mkdir -p $idxData
     cp search/fixtures/blockchain_data.json $idxData/blockchain_data.json
-    cp search/fixtures/profile_data.slice.json $idxData/profile_data.slice.json
+    cp search/fixtures/profile_data.slice.json $idxData/profile_data.json
   }
 
   commands () {

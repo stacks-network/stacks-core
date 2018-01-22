@@ -4,9 +4,7 @@ WORKDIR /src/blockstack
 
 # Install dependancies from apt
 RUN apt-get -y update
-RUN apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools libgmp3-dev lsof curl
-
-RUN apt-get install -y cron
+RUN apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools libgmp3-dev lsof curl cron
 
 # Copy all files from the repo into the container
 COPY . .
@@ -25,18 +23,14 @@ RUN mkdir /var/blockstack-search
 WORKDIR /src/blockstack/api
 
 # Add crontab file in the cron directory
-COPY api/deployment/crontab /etc/cron.d/search-index-cron
+COPY api/deployment/crontab /var/spool/cron/crontabs/root
 COPY api/deployment/client.ini /root/.blockstack/client.ini
 
-# Add bootstrapping files...
-RUN cp search/fixtures/blockchain_data.json /var/blockstack-search/blockchain_data.json
-RUN cp search/fixtures/profile_data.slice.json /var/blockstack-search/profile_data.json
-
 # Give execution rights on the cron job
-RUN chmod 0644 /etc/cron.d/search-index-cron
+RUN chmod 0600 /var/spool/cron/crontabs/root
 
-# Create the log file to be able to run tail
-RUN touch /var/log/cron.log
+# Cron is our entry point
+ENTRYPOINT "crond"
 
-# cron on startup
-CMD python -m api.search.basic_index --refresh && cron && tail -f /var/log/cron.log
+# Cron needs to be in the foreground
+CMD ["-f", "-d", "8"]

@@ -58,9 +58,9 @@ log = blockstack_config.get_logger()
 
 """
 # starting internal API logic should go somewhere else
-#local_api_start(password='temptemptemp')
+# local_api_start(password='temptemptemp')
 
-#Check first if API daemon is running
+# Check first if API daemon is running
 status = local_api_action('status')
 
 if(status):

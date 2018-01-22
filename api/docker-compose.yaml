@@ -37,6 +37,7 @@ services:
       - blockstack-api
     volumes:
       - "./data/search-api:/var/blockstack-search"
+      - "/etc/localtime:/etc/localtime:ro"
 
   search-api:
     build:
