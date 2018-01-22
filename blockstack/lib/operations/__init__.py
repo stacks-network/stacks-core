@@ -279,7 +279,6 @@ def op_check( state_engine, nameop, block_id, checked_ops ):
     Subsequent casts are considered bugs, and will cause a program abort.
 
     TODO: remove type-cast
-    TODO: remove op_check_quirks
     """
 
     global CHECK_METHODS, MUTATE_FIELDS
