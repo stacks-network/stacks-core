@@ -143,10 +143,11 @@ class BlockstackDB( virtualchain.StateEngine ):
 
     
     @classmethod
-    def get_readwrite_instance(cls, working_dir):
+    def get_readwrite_instance(cls, working_dir, restore=False, restore_block_height=None):
         """
         Get a read/write instance to the db, without the singleton check.
-        Only available in test mode
+        Used for low-level operations like db restore.
+        Not used in the steady state behavior of the system.
         """
         log.warning("!!! Getting raw read/write DB instance !!!")
 
@@ -155,6 +156,15 @@ class BlockstackDB( virtualchain.StateEngine ):
         db = BlockstackDB(db_path, DISPOSITION_RW, working_dir)
         rc = db.db_setup()
         if not rc:
+            if restore:
+                # restore from backup instead of bailing out
+                log.debug("Restoring from unclean shutdown")
+                rc = db.db_restore(block_number=restore_block_height)
+                if rc:
+                    return db
+                else:
+                    log.error("Failed to restore from unclean shutdown")
+
             db.close()
             raise Exception("Failed to set up db")
 
