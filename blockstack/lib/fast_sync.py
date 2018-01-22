@@ -624,9 +624,9 @@ def blockstack_backup_restore(working_dir, block_number):
     NOT THREAD SAFE
 
     Return True on success
-    Return False on failure
+    Raise an exception on error
     """
     db = BlockstackDB.get_readwrite_instance(working_dir, restore=True, restore_block_height=block_number)
     db.close()
-    return res
+    return True
 

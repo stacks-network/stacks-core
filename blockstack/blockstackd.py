@@ -2334,7 +2334,7 @@ def run_blockstackd():
 
               log.warning("State from crash stored to '{}'".format(target_dir))
 
-          blockstack_backup_restore( working_dir, None )
+          blockstack_backup_restore(working_dir, None)
 
           # make sure we "stop"
           set_indexing(working_dir, False)
@@ -2379,12 +2379,31 @@ def run_blockstackd():
       if block_number is not None:
          block_number = int(block_number)
 
+      pid = read_pid_file(get_pidfile_path(working_dir))
+      still_running = False
+      
+      if pid is not None:
+          try:
+              still_running = check_server_running(pid)
+          except:
+              log.error("Could not contact process {}".format(pid))
+              sys.exit(1)
+      
+      if still_running:
+          log.error("Blockstackd appears to be running already.  If not, please run '{} stop'".format(sys.argv[0]))
+          sys.exit(1)
+
       blockstack_backup_restore(working_dir, args.block_number)
+
+      # make sure we're "stopped"
+      set_indexing(working_dir, False)
+      if os.path.exists(get_pidfile_path(working_dir)):
+          os.unlink(get_pidfile_path(working_dir))
 
    elif args.action == 'verifydb':
       expected_snapshots = None
       if args.expected_snapshots is not None:
-          expected_snapshots = load_expected_snapshots( args.expected_snapshots )
+          expected_snapshots = load_expected_snapshots(args.expected_snapshots)
           if expected_snapshots is None:
               sys.exit(1)
     
