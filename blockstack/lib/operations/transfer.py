@@ -105,14 +105,14 @@ def find_transfer_consensus_hash( name_rec, block_id, vtxindex, nameop_consensus
     been affected by a prior state transition other than a NAME_TRANSFER.  If the name was affected by
     a prior state transition that set a consensus hash, then that prior state transition's consensus hash
     (not the NAME_TRANSFER's) would be used in the block consensus hash calculation.  If the name was NOT
-    affected by a prior state transition that set a consensus hash (up to the point of its last NAME_REGISTRATION),
+    affected by a prior state transition that set a consensus hash (back to the point of its last NAME_REGISTRATION),
     then the consensus hash fed into the block would be that from the NAME_TRANSFER itself.
 
-    In practice, the only name operation that consistently sets a consensus hash is NAME_UPDATE.
+    In practice, the only name operation that consistently sets a consensus hash is NAME_UPDATE.  As for the others:
     * NAME_REGISTRATION sets it to None
     * NAME_IMPORT sets it to None
     * NAME_RENEWAL doesn't set it at all; it just takes what was already there
-    * NAME_TRANSFER only sets it if there were no prior NAME_UPDATEs between now and the last NAME_REGISTRATION.
+    * NAME_TRANSFER only sets it if there were no prior NAME_UPDATEs between now and the last NAME_REGISTRATION or NAME_IMPORT.
 
     Here are some example name histories, and the consensus hash that should be used to calculate this block's consensus hash:
     NAME_PREORDER, NAME_REGISTRATION, NAME_TRANSFER:                                            nameop_consensus_hash
