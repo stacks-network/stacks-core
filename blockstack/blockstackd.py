@@ -1619,6 +1619,12 @@ def check_server_running(pid):
     """
     Determine if the given process is running
     """
+    if pid == os.getpid():
+        # special case--we're in Docker or some other kind of container
+        # (or we got really unlucky and got the same PID twice).
+        # this PID does not correspond to another running server, either way.
+        return False
+
     try:
         os.kill(pid, 0)
         return True
