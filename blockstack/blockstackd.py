@@ -380,7 +380,7 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
             return ret
         except Exception, e:
             print >> sys.stderr, "\n\n%s(%s)\n%s\n\n" % ("rpc_" + str(method), params, traceback.format_exc())
-            return json.dumps( rpc_traceback() )
+            return json.dumps(rpc_traceback())
 
 
 class BlockstackdRPC(SimpleXMLRPCServer):
@@ -409,6 +409,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         # cache bitcoind info until we reindex, or a blocktime has passed
         self.cache = {}
 
+        # remember how long ago we reached the given block height
+        self.last_indexing_time = time.time()
+
 
     def cache_flush(self):
         """
@@ -417,10 +420,28 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         self.cache = {}
 
 
+    def set_last_index_time(self, timestamp):
+        """
+        Set the time of last indexing.
+        Called by the indexing thread.
+        """
+        self.last_indexing_time = timestamp
+
+
+    def is_stale(self):
+        """
+        Are we behind the chain?
+        """
+        return self.last_indexing_time + RPC_MAX_INDEXING_DELAY < time.time()
+
+
     def success_response(self, method_resp, **kw):
         """
         Make a standard "success" response,
         which contains some ancilliary data.
+
+        Also, detect if this node is too far behind the Bitcoin blockchain,
+        and if so, convert this into an error message.
         """
         resp = {
             'status': True,
@@ -430,6 +451,12 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         resp.update(kw)
         resp.update(method_resp)
+        
+        if self.is_stale():
+            # our state is stale
+            resp['stale'] = True
+            resp['warning'] = 'Daemon has not reindexed since {}'.format(self.last_indexing_time)
+
         return resp
 
 
@@ -563,6 +590,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         reply = {}
         reply['status'] = "alive"
         reply['version'] = VERSION
+       
+        if self.is_stale():
+            reply['status'] = "stale"
+            
         return reply
     
 
@@ -863,6 +894,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if conf.get('atlas', False):
             # return zonefile inv length
             reply['zonefile_count'] = atlas_get_num_zonefiles()
+
+        if self.is_stale():
+            reply['stale'] = True
+            reply['warning'] = 'Daemon is behind the chain tip.  Do not rely on it for fresh information.'
 
         return reply
 
@@ -1454,6 +1489,13 @@ class BlockstackdRPCServer( threading.Thread, object ):
         self.rpc_server.cache_flush()
 
 
+    def set_last_index_time(self, timestamp):
+        """
+        Set the time that we last indexed
+        """
+        self.rpc_server.set_last_index_time(timestamp)
+
+
 class GCThread( threading.Thread ):
     """
     Optimistic GC thread
@@ -1497,12 +1539,14 @@ def rpc_start( working_dir, port ):
     rpc_server.start()
 
 
-def rpc_cache_flush():
+def rpc_chain_sync(new_block_height, finish_time):
     """
-    Flush the global RPC server cache
+    Flush the global RPC server cache, and tell the rpc server that we've
+    reached the given block height at the given time.
     """
     global rpc_server
     rpc_server.cache_flush()
+    rpc_server.set_last_index_time(finish_time)
 
 
 def rpc_stop():
@@ -1572,15 +1616,12 @@ def atlas_start( blockstack_opts, db, port ):
         atlas_seed_peers = filter( lambda x: len(x) > 0, blockstack_opts['atlas_seeds'].split(","))
         atlas_blacklist = filter( lambda x: len(x) > 0, blockstack_opts['atlas_blacklist'].split(","))
         zonefile_dir = blockstack_opts['zonefiles']
-        zonefile_storage_drivers = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers'].split(","))
-        zonefile_storage_drivers_write = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers_write'].split(","))
         my_hostname = blockstack_opts['atlas_hostname']
 
         initial_peer_table = atlasdb_init(blockstack_opts['atlasdb_path'], zonefile_dir, db, atlas_seed_peers, atlas_blacklist, validate=True)
         atlas_peer_table_init(initial_peer_table)
 
-        atlas_state = atlas_node_start( my_hostname, port, blockstack_opts['atlasdb_path'], zonefile_dir, db.working_dir,
-                                        zonefile_storage_drivers=zonefile_storage_drivers, zonefile_storage_drivers_write=zonefile_storage_drivers_write)
+        atlas_state = atlas_node_start(my_hostname, port, blockstack_opts['atlasdb_path'], zonefile_dir, db.working_dir)
 
     return atlas_state
 
@@ -1675,7 +1716,7 @@ def stop_server( working_dir, clean=False, kill=False ):
 
         # is it actually dead?
         blockstack_opts = get_blockstack_opts()
-        srv = BlockstackRPCClient('localhost', blockstack_opts['rpc_port'], timeout=5, protocol = 'http')
+        srv = BlockstackRPCClient('localhost', blockstack_opts['rpc_port'], timeout=5, protocol='http')
         try:
             res = blockstack_ping(proxy=srv)
         except socket.error as se:
@@ -1789,7 +1830,7 @@ def index_blockchain( working_dir, expected_snapshots=GENESIS_SNAPSHOT ):
         db.close()
     '''
     # uncache state specific to this block
-    rpc_cache_flush()
+    rpc_chain_sync(current_block, time.time())
 
     log.debug("End indexing (up to %s)" % current_block)
     return rc
