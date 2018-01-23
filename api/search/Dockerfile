@@ -4,7 +4,7 @@ WORKDIR /src/blockstack
 
 # Install dependancies from apt
 RUN apk update
-RUN apk add libffi-dev openssl-dev build-base linux-headers musl musl-dev musl-utils gcc python python-dev py-pip lsof curl make
+RUN apk add libffi-dev openssl-dev build-base linux-headers musl musl-dev musl-utils gcc python python-dev py-pip lsof curl make bash
 
 # Copy all files from the repo into the container
 COPY . .
