@@ -135,9 +135,8 @@ else:
     RPC_SERVER_PORT = 6264
 
 RPC_DEFAULT_TIMEOUT = 30  # in secs
-RPC_MAX_ZONEFILE_LEN = 4096     # 4KB
-RPC_MAX_PROFILE_LEN = 1024000   # 1MB
-RPC_MAX_DATA_LEN = 10240000     # 10MB
+RPC_MAX_ZONEFILE_LEN = 4096     # 4KB       # TODO: make configurable
+RPC_MAX_INDEXING_DELAY = 2 * 3600   # 2 hours; maximum amount of time before the absence of new blocks causes the node to stop responding
 
 MAX_RPC_LEN = RPC_MAX_ZONEFILE_LEN * 110    # maximum blockstackd RPC length--100 zonefiles with overhead
 if os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"):
@@ -1002,25 +1001,12 @@ def default_blockstack_opts( working_dir, config_file=None ):
    parser.read( config_file )
 
    blockstack_opts = {}
-   contact_email = None
    announcers = "judecn.id,muneeb.id,shea256.id"
    announcements = None
    backup_frequency = 144   # once a day; 10 minute block time
    backup_max_age = 1008    # one week
    rpc_port = RPC_SERVER_PORT 
-   serve_zonefiles = True
-   serve_profiles = False
-   serve_data = False
    zonefile_dir = os.path.join( os.path.dirname(config_file), "zonefiles")
-   analytics_key = None
-   zonefile_storage_drivers = "disk,dht"
-   zonefile_storage_drivers_write = "disk"
-   profile_storage_drivers = "disk"
-   profile_storage_drivers_write = "disk"
-   data_storage_drivers = "disk"
-   data_storage_drivers_write = "disk"
-   redirect_data = False
-   data_servers = None
    server_version = None
    atlas_enabled = True
    atlas_seed_peers = "node.blockstack.org:%s" % RPC_SERVER_PORT
@@ -1036,9 +1022,6 @@ def default_blockstack_opts( working_dir, config_file=None ):
       if parser.has_option('blockstack', 'backup_max_age'):
          backup_max_age = int( parser.get('blockstack', 'backup_max_age') )
 
-      if parser.has_option('blockstack', 'email'):
-         contact_email = parser.get('blockstack', 'email')
-
       if parser.has_option('blockstack', 'rpc_port'):
          rpc_port = int(parser.get('blockstack', 'rpc_port'))
 
@@ -1049,58 +1032,9 @@ def default_blockstack_opts( working_dir, config_file=None ):
           else:
               serve_zonefiles = False
 
-      if parser.has_option('blockstack', 'serve_profiles'):
-          serve_profiles = parser.get('blockstack', 'serve_profiles')
-          if serve_profiles.lower() in ['1', 'yes', 'true', 'on']:
-              serve_profiles = True
-          else:
-              serve_profiles = False
-
-      if parser.has_option('blockstack', 'serve_data'):
-          serve_data = parser.get('blockstack', 'serve_data')
-          if serve_data.lower() in ['1', 'yes', 'true', 'on']:
-              serve_data = True
-          else:
-              serve_data = False
-
-      if parser.has_option("blockstack", "zonefile_storage_drivers"):
-          zonefile_storage_drivers = parser.get("blockstack", "zonefile_storage_drivers")
-
-      if parser.has_option("blockstack", "zonefile_storage_drivers_write"):
-          zonefile_storage_drivers_write = parser.get("blockstack", "zonefile_storage_drivers_write")
-
-      if parser.has_option("blockstack", "profile_storage_drivers"):
-          profile_storage_drivers = parser.get("blockstack", "profile_storage_drivers")
-
-      if parser.has_option("blockstack", "profile_storage_drivers_write"):
-          profile_storage_drivers_write = parser.get("blockstack", "profile_storage_drivers_write")
-
-      if parser.has_option("blockstack", "data_storage_drivers"):
-          data_storage_drivers = parser.get("blockstack", "data_storage_drivers")
-
-      if parser.has_option("blockstack", "data_storage_drivers_write"):
-          data_storage_drivers_write = parser.get("blockstack", "data_storage_drivers_write")
-
       if parser.has_option("blockstack", "zonefiles"):
           zonefile_dir = parser.get("blockstack", "zonefiles")
     
-      if parser.has_option('blockstack', 'redirect_data'):
-          redirect_data = parser.get('blockstack', 'redirect_data')
-          if redirect_data.lower() in ['1', 'yes', 'true', 'on']:
-              redirect_data = True
-          else:
-              redirect_data = False
-
-      if parser.has_option('blockstack', 'data_servers'):
-          data_servers = parser.get('blockstack', 'data_servers')
-
-          # must be a CSV of host:port
-          hostports = filter( lambda x: len(x) > 0, data_servers.split(",") )
-          for hp in hostports:
-              host, port = url_to_host_port( hp )
-              assert host is not None and port is not None
-
-
       if parser.has_option('blockstack', 'announcers'):
          # must be a CSV of blockchain IDs
          announcer_list_str = parser.get('blockstack', 'announcers')
@@ -1115,9 +1049,6 @@ def default_blockstack_opts( working_dir, config_file=None ):
 
          if valid:
              announcers = ",".join(announcer_list)
-
-      if parser.has_option('blockstack', 'analytics_key'):
-         analytics_key = parser.get('blockstack', 'analytics_key')
 
       if parser.has_option('blockstack', 'server_version'):
          server_version = parser.get('blockstack', 'server_version')
@@ -1177,23 +1108,10 @@ def default_blockstack_opts( working_dir, config_file=None ):
 
    blockstack_opts = {
        'rpc_port': rpc_port,
-       'email': contact_email,
        'announcers': announcers,
        'announcements': announcements,
        'backup_frequency': backup_frequency,
        'backup_max_age': backup_max_age,
-       'serve_zonefiles': serve_zonefiles,
-       'zonefile_storage_drivers': zonefile_storage_drivers,
-       "zonefile_storage_drivers_write": zonefile_storage_drivers_write,
-       'serve_profiles': serve_profiles,
-       'profile_storage_drivers': profile_storage_drivers,
-       "profile_storage_drivers_write": profile_storage_drivers_write,
-       'serve_data': serve_data,
-       'data_storage_drivers': data_storage_drivers,
-       "data_storage_drivers_write": data_storage_drivers_write,
-       'redirect_data': redirect_data,
-       'data_servers': data_servers,
-       'analytics_key': analytics_key,
        'server_version': server_version,
        'atlas': atlas_enabled,
        'atlas_seeds': atlas_seed_peers,
@@ -1394,24 +1312,6 @@ def configure( working_dir, config_file=None, force=False, interactive=True ):
    if not interactive and (len(missing_bitcoin_opts) > 0 or len(missing_blockstack_opts) > 0):
        # cannot continue
        raise Exception("Missing configuration fields: %s" % (",".join( missing_blockstack_opts + missing_bitcoin_opts )) )
-
-   '''
-   # ask for contact info, so we can send out notifications for bugfixes and upgrades
-   if blockstack_opts.get('email', None) is None:
-       email_msg = "Would you like to receive notifications\n"
-       email_msg+= "from the developers when there are critical\n"
-       email_msg+= "updates available to install?\n\n"
-       email_msg+= "If so, please enter your email address here.\n"
-       email_msg+= "If not, leave this field blank.\n\n"
-       email_msg+= "Your email address will be used solely\n"
-       email_msg+= "for this purpose.\n"
-       email_opts, _, email_prompted = find_missing( email_msg, ['email'], {}, {'email': ''}, prompt_missing=interactive )
-
-       # merge with blockstack section
-       num_blockstack_opts_prompted += 1
-       blockstack_opts['email'] = email_opts['email']
-   '''
-   blockstack_opts['email'] = 'none'
 
    ret = {
       'blockstack': blockstack_opts,
