@@ -606,7 +606,7 @@ def sync_virtualchain_upcall( blockstack_opts ):
             blockstackd.atlasdb_sync_zonefiles( db, old_lastblock+1, zonefile_dir, path=atlasdb_path )
 
     # flush cache
-    blockstackd.rpc_cache_flush()
+    blockstackd.rpc_chain_sync(height, time.time())
 
 
 def run_scenario( virtualchain_working_dir, scenario, config_file, client_config_file, interactive=False, blocktime=10, webtest_port=None ):
@@ -667,7 +667,6 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     atlas_seed_peers = filter( lambda x: len(x) > 0, blockstack_opts['atlas_seeds'].split(","))
     atlas_blacklist = filter( lambda x: len(x) > 0, blockstack_opts['atlas_blacklist'].split(","))
     zonefile_dir = blockstack_opts.get('zonefiles', None)
-    zonefile_storage_drivers = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers'].split(","))
     my_hostname = blockstack_opts['atlas_hostname']
 
     assert zonefile_dir is not None
