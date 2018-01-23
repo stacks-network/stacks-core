@@ -399,6 +399,12 @@ def getinfo(proxy=None, hostport=None):
             },
             'indexing': {
                 'type': 'boolean'
+            },
+            'stale': {
+                'type': 'boolean',
+            },
+            'warning': {
+                'type': 'string',
             }
         },
         'required': [
