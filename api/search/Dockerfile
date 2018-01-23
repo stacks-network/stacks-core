@@ -1,15 +1,15 @@
-FROM ubuntu:xenial
+FROM python:2.7-alpine
 
 WORKDIR /src/blockstack
 
 # Install dependancies from apt
-RUN apt-get -y update
-RUN apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools libgmp3-dev lsof curl cron
+RUN apk update
+RUN apk add libffi-dev openssl-dev build-base linux-headers musl musl-dev musl-utils gcc python python-dev py-pip lsof curl make
 
 # Copy all files from the repo into the container
 COPY . .
 
-# Upgrade pip and install pyparsing
+# # Upgrade pip and install pyparsing
 RUN pip install --upgrade pip && pip install pyparsing uwsgi
 RUN pip install -r api/requirements.txt
 
@@ -29,8 +29,5 @@ COPY api/deployment/client.ini /root/.blockstack/client.ini
 # Give execution rights on the cron job
 RUN chmod 0600 /var/spool/cron/crontabs/root
 
-# Cron is our entry point
-ENTRYPOINT "crond"
-
 # Cron needs to be in the foreground
-CMD ["-f", "-d", "8"]
+CMD ["crond", "-f", "-d", "8"]

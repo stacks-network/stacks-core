@@ -1,3 +1,2 @@
-0 12 * * * /src/blockstack/api/search/scripts/search_reindex.sh
-0 0 * * * /src/blockstack/api/search/scripts/search_reindex.sh
+0 0,12 * * * /src/blockstack/api/search/scripts/search_reindex.sh
 0,12,24,36,48 * * * * /src/blockstack/api/search/scripts/search_update.sh

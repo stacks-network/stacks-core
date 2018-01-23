@@ -1,5 +1,7 @@
 FROM ubuntu:xenial
 
+EXPOSE 3000
+
 WORKDIR /src/blockstack
 
 # Install dependancies from apt
