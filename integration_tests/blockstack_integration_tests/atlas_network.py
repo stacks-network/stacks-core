@@ -1037,7 +1037,7 @@ class AtlasNode(object):
 
         self.peer_crawler = AtlasPeerCrawler( host, port )
         self.health_checker = AtlasHealthChecker( host, port, db_path )
-        self.zonefile_crawler = AtlasZonefileCrawler( host, port, db_path, zonefile_dir, zonefile_storage_drivers=["disk"] )
+        self.zonefile_crawler = AtlasZonefileCrawler( host, port, db_path, zonefile_dir )
         # self.zonefile_pusher = AtlasZonefilePusher( host, port )
 
         subprocs = [
