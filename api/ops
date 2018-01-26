@@ -2,9 +2,6 @@
 
 ops () {
 
-  local python=/usr/bin/python
-  local initCore=blockstack-core-init
-  local storageBucket=https://blockstack.blob.core.windows.net/index
   local image=quay.io/blockstack/blockstack-core
   local tag=master
 
@@ -26,12 +23,27 @@ ops () {
     cp search/fixtures/blockchain_data.json $idxData/blockchain_data.json
     cp search/fixtures/profile_data.slice.json $idxData/profile_data.json
   }
+  
+  init-core () {
+    local coreData=data/blockstack-core
+    echo "Initializing Blockstack Core node. This task runs in the background and may take up to 20 minutes..."
+    mkdir -p $coreData/server/
+    cp $(pwd)/deployment/blockstack-server.ini $coreData/server/blockstack-server.ini
+    docker run -d --rm \
+      -v $(pwd)/$coreData/server/:/root/.blockstack-server/ \
+      -v $(pwd)/$coreData/api/:/root/.blockstack \
+      --name blockstack-core-init \
+      $image:$tag \
+      blockstack-core --debug fast_sync http://fast-sync.blockstack.org/snapshot.bsk > /dev/null
+  }
+
 
   commands () {
     cat <<-EOF
 ops commands:
   init-api     -> Set up the dummy wallet for the core api
   init-indexer -> Set up the bootstrapping data for the indexer
+  init-core    -> Set up blockstack-core instance for this API
 EOF
   }
 
@@ -41,6 +53,9 @@ EOF
       ;;
     init-indexer)
       init-indexer
+      ;;
+    init-core)
+      init-core
       ;;
     *)
       commands

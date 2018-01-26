@@ -6,6 +6,21 @@ In general, all documentation is in the [docs/](https://github.com/blockstack/bl
 
 Instructions for deploying your own (public) node are [here](https://github.com/blockstack/blockstack-core/tree/master/docs/install-api.md).
 
+### Running in docker
+
+This directory contains the necessary components for running this API in docker for development purposes. To do so run the following commands:
+
+```bash
+# First run the init steps for each service:
+$ ./ops init-core
+$ ./ops init-api
+$ ./ops init-indexer
+
+# Then build the docker images and run them
+# NOTE: this build step takes quite a bit of time
+$ docker-compose up --build -d 
+```
+
 ### Environment Variables for Deployment
 
 The following is a list of environmental variables that help configure the API, and their defaults:
@@ -43,4 +58,7 @@ SEARCH_NODE_URL=https://search.example.org
 
 # SEARCH_DEFAULT_LIMIT sets the number of results per call
 SEARCH_DEFAULT_LIMIT=50
+
+# BSK_API_TMPLTDIR sets the path to the generated documentation for serving
+BSK_API_TMPLTDIR=/src/blockstack/api/templates
 ```
