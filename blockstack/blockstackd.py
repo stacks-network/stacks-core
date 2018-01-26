@@ -1796,8 +1796,6 @@ def blockstack_exit( atlas_state ):
     if atlas_state is not None:
         atlas_node_stop( atlas_state )
 
-    storage_stop()
-
 
 def blockstack_signal_handler( sig, frame ):
     """
