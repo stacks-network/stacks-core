@@ -9,7 +9,9 @@ services:
     restart: always
 
   blockstack-api:
-    image: 'quay.io/blockstack/blockstack-core:master'
+    build:
+        context: ../
+        dockerfile: ../Dockerfile
     command: blockstack api start-foreground -y --debug --password dummywalletpassword
     volumes:
       - './data/blockstack-api:/root/.blockstack'
@@ -38,6 +40,7 @@ services:
     volumes:
       - "./data/search-api:/var/blockstack-search"
       - "/etc/localtime:/etc/localtime:ro"
+      - "./deployment/client.ini:/root/.blockstack/client.ini"
 
   search-api:
     build:
@@ -48,6 +51,7 @@ services:
       - PUBLIC_NODE=True
       - DEFAULT_HOST=0.0.0.0
       - MONGODB_URI=mongodb://mongodb
+      - BSK_API_TMPLTDIR=/src/blockstack/api/templates
       - BASE_API_URL=http://blockstack-api:6270
       - DEBUG=True
     networks:
@@ -60,6 +64,18 @@ services:
       - blockstack-api
     volumes:
       - "./data/search-api:/var/blockstack-search"
+      
+  blockstack-core:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    command: 'blockstack-core start --foreground --debug'
+    volumes:
+      - './blockstack-core/server/:/root/.blockstack-server/'
+      - './blockstack-core/api/:/root/.blockstack/'
+    restart: always
+    networks: 
+      - api
 
 networks:
   api: null
