@@ -41,6 +41,17 @@ from .db import people_cache, twitter_cache, username_cache
 
 log = config_log(__name__)
 
+def clean_profile_entries(profile):
+    p_out = {}
+    for k,v in profile.items():
+        if isinstance(v, dict):
+            clean_profile_entries(v)
+        if '.' in k:
+            profile[k.replace('.','_')] = v
+            del profile[k]
+        if k.startswith('$'):
+            profile['_'+k[1:]] = v
+            del profile[k]
 
 def fetch_profile_data_from_file():
     """ takes profile data from file and saves in the profile_data DB
@@ -60,6 +71,7 @@ def fetch_profile_data_from_file():
         new_entry['value'] = entry['profile']
 
         try:
+            clean_profile_entries(entry['profile'])
             profile_data.save(new_entry)
         except Exception as e:
             log.exception(e)
