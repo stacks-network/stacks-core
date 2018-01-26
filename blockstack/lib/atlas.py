@@ -3358,7 +3358,7 @@ class AtlasZonefileCrawler( threading.Thread ):
             # re-try storage periodically for missing zonefiles
             if self.last_storage_reset + PEER_CRAWL_ZONEFILE_STORAGE_RETRY_INTERVAL < time_now():
                 log.debug("%s: Re-trying storage on missing zonefiles" % self.hostport)
-                atlasdb_reset_zonefile_tried_storage()
+                atlasdb_reset_zonefile_tried_storage(path=self.atlasdb_path)
                 self.last_storage_reset = time_now()
 
 
