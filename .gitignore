@@ -47,3 +47,4 @@ Docker/blockstore.ini
 
 #Docs
 api/templates/index.html
+api/data

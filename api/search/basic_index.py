@@ -27,9 +27,7 @@ import sys
 import json
 import requests
 
-from pymongo import MongoClient
-
-from .utils import validUsername
+from .utils import validUsername, get_mongo_client
 from .utils import get_json, config_log, pretty_print
 
 from api.config import SEARCH_BLOCKCHAIN_DATA_FILE, SEARCH_PROFILE_DATA_FILE
@@ -118,7 +116,7 @@ def fetch_namespace_from_file():
 
 def flush_db():
 
-    client = MongoClient()
+    client = get_mongo_client()
 
     # delete any old cache/index
     client.drop_database('search_db')

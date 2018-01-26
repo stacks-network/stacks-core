@@ -31,8 +31,8 @@ from time import time
 from flask import request, jsonify, make_response, render_template, Blueprint
 from flask_crossdomain import crossdomain
 
-from api.config import DEFAULT_HOST, DEFAULT_PORT, DEBUG, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
-from api.config import SEARCH_DEFAULT_LIMIT as DEFAULT_LIMIT, SEARCH_LUCENE_ENABLED as LUCENE_ENABLED
+from api.config import DEFAULT_HOST, DEFAULT_PORT, DEBUG, DEFAULT_CACHE_TIMEOUT
+from api.config import SEARCH_DEFAULT_LIMIT as DEFAULT_LIMIT
 from api.utils import cache_control
 
 from .substring_search import search_people_by_name, search_people_by_twitter
@@ -42,10 +42,6 @@ from .substring_search import fetch_profiles
 from .attributes_index import search_proofs, validProofQuery
 
 searcher = Blueprint('searcher', __name__, url_prefix='')
-
-from api.utils import get_mc_client
-
-mc = get_mc_client()
 
 class QueryThread(threading.Thread):
     """ for performing multi-threaded search on three search sub-systems
@@ -66,8 +62,6 @@ class QueryThread(threading.Thread):
         elif(self.query_type == 'username_search'):
             self.results = query_username_database(self.query, self.limit_results)
             #self.found_exact_match, self.results = query_company_database(self.query)
-        if(self.query_type == 'lucene_search'):
-            self.results = query_lucene_index(self.query, self.limit_results)
 
 
 def error_reply(msg, code=-1):
@@ -95,12 +89,6 @@ def query_username_database(query, limit_results=DEFAULT_LIMIT):
     return fetch_profiles(username_search_results, search_type="username")
 
 
-def query_lucene_index(query, index, limit_results=DEFAULT_LIMIT):
-
-    username_search_results = search_people_by_bio(query, limit_results)
-    return fetch_profiles(username_search_results, search_type="username")
-
-
 def test_alphanumeric(query):
     """ check if query has only alphanumeric characters or not
     """
@@ -113,7 +101,7 @@ def test_alphanumeric(query):
 
 @searcher.route('/search', methods = ["GET", "POST"], strict_slashes = False)
 @crossdomain(origin='*')
-@cache_control(MEMCACHED_TIMEOUT)
+@cache_control(DEFAULT_CACHE_TIMEOUT)
 def search_by_name():
 
     query = request.args.get('query')
@@ -124,15 +112,6 @@ def search_by_name():
         return error_reply("No query given")
     elif query == '' or query == ' ':
         return json.dumps({})
-
-    if MEMCACHED_ENABLED:
-
-        cache_key = str('search_cache_' + query.lower())
-        cache_reply = mc.get(cache_key)
-
-        # if a cache hit, respond straight away
-        if(cache_reply is not None):
-            return jsonify(cache_reply)
 
     new_limit = DEFAULT_LIMIT
 
@@ -155,15 +134,9 @@ def search_by_name():
         t2 = QueryThread(query, 'twitter_search', new_limit)
         t3 = QueryThread(query, 'people_search', new_limit)
 
-        if LUCENE_ENABLED:
-            t4 = QueryThread(query, 'lucene_search', new_limit)
-
         threads.append(t1)
         threads.append(t2)
         threads.append(t3)
-
-        if LUCENE_ENABLED:
-            threads.append(t4)
 
         # start all threads
         [x.start() for x in threads]
@@ -177,12 +150,7 @@ def search_by_name():
         results_twitter = t2.results
         results_people = t3.results
 
-        if LUCENE_ENABLED:
-            results_bio = t4.results
-
         results_people += results_username + results_twitter
-        if LUCENE_ENABLED:
-            results_people += results_bio
 
         # dedup all results before sending out
         from substring_search import dedup_search_results
@@ -190,9 +158,6 @@ def search_by_name():
 
     results = {}
     results['results'] = results_people[:new_limit]
-
-    if MEMCACHED_ENABLED:
-        mc.set(cache_key, results, int(time() + MEMCACHED_TIMEOUT))
 
     return jsonify(results)
 
@@ -208,18 +173,6 @@ def search_proofs_index(query):
     elif query == '' or query == ' ':
         return json.dumps({})
 
-    if MEMCACHED_ENABLED:
-
-        cache_key = str('search_cache_' + query.lower())
-        cache_reply = mc.get(cache_key)
-
-        # if a cache hit, respond straight away
-        if(cache_reply is not None):
-            return jsonify(cache_reply)
-
     results['results'] = search_proofs(query)
-
-    if MEMCACHED_ENABLED:
-        mc.set(cache_key, results, int(time() + MEMCACHED_TIMEOUT))
 
     return jsonify(results)
