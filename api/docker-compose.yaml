@@ -47,6 +47,8 @@ services:
       - BLOCKSTACK_DEBUG=1
       - PUBLIC_NODE=True
       - DEFAULT_HOST=0.0.0.0
+      - BSK_API_TMPLTDIR=/src/blockstack/api/templates
+      - DEFAULT_CACHE_TIMEOUT=1800
       - MONGODB_URI=mongodb://mongodb
       - BASE_API_URL=http://blockstack-api:6270
       - DEBUG=True
