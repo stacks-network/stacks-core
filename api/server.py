@@ -38,7 +38,7 @@ from flask_crossdomain import crossdomain
 
 from .parameters import parameters_required
 from .utils import get_api_calls, cache_control
-from .config import PUBLIC_NODE, PUBLIC_NODE_URL, BASE_API_URL
+from .config import PUBLIC_NODE, PUBLIC_NODE_URL, BASE_API_URL, DEFAULT_CACHE_TIMEOUT
 from .config import SEARCH_NODE_URL, SEARCH_API_ENDPOINT_ENABLED
 
 # hack around absolute paths
@@ -58,9 +58,9 @@ log = blockstack_config.get_logger()
 
 """
 # starting internal API logic should go somewhere else
-#local_api_start(password='temptemptemp')
+# local_api_start(password='temptemptemp')
 
-#Check first if API daemon is running
+# Check first if API daemon is running
 status = local_api_action('status')
 
 if(status):
@@ -101,7 +101,7 @@ def search_people():
 
     if SEARCH_API_ENDPOINT_ENABLED:
         client = app.test_client()
-        return client.get('/search?query={}'.format(query), 
+        return client.get('/search?query={}'.format(query),
                           headers=list(request.headers))
 
     search_url = SEARCH_NODE_URL + '/search'
@@ -159,7 +159,7 @@ def catch_all_post(path):
     return jsonify(resp.json()), 200
 
 @app.route('/')
-@cache_control(5*60)
+@cache_control(DEFAULT_CACHE_TIMEOUT)
 def index():
     current_dir = os.path.abspath(os.path.dirname(__file__))
     server_info = getinfo()

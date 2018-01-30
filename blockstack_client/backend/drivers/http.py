@@ -41,7 +41,7 @@ def get_immutable_handler( key, **kw ):
 
 def get_mutable_handler( url, **kw ):
     try:
-        req = requests.get(url)
+        req = requests.get(url, timeout=5)
         if req.status_code != 200:
             log.debug("GET %s status code %s" % (url, req.status_code))
             return None
