@@ -2310,13 +2310,12 @@ def blockstack_get_zonefile( zonefile_hash, parse=True, config_path=None ):
 
     zonefile_txt = base64.b64decode( zonefile_result['zonefiles'][zonefile_hash] )
 
+    # verify
+    if zonefile_hash != blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt):
+        return None
+
     if parse:
-        zonefile = blockstack_zones.parse_zone_file( zonefile_txt )
-
-        # verify
-        if zonefile_hash != blockstack_client.hash_zonefile( zonefile ):
-            return None
-
+        zonefile = blockstack_zones.parse_zone_file(zonefile_txt)
         return zonefile
 
     else:
