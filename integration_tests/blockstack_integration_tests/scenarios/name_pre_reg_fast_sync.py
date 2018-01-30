@@ -64,7 +64,7 @@ def restore( working_dir, snapshot_path, restore_dir, pubkeys, num_required ):
         return False
 
     # database must be identical 
-    db_filenames = ['blockstack-server.db', 'blockstack-server.snapshots']
+    db_filenames = ['blockstack-server.db', 'blockstack-server.snapshots', 'atlas.db', 'subdomains.db']
     src_paths = [os.path.join(working_dir, fn) for fn in db_filenames]
     backup_paths = [os.path.join(restore_dir, fn) for fn in db_filenames]
 
