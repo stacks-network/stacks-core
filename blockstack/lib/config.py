@@ -499,6 +499,7 @@ LENGTHS = {
     'blockchain_id_namespace_discounts': 1,
     'blockchain_id_namespace_version': 2,
     'blockchain_id_namespace_id': 19,
+    'namespace_id': 19,     # same as above
     'announce': 20,
     'max_op_length': 80
 }
@@ -869,7 +870,7 @@ def set_indexing(working_dir, flag):
             return False
 
 
-def set_running( status ):
+def set_running(status):
     """
     Set running flag
     """
@@ -883,6 +884,40 @@ def is_running():
     """
     global running 
     return running
+
+
+def is_atlas_enabled(blockstack_opts):
+    """
+    Can we do atlas operations?
+    """
+    if not blockstack_opts['atlas']:
+        log.debug("Atlas is disabled")
+        return False
+
+    if 'zonefiles' not in blockstack_opts:
+        log.debug("Atlas is disabled: no 'zonefiles' path set")
+        return False
+
+    if 'atlasdb_path' not in blockstack_opts:
+        log.debug("Atlas is disabled: no 'atlasdb_path' path set")
+        return False
+
+    return True
+
+
+def is_subdomains_enabled(blockstack_opts):
+    """
+    Can we do subdomain operations?
+    """
+    if not is_atlas_enabled(blockstack_opts):
+        log.debug("Subdomains are disabled")
+        return False
+
+    if 'subdomaindb_path' not in blockstack_opts:
+        log.debug("Subdomains are disabled: no 'subdomaindb_path' path set")
+        return False
+
+    return True
 
 
 def store_announcement( working_dir, announcement_hash, announcement_text, force=False ):
@@ -1013,6 +1048,7 @@ def default_blockstack_opts( working_dir, config_file=None ):
    atlasdb_path = os.path.join( os.path.dirname(config_file), "atlas.db" )
    atlas_blacklist = ""
    atlas_hostname = socket.gethostname()
+   subdomaindb_path = os.path.join( os.path.dirname(config_file), "subdomains.db" )
 
    if parser.has_section('blockstack'):
 
@@ -1024,13 +1060,6 @@ def default_blockstack_opts( working_dir, config_file=None ):
 
       if parser.has_option('blockstack', 'rpc_port'):
          rpc_port = int(parser.get('blockstack', 'rpc_port'))
-
-      if parser.has_option('blockstack', 'serve_zonefiles'):
-          serve_zonefiles = parser.get('blockstack', 'serve_zonefiles')
-          if serve_zonefiles.lower() in ['1', 'yes', 'true', 'on']:
-              serve_zonefiles = True
-          else:
-              serve_zonefiles = False
 
       if parser.has_option("blockstack", "zonefiles"):
           zonefile_dir = parser.get("blockstack", "zonefiles")
@@ -1084,6 +1113,9 @@ def default_blockstack_opts( working_dir, config_file=None ):
       if parser.has_option('blockstack', 'atlas_hostname'):
          atlas_hostname = parser.get('blockstack', 'atlas_hostname')
         
+      if parser.has_option('blockstack', 'subdomaindb_path'):
+         subdomaindb_path = parser.get('blockstack', 'subdomaindb_path')
+
 
    if os.path.exists( announce_path ):
        # load announcement list
@@ -1119,6 +1151,7 @@ def default_blockstack_opts( working_dir, config_file=None ):
        'atlas_blacklist': atlas_blacklist,
        'atlas_hostname': atlas_hostname,
        'zonefiles': zonefile_dir,
+       'subdomaindb_path': subdomaindb_path,
    }
 
    # strip Nones
