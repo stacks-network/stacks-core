@@ -36,6 +36,8 @@ import storage
 
 from .util import url_to_host_port
 from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT
+from .schemas import *
+from .scripts import is_name_valid, is_subdomain
 
 import virtualchain
 
@@ -45,14 +47,6 @@ log = virtualchain.get_logger('blockstackd-client')
 xmlrpc.MAX_DATA = MAX_RPC_LEN
 xmlrpc.monkey_patch()
 
-# schema constants
-OP_HEX_PATTERN = r'^([0-9a-fA-F]+)$'
-OP_CONSENSUS_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTHS['consensus_hash'] * 2)
-OP_ZONEFILE_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTHS['value_hash'] * 2)
-OP_BASE64_EMPTY_PATTERN = '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$'    # base64 with empty string
-OP_BASE58CHECK_CLASS = r'[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]'
-OP_BASE58CHECK_PATTERN = r'^({}+)$'.format(OP_BASE58CHECK_CLASS)
-OP_ADDRESS_PATTERN = r'^({}{{1,35}})$'.format(OP_BASE58CHECK_CLASS)
 
 class TimeoutHTTPConnection(httplib.HTTPConnection):
     """
@@ -321,8 +315,6 @@ def ping(proxy=None, hostport=None):
     Returns {'alive': True} on succcess
     Returns {'error': ...} on error
     """
-    assert proxy or hostport, 'Need either proxy handle or hostport string'
-
     schema = {
         'type': 'object',
         'properties': {
@@ -335,6 +327,7 @@ def ping(proxy=None, hostport=None):
         ]
     }
 
+    assert proxy or hostport, 'Need either proxy handle or hostport string'
     if proxy is None:
         proxy = connect_hostport(hostport)
 
@@ -371,8 +364,6 @@ def getinfo(proxy=None, hostport=None):
     Returns server info on success
     Returns {'error': ...} on error
     """
-    assert proxy or hostport, 'Need either proxy handle or hostport string'
-
     schema = {
         'type': 'object',
         'properties': {
@@ -419,6 +410,7 @@ def getinfo(proxy=None, hostport=None):
 
     resp = {}
 
+    assert proxy or hostport, 'Need either proxy handle or hostport string'
     if proxy is None:
         proxy = connect_hostport(hostport)
 
@@ -695,3 +687,109 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
         return resp
 
     return push_info
+
+
+def get_name_record(name, include_history=False, include_expired=True, include_grace=True, proxy=None, hostport=None):
+    """
+    Get the record for a name or a subdomain.  Optionally include its history, and optionally return an expired name or a name in its grace period.
+    Return the blockchain-extracted information on success.
+    Return {'error': ...} on error
+        In particular, return {'error': 'Not found.'} if the name isn't registered
+
+    If include_expired is True, then a name record will be returned even if it expired
+    If include_expired is False, but include_grace is True, then the name record will be returned even if it is expired and in the grace period
+    """
+    assert proxy or hostport, 'Need either proxy handle or hostport string'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+    
+    # what do we expect?
+    required = None
+    is_blockstack_id = False
+    is_blockstack_subdomain = False
+
+    if is_name_valid(name):
+        # full name
+        required = NAMEOP_SCHEMA_REQUIRED[:]
+        is_blockstack_id = True
+
+    elif is_subdomain(name):
+        # subdomain 
+        required = SUBDOMAIN_SCHEMA_REQUIRED[:]
+        is_blockstack_subdomain = True
+
+    else:
+        # invalid
+        raise ValueError("Not a valid name or subdomain")
+        
+    if include_history:
+        required += ['history']
+
+    nameop_schema = {
+        'type': 'object',
+        'properties': NAMEOP_SCHEMA_PROPERTIES,
+        'required': required
+    }
+
+    rec_schema = {
+        'type': 'object',
+        'properties': {
+            'record': nameop_schema,
+        },
+        'required': [
+            'record'
+        ],
+    }
+
+    resp_schema = json_response_schema(rec_schema)
+    proxy = get_default_proxy() if proxy is None else proxy
+
+    resp = {}
+    lastblock = None
+    try:
+        if include_history:
+            resp = proxy.get_name_blockchain_record(name)
+        else:
+            resp = proxy.get_name_record(name)
+
+        resp = json_validate(resp_schema, resp)
+        if json_is_error(resp):
+            if resp['error'] == 'Not found.':
+                return {'error': 'Not found.'}
+
+            return resp
+
+        lastblock = resp['lastblock']
+
+    except ValidationError as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        resp = json_traceback(resp.get('error'))
+        return resp
+    
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    if not include_expired and is_blockstack_id:
+        # check expired
+        if lastblock is None:
+            return {'error': 'No lastblock given from server'}
+
+        if include_grace:
+            # only care if the name is beyond the grace period
+            if lastblock > int(resp['record']['renewal_deadline']) and int(resp['record']['renewal_deadline']) > 0:
+                return {'error': 'Name expired'}
+
+        else:
+            # only care about expired, even if it's in the grace period
+            if lastblock > resp['record']['expire_block'] and int(resp['record']['expire_block']) > 0:
+                return {'error': 'Name expired'}
+
+    return resp['record']
+
