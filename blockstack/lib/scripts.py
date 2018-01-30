@@ -24,25 +24,15 @@
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
-try:
-    from .config import *
-    from .b40 import *
-except:
-    # hack around relative paths
-    import sys 
-    import os
-    sys.path.append(os.path.dirname(__file__))
-    from config import *
-    from b40 import *
+from .config import *
+from .b40 import *
+from .schemas import *
 
-
-def is_name_valid( fqn ):
+def is_name_valid(fqn):
     """
     Is a fully-qualified name acceptable?
     Return True if so
     Return False if not
-
-    TODO: DRY up; use client
     """
 
     if fqn.count( "." ) != 1:
@@ -69,8 +59,6 @@ def is_name_valid( fqn ):
 def is_namespace_valid( namespace_id ):
     """
     Is a namespace ID valid?
-
-    TODO: DRY up; use client
     """
     if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
         return False
@@ -82,80 +70,102 @@ def is_namespace_valid( namespace_id ):
 
 
 def get_namespace_from_name( name ):
-   """
-   Get a fully-qualified name's namespace, if it has one.
-   It's the sequence of characters after the last "." in the name.
-   If there is no "." in the name, then it belongs to the null
-   namespace (i.e. the empty string will be returned)
-   """
-   if "." not in name:
-      # empty namespace
-      return ""
+    """
+    Get a fully-qualified name's namespace, if it has one.
+    It's the sequence of characters after the last "." in the name.
+    If there is no "." in the name, then it belongs to the null
+    namespace (i.e. the empty string will be returned)
+    """
+    if "." not in name:
+        # empty namespace
+        return ""
 
-   return name.split(".")[-1]
+    return name.split(".")[-1]
 
 
 def get_name_from_fq_name( name ):
-   """
-   Given a fully-qualified name, get the name part.
-   It's the sequence of characters before the last "." in the name.
+    """
+    Given a fully-qualified name, get the name part.
+    It's the sequence of characters before the last "." in the name.
+ 
+    Return None if malformed
+    """
+    if "." not in name:
+        # malformed
+        return None
+ 
+    return name.split(".")[0]
 
-   Return None if malformed
-   """
-   if "." not in name:
-      # malformed
-      return None
 
-   return name.split(".")[0]
+def is_address_subdomain(fqa):
+    """
+    Tests whether fqa is a fully-qualified subdomain name
+    @fqa must be a string
+    If it isn't, returns False, None, None.
+    If it is, returns True and a tuple (subdomain_name, domain)
+    """
+    grp = re.match(OP_SUBDOMAIN_NAME_PATTERN, fqa)
+    if grp is None:
+        return False, None, None
+
+    subdomain_name, domain = grp.groups()
+    return True, subdomain_name, domain
+
+
+def is_subdomain(fqn):
+    """
+    Short-hand of is_address_subdomain(), but only returns True/False
+    """
+    return is_address_subdomain(fqn)[0]
 
 
 def price_name( name, namespace, block_height ):
-   """
-   Calculate the price of a name (without its namespace ID), given the
-   namespace parameters.
+    """
+    Calculate the price of a name (without its namespace ID), given the
+    namespace parameters.
 
-   The minimum price is NAME_COST_UNIT
-   """
+    The minimum price is NAME_COST_UNIT
+    """
 
-   base = namespace['base']
-   coeff = namespace['coeff']
-   buckets = namespace['buckets']
+    base = namespace['base']
+    coeff = namespace['coeff']
+    buckets = namespace['buckets']
 
-   bucket_exponent = 0
-   discount = 1.0
+    bucket_exponent = 0
+    discount = 1.0
 
-   if len(name) < len(buckets):
-       bucket_exponent = buckets[len(name)-1]
-   else:
-       bucket_exponent = buckets[-1]
+    if len(name) < len(buckets):
+        bucket_exponent = buckets[len(name)-1]
+    else:
+        bucket_exponent = buckets[-1]
 
-   # no vowel discount?
-   if sum( [name.lower().count(v) for v in ["a", "e", "i", "o", "u", "y"]] ) == 0:
-       # no vowels!
-       discount = max( discount, namespace['no_vowel_discount'] )
+    # no vowel discount?
+    if sum( [name.lower().count(v) for v in ["a", "e", "i", "o", "u", "y"]] ) == 0:
+        # no vowels!
+        discount = max( discount, namespace['no_vowel_discount'] )
 
-   # non-alpha discount?
-   if sum( [name.lower().count(v) for v in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "-", "_"]] ) > 0:
-       # non-alpha!
-       discount = max( discount, namespace['nonalpha_discount'] )
+    # non-alpha discount?
+    if sum( [name.lower().count(v) for v in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "-", "_"]] ) > 0:
+        # non-alpha!
+        discount = max( discount, namespace['nonalpha_discount'] )
 
-   price = (float(coeff * (base ** bucket_exponent)) / float(discount)) * NAME_COST_UNIT
-   if price < NAME_COST_UNIT:
-       price = NAME_COST_UNIT
+    price = (float(coeff * (base ** bucket_exponent)) / float(discount)) * NAME_COST_UNIT
+    if price < NAME_COST_UNIT:
+        price = NAME_COST_UNIT
 
-   price_multiplier = get_epoch_price_multiplier( block_height, namespace['namespace_id'] )
-   return price * price_multiplier
+    price_multiplier = get_epoch_price_multiplier( block_height, namespace['namespace_id'] )
+    return price * price_multiplier
 
 
 def price_namespace( namespace_id, block_height ):
-   """
-   Calculate the cost of a namespace.
-   """
-   price_table = get_epoch_namespace_prices( block_height )
-   if len(namespace_id) >= len(price_table):
-       return price_table[0]
+    """
+    Calculate the cost of a namespace.
+    """
+    price_table = get_epoch_namespace_prices( block_height )
+    if len(namespace_id) >= len(price_table):
+        return price_table[0]
 
-   return price_table[len(namespace_id)]
+    return price_table[len(namespace_id)]
 
 
 def find_by_opcode( checked_ops, opcode ):
