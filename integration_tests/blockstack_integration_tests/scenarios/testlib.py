@@ -3314,6 +3314,32 @@ def check_historic_names_by_address( state_engine ):
     return ret
  
 
+def check_subdomain_db(**kw):
+    """
+    verify that we can reindex the blockchain and get the same subdomains as we have now
+    """
+    # reindex
+    blockstack_opts = blockstack.lib.config.get_blockstack_opts()
+    new_opts = {}
+    new_opts.update(blockstack_opts)
+
+    new_opts['subdomaindb_path'] = blockstack_opts['subdomaindb_path'] + '.reindex'
+    if os.path.exists(new_opts['subdomaindb_path']):
+        os.unlink(new_opts['subdomaindb_path'])
+
+    blockstack.lib.subdomains.SubdomainIndex.reindex(get_current_block(**kw), opts=new_opts)
+
+    # compare both databases
+    rc = os.system('sqlite3 "{}" "select * from subdomain_records order by zonefile_index" > "/tmp/first.dump"; sqlite3 "{}" "select * from subdomain_records order by zonefile_index" > "/tmp/second.dump"; cmp "/tmp/first.dump" "/tmp/second.dump"'.format(
+        blockstack_opts['subdomaindb_path'], new_opts['subdomaindb_path']))
+
+    if rc != 0:
+        print '{} disagress with {}'.format(blockstack_opts['subdomaindb_path'], new_opts['subdomaindb_path'])
+        return False
+
+    return True
+
+
 def get_unspents( addr ):
     """
     Get the list of unspent outputs for an address.
