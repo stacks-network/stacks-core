@@ -23,11 +23,17 @@ This file is part of Blockstack Core.
     along with Blockstack Core. If not, see <http://www.gnu.org/licenses/>.
 """
 
+import os
 from flask import Flask, Blueprint
 from flask_sslify import SSLify
 from .config import SEARCH_API_ENDPOINT_ENABLED
 
-app = Flask(__name__)
+
+template_folder = os.getenv('BSK_API_TMPLTDIR', False)
+if template_folder:
+    app = Flask(__name__, template_folder = template_folder)
+else:
+    app = Flask(__name__)
 
 app.config.from_object('api.config')
 

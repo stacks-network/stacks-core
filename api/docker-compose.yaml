@@ -1,0 +1,83 @@
+version: '2'
+services:
+  mongodb:
+    image: mongo:3.4
+    volumes:
+      - './data/mongodb/:/data/db'
+    networks:
+      - api
+    restart: always
+
+  blockstack-api:
+    build:
+        context: ../
+        dockerfile: ../Dockerfile
+    command: blockstack api start-foreground -y --debug --password dummywalletpassword
+    volumes:
+      - './data/blockstack-api:/root/.blockstack'
+      - './data/blockstack-api/tmp:/tmp'
+    networks:
+      - api
+    environment:
+      - BLOCKSTACK_CLIENT_INTERACTIVE_YES=0
+    restart: always
+
+  search-indexer:
+    build:
+      context: ../
+      dockerfile: api/search/Dockerfile
+    environment:
+      - BLOCKSTACK_DEBUG=0
+      - PUBLIC_NODE=True
+      - DEFAULT_HOST=0.0.0.0
+      - MONGODB_URI=mongodb://mongodb
+    networks:
+      - api
+    restart: always
+    links:
+      - mongodb
+      - blockstack-api
+    volumes:
+      - "./data/search-api:/var/blockstack-search"
+      - "/etc/localtime:/etc/localtime:ro"
+      - "./deployment/client.ini:/root/.blockstack/client.ini"
+
+  search-api:
+    build:
+      context: ../
+      dockerfile: api/Dockerfile
+    environment:
+      - BLOCKSTACK_DEBUG=1
+      - PUBLIC_NODE=True
+      - DEFAULT_HOST=0.0.0.0
+      - BSK_API_TMPLTDIR=/src/blockstack/api/templates
+      - DEFAULT_CACHE_TIMEOUT=1800
+      - MONGODB_URI=mongodb://mongodb
+      - BSK_API_TMPLTDIR=/src/blockstack/api/templates
+      - BASE_API_URL=http://blockstack-api:6270
+      - DEBUG=True
+    networks:
+      - api
+    ports:
+      - 3000:3000
+    restart: always
+    links:
+      - mongodb
+      - blockstack-api
+    volumes:
+      - "./data/search-api:/var/blockstack-search"
+      
+  blockstack-core:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    command: 'blockstack-core start --foreground --debug'
+    volumes:
+      - './blockstack-core/server/:/root/.blockstack-server/'
+      - './blockstack-core/api/:/root/.blockstack/'
+    restart: always
+    networks: 
+      - api
+
+networks:
+  api: null

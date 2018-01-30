@@ -26,7 +26,6 @@ This file is part of Blockstack Core.
 import re
 import json
 from .config import MAX_PROFILE_LIMIT
-from .config import MEMCACHED_ENABLED, MEMCACHED_SERVERS, MEMCACHED_USERNAME, MEMCACHED_PASSWORD
 
 from flask import make_response
 from functools import wraps
@@ -41,21 +40,6 @@ def cache_control(timeout):
             return resp
         return decorated_f
     return decorator
-
-def get_mc_client():
-    """ Return a new connection to memcached
-    """
-    if not MEMCACHED_ENABLED:
-        return False
-
-    import pylibmc
-
-    mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
-                        username=MEMCACHED_USERNAME,
-                        password=MEMCACHED_PASSWORD,
-                        behaviors={"no_block": True,
-                                   "connect_timeout": 200})
-    return mc
 
 def profile_log(function):
     import blockstack_client.config as blockstack_config

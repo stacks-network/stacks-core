@@ -7,7 +7,7 @@
 - `blockstack-core`
   * Creating and transmitting blockchain transactions,
   * Creating and parsing [virtualchain](https://github.com/blockstack/virtualchain) state, and
-  * Communicating with the peer network, Atlas. The
+  * Communicating with the peer network, Atlas.
 - `blockstack-core api`
   * Provides a RESTful interface for clients to interact with `blockstack-core` functionality
   * Contains your bitcoin wallet
@@ -85,22 +85,37 @@ Next you need to start the [`blockstack api`](https://blockstack.github.io/block
 
 > _*WARNING*_: This install path is currently in developer alpha state. We will be adding more features here in the coming months.
 
+> _*NOTE*_: You will need docker installed to do this. The easiest way to install docker is with this quick script: `wget -q0- https://get.docker.com/ | sh`. There are also [step by step instructions](https://docs.docker.com/engine/installation/#updates-and-patches) to install. You will want the `CE` install.
+
 Blockstack API and the Blockstack Browser run well in docker. There is a provided CLI to help you build and launch the `docker` images if you are not comfortable with `docker`: `launcher`.
 The CLI will pull down the images from our [Quay image repository](https://quay.io/organization/blockstack).
 
-You can download the launcher script from our packaging repo: [download](https://raw.githubusercontent.com/blockstack/packaging/master/browser-core-docker/launcher)
+First you need to download the launcher script and make it runnable, You will also need to edit 2 variables in the script:
+
+```bash
+$ wget -O launcher https://raw.githubusercontent.com/blockstack/packaging/master/browser-core-docker/launcher
+$ chmod +x launcher
+$ nano launcher
+# Set the two following variables:
+# TAG=v0.18.1
+# COREVERSION=0.17.0.9
+```
+
+Then you can run the `./launcher` commands:
 
 ```bash
 # First run the pull command. This will fetch the latest docker images from our image repository.
-$ ./launcher pull
+$ ./launcher pull-core
 
-# The first time you run ./launcher start, it will create a `$HOME/.blockstack` directory to
-# store your Blockstack Core API config and wallet and prompt you for a password to protect those
-# Next you can start the Blockstack Core API
-$ ./launcher start
+# The first time you run a core node you will need to sync it with the current state of the network
+# This process can take a long time. blockstack-core offers a fast_sync option. To use it with the docker install:
+$ ./launcher init-core
 
-# When you are done you can clean up your environment by running
-$ ./launcher stop
+# To start the blockstack-core node run
+$ ./launcher start-core
+
+# When you are done you can stop the core node with the following
+$ ./launcher stop-core
 ```
 
 This will start the Blockstack browser and a paired `blockstack-api` daemon.
@@ -128,7 +143,7 @@ If you encounter any technical issues in installing or using Blockstack, please 
 
 ## Development Status
 
-**v0.17.0** is the current stable release of Blockstack Core (available on the master branch).<br> 
+**v0.17.0** is the current stable release of Blockstack Core (available on the master branch).<br>
 
 The next release is being built on the [develop](https://github.com/blockstack/blockstack-core/tree/develop). Please submit all
 pull requests to the `develop` branch.

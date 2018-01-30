@@ -41,15 +41,10 @@ import blockstack_client.subdomains
 
 from blockstack_client.schemas import OP_NAME_PATTERN, OP_NAMESPACE_PATTERN
 
-from api.utils import cache_control, get_mc_client
+from api.utils import cache_control
 
 from .config import DEBUG
-from .config import DEFAULT_HOST, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
-from .config import USERSTATS_TIMEOUT
-from .config import VALID_BLOCKS, RECENT_BLOCKS
-from .config import BLOCKSTACKD_IP, BLOCKSTACKD_PORT
-from .config import DHT_MIRROR_IP, DHT_MIRROR_PORT
-from .config import DEFAULT_NAMESPACE
+from .config import DEFAULT_HOST, DEFAULT_CACHE_TIMEOUT
 from .config import NAMES_FILE
 
 import requests
@@ -64,8 +59,6 @@ if DEBUG:
     log.setLevel(level=logging.DEBUG)
 else:
     log.setLevel(level=logging.INFO)
-
-mc = get_mc_client()
 
 # copied and patched from proofs.py
 def site_data_to_fixed_proof_url(account, zonefile):
@@ -255,7 +248,7 @@ def get_profile(fqa):
 
 @resolver.route('/v1/users/<username>', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')
-@cache_control(MEMCACHED_TIMEOUT)
+@cache_control(DEFAULT_CACHE_TIMEOUT)
 def get_users(username):
     """ Fetch data from username in .id namespace
     """
@@ -290,7 +283,6 @@ def get_users(username):
 
 @resolver.route('/v2/users/<username>', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')
-@cache_control(MEMCACHED_TIMEOUT)
+@cache_control(DEFAULT_CACHE_TIMEOUT)
 def get_users_v2(username):
     return get_users(username)
-

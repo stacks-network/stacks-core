@@ -26,32 +26,47 @@ This file is part of Blockstack Core.
 import os
 import re
 
-DEBUG = True
+# str2bool is a convinence function
+def str2bool(s):
+    if s == 'True':
+        return True
+    elif s == 'False':
+        return False
+    else:
+        raise ValueError("Cannot covert {} to a bool".format(s))
 
-DEFAULT_PORT = 5000
-DEFAULT_HOST = '0.0.0.0'
+# MAX_PROFILE_LIMIT determines the max profile size that the node will index
+MAX_PROFILE_LIMIT = int(os.getenv('MAX_PROFILE_LIMIT','8142'))           # (8 * 1024) - 50 or roughly 8kb limit
 
-MAX_PROFILE_LIMIT = (8 * 1024) - 50  # roughly 8kb max limit
+# DEFAULT_CACHE_TIMEOUT determines the
+DEFAULT_CACHE_TIMEOUT = int(os.getenv('DEFAULT_CACHE_TIMEOUT','43200'))  # 12 hours in seconds
 
-EMAIL_REGREX = r'[^@]+@[^@]+\.[^@]+'
+# DEBUG increases logging verbosity
+DEBUG = str2bool(os.getenv('DEBUG','False'))
 
-DEFAULT_NAMESPACE = "id"
+# DEFAULT_PORT sets the port that the process will run on
+DEFAULT_PORT = int(os.getenv('DEFAULT_PORT', '5000'))
 
-PUBLIC_NODE = True
+# DEFAULT_HOST sets the host for the flask app
+DEFAULT_HOST = os.getenv('DEFAULT_HOST','localhost')
 
-BASE_API_URL = "http://localhost:6270"
-PUBLIC_NODE_URL = 'https://core.blockstack.org'
-SEARCH_NODE_URL = 'https://search.blockstack.org'
-BLOCKSTACKD_IP = 'localhost'
-BLOCKSTACKD_PORT = 6264
-DHT_MIRROR_IP = '52.20.98.85'
-DHT_MIRROR_PORT = 6266
+# PUBLIC_NODE disables posts to the API to prevent malicous use
+PUBLIC_NODE = str2bool(os.getenv('PUBLIC_NODE','False'))
 
-RECENT_BLOCKS = 100
-VALID_BLOCKS = 36000
-REFRESH_BLOCKS = 25
+# MONGODB_URI contains the connection string to use for connecting to mongo
+MONGODB_URI = os.getenv('MONGODB_URI', "mongodb://localhost")
 
-DEFAULT_NAMESPACE = "id"
+# BASE_API_URL sets the blockstack api connection string
+BASE_API_URL = os.getenv('BASE_API_URL', "http://localhost:6270")
+
+# PUBLIC_NODE_URL controls the what hostname is returned to clients
+PUBLIC_NODE_URL = os.getenv('PUBLIC_NODE_URL', 'https://core.example.org')
+
+# SEARCH_NODE_URL sets the search API connection string
+SEARCH_NODE_URL = os.getenv('SEARCH_NODE_URL', 'https://search.example.org')
+
+# SEARCH_DEFAULT_LIMIT sets the number of returns per call
+SEARCH_DEFAULT_LIMIT = int(os.getenv('SEARCH_DEFAULT_LIMIT', '50'))
 
 # For the resolver endpoint
 NAMES_FILENAME = "names.json"
@@ -66,27 +81,4 @@ SEARCH_BLOCKCHAIN_DATA_FILE = "/var/blockstack-search/blockchain_data.json"
 SEARCH_PROFILE_DATA_FILE = "/var/blockstack-search/profile_data.json"
 SEARCH_LAST_INDEX_DATA_FILE = "/var/blockstack-search/last_indexed.json"
 SEARCH_LOCKFILE = "/var/blockstack-search/indexer_lockfile.json"
-SEARCH_BULK_INSERT_LIMIT = 1000
-SEARCH_DEFAULT_LIMIT = 50
-SEARCH_LUCENE_ENABLED = False
 SEARCH_SUPPORTED_PROOFS = ['twitter', 'facebook', 'github', 'domain']
-
-
-# Memcache settings
-MEMCACHED_USERNAME = None
-MEMCACHED_PASSWORD = None
-
-MEMCACHED_TIMEOUT = 12 * 60 * 60
-USERSTATS_TIMEOUT = 60 * 60
-MEMCACHED_ENABLED = False
-
-MEMCACHED_PORT = 11211
-MEMCACHED_SERVER = '127.0.0.1'
-MEMCACHED_SERVERS = ['127.0.0.1:11211']
-
-if 'DYNO' in os.environ:
-    DEBUG = False
-    # heroku configs go here
-else:
-    DEBUG = True
-    APP_URL = 'localhost:5000'
