@@ -666,7 +666,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             db.close()
 
             # try to get the zonefile as well 
-            if 'value_hash' in name_record:
+            if 'value_hash' in name_record and name_record['value_hash'] is not None:
                 conf = get_blockstack_opts()
                 if is_atlas_enabled(conf):
                     zfdata = self.get_zonefile_data(name_record['value_hash'], conf['zonefiles'])
@@ -2648,10 +2648,10 @@ def run_blockstackd():
         print "Pass `--debug` for extra output."
 
     elif args.action == 'index':
-        # reindex 
+        # reindex subdomains
         start_block = args.start_block
         end_block = args.end_block
-           
+        
         # get db state
         db = get_or_instantiate_db_state(working_dir)
          
