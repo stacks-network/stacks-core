@@ -37,7 +37,6 @@ from .constants import (
 
 import blockstack_profiles
 
-
 OP_URLENCODED_NOSLASH_CLASS = r'[a-zA-Z0-9\-_.~%]'
 OP_URLENCODED_NOSLASH_COLON_CLASS = r'[a-zA-Z0-9\-_.~%:]'
 OP_URLENCODED_CLASS = r'[a-zA-Z0-9\-_.~%/]'
@@ -475,8 +474,7 @@ TXT_RECORD_SCHEMA = {
             'pattern': OP_URLENCODED_PATTERN,
         },
         'txt': {
-            'type': ['string', 
-                     'array']
+            'type': ['string', 'array']
         },
     },
     'required': [
