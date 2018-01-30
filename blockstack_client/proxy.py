@@ -2179,7 +2179,14 @@ def get_name_record(name, include_history=False, include_expired=True, include_g
         if include_history:
             resp = proxy.get_name_blockchain_record(name)
         else:
-            resp = proxy.get_name_record(name)
+            try:
+                resp = proxy.get_name_record(name)
+            except Exception as e:
+                if BLOCKSTACK_DEBUG:
+                    log.exception(e)
+
+                log.warning("get_name_record failed; falling back to get_name_blockchain_record")
+                resp = proxy.get_name_blockchain_record(name)
 
         resp = json_validate(resp_schema, resp)
         if json_is_error(resp):
