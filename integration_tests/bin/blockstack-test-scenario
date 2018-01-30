@@ -502,41 +502,6 @@ def generate_config_file( working_dir, scenario, path, template, extra_fields):
     return 0
 
 
-def network_start( blockstack_opts, db ):
-    """
-    Start RPC services
-    """
-    blockstackd.gc_start()
-    atlas_state = None
-    try:
-        atlas_state = blockstackd.atlas_start( blockstack_opts, db, TEST_RPC_PORT )
-    except:
-        if not hasattr(blockstackd, "atlas_start"):
-            log.error("Atlas support disabled")
-        else:
-            raise
-
-    blockstackd.rpc_start(db.working_dir, TEST_RPC_PORT)
-    return atlas_state
-
-
-def network_stop():
-    """
-    Stop RPC services
-    """
-    blockstackd.rpc_stop()
-    blockstackd.gc_stop()
-
-
-def atlas_stop( atlas_state ):
-    try:
-        blockstackd.atlas_stop( atlas_state )
-    except:
-        if not hasattr(blockstackd, "atlas_stop"):
-            log.error("Atlas support disabled")
-        else:
-            raise
-
 def bitcoin_stop():
     """
     Stop bitcoin
@@ -573,40 +538,25 @@ def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
         os.system("bitcoin-cli -regtest -conf=%s stop" % bitcoin_conf)
 
 
-def sync_virtualchain_upcall( blockstack_opts ):
+def sync_virtualchain_upcall(server_state):
     """
     Upcall from the test scenario
     to synchronize virtualchain.
     Part of advancing to the next block.
     """
-    working_dir = blockstack_opts['working_dir']
-    bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts(working_dir) )
-    height = bitcoind.getblockcount()
+    working_dir = server_state['working_dir']
 
     db = get_blockstack_db(working_dir, disposition=blockstackd.DISPOSITION_RW)
     testlib.set_state_engine(db)
 
-    old_lastblock = db.lastblock
-
-    log.debug("sync virtualchain up to %s" % (height))
-    virtualchain.sync_virtualchain( bitcoin_regtest_opts(working_dir), height, db )
-    
+    rc = blockstackd.index_blockchain(server_state)
+    if not rc:
+        log.error("Failed to index blockchain")
+        sys.exit(1)
+        
     db.close()
     db = get_blockstack_db(working_dir, disposition=blockstackd.DISPOSITION_RW)
     testlib.set_state_engine(db)
-
-    log.debug("sync atlas node up to %s" % (height))
-
-    # synchronize atlas db
-    if blockstack_opts.get('atlas', False) and hasattr(blockstackd, "atlasdb_sync_zonefiles"):
-        if old_lastblock < db.lastblock:
-            log.debug("Synchronize Atlas DB from %s to %s" % (old_lastblock+1, db.lastblock+1))
-            zonefile_dir = blockstack_opts['zonefiles']
-            atlasdb_path = blockstack_opts['atlasdb_path']
-            blockstackd.atlasdb_sync_zonefiles( db, old_lastblock+1, zonefile_dir, path=atlasdb_path )
-
-    # flush cache
-    blockstackd.rpc_chain_sync(height, time.time())
 
 
 def run_scenario( virtualchain_working_dir, scenario, config_file, client_config_file, interactive=False, blocktime=10, webtest_port=None ):
@@ -659,21 +609,6 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     blockstackd.set_bitcoin_opts( bitcoin_opts )
 
     print ""
-    print "atlas node initialization"
-    print ""
-
-    db = get_blockstack_db(virtualchain_working_dir, disposition=blockstackd.DISPOSITION_RW)
-
-    atlas_seed_peers = filter( lambda x: len(x) > 0, blockstack_opts['atlas_seeds'].split(","))
-    atlas_blacklist = filter( lambda x: len(x) > 0, blockstack_opts['atlas_blacklist'].split(","))
-    zonefile_dir = blockstack_opts.get('zonefiles', None)
-    my_hostname = blockstack_opts['atlas_hostname']
-
-    assert zonefile_dir is not None
-
-    blockstackd.atlasdb_init( blockstack_opts['atlasdb_path'], zonefile_dir, db, atlas_seed_peers, atlas_blacklist, validate=True )
-
-    print ""
     print "bitcoind connection"
     print ""
 
@@ -685,12 +620,13 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     print "working_dir: %s" % working_dir
 
     # set up test environment
+    db = get_blockstack_db(virtualchain_working_dir, disposition=blockstackd.DISPOSITION_RW)
     testlib.set_utxo_opts( utxo_opts )
     testlib.set_bitcoind( bitcoind )
     testlib.set_state_engine( db )
 
-    # start taking RPC requests
-    atlas_state = network_start( blockstack_opts, db )
+    # Start server
+    server_state = blockstackd.server_setup(working_dir)
 
     # start pinging bitcoind so it pushes out p2p messages
     pinger = Pinger(virtualchain_working_dir)
@@ -707,17 +643,14 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
             log.info("API daemon exiting")
             return
 
-        log.info("Shutting down network")
-        network_stop()
-
-        log.info("Shutting down atlas")
-        atlas_stop( atlas_state )
-
         log.info("Shutting down bitcoin")
         bitcoin_stop()
 
         log.info("Shutting down API endpoint")
         blockstack_client.rpc.local_api_stop(client_config_dir)
+        
+        log.info("Shutting down Blockstackd")
+        blockstackd.server_shutdown(server_state)
 
         if pinger:
             log.info("Shutting down pinger")
@@ -728,11 +661,10 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
             log.info("Shutting down timeout watchdog")
             timeout_watchdog.ask_join()
             timeout_watchdog.join()
-
-
+        
     def signal_shutdown_procedure(*args, **kw):
         shutdown_procedure()
-        exit(1)
+        sys.exit(1)
 
     def signal_reap_children(*args, **kw):
         """
@@ -755,7 +687,8 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
                 return content.startswith('/docker/')
         except:
             return False
-
+    
+    # override blockstackd signal handlers with ones for the test framework
     signal.signal(signal.SIGINT, signal_shutdown_procedure)
     signal.signal(signal.SIGQUIT, signal_shutdown_procedure)
     signal.signal(signal.SIGTERM, signal_shutdown_procedure)
@@ -763,9 +696,7 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     if SCENARIO_PID == 1 and not running_in_docker():
         signal.signal(signal.SIGCHLD, signal_reap_children)
 
-    rpcclient = None
-    res = None
-
+    # make sure we're connected
     try:
         rpcclient = testlib.TestAPIProxy()
         res = rpcclient.getinfo()
@@ -774,7 +705,7 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
         sys.exit(1)
 
     test_env = {
-        "sync_virtualchain_upcall": lambda: sync_virtualchain_upcall(blockstack_opts),
+        "sync_virtualchain_upcall": lambda: sync_virtualchain_upcall(server_state),
         "next_block_upcall": lambda: bitcoin_regtest_next_block(working_dir),
         "working_dir": working_dir,
         "bitcoind": bitcoind,
@@ -782,6 +713,11 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
         "spv_headers_path": spv_headers_path,
         "blockstack_opts": blockstack_opts
     }
+
+    '''
+    # we're running
+    blockstackd.set_running(True)
+    '''
 
     # sync initial utxos
     testlib.next_block( **test_env )
@@ -815,7 +751,6 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     except Exception, e:
         log.exception(e)
         traceback.print_exc()
-        blockstack_client.rpc.local_api_stop(client_config_dir)
         log.error("Failed to run tests '%s'" % scenario.__name__)
         shutdown_procedure()
         return False
@@ -863,9 +798,9 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     pinger.ask_join()
     pinger.join()
     pinger = None
+    
+    blockstackd.server_atlas_shutdown(server_state)
 
-    # stop atlas support
-    atlas_stop( atlas_state )
     if interactive:
         shutdown_procedure()
         return True
@@ -900,14 +835,12 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
 
     # verify atlas zonefiles
     db = get_blockstack_db(working_dir, disposition=blockstackd.DISPOSITION_RO)
+    rc = testlib.check_atlas_zonefiles( db, blockstack_opts['atlasdb_path'] )
+    if not rc:
+        shutdown_procedure()
+        return rc
 
-    if atlas_state is not None:
-        rc = testlib.check_atlas_zonefiles( db, blockstack_opts['atlasdb_path'] )
-        if not rc:
-            shutdown_procedure()
-            return rc
-
-        log.info("Atlas zonefile checks pass!")
+    log.info("Atlas zonefile checks pass!")
 
     # verify historic name ownership 
     rc = testlib.check_historic_names_by_address(db)
