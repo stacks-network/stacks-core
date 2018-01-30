@@ -337,10 +337,7 @@ OP_HISTORY_SCHEMA = {
         },
     },
     'required': [
-        'op',
-        'opcode',
         'txid',
-        'vtxindex'
     ],
 }
 
@@ -500,6 +497,7 @@ NAMESPACE_SCHEMA_REQUIRED = [
 SUBDOMAIN_SCHEMA_REQUIRED = [
     'address',
     'domain',
+    'name',
     'block_number',
     'sequence',
     'txid',
