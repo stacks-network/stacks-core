@@ -32,12 +32,13 @@ import jsonschema
 from jsonschema.exceptions import ValidationError
 import random
 import json
-import storage
+import traceback
 
 from .util import url_to_host_port
 from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT
 from .schemas import *
 from .scripts import is_name_valid, is_subdomain
+from .storage import verify_zonefile
 
 import virtualchain
 
@@ -600,7 +601,7 @@ def get_zonefiles(hostport, zonefile_hashes, timeout=30, my_hostport=None, proxy
 
         for zf_hash, zf_data_b64 in zf_payload['zonefiles'].items():
             zf_data = base64.b64decode( zf_data_b64 )
-            assert storage.verify_zonefile( zf_data, zf_hash ), "Zonefile data mismatch"
+            assert verify_zonefile( zf_data, zf_hash ), "Zonefile data mismatch"
 
             # valid
             decoded_zonefiles[ zf_hash ] = zf_data
