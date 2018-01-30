@@ -480,35 +480,49 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
 
    if db_state is not None:
 
+        blockstack_opts = get_blockstack_opts()
+        new_zonefile_infos = None
+
         try:
             # flush the database
             db_state.commit_finished( block_height )
-        except Exception, e:
+        except Exception as e:
             log.exception(e)
             log.error("FATAL: failed to commit at block %s" % block_height )
             os.abort()
-
+        
         try:
             # sync block data to atlas, if enabled
-            blockstack_opts = get_blockstack_opts()
-            if blockstack_opts.get('atlas', False):
-                if 'zonefiles' not in blockstack_opts:
-                    log.error("No zonefiles directory set in config file.  Atlas will be disabled")
-                elif 'atlasdb_path' not in blockstack_opts:
-                    log.error('No atlasdb_path set in config file.  Atlas will be disabled')
-                else:
-                    log.debug("Synchronize Atlas DB for {}".format(block_height))
-                    zonefile_dir = blockstack_opts['zonefiles']
-                    atlasdb_path = blockstack_opts['atlasdb_path']
+            if is_atlas_enabled(blockstack_opts):
+                log.debug("Synchronize Atlas DB for {}".format(block_height))
+                zonefile_dir = blockstack_opts['zonefiles']
+                atlasdb_path = blockstack_opts['atlasdb_path']
 
-                    # NOTE: set end_block explicitly since db_state.lastblock still points to the previous block height
-                    gc.collect()
-                    atlasdb_sync_zonefiles(db_state, block_height, zonefile_dir, path=atlasdb_path, end_block=block_height+1)
-                    gc.collect()
+                # NOTE: set end_block explicitly since db_state.lastblock still points to the previous block height
+                gc.collect()
+                new_zonefile_infos = atlasdb_sync_zonefiles(db_state, block_height, zonefile_dir, path=atlasdb_path, end_block=block_height+1)
+                gc.collect()
 
-        except Exception, e:
+        except Exception as e:
             log.exception(e)
             log.error("FATAL: failed to update Atlas db at %s" % block_height )
+            os.abort()
+        
+        try:
+            # sync subdomain state for this block range, if enabled
+            if is_subdomains_enabled(blockstack_opts):
+                assert hasattr(db_state, 'subdomain_index')
+                assert db_state.subdomain_index is not None
+
+                log.debug("Synchronize subdomain index for {}".format(block_height))
+
+                gc.collect()
+                db_state.subdomain_index.index(block_height, block_height+1)
+                gc.collect()
+
+        except Exception as e:
+            log.exception(e)
+            log.error("FATAL: failed to update subdomains db at {}".format(block_height))
             os.abort()
 
         return True
@@ -535,7 +549,7 @@ def db_continue( block_id, consensus_hash ):
     return is_running() or os.environ.get("BLOCKSTACK_TEST") == "1"
 
 
-def sync_blockchain( working_dir, bt_opts, last_block, expected_snapshots={}, **virtualchain_args ):
+def sync_blockchain( working_dir, bt_opts, last_block, subdomain_index=None, expected_snapshots={}, **virtualchain_args ):
     """
     synchronize state with the blockchain.
     Return True on success
@@ -550,7 +564,10 @@ def sync_blockchain( working_dir, bt_opts, last_block, expected_snapshots={}, **
     # NOTE: this is the only place where a read-write handle should be created,
     # since this is the only place where the db should be modified.
     new_db = BlockstackDB.borrow_readwrite_instance(working_dir, last_block, expected_snapshots=expected_snapshots)
+    new_db.subdomain_index = subdomain_index
+    
     rc = virtualchain.sync_virtualchain(bt_opts, last_block, new_db, expected_snapshots=expected_snapshots, **virtualchain_args)
+    
     BlockstackDB.release_readwrite_instance(new_db, last_block)
 
     return rc
