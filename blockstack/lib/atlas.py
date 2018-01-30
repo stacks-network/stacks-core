@@ -3189,15 +3189,15 @@ class AtlasZonefileCrawler( threading.Thread ):
         self.store_zonefile_cb = cb
 
 
-    def set_zoenfile_present(zfhash, block_height, con=None, path=None):
+    def set_zonefile_present(self, zfhash, block_height, con=None, path=None):
         """
         Set a zonefile as present, and if it was previously absent, inform the storage listener
         """
         was_present = atlasdb_set_zonefile_present( zfhash, True, con=con, path=path )
 
         # tell anyone who cares that we got this zone file, if it was new 
-        if not was_present and self.store_zonefile_db:
-            self.store_zonefile_cb(fetched_zfhash, block_height)
+        if not was_present and self.store_zonefile_cb:
+            self.store_zonefile_cb(zfhash, block_height)
 
 
     def store_zonefile_data( self, fetched_zfhash, zonefile_data, min_block_height, peer_hostport, con, path ):
