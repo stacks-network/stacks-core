@@ -129,6 +129,9 @@ def scenario( wallets, **kw ):
             print 'got\n{}'.format(base64.b64decode(res['zonefile']))
             return False
 
+    # reindex
+    assert testlib.check_subdomain_db(**kw)
+
 
 def check( state_engine ):
 
