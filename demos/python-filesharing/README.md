@@ -1,4 +1,4 @@
-Demo: Blockstack-files
+DEPRECATED: demo for sharing files
 ======================
 
 CLI program for loading and storing files with Blockstack's RESTful API.
