@@ -511,14 +511,29 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
         try:
             # sync subdomain state for this block range, if enabled
             if is_subdomains_enabled(blockstack_opts):
-                assert hasattr(db_state, 'subdomain_index')
-                assert db_state.subdomain_index is not None
+                subdomain_index = None
+                instantiated = False
 
+                if hasattr(db_state, 'subdomain_index') and db_state.subdomain_index is not None:
+                    # normal course of action
+                    subdomain_index = db_state.subdomain_index
+                else:
+                    # verifying a database
+                    from ..subdomains import SubdomainIndex
+                    log.warning("Instantiating subdomain index")
+                    subdomain_index = SubdomainIndex(blockstack_opts['subdomaindb_path'], blockstack_opts=blockstack_opts)
+                    instantiated = True
+                
                 log.debug("Synchronize subdomain index for {}".format(block_height))
 
                 gc.collect()
-                db_state.subdomain_index.index(block_height, block_height+1)
+                subdomain_index.index(block_height, block_height+1)
                 gc.collect()
+
+                if instantiated:
+                    # invalidate 
+                    subdomain_index.close()
+                    subdomain_index = None
 
         except Exception as e:
             log.exception(e)
