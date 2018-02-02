@@ -3281,7 +3281,7 @@ def check_historic_names_by_address( state_engine ):
     for address in addr_names.keys():
         for i, (name, block_id, _) in enumerate(addr_names[address]):
             did = 'did:stack:v0:{}-{}'.format(address, i)
-            name_rec = blockstack_client.proxy.get_DID_blockchain_record(did)
+            name_rec = blockstack.lib.client.get_DID_blockchain_record(did, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
 
             if name in revoked_names.keys() and revoked_names[name] >= block_id:
                 # name was revoked. expect failure
@@ -3330,7 +3330,7 @@ def check_subdomain_db(**kw):
     blockstack.lib.subdomains.SubdomainIndex.reindex(get_current_block(**kw), opts=new_opts)
 
     # compare both databases
-    rc = os.system('sqlite3 "{}" "select * from subdomain_records order by zonefile_index" > "/tmp/first.dump"; sqlite3 "{}" "select * from subdomain_records order by zonefile_index" > "/tmp/second.dump"; cmp "/tmp/first.dump" "/tmp/second.dump"'.format(
+    rc = os.system('sqlite3 "{}" "select * from subdomain_records order by parent_zonefile_index" > "/tmp/first.dump"; sqlite3 "{}" "select * from subdomain_records order by parent_zonefile_index" > "/tmp/second.dump"; cmp "/tmp/first.dump" "/tmp/second.dump"'.format(
         blockstack_opts['subdomaindb_path'], new_opts['subdomaindb_path']))
 
     if rc != 0:
@@ -3596,11 +3596,11 @@ def peer_make_config( working_dir, peer_port, dirp, seed_relations={}, blacklist
     if not os.path.exists(dirp):
         os.makedirs(dirp)
 
-    blockstack_client.config.write_config_file( conf, conf_path )
+    blockstack.lib.config.write_config_file( conf, conf_path )
 
     # copy over client config
     client_config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
-    client_conf = blockstack_client.config.configure( config_file=client_config_path, force=False, interactive=False )
+    client_conf = blockstack.lib.config.configure( config_file=client_config_path, force=False, interactive=False )
 
     for f in ['path', 'dir']:
         if f in client_conf['blockstack-client']:
@@ -3623,7 +3623,7 @@ def peer_make_config( working_dir, peer_port, dirp, seed_relations={}, blacklist
     new_conf.update(extra_fields)
 
     log.debug("Save client for localhost:%s's to %s" % (peer_port, os.path.join(dirp, 'client.ini')))
-    blockstack_client.config.write_config_file( new_conf, os.path.join(dirp, "client.ini") )
+    blockstack.lib.config.write_config_file( new_conf, os.path.join(dirp, "client.ini") )
     return True
 
 
@@ -3672,7 +3672,7 @@ def peer_rpc( peer_info ):
     """
     Get an RPC client to the running peer
     """
-    rpc = blockstack_client.BlockstackRPCClient( 'localhost', peer_info['port'], timeout=5 )
+    rpc = blockstack.lib.client.BlockstackRPCClient( 'localhost', peer_info['port'], timeout=5 )
     return rpc
 
 
