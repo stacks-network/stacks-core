@@ -697,7 +697,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
    
         ret = subdomain_rec.to_json()
         if include_history:
-            subdomain_hist = get_subdomain_history(fqn)
+            subdomain_hist = get_subdomain_history(fqn, json=True)
             ret['history'] = subdomain_hist
 
         return {'status': True, 'record': ret}
@@ -1874,23 +1874,6 @@ def index_blockchain(server_state, expected_snapshots=GENESIS_SNAPSHOT):
     if not rc:
         log.debug("Stopped indexing at %s" % current_block)
         return rc
-
-    '''
-    # synchronize atlas db
-    # this is a recovery path--shouldn't be necessary unless
-    # we're starting from a lack of atlas.db state (i.e. an older
-    # version of the server, or a removed/corrupted atlas.db file).
-    # TODO: this is racy--we also do this in virtualchain-hooks
-    blockstack_opts = get_blockstack_opts()
-    if is_atlas_enabled(blockstack_opts):
-        db = get_db_state(working_dir)
-        if old_lastblock < db.lastblock:
-            log.debug("Synchronize Atlas DB from %s to %s" % (old_lastblock+1, db.lastblock+1))
-            zonefile_dir = blockstack_opts['zonefiles']
-            atlasdb_sync_zonefiles(db, old_lastblock+1, zonefile_dir, path=blockstack_opts['atlasdb_path'])
-
-        db.close()
-    '''
 
     # uncache state specific to this block
     rpc_chain_sync(server_state, current_block, time.time())
