@@ -140,6 +140,10 @@ use_https = False
 user = blockstack
 regtest = True
 spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
+
+
+[subdomain-resolution]
+resolving_subdomains = True
 """ % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT, TEST_CLIENT_BIND, TEST_CLIENT_BIND)
 
 
