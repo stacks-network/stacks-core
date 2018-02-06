@@ -754,7 +754,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         try:
             with open('/proc/1/cpuset') as cpuset:
                 content = [l for l in cpuset][0]
-                return content.startswith('/docker/')
+                return content.startswith('/docker')
         except:
             return False
 
