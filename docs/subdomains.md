@@ -287,3 +287,17 @@ Will return:
 ```
 
 The integration test registers `bar.foo.id` during the setup (so remember that for your own testing!)
+
+### Running an interactive testing environment with the Subdomain Registrar service
+
+Follow the [instructions here](../integration_tests/README.md) to download the regtesting Docker image.
+
+Since the subdomain registrar service runs on port 7103, we need to do two things to expose this endpoint to interact with it from the browser:
+- Open port 7103 with `-p 7103:7103`
+- Set an env variable with `-e BSK_SUBDOMAIN_REGTEST_BIND=0.0.0.0`
+
+Here's the full command you'd run to start the interactive testing scenario:
+
+```bash
+IMAGE=$(docker run -dt -p 6270:6270 -p 7103:7103 -v /tmp:/tmp -e BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 -e BLOCKSTACK_TEST_CLIENT_BIND=0.0.0.0 -e BSK_SUBDOMAIN_REGTEST_BIND=0.0.0.0 quay.io/blockstack/integrationtests:develop blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.subdomain_registrar)
+```
