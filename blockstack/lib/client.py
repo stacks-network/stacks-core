@@ -528,6 +528,8 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
         ],
     }
 
+    log.warning("DEPRECATED call to atlas_get_peers()")
+
     schema = json_response_schema( peers_schema )
 
     if proxy is None:
@@ -536,6 +538,67 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
     peers = None
     try:
         peer_list_resp = proxy.get_atlas_peers()
+        peer_list_resp = json_validate(schema, peer_list_resp)
+        if json_is_error(peer_list_resp):
+            return peer_list_resp
+
+        # verify that all strings are host:ports
+        for peer_hostport in peer_list_resp['peers']:
+            peer_host, peer_port = url_to_host_port(peer_hostport)
+            if peer_host is None or peer_port is None:
+                return {'error': 'Invalid peer listing'}
+
+        peers = peer_list_resp
+
+    except (ValidationError, AssertionError) as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        peers = json_traceback()
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node {}.  Try again with `--debug`.'.format(hostport)}
+        return resp
+
+    return peers
+
+
+def atlas_peer_exchange(hostport, my_hostport, timeout=30, proxy=None):
+    """
+    Get an atlas peer's neighbors, and list ourselves as a possible peer.
+    Return {'status': True, 'peers': [peers]} on success.
+    Return {'error': ...} on error
+    """
+    assert hostport or proxy, 'need either hostport or proxy'
+
+    peers_schema = {
+        'type': 'object',
+        'properties': {
+            'peers': {
+                'type': 'array',
+                'items': {
+                    'type': 'string',
+                    'pattern': '^([^:]+):([1-9][0-9]{1,4})$',
+                },
+            },
+        },
+        'required': [
+            'peers'
+        ],
+    }
+
+    schema = json_response_schema( peers_schema )
+
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    peers = None
+    try:
+        peer_list_resp = proxy.atlas_peer_exchange(my_hostport)
         peer_list_resp = json_validate(schema, peer_list_resp)
         if json_is_error(peer_list_resp):
             return peer_list_resp
