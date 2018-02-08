@@ -45,7 +45,7 @@ from .client import \
         ping as blockstack_ping, \
         getinfo as blockstack_getinfo, \
         get_zonefile_inventory as blockstack_get_zonefile_inventory, \
-        get_atlas_peers as blockstack_get_atlas_peers, \
+        atlas_peer_exchange as blockstack_atlas_peer_exchange, \
         get_zonefiles as blockstack_get_zonefiles, \
         put_zonefiles as blockstack_put_zonefiles, \
         json_is_error
@@ -2201,9 +2201,9 @@ def atlas_peer_get_neighbors( my_hostport, peer_hostport, timeout=None, peer_tab
     assert not atlas_peer_table_is_locked_by_me()
 
     try:
-        peer_list = blockstack_get_atlas_peers( peer_hostport, timeout=timeout, my_hostport=my_hostport, proxy=rpc )
+        peer_list = blockstack_atlas_peer_exchange( peer_hostport, my_hostport, timeout=timeout, proxy=rpc )
     except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
-        atlas_log_socket_error( "get_atlas_peers(%s)" % peer_hostport, peer_hostport, se)
+        atlas_log_socket_error( "atlas_peer_exchange(%s)" % peer_hostport, peer_hostport, se)
         log.error("Socket error in response from '%s'" % peer_hostport)
 
     except Exception, e:
