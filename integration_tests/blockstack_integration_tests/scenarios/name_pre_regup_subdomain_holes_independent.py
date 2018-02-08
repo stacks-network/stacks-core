@@ -62,6 +62,10 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_preorder( "foo1.test", wallets[2].privkey, wallets[3].addr )
     testlib.blockstack_name_preorder( "foo2.test", wallets[2].privkey, wallets[3].addr )
     testlib.blockstack_name_preorder( "foo3.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_preorder( "foo4.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_preorder( "foo5.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_preorder( "foo6.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_preorder( "foo7.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
     zf_template = "$ORIGIN {}\n$TTL 3600\n{}"
@@ -78,6 +82,10 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo1.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=storage.get_zonefile_data_hash(zonefiles['foo1.test']))
     testlib.blockstack_name_register( "foo2.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=storage.get_zonefile_data_hash(zonefiles['foo2.test']))
     testlib.blockstack_name_register( "foo3.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=storage.get_zonefile_data_hash(zonefiles['foo3.test']))
+    testlib.blockstack_name_register( "foo4.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11' * 20)
+    testlib.blockstack_name_register( "foo5.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11' * 20)
+    testlib.blockstack_name_register( "foo6.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11' * 20)
+    testlib.blockstack_name_register( "foo7.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11' * 20)
     testlib.next_block( **kw )
     
     # send these initial ones out
@@ -87,20 +95,21 @@ def scenario( wallets, **kw ):
 
     missing_zonefiles = []
 
-    # send updates too, but all to the same stem name
+    # send updates too, but all to different stem names
     for i in range(0, 3):
         zf_template = "$ORIGIN {}\n$TTL 3600\n{}"
         zf_default_url = '_https._tcp URI 10 1 "https://test.com/?index={}"'.format(i+1)
+        name = 'foo{}.test'.format(i+4)
 
         zonefiles = {
-            'foo1.test': zf_template.format('foo1.test', subdomains.make_subdomain_txt('bar.foo1.test', 'foo1.test', wallets[4].addr, i+1, zf_template.format('bar.foo1.test', zf_default_url), wallets[4].privkey)),
-            'foo2.test': zf_template.format('foo1.test', subdomains.make_subdomain_txt('bar.foo2.test', 'foo1.test', wallets[4].addr, i+1, zf_template.format('bar.foo2.test', zf_default_url), wallets[4].privkey)),
-            'foo3.test': zf_template.format('foo1.test', subdomains.make_subdomain_txt('bar.foo3.test', 'foo1.test', wallets[4].addr, i+1, zf_template.format('bar.foo3.test', zf_default_url), wallets[4].privkey)),
+            'foo1.test': zf_template.format(name, subdomains.make_subdomain_txt('bar.foo1.test', name, wallets[4].addr, i+1, zf_template.format('bar.foo1.test', zf_default_url), wallets[4].privkey)),
+            'foo2.test': zf_template.format(name, subdomains.make_subdomain_txt('bar.foo2.test', name, wallets[4].addr, i+1, zf_template.format('bar.foo2.test', zf_default_url), wallets[4].privkey)),
+            'foo3.test': zf_template.format(name, subdomains.make_subdomain_txt('bar.foo3.test', name, wallets[4].addr, i+1, zf_template.format('bar.foo3.test', zf_default_url), wallets[4].privkey)),
         }
 
-        testlib.blockstack_name_update('foo1.test', storage.get_zonefile_data_hash(zonefiles['foo1.test']), wallets[3].privkey)
-        testlib.blockstack_name_update('foo1.test', storage.get_zonefile_data_hash(zonefiles['foo2.test']), wallets[3].privkey)
-        testlib.blockstack_name_update('foo1.test', storage.get_zonefile_data_hash(zonefiles['foo3.test']), wallets[3].privkey)
+        testlib.blockstack_name_update(name, storage.get_zonefile_data_hash(zonefiles['foo1.test']), wallets[3].privkey)
+        testlib.blockstack_name_update(name, storage.get_zonefile_data_hash(zonefiles['foo2.test']), wallets[3].privkey)
+        testlib.blockstack_name_update(name, storage.get_zonefile_data_hash(zonefiles['foo3.test']), wallets[3].privkey)
         testlib.next_block(**kw)
 
         if i % 2 == 0:
