@@ -257,6 +257,9 @@ OP_HISTORY_SCHEMA = {
             'type': 'string',
             'pattern': OP_CODE_NAME_PATTERN,
         },
+        'pending': {
+            'type': 'boolean'
+        },
         'revoked': {
             'type': 'boolean',
         },
@@ -503,4 +506,4 @@ SUBDOMAIN_SCHEMA_REQUIRED = [
     'txid',
     'value_hash',
 ]
-    
+ 
