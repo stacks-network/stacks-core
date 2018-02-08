@@ -128,6 +128,14 @@ def db_query_execute(cur, query, values, abort=True, max_timeout=300):
                 raise e
 
 
+def db_format_query( query, values ):
+    """
+    Turn a query into a string for printing.
+    Useful for debugging.
+    """
+    return "".join( ["%s %s" % (frag, "'%s'" % val if type(val) in [str, unicode] else val) for (frag, val) in zip(query.split("?"), values + ("",))] )
+
+
 def daemonize(logfile):
     """
     Double-fork and make a daemon.
