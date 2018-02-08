@@ -37,7 +37,7 @@ import gc
 import virtualchain
 from nameset.virtualchain_hooks import get_last_block, get_snapshots, get_valid_transaction_window
 
-from .util import url_to_host_port, atlas_inventory_to_string, db_query_execute
+from .util import url_to_host_port, atlas_inventory_to_string, db_query_execute, db_format_query
 from .storage.auth import get_zonefile_data_hash
 
 from .client import \
@@ -770,6 +770,29 @@ def atlasdb_get_zonefiles_by_name(name, max_index=None, con=None, path=None):
             ret.append(row)
 
     return ret
+
+
+def atlasdb_get_zonefiles_missing_count_by_name(name, max_index=None, indexes_exclude=[], con=None, path=None):
+    """
+    Get the number of missing zone files for a particular name, optionally up to a maximum
+    zonefile index and optionally omitting particular zone files in the count.
+    Returns an integer
+    """
+    with AtlasDBOpen(con=con, path=path) as dbcon:
+        sql = 'SELECT COUNT(*) FROM zonefiles WHERE name = ? AND present = 0 {} {};'.format(
+                'AND inv_index <= ?' if max_index is not None else '',
+                'AND inv_index NOT IN ({})'.format(','.join([str(int(i)) for i in indexes_exclude])) if len(indexes_exclude) > 0 else ''
+                )
+
+        args = (name,)
+        if max_index is not None:
+            args += (max_index,)
+
+        cur = dbcon.cursor()
+        log.debug(db_format_query(sql, args))
+        res = atlasdb_query_execute(cur, sql, args)
+        for row in res:
+            return row['COUNT(*)']
 
 
 def atlasdb_get_zonefiles_by_hash(zonefile_hash, block_height=None, con=None, path=None):
