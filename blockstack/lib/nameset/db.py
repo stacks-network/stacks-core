@@ -41,7 +41,7 @@ from ..operations import *
 from ..hashing import *
 from ..scripts import *
 from ..b40 import *
-from ..util import db_query_execute
+from ..util import db_query_execute, db_format_query
 
 import virtualchain
 
@@ -485,7 +485,7 @@ def namedb_format_query( query, values ):
     Turn a query into a string for printing.
     Useful for debugging.
     """
-    return "".join( ["%s %s" % (frag, "'%s'" % val if type(val) in [str, unicode] else val) for (frag, val) in zip(query.split("?"), values + ("",))] )
+    return db_format_query(query, values)
 
 
 def namedb_query_execute( cur, query, values ):
