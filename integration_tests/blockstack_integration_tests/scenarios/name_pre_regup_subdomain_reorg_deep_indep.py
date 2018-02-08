@@ -63,6 +63,9 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_preorder( "foo2.test", wallets[2].privkey, wallets[3].addr )
     testlib.blockstack_name_preorder( "foo3.test", wallets[2].privkey, wallets[3].addr )
     testlib.blockstack_name_preorder( "foo4.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_preorder( "foo5.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_preorder( "foo6.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_preorder( "foo7.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
     zf_template = "$ORIGIN {}\n$TTL 3600\n{}"
@@ -78,7 +81,10 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo1.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=storage.get_zonefile_data_hash(zonefiles['foo1.test']))
     testlib.blockstack_name_register( "foo2.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=storage.get_zonefile_data_hash(zonefiles['foo2.test']))
     testlib.blockstack_name_register( "foo3.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=storage.get_zonefile_data_hash(zonefiles['foo3.test']))
-    testlib.blockstack_name_register( "foo4.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=storage.get_zonefile_data_hash(zonefiles['foo3.test']))
+    testlib.blockstack_name_register( "foo4.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11' * 20)
+    testlib.blockstack_name_register( "foo5.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11' * 20)
+    testlib.blockstack_name_register( "foo6.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11' * 20)
+    testlib.blockstack_name_register( "foo7.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11' * 20)
     testlib.next_block( **kw )
     
     assert testlib.blockstack_put_zonefile(zonefiles['foo1.test'])
@@ -106,18 +112,18 @@ def scenario( wallets, **kw ):
     # Reveal branches (4), then (3), then (2), then (1).  Verify that the subdomain record matches the leaf node's state in order of revealing.
 
     # send via different domain
-    def _send_batch(zf_default_url, seq):
+    def _send_batch(zf_default_url, seq, name):
         zf_template = "$ORIGIN {}\n$TTL 3600\n{}"
 
         zonefiles = {
-            'foo1.test': zf_template.format('foo4.test', subdomains.make_subdomain_txt('bar.foo1.test', 'foo4.test', wallets[4].addr, seq, zf_template.format('bar.foo1.test', zf_default_url), wallets[4].privkey)),
-            'foo2.test': zf_template.format('foo4.test', subdomains.make_subdomain_txt('bar.foo2.test', 'foo4.test', wallets[4].addr, seq, zf_template.format('bar.foo2.test', zf_default_url), wallets[4].privkey)),
-            'foo3.test': zf_template.format('foo4.test', subdomains.make_subdomain_txt('bar.foo3.test', 'foo4.test', wallets[4].addr, seq, zf_template.format('bar.foo3.test', zf_default_url), wallets[4].privkey)),
+            'foo1.test': zf_template.format(name, subdomains.make_subdomain_txt('bar.foo1.test', name, wallets[4].addr, seq, zf_template.format('bar.foo1.test', zf_default_url), wallets[4].privkey)),
+            'foo2.test': zf_template.format(name, subdomains.make_subdomain_txt('bar.foo2.test', name, wallets[4].addr, seq, zf_template.format('bar.foo2.test', zf_default_url), wallets[4].privkey)),
+            'foo3.test': zf_template.format(name, subdomains.make_subdomain_txt('bar.foo3.test', name, wallets[4].addr, seq, zf_template.format('bar.foo3.test', zf_default_url), wallets[4].privkey)),
         }
 
-        testlib.blockstack_name_update('foo4.test', storage.get_zonefile_data_hash(zonefiles['foo1.test']), wallets[3].privkey)
-        testlib.blockstack_name_update('foo4.test', storage.get_zonefile_data_hash(zonefiles['foo2.test']), wallets[3].privkey)
-        testlib.blockstack_name_update('foo4.test', storage.get_zonefile_data_hash(zonefiles['foo3.test']), wallets[3].privkey)
+        testlib.blockstack_name_update(name, storage.get_zonefile_data_hash(zonefiles['foo1.test']), wallets[3].privkey)
+        testlib.blockstack_name_update(name, storage.get_zonefile_data_hash(zonefiles['foo2.test']), wallets[3].privkey)
+        testlib.blockstack_name_update(name, storage.get_zonefile_data_hash(zonefiles['foo3.test']), wallets[3].privkey)
         testlib.next_block(**kw)
 
         return zonefiles
@@ -183,35 +189,36 @@ def scenario( wallets, **kw ):
     ]
 
     # send branch 1
-    branch1_zfs = _send_batch('_https._tcp URI 10 1 "https://branch1-and-2.com"', 1)
+    branch1_zfs = _send_batch('_https._tcp URI 10 1 "https://branch1-and-2.com"', 1, 'foo4.test')
     # branch_1.append(zfs)
 
-    zfs = _send_batch('_https._tcp URI 10 1 "https://branch1.com"', 2)
+    zfs = _send_batch('_https._tcp URI 10 1 "https://branch1.com"', 2, 'foo5.test')
     branch_1.append(zfs)
 
     # send branch 2
     branch_2.append(branch1_zfs)
     
-    zfs = _send_batch('_https._tcp URI 10 1 "https://branch2.com"', 2)
+    zfs = _send_batch('_https._tcp URI 10 1 "https://branch2.com"', 2, 'foo6.test')
     branch_2.append(zfs)
 
     # send branch 3
-    branch3_zfs = _send_batch('_https._tcp URI 10 1 "https://branch3-and-4.com"', 1)
+    branch3_zfs = _send_batch('_https._tcp URI 10 1 "https://branch3-and-4.com"', 1, 'foo7.test')
     # branch_3.append(zfs)
 
-    zfs = _send_batch('_https._tcp URI 10 1 "https://branch3.com"', 2)
+    zfs = _send_batch('_https._tcp URI 10 1 "https://branch3.com"', 2, 'foo1.test')
     branch_3.append(zfs)
 
     # send branch 4
     branch_4.append(branch3_zfs)
 
-    zfs = _send_batch('_https._tcp URI 10 1 "https://branch4.com"', 2)
+    zfs = _send_batch('_https._tcp URI 10 1 "https://branch4.com"', 2, 'foo2.test')
     branch_4.append(zfs)
     
     # reveal in reverse.
     # branch_1 should be the final result
     b = 0
     for j, branch in enumerate([branch_4, branch_3, branch_2, branch_1]):
+        
         # reveal this branch, piecemeal 
         for i, zf_batch in enumerate(branch):
             for name in zf_batch:
