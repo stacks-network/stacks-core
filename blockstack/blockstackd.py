@@ -691,7 +691,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         # get current record
         try:
-            subdomain_rec = get_subdomain_info(fqn)
+            subdomain_rec = get_subdomain_info(fqn, check_pending=True)
         except SubdomainNotFound:
             return {'error': 'No such subdomain'}
    
