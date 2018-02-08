@@ -1384,11 +1384,31 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return self.success_response( {'zonefile_info': zonefile_info } )
 
 
+    def peer_exchange(self, peer_host, peer_port):
+        """
+        Exchange peers.
+        Add the given peer to the list of new peers to consider.
+        Return the list of healthy peers
+        """
+        # get peers
+        peer_list = atlas_get_live_neighbors( "%s:%s" % (peer_host, peer_port) )
+        if len(peer_list) > atlas_max_neighbors():
+            random.shuffle(peer_list)
+            peer_list = peer_list[:atlas_max_neighbors()]
+
+        atlas_peer_enqueue( "%s:%s" % (peer_host, peer_port))
+
+        log.debug("Live peers to %s:%s: %s" % (peer_host, peer_port, peer_list))
+        return peer_list
+
+
     def rpc_get_atlas_peers( self, **con_info ):
         """
+        LEGACY PATH
+
         Get the list of peer atlas nodes.
         Give its own atlas peer hostport.
-        Return at most 100 peers
+        Return at most atlas_max_neighbors() peers
         Return {'status': True, 'peers': ...} on success
         Return {'error': ...} on failure
         """
@@ -1400,16 +1420,50 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         client_host = con_info['client_host']
         client_port = con_info['client_port']
 
-        # get peers
-        peer_list = atlas_get_live_neighbors( "%s:%s" % (client_host, client_port) )
-        if len(peer_list) > atlas_max_neighbors():
-            random.shuffle(peer_list)
-            peer_list = peer_list[:atlas_max_neighbors()]
-
-        atlas_peer_enqueue( "%s:%s" % (client_host, client_port))
-
-        log.debug("Live peers to %s:%s: %s" % (client_host, client_port, peer_list))
+        peers = self.peer_exchange(client_host, client_port)
         return self.success_response( {'peers': peer_list} )
+
+
+    def rpc_atlas_peer_exchange(self, remote_peer, **con_info):
+        """
+        Accept a remotely-given atlas peer, and return our list
+        of healthy peers.  The remotely-given atlas peer will only
+        be considered if the caller is localhost; otherwise, the caller's
+        socket-given information will be used.  This is to prevent
+        a malicious node from filling up this node's peer table with
+        junk.
+
+        Returns at most atlas_max_neighbors() peers
+        Returns {'status': True, 'peers': ...} on success
+        Returns {'error': ...} on failure
+        """
+        conf = get_blockstack_opts()
+        if not conf.get('atlas', False):
+            return {'error': 'Not an atlas node'}
+
+        # take the socket-given information if this is not localhost
+        client_host = con_info['client_host']
+        client_port = con_info['client_port']
+
+        peer_host = None
+        peer_port = None
+        
+        LOCALHOST = ['127.0.0.1', '::1', 'localhost']
+        if client_host not in LOCALHOST:
+            peer_host = client_host
+            peer_port = client_port
+
+        else:
+            try:
+                peer_host, peer_port = url_to_host_port(remote_peer)
+                assert peer_host
+                assert peer_port
+            except:
+                # invalid
+                return {'error': 'Invalid remote peer address'}
+        
+        peers = self.peer_exchange(peer_host, peer_port)
+        return self.success_response({'peers': peers})
 
 
     def rpc_get_zonefile_inventory( self, offset, length, **con_info ):
