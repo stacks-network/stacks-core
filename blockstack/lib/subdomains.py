@@ -34,7 +34,7 @@ import threading
 from virtualchain import bitcoin_blockchain
 
 from .config import BLOCKSTACK_TESTNET, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, SUBDOMAINS_FIRST_BLOCK, get_blockstack_opts, is_atlas_enabled, is_subdomains_enabled
-from .atlas import atlasdb_open, atlasdb_get_zonefiles_by_block, atlasdb_get_zonefiles_by_name, atlas_node_add_callback, atlasdb_query_execute, atlasdb_get_zonefiles_by_hash
+from .atlas import atlasdb_open, atlasdb_get_zonefiles_by_block, atlas_node_add_callback, atlasdb_query_execute, atlasdb_get_zonefiles_by_hash, atlasdb_get_zonefiles_missing_count_by_name
 from .storage import get_atlas_zonefile_data, get_zonefile_data_hash, store_atlas_zonefile_data 
 from .scripts import is_name_valid, is_address_subdomain, is_subdomain
 from .schemas import *
@@ -42,6 +42,9 @@ from .util import db_query_execute
 from .queue import *
 
 log = virtualchain.get_logger('blockstack-subdomains')
+
+# special case zone file TXT RR names
+SUBDOMAIN_TXT_RR_MISSING = "_missing"
 
 # names of subdomain record fields
 SUBDOMAIN_ZF_PARTS = "parts"
@@ -99,7 +102,7 @@ class Subdomain(object):
     """
     Subdomain entry
     """
-    def __init__(self, fqn, domain, address, n, zonefile_str, sig, block_height, parent_zonefile_hash, parent_zonefile_index, txid, accepted=False):
+    def __init__(self, fqn, domain, address, n, zonefile_str, sig, block_height, parent_zonefile_hash, parent_zonefile_index, txid, domain_zonefiles_missing=[], accepted=False):
         """
         @fqn: fully-qualified subdomain name
         @domain: the stem name at which this subdomain record was found
@@ -129,6 +132,9 @@ class Subdomain(object):
 
         if not fqn.endswith('.' + domain):
             self.independent = True
+
+        self.domain_zonefiles_missing = domain_zonefiles_missing
+        self.pending = None    # set at runtime
 
 
     def get_fqn(self):
@@ -241,11 +247,31 @@ class Subdomain(object):
             'name': self.get_fqn(),
         }
         
+        if self.pending is not None:
+            ret['pending'] = self.pending
+
         return ret
-    
+   
+
+    @classmethod
+    def parse_subdomain_missing_zonefiles_record(cls, rec):
+        """
+        Parse a missing-zonefiles vector given by the domain.
+        Returns the list of zone file indexes on success
+        Raises ParseError on unparseable records
+        """
+        txt_entry = rec['txt']
+        if isinstance(txt_entry, list):
+            raise ParseError("TXT entry too long for a missing zone file list")
+
+        try:
+            return [int(i) for i in txt_entry.split(',')]
+        except ValueError:
+            raise ParseError('Invalid integers')
+
 
     @staticmethod
-    def parse_subdomain_record(domain_name, rec, block_height, parent_zonefile_hash, parent_zonefile_index, txid):
+    def parse_subdomain_record(domain_name, rec, block_height, parent_zonefile_hash, parent_zonefile_index, txid, domain_zonefiles_missing):
         """
         Parse a subdomain record, and verify its signature.
         @domain_name: the stem name
@@ -310,7 +336,7 @@ class Subdomain(object):
             # already fully-qualified
             subd_name = rec['name']
             
-        return Subdomain(str(subd_name), str(domain_name), str(pubkey), int(n), base64.b64decode(b64_zonefile), str(sig), block_height, parent_zonefile_hash, parent_zonefile_index, txid)
+        return Subdomain(str(subd_name), str(domain_name), str(pubkey), int(n), base64.b64decode(b64_zonefile), str(sig), block_height, parent_zonefile_hash, parent_zonefile_index, txid, domain_zonefiles_missing=domain_zonefiles_missing)
 
 
     def get_public_key(self):
@@ -425,22 +451,19 @@ class SubdomainIndex(object):
         Return False if not
         """
         if existing_subrec.get_fqn() != new_subrec.get_fqn():
-            log.warn("Failed subdomain {} transition because fqn changed to {} (at block height {} zonefile index {})".format(
-                existing_subrec.get_fqn(), new_subrec.get_fqn(), new_subrec.block_height, new_subrec.parent_zonefile_index))
-
             return False
 
         if existing_subrec.n + 1 != new_subrec.n:
-            log.warn("Failed subdomain {} transition because of N:{}->{} (at block height {} zonefile index {})".format
-                (new_subrec.get_fqn(), existing_subrec.n + 1, new_subrec.n, new_subrec.block_height, new_subrec.parent_zonefile_index))
-
             return False
 
         if not new_subrec.verify_signature(existing_subrec.address):
-            log.warn("Failed subdomain {} transition because of signature failure (at block height {} zonefile index {})".format(
-                new_subrec.get_fqn(), new_subrec.block_height, new_subrec.parent_zonefile_index))
-
+            log.debug("Invalid signature from {}".format(existing_subrec.address))
             return False
+
+        if virtualchain.address_reencode(existing_subrec.address) != virtualchain.address_reencode(new_subrec.address):
+            if new_subrec.independent:
+                log.debug("Transfer is independent of domain: {}".format(new_subrec))
+                return False
 
         return True
 
@@ -453,11 +476,9 @@ class SubdomainIndex(object):
         * the subdomain must not be independent of its domain
         """
         if subdomain_rec.n != 0:
-            log.warn("Failed initial subdomain {} because N != 0 (got {})".format(subdomain_rec.get_fqn(), subdomain_rec.n))
             return False
        
         if subdomain_rec.independent:
-            log.warn('Failed initial subdomain {} because it is independent of its domain name {}'.format(subdomain_rec.get_fqn(), subdomain_rec.get_domain()))
             return False
 
         return True
@@ -531,285 +552,89 @@ class SubdomainIndex(object):
                 subdomain_index[fqn].append(i)
 
         return {'zonefile_info': subdomain_info, 'subdomains': subdomain_index}
-      
-
-    @classmethod
-    def subdomains_validate_domains(cls, new_subdomains, atlasdb_path):
+                 
+    
+    def make_new_subdomain_history(self, cursor, subdomain_rec):
         """
-        Given a dict of {'fqn': subdomain_rec} for subdomain records,
-        verify that all of their domain names' zone files are accounted for.
-        (i.e. in order to prove the absence of a prior initial subdomain record or transfer record for a given subdomain)
-
-        Returns a subset of new_subdomains that can be created, as a {'fqn': subdomain_rec} dict
+        Recalculate the history for this subdomain from genesis up until this record.
+        Returns the list of subdomain records we need to save.
+        TODO: make more efficient--we don't have to load and rewrite the entire sequence
         """
-        # find the set of names to query
-        domains = []
-        max_zonefile_indexes = {}       # optimization: map domain name to maximum zone file index to query
-        domain_zonefiles = {}           # map domain name to zone file info
+        # what's the subdomain's history up until this subdomain record?
+        hist = self.subdomain_db.get_subdomain_history(subdomain_rec.get_fqn(), include_unaccepted=True, end_sequence=subdomain_rec.n+1, end_zonefile_index=subdomain_rec.parent_zonefile_index+1, cur=cursor)
+        assert len(hist) > 0, 'BUG: not yet stored: {}'.format(subdomain_rec)
 
-        # find the set of domains these subdomains represent.
-        # also, find the maximum zone file index for each domain (as a query optimization, so we don't do a full db scan).
-        for new_fqn in new_subdomains:
-            new_subrec = new_subdomains[new_fqn]
+        for i in range(0, len(hist)):
+            hist[i].accepted = False
 
-            domain = new_subrec.get_domain()
-            domains.append(domain)
-            
-            if domain not in max_zonefile_indexes:
-                max_zonefile_indexes[domain] = new_subrec.parent_zonefile_index
+        hist.sort(lambda h1, h2: -1 if h1.n < h2.n or (h1.n == h2.n and h1.parent_zonefile_index < h2.parent_zonefile_index) \
+                                 else 0 if h1.n == h2.n and h1.parent_zonefile_index == h2.parent_zonefile_index \
+                                 else 1)
+
+        if not self.check_initial_subdomain(hist[0]):
+            log.debug("Reject initial {}".format(hist[0]))
+            return hist
+        else:
+            log.debug("Accept initial {}".format(hist[0]))
+
+        hist[0].accepted = True
+        last_accepted = 0
+
+        for i in xrange(1, len(hist)):
+            if self.check_subdomain_transition(hist[last_accepted], hist[i]):
+                log.debug("Accept historic update {}".format(hist[i]))
+                hist[i].accepted = True
+                last_accepted = i
             else:
-                max_zonefile_indexes[domain] = max(new_subrec.parent_zonefile_index, max_zonefile_indexes[domain])
+                log.debug("Reject historic update {}".format(hist[i]))
+                hist[i].accepted = False
 
-        domains = list(set(domains))
+        return hist
 
-        # get the set of zone file hashes (and present/absent status) from atlas for each domain
-        atlasdb_con = atlasdb_open(atlasdb_path)
-        cur = atlasdb_con.cursor()
+
+    def make_new_subdomain_future(self, cursor, subdomain_rec):
+        """
+        Recalculate the future for this subdomain from the current record
+        until the latest known record.
+        Returns the list of subdomain records we need to save.
+        TODO: make more efficient--we don't have to load and rewrite the entire sequence
+        """
+        assert subdomain_rec.accepted, 'BUG: given subdomain record must already be accepted'
+
+        # what's the subdomain's future after this record?
+        fut = self.subdomain_db.get_subdomain_history(subdomain_rec.get_fqn(), include_unaccepted=True, start_sequence=subdomain_rec.n, start_zonefile_index=subdomain_rec.parent_zonefile_index, cur=cursor)
+        for i in range(0, len(fut)):
+            if fut[i].n == subdomain_rec.n and fut[i].parent_zonefile_index == subdomain_rec.parent_zonefile_index:
+                fut.pop(i)
+                break
+
+        if len(fut) == 0:
+            log.debug("At tip: {}".format(subdomain_rec))
+            return []
         
-        # get the zonefile history for each domain. We'll use this to check that the domain has all zone files present.
-        # do all the reads in one transaction.
-        atlasdb_query_execute(cur, 'BEGIN', ())
-        for domain in domains:
-            zfinfos = atlasdb_get_zonefiles_by_name(domain, max_index=max_zonefile_indexes[domain], path=atlasdb_path)
-            domain_zonefiles[domain] = zfinfos
-
-        atlasdb_query_execute(cur, 'END', ())
-
-        accepted_subdomains = {}
-        for new_fqn in new_subdomains:
-            assert new_fqn not in accepted_subdomains, 'BUG: multiple entries for {}'.format(new_subrec.get_fqn())
-
-            # do not accept a new subdomain if its stem name is missing any prior zone files
-            new_subrec = new_subdomains[new_fqn]
-            domain = new_subrec.get_domain()
-            zfinfos = domain_zonefiles[domain]
-            missing = False
-            for zfinfo in zfinfos:
-                if not zfinfo['present'] and zfinfo['inv_index'] < new_subrec.parent_zonefile_index:
-                    log.warning("Name '{}' is missing zone file {} (from block {}).  Will not create subdomain '{}'".format(domain, zfinfo['zonefile_hash'], zfinfo['block_height'], new_fqn))
-                    missing = True
-
-            if missing:
-                # cannot create subdomain, since another creation could have happened earlier
-                continue
-
-            accepted_subdomains[new_fqn] = new_subrec
-
-        return accepted_subdomains
-
-   
-    def get_subdomain_state(self, cursor, subdomain_recs):
-        """
-        Find out the state of each subdomain in subdomain_recs.
-        * find the *current* subdomain state
-        * find the state of the subdomain *at* subdomain_recs[fqn]
-            (i.e. if it exists, then there's a sequence conflict)
-        * find the state of the subdomain *just before* subdomain_recs[fqn]
-            (i.e. if it does not exist, then this record is invalid)
-
-        TODO: cache to avoid excess queries
-        """
-        ret = {}        # map fqn to state of the subdomain we know about.
-        for fqn in subdomain_recs:
-
-            ret[fqn] = []
-            for subr in subdomain_recs[fqn]:
-                state = {}
-
-                # Get current accepted subdomain state (may not exist; this may append to another record)
-                try:
-                    cur_subrec = self.subdomain_db.get_subdomain_entry(fqn, cur=cursor)
-                    state['current'] = cur_subrec
-                except SubdomainNotFound:
-                    state['current'] = None
-
-                # Get subdomain state at this subr's sequence (if it exists, there's a reorg)
-                try:
-                    seq_subrec = self.subdomain_db.get_subdomain_entry_at_sequence(fqn, subr.n, cur=cursor)
-                    state['sequence'] = seq_subrec
-                except SubdomainNotFound:
-                    state['sequence'] = None
-
-                if subr.n > 0:
-                    # Get subdomain state *just prior* to this subr's sequence (may not exist)
-                    try:
-                        seq_subrec = self.subdomain_db.get_subdomain_entry_at_sequence(fqn, subr.n-1, cur=cursor)
-                        state['prev_sequence'] = seq_subrec
-                    except SubdomainNotFound:
-                        state['prev_sequence'] = None
-                else:
-                    state['prev_sequence'] = None
-                
-                ret[fqn].append(state)
-
-        return ret
-
-
-    def subdomain_histories_find_reorgs(self, subdomain_recs, subdomain_state):
-        """
-        Find all reorg points, given the current state of each subdomain and the subdomains we discovered.
-        Returns {fqn: [{'current': cur_subrec, 'new': replaced_subrec, 'type': 'owner' or 'sequence'}]}
-        """
-        reorg_points = {}
-
-        for fqn in subdomain_recs:
-            assert len(subdomain_state[fqn]) == len(subdomain_recs[fqn]), 'BUG: len(subdomain state) != len(subdomain recs)'
+        for i in range(0, len(fut)):
+            fut[i].accepted = False
             
-            for subr, subr_state in zip(subdomain_recs[fqn], subdomain_state[fqn]):
-                subr.accepted = False
-                
-                # Reorg?
-                if not subr_state['sequence']:
-                    continue
+        fut = [subdomain_rec] + fut
+        fut.sort(lambda h1, h2: -1 if h1.n < h2.n or (h1.n == h2.n and h1.parent_zonefile_index < h2.parent_zonefile_index) \
+                                 else 0 if h1.n == h2.n and h1.parent_zonefile_index == h2.parent_zonefile_index \
+                                 else 1)
 
-                if not subr_state['prev_sequence']:
-                    continue
+        assert fut[0].accepted, 'BUG: initial subdomain record is not accepted: {}'.format(fut[0])
+        last_accepted = 0
 
-                if subr_state['sequence'].n != subr.n:
-                    continue
-
-                # Reorg.
-                # Possibility 1: this subdomain entry cannot be reached from the parent of the entry it's trying to reorg
-                if not self.check_subdomain_transition(subr_state['prev_sequence'], subr):
-                    # (possibility 1)
-                    continue
-
-                # Possibility 2: this subdomain entry is reachable from its previous entry, and the owner *stayed the same*
-                # Possibility 3: this subdomain entry is reachable from its previous entry, and the owner *changed*
-                if virtualchain.address_reencode(subr_state['prev_sequence'].address) == virtualchain.address_reencode(subr.address):
-                    # (possibility 2)
-                    # Possibility 2a: this new subdomain is *earlier* in the blockchain history than the one it seeks to replace.
-                    # Possibility 2b: this new subdomain is *later* in the blockchain history than the one it seeks to replace.
-                    # We only care about 2a.
-                    if subr.parent_zonefile_index < subr_state['sequence'].parent_zonefile_index:
-                        log.debug("Reorg {} with earlier update {}".format(subr_state['sequence'], subr))
-
-                        subr.accepted = True
-                        if fqn not in reorg_points:
-                            reorg_points[fqn] = []
-                            
-                        reorg_points[fqn].append({'current': subr_state['sequence'], 'new': subr, 'type': 'sequence'})
-
-                else:
-                    # (possibility 3)
-                    # For now, we can only accept an address change if either:
-                    # Possibility 3a: it came from the domain name that created this name (and the domain name has all zone files up to this point), OR
-                    # Possibility 3b: it came from an on-chain transaction from a name that owns this subdomain (i.e. has the same address)
-                    
-                    subr.accepted = False       # not sure yet
-                    if fqn not in reorg_points:
-                        reorg_points[fqn] = []
-
-                    reorg_points[fqn].append({'current': subr_state['sequence'], 'new': subr, 'type': 'owner'})
-                     
-            return reorg_points
-
-
-    def subdomain_histories_process_reorgs(self, cursor, reorg_points):
-        """
-        Given {fqn: {'current': subr, 'new': subr, 'type': ...}}, process history reorganizations
-        for each subdomain.
-        """
-        owner_change_checks = {}
-
-        # can only accept an owner change if this subrec is not independent, and the domain name has all of its zone files
-        for fqn in reorg_points:
-            fqn_reorg_points = reorg_points[fqn]
-            for reorg_point in fqn_reorg_points:
-                if reorg_point['type'] == 'owner' and not reorg_point['new'].independent:
-                    assert fqn not in owner_change_checks, 'BUG: multiple owner reorgs on {} in the same block'.format(fqn)
-                    owner_change_checks[fqn] = reorg_point['new']
-
-        # filter owner changes that occur via the domain name issuing an update---we can only accept the address change if we have all zone files for the domain
-        owner_change_checks = self.subdomains_validate_domains(owner_change_checks, self.atlasdb_path)
-
-        for fqn in reorg_points:
-            fqn_reorg_points = reorg_points[fqn]
-            for reorg_point in fqn_reorg_points:
-                reorg_point['new'].accepted = False
-
-                if reorg_point['type'] == 'sequence':
-                    # we had a conflict, and accepted an earlier undiscovered update.
-                    # no further invalidations are necessary
-                    reorg_point['new'].accepted = True
-                    self.subdomain_db.update_subdomain_entry(reorg_point['new'], cur=cursor)
-
-                elif reorg_point['type'] == 'owner':
-                    if fqn not in owner_change_checks:
-                        log.debug("Reject owner-change {}: independent of its domain".format(reorg_point['new']))
-
-                    else:
-                        reorg_point['new'].accepted = True
-                        self.subdomain_db.update_subdomain_entry(reorg_point['new'], cur=cursor)
-                        self.subdomain_history_reorg(reorg_point['new'].get_fqn(), reorg_point['new'].n + 1, False, cur=cursor)
-
-                else:
-                    raise ValueError("Unknown reorg_point type {}".format(reorg_point['type']))
-            
-
-    def subdomain_histories_find_new(self, subdomain_recs, subdomain_state):
-        """
-        Given subdomain records and current state, find the list of ones we can add to the history.
-        Returns a list of new entries we accept
-        """
-        ret = []
-        for fqn in subdomain_recs:
-            assert len(subdomain_state[fqn]) == len(subdomain_recs[fqn]), 'BUG: len(subdomain state) != len(subdomain recs)'
-
-            for subr, subr_state in zip(subdomain_recs[fqn], subdomain_state[fqn]):
-                if subr_state['current'] and self.check_subdomain_transition(subr_state['current'], subr):
-                    # Possibility 1: this is the next subdomain entry in this subdomain's history
-                    log.debug("Found transition {}".format(subr))
-                    subr.accepted = True
-                    ret.append(subr)
-
-                elif self.check_initial_subdomain(subr):
-                    # Possibility 2: this is new
-                    log.debug("Found new {}".format(subr))
-                    subr.accepted = True
-                    ret.append(subr)
-
-                else:
-                    # neither new nor a valid state transition
-                    subr.accepted = False
-                    ret.append(subr)
-
-        return ret
-
-
-    def subdomain_histories_process_new(self, cursor, new_subdomain_records):
-        """
-        Accept new subdomain state (creations and updates).
-        Write all entries, but only include ones for which the domain name has the full state.
-        """
-        # find valid, new subdomains that we're creating for which we have the full history
-        new_subrecs = dict([(subr.fqn, subr) for subr in filter(lambda x: x.n == 0 and not x.independent, new_subdomain_records)])
-        new_subrecs = self.subdomains_validate_domains(new_subrecs, self.atlasdb_path)
-
-        # everyone else
-        append_subrecs = dict([(subr.fqn, subr) for subr in filter(lambda x: x.get_fqn() not in new_subrecs, new_subdomain_records)])
-        
-        db_query_execute(cursor, 'BEGIN', ())
-        
-        for fqn in new_subrecs:
-            if new_subrecs[fqn].accepted:
-                log.debug("Accept new {}".format(new_subrecs[fqn]))
+        for i in range(1, len(fut)):
+            if self.check_subdomain_transition(fut[last_accepted], fut[i]):
+                log.debug("Accept future update {}".format(fut[i]))
+                fut[i].accepted = True
+                last_accepted = i
             else:
-                log.debug("Reject new {}".format(new_subrecs[fqn]))
+                log.debug("Reject future update {}".format(fut[i]))
+                fut[i].accepted = False
 
-            self.subdomain_db.add_subdomain_entry(new_subrecs[fqn], cur=cursor)
-
-        for fqn in append_subrecs:
-            if append_subrecs[fqn].accepted:
-                log.debug('Accept update {}'.format(append_subrecs[fqn]))
-            else:
-                log.debug("Reject update {}".format(append_subrecs[fqn]))
-
-            self.subdomain_db.update_subdomain_entry(append_subrecs[fqn], cur=cursor)
-
-        db_query_execute(cursor, 'END', ())
-
-
+        return fut
+        
+    
     def process_subdomains(self, zonefile_subdomain_info):
         """
         Takes the output of find_zonefile_subdomains, and processes the sequence of subdomain operations.
@@ -821,48 +646,61 @@ class SubdomainIndex(object):
 
         WARNING: NOT THREAD SAFE.  DO NOT CALL FROM MULTIPLE THREADS
         """
-        # The arrival of a zone file can reorganize the history for a subdomain.
-        subdomain_recs_list = []    # list of maps from fqn to list of new subdomain records (given in blockchain order).  List items are per-zonefile.
-        subdomain_histories = {}    # map fqn to exisitng histories
-        merged_histories = {}       # map fqn to its new history
-        initial_subdomains = {}     # map fqn to its initial subdomain entry
-
-        new_subdomain_history = {}  # map fqn to new subdomain history to insert
-        subdomain_tips = {}         # map fqn to its history tips
-        reorg_points = {}           # map fqn to [{'current': what's there now, 'new': what should be there}]
-
-        for subinfo in zonefile_subdomain_info:
-            subdomain_recs = {}
-            if subinfo['subdomains'] is None:
-                # no subdomain info for this zone file
-                continue
-           
-            for subrec in subinfo['subdomains']:
-                if subrec.get_fqn() not in subdomain_recs:
-                    subdomain_recs[subrec.get_fqn()] = []
-
-                subdomain_recs[subrec.get_fqn()].append(subrec)
-
-            subdomain_recs_list.append(subdomain_recs)
 
         cursor = self.subdomain_db.cursor()
-        for subdomain_recs in subdomain_recs_list:
-            # begin transaction 
+        db_query_execute(cursor, 'BEGIN', ())
+
+        # no matter what we do, store everything.
+        # but, don't accept it yet.
+        for subinfo in zonefile_subdomain_info:
+            if subinfo['subdomains'] is None:
+                continue
+
+            for subrec in subinfo['subdomains']:
+                subrec.accepted = False
+                log.debug("Store {}".format(subrec))
+                self.subdomain_db.update_subdomain_entry(subrec, cur=cursor)
+
+        db_query_execute(cursor, 'END', ())
+        
+        # at each zone file, find out if its subdomain creates/updates are valid
+        for subinfo in zonefile_subdomain_info:
+
+            zfhash = subinfo['zonefile_hash']
+            zfindex = subinfo['inv_index']
+
+            log.debug("Process subdomain records in zonefile {} ({})".format(subinfo['zonefile_hash'], subinfo['inv_index']))
+
+            new_subdomain_recs = {}
+
+            # get the set of subdomain records created by this zonefile
+            if subinfo['subdomains']:
+                for subrec in subinfo['subdomains']:
+                    assert subrec.get_fqn() not in new_subdomain_recs, 'BUG: duplicate subdomain record for "{}" in {}'.format(subrec.get_fqn(), zfhash)
+                    new_subdomain_recs[subrec.get_fqn()] = subrec
+            
             db_query_execute(cursor, 'BEGIN', ())
-           
-            # find out the state of the subdomain at and just before these subdomain records were discovered.
-            # search for reorgs, and process them.
-            subdomain_state = self.get_subdomain_state(cursor, subdomain_recs)
-            reorg_points = self.subdomain_histories_find_reorgs(subdomain_recs, subdomain_state)
-            self.subdomain_histories_process_reorgs(cursor, reorg_points)
 
-            # now see which subdomains we can accept
-            reorged_subdomain_state = self.get_subdomain_state(cursor, subdomain_recs)
+            for fqn in new_subdomain_recs:
+                new_hist = self.make_new_subdomain_history(cursor, new_subdomain_recs[fqn])
+                for subrec in new_hist:
+                    self.subdomain_db.update_subdomain_entry(subrec, cur=cursor)
+
+                last_accepted = None
+                for h in reversed(new_hist):
+                    if h.accepted:
+                        last_accepted = h
+                        break
+
+                if last_accepted:
+                    new_fut = self.make_new_subdomain_future(cursor, last_accepted)
+                else:
+                    new_fut = []
+
+                for subrec in new_fut:
+                    self.subdomain_db.update_subdomain_entry(subrec, cur=cursor)
+
             db_query_execute(cursor, 'END', ())
-
-            # append new state
-            new_subrecs = self.subdomain_histories_find_new(subdomain_recs, reorged_subdomain_state)
-            self.subdomain_histories_process_new(cursor, new_subrecs)
         
     
     def enqueue_zonefile(self, zonefile_hash, block_height):
@@ -876,7 +714,7 @@ class SubdomainIndex(object):
         * rpc_put_zonefiles() 
         """
         log.debug("Append {} from {}".format(zonefile_hash, block_height))
-        queuedb_append(self.subdomain_db_path, "zonefiles", zonefile_hash, json.dumps({'zonefile_hash': zonefile_hash, 'block_height': block_height}))
+        queuedb_append(self.subdomain_db_path + '.queue', "zonefiles", zonefile_hash, json.dumps({'zonefile_hash': zonefile_hash, 'block_height': block_height}))
          
 
     def index_blockchain(self, block_start, block_end):
@@ -896,7 +734,6 @@ class SubdomainIndex(object):
         Go through the list of zone files we discovered via Atlas, grouped by name and ordered by block height.
         Find all subsequent zone files for this name, and process all subdomain operations contained within them.
         """
-        zonefile_infos = {}             # cached zone file infos
         all_queued_zfinfos = []         # contents of the queue
         subdomain_zonefile_infos = {}   # map subdomain fqn to list of zonefile info bundles, for process_subdomains
         name_blocks = {}                # map domain name to the block at which we should reprocess its subsequent zone files
@@ -904,7 +741,7 @@ class SubdomainIndex(object):
         offset = 0
 
         while True:
-            queued_zfinfos = queuedb_findall(self.subdomain_db_path, "zonefiles", limit=100, offset=offset)
+            queued_zfinfos = queuedb_findall(self.subdomain_db_path + '.queue', "zonefiles", limit=100, offset=offset)
             if len(queued_zfinfos) == 0:
                 # done!
                 break
@@ -920,16 +757,11 @@ class SubdomainIndex(object):
             zonefile_hash = zfinfo['zonefile_hash']
             block_height = zfinfo['block_height']
 
-            if zonefile_hash not in zonefile_infos:
-                # find out the names that sent this zone file at this block
-                zfinfos = atlasdb_get_zonefiles_by_hash(zonefile_hash, block_height=block_height, path=self.atlasdb_path)
-                if zfinfos is None:
-                    log.warn("Absent zonefile {}".format(zonefile_hash))
-                    continue
-                
-                zonefile_infos[zonefile_hash] = zfinfos
-            else:
-                zfinfos = zonefile_infos[zonefile_hash]
+            # find out the names that sent this zone file at this block
+            zfinfos = atlasdb_get_zonefiles_by_hash(zonefile_hash, block_height=block_height, path=self.atlasdb_path)
+            if zfinfos is None:
+                log.warn("Absent zonefile {}".format(zonefile_hash))
+                continue
             
             # find out for each name block height at which its zone file was discovered.
             # this is where we'll begin looking for more subdomain updates.
@@ -945,7 +777,7 @@ class SubdomainIndex(object):
 
             log.debug("Finding subdomain updates for {} at block {}".format(name, name_blocks[name]))
             
-            # get the subdomains affected at this block
+            # get the subdomains affected at this block by finding the zonefiles created here.
             res = self.find_zonefile_subdomains(name_blocks[name], lastblock, name=name)
             zonefile_subdomain_info = res['zonefile_info']
             subdomain_index = res['subdomains']
@@ -960,10 +792,12 @@ class SubdomainIndex(object):
             
         for fqn in subdomain_zonefile_infos:
             log.debug("Processing {} subdomain update(s) found for {}".format(len(subdomain_zonefile_infos[fqn]), fqn))
+
+            subdomain_zonefile_infos[fqn].sort(cmp=lambda z1, z2: -1 if z1['block_height'] < z2['block_height'] else 0 if z1['block_height'] == z2['block_height'] else 1)
             self.process_subdomains(subdomain_zonefile_infos[fqn])
 
         # clear queue 
-        queuedb_removeall(self.subdomain_db_path, all_queued_zfinfos)
+        queuedb_removeall(self.subdomain_db_path + '.queue', all_queued_zfinfos)
         return True
 
 
@@ -1020,6 +854,7 @@ class SubdomainDB(object):
     def __init__(self, db_path, zonefiles_dir):
         self.db_path = db_path
         self.subdomain_table = "subdomain_records"
+        self.blocked_table = "blocked_table"
         self.zonefiles_dir = zonefiles_dir
         self.conn = sqlite3.connect(db_path, isolation_level=None, timeout=2**30)
         self.conn.row_factory = SubdomainDB.subdomain_row_factory
@@ -1045,7 +880,7 @@ class SubdomainDB(object):
         return self.conn.cursor()
 
     
-    def _extract_subdomain(self, fqn, rowdata):
+    def _extract_subdomain(self, rowdata):
         """
         Extract a single subdomain from a DB cursor
         Raise SubdomainNotFound if there are no valid rows
@@ -1060,6 +895,7 @@ class SubdomainDB(object):
         parent_zonefile_hash = str(rowdata['parent_zonefile_hash'])
         parent_zonefile_index = int(rowdata['parent_zonefile_index'])
         txid = str(rowdata['txid'])
+        missing = [int(i) for i in rowdata['missing'].split(',')] if rowdata['missing'] is not None and len(rowdata['missing']) > 0 else []
         accepted = int(rowdata['accepted'])
 
         if accepted == 0:
@@ -1079,18 +915,18 @@ class SubdomainDB(object):
 
         zonefile_str = get_atlas_zonefile_data(zonefile_hash, self.zonefiles_dir)
         if zonefile_str is None:
-            log.error("No zone file for {}".format(fqn))
-            raise SubdomainNotFound('{}: missing zone file {}'.format(fqn, zonefile_hash))
+            log.error("No zone file for {}".format(name))
+            raise SubdomainNotFound('{}: missing zone file {}'.format(name, zonefile_hash))
 
-        return Subdomain(str(fqn), str(domain), str(encoded_pubkey), int(n), str(zonefile_str), sig, block_height, parent_zonefile_hash, parent_zonefile_index, txid, accepted=accepted)
+        return Subdomain(str(name), str(domain), str(encoded_pubkey), int(n), str(zonefile_str), sig, block_height, parent_zonefile_hash, parent_zonefile_index, txid, domain_zonefiles_missing=missing, accepted=accepted)
 
 
-    def get_subdomain_entry(self, fqn, cur=None):
+    def get_subdomain_entry(self, fqn, accepted=True, cur=None):
         """
         Given a fully-qualified subdomain, get its (latest) subdomain record.
         Raises SubdomainNotFound if there is no such subdomain
         """
-        get_cmd = "SELECT * FROM {} WHERE fully_qualified_subdomain=? AND accepted=1 ORDER BY sequence DESC LIMIT 1;".format(self.subdomain_table)
+        get_cmd = "SELECT * FROM {} WHERE fully_qualified_subdomain=? {} ORDER BY sequence DESC, parent_zonefile_index DESC LIMIT 1;".format(self.subdomain_table, 'AND accepted=1' if accepted else '')
         cursor = None
         if cur is None:
             cursor = self.conn.cursor()
@@ -1105,15 +941,18 @@ class SubdomainDB(object):
         except Exception as e:
             raise SubdomainNotFound(fqn)
 
-        return self._extract_subdomain(fqn, rowdata)
+        return self._extract_subdomain(rowdata)
 
     
-    def get_subdomain_entry_at_sequence(self, fqn, sequence, cur=None):
+    def get_subdomain_entry_at_sequence(self, fqn, sequence, include_unaccepted=False, cur=None):
         """
         Given a fully-qualified subdomain and a sequence number, get its historic subdomain record at that sequence.
         Raises SubdomainNotFound if there is no such subdomain
         """
-        get_cmd = "SELECT * FROM {} WHERE fully_qualified_subdomain=? AND sequence = ? AND accepted=1;".format(self.subdomain_table)
+        get_cmd = "SELECT * FROM {} WHERE fully_qualified_subdomain=? AND sequence = ?".format(self.subdomain_table)
+        if not include_unaccepted:
+            get_cmd += " AND accepted=1"
+
         cursor = None
         if cur is None:
             cursor = self.conn.cursor()
@@ -1128,33 +967,30 @@ class SubdomainDB(object):
         except Exception as e:
             raise SubdomainNotFound(fqn)
 
-        return self._extract_subdomain(fqn, rowdata)
+        return self._extract_subdomain(rowdata)
 
-
-    def get_subdomain_entry_before(self, fqn, parent_zonefile_index, cur=None):
+    
+    def get_subdomain_entry_at_zonefile_index(self, fqn, zonefile_index, cur=None):
         """
-        Given a fully-qualified subdoman name and a zonefile index, get the
-        subdomain entry that was processed just before the index.
+        Given a fully-qualified subdomain and a sequence number, get its historic subdomain record at that sequence.
         Raises SubdomainNotFound if there is no such subdomain
         """
-        get_cmd = 'SELECT * FROM {} WHERE fully_qualified_subdomain=? AND parent_zonefile_index < ? AND accepted=1 ORDER BY parent_zonefile_index DESC LIMIT 1;'.format(self.subdomain_table)
+        get_cmd = "SELECT * FROM {} WHERE fully_qualified_subdomain=? AND parent_zonefile_index=?".format(self.subdomain_table)
         cursor = None
         if cur is None:
             cursor = self.conn.cursor()
         else:
             cursor = cur
 
-        db_query_execute(cursor, get_cmd, (fqn,zonefile_index,))
+        db_query_execute(cursor, get_cmd, (fqn,zonefile_index))
 
         try:
             rowdata = cursor.fetchone()
             assert rowdata
         except Exception as e:
-            log.exception(e)
-            log.error("Failed to fetch data for {}".format(fqn))
             raise SubdomainNotFound(fqn)
 
-        return self._extract_subdomain(fqn, rowdata)
+        return self._extract_subdomain(rowdata)
 
 
     def get_subdomains_owned_by_address(self, owner, cur=None):
@@ -1269,7 +1105,7 @@ class SubdomainDB(object):
         return self.get_subdomain_entry(subdomain_name, cur=cur)
 
 
-    def get_subdomain_history(self, fqn, start_zonefile_index=None, include_unaccepted=False, offset=None, count=None, cur=None):
+    def get_subdomain_history(self, fqn, start_sequence=None, end_sequence=None, start_zonefile_index=None, end_zonefile_index=None, include_unaccepted=False, offset=None, count=None, cur=None):
         """
         Get the subdomain's history over a block range.
         By default, only include accepted history items (but set include_unaccepted=True to get them all)
@@ -1277,14 +1113,26 @@ class SubdomainDB(object):
 
         Returns the list of subdomains in order by sequnce number, and then by parent zonefile index 
         """
-        sql = 'SELECT * FROM {} WHERE fully_qualified_subdomain = ? {} {} ORDER BY parent_zonefile_index ASC'.format(
+        sql = 'SELECT * FROM {} WHERE fully_qualified_subdomain = ? {} {} {} {} {} ORDER BY parent_zonefile_index ASC'.format(
                 self.subdomain_table,
                 'AND accepted=1' if not include_unaccepted else '',
-                'AND parent_zonefile_index >= ?' if start_zonefile_index else '')
+                'AND parent_zonefile_index >= ?' if start_zonefile_index is not None else '',
+                'AND parent_zonefile_index < ?' if end_zonefile_index is not None else '',
+                'AND sequence >= ?' if start_sequence is not None else '',
+                'AND sequence < ?' if end_sequence is not None else '')
 
         args = (fqn,)
-        if start_zonefile_index:
+        if start_zonefile_index is not None:
+            args += (start_zonefile_index,)
+
+        if end_zonefile_index is not None:
+            args += (end_zonefile_index,)
+
+        if start_sequence is not None:
             args += (start_sequence,)
+
+        if end_sequence is not None:
+            args += (end_sequence,)
         
         if offset is not None:
             sql += ' OFFSET ?'
@@ -1306,7 +1154,7 @@ class SubdomainDB(object):
         rows = []
         for rowdata in rowcursor:
             # want subdomain rec
-            subrec = self._extract_subdomain(fqn, rowdata)
+            subrec = self._extract_subdomain(rowdata)
             rows.append(subrec)
         
         return rows
@@ -1328,10 +1176,12 @@ class SubdomainDB(object):
         if not rc:
             raise Exception("Failed to store zone file {} from {}".format(zonefile_hash, subdomain_obj.get_fqn()))
         
-        write_cmd = 'INSERT OR REPLACE INTO {} VALUES (?,?,?,?,?,?,?,?,?,?,?)'.format(self.subdomain_table)
+        write_cmd = 'INSERT OR REPLACE INTO {} VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'.format(self.subdomain_table)
         args = (subdomain_obj.get_fqn(), subdomain_obj.domain, subdomain_obj.n, subdomain_obj.address, zonefile_hash,
                 subdomain_obj.sig, subdomain_obj.block_height, subdomain_obj.parent_zonefile_hash,
-                subdomain_obj.parent_zonefile_index, subdomain_obj.txid, 1 if subdomain_obj.accepted else 0)
+                subdomain_obj.parent_zonefile_index, subdomain_obj.txid, 
+                ','.join(str(i) for i in subdomain_obj.domain_zonefiles_missing),
+                1 if subdomain_obj.accepted else 0)
 
         cursor = None
         if cur is None:
@@ -1352,68 +1202,36 @@ class SubdomainDB(object):
         return True
 
 
-    def subdomain_history_reorg(self, fqn, sequence, accept_state, cur=None):
+    def subdomain_check_pending(self, subrec, atlasdb_path, cur=None):
         """
-        For all subdomain entries for the given fqn, set the acceptance state 
-        for each entry after the given sequence number
+        Determine whether or not a subdomain record's domain is missing zone files
+        (besides the ones we expect) that could invalidate its history.
         """
-        cmd = 'UPDATE {} SET accept = ? WHERE fully_qualified_subdomain = ? AND sequence >= ?;'.format(self.subdomain_table)
-        args = (1 if accept_state else 0, fqn, sequence)
+        domain = subrec.domain
+        sql = 'SELECT missing FROM {} WHERE domain = ? ORDER BY parent_zonefile_index DESC LIMIT 1;'.format(self.subdomain_table)
+        args = (domain,)
 
         cursor = None
         if cur is None:
             cursor = self.conn.cursor()
         else:
-            cursor = cur
+            cursor= cur
 
-        db_query_execute(cursor, cmd, args)
-        return True
+        rows = db_query_execute(cursor, sql, args)
+        missing_str = ""
+        try:
+            rowdata = rows.fetchone()
+            assert rowdata
+            missing_str = rowdata['missing']
+        except:
+            pass
 
+        known_missing = [int(i) for i in missing_str.split(',')]
+        num_missing = atlasdb_get_zonefiles_missing_count_by_name(domain, indexes_exclude=known_missing, path=atlasdb_path)
+        if num_missing > 0:
+            log.debug("Subdomain is missing {} zone files: {}".format(num_missing, subrec))
 
-    def add_subdomain_entry(self, subdomain_obj, cur=None):
-        """
-        Append new subdomain state for this fully-qualified name.
-        Does NOT verify the signature; assumes that it is vald.
-        Does not care whether or not this subdomain is yet accepted.
-
-        Return True on success
-        Raise an exception on failure
-        """
-       
-        # sanity checks
-        assert isinstance(subdomain_obj, Subdomain)
-        fqn = subdomain_obj.get_fqn()
-        is_subdomain, subdomain_name, domain_name = is_address_subdomain(fqn)
-        if not is_subdomain:
-            raise ValueError("Must give fully qualified name: given: {}".format(fqn))
-        
-        zonefile_hash = get_zonefile_data_hash(subdomain_obj.zonefile_str)
-        rc = store_atlas_zonefile_data(subdomain_obj.zonefile_str, self.zonefiles_dir)
-        if not rc:
-            raise Exception("Failed to store zone file {} from {}".format(zonefile_hash, subdomain_obj.get_fqn()))
-        
-        write_cmd = 'INSERT INTO {} VALUES (?,?,?,?,?,?,?,?,?,?,?)'.format(self.subdomain_table)
-        args = (subdomain_obj.get_fqn(), subdomain_obj.domain, subdomain_obj.n, subdomain_obj.address, zonefile_hash,
-                subdomain_obj.sig, subdomain_obj.block_height, subdomain_obj.parent_zonefile_hash,
-                subdomain_obj.parent_zonefile_index, subdomain_obj.txid, 1 if subdomain_obj.accepted else 0)
-
-        cursor = None
-        if cur is None:
-            cursor = self.conn.cursor()
-        else:
-            cursor = cur
-
-        db_query_execute(cursor, write_cmd, args)
-        num_rows_written = cursor.rowcount
-        
-        if cur is None:
-            # not part of a transaction
-            self.conn.commit()
-
-        if num_rows_written != 1:
-            raise ValueError("No row written: fqn={} seq={}".format(fqn, subdomain_obj.n))
-
-        return True
+        return num_missing > 0
 
 
     def _drop_tables(self):
@@ -1421,7 +1239,7 @@ class SubdomainDB(object):
         Clear the subdomain db's tables
         """
         drop_cmd = "DROP TABLE IF EXISTS {};"
-        for table in [self.subdomain_table, 'queue']:
+        for table in [self.subdomain_table, self.blocked_table]:
             cursor = self.conn.cursor()
             db_query_execute(cursor, drop_cmd.format(table), ())
 
@@ -1430,8 +1248,10 @@ class SubdomainDB(object):
         """
         Set up the subdomain db's tables
         """
+        cursor = self.conn.cursor()
+
         create_cmd = """CREATE TABLE IF NOT EXISTS {} (
-        fully_qualified_subdomain TEXT,
+        fully_qualified_subdomain TEXT NOT NULL,
         domain TEXT NOT NULL,
         sequence INTEGER NOT NULL,
         owner TEXT NOT NULL,
@@ -1441,14 +1261,13 @@ class SubdomainDB(object):
         parent_zonefile_hash TEXT NOT NULL,
         parent_zonefile_index INTEGER UNIQUE NOT NULL,
         txid TEXT PRIMARY KEY,
+        missing TEXT NOT NULL,
         accepted INTEGER NOT NULL);
         """.format(self.subdomain_table)
-
-        cursor = self.conn.cursor()
         db_query_execute(cursor, create_cmd, ())
 
         # set up a queue as well
-        queue_con = queuedb_open(self.db_path)
+        queue_con = queuedb_open(self.db_path + '.queue')
         queue_con.close()
 
 
@@ -1493,39 +1312,55 @@ def decode_zonefile_subdomains(domain, zonefile_txt, block_height, zonefile_inde
 
             raise ValueError("Not a user zone file")
 
-        assert zonefile_json['$origin'] == domain, 'Zonefile does not contain $ORIGIN == {}'.format(domain)
+        assert zonefile_json['$origin'] == domain, 'Zonefile does not contain $ORIGIN == {} (but has {} instead)'.format(domain, zonefile_json['$origin'])
 
         subdomains = {}     # map fully-qualified name to subdomain record with lowest sequence number
         subdomain_pos = {}  # map fully-qualified name to position in zone file
+        domain_zonefiles_missing = None   # list of zone files declared missing by this domain
 
         if "txt" in zonefile_json:
             for i, txt in enumerate(zonefile_json['txt']):
-                if not is_subdomain_record(txt):
-                    continue
+                if is_subdomain_missing_zonefiles_record(txt):
+                    if domain_zonefiles_missing is not None:
+                        raise ValueError("Invalid zone file: multiple RRs for {}".format(SUBDOMAIN_TXT_RR_MISSING))
 
-                try:
-                    subrec = Subdomain.parse_subdomain_record(domain, txt, block_height, zonefile_hash, zonefile_index, txid)
-                except ParseError as pe:
-                    if BLOCKSTACK_DEBUG:
-                        log.exception(pe)
+                    try:
+                        domain_zonefiles_missing = Subdomain.parse_subdomain_missing_zonefiles_record(txt)
+                    except ParseError as pe:
+                        if BLOCKSTACK_DEBUG:
+                            log.exception(pe)
 
-                    log.warn("Invalid subdomain record at position {}".format(i))
-                    continue
+                        log.warn("Invalid missing-zonefiles vector at position {}".format(i))
+                        continue
 
-                if subrec.get_fqn() in subdomains:
-                    if subrec.n < subdomains[subrec.get_fqn()].n:
-                        # replace
-                        subdomains[subrec.get_fqn()] = subrec
-                        subdomain_pos[subrec.get_fqn()] = i
+            if domain_zonefiles_missing is None:
+                domain_zonefiles_missing = []
+
+            for i, txt in enumerate(zonefile_json['txt']):
+                if is_subdomain_record(txt):
+                    try:
+                        subrec = Subdomain.parse_subdomain_record(domain, txt, block_height, zonefile_hash, zonefile_index, txid, domain_zonefiles_missing)
+                    except ParseError as pe:
+                        if BLOCKSTACK_DEBUG:
+                            log.exception(pe)
+
+                        log.warn("Invalid subdomain record at position {}".format(i))
+                        continue
+
+                    if subrec.get_fqn() in subdomains:
+                        if subrec.n < subdomains[subrec.get_fqn()].n:
+                            # replace
+                            subdomains[subrec.get_fqn()] = subrec
+                            subdomain_pos[subrec.get_fqn()] = i
+
+                        else:
+                            log.warn("Ignoring subdomain record '{}' with higher sequence".format(subrec.get_fqn()))
 
                     else:
-                        log.warn("Ignoring subdomain record '{}' with higher sequence".format(subrec.get_fqn()))
-
-                else:
-                    # new
-                    subdomains[subrec.get_fqn()] = subrec
-                    subdomain_pos[subrec.get_fqn()] = i
-        
+                        # new
+                        subdomains[subrec.get_fqn()] = subrec
+                        subdomain_pos[subrec.get_fqn()] = i
+       
         subdomain_list = [subdomains[fqn] for fqn in subdomains]
         subdomain_list.sort(cmp=lambda subrec1, subrec2: -1 if subdomain_pos[subrec1.get_fqn()] < subdomain_pos[subrec2.get_fqn()] else 0 if subdomain_pos[subrec1.get_fqn()] == subdomain_pos[subrec2.get_fqn()] else 1)
         return subdomain_list
@@ -1635,9 +1470,32 @@ def txt_encode_key_value(key, value):
     return "{}={}".format(key, value.replace("=", "\\="))
 
 
+def is_subdomain_missing_zonefiles_record(rec):
+    """
+    Does a given parsed zone file TXT record encode a missing-zonefile vector?
+    Return True if so
+    Return False if not
+    """
+    if rec['name'] != SUBDOMAIN_TXT_RR_MISSING:
+        return False
+
+    txt_entry = rec['txt']
+    if isinstance(txt_entry, list):
+        return False
+
+    missing = txt_entry.split(',')
+    try:
+        for m in missing:
+            m = int(m)
+    except ValueError:
+        return False
+
+    return True
+
+
 def is_subdomain_record(rec):
     """
-    Does a given parsed zone file (@rec) encode a subdomain?
+    Does a given parsed zone file TXT record (@rec) encode a subdomain?
     Return True if so
     Return False if not
     """
@@ -1659,7 +1517,7 @@ def is_subdomain_record(rec):
     return (has_parts_entry and has_pk_entry and has_seqn_entry)
 
 
-def get_subdomain_info(fqn, db_path=None, zonefiles_dir=None):
+def get_subdomain_info(fqn, db_path=None, atlasdb_path=None, zonefiles_dir=None, check_pending=False):
     """
     Static method for getting the state of a subdomain, given its fully-qualified name
     """
@@ -1673,8 +1531,18 @@ def get_subdomain_info(fqn, db_path=None, zonefiles_dir=None):
     if zonefiles_dir is None:
         zonefiles_dir = opts['zonefiles']
 
+    if atlasdb_path is None:
+        atlasdb_path = opts['atlasdb_path']
+
     db = SubdomainDB(db_path, zonefiles_dir)
-    return db.get_subdomain_entry(fqn)
+    subrec = db.get_subdomain_entry(fqn)
+    if check_pending:
+        # make sure that all of the zone files between this subdomain's
+        # domain's creation and this subdomain's zone file index are present,
+        # minus the ones that are allowed to be missing.
+        subrec.pending = db.subdomain_check_pending(subrec, atlasdb_path)
+
+    return subrec
 
 
 def get_subdomain_history(fqn, db_path=None, zonefiles_dir=None, json=False):
@@ -1828,7 +1696,7 @@ if __name__ == "__main__":
     singlesig_addr = virtualchain.get_privkey_address(singlesig)
     multisig = bitcoin_blockchain.multisig.make_multisig_wallet(2,3)
 
-    zf_template = "$ORIGIN {}\n$TTL 3600\n{}"
+    zf_template = "$ORIGIN {}\n$TTL 3600\n_missing TXT \"1,2,3\"\n{}"
     zf_default_url = '_https._tcp URI 10 1 "https://raw.githubusercontent.com/nobody/content/profile.md"'
 
     print "----\nsinglesig\n----"
@@ -1850,6 +1718,7 @@ if __name__ == "__main__":
     assert subd.block_height == 1234
     assert subd.parent_zonefile_index == 5678
     assert subd.txid == '185c112401590b11acdfea6bb26d2a8e37cb31f24a0c89dbb8cc14b3d6271fb1'
+    assert subd.domain_zonefiles_missing == [1,2,3]
 
     assert subdomain_txt == subd.serialize_to_txt()
 
@@ -1875,6 +1744,7 @@ if __name__ == "__main__":
     assert subd.block_height == 1234
     assert subd.parent_zonefile_index == 5678
     assert subd.txid == '185c112401590b11acdfea6bb26d2a8e37cb31f24a0c89dbb8cc14b3d6271fb1'
+    assert subd.domain_zonefiles_missing == [1,2,3]
 
     assert subdomain_txt == subd.serialize_to_txt()
 
@@ -1901,6 +1771,7 @@ if __name__ == "__main__":
     assert subd.block_height == 1234
     assert subd.parent_zonefile_index == 5678
     assert subd.txid == '185c112401590b11acdfea6bb26d2a8e37cb31f24a0c89dbb8cc14b3d6271fb1'
+    assert subd.domain_zonefiles_missing == [1,2,3]
 
     assert subdomain_txt == subd.serialize_to_txt()
 
@@ -1927,6 +1798,7 @@ if __name__ == "__main__":
     assert subd.block_height == 1234
     assert subd.parent_zonefile_index == 5678
     assert subd.txid == '185c112401590b11acdfea6bb26d2a8e37cb31f24a0c89dbb8cc14b3d6271fb1'
+    assert subd.domain_zonefiles_missing == [1,2,3]
 
     assert subdomain_txt == subd.serialize_to_txt()
 
@@ -1955,6 +1827,7 @@ if __name__ == "__main__":
         assert subd.block_height == 1234
         assert subd.parent_zonefile_index == 5678
         assert subd.txid == '185c112401590b11acdfea6bb26d2a8e37cb31f24a0c89dbb8cc14b3d6271fb1'
+        assert subd.domain_zonefiles_missing == [1,2,3]
 
         assert txt == subd.serialize_to_txt(), 'mismatch\n{}\n{}'.format(txt, subd.serialize_to_txt())
 
