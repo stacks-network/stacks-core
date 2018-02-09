@@ -56,7 +56,7 @@ log = virtualchain.get_logger("blockstack-server")
 from .config import *
 from .storage import *
 
-MIN_ATLAS_VERSION = "0.17.0"
+MIN_ATLAS_VERSION = "0.18.0"
 
 PEER_LIFETIME_INTERVAL = 3600  # 1 hour
 PEER_PING_INTERVAL = 600       # 10 minutes
@@ -1306,7 +1306,7 @@ def atlasdb_init( path, zonefile_dir, db, peer_seeds, peer_blacklist, validate=F
         con = sqlite3.connect( path, isolation_level=None )
 
         for line in lines:
-            con.execute(line)
+            db_query_execute(con, line, ())
 
         con.row_factory = atlasdb_row_factory
 
@@ -1638,8 +1638,7 @@ def atlas_peer_getinfo( peer_hostport, timeout=None, peer_table=None ):
         res = blockstack_getinfo( proxy=rpc )
         if 'error' in res:
             log.error("Failed to getinfo on %s: %s" % (peer_hostport, res['error']))
-            res = None
-                
+
     except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
         atlas_log_socket_error( "getinfo(%s)" % peer_hostport, peer_hostport, se )
 
@@ -1650,15 +1649,23 @@ def atlas_peer_getinfo( peer_hostport, timeout=None, peer_table=None ):
     except Exception, e:
         log.exception(e)
         log.error("Failed to get response from %s" % peer_hostport)
+  
+    if res is not None:
+        err = False
+        if json_is_error(res):
+            log.error("Failed to contact {}: replied error '{}'".format(peer_hostport, res['error']))
+            err = True
     
-    if json_is_error(res):
-        log.error("Failed to contact {}: replied error '{}'".format(peer_hostport, res['error']))
-        res = None
-    
-    if 'stale' in res and res['stale']:
-        # peer is behind the chain tip
-        log.warning("Peer {} reports that it is too far behind the chain tip.  Ignoring for now.".format(peer_hostport))
-        res = None
+        if 'stale' in res and res['stale']:
+            # peer is behind the chain tip
+            log.warning("Peer {} reports that it is too far behind the chain tip.  Ignoring for now.".format(peer_hostport))
+            err = True
+
+        if err:
+            res = None
+
+    else:
+        log.error("Failed to contact {}: no response".format(peer_hostport))
 
     # update health
     with AtlasPeerTableLocked(peer_table) as ptbl:
@@ -3260,7 +3267,7 @@ class AtlasZonefileCrawler( threading.Thread ):
                     log.warn("%s: Unsolicited zonefile %s" % (self.hostport, fetched_zfhash))
                     continue
 
-                rc = self.store_zonefile_data( fetched_zfhash, zonefile_txt, min(zonefile_block_heights[fetched_zfdata]), peer_hostport, dbcon, path )
+                rc = self.store_zonefile_data( fetched_zfhash, zonefile_txt, min(zonefile_block_heights[fetched_zfhash]), peer_hostport, dbcon, path )
                 if rc:
                     # don't ask for it again
                     ret.append( fetched_zfhash )
