@@ -423,6 +423,7 @@ class SubdomainIndex(object):
         assert is_atlas_enabled(blockstack_opts), 'Cannot start subdomain indexer since Atlas is disabled'
         
         self.subdomain_db_path = subdomain_db_path
+        self.subdomain_queue_path = self.subdomain_db_path + ".queue"
         self.subdomain_db = SubdomainDB(subdomain_db_path, blockstack_opts['zonefiles'])
         self.subdomain_db_lock = threading.Lock()
 
@@ -714,7 +715,7 @@ class SubdomainIndex(object):
         * rpc_put_zonefiles() 
         """
         log.debug("Append {} from {}".format(zonefile_hash, block_height))
-        queuedb_append(self.subdomain_db_path + '.queue', "zonefiles", zonefile_hash, json.dumps({'zonefile_hash': zonefile_hash, 'block_height': block_height}))
+        queuedb_append(self.subdomain_queue_path, "zonefiles", zonefile_hash, json.dumps({'zonefile_hash': zonefile_hash, 'block_height': block_height}))
          
 
     def index_blockchain(self, block_start, block_end):
@@ -741,7 +742,7 @@ class SubdomainIndex(object):
         offset = 0
 
         while True:
-            queued_zfinfos = queuedb_findall(self.subdomain_db_path + '.queue', "zonefiles", limit=100, offset=offset)
+            queued_zfinfos = queuedb_findall(self.subdomain_queue_path, "zonefiles", limit=100, offset=offset)
             if len(queued_zfinfos) == 0:
                 # done!
                 break
@@ -797,7 +798,7 @@ class SubdomainIndex(object):
             self.process_subdomains(subdomain_zonefile_infos[fqn])
 
         # clear queue 
-        queuedb_removeall(self.subdomain_db_path + '.queue', all_queued_zfinfos)
+        queuedb_removeall(self.subdomain_queue_path, all_queued_zfinfos)
         return True
 
 
@@ -853,6 +854,7 @@ class SubdomainDB(object):
     """
     def __init__(self, db_path, zonefiles_dir):
         self.db_path = db_path
+        self.queue_path = db_path + '.queue'
         self.subdomain_table = "subdomain_records"
         self.blocked_table = "blocked_table"
         self.zonefiles_dir = zonefiles_dir
@@ -1267,7 +1269,7 @@ class SubdomainDB(object):
         db_query_execute(cursor, create_cmd, ())
 
         # set up a queue as well
-        queue_con = queuedb_open(self.db_path + '.queue')
+        queue_con = queuedb_open(self.queue_path)
         queue_con.close()
 
 
