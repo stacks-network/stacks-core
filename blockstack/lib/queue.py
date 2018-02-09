@@ -56,7 +56,7 @@ def queuedb_create(path):
     con = sqlite3.connect( path, isolation_level=None )
 
     for line in lines:
-        con.execute(line)
+        db_query_execute(con, line, ())
 
     con.commit()
     con.row_factory = queuedb_row_factory
