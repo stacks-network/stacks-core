@@ -1468,9 +1468,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             random.shuffle(peer_list)
             peer_list = peer_list[:atlas_max_neighbors()]
 
+        log.debug("Enqueue remote peer {}:{}".format(peer_host, peer_port))
         atlas_peer_enqueue( "%s:%s" % (peer_host, peer_port))
 
-        log.debug("Live peers to %s:%s: %s" % (peer_host, peer_port, peer_list))
+        log.debug("Live peers reply to %s:%s: %s" % (peer_host, peer_port, peer_list))
         return peer_list
 
 
@@ -1493,7 +1494,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         client_port = con_info['client_port']
 
         peers = self.peer_exchange(client_host, client_port)
-        return self.success_response( {'peers': peer_list} )
+        return self.success_response( {'peers': peer} )
 
 
     def rpc_atlas_peer_exchange(self, remote_peer, **con_info):
@@ -1583,16 +1584,16 @@ class BlockstackdRPCServer( threading.Thread, object ):
     """
     def __init__(self, working_dir, port, subdomain_index=None):
         super(BlockstackdRPCServer, self).__init__()
-        self.rpc_server = None
         self.port = port
         self.working_dir = working_dir
         self.subdomain_index = subdomain_index
+        self.rpc_server = BlockstackdRPC( self.working_dir, port=self.port, subdomain_index=self.subdomain_index )
+
 
     def run(self):
         """
         Serve until asked to stop
         """
-        self.rpc_server = BlockstackdRPC( self.working_dir, port=self.port, subdomain_index=self.subdomain_index )
         self.rpc_server.serve_forever()
 
 
