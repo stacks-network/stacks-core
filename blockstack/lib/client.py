@@ -35,7 +35,7 @@ import json
 import traceback
 import re
 from .util import url_to_host_port
-from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT
+from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT, NAME_REVOKE
 from .schemas import *
 from .scripts import is_name_valid, is_subdomain
 from .storage import verify_zonefile
@@ -761,6 +761,10 @@ def get_name_record(name, include_history=False, include_expired=True, include_g
     If include_expired is True, then a name record will be returned even if it expired
     If include_expired is False, but include_grace is True, then the name record will be returned even if it is expired and in the grace period
     """
+    if isinstance(name, (str,unicode)):
+        # coerce string
+        name = str(name)
+
     assert proxy or hostport, 'Need either proxy handle or hostport string'
     if proxy is None:
         proxy = connect_hostport(hostport)
@@ -782,7 +786,7 @@ def get_name_record(name, include_history=False, include_expired=True, include_g
 
     else:
         # invalid
-        raise ValueError("Not a valid name or subdomain")
+        raise ValueError("Not a valid name or subdomain: {}".format(name))
         
     if include_history:
         required += ['history']
