@@ -335,15 +335,24 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
                 "client_port": RPC_SERVER_PORT
             }
 
+            params_fmt = ','.join(str(p) for p in params)
+            if len(params_fmt) > 100:
+                params_fmt = params_fmt[:100] + '...'
+
             # if this is running as part of the atlas network simulator,
             # then for methods whose first argument is 'atlas_network', then
             # the second argument is always the simulated client host/port
             # (for atlas-specific methods)
             if os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION", None) == "1" and len(params) > 0 and params[0] == 'atlas_network':
-                log.debug("Reformatting '%s(%s)' as atlas network simulator call" % (method, params))
 
                 client_hostport = params[1]
                 params = params[3:]
+                params_fmt = ','.join(str(p) for p in params)
+                if len(params_fmt) > 100:
+                    params_fmt = params_fmt[:100] + '...'
+
+                log.debug("Reformatting '%s(%s)' as atlas network simulator call" % (method, params_fmt))
+
                 con_info = {}
 
                 if client_hostport is not None:
@@ -363,9 +372,9 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
 
             else:
                 if os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION", None) == "1":
-                    log.debug("Inbound RPC begin %s(%s) from %s" % ("rpc_" + str(method), params, self.client_address[0]))
+                    log.debug("Inbound RPC begin %s(%s) from %s" % ("rpc_" + str(method), params_fmt, self.client_address[0]))
                 else:
-                    log.debug("RPC %s(%s) from %s" % ("rpc_" + str(method), params, self.client_address[0]))
+                    log.debug("RPC %s(%s) from %s" % ("rpc_" + str(method), params_fmt, self.client_address[0]))
 
             res = self.server.funcs["rpc_" + str(method)](*params, **con_info)
 
@@ -376,11 +385,11 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
             ret = json.dumps(res)
 
             if os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION", None) == "1":
-                log.debug("Inbound RPC end %s(%s) from %s" % ("rpc_" + str(method), params, self.client_address[0]))
+                log.debug("Inbound RPC end %s(%s) from %s" % ("rpc_" + str(method), params_fmt, self.client_address[0]))
 
             return ret
         except Exception, e:
-            print >> sys.stderr, "\n\n%s(%s)\n%s\n\n" % ("rpc_" + str(method), params, traceback.format_exc())
+            print >> sys.stderr, "\n\n%s(%s)\n%s\n\n" % ("rpc_" + str(method), params_fmt, traceback.format_exc())
             return json.dumps(rpc_traceback())
 
 
@@ -1523,6 +1532,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         
         LOCALHOST = ['127.0.0.1', '::1', 'localhost']
         if client_host not in LOCALHOST:
+            # we don't allow a non-localhost peer to insert an arbitrary host
             peer_host = client_host
             peer_port = client_port
 
