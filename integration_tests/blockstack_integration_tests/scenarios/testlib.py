@@ -3281,7 +3281,7 @@ def check_historic_names_by_address( state_engine ):
     for address in addr_names.keys():
         for i, (name, block_id, _) in enumerate(addr_names[address]):
             did = 'did:stack:v0:{}-{}'.format(address, i)
-            name_rec = blockstack.lib.client.get_DID_blockchain_record(did, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
+            name_rec = blockstack.lib.client.get_DID_name_blockchain_record(did, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
 
             if name in revoked_names.keys() and revoked_names[name] >= block_id:
                 # name was revoked. expect failure
@@ -3600,7 +3600,7 @@ def peer_make_config( working_dir, peer_port, dirp, seed_relations={}, blacklist
 
     # copy over client config
     client_config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
-    client_conf = blockstack.lib.config.configure( config_file=client_config_path, force=False, interactive=False )
+    client_conf = blockstack_client.config.configure( config_file=client_config_path, force=False, interactive=False )
 
     for f in ['path', 'dir']:
         if f in client_conf['blockstack-client']:
