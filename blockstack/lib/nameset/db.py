@@ -191,7 +191,7 @@ def namedb_create( path ):
     con = sqlite3.connect( path, isolation_level=None, timeout=2**30 )
 
     for line in lines:
-        con.execute(line)
+        db_query_execute(con, line, ())
 
     con.row_factory = namedb_row_factory
 
@@ -282,7 +282,7 @@ def namedb_find_missing_and_extra(cur, record, table_name):
     rec_extra = []
     
     # sanity check: all fields must be defined
-    name_fields_rows = cur.execute("PRAGMA table_info(%s);" % table_name)
+    name_fields_rows = db_query_execute(cur, 'PRAGMA table_info({})'.format(table_name), ())
     name_fields = []
     for row in name_fields_rows:
         name_fields.append( row['name'] )
