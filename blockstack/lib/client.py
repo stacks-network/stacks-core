@@ -34,7 +34,7 @@ import random
 import json
 import traceback
 import re
-from .util import url_to_host_port
+from .util import url_to_host_port, url_protocol
 from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT, NAME_REVOKE
 from .schemas import *
 from .scripts import is_name_valid, is_subdomain
@@ -298,13 +298,16 @@ def connect_hostport(hostport, timeout=RPC_DEFAULT_TIMEOUT, my_hostport=None):
     Returns a BlockstackRPCClient instance
     """
     host, port = url_to_host_port(hostport)
+
     assert host is not None and port is not None
 
-    protocol = None
-    if port == RPC_SERVER_PORT or port == RPC_SERVER_TEST_PORT:
-        protocol = 'http'
-    else:
-        protocol = 'https'
+    protocol = url_protocol(hostport)
+    if protocol is None:
+        log.warning("No scheme given in {}. Guessing by port number".format(hostport))
+        if port == RPC_SERVER_PORT or port == RPC_SERVER_TEST_PORT:
+            protocol = 'http'
+        else:
+            protocol = 'https'
 
     proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport, protocol=protocol)
     return proxy
@@ -1652,3 +1655,57 @@ def get_DID_name_blockchain_record(did, proxy=None, hostport=None):
     return final_name_state
 
 
+def get_consensus_at(block_height, proxy=None, hostport=None):
+    """
+    Get consensus at a block
+    Returns the consensus hash on success
+    Returns {'error': ...} on error
+    """
+    assert proxy or hostport, 'Need either proxy or hostport'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    consensus_schema = {
+        'type': 'object',
+        'properties': {
+            'consensus': {
+                'anyOf': [
+                    {
+                        'type': 'string',
+                        'pattern': OP_CONSENSUS_HASH_PATTERN,
+                    },
+                    {
+                        'type': 'null'
+                    },
+                ],
+            },
+        },
+        'required': [
+            'consensus',
+        ],
+    }
+
+    resp_schema = json_response_schema( consensus_schema )
+    resp = {}
+    try:
+        resp = proxy.get_consensus_at(block_height)
+        resp = json_validate(resp_schema, resp)
+        if json_is_error(resp):
+            return resp
+    except (ValidationError, AssertionError) as e:
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    if resp['consensus'] is None:
+        # node hasn't processed this block 
+        return {'error': 'The node has not processed block {}'.format(block_height)}
+
+    return resp['consensus']
