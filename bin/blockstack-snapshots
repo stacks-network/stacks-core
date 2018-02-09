@@ -56,18 +56,17 @@ import random
 from ConfigParser import SafeConfigParser
 import keylib
 import shutil
-import blockstack_client
 import blockstack
 from blockstack import virtualchain_hooks
 import virtualchain
-import blockstack_client.schemas as schemas
+import blockstack.lib.schemas as schemas
 
 SNAPSHOTS_CONFIG_PATH = os.path.expanduser("~/.blockstack-snapshots/blockstack-snapshots.ini")
 
 SNAPSHOT_CHECK_INTERVAL = int(os.environ.get("BLOCKSTACK_SNAPSHOT_CHECK_INTERVAL", 60))
 running = True
 
-log = blockstack_client.get_logger("blockstack-snapshots")
+log = virtualchain.get_logger("blockstack-snapshots")
 
 class BlockstackSnapshotHandler(SimpleHTTPRequestHandler):
     """
@@ -262,7 +261,7 @@ class BlockstackSnapshotHandler(SimpleHTTPRequestHandler):
         # did any of our trusted public keys sign it?
         valid = False
         for trusted_public_key in self.server.trusted_public_keys:
-            valid = blockstack_client.verify_digest( file_hash, trusted_public_key, sigb64 )
+            valid = virtualchain.ecdsalib.verify_digest( file_hash, trusted_public_key, sigb64 )
             if valid:
                 break
 
@@ -270,7 +269,7 @@ class BlockstackSnapshotHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Invalid signature'}, status_code=403)
 
         # can sign 
-        sigb64 = blockstack_client.sign_digest( file_hash, self.server.private_key )
+        sigb64 = virtualchain.ecdsalib.sign_digest( file_hash, self.server.private_key )
         assert sigb64, "Failed to sign digest"
 
         return self._reply_json({'sigb64': sigb64})
@@ -964,7 +963,7 @@ if __name__ == '__main__':
                     sys.exit(1)
 
             # daemonize
-            res = blockstack_client.daemonize( log_file, child_wait=lambda: server_wait(snapshots_conf) )
+            res = blockstack.lib.util.daemonize( log_file, child_wait=lambda: server_wait(snapshots_conf) )
             if res < 0:
                 print >> sys.stderr, "Failed to start server"
                 sys.exit(1)
