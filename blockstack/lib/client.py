@@ -33,7 +33,7 @@ from jsonschema.exceptions import ValidationError
 import random
 import json
 import traceback
-
+import re
 from .util import url_to_host_port
 from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT
 from .schemas import *
@@ -41,6 +41,7 @@ from .scripts import is_name_valid, is_subdomain
 from .storage import verify_zonefile
 
 import virtualchain
+import keylib
 
 log = virtualchain.get_logger('blockstackd-client')
 
@@ -520,8 +521,6 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
         ],
     }
 
-    log.warning("DEPRECATED call to atlas_get_peers()")
-
     schema = json_response_schema( peers_schema )
 
     if proxy is None:
@@ -1000,7 +999,7 @@ def get_all_names_page(offset, count, include_expired=False, hostport=None, prox
         # must be valid names
         valid_names = []
         for n in resp['names']:
-            if not scripts.is_name_valid(str(n)):
+            if not is_name_valid(str(n)):
                 log.error('Invalid name "{}"'.format(str(n)))
             else:
                 valid_names.append(n)
@@ -1219,7 +1218,7 @@ def get_names_in_namespace_page(namespace_id, offset, count, proxy=None, hostpor
         # must be valid names
         valid_names = []
         for n in resp['names']:
-            if not scripts.is_name_valid(str(n)):
+            if not is_name_valid(str(n)):
                 log.error('Invalid name "{}"'.format(str(n)))
             else:
                 valid_names.append(n)
@@ -1374,7 +1373,7 @@ def get_names_owned_by_address(address, proxy=None, hostport=None):
 
         # names must be valid
         for n in resp['names']:
-            assert scripts.is_name_valid(str(n)), ('Invalid name "{}"'.format(str(n)))
+            assert is_name_valid(str(n)), ('Invalid name "{}"'.format(str(n)))
     except (ValidationError, AssertionError) as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
@@ -1504,7 +1503,7 @@ def get_historic_names_by_address_page(address, offset, count, proxy=None, hostp
 
         # names must be valid
         for n in resp['names']:
-            assert scripts.is_name_valid(str(n['name'])), ('Invalid name "{}"'.format(str(n['name'])))
+            assert is_name_valid(str(n['name'])), ('Invalid name "{}"'.format(str(n['name'])))
 
     except (ValidationError, AssertionError) as e:
         if BLOCKSTACK_DEBUG:
@@ -1601,7 +1600,7 @@ def get_DID_name_blockchain_record(did, proxy=None, hostport=None):
     name_index = int(m.groups()[1])
 
     address_vb = keylib.b58check.b58check_version_byte(address)
-    assert address_vb in SUBDOMAIN_ADDRESS_VERSION_BYTES, 'Address {} is a subdomain address'.format(address)
+    assert address_vb not in SUBDOMAIN_ADDRESS_VERSION_BYTES, 'Address {} is a subdomain address'.format(address)
 
     addr_names = get_historic_names_by_address(address, proxy=proxy, hostport=hostport)
     if json_is_error(addr_names):
