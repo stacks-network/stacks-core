@@ -280,6 +280,8 @@ def scenario( wallets, **kw ):
                 print json.dumps(res, indent=4, sort_keys=True)
                 return False
 
+    # reindex
+    assert testlib.check_subdomain_db(**kw)
 
 
 def check( state_engine ):

@@ -2328,13 +2328,17 @@ def blockstack_put_zonefile(zonefile_txt, config_path=None):
     MEANT FOR DIAGNOSTIC PURPOSS ONLY
 
     Return True on success
-    Return False on failure
+    Return False on error
     """
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
     res = test_proxy.put_zonefiles([base64.b64encode(zonefile_txt)])
+    if 'error' in res:
+        print res['error']
+        return False
+
     return res['saved'][0] == 1
 
 

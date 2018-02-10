@@ -81,11 +81,10 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo1.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=storage.get_zonefile_data_hash(zonefiles['foo1.test']))
     testlib.blockstack_name_register( "foo2.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=storage.get_zonefile_data_hash(zonefiles['foo2.test']))
     testlib.blockstack_name_register( "foo3.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=storage.get_zonefile_data_hash(zonefiles['foo3.test']))
-    testlib.blockstack_name_register( "foo3.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11')
-    testlib.blockstack_name_register( "foo4.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11')
-    testlib.blockstack_name_register( "foo5.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11')
-    testlib.blockstack_name_register( "foo6.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11')
-    testlib.blockstack_name_register( "foo7.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11')
+    testlib.blockstack_name_register( "foo4.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11' * 20)
+    testlib.blockstack_name_register( "foo5.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11' * 20)
+    testlib.blockstack_name_register( "foo6.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11' * 20)
+    testlib.blockstack_name_register( "foo7.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11' * 20)
     testlib.next_block( **kw )
     
     assert testlib.blockstack_put_zonefile(zonefiles['foo1.test'])
@@ -149,6 +148,9 @@ def scenario( wallets, **kw ):
             print 'expected\n{}'.format(expected_zonefile)
             print 'got\n{}'.format(base64.b64decode(res['zonefile']))
             return False
+
+    # reindex
+    assert testlib.check_subdomain_db(**kw)
 
 
 def check( state_engine ):

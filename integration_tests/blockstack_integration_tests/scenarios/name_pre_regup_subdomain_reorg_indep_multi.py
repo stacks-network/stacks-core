@@ -49,6 +49,8 @@ wallets = [
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 def scenario( wallets, **kw ):
+    
+    zonefile_batches = []
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -62,63 +64,58 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_preorder( "foo1.test", wallets[2].privkey, wallets[3].addr )
     testlib.blockstack_name_preorder( "foo2.test", wallets[2].privkey, wallets[3].addr )
     testlib.blockstack_name_preorder( "foo3.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_preorder( "foo4.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_preorder( "foo5.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_preorder( "foo6.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_preorder( "foo7.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
     zf_template = "$ORIGIN {}\n$TTL 3600\n{}"
     zf_default_url = '_https._tcp URI 10 1 "https://raw.githubusercontent.com/nobody/content/profile.md"'
-    zf_default_url_initial = zf_default_url
-
+    
+    # send initial subdomain zone files
     zonefiles = {
         'foo1.test': zf_template.format('foo1.test', subdomains.make_subdomain_txt('bar.foo1.test', 'foo1.test', wallets[4].addr, 0, zf_template.format('bar.foo1.test', zf_default_url), wallets[4].privkey)),
         'foo2.test': zf_template.format('foo2.test', subdomains.make_subdomain_txt('bar.foo2.test', 'foo2.test', wallets[4].addr, 0, zf_template.format('bar.foo2.test', zf_default_url), wallets[4].privkey)),
         'foo3.test': zf_template.format('foo3.test', subdomains.make_subdomain_txt('bar.foo3.test', 'foo3.test', wallets[4].addr, 0, zf_template.format('bar.foo3.test', zf_default_url), wallets[4].privkey)),
     }
-    initial_zonefiles = zonefiles
+    zonefile_batches.append(zonefiles)
 
     testlib.blockstack_name_register( "foo1.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=storage.get_zonefile_data_hash(zonefiles['foo1.test']))
     testlib.blockstack_name_register( "foo2.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=storage.get_zonefile_data_hash(zonefiles['foo2.test']))
     testlib.blockstack_name_register( "foo3.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=storage.get_zonefile_data_hash(zonefiles['foo3.test']))
+    testlib.blockstack_name_register( "foo4.test", wallets[2].privkey, wallets[3].addr)
+    testlib.blockstack_name_register( "foo5.test", wallets[2].privkey, wallets[3].addr)
+    testlib.blockstack_name_register( "foo6.test", wallets[2].privkey, wallets[3].addr)
+    testlib.blockstack_name_register( "foo7.test", wallets[2].privkey, wallets[3].addr)
     testlib.next_block( **kw )
-
-    zf_template = "$ORIGIN {}\n$TTL 3600\n{}"
-    zf_default_url = '_https._tcp URI 10 1 "https://invalid.com"'
-    zf_default_url_invalid = zf_default_url
-
-    zonefiles = {
-        'foo1.test': zf_template.format('foo1.test', subdomains.make_subdomain_txt('bar.foo1.test', 'foo1.test', wallets[4].addr, 0, zf_template.format('bar.foo1.test', zf_default_url), wallets[4].privkey)),
-        'foo2.test': zf_template.format('foo2.test', subdomains.make_subdomain_txt('bar.foo2.test', 'foo2.test', wallets[4].addr, 0, zf_template.format('bar.foo2.test', zf_default_url), wallets[4].privkey)),
-        'foo3.test': zf_template.format('foo3.test', subdomains.make_subdomain_txt('bar.foo3.test', 'foo3.test', wallets[4].addr, 0, zf_template.format('bar.foo3.test', zf_default_url), wallets[4].privkey)),
-    }
-
-    # send updates for invalid initial subdomain records
-    testlib.blockstack_name_update('foo1.test', storage.get_zonefile_data_hash(zonefiles['foo1.test']), wallets[3].privkey)
-    testlib.blockstack_name_update('foo2.test', storage.get_zonefile_data_hash(zonefiles['foo2.test']), wallets[3].privkey)
-    testlib.blockstack_name_update('foo3.test', storage.get_zonefile_data_hash(zonefiles['foo3.test']), wallets[3].privkey)
-    testlib.next_block(**kw)
     
-    assert testlib.blockstack_put_zonefile(zonefiles['foo1.test'])
-    assert testlib.blockstack_put_zonefile(zonefiles['foo2.test'])
-    assert testlib.blockstack_put_zonefile(zonefiles['foo3.test'])
+    # send updates too, but only via a sequence of foo's
+    for i in range(0, 3):
+        zf_template = "$ORIGIN {}\n$TTL 3600\n{}"
+        zf_default_url = '_https._tcp URI 10 1 "https://test.com/?index={}"'.format(i+1)
+        update_foo = 'foo{}.test'.format(i + 4)
 
-    # kick off subdomain indexing.
-    testlib.next_block(**kw)
-   
-    # must all be pending
-    proxy = testlib.make_proxy()
-    for i in xrange(1, 4):
-        fqn = 'bar.foo{}.test'.format(i)
-        res = client.get_name_record(fqn, proxy=proxy)
-        if not res['pending']:
-            print 'not pending: {}'.format(fqn)
-            print res
-            return False
-      
-    # broadcast initial zonefiles and re-do subdomain indexing
-    assert testlib.blockstack_put_zonefile(initial_zonefiles['foo1.test'])
-    assert testlib.blockstack_put_zonefile(initial_zonefiles['foo2.test'])
-    assert testlib.blockstack_put_zonefile(initial_zonefiles['foo3.test'])
-    testlib.next_block(**kw)
+        zonefiles = {
+            'foo1.test': zf_template.format(update_foo, subdomains.make_subdomain_txt('bar.foo1.test', update_foo, wallets[4].addr, i+1, zf_template.format('bar.foo1.test', zf_default_url), wallets[4].privkey)),
+            'foo2.test': zf_template.format(update_foo, subdomains.make_subdomain_txt('bar.foo2.test', update_foo, wallets[4].addr, i+1, zf_template.format('bar.foo2.test', zf_default_url), wallets[4].privkey)),
+            'foo3.test': zf_template.format(update_foo, subdomains.make_subdomain_txt('bar.foo3.test', update_foo, wallets[4].addr, i+1, zf_template.format('bar.foo3.test', zf_default_url), wallets[4].privkey)),
+        }
+        zonefile_batches.append(zonefiles)
 
+        testlib.blockstack_name_update(update_foo, storage.get_zonefile_data_hash(zonefiles['foo1.test']), wallets[3].privkey)
+        testlib.blockstack_name_update(update_foo, storage.get_zonefile_data_hash(zonefiles['foo2.test']), wallets[3].privkey)
+        testlib.blockstack_name_update(update_foo, storage.get_zonefile_data_hash(zonefiles['foo3.test']), wallets[3].privkey)
+        testlib.next_block(**kw)
+
+    # send zonefiles in reverse order, and reindex at each batch
+    for zfbatch in reversed(zonefile_batches):
+        for name in zfbatch:
+            assert testlib.blockstack_put_zonefile(zfbatch[name])
+
+        testlib.next_block(**kw)
+
+    # query each subdomain
     proxy = testlib.make_proxy()
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
@@ -127,8 +124,19 @@ def scenario( wallets, **kw ):
             print res
             return False
         
-        # right subdomain zonefile
-        expected_zonefile = zf_template.format(fqn, zf_default_url_initial)
+        # should all have domain foo6.test
+        if res['domain'] != 'foo6.test':
+            print 'wrong domain'
+            print res
+            return False
+
+        # should all have sequence 3
+        if res['sequence'] != 3:
+            print 'wrong sequence'
+            print res
+            return False
+
+        expected_zonefile = zf_template.format(fqn, zf_default_url)
         if base64.b64decode(res['zonefile']) != expected_zonefile:
             print 'zonefile mismatch'
             print 'expected\n{}'.format(expected_zonefile)
