@@ -207,6 +207,7 @@ def queuedb_removeall(path, entries):
         queuedb_remove(path, entry, cur=cursor)
 
     queuedb_query_execute(cursor, 'END', ())
+    db.commit()
     db.close()
 
     return True
