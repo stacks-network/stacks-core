@@ -284,9 +284,6 @@ def check( state_engine, nameop, block_id, checked_ops ):
     log.debug("QUIRK: Hash NAME_TRANSFER consensus hash {} instead of {}".format(transfer_consensus_hash, nameop_consensus_hash))
     nameop['consensus_hash'] = transfer_consensus_hash
 
-    # nameop['nameop_consensus_hash'] = nameop_consensus_hash
-    # nameop['transfer_send_block_id'] = transfer_send_block_id
-
     return True
 
 

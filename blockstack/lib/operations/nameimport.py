@@ -212,20 +212,6 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
         log.debug("use previous preorder_hash = %s" % prev_name_rec['preorder_hash'])
         preorder_hash = prev_name_rec['preorder_hash']
-        # transfer_send_block_id = prev_name_rec.get('transfer_send_block_id',None)
-
-    '''
-    # if this name had existed prior to being imported here,
-    # (i.e. the namespace was revealed and then expired), then
-    # preserve its prior history (since this is a state-creating operation)
-    prior_hist = None
-    if prev_name_rec is not None:
-        # set preorder and prior history...
-        prior_hist = prior_history_create( nameop, prev_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','namespace_block_number','transfer_send_block_id','op_fee','last_creation_op'] )
-
-    # might have existed as a previous import in the past 
-    state_create_put_prior_history( nameop, prior_hist )
-    '''
 
     # can never have been preordered
     state_create_put_preorder( nameop, None )
@@ -249,7 +235,6 @@ def check( state_engine, nameop, block_id, checked_ops ):
     nameop['opcode'] = "NAME_IMPORT"
 
     # not required for consensus, but for SNV
-    # nameop['transfer_send_block_id'] = transfer_send_block_id
     nameop['last_creation_op'] = NAME_IMPORT
 
     # good!

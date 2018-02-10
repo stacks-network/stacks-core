@@ -200,7 +200,6 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     preorder_block_number = None 
     name_block_number = None
     consensus_hash = None
-    # transfer_send_block_id = None
     fee_block_id = None         # block ID at which the fee was paid
     burn_address = None         # preorder/renew burn address
     opcode = nameop['opcode']
@@ -281,7 +280,6 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
             # Case 1(a): registered for the first time ever 
             log.debug("Registering name '%s'" % name)
             name_block_number = preorder['block_number']
-            # state_create_put_prior_history( nameop, None )
         
         else:
             # Case 1(b): name expired, and is now re-registered
@@ -289,12 +287,6 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         
             # push back preorder block number to the original preorder
             name_block_number = old_name_rec['block_number']
-            # transfer_send_block_id = old_name_rec['transfer_send_block_id']
-
-            # re-registering
-            # prior_hist = prior_history_create( nameop, old_name_rec, preorder_block_number, state_engine, extra_backup_fields=['consensus_hash','preorder_hash','transfer_send_block_id','op_fee','last_creation_op']) 
-            # state_create_put_prior_history( nameop, prior_hist )
-
 
     elif state_engine.is_name_registered( name ):
         # Case 2: we're renewing
@@ -335,9 +327,6 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         burn_address = nameop['burn_address']
         opcode = "NAME_RENEWAL"     # will cause this operation to be re-checked under check_renewal()
 
-        # pass along prior history 
-        # prior_hist = prior_history_create( nameop, old_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','preorder_hash','transfer_send_block_id','op_fee','last_creation_op'])
-        # state_create_put_prior_history( nameop, prior_hist )
         state_create_put_preorder( nameop, None ) 
 
     else:
