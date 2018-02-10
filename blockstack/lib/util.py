@@ -76,6 +76,19 @@ def url_to_host_port(url, port=None):
     return parts[0], port
 
 
+def url_protocol(url, port=None):
+    """
+    Get the protocol to use for a URL.
+    return 'http' or 'https' or None
+    """
+    if not url.startswith('http://') and not url.startswith('https://'):
+        return None
+
+    urlinfo = urllib2.urlparse.urlparse(url)
+    assert urlinfo.scheme in ['http', 'https'], 'Invalid URL scheme in {}'.format(url)
+    return urlinfo.scheme
+
+
 def atlas_inventory_to_string( inv ):
     """
     Inventory to string (bitwise big-endian)
