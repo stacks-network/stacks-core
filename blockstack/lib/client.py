@@ -34,7 +34,7 @@ import random
 import json
 import traceback
 import re
-from .util import url_to_host_port, url_protocol
+from .util import url_to_host_port, url_protocol, parse_DID
 from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT, NAME_REVOKE
 from .schemas import *
 from .scripts import is_name_valid, is_subdomain
@@ -624,7 +624,7 @@ def atlas_peer_exchange(hostport, my_hostport, timeout=30, proxy=None):
 
 def get_zonefiles(hostport, zonefile_hashes, timeout=30, my_hostport=None, proxy=None):
     """
-    Get a set of zonefiles from the given server.
+    Get a set of zonefiles from the given server.  Used primarily by Atlas.
     Return {'status': True, 'zonefiles': {hash: data, ...}} on success
     Return {'error': ...} on error
     """
@@ -860,6 +860,63 @@ def get_name_record(name, include_history=False, include_expired=True, include_g
                 return {'error': 'Name expired'}
 
     return resp['record']
+
+
+def get_namespace_record(namespace_id, proxy=None, hostport=None):
+    """
+    Get the blockchain record for a namespace.
+    Returns the dict on success
+    Returns {'error': ...} on failure
+    """
+
+    assert proxy or hostport, 'Need either proxy handle or hostport string'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+    
+    namespace_schema = {
+        'type': 'object',
+        'properties': NAMESPACE_SCHEMA_PROPERTIES,
+        'required': NAMESPACE_SCHEMA_REQUIRED
+    }
+
+    rec_schema = {
+        'type': 'object',
+        'properties': {
+            'record': namespace_schema,
+        },
+        'required': [
+            'record',
+        ],
+    }
+
+    resp_schema = json_response_schema( rec_schema )
+            
+    ret = {}
+    try:
+        ret = proxy.get_namespace_blockchain_record(namespace_id)
+        ret = json_validate(resp_schema, ret)
+        if json_is_error(ret):
+            return ret
+
+        ret = ret['record']
+
+        # this isn't needed
+        ret.pop('opcode', None)
+    except ValidationError as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        ret = json_traceback(ret.get('error'))
+        return ret
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    return ret
 
 
 def get_name_cost(name, proxy=None, hostport=None):
@@ -1368,8 +1425,6 @@ def get_names_owned_by_address(address, proxy=None, hostport=None):
     }
 
     schema = json_response_schema( owned_schema )
-    
-    proxy = get_default_proxy() if proxy is None else proxy
 
     resp = {}
     try:
@@ -1400,42 +1455,46 @@ def get_names_owned_by_address(address, proxy=None, hostport=None):
     return resp['names']
 
 
-def get_num_historic_names_by_address(address, proxy=None, hostport=None):
+def get_subdomains_owned_by_address(address, proxy=None, hostport=None):
     """
-    Get the number of names historically created by an address
-    Returns the number of names on success
+    Get the list of subdomains owned by a particular address
+    Returns the list of subdomains on succes
     Returns {'error': ...} on error
     """
     assert proxy or hostport, 'Need proxy or hostport'
     if proxy is None:
         proxy = connect_hostport(hostport)
 
-    num_names_schema = {
+    owned_schema = {
         'type': 'object',
         'properties': {
-            'count': {
-                'type': 'integer',
-                'minimum': 0,
+            'subdomains': {
+                'type': 'array',
+                'items': {
+                    'type': 'string',
+                    'uniqueItems': True
+                },
             },
         },
         'required': [
-            'count',
+            'subdomains',
         ],
     }
 
-    schema = json_response_schema(num_names_schema)
-
-    if proxy is None:
-        proxy = get_default_proxy()
+    schema = json_response_schema(owned_schema)
 
     resp = {}
     try:
-        resp = proxy.get_num_historic_names_by_address(address)
+        resp = proxy.get_subdomains_owned_by_address(address)
         resp = json_validate(schema, resp)
         if json_is_error(resp):
             return resp
 
-    except ValidationError as e:
+        # names must be valid
+        for n in resp['subdomains']:
+            assert is_subdomain(str(n)), ('Invalid subdomain "{}"'.format(str(n)))
+
+    except (ValidationError, AssertionError) as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
@@ -1451,66 +1510,69 @@ def get_num_historic_names_by_address(address, proxy=None, hostport=None):
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
-    return resp['count']
+    return resp['subdomains']
 
 
-def get_historic_names_by_address_page(address, offset, count, proxy=None, hostport=None):
+def get_DID_record(did, proxy=None, hostport=None):
     """
-    Get the list of names historically created by an address
-    Returns the list of names on success
-    Returns {'error': ...} on error
+    Resolve a Blockstack decentralized identifier (DID) to its blockchain record.
+    Works for names and subdomains.
+
+    DID format: did:stack:v0:${address}-${name_index}, where:
+    * address is the address that created the name this DID references (version byte 0 or 5)
+    * name_index is the nth name ever created by this address.
+
+    Returns the blockchain record on success
+    Returns {'error': ...} on failure
     """
     assert proxy or hostport, 'Need proxy or hostport'
     if proxy is None:
         proxy = connect_hostport(hostport)
+ 
+    # what do we expect?
+    required = None
+    is_blockstack_id = False
+    is_blockstack_subdomain = False
 
-    assert count <= 100, "Page too big"
+    did_info = parse_DID(did)
+    if did_info['name_type'] == 'name':
+        # full name
+        required = NAMEOP_SCHEMA_REQUIRED[:]
+        is_blockstack_id = True
+        
+    elif did_info['name_type'] == 'subdomain':
+        # subdomain 
+        required = SUBDOMAIN_SCHEMA_REQUIRED[:]
+        is_blockstack_subdomain = True
 
-    names_schema = {
+    else:
+        # invalid
+        raise ValueError("Not a valid name or subdomain DID: {}".format(did))
+        
+    nameop_schema = {
+        'type': 'object',
+        'properties': NAMEOP_SCHEMA_PROPERTIES,
+        'required': required
+    }
+
+    rec_schema = {
         'type': 'object',
         'properties': {
-            'names': {
-                'type': 'array',
-                'items': {
-                    'type': 'object',
-                    'properties': {
-                        'name': {
-                            'type': 'string',
-                            'pattern': OP_NAME_OR_SUBDOMAIN_PATTERN,
-                        },
-                        'block_id': {
-                            'type': 'integer',
-                            'minimum': 0,
-                        },
-                        'vtxindex': {
-                            'type': 'integer',
-                            'minimum': 0,
-                        },
-                    },
-                    'required': [
-                        'name',
-                        'block_id',
-                        'vtxindex',
-                    ],
-                },
-            },
+            'record': nameop_schema,
         },
         'required': [
-            'names'
+            'record'
         ],
     }
 
-    schema = json_response_schema( names_schema )
+    resp_schema = json_response_schema(rec_schema)
     resp = {}
+
     try:
-        resp = proxy.get_historic_names_by_address(address, offset, count)
-        resp = json_validate(schema, resp)
+        resp = proxy.get_DID_record(did)
+        resp = json_validate(resp_schema, resp)
         if json_is_error(resp):
             return resp
-
-        # names must be valid
-        for n in resp['names']:
-            assert is_name_valid(str(n['name'])), ('Invalid name "{}"'.format(str(n['name'])))
 
     except (ValidationError, AssertionError) as e:
         if BLOCKSTACK_DEBUG:
@@ -1528,132 +1590,15 @@ def get_historic_names_by_address_page(address, offset, count, proxy=None, hostp
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
-    return resp['names']
+    final_name_state = resp['record']
 
-
-def get_historic_names_by_address(address, offset=None, count=None, proxy=None, hostport=None):
-    """
-    Get the list of names created by an address throughout history
-    Returns the list of names on success
-    Returns {'error': ...} on failure
-    """
-    assert proxy or hostport, 'Need proxy or hostport'
-    if proxy is None:
-        proxy = connect_hostport(hostport)
-
-    offset = 0 if offset is None else offset
-    if count is None:
-        # get all names owned by this address
-        count = get_num_historic_names_by_address(address, proxy=proxy, hostport=hostport)
-        if json_is_error(count):
-            return count
-
-        count -= offset
-
-    page_size = 10
-    all_names = []
-    while len(all_names) < count:
-        request_size = page_size
-        if count - len(all_names) < request_size:
-            request_size = count - len(all_names)
-
-        page = get_historic_names_by_address_page(address, offset + len(all_names), request_size, proxy=proxy, hostport=hostport)
-        if json_is_error(page):
-            # error
-            return page
-
-        if len(page) > request_size:
-            # error
-            error_str = 'server replied too much data'
-            return {'error': error_str}
-
-        elif len(page) == 0:
-            # end-of-table
-            break
-
-        all_names += page
-
-    return all_names[:count]
-
-
-def get_DID_name_blockchain_record(did, proxy=None, hostport=None):
-    """
-    Resolve a Blockstack decentralized identifier (DID) to its blockchain record.
-    This is for cases where the DID corresponds to a name, not a subdomain!
-    You can tell because name DID addresses start with 1 or 3 (version byte 0 or 5) on Bitcoin mainnet.
-
-    DID format: did:stack:v0:${address}-${name_index}, where:
-    * address is the address that created the name this DID references (version byte 0 or 5)
-    * name_index is the nth name ever created by this address.
-
-    Follow the sequence of NAME_TRANSFERs and NAME_RENEWALs to find the current
-    address, and then look up the public key.
-
-    Returns the blockchain record on success
-    Returns {'error': ...} on failure
-    """
-    from .subdomains import SUBDOMAIN_ADDRESS_VERSION_BYTES
-
-    assert proxy or hostport, 'Need proxy or hostport'
-    if proxy is None:
-        proxy = connect_hostport(hostport)
-
-    did_pattern = '^did:stack:v0:({}{{25,35}})-([0-9]+)$'.format(OP_BASE58CHECK_CLASS)
-
-    m = re.match(did_pattern, did)
-    assert m, 'Invalid DID: {}'.format(did)
-
-    address = m.groups()[0]
-    name_index = int(m.groups()[1])
-
-    address_vb = keylib.b58check.b58check_version_byte(address)
-    assert address_vb not in SUBDOMAIN_ADDRESS_VERSION_BYTES, 'Address {} is a subdomain address'.format(address)
-
-    addr_names = get_historic_names_by_address(address, proxy=proxy, hostport=hostport)
-    if json_is_error(addr_names):
-        log.error("get_historic_names_by_address({}): {}".format(address, addr_names['error']))
-        return addr_names
-
-    if len(addr_names) <= name_index:
-        errormsg = 'Invalid DID: index {} exceeds number of names ({}: {}) created by {}'.format(name_index, len(addr_names), ", ".join([an['name'] for an in addr_names]), address)
-        log.error(errormsg)
-        return {'error': errormsg}
-    
-    # order by blockchain and tx
-    addr_names.sort(lambda n1,n2: -1 if n1['block_id'] < n2['block_id'] or (n1['block_id'] == n2['block_id'] and n1['vtxindex'] < n2['vtxindex']) else 1)
-    name = addr_names[name_index]['name']
-    start_block = addr_names[name_index]['block_id']
-    end_block = 100000000       # TODO: update if this gets too small (not likely in my lifetime)
-
-    # verify that the name hasn't been revoked since this DID was created.
-    name_blockchain_record = get_name_record(name, include_history=True, hostport=hostport, proxy=proxy)
-    if json_is_error(name_blockchain_record):
-        log.error("Failed to get name history for '{}'".format(name))
-        return name_blockchain_record
-
-    name_history = name_blockchain_record['history']
-    final_name_state = None
-
-    for history_block in sorted(name_history.keys()):
-        for history_state in sorted(name_history[history_block], cmp=lambda n1,n2: -1 if n1['vtxindex'] < n2['vtxindex'] else 1):
-            if history_state['op'] == NAME_REVOKE:
-                # end of the line
-                return {'error': 'The name for this DID has been deleted'}
-            
-            assert history_state is not None
-            final_name_state = history_state
-
-    if final_name_state is None:
-        # no history to go through
-        final_name_state = name_blockchain_record
-
-        # remove extra fields that shouldn't be present
-        for extra_field in ['expired', 'expire_block', 'renewal_deadline']:
-            if extra_field in final_name_state:
-                del final_name_state[extra_field]
+    # remove extra fields that shouldn't be present
+    for extra_field in ['expired', 'expire_block', 'renewal_deadline']:
+        if extra_field in final_name_state:
+            del final_name_state[extra_field]
 
     return final_name_state
-
+  
 
 def get_consensus_at(block_height, proxy=None, hostport=None):
     """
@@ -1709,3 +1654,107 @@ def get_consensus_at(block_height, proxy=None, hostport=None):
         return {'error': 'The node has not processed block {}'.format(block_height)}
 
     return resp['consensus']
+
+
+def get_blockstack_transactions_at(block_id, proxy=None, hostport=None):
+    """
+    Get the *prior* states of the blockstack records that were
+    affected at the given block height.
+    Return the list of name records at the given height on success.
+    Return {'error': ...} on error.
+    """
+    assert proxy or hostport, 'Need proxy or hostport'
+
+    history_schema = {
+        'type': 'array',
+        'items': {
+            'type': 'object',
+            'properties': OP_HISTORY_SCHEMA['properties'],
+            'required': [
+                'op',
+                'opcode',
+                'txid',
+                'vtxindex',
+            ]
+        }
+    }
+
+    nameop_history_schema = {
+        'type': 'object',
+        'properties': {
+            'nameops': history_schema,
+        },
+        'required': [
+            'nameops',
+        ],
+    }
+
+    history_count_schema = {
+        'type': 'object',
+        'properties': {
+            'count': {
+                'type': 'integer',
+                'minimum': 0,
+            },
+        },
+        'required': [
+            'count',
+        ],
+    }
+    
+    count_schema = json_response_schema( history_count_schema )
+    nameop_schema = json_response_schema( nameop_history_schema )
+
+    # how many nameops?
+    num_nameops = None
+    try:
+        num_nameops = proxy.get_num_nameops_at(block_id)
+        num_nameops = json_validate(count_schema, num_nameops)
+        if json_is_error(num_nameops):
+            return num_nameops
+
+    except ValidationError as e:
+        num_nameops = json_traceback()
+        return num_nameops
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    num_nameops = num_nameops['count']
+
+    # grab at most 10 of these at a time
+    all_nameops = []
+    page_size = 10
+    while len(all_nameops) < num_nameops:
+        resp = {}
+        try:
+            resp = proxy.get_nameops_at(block_id, len(all_nameops), page_size)
+            resp = json_validate(nameop_schema, resp)
+            if json_is_error(resp):
+                return resp
+
+            if len(resp['nameops']) == 0:
+                return {'error': 'Got zero-length nameops reply'}
+
+            all_nameops += resp['nameops']
+
+        except ValidationError as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            resp = json_traceback(resp.get('error'))
+            return resp
+        except Exception as ee:
+            if BLOCKSTACK_DEBUG:
+                log.exception(ee)
+
+            log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+            resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+            return resp
+
+    return all_nameops
