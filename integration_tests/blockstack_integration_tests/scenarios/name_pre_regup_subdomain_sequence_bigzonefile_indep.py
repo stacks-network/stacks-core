@@ -60,7 +60,7 @@ def make_subdomain_zone_file(domain_name, subdomain_pattern, subdomain_zonefile_
     for i in range(0, iters):
 
         subdomain_privkey = private_keychain.child(i).private_key()
-        subdomain_addr = virtualchain.ecdsalib.ecdsa_private_key(subdomain_privkey).public_key().address()
+        subdomain_addr = virtualchain.address_reencode(virtualchain.ecdsalib.ecdsa_private_key(subdomain_privkey).public_key().address())
 
         subdomain_name = subdomain_pattern.format(i)
         subdomain_zf = subdomain_zonefile_pattern.format(subdomain_name, i)
