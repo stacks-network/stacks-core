@@ -33,12 +33,14 @@ import threading
 
 from virtualchain import bitcoin_blockchain
 
-from .config import BLOCKSTACK_TESTNET, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, SUBDOMAINS_FIRST_BLOCK, get_blockstack_opts, is_atlas_enabled, is_subdomains_enabled
+from .config import BLOCKSTACK_TESTNET, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, SUBDOMAINS_FIRST_BLOCK, get_blockstack_opts, is_atlas_enabled, is_subdomains_enabled, \
+        SUBDOMAIN_ADDRESS_VERSION_BYTE, SUBDOMAIN_ADDRESS_MULTISIG_VERSION_BYTE, SUBDOMAIN_ADDRESS_VERSION_BYTES
+
 from .atlas import atlasdb_open, atlasdb_get_zonefiles_by_block, atlas_node_add_callback, atlasdb_query_execute, atlasdb_get_zonefiles_by_hash, atlasdb_get_zonefiles_missing_count_by_name
 from .storage import get_atlas_zonefile_data, get_zonefile_data_hash, store_atlas_zonefile_data 
 from .scripts import is_name_valid, is_address_subdomain, is_subdomain
 from .schemas import *
-from .util import db_query_execute
+from .util import db_query_execute, parse_DID, make_DID
 from .queue import *
 
 log = virtualchain.get_logger('blockstack-subdomains')
@@ -54,16 +56,6 @@ SUBDOMAIN_PUBKEY = "owner"
 SUBDOMAIN_N = "seqn"
 
 log = virtualchain.get_logger()
-
-# for DIDs
-SUBDOMAIN_ADDRESS_VERSION_BYTE = 63             # 'S'
-SUBDOMAIN_ADDRESS_MULTISIG_VERSION_BYTE = 50    # 'M'
-
-if BLOCKSTACK_TESTNET:
-    SUBDOMAIN_ADDRESS_VERSION_BYTE = 127            # 't'
-    SUBDOMAIN_ADDRESS_MULTISIG_VERSION_BYTE = 142   # 'z'
-
-SUBDOMAIN_ADDRESS_VERSION_BYTES = [SUBDOMAIN_ADDRESS_VERSION_BYTE, SUBDOMAIN_ADDRESS_MULTISIG_VERSION_BYTE]
 
 class DomainNotOwned(Exception):
     """
@@ -134,7 +126,8 @@ class Subdomain(object):
             self.independent = True
 
         self.domain_zonefiles_missing = domain_zonefiles_missing
-        self.pending = None    # set at runtime
+        self.pending = None     # set at runtime
+        self.did_info = None    # set at runtime
 
 
     def get_fqn(self):
@@ -249,6 +242,9 @@ class Subdomain(object):
         
         if self.pending is not None:
             ret['pending'] = self.pending
+
+        if self.did_info is not None:
+            ret['did'] = make_DID(self.did_info['name_type'], self.did_info['address'], self.did_info['index'])
 
         return ret
    
@@ -559,7 +555,6 @@ class SubdomainIndex(object):
         """
         Recalculate the history for this subdomain from genesis up until this record.
         Returns the list of subdomain records we need to save.
-        TODO: make more efficient--we don't have to load and rewrite the entire sequence
         """
         # what's the subdomain's history up until this subdomain record?
         hist = self.subdomain_db.get_subdomain_history(subdomain_rec.get_fqn(), include_unaccepted=True, end_sequence=subdomain_rec.n+1, end_zonefile_index=subdomain_rec.parent_zonefile_index+1, cur=cursor)
@@ -598,7 +593,6 @@ class SubdomainIndex(object):
         Recalculate the future for this subdomain from the current record
         until the latest known record.
         Returns the list of subdomain records we need to save.
-        TODO: make more efficient--we don't have to load and rewrite the entire sequence
         """
         assert subdomain_rec.accepted, 'BUG: given subdomain record must already be accepted'
 
@@ -667,7 +661,6 @@ class SubdomainIndex(object):
         fut = tmp_fut
 
         ret = {'prev': hist, 'cur': cur, 'fut': fut}
-        print ret
         return ret
     
 
@@ -809,7 +802,8 @@ class SubdomainIndex(object):
 
             db_query_execute(cursor, 'END', ())
             self.subdomain_db.commit()
-    
+   
+
     def enqueue_zonefile(self, zonefile_hash, block_height):
         """
         Called when we discover a zone file.  Queues up a request to reprocess this name's zone files' subdomains.
@@ -1129,7 +1123,7 @@ class SubdomainDB(object):
         db_query_execute(cursor, get_cmd, (owner,))
 
         try:
-            return [ x[0] for x in cursor.fetchall() ]
+            return [ x['fully_qualified_subdomain'] for x in cursor.fetchall() ]
         except Exception as e:
             if BLOCKSTACK_DEBUG:
                 log.exception(e)
@@ -1137,17 +1131,15 @@ class SubdomainDB(object):
             return []
 
 
-    def get_subdomain_DID(self, fqn, cur=None):
+    def get_subdomain_DID_info(self, fqn, cur=None):
         """
-        Get the DID for a subdomain.
+        Get the DID information for a subdomain.
         Raise SubdomainNotFound if there is no such subdomain
 
-        The resulting DID will have the format did:stack:v0:${address}-${name_index},
-        where ${address} will be the base58-encoded pubkey hash using version byte SUBDOMAIN_ADDRESS_VERSION_BYTE
-        for p2pkh addresses and SUBDOMAIN_ADDRESS_MULTISIG_VERSION_BYTE for p2sh addresses.
+        Return {'name_type': ..., 'address': ..., 'index': ...}
         """
-        subrec = self.get_subdomain_at_sequence(fqn, 0, cur=cur)
-        cmd = 'SELECT COUNT(*) FROM {} WHERE owner = ? AND sequence = ? AND parent_zonefile_index < ? AND accepted=1;'.format(self.subdomain_table)
+        subrec = self.get_subdomain_entry_at_sequence(fqn, 0, cur=cur)
+        cmd = 'SELECT COUNT(*) FROM {} WHERE owner = ? AND sequence = ? AND parent_zonefile_index <= ? AND accepted=1 ORDER BY parent_zonefile_index LIMIT 1;'.format(self.subdomain_table)
         args = (subrec.address,0,subrec.parent_zonefile_index)
 
         cursor = None
@@ -1163,47 +1155,31 @@ class SubdomainDB(object):
             count = r['COUNT(*)']
             break
 
-        if not cound:
+        if not count:
             raise SubdomainNotFound('No rows for {}'.format(fqn))
 
-        # what's the current version byte?
-        vb = keylib.b58check.b58check_version_byte(subrec.address)
-        if vb == bitcoin_blockchain.version_byte:
-            # singlesig
-            vb = SUBDOMAIN_ADDRESS_VERSION_BYTE
-        else:
-            vb = SUBDOMAIN_ADDRESS_MULTISIG_VERSION_BYTE
-
-        # reencode with our subdomain version byte 
-        return 'did:stack:v0:{}-{}'.format(virtualchain.address_reencode(subrec.address, version_byte=vb), count)
+        return {'name_type': 'subdomain', 'address': subrec.address, 'index': count-1}
 
 
     def get_DID_subdomain(self, did, cur=None):
         """
         Get a subdomain, given its DID
+        Raise ValueError if the DID is invalid
         Raise SubdomainNotFound if the DID does not correspond to a subdomain
         """
-        did_pattern = '^did:stack:v0:({}{{25,35}})-([0-9]+)$'.format(OP_BASE58CHECK_CLASS)
+        did = str(did)
 
-        m = re.match(did_pattern, did)
-        assert m, 'Invalid DID: {}'.format(did)
-
-        original_address = m.groups()[0]
-        name_index = int(m.groups()[1])
-        vb = keylib.b58check.b58check_version_byte(address)
+        try:
+            did_info = parse_DID(did)
+            assert did_info['name_type'] == 'subdomain', 'Not a subdomain DID'
+        except:
+            raise ValueError("Invalid DID: {}".format(did))
         
-        assert vb in [SUBDOMAIN_ADDRESS_VERSION_BYTE, SUBDOMAIN_MULTISIG_ADDRESS_VERSION_BYTE], 'Invalid address version byte'
-
-        # decode version 
-        if vb == SUBDOMAIN_ADDRESS_VERSION_BYTE:
-            vb = bitcoin_blockchain.version_byte
-        else:
-            vb = bitcoin_blockchain.multisig_version_byte
-
-        original_address = virtualchain.address_reencode(original_address, version_byte=vb)
+        original_address = did_info['address']
+        name_index = did_info['index']
 
         # find the initial subdomain (the nth subdomain created by this address)
-        cmd = 'SELECT fully_qualified_subdomain FROM {} WHERE owner = ? AND sequence = ? AND accepted=1 LIMIT 1 OFFSET ?;'.format(self.subdomain_table)
+        cmd = 'SELECT fully_qualified_subdomain FROM {} WHERE owner = ? AND sequence = ? ORDER BY parent_zonefile_index LIMIT 1 OFFSET ?;'.format(self.subdomain_table)
         args = (original_address,0,name_index)
 
         cursor = None
@@ -1216,14 +1192,16 @@ class SubdomainDB(object):
 
         rows = db_query_execute(cursor, cmd, args)
         for r in rows:
-            subdomain_name = r[0]
+            subdomain_name = r['fully_qualified_subdomain']
             break
 
         if not subdomain_name:
             raise SubdomainNotFound('Does not correspond to a subdomain: {}'.format(did))
 
         # get the current form
-        return self.get_subdomain_entry(subdomain_name, cur=cur)
+        subrec = self.get_subdomain_entry(subdomain_name, cur=cur)
+        subrec.did_info = did_info
+        return subrec
 
 
     def get_subdomain_history(self, fqn, start_sequence=None, end_sequence=None, start_zonefile_index=None, end_zonefile_index=None, include_unaccepted=False, offset=None, count=None, cur=None):
@@ -1328,7 +1306,7 @@ class SubdomainDB(object):
         Determine whether or not a subdomain record's domain is missing zone files
         (besides the ones we expect) that could invalidate its history.
         """
-        domain = subrec.domain
+        _, _, domain = is_address_subdomain(subrec.get_fqn())
         sql = 'SELECT missing FROM {} WHERE domain = ? ORDER BY parent_zonefile_index DESC LIMIT 1;'.format(self.subdomain_table)
         args = (domain,)
 
@@ -1639,13 +1617,16 @@ def is_subdomain_record(rec):
     return (has_parts_entry and has_pk_entry and has_seqn_entry)
 
 
-def get_subdomain_info(fqn, db_path=None, atlasdb_path=None, zonefiles_dir=None, check_pending=False):
+def get_subdomain_info(fqn, db_path=None, atlasdb_path=None, zonefiles_dir=None, check_pending=False, include_did=False):
     """
-    Static method for getting the state of a subdomain, given its fully-qualified name
+    Static method for getting the state of a subdomain, given its fully-qualified name.
+    Return the subdomain record on success.
+    Return None if not found.
     """
     opts = get_blockstack_opts()
     if not is_subdomains_enabled(opts):
-        return []
+        log.warn("Subdomain support is disabled")
+        return None
 
     if db_path is None:
         db_path = opts['subdomaindb_path']
@@ -1657,7 +1638,55 @@ def get_subdomain_info(fqn, db_path=None, atlasdb_path=None, zonefiles_dir=None,
         atlasdb_path = opts['atlasdb_path']
 
     db = SubdomainDB(db_path, zonefiles_dir)
-    subrec = db.get_subdomain_entry(fqn)
+    try:
+        subrec = db.get_subdomain_entry(fqn)
+    except SubdomainNotFound:
+        log.warn("No such subdomain: {}".format(fqn))
+        return None
+
+    if check_pending:
+        # make sure that all of the zone files between this subdomain's
+        # domain's creation and this subdomain's zone file index are present,
+        # minus the ones that are allowed to be missing.
+        subrec.pending = db.subdomain_check_pending(subrec, atlasdb_path)
+
+    if include_did:
+        # include the DID 
+        subrec.did_info = db.get_subdomain_DID_info(fqn)
+
+    return subrec
+
+
+def get_DID_subdomain(did, db_path=None, zonefiles_dir=None, atlasdb_path=None, check_pending=False):
+    """
+    Static method for resolving a DID to a subdomain
+    Return the subdomain record on success
+    Return None on error
+    """
+    opts = get_blockstack_opts()
+    if not is_subdomains_enabled(opts):
+        log.warn("Subdomain support is disabled")
+        return None
+
+    if db_path is None:
+        db_path = opts['subdomaindb_path']
+
+    if zonefiles_dir is None:
+        zonefiles_dir = opts['zonefiles']
+    
+    if atlasdb_path is None:
+        atlasdb_path = opts['atlasdb_path']
+
+    db = SubdomainDB(db_path, zonefiles_dir)
+    try:
+        subrec = db.get_DID_subdomain(did)
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.warn("Failed to load subdomain for {}".format(did))
+        return None
+
     if check_pending:
         # make sure that all of the zone files between this subdomain's
         # domain's creation and this subdomain's zone file index are present,
