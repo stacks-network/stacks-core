@@ -205,6 +205,9 @@ OP_HISTORY_SCHEMA = {
                 },
             ],
         },
+        'did': {
+            'type': 'string',
+        },
         'domain': {
             'type': 'string',
             'pattern': OP_NAME_PATTERN,
