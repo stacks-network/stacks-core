@@ -59,12 +59,12 @@ from lib.client import BlockstackRPCClient
 from lib.client import ping as blockstack_ping
 from lib.client import OP_HEX_PATTERN, OP_CONSENSUS_HASH_PATTERN, OP_ADDRESS_PATTERN, OP_BASE64_EMPTY_PATTERN
 from lib.config import REINDEX_FREQUENCY, BLOCKSTACK_TEST, default_bitcoind_opts, is_subdomains_enabled
-from lib.util import url_to_host_port, atlas_inventory_to_string, daemonize
+from lib.util import url_to_host_port, atlas_inventory_to_string, daemonize, make_DID, parse_DID
 from lib import *
 from lib.storage import *
 from lib.atlas import *
 from lib.fast_sync import *
-from lib.subdomains import subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history
+from lib.subdomains import subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history, get_DID_subdomain
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
@@ -623,6 +623,64 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return reply
     
 
+    def load_name_info(self, db, name_record, did=None):
+        """
+        Get some extra name information, given a db-loaded name record.
+        Return the updated name_record
+        """
+        name = str(name_record['name'])
+
+        # include the DID if not given
+        did_info = None
+        if did is None:
+            did_info = db.get_name_DID_info(name)
+            if did_info is None:
+                return {'error': 'Not found.'}
+
+        name_record = self.sanitize_rec(name_record)
+
+        namespace_id = get_namespace_from_name(name)
+        namespace_record = db.get_namespace(namespace_id, include_history=False)
+        if namespace_record is None:
+            namespace_record = db.get_namespace_reveal(namespace_id, include_history=False)
+
+        # when does this name expire (if it expires)?
+        if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
+            deadlines = BlockstackDB.get_name_deadlines(name_record, namespace_record, db.lastblock)
+            if deadlines is not None:
+                name_record['expire_block'] = deadlines['expire_block']
+                name_record['renewal_deadline'] = deadlines['renewal_deadline']
+            else:
+                # only possible if namespace is not yet ready
+                name_record['expire_block'] = -1
+                name_record['renewal_deadline'] = -1
+
+        else:
+            name_record['expire_block'] = -1
+            name_record['renewal_deadline'] = -1
+
+        if name_record['expire_block'] > 0 and name_record['expire_block'] <= db.lastblock:
+            name_record['expired'] = True
+        else:
+            name_record['expired'] = False
+
+        if did is None:
+            name_record['did'] = make_DID(did_info['name_type'], did_info['address'], did_info['index'])
+        else:
+            name_record['did'] = did
+
+        # try to get the zonefile as well 
+        if 'value_hash' in name_record and name_record['value_hash'] is not None:
+            conf = get_blockstack_opts()
+            if is_atlas_enabled(conf):
+                zfdata = self.get_zonefile_data(name_record['value_hash'], conf['zonefiles'])
+                if zfdata is not None:
+                    zfdata = base64.b64encode(zfdata)
+                    name_record['zonefile'] = zfdata
+
+        return name_record
+
+
     def get_name_record(self, name, include_history=False):
         """
         Get the whois-related info for a name (not a subdomain).
@@ -643,45 +701,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {"error": "Not found."}
 
         else:
-
             assert 'opcode' in name_record, 'BUG: missing opcode in {}'.format(json.dumps(name_record, sort_keys=True))
-            name_record = self.sanitize_rec(name_record)
-
-            namespace_id = get_namespace_from_name(name)
-            namespace_record = db.get_namespace(namespace_id, include_history=False)
-            if namespace_record is None:
-                namespace_record = db.get_namespace_reveal(namespace_id, include_history=False)
-
-            # when does this name expire (if it expires)?
-            if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
-                deadlines = BlockstackDB.get_name_deadlines(name_record, namespace_record, db.lastblock)
-                if deadlines is not None:
-                    name_record['expire_block'] = deadlines['expire_block']
-                    name_record['renewal_deadline'] = deadlines['renewal_deadline']
-                else:
-                    # only possible if namespace is not yet ready
-                    name_record['expire_block'] = -1
-                    name_record['renewal_deadline'] = -1
-
-            else:
-                name_record['expire_block'] = -1
-                name_record['renewal_deadline'] = -1
-
-            if name_record['expire_block'] > 0 and name_record['expire_block'] <= db.lastblock:
-                name_record['expired'] = True
-            else:
-                name_record['expired'] = False
-
+            name_record = self.load_name_info(db, name_record)
             db.close()
-
-            # try to get the zonefile as well 
-            if 'value_hash' in name_record and name_record['value_hash'] is not None:
-                conf = get_blockstack_opts()
-                if is_atlas_enabled(conf):
-                    zfdata = self.get_zonefile_data(name_record['value_hash'], conf['zonefiles'])
-                    if zfdata is not None:
-                        zfdata = base64.b64encode(zfdata)
-                        name_record['zonefile'] = zfdata
 
             return {'status': True, 'record': name_record}
 
@@ -699,10 +721,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         fqn = str(fqn)
 
         # get current record
-        try:
-            subdomain_rec = get_subdomain_info(fqn, check_pending=True)
-        except SubdomainNotFound:
-            return {'error': 'No such subdomain'}
+        subdomain_rec = get_subdomain_info(fqn, check_pending=True, include_did=True)
+        if subdomain_rec is None:
+            return {'error': 'Failed to load subdomain'}
    
         ret = subdomain_rec.to_json()
         if include_history:
@@ -726,6 +747,75 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         else:
             return {'error': 'Invalid name or subdomain'}
 
+        if 'error' in res:
+            return res
+
+        return self.success_response({'record': res['record']})
+
+
+    def get_name_DID_record(self, did):
+        """
+        Given a DID for a name, return the name record.
+        Return {'record': ...} on success
+        Return {'error': ...} on error
+        """
+        try:
+            did_info = parse_DID(did)
+            assert did_info['name_type'] == 'name'
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            return {'error': 'Invalid DID'}
+
+        db = get_db_state(self.working_dir)
+        rec = db.get_DID_name(did)
+        if rec is None:
+            db.close()
+            return {'error': 'Failed to resolve DID to a non-revoked name'}
+
+        name_record = self.load_name_info(db, rec)
+        db.close()
+        return {'record': name_record}
+
+
+    def get_subdomain_DID_record(self, did):
+        """
+        Given a DID for subdomain, get the subdomain record
+        Return {'record': ...} on success
+        Return {'error': ...} on error
+        """
+        try:
+            did_info = parse_DID(did)
+            assert did_info['name_type'] == 'subdomain'
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            return {'error': 'Invalid DID'}
+
+        subrec = get_DID_subdomain(did, check_pending=True)
+        if subrec is None:
+            return {'error': 'Failed to load subdomain from {}'.format(did)}
+
+        return {'record': subrec.to_json()}
+
+
+    def rpc_get_DID_record(self, did, **con_info):
+        """
+        Given a DID, return the name or subdomain it corresponds to
+        """
+        try:
+            did_info = parse_DID(did)
+        except:
+            return {'error': 'Invalid DID'}
+
+        res = None
+        if did_info['name_type'] == 'name':
+            res = self.get_name_DID_record(did)
+        elif did_info['name_type'] == 'subdomain':
+            res = self.get_subdomain_DID_record(did)
+        
         if 'error' in res:
             return res
 
@@ -971,6 +1061,19 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             reply['warning'] = 'Daemon is behind the chain tip.  Do not rely on it for fresh information.'
 
         return reply
+
+
+    def rpc_get_subdomains_owned_by_address(self, address, **con_info):
+        """
+        Get the list of subdomains owned by an address.
+        Return {'status': True, 'subdomains': ...} on success
+        Return {'error': ...} on error
+        """
+        if not self.check_address(address):
+            return {'error': 'Invalid address'}
+
+        res = get_subdomains_owned_by_address(address)
+        return self.success_response({'subdomains': res})
 
 
     def rpc_get_names_owned_by_address(self, address, **con_info):
@@ -1486,8 +1589,6 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
     def rpc_get_atlas_peers( self, **con_info ):
         """
-        LEGACY PATH
-
         Get the list of peer atlas nodes.
         Give its own atlas peer hostport.
         Return at most atlas_max_neighbors() peers
@@ -1503,7 +1604,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         client_port = con_info['client_port']
 
         peers = self.peer_exchange(client_host, client_port)
-        return self.success_response( {'peers': peer} )
+        return self.success_response( {'peers': peers} )
 
 
     def rpc_atlas_peer_exchange(self, remote_peer, **con_info):
