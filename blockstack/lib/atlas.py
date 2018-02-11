@@ -789,7 +789,6 @@ def atlasdb_get_zonefiles_missing_count_by_name(name, max_index=None, indexes_ex
             args += (max_index,)
 
         cur = dbcon.cursor()
-        log.debug(db_format_query(sql, args))
         res = atlasdb_query_execute(cur, sql, args)
         for row in res:
             return row['COUNT(*)']
