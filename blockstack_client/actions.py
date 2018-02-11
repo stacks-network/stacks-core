@@ -83,7 +83,10 @@ from blockstack_client import (
     get_historic_names_by_address
 )
 
-from blockstack_client import subdomains
+# from blockstack_client import subdomains
+import blockstack.lib.client as blockstackd_client
+import blockstack.lib.scripts as blockstackd_scripts
+
 from blockstack_client.profile import put_profile, delete_profile, get_profile, \
         profile_add_device_id, profile_remove_device_id, profile_list_accounts, profile_get_account, \
         profile_put_account, profile_delete_account
@@ -1018,7 +1021,6 @@ def cli_lookup(args, config_path=CONFIG_PATH):
 
     blockchain_record = None
     fqu = str(args.name)
-    subdomain = None
     force = getattr(args, 'force', 'False')
     if force is None:
         force = 'False'
@@ -1027,16 +1029,18 @@ def cli_lookup(args, config_path=CONFIG_PATH):
 
     error = check_valid_name(fqu)
     if error:
-        res = subdomains.is_address_subdomain(fqu)
-        if res:
-            subdomain, domain = res[1]
-            fqu = domain
-
-        else:
+        res = blockstackd_scripts.is_subdomain(fqu)
+        if not res:
             return {'error': error}
 
+    conf = config.get_config(config_path)
+    blockstackd_host = conf['server']
+    blockstackd_port = conf['port']
+    blockstackd_protocol = conf['protocol']
+    blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
+
     try:
-        blockchain_record = get_name_record(fqu)
+        blockchain_record = blockstackd_client.get_name_record(fqu, hostport=blockstackd_url)
     except socket_error:
         return {'error': 'Error connecting to server.'}
 
@@ -1054,6 +1058,7 @@ def cli_lookup(args, config_path=CONFIG_PATH):
         msg = 'Name is expired. Use `whois` or `get_name_blockchain_record` for details. If you own this name, use `renew` to renew it.'
         return {'error': msg}
 
+    '''
     # subdomain?
     if subdomain:
         try:
@@ -1061,6 +1066,7 @@ def cli_lookup(args, config_path=CONFIG_PATH):
         except subdomains.SubdomainNotFound as e:
             log.exception(e)
             return {'error' : "Failed to find name {}.{}".format(subdomain, domain)}
+    '''
 
     # regular domain
     try:
@@ -1095,10 +1101,14 @@ def cli_whois(args, config_path=CONFIG_PATH):
     record, fqu = None, str(args.name)
 
     error = check_valid_name(fqu)
+    is_subdomain = False
+
     if error:
-        res = subdomains.is_address_subdomain(fqu)
-        if res:
-            subdomain, domain = res[1]
+        is_subdomain = blockstackd_scripts.is_subdomain(fqu)
+        if not is_subdomain:
+            return {'error': error}
+
+        '''
             try:
                 subdomain_obj = subdomains.get_subdomain_info(subdomain, domain)
             except subdomains.SubdomainNotFound:
@@ -1114,9 +1124,17 @@ def cli_whois(args, config_path=CONFIG_PATH):
             }
             return ret
         return {'error': error}
+        '''
+
+    conf = config.get_config(config_path)
+    blockstackd_host = conf['server']
+    blockstackd_port = conf['port']
+    blockstackd_protocol = conf['protocol']
+    blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
 
     try:
-        record = get_name_blockchain_record(fqu)
+        # record = get_name_blockchain_record(fqu)
+        record = blockstackd_client.get_name_record(fqu, include_history=True, hostport=blockstackd_url)
     except socket_error:
         exit_with_error('Error connecting to server.')
 
@@ -1126,7 +1144,7 @@ def cli_whois(args, config_path=CONFIG_PATH):
     if record.get('revoked', False):
         msg = 'Name is revoked. Use get_name_blockchain_record for details.'
         return {'error': msg}
-
+    
     history = record.get('history', {})
     update_heights = []
     try:
@@ -1136,6 +1154,18 @@ def cli_whois(args, config_path=CONFIG_PATH):
         update_heights = sorted(int(_) for _ in history)
     except (AssertionError, ValueError):
         return {'error': 'Invalid record data returned'}
+   
+    if is_subdomain:
+        zonefile_txt = base64.b64decode(record['zonefile'])
+        result = {
+            'status': 'registered_subdomain',
+            'zonefile_txt': zonefile_txt,
+            'zonefile_hash': storage.get_zonefile_data_hash(zonefile_txt),
+            'address': record['address'], 
+            'blockchain': 'bitcoind',
+            'last_txid': record['txid']
+        }
+        return result
 
     result['block_preordered_at'] = record['preorder_block_number']
     result['block_renewed_at'] = record['last_renewed']
@@ -4115,7 +4145,14 @@ def cli_get_name_blockchain_record(args, config_path=CONFIG_PATH):
     help: Get the raw blockchain record for a name
     arg: name (str) 'The name to list'
     """
-    result = get_name_blockchain_record(str(args.name))
+    conf = config.get_config(config_path)
+    blockstackd_host = conf['server']
+    blockstackd_port = conf['port']
+    blockstackd_protocol = conf['protocol']
+    blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
+
+    # result = get_name_blockchain_record(str(args.name))
+    result = blockstackd_client.get_name_record(str(args.name), include_history=True, hostport=blockstackd_url)
     return result
 
 
@@ -4194,7 +4231,8 @@ def cli_lookup_snv(args, config_path=CONFIG_PATH):
     name = str(args.name)
     error = check_valid_name(name)
     if error:
-        res = subdomains.is_address_subdomain(name)
+        res = blockstackd_scripts.is_address_subdomain(name)
+        # res = subdomains.is_address_subdomain(name)
         if res:
             subdomain, domain = res[1]
             if subdomain:
@@ -4292,11 +4330,18 @@ def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True, proxy=None):
 def cli_get_names_owned_by_address(args, config_path=CONFIG_PATH):
     """
     command: get_names_owned_by_address advanced
-    help: Get the list of names owned by an address
+    help: Get the list of names and subdomains owned by an address
     arg: address (str) 'The address to query'
     """
     result = get_names_owned_by_address(str(args.address))
-    return result
+    if json_is_error(result):
+        return result
+
+    subdomain_result = blockstackd_client.get_subdomains_owned_by_address(str(args.address))
+    if json_is_error(result):
+        return result
+
+    return result + subdomain_result
 
 
 def cli_get_historic_names_by_address(args, config_path=CONFIG_PATH):
