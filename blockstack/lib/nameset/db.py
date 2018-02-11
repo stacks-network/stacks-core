@@ -1562,6 +1562,46 @@ def namedb_get_name(cur, name, current_block, include_expired=False, include_his
     return name_rec
 
 
+def namedb_get_name_DID_info(cur, name):
+    """
+    Given a name and a DB cursor, find out its DID info.
+    Returns {'name_type': ..., 'address': ..., 'index': ...} on success
+    Return None if there is no such name
+    """
+    # get the first creator address
+    sql = "SELECT name_records.name,history.creator_address FROM name_records JOIN history ON name_records.name = history.history_id WHERE name = ? AND creator_address IS NOT NULL ORDER BY history.block_id,history.vtxindex LIMIT 1;"
+    args = (name,)
+
+    rows = namedb_query_execute(cur, sql, args)
+    row = rows.fetchone()
+    if row is None:
+        return None
+
+    creator_address = row['creator_address']
+    num_rows = namedb_get_num_historic_names_by_address(cur, creator_address)
+    if num_rows == 0:
+        return None
+
+    offset = 0
+    addr_index = 0
+    while True:
+        rows = namedb_get_historic_names_by_address(cur, creator_address, offset=offset, count=100)
+        offset += 100
+
+        if len(rows) == 0:
+            # done searching
+            return None
+
+        for row in rows:
+            if row['name'] == name:
+                # found!
+                return {'name_type': 'name', 'address': str(creator_address), 'index': addr_index}
+
+            addr_index += 1
+
+    return None
+
+
 def namedb_get_record_states_at(cur, history_id, block_number):
     """
     Get the state(s) that the given history record was in at a given block height.
@@ -1718,7 +1758,7 @@ def namedb_get_historic_names_by_address( cur, address, offset=None, count=None 
     Return a list of {'name': ..., 'block_id': ..., 'vtxindex': ...}}
     """
 
-    query = "SELECT * FROM name_records JOIN history ON name_records.name = history.history_id " + \
+    query = "SELECT name_records.name,history.block_id,history.vtxindex FROM name_records JOIN history ON name_records.name = history.history_id " + \
             "WHERE history.creator_address = ? ORDER BY history.block_id, history.vtxindex "
 
     args = (address,)
