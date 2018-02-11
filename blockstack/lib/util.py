@@ -34,9 +34,13 @@ import resource
 import jsonschema
 import random
 import sqlite3
-import virtualchain
+import re
 
-from .config import RPC_SERVER_PORT, BLOCKSTACK_TEST
+import keylib
+import virtualchain
+import virtualchain.lib.blockchain.bitcoin_blockchain as bitcoin_blockchain
+
+from .config import RPC_SERVER_PORT, BLOCKSTACK_TEST, SUBDOMAIN_ADDRESS_VERSION_BYTE, SUBDOMAIN_ADDRESS_MULTISIG_VERSION_BYTE
 from .schemas import *
 
 log = virtualchain.get_logger()
@@ -147,6 +151,63 @@ def db_format_query( query, values ):
     Useful for debugging.
     """
     return "".join( ["%s %s" % (frag, "'%s'" % val if type(val) in [str, unicode] else val) for (frag, val) in zip(query.split("?"), values + ("",))] )
+
+
+def make_DID(name_type, address, index):
+    """
+    Standard way of making a DID.
+    name_type is "name" or "subdomain"
+    """
+    if name_type not in ['name', 'subdomain']:
+        raise ValueError("Require 'name' or 'subdomain' for name_type")
+
+    if name_type == 'name':
+        address = virtualchain.address_reencode(address)
+    else:
+        # what's the current version byte?
+        vb = keylib.b58check.b58check_version_byte(address)
+        if vb == bitcoin_blockchain.version_byte:
+            # singlesig
+            vb = SUBDOMAIN_ADDRESS_VERSION_BYTE
+        else:
+            vb = SUBDOMAIN_ADDRESS_MULTISIG_VERSION_BYTE
+
+        address = virtualchain.address_reencode(address, version_byte=vb)
+
+    return 'did:stack:v0:{}-{}'.format(address, index)
+
+
+def parse_DID(did, name_type=None):
+    """
+    Given a DID string, parse it into {'address': ..., 'index': ..., 'name_type'}
+    Raise on invalid DID
+    """
+    did_pattern = '^did:stack:v0:({}{{25,35}})-([0-9]+)$'.format(OP_BASE58CHECK_CLASS)
+
+    m = re.match(did_pattern, did)
+    assert m, 'Invalid DID: {}'.format(did)
+
+    original_address = str(m.groups()[0])
+    name_index = int(m.groups()[1])
+    vb = keylib.b58check.b58check_version_byte(original_address)
+    name_type = None
+
+    if vb in [SUBDOMAIN_ADDRESS_VERSION_BYTE, SUBDOMAIN_ADDRESS_MULTISIG_VERSION_BYTE]:
+        name_type = 'subdomain'
+
+        # decode version 
+        if vb == SUBDOMAIN_ADDRESS_VERSION_BYTE:
+            vb = bitcoin_blockchain.version_byte
+        else:
+            vb = bitcoin_blockchain.multisig_version_byte
+
+        original_address = virtualchain.address_reencode(original_address, version_byte=vb)
+
+    else:
+        name_type = 'name'
+        original_address = virtualchain.address_reencode(original_address)
+
+    return {'address': original_address, 'index': name_index, 'name_type': name_type}
 
 
 def daemonize(logfile):
