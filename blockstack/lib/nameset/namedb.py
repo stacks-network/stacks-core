@@ -34,6 +34,7 @@ from ..config import *
 from ..operations import *
 from ..hashing import *
 from ..scripts import get_namespace_from_name
+from ..util import parse_DID
 
 import virtualchain
 from db import *
@@ -717,6 +718,62 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         cur = self.db.cursor()
         name_rec = namedb_get_name( cur, name, lastblock, include_expired=include_expired, include_history=include_history )
+        return name_rec
+
+
+    def get_name_DID_info(self, name, lastblock=None):
+        """
+        Given a name, find its DID (decentralized identifier) information.
+        Returns {'address': ..., 'index': ...}
+        """
+        if lastblock is None:
+            lastblock = self.lastblock
+
+        cur = self.db.cursor()
+        name_rec = namedb_get_name(cur, name, lastblock, include_expired=True, include_history=False)
+        if name_rec is None:
+            return None
+
+        did_info = namedb_get_name_DID_info(cur, name)
+        if did_info is None:
+            return None
+
+        return did_info
+
+
+    def get_DID_name(self, did):
+        """
+        Given a DID, get the name
+        Return None if not found, or if the name was revoked
+        Raise if the DID is invalid
+        """
+        did = str(did)
+        did_info = None
+        try:
+            did_info = parse_DID(did)
+            assert did_info['name_type'] == 'name'
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            raise ValueError("Invalid DID: {}".format(did))
+
+        cur = self.db.cursor()
+        historic_name_info = namedb_get_historic_names_by_address(cur, did_info['address'], offset=did_info['index'], count=1)
+        if historic_name_info is None:
+            # no such name
+            return None
+
+        name = historic_name_info[0]['name']
+        name_rec = self.get_name(name, include_expired=True, include_history=False)
+        if name_rec is None:
+            # dead
+            return None
+
+        if name_rec['revoked']:
+            # revoked
+            return None
+
         return name_rec
 
 
