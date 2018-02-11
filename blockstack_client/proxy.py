@@ -1028,6 +1028,7 @@ def get_names_owned_by_address(address, proxy=None):
     return resp['names']
 
 
+# DEPRECATED
 def get_num_historic_names_by_address(address, proxy=None):
     """
     Get the number of names historically created by an address
@@ -1078,6 +1079,7 @@ def get_num_historic_names_by_address(address, proxy=None):
     return resp['count']
 
 
+# DEPRECATED
 def get_historic_names_by_address_page(address, offset, count, proxy=None):
     """
     Get the list of names historically created by an address
@@ -1155,6 +1157,7 @@ def get_historic_names_by_address_page(address, offset, count, proxy=None):
     return resp['names']
 
 
+# DEPRECATED
 def get_historic_names_by_address(address, offset=None, count=None, proxy=None):
     """
     Get the list of names created by an address throughout history
@@ -1198,6 +1201,7 @@ def get_historic_names_by_address(address, offset=None, count=None, proxy=None):
     return all_names[:count]
 
 
+# DEPRECATED
 def get_DID_blockchain_record(did, proxy=None):
     """
     Resolve a Blockstack decentralized identifier (DID) to its blockchain record.
