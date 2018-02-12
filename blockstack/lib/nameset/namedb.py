@@ -265,6 +265,14 @@ class BlockstackDB( virtualchain.StateEngine ):
         return opfields
 
 
+    @classmethod
+    def get_state_paths(cls, impl, working_dir):
+        """
+        Get the paths to the relevant db files to back up
+        """
+        return super(BlockstackDB, cls).get_state_paths(impl, working_dir) + [os.path.join(working_dir, 'atlas.db'), os.path.join(working_dir, 'subdomains.db')]
+
+
     def get_db_path( self ):
         """
         Get db file path
