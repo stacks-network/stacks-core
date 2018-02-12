@@ -64,7 +64,7 @@ from lib import *
 from lib.storage import *
 from lib.atlas import *
 from lib.fast_sync import *
-from lib.subdomains import subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history, get_DID_subdomain
+from lib.subdomains import subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history, get_DID_subdomain, get_subdomains_owned_by_address
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
