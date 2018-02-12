@@ -38,6 +38,7 @@ import blockstack.lib.client as client
 import blockstack_zones
 import base64
 import os
+import keylib
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -67,7 +68,7 @@ def scenario( wallets, **kw ):
 
     working_dir = testlib.get_working_dir(**kw)
 
-    zf_template = "$ORIGIN {}\n$TTL 3600\n{}"
+    zf_template = '$ORIGIN {}\n$TTL 3600\n_http._tcp URI 10 1 "http://www.foo.com"\n{}'
     zf_default_url = '_file URI 10 1 "file://' + working_dir + '/{}"'
 
     subdomain_zonefiles = {
@@ -125,13 +126,23 @@ def scenario( wallets, **kw ):
     print 'starting API daemon'
     wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[0].privkey, wallets[1].privkey, wallets[2].privkey )
 
+    # authenticate
+    pk = keylib.ECPrivateKey(wallets[-1].privkey).to_hex()
+    res = testlib.blockstack_cli_app_signin("foo.test", pk, 'register.app', ['names', 'register', 'prices', 'zonefiles', 'blockchain', 'node_read', 'user_read'])
+    if 'error' in res:
+        print json.dumps(res, indent=4, sort_keys=True)
+        error = True
+        return 
+
+    ses = res['token']
+
     # query each subdomain
     proxy = testlib.make_proxy()
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
 
         # test REST whois
-        res = testlib.blockstack_REST_call('GET', '/v1/names/{}'.format(fqn), None)
+        res = testlib.blockstack_REST_call('GET', '/v1/names/{}'.format(fqn), ses)
         if 'error' in res:
             res['test'] = 'Failed to query name'
             print json.dumps(res)
@@ -160,13 +171,14 @@ def scenario( wallets, **kw ):
             print res 
             return False
 
+        print res
         if res['profile'] != {'type': 'Person', 'name': fqn}:
             print 'wrong profile'
             print res['profile']
             return False
 
         # test REST lookup
-        res = testlib.blockstack_REST_call("GET", "/v1/users/{}".format(fqn), None)
+        res = testlib.blockstack_REST_call("GET", "/v1/users/{}".format(fqn), ses)
         if 'error' in res:
             res['test'] = 'Failed to query name profile'
             print json.dumps(res)
@@ -177,7 +189,8 @@ def scenario( wallets, **kw ):
             print json.dumps(res)
             return False
 
-        if res['response']['profile'] != {'type': 'Person', 'name': fqn}:
+        print res
+        if res['response'] != {'type': 'Person', 'name': fqn}:
             print 'wrong profile on REST call'
             print res
             return False
@@ -195,7 +208,7 @@ def scenario( wallets, **kw ):
             return False
 
         # test REST lookup by address
-        res = testlib.blockstack_REST_call('GET', '/v1/addresses/bitcoin/{}'.format(wallets[4].addr), None)
+        res = testlib.blockstack_REST_call('GET', '/v1/addresses/bitcoin/{}'.format(wallets[4].addr), ses)
         if 'error' in res:
             res['test'] = 'Failed to query names owned by address'
             print json.dumps(res)
@@ -206,13 +219,13 @@ def scenario( wallets, **kw ):
             print json.dumps(res)
             return False
 
-        if fqn not in res['response']:
+        if fqn not in res['response']['names']:
             print '{} not in REST list'.format(fqn)
             print res
             return False
      
         # test REST get name history
-        res = testlib.blockstack_REST_call('GET', '/v1/names/{}/history'.format(fqn), None)
+        res = testlib.blockstack_REST_call('GET', '/v1/names/{}/history'.format(fqn), ses)
         if 'error' in res:
             res['test'] = 'Failed to query subdomain history'
             print json.dumps(res)
