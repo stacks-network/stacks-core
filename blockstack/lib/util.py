@@ -241,7 +241,7 @@ def daemonize(logfile):
             hard_num_open_files = 1024
 
         # we don't have many other fds open yet
-        for i in rrange(3, hard_num_open_files):
+        for i in range(3, hard_num_open_files):
             if i == logfile.fileno():
                 continue
 
