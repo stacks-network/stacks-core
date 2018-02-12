@@ -2342,6 +2342,20 @@ def blockstack_put_zonefile(zonefile_txt, config_path=None):
     return res['saved'][0] == 1
 
 
+def blockstack_make_profile( profile_data, privkey ):
+    """
+    Make a signed profile
+    """
+    privkey = virtualchain.ecdsalib.ecdsa_private_key(privkey).to_hex()
+    pubkey = get_pubkey_hex(privkey)
+
+    res = blockstack_client.storage.serialize_mutable_data(profile_data, privkey, pubkey, profile=True)
+    if res is None:
+        return {'error': 'Failed to sign and serialize profile'}
+
+    return res
+
+
 def blockstack_get_profile( name, config_path=None ):
     """
     Get a profile.
@@ -3285,7 +3299,7 @@ def check_historic_names_by_address( state_engine ):
     for address in addr_names.keys():
         for i, (name, block_id, _) in enumerate(addr_names[address]):
             did = 'did:stack:v0:{}-{}'.format(address, i)
-            name_rec = blockstack.lib.client.get_DID_name_blockchain_record(did, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
+            name_rec = blockstack.lib.client.get_DID_record(did, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
 
             if name in revoked_names.keys() and revoked_names[name] >= block_id:
                 # name was revoked. expect failure
@@ -3320,7 +3334,10 @@ def check_historic_names_by_address( state_engine ):
 
 def check_subdomain_db(**kw):
     """
-    verify that we can reindex the blockchain and get the same subdomains as we have now
+    Do sanity checks on the subdomain database.
+    * verify that we can replay the zone files in order and arrive at the same subdomain database
+    * verify that we can resolve each subdomain to its DID
+    * verify that we can resolve each DID to its subdomain
     """
     # reindex
     blockstack_opts = blockstack.lib.config.get_blockstack_opts()
@@ -3340,6 +3357,40 @@ def check_subdomain_db(**kw):
     if rc != 0:
         print '{} disagress with {}'.format(blockstack_opts['subdomaindb_path'], new_opts['subdomaindb_path'])
         return False
+
+    # get all subdomain records and their initial addresses
+    p = subprocess.Popen('sqlite3 "{}" "select fully_qualified_subdomain from subdomain_records where sequence = 0 and accepted = 1 order by parent_zonefile_index;"'.format(blockstack_opts['subdomaindb_path']), shell=True, stdout=subprocess.PIPE)
+    all_subdomains, _ = p.communicate()
+
+    all_subdomains = all_subdomains.strip().split('\n')
+
+    p = subprocess.Popen('sqlite3 "{}" "select owner from subdomain_records where sequence = 0 and accepted = 1 order by parent_zonefile_index;"'.format(blockstack_opts['subdomaindb_path']), shell=True, stdout=subprocess.PIPE)
+    all_creator_addresses, _ = p.communicate()
+    
+    all_creator_addresses = all_creator_addresses.strip().split('\n')
+
+    subrec_dids = {}
+    subrecs = {}
+
+    for (subd, addr) in zip(all_subdomains, all_creator_addresses):
+        subrec = blockstack.lib.client.get_name_record(subd, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
+        assert subrec
+        assert 'error' not in subrec, subrec
+
+        subrecs[subd] = subrec
+        subrec_dids[subd] = subrec['did']
+
+        did_info = blockstack.lib.util.parse_DID(subrec['did'])
+        assert did_info['name_type'] == 'subdomain'
+        assert virtualchain.address_reencode(did_info['address']) == virtualchain.address_reencode(addr), 'address mismatch on {}: {} (expected {})\nsubrec: {}'.format(subd, did_info['address'], addr, subrec)
+
+    for subd in subrec_dids:
+        did = subrec_dids[subd]
+        subrec = blockstack.lib.client.get_DID_record(did, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
+        assert subrec
+        assert 'error' not in subrec, subrec
+
+        assert subrec == subrecs[subd], 'Did not resolve {} to {}, but instead to {}'.format(did, subrecs[subd], subrec)
 
     return True
 
