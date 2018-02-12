@@ -1033,7 +1033,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
 
         # res = proxy.get_name_blockchain_history(name, start_block, end_block)
-        res = blockstackd_client.get_name_record(name, include_history=True)
+        res = blockstackd_client.get_name_record(name, include_history=True, hostport=blockstackd_url)
         if json_is_error(res):
             self._reply_json({'error': res['error']}, status_code=500)
             return
