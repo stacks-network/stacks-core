@@ -2016,6 +2016,7 @@ def index_blockchain(server_state, expected_snapshots=GENESIS_SNAPSHOT):
     """
     working_dir = server_state['working_dir']
     log.debug("index blockchain in {}".format(working_dir))
+    blockstack_opts = get_blockstack_opts()
 
     bt_opts = get_bitcoin_opts()
     start_block, current_block = get_index_range(working_dir)
@@ -2027,6 +2028,14 @@ def index_blockchain(server_state, expected_snapshots=GENESIS_SNAPSHOT):
         log.error("Failed to find block range")
         db.close()
         return False
+
+    # sanity check: does the subdomain db exist yet, and are we at the point where we can start indexing them?
+    if is_subdomains_enabled(blockstack_opts):
+        subdomain_last_block = server_state['subdomains'].get_db().get_last_block()
+        if subdomain_last_block < SUBDOMAINS_FIRST_BLOCK and start_block >= SUBDOMAINS_FIRST_BLOCK:
+            # initialize subdomains db
+            log.debug("Creating subdomain DB {}".format(blockstack_opts['subdomaindb_path']))
+            server_state['subdomains'].index(SUBDOMAINS_FIRST_BLOCK, current_block)
 
     # bring the db up to the chain tip.
     # NOTE: at each block, the atlas db will be synchronized by virtualchain_hooks
@@ -2796,20 +2805,4 @@ def run_blockstackd():
         print "Start your node with `blockstack-core start`"
         print "Pass `--debug` for extra output."
 
-    elif args.action == 'index':
-        # reindex subdomains
-        start_block = args.start_block
-        end_block = args.end_block
-        
-        # get db state
-        db = get_or_instantiate_db_state(working_dir)
-         
-        # set up atlas state
-        blockstack_opts = get_blockstack_opts()
-        atlas_state = atlas_init(blockstack_opts, db)
-        db.close()
-
-        # set up subdomains state
-        subdomain_indexer = subdomains_init(blockstack_opts, working_dir, atlas_state)
-        subdomain_indexer.index(start_block, end_block)
 
