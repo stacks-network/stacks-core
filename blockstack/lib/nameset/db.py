@@ -1265,6 +1265,7 @@ def namedb_get_blocks_with_ops( cur, history_id, start_block_id, end_block_id ):
     """
     Get the block heights at which a name was affected by an operation.
     Returns the list of heights.
+    Returns [] if there is no history for this item.
     """
     select_query = "SELECT DISTINCT name_records.block_number,history.block_id FROM history JOIN name_records ON history.history_id = name_records.name " + \
                    "WHERE name_records.name = ? AND ((name_records.block_number >= ? OR history.block_id >= ?) AND (name_records.block_number < ? OR history.block_id < ?));"
