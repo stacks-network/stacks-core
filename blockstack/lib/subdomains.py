@@ -439,6 +439,13 @@ class SubdomainIndex(object):
             self.subdomain_db_path = None
 
 
+    def get_db(self):
+        """
+        Get the DB handle
+        """
+        return self.subdomain_db
+
+
     @classmethod
     def check_subdomain_transition(cls, existing_subrec, new_subrec):
         """
@@ -920,7 +927,7 @@ class SubdomainIndex(object):
 
     
     @classmethod
-    def reindex(cls, lastblock, opts=None):
+    def reindex(cls, lastblock, firstblock=None, opts=None):
         """
         Generate a subdomains db from scratch, using the names db and the atlas db and zone file collection.
         Best to do this in a one-off command (i.e. *not* in the blockstackd process)
@@ -943,7 +950,10 @@ class SubdomainIndex(object):
         subdomain_indexer = SubdomainIndex(subdomaindb_path, blockstack_opts=opts)
         subdomain_indexer.subdomain_db.wipe()
 
-        start_block = SUBDOMAINS_FIRST_BLOCK
+        if firstblock is None:
+            start_block = SUBDOMAINS_FIRST_BLOCK
+        else:
+            start_block = firstblock
 
         for i in range(start_block, lastblock, 100):
             log.debug("Processing all subdomains in blocks {}-{}...".format(i, i+99))
@@ -1331,6 +1341,28 @@ class SubdomainDB(object):
             log.debug("Subdomain is missing {} zone files: {}".format(num_missing, subrec))
 
         return num_missing > 0
+
+
+    def get_last_block(self, cur=None):
+        """
+        Get the highest block last processed
+        """
+        sql = 'SELECT MAX(block_height) FROM {};'.format(self.subdomain_table)
+        cursor = None
+        if cur is None:
+            cursor = self.conn.cursor()
+        else:
+            cursor = cur
+
+        rows = db_query_execute(cursor, sql, ())
+        height = 0
+        try:
+            rowdata = rows.fetchone()
+            height = rowdata['MAX(block_height)']
+        except:
+            height = 0
+
+        return height
 
 
     def _drop_tables(self):
@@ -1830,6 +1862,7 @@ def sign_multisig(privkey_bundle, plaintext):
 def subdomains_init(blockstack_opts, working_dir, atlas_state):
     """
     Set up subdomain state
+    Returns a SubdomainIndex object that has been successfully connected to Atlas
     """
     if not is_subdomains_enabled(blockstack_opts):
         return None
