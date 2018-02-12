@@ -84,6 +84,7 @@ import subdomains
 
 DEFAULT_UI_PORT = 8888
 DEVELOPMENT_UI_PORT = 3000
+TEST_UI_PORT = None
 
 from .constants import (
     CONFIG_FILENAME, serialize_secrets, WALLET_FILENAME,
@@ -111,6 +112,8 @@ log = blockstack_config.get_logger()
 
 running = False
 
+if BLOCKSTACK_TEST:
+    TEST_UI_PORT = 16268
 
 class CLIRPCArgs(object):
     """
@@ -296,6 +299,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 request_str[:15]))
             if ve.validator == "maxLength":
                 return {"error" : "maxLength"}
+
         except (TypeError, ValueError) as ve:
             if BLOCKSTACK_DEBUG:
                 log.exception(ve)
@@ -336,15 +340,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 # try to see if we got a domainname (legacy path)
                 parsed = urlparse.urlparse("http://{}".format(a))
                 assert parsed.netloc, "Invalid origin {}".format(a)
+
             allowed_origins[parsed.netloc] = parsed
 
         origin_header = self.headers.get('origin', None)
         if origin_header is not None:
+            log.debug("Got `origin: {}`".format(origin_header))
             origin_info = urlparse.urlparse(origin_header)
             if origin_info.netloc in allowed_origins.keys():
                 allowed_origin = allowed_origins[origin_info.netloc]
                 if origin_info.scheme == allowed_origin.scheme and origin_info.netloc == allowed_origin.netloc:
                     return True
+            
+            if BLOCKSTACK_TEST:
+                log.debug("Origin `{}` not in allowed origins `{}`".format(origin_header, ', '.join(allowed)))
 
         return False
 
@@ -697,7 +706,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'type': 'boolean'
                 },
                 'owner_key': PRIVKEY_INFO_SCHEMA,
-                'payment_key': PRIVKEY_INFO_SCHEMA
+                'payment_key': PRIVKEY_INFO_SCHEMA,
             },
             'required': [
                 'name'
@@ -741,20 +750,40 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 log.debug("Re-encode {} to {}".format(new_addr, recipient_address))
                 recipient_address = new_addr
 
+        # who owns this name now?
+        name_info = proxy.get_name_blockchain_record(name)
+        cur_owner_addr = None
+
+        if 'address' in name_info:
+            cur_owner_addr = name_info['address']
+
         # do we own this name already?
         # i.e. do we need to renew?
         if owner_key is None:
-            check_already_owned_by = self.server.wallet_keys['owner_addresses'][0]
+            check_already_owned_by = [self.server.wallet_keys['owner_addresses'][0]]
+        
+        elif virtualchain.is_multisig(owner_key):
+            check_already_owned_by = [virtualchain.get_privkey_address(owner_key)]
+
         else:
-            check_already_owned_by = virtualchain.get_privkey_address(owner_key)
-        res = proxy.get_names_owned_by_address(check_already_owned_by)
-        if json_is_error(res):
-            log.error("Failed to get names owned by address")
-            self._reply_json({'error': 'Failed to list names by address'}, status_code=500)
-            return
+            check_already_owned_by = [
+                virtualchain.address_reencode(keylib.public_key_to_address(keylib.key_formatting.compress(keylib.ECPrivateKey(owner_key).public_key().to_hex()))),
+                virtualchain.address_reencode(keylib.public_key_to_address(keylib.key_formatting.decompress(keylib.ECPrivateKey(owner_key).public_key().to_hex())))
+            ]
 
         op = None
-        if name in res:
+        if cur_owner_addr in check_already_owned_by:
+            # select the right key
+            if owner_key and not virtualchain.is_multisig(owner_key):
+                if cur_owner_addr == check_already_owned_by[0]:
+                    # compressed
+                    owner_key = virtualchain.lib.ecdsalib.ecdsa_private_key(owner_key, compressed=True).to_hex()
+                    log.debug("Compress owner key to {}".format(virtualchain.get_privkey_address(owner_key)))
+                else:
+                    # uncompressed
+                    owner_key = virtualchain.lib.ecdsalib.ecdsa_private_key(owner_key, compressed=False).to_hex()
+                    log.debug("Decompress owner key to {}".format(virtualchain.get_privkey_address(owner_key)))
+
             # renew
             renewal_allowed = ['name', 'owner_key', 'payment_key', 'owner_address', 'zonefile', 'min_confs']
             for prop in request_schema['properties'].keys():
@@ -1011,6 +1040,52 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self._reply_json(resp, status_code=202)
         return
 
+    def POST_raw_zonefile( self, ses, path_info ):
+        """
+        Publish a zonefile which has *already* been announced.
+        Return 200 and {'status': True, 'servers': ...} on success
+        Return 401 when zonefile invalid with {'error': ...}
+        """
+        request_schema = {
+            'type': 'object',
+            'properties': {
+                'zonefile': {
+                    'type': 'string',
+                    'maxLength': RPC_MAX_ZONEFILE_LEN
+                },
+                'zonefile_b64': {
+                    'type': 'string',
+                    'maxLength': (RPC_MAX_ZONEFILE_LEN * 4) / 3 + 1,
+                }
+            }
+        }
+
+        conf = blockstack_config.get_config(self.server.config_path)
+
+        server = (conf['server'], conf['port'])
+
+        request = self._read_json(schema=request_schema)
+        if request is None:
+            self._reply_json({"error": 'Invalid request'}, status_code=401)
+            return
+        elif 'error' in request:
+            self._reply_json({"error": request["error"]}, status_code=401)
+            return
+
+        zonefile_str = request.get('zonefile', False)
+        b64encoded = False
+        if not zonefile_str:
+            zonefile_str = request.get('zonefile_b64')
+            b64encoded = True
+
+        resp = zonefile.zonefile_data_publish(None, zonefile_str, [ server ],
+                                              b64encoded = b64encoded)
+        status_code = 200
+        if 'error' in resp:
+            status_code = 401
+
+        self._reply_json(resp, status_code=status_code)
+        return
 
     def PUT_name_zonefile( self, ses, path_info, name ):
         """
@@ -3271,6 +3346,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
+            r'^/v1/zonefile$': {
+                'routes': {
+                    'POST' : self.POST_raw_zonefile
+                },
+                'whitelist': {
+                    'POST': {
+                        'name': 'zonefiles',
+                        'desc': 'publish a zonefile',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
+                    },
+                },
+            },
             r'^/v1/names/({})/zonefile$'.format(NAME_CLASS): {
                 'routes': {
                     'GET': self.GET_name_zonefile,
@@ -3905,7 +3994,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         }
         
         LOCALHOST = []
-        for port in [DEFAULT_UI_PORT, DEVELOPMENT_UI_PORT]:
+        for port in filter(lambda x: x is not None, [DEFAULT_UI_PORT, DEVELOPMENT_UI_PORT, TEST_UI_PORT]):
             LOCALHOST += [
                 'http://localhost:{}'.format(port),
                 'http://{}:{}'.format(socket.gethostname(), port),
@@ -3965,7 +4054,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
             if not session_verified:
                 # invalid session
-                log.warning("Invalid session: app domain '{}' does not match Origin '{}'".format(app_domain, self.headers.get('origin', '')))
+                log.warning("Invalid session: app domain '{}' does not match Origin '{}'".format(app_domain, self.headers.get('origin', '<none given>')))
                 session = None
 
         authorized = False

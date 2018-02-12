@@ -120,6 +120,12 @@ def daemonize( logpath, child_wait=None ):
     Return 0 if we're the daemon child
     Return >0 if we're the parent
     """
+    # create the file if it doesn't exist
+    logfile = open(logpath, 'a+')
+    logfile.close()
+    # only user-readable
+    os.chmod(logpath, 0o600)
+    # now, ready to use it to write
     logfile = open(logpath, 'a+')
     
     # turn off GC across the fork

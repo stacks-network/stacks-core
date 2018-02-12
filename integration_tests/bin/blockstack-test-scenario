@@ -47,6 +47,8 @@ TEST_RPC_PORT = 16264
 TEST_CLIENT_RPC_PORT = int(os.environ.get("BLOCKSTACK_TEST_CLIENT_RPC_PORT", 16268))
 TEST_CLIENT_BIND = os.environ.get("BLOCKSTACK_TEST_CLIENT_BIND", "localhost")
 
+BITCOIND_RPC_ALLOW_IP = os.environ.get("BLOCKSTACK_TEST_BITCOIND_ALLOWIP", False)
+
 BLOCKSTACK_STORAGE_DRIVERS = "disk"
 
 if os.environ.get("BLOCKSTACK_STORAGE_DRIVERS", None) is not None:
@@ -138,6 +140,10 @@ use_https = False
 user = blockstack
 regtest = True
 spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
+
+
+[subdomain-resolution]
+resolving_subdomains = True
 """ % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT, TEST_CLIENT_BIND, TEST_CLIENT_BIND)
 
 
@@ -730,9 +736,34 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         shutdown_procedure()
         exit(1)
 
+    def signal_reap_children(*args, **kw):
+        """
+        If we're PID 1, then adopt orphan children
+        """
+        while True:
+            try:
+                os.waitpid(-1, os.WNOHANG)
+                time.sleep(0.25)
+            except OSError, oe:
+                if oe.errno == errno.ECHILD:
+                    break
+                else:
+                    raise
+
+    def running_in_docker():
+        try:
+            with open('/proc/1/cpuset') as cpuset:
+                content = [l for l in cpuset][0]
+                return content.startswith('/docker')
+        except:
+            return False
+
     signal.signal(signal.SIGINT, signal_shutdown_procedure)
     signal.signal(signal.SIGQUIT, signal_shutdown_procedure)
     signal.signal(signal.SIGTERM, signal_shutdown_procedure)
+
+    if SCENARIO_PID == 1 and not running_in_docker():
+        signal.signal(signal.SIGCHLD, signal_reap_children)
 
     rpcclient = None
     res = None
@@ -937,6 +968,8 @@ def bitcoin_regtest_reset():
     os.makedirs(bitcoin_dir)
     with open(bitcoin_conf, "w") as f:
         f.write("rpcuser=%s\nrpcpassword=%s\nregtest=1\ntxindex=1\nlisten=1\nserver=1\ndatadir=%s\ndebug=1\nrpcserialversion=0" % (opts['bitcoind_user'], opts['bitcoind_passwd'], bitcoin_dir))
+        if BITCOIND_RPC_ALLOW_IP:
+            f.write("\nrpcallowip=%s\n" % BITCOIND_RPC_ALLOW_IP)
         f.flush()
         os.fsync(f.fileno())
 

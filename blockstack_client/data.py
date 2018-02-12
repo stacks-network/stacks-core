@@ -621,6 +621,9 @@ def list_update_history(name, current_block=None, config_path=CONFIG_PATH, proxy
 
     List all zonefile hashes of a name, in historic order.
     Return a list of hashes on success.
+    * If return_blockids is True, then return (hash list, block IDs list)
+    * If return_txids is True, then return (hash list, txids list)
+
     Return {'error': ...} on failure
     """
 
@@ -668,10 +671,13 @@ def list_update_history(name, current_block=None, config_path=CONFIG_PATH, proxy
     rval = (all_update_hashes,)
     if return_blockids:
         rval += (corresponding_block_ids,)
+
     if return_txids:
         rval += (corresponding_txids,)
+
     if len(rval) == 1:
         return rval[0]
+
     return rval
 
 
@@ -684,6 +690,13 @@ def list_zonefile_history(name, current_block=None, proxy=None, return_hashes = 
     Return the list of zonefiles.  Each zonefile will be a dict with either the zonefile data,
     or a dict with only the key 'error' defined.  This method can successfully return
     some but not all zonefiles.
+
+    Returns the list of all zonefiles on success
+    Returns (zonefile list, zonefile hashes) if return_hashes is True
+    Returns (zonefile list, block IDs) if return_blockids is True
+    Returns (zonefile list, txids) if return_txids is True
+
+    Return {'error': ...} if we failed to get the list of zonefiles
     """
     kwargs = {}
     if from_block:
@@ -693,8 +706,10 @@ def list_zonefile_history(name, current_block=None, proxy=None, return_hashes = 
     if return_txids:
         kwargs['return_txids'] = return_txids
 
-    res = list_update_history(
-            name, current_block=current_block, proxy=proxy, **kwargs)
+    res = list_update_history(name, current_block=current_block, proxy=proxy, **kwargs)
+    if 'error' in res:
+        return res
+
     if return_blockids or return_txids:
         zonefile_hashes = res[0]
         return_rest = res[1:]
@@ -721,6 +736,7 @@ def list_zonefile_history(name, current_block=None, proxy=None, return_hashes = 
         rval += tuple(return_rest)
     if len(rval) == 1:
         return rval[0]
+
     return rval
 
 
@@ -1293,7 +1309,7 @@ def put_mutable(fq_data_id, mutable_data_str, data_pubkey, data_signature, versi
 
     if storage_drivers is None:
         storage_drivers = get_required_write_storage_drivers(config_path)
-        log.debug("Storage drivers equired write defaults: {}".format(','.join(storage_drivers)))
+        log.debug("Storage drivers required write defaults: {}".format(','.join(storage_drivers)))
 
     result = {}
 

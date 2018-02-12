@@ -15,7 +15,7 @@ RUN apt-get install -y bitcoind sqlite3 curl
 
 # Add standard username and password
 RUN mkdir ~/.bitcoin
-RUN echo "rpcuser=blockstack\nrpcpassword=blockstacksystem\n" > ~/.bitcoin/bitcoin.conf
+RUN echo "rpcuser=blockstack\nrpcpassword=blockstacksystem\nrpcbind=0.0.0.0\nrpcallowip=0.0.0.0/0\n" > ~/.bitcoin/bitcoin.conf
 
 # Install NodeJS
 RUN curl -sL https://deb.nodesource.com/setup_6.x | bash -

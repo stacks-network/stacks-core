@@ -1353,6 +1353,32 @@ Transfers a name to a different owner.
               ],
             }
 
+## Publish zone file [POST /v1/names/zonefile]
+Publish the zonefile which has _already_ been announced.
+Submit either as a string with the 'zonefile' property, or
+as a base64 encoded blob with the 'zonefile_b64' property.
+
++ Request (application/json)
+  + Schema
+
+                      {
+                        'type': 'object',
+                        'properties': {
+                            "zonefile": {
+                                'type': 'string',
+                            },
+                            "zonefile_b64": {
+                                'type': 'string',
+                            }
+                        },
+                        'additionalProperties': False,
+                       }
+
++ Response 200 (application/json)
+  + Body
+
+                {'success': true, 'servers' : ['...']}
+
 
 ## Set zone file [PUT /v1/names/{name}/zonefile]
 Sets the user's zonefile hash, and, if supplied, propagates the

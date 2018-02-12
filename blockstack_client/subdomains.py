@@ -434,7 +434,12 @@ def _build_subdomain_db(domain_fqas, zonefiles, subdomain_db = None, txids = Non
             if subdomain.get_fqn() in subdomain_db:
                 previous = subdomain_db[subdomain.get_fqn()]
                 if _transition_valid(previous, subdomain):
-                    subdomain_db[subdomain.get_fqn()] = subdomain
+                    try:
+                        subdomain_db[subdomain.get_fqn()] = subdomain
+                    except Exception as e:
+                        log.exception(e)
+                        log.warn("Failed subdomain transition for {} on N:{}->{}".format(
+                            subdomain.get_fqn(), previous.n, subdomain.n))
                 else:
                     log.warn("Failed subdomain transition for {} on N:{}->{}".format(
                         subdomain.get_fqn(), previous.n, subdomain.n))
@@ -443,7 +448,12 @@ def _build_subdomain_db(domain_fqas, zonefiles, subdomain_db = None, txids = Non
                     log.warn("First sight of subdomain {} with N={}".format(
                         subdomain.get_fqn(), subdomain.n))
                     continue
-                subdomain_db[subdomain.get_fqn()] = subdomain
+                try:
+                    subdomain_db[subdomain.get_fqn()] = subdomain
+                except Exception as e:
+                    log.exception(e)
+                    log.warn("Failed subdomain transition for {} on N={}".format(
+                        subdomain.get_fqn(), subdomain.n))
     return subdomain_db
 
 def issue_zonefile(domain_fqa, user_data_txt):

@@ -58,10 +58,10 @@ def scenario( wallets, **kw ):
 maximum_entries_per_zonefile = 100
 bind_port = 7103
 transaction_frequency = 15
-bind_address = localhost
+bind_address = {}
 core_endpoint = http://localhost:{}
 core_auth_token = False
-""".format(blockstack_client.config.read_config_file()['blockstack-client']['api_endpoint_port'])
+""".format(os.getenv('BSK_SUBDOMAIN_REGTEST_BIND', 'localhost'), blockstack_client.config.read_config_file()['blockstack-client']['api_endpoint_port'])
         out_f.write(file_out)
 
     # spawn the registrar

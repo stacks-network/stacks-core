@@ -23,6 +23,8 @@ This file is part of Search.
     along with Search. If not, see <http://www.gnu.org/licenses/>.
 """
 
+from pymongo import MongoClient
+
 import json
 import re
 
@@ -78,6 +80,9 @@ def error_reply(msg):
     reply['message'] = "ERROR: " + msg
     return pretty_dump(reply)
 
+def get_mongo_client():
+    from api.config import MONGODB_URI
+    return MongoClient(MONGODB_URI)
 
 def get_json(data):
 

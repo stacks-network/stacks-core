@@ -23,9 +23,9 @@ This file is part of Search.
     along with Search. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pymongo import MongoClient
+from .utils import get_mongo_client
 
-client = MongoClient()
+client = get_mongo_client()
 search_db = client['search_db']
 search_cache = client['search_cache']
 
