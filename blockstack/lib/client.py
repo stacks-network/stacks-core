@@ -1664,6 +1664,8 @@ def get_blockstack_transactions_at(block_id, proxy=None, hostport=None):
     Return {'error': ...} on error.
     """
     assert proxy or hostport, 'Need proxy or hostport'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
 
     history_schema = {
         'type': 'array',
@@ -1758,3 +1760,307 @@ def get_blockstack_transactions_at(block_id, proxy=None, hostport=None):
             return resp
 
     return all_nameops
+
+
+def get_consensus_hashes(block_heights, hostport=None, proxy=None):
+    """
+    Get consensus hashes for a list of blocks
+    NOTE: returns {block_height (int): consensus_hash (str)}
+    (coerces the key to an int)
+    Returns {'error': ...} on error
+    """
+    assert proxy or hostport, 'Need proxy or hostport'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    consensus_hashes_schema = {
+        'type': 'object',
+        'properties': {
+            'consensus_hashes': {
+                'type': 'object',
+                'patternProperties': {
+                    '^([0-9]+)$': {
+                        'type': 'string',
+                        'pattern': OP_CONSENSUS_HASH_PATTERN,
+                    },
+                },
+            },
+        },
+        'required': [
+            'consensus_hashes',
+        ],
+    }
+
+    resp_schema = json_response_schema( consensus_hashes_schema )
+    resp = {}
+    try:
+        resp = proxy.get_consensus_hashes(block_heights)
+        resp = json_validate(resp_schema, resp)
+        if json_is_error(resp):
+            log.error('Failed to get consensus hashes for {}: {}'.format(block_heights, resp['error']))
+            return resp
+    except ValidationError as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    consensus_hashes = resp['consensus_hashes']
+
+    # hard to express as a JSON schema, but the format is thus:
+    # { block_height (str): consensus_hash (str) }
+    # need to convert all block heights to ints
+
+    try:
+        ret = {int(k): v for k, v in consensus_hashes.items()}
+        log.debug('consensus hashes: {}'.format(ret))
+        return ret
+    except ValueError:
+        return {'error': 'Invalid data: expected int'}
+
+
+def get_consensus_range(block_id_start, block_id_end, proxy=None):
+    """
+    Get a range of consensus hashes.  The range is inclusive.
+    """
+    ch_range = get_consensus_hashes(range(block_id_start, block_id_end + 1), proxy=proxy)
+    if 'error' in ch_range:
+        return ch_range
+
+    # verify that all blocks are included
+    for i in range(block_id_start, block_id_end + 1):
+        if i not in ch_range:
+            return {'error': 'Missing consensus hashes'}
+
+    return ch_range
+
+
+def get_block_from_consensus(consensus_hash, hostport=None, proxy=None):
+    """
+    Get a block height from a consensus hash
+    Returns the block height on success
+    Returns {'error': ...} on failure
+    """
+    assert hostport or proxy, 'Need hostport or proxy'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    consensus_schema = {
+        'type': 'object',
+        'properties': {
+            'block_id': {
+                'anyOf': [
+                    {
+                        'type': 'integer',
+                        'minimum': 0,
+                    },
+                    {
+                        'type': 'null',
+                    },
+                ],
+            },
+        },
+        'required': [
+            'block_id'
+        ],
+    }
+
+    schema = json_response_schema( consensus_schema )
+    resp = {}
+    try:
+        resp = proxy.get_block_from_consensus(consensus_hash)
+        resp = json_validate( schema, resp )
+        if json_is_error(resp):
+            log.error("Failed to find block ID for %s" % consensus_hash)
+            return resp
+
+    except ValidationError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        resp = json_traceback(resp.get('error'))
+        return resp
+    
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    return resp['block_id']
+
+
+def get_name_history_blocks(name, hostport=None, proxy=None):
+    """
+    Get the list of blocks at which this name was affected.
+    Returns the list of blocks on success, including if the name doesn't exist (in which case the list will be empty)
+    Returns {'error': ...} on error
+    """
+    assert hostport or proxy, 'Need hostport or proxy'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    hist_schema = {
+        'type': 'array',
+        'items': {
+            'type': 'integer',
+            'minimum': 0,
+        },
+    }
+
+    hist_list_schema = {
+        'type': 'object',
+        'properties': {
+            'history_blocks': hist_schema
+        },
+        'required': [
+            'history_blocks'
+        ],
+    }
+
+    resp_schema = json_response_schema( hist_list_schema )
+    resp = {}
+    try:
+        resp = proxy.get_name_history_blocks(name)
+        resp = json_validate(resp_schema, resp)
+        if json_is_error(resp):
+            return resp
+    except ValidationError as e:
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    return resp['history_blocks']
+
+
+def get_name_at(name, block_id, include_expired=False, hostport=None, proxy=None):
+    """
+    Get the name as it was at a particular height.
+    Returns the name record states at this block height on success (an array)
+    Returns {'error': ...} on error
+    """
+    assert hostport or proxy, 'Need hostport or proxy'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    namerec_schema = {
+        'type': 'object',
+        'properties': NAMEOP_SCHEMA_PROPERTIES,
+        'required': NAMEOP_SCHEMA_REQUIRED
+    }
+
+    namerec_list_schema = {
+        'type': 'object',
+        'properties': {
+            'records': {
+                'anyOf': [
+                    {
+                        'type': 'array',
+                        'items': namerec_schema
+                    },
+                    {
+                        'type': 'null',
+                    },
+                ],
+            },
+        },
+        'required': [
+            'records'
+        ],
+    }
+
+    resp_schema = json_response_schema( namerec_list_schema )
+    resp = {}
+    try:
+        if include_expired:
+            resp = proxy.get_historic_name_at(name, block_id)
+        if not include_expired or 'KeyError' in resp.get('error', ''):
+            resp = proxy.get_name_at(name, block_id)
+
+        assert resp, "No such name {} at block {}".format(name, block_id)
+
+        resp = json_validate(resp_schema, resp)
+        if json_is_error(resp):
+            return resp
+
+    except ValidationError as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    return resp['records']
+
+
+def get_nameops_hash_at(block_id, hostport=None, proxy=None):
+    """
+    Get the hash of a set of records as they were at a particular block.
+    Return the hash on success.
+    Return {'error': ...} on error.
+    """
+    assert hostport or proxy, 'Need hostport or proxy'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    hash_schema = {
+        'type': 'object',
+        'properties': {
+            'ops_hash': {
+                'type': 'string',
+                'pattern': '^([0-9a-fA-F]+)$'
+            },
+        },
+        'required': [
+            'ops_hash',
+        ],
+    }
+
+    schema = json_response_schema( hash_schema )
+    resp = {}
+    try:
+        resp = proxy.get_nameops_hash_at(block_id)
+        resp = json_validate(schema, resp)
+        if json_is_error(resp):
+            return resp
+    except ValidationError as e:
+        resp = json_traceback(resp.get('error'))
+        return resp
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    return resp['ops_hash']
+
+
